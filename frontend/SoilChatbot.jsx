@@ -1,21 +1,18 @@
 import React, { useState } from "react";
 import "./SoilChatbot.css";
 
-function SoilChatbot({ onClose }) {   // ⬅️ take onClose as a prop
+function SoilChatbot({ onClose }) {
   const [messages, setMessages] = useState([]);
   const [soilImage, setSoilImage] = useState(null);
 
-  // 🔹 Convert image to base64 so it can be sent to Gemini
   const toBase64 = (file) =>
     new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result.split(",")[1]); // only base64 part
+      reader.onload = () => resolve(reader.result.split(",")[1]);
       reader.onerror = (error) => reject(error);
     });
 
-  // 🔹 Real Gemini API call (frontend only)
-// 🔹 Real Gemini API call (frontend only - not secure for production)
 const callGeminiAPI = async (userText, imageFile) => {
   try {
     const parts = [];
@@ -35,7 +32,7 @@ const callGeminiAPI = async (userText, imageFile) => {
 
     if (parts.length === 0) return "❌ Please provide text or image.";
 
-    const API_KEY = ""; // put actual Gemini API key here
+    const API_KEY = ""; 
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=${API_KEY}`,
       {
@@ -78,7 +75,7 @@ const callGeminiAPI = async (userText, imageFile) => {
 
     const response = await callGeminiAPI(userInput, soilImage);
     addMessage(response, "bot");
-    setSoilImage(null); // clear uploaded image after sending
+    setSoilImage(null);
   };
 
   const handleImageUpload = (e) => {
@@ -91,7 +88,6 @@ const callGeminiAPI = async (userText, imageFile) => {
 
   return (
     <div className="soil-chatbot">
-      {/* 🌿 Header with close button */}
       <div className="chat-header">
         <h2>Soil Health Chatbot</h2>
         <button className="close-btn" onClick={onClose}>
@@ -99,7 +95,6 @@ const callGeminiAPI = async (userText, imageFile) => {
         </button>
       </div>
 
-      {/* Chat Window */}
       <div className="chat-window">
         {messages.map((msg, idx) => (
           <div key={idx} className={`chat-message ${msg.from}`}>
@@ -108,7 +103,6 @@ const callGeminiAPI = async (userText, imageFile) => {
         ))}
       </div>
 
-      {/* Input Section */}
       <form className="chat-input" onSubmit={handleUserInput}>
         <label htmlFor="file-upload" className="file-label">
           📷 Upload

@@ -1,16 +1,13 @@
-
-
 import React, { useState } from "react";
 import "./WeatherCard.css";
 
-export default function WeatherCard({ onClose }) {   // ✅ accept onClose
+export default function WeatherCard({ onClose }) {
   const [city, setCity] = useState("");
   const [weather, setWeather] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const API_KEY = ""; // Replace with your OpenWeatherMap API key
-  // Fetch weather by city
+  const API_KEY = ""; 
   const getWeather = async () => {
     if (!city.trim()) {
       setError("Please enter a city name");
@@ -22,7 +19,6 @@ export default function WeatherCard({ onClose }) {   // ✅ accept onClose
     );
   };
 
-  // Fetch weather by geolocation
   const getWeatherByLocation = () => {
     if (!navigator.geolocation) {
       setError("Geolocation not supported");
@@ -56,7 +52,6 @@ export default function WeatherCard({ onClose }) {   // ✅ accept onClose
 
   return (
     <div className="weather-card">
-      {/* ✅ Close Button */}
       <button className="close-btn" onClick={onClose}>
         ✖
       </button>
