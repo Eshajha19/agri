@@ -1,38 +1,170 @@
-* {
+:root {
+  /* Colors */
+  --bg-primary: #ffffff;
+  --text-primary: #111111;
+  --text-secondary: #4b5563;
+  --brand-primary: #166534;
+  --brand-hover: #14532d;
+  --accent-color: #f59e0b;
+  --card-bg: #f9fafb;
+  --border-color: #e5e7eb;
+
+  /* Typography */
+  --font-main: "Poppins", system-ui, Avenir, Helvetica, Arial, sans-serif;
+  --base-size: 18px;
+  /* Increased from 16px */
+  --h1-size: 3rem;
+  --h2-size: 2.4rem;
+  --h3-size: 1.8rem;
+  --p-size: 1.15rem;
+  /* ~20.7px */
+  /* Slightly larger than standard for better readability */
+
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
-:root {
-  font-family: "Poppins", system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-  color-scheme: light;
-  color: #213547;
-  background-color: #ffffff;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+* {
+  box-sizing: inherit;
+  margin: 0;
+  padding: 0;
+}
+
+/* Sunlight / High Contrast Mode */
+.sunlight {
+  --bg-primary: #ffffff !important;
+  --text-primary: #000000 !important;
+  --text-secondary: #000000 !important;
+  --brand-primary: #000000 !important;
+  --brand-hover: #1e293b !important;
+  --accent-color: #000000 !important;
+  --card-bg: #ffffff !important;
+  --border-color: #000000 !important;
+
+  --base-size: 22px !important;
+  --p-size: 1.5rem !important;
+
+  filter: contrast(1.1) brightness(1.02);
+}
+
+.sunlight * {
+  border-color: #000000 !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+.sunlight .highlight {
+  -webkit-text-fill-color: initial !important;
+  color: #000 !important;
+  background: none !important;
+  font-size: 0.95em !important;
+  font-weight: 900 !important;
+  display: inline-block !important;
+}
+
+.sunlight .navbar a,
+.sunlight .navbar .brand,
+.sunlight .nav-user a {
+  color: #ffffff !important;
 }
 
 body {
+  font-family: var(--font-main);
+  line-height: 1.6;
+  font-weight: 400;
+  font-size: var(--base-size);
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }
 
 #root {
   width: 100%;
 }
 
+h1 {
+  font-size: var(--h1-size);
+  font-weight: 700;
+  margin-bottom: 1rem;
+}
+
+h2 {
+  font-size: var(--h2-size);
+  font-weight: 600;
+  margin-bottom: 0.8rem;
+}
+
+h3 {
+  font-size: var(--h3-size);
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+p,
+span,
+label,
+li {
+  font-size: var(--p-size);
+}
+
 a {
-  color: #22c55e;
+  color: var(--brand-primary);
   text-decoration: none;
+  font-weight: 600;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+.sunlight a {
+  color: #0000ee !important;
+  text-decoration: underline !important;
+  font-weight: 800 !important;
 }
 
 button {
   font-family: inherit;
   cursor: pointer;
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 10px 20px;
+  background-color: var(--brand-primary);
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+button:hover {
+  background-color: var(--brand-hover);
+}
+
+.sunlight button {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+  border: 4px solid #000000 !important;
+  font-weight: 900 !important;
+}
+
+.sunlight .btn-primary,
+.sunlight .get-started {
+  background: #000 !important;
+  color: #fff !important;
+  border: 4px solid #000 !important;
+  font-weight: 800 !important;
+  text-decoration: none !important;
+}
+
+.sunlight .btn-secondary {
+  background: #fff !important;
+  color: #000 !important;
+  border: 4px solid #000 !important;
+  font-weight: 800 !important;
+  text-decoration: none !important;
 }

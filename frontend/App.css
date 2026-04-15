@@ -18,10 +18,18 @@ body,
   justify-content: space-between;
   align-items: center;
   padding: 15px 40px;
-  background: linear-gradient(90deg, #2ecc71, #27ae60);
-  color: white;
-  position: relative;
+  background: var(--brand-primary);
+  color: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
   width: 100%;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.sunlight .navbar {
+  background: #000 !important;
+  border-bottom: 4px solid #000;
 }
 
 .nav-left {
@@ -92,26 +100,27 @@ body,
 
 .lang-select {
   appearance: none;
-  background-color: yellow;
-  color: black;
-  font-size: 16px;
-  font-weight: 500;
-  padding: 8px 14px;
+  background-color: var(--accent-color);
+  color: #000;
+  font-size: 1.1rem;
+  font-weight: 700;
+  padding: 10px 18px;
   border-radius: 8px;
-  border: none;
+  border: 2px solid transparent;
   cursor: pointer;
   transition: all 0.3s ease;
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
 }
 
 .lang-select:hover {
-  background-color: #ffd600;
+  filter: brightness(1.1);
   transform: translateY(-2px);
 }
 
-.lang-select:focus {
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.4);
+.sunlight .lang-select {
+  background: #fff !important;
+  color: #000 !important;
+  border: 4px solid #000 !important;
 }
 
 .hamburger {
@@ -122,7 +131,6 @@ body,
   color: white;
   cursor: pointer;
 }
-
 
 @media (max-width: 768px) {
   .navbar {
@@ -306,7 +314,6 @@ body,
   padding: 20px;
 }
 
-
 .login-card {
   background: #fffaf0;
   padding: 40px 35px;
@@ -358,15 +365,21 @@ body,
 
 .login-card button {
   width: 100%;
-  padding: 16px 0;
-  background: #2e7d32;
+  padding: 18px 0;
+  background: var(--brand-primary);
   color: white;
-  font-size: 1.15rem;
-  font-weight: 600;
+  font-size: 1.25rem;
+  font-weight: 700;
   border: none;
   border-radius: 12px;
   cursor: pointer;
   transition: background 0.3s, transform 0.2s, box-shadow 0.2s;
+}
+
+.sunlight .login-card button {
+  background: #000 !important;
+  color: #fff !important;
+  border: 4px solid #000 !important;
 }
 
 .login-card button:hover {
@@ -443,7 +456,6 @@ body,
   color: #dff9fb;
 }
 
-
 .nav-user .logout-btn {
   background: #ff4d4d;
   color: white;
@@ -457,4 +469,11 @@ body,
 
 .nav-user .logout-btn:hover {
   background: #cc0000;
+}
+
+.sunlight .sunlight-toggle {
+  background: #000 !important;
+  color: #fff !important;
+  border: 3px solid #000 !important;
+  border-radius: 4px !important;
 }

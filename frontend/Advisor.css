@@ -3,11 +3,15 @@
   max-width: 1200px;
   margin: 0 auto;
   padding: 40px 16px;
-  font-family: "Poppins", sans-serif;
+  font-family: inherit;
   text-align: center;
   position: relative;
   overflow-x: hidden;
-  background: linear-gradient(180deg, #f0fff4 0%, #e6f7ff 50%, #fefce8 100%);
+  background: var(--bg-primary);
+}
+
+.sunlight .advisor {
+  background: #fff !important;
 }
 
 .floating-icons span {
@@ -112,8 +116,9 @@
 }
 
 .stat p {
-  font-size: 0.9rem;
-  color: #6b7280;
+  font-size: 1.1rem;
+  color: var(--text-secondary);
+  font-weight: 500;
 }
 
 .advisor-highlights {
@@ -168,9 +173,14 @@
 }
 
 .card p {
-  font-size: 0.9rem;
-  color: #6b7280;
+  font-size: 1.1rem;
+  color: var(--text-secondary);
   line-height: 1.5;
+}
+
+.sunlight .card {
+  border: 4px solid #000 !important;
+  background: #fff !important;
 }
 
 .weather-overlay {
@@ -214,18 +224,6 @@
   padding: 20px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
   scroll-snap-align: start;
-}
-
-@keyframes gradientShift {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
-  }
 }
 
 @keyframes float {
@@ -303,7 +301,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: 1rem;
 }
 
 .yield-popup {
@@ -354,9 +352,9 @@
 }
 
 .yield-popup .form-group label {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: #374151;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary);
 }
 
 .yield-popup .form-group input,
@@ -475,17 +473,17 @@
 }
 
 .form-group label {
-  font-size: 0.9rem;
+  font-size: 1rem;
   font-weight: 500;
   color: #444;
 }
 
 .form-group input,
 .form-group select {
-  padding: 10px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 1rem;
+  padding: 12px;
+  border: 2px solid #ddd;
+  border-radius: 8px;
+  font-size: 1.1rem;
 }
 
 .form-group input:focus,
