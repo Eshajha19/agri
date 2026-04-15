@@ -414,20 +414,6 @@ export default function Advisor() {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Irrigation Source</label>
-                  <select
-                    id="irrigation-source-short"
-                    name="IrriSourceShort"
-                    value={yieldForm.IrriSource}
-                    onChange={(e) =>
-                      setYieldForm({ ...yieldForm, IrriSource: e.target.value })
-                    }
-                  >
-                    <option value="Groundwater">Groundwater</option>
-                    <option value="Canal">Canal</option>
-                  </select>
-                </div>
-                <div className="form-group">
                   <label>Irrigation Count</label>
                   <input
                     id="irrigation-count"
