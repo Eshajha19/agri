@@ -4,10 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "lint": "eslint .",
-    "preview": "vite preview"
+    "dev": "vite --config js/vite.config.js",
+    "build": "vite build --config js/vite.config.js",
+    "lint": "eslint -c js/eslint.config.js .",
+    "preview": "vite preview --config js/vite.config.js"
   },
   "dependencies": {
     "lucide-react": "^0.542.0",
@@ -27,7 +27,6 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "^16.3.0",
-    "vite": "^7.1.2",
-    "vite-plugin-pwa": "^1.0.3"
+    "vite": "^7.1.2"
   }
 }

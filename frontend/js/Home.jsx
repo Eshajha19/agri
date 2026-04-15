@@ -9,7 +9,7 @@ import {
   FaPhoneAlt,
   FaQuoteLeft,
 } from "react-icons/fa";
-import "./Home.css";
+import "../css/Home.css";
 
 export default function Home() {
   const features = [

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
-import "./App.css";
+import "../css/App.css";
 import Advisor from "./Advisor";
 import How from "./How";
 import Home from "./Home";
@@ -105,6 +105,8 @@ function App() {
           <div className="nav-right">
             {/* Language Dropdown */}
             <select
+              id="preferred-language"
+              name="preferredLanguage"
               className="lang-select"
               value={preferredLang}
               onChange={(e) => {
@@ -179,6 +181,8 @@ function App() {
                   <p>Welcome! Please provide your details to continue.</p>
                   <form onSubmit={handleLogin}>
                     <input
+                      id="farmer-name"
+                      name="farmerName"
                       type="text"
                       placeholder="Enter your name"
                       value={inputName}
@@ -186,6 +190,8 @@ function App() {
                       required
                     />
                     <select
+                      id="login-preferred-language"
+                      name="preferredLanguage"
                       value={preferredLang}
                       onChange={(e) => setPreferredLang(e.target.value)}
                       required

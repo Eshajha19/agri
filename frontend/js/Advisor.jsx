@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import "./Advisor.css";
+import "../css/Advisor.css";
 import WeatherCard from "./WeatherCard";
 import SoilChatbot from "./SoilChatbot";
 import {
@@ -260,6 +260,8 @@ export default function Advisor() {
                 <div className="form-group">
                   <label>Crop</label>
                   <select
+                    id="crop"
+                    name="Crop"
                     value={yieldForm.Crop}
                     onChange={(e) =>
                       setYieldForm({ ...yieldForm, Crop: e.target.value })
@@ -277,6 +279,8 @@ export default function Advisor() {
                 <div className="form-group">
                   <label>Season</label>
                   <select
+                    id="season"
+                    name="Season"
                     value={yieldForm.Season}
                     onChange={(e) =>
                       setYieldForm({ ...yieldForm, Season: e.target.value })
@@ -289,6 +293,8 @@ export default function Advisor() {
                 <div className="form-group">
                   <label>Covered Area (acres)</label>
                   <input
+                    id="crop-covered-area"
+                    name="CropCoveredArea"
                     type="number"
                     value={yieldForm.CropCoveredArea}
                     onChange={(e) =>
@@ -302,6 +308,8 @@ export default function Advisor() {
                 <div className="form-group">
                   <label>Crop Height (cm)</label>
                   <input
+                    id="crop-height"
+                    name="CHeight"
                     type="number"
                     value={yieldForm.CHeight}
                     onChange={(e) =>
@@ -315,6 +323,8 @@ export default function Advisor() {
                 <div className="form-group">
                   <label>Next Crop</label>
                   <select
+                    id="next-crop"
+                    name="CNext"
                     value={yieldForm.CNext}
                     onChange={(e) =>
                       setYieldForm({ ...yieldForm, CNext: e.target.value })
@@ -335,6 +345,8 @@ export default function Advisor() {
                 <div className="form-group">
                   <label>Last Crop</label>
                   <select
+                    id="last-crop"
+                    name="CLast"
                     value={yieldForm.CLast}
                     onChange={(e) =>
                       setYieldForm({ ...yieldForm, CLast: e.target.value })
@@ -355,6 +367,8 @@ export default function Advisor() {
                 <div className="form-group">
                   <label>Transplanting Method</label>
                   <select
+                    id="transplanting-method"
+                    name="CTransp"
                     value={yieldForm.CTransp}
                     onChange={(e) =>
                       setYieldForm({ ...yieldForm, CTransp: e.target.value })
@@ -369,6 +383,8 @@ export default function Advisor() {
 <div className="form-group">
                   <label>Irrigation Type</label>
                   <select
+                    id="irrigation-type"
+                    name="IrriType"
                     value={yieldForm.IrriType}
                     onChange={(e) =>
                       setYieldForm({ ...yieldForm, IrriType: e.target.value })
@@ -383,6 +399,8 @@ export default function Advisor() {
                 <div className="form-group">
                   <label>Irrigation Source</label>
                   <select
+                    id="irrigation-source"
+                    name="IrriSource"
                     value={yieldForm.IrriSource}
                     onChange={(e) =>
                       setYieldForm({ ...yieldForm, IrriSource: e.target.value })
@@ -398,6 +416,8 @@ export default function Advisor() {
                 <div className="form-group">
                   <label>Irrigation Source</label>
                   <select
+                    id="irrigation-source-short"
+                    name="IrriSourceShort"
                     value={yieldForm.IrriSource}
                     onChange={(e) =>
                       setYieldForm({ ...yieldForm, IrriSource: e.target.value })
@@ -410,6 +430,8 @@ export default function Advisor() {
                 <div className="form-group">
                   <label>Irrigation Count</label>
                   <input
+                    id="irrigation-count"
+                    name="IrriCount"
                     type="number"
                     value={yieldForm.IrriCount}
                     onChange={(e) =>
@@ -423,6 +445,8 @@ export default function Advisor() {
                 <div className="form-group">
                   <label>Water Coverage (%)</label>
                   <input
+                    id="water-coverage"
+                    name="WaterCov"
                     type="number"
                     max="100"
                     value={yieldForm.WaterCov}
