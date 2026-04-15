@@ -1,24 +1,21 @@
-/* ========================= */
-/* 🌿 Global Reset */
-/* ========================= */
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
-html, body, #root, .app {
+html,
+body,
+#root,
+.app {
   height: 100%;
   width: 100%;
   font-family: "Poppins", sans-serif;
 }
 
-/* ========================= */
-/* 🌿 Navbar */
-/* ========================= */
 .navbar {
   display: flex;
-  justify-content: space-between; /* left | center | right */
+  justify-content: space-between;
   align-items: center;
   padding: 15px 40px;
   background: linear-gradient(90deg, #2ecc71, #27ae60);
@@ -27,12 +24,12 @@ html, body, #root, .app {
   width: 100%;
 }
 
-/* Left: Brand */
 .nav-left {
   display: flex;
   align-items: center;
   gap: 8px;
 }
+
 .nav-left .brand {
   font-size: 22px;
   font-weight: 600;
@@ -40,24 +37,24 @@ html, body, #root, .app {
   text-decoration: none;
 }
 
-/* Center: Links */
 .nav-center {
   list-style: none;
   display: flex;
   gap: 25px;
   align-items: center;
 }
+
 .nav-center a {
   color: white;
   text-decoration: none;
   font-weight: 500;
   transition: color 0.3s ease;
 }
+
 .nav-center a:hover {
   color: #dff9fb;
 }
 
-/* Right: Language + User */
 .nav-right {
   display: flex;
   align-items: center;
@@ -72,10 +69,12 @@ html, body, #root, .app {
   font-weight: 500;
   color: white;
 }
+
 .nav-user .icon {
   margin-right: 4px;
   color: #ffd700;
 }
+
 .nav-user button.logout-btn {
   background: #ff4d4d;
   color: white;
@@ -86,11 +85,11 @@ html, body, #root, .app {
   font-size: 0.8rem;
   transition: background 0.3s;
 }
+
 .nav-user button.logout-btn:hover {
   background: #cc0000;
 }
 
-/* Language dropdown */
 .lang-select {
   appearance: none;
   background-color: yellow;
@@ -102,18 +101,19 @@ html, body, #root, .app {
   border: none;
   cursor: pointer;
   transition: all 0.3s ease;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
 }
+
 .lang-select:hover {
   background-color: #ffd600;
   transform: translateY(-2px);
 }
+
 .lang-select:focus {
   outline: none;
   box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.4);
 }
 
-/* Hamburger (desktop hidden) */
 .hamburger {
   display: none;
   font-size: 28px;
@@ -123,25 +123,29 @@ html, body, #root, .app {
   cursor: pointer;
 }
 
-/* ========================= */
-/* 📱 Responsive Navbar */
-/* ========================= */
+
 @media (max-width: 768px) {
+  .navbar {
+    padding: 15px 20px;
+    flex-wrap: wrap;
+  }
+
+  .nav-left {
+    flex: 1;
+  }
+
   .hamburger {
     display: block;
+    text-align: right;
   }
 
   .nav-center {
     display: none;
     flex-direction: column;
     gap: 15px;
-    position: absolute;
-    top: 60px;
-    left: 0;
     width: 100%;
     background: #27ae60;
-    padding: 15px 0;
-    border-radius: 0 0 8px 8px;
+    padding: 15px 0 5px;
   }
 
   .nav-center.active {
@@ -150,31 +154,32 @@ html, body, #root, .app {
   }
 
   .nav-right {
-    display: none; /* hide in desktop row */
+    display: none;
     flex-direction: column;
     gap: 12px;
-    margin-top: 10px;
     width: 100%;
     text-align: center;
     background: #27ae60;
-    border-radius: 0 0 8px 8px;
     padding-bottom: 15px;
   }
 
-  .nav-center.active + .nav-right {
+  .nav-center.active+.nav-right {
     display: flex;
   }
 }
 
-/* Animation */
 @keyframes slideDown {
-  from { opacity: 0; transform: translateY(-10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
-/* ========================= */
-/* 🌿 Alert Bar */
-/* ========================= */
 .alert-bar {
   background: #ffeb3b;
   color: #333;
@@ -183,6 +188,7 @@ html, body, #root, .app {
   position: relative;
   width: 100%;
 }
+
 .close-btn {
   position: absolute;
   right: 15px;
@@ -193,9 +199,6 @@ html, body, #root, .app {
   cursor: pointer;
 }
 
-/* ========================= */
-/* 🌿 Hero Section */
-/* ========================= */
 .hero {
   position: relative;
   height: 100vh;
@@ -207,6 +210,7 @@ html, body, #root, .app {
   color: white;
   overflow: hidden;
 }
+
 .background-video {
   position: absolute;
   top: 0;
@@ -216,6 +220,7 @@ html, body, #root, .app {
   object-fit: cover;
   z-index: -1;
 }
+
 .hero .overlay {
   position: relative;
   z-index: 1;
@@ -224,17 +229,23 @@ html, body, #root, .app {
   border-radius: 10px;
   max-width: 90%;
 }
+
 .fade-in {
   animation: fadeIn 2s ease-in-out;
 }
+
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
-/* ========================= */
-/* 🌿 Mute Button */
-/* ========================= */
 #muteToggle {
   position: fixed;
   bottom: 20px;
@@ -253,28 +264,29 @@ html, body, #root, .app {
   z-index: 9999;
 }
 
-/* ========================= */
-/* 🌿 Responsive Hero & Mute */
-/* ========================= */
 @media (max-width: 992px) {
   .hero {
     height: 80vh;
     padding: 0 20px;
   }
+
   .hero .overlay {
     padding: 15px 20px;
     font-size: 0.9rem;
   }
 }
+
 @media (max-width: 600px) {
   .hero {
     height: auto;
     padding: 40px 15px;
   }
+
   .hero .overlay {
     padding: 12px 18px;
     font-size: 0.85rem;
   }
+
   #muteToggle {
     width: 40px;
     height: 40px;
@@ -284,47 +296,41 @@ html, body, #root, .app {
   }
 }
 
-/* ========================= */
-/* 🌿 Farmer-Friendly Login Page */
-/* ========================= */
 .login-page {
   display: flex;
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background: linear-gradient(to right, #f6d365, #fda085); /* warm, sunny colors */
+  background: linear-gradient(to right, #f6d365, #fda085);
   font-family: "Poppins", sans-serif;
   padding: 20px;
 }
 
-/* Login Card */
+
 .login-card {
-  background: #fffaf0; /* soft background */
+  background: #fffaf0;
   padding: 40px 35px;
   border-radius: 18px;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
   max-width: 400px;
   width: 100%;
   text-align: center;
-  border: 2px solid #ffd27f; /* subtle border */
+  border: 2px solid #ffd27f;
   transition: transform 0.3s, box-shadow 0.3s;
 }
 
-/* Hover effect to make it interactive */
 .login-card:hover {
   transform: translateY(-5px);
   box-shadow: 0 12px 25px rgba(0, 0, 0, 0.2);
 }
 
-/* Heading */
 .login-card h2 {
   font-size: 2rem;
   margin-bottom: 20px;
-  color: #2e7d32; /* green, nature/farming */
+  color: #2e7d32;
   font-weight: 700;
 }
 
-/* Description text */
 .login-card p {
   font-size: 1rem;
   margin-bottom: 25px;
@@ -332,7 +338,6 @@ html, body, #root, .app {
   line-height: 1.5;
 }
 
-/* Inputs & Dropdown */
 .login-card input,
 .login-card select {
   width: 100%;
@@ -345,14 +350,12 @@ html, body, #root, .app {
   transition: border-color 0.3s, box-shadow 0.3s;
 }
 
-/* Focus effect for better accessibility */
 .login-card input:focus,
 .login-card select:focus {
   border-color: #2e7d32;
   box-shadow: 0 0 10px rgba(46, 125, 50, 0.4);
 }
 
-/* Button */
 .login-card button {
   width: 100%;
   padding: 16px 0;
@@ -366,7 +369,6 @@ html, body, #root, .app {
   transition: background 0.3s, transform 0.2s, box-shadow 0.2s;
 }
 
-/* Hover and active states */
 .login-card button:hover {
   background: #1b5e20;
   transform: translateY(-2px);
@@ -378,21 +380,18 @@ html, body, #root, .app {
   box-shadow: 0 3px 10px rgba(46, 125, 50, 0.2);
 }
 
-/* Note below form */
 .login-note {
   margin-top: 15px;
   font-size: 0.9rem;
   color: #555;
 }
 
-/* Placeholder style for readability */
 .login-card input::placeholder,
 .login-card select::placeholder {
   color: #999;
   font-size: 1rem;
 }
 
-/* Responsive adjustments for small screens */
 @media (max-width: 480px) {
   .login-card {
     padding: 30px 20px;
@@ -414,9 +413,6 @@ html, body, #root, .app {
   }
 }
 
-/* ========================= */
-/* 🌿 Navbar User Section */
-/* ========================= */
 .nav-user {
   margin-left: auto;
   display: flex;
@@ -428,7 +424,7 @@ html, body, #root, .app {
   background: rgba(255, 255, 255, 0.1);
   padding: 6px 14px;
   border-radius: 20px;
-  border: 1px solid rgba(255,255,255,0.3);
+  border: 1px solid rgba(255, 255, 255, 0.3);
   backdrop-filter: blur(8px);
   transition: all 0.3s ease;
 }
@@ -447,7 +443,7 @@ html, body, #root, .app {
   color: #dff9fb;
 }
 
-/* Logout button */
+
 .nav-user .logout-btn {
   background: #ff4d4d;
   color: white;

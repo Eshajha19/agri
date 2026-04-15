@@ -47,7 +47,7 @@ export default function How() {
           <div
             key={index}
             className="step-card fade-up"
-            data-step={index + 1} // 🔹 Shows step number badge
+            data-step={index + 1}
           >
             <div className="step-icon">{step.icon}</div>
             <h3>{step.title}</h3>
@@ -58,4 +58,3 @@ export default function How() {
     </section>
   );
 }
-

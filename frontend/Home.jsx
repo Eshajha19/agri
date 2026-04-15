@@ -62,7 +62,6 @@ export default function Home() {
 
   return (
     <div className="home">
-      {/* Hero Section */}
       <section className="hero-section">
         <div className="hero-bg">
           <div className="hero-pattern"></div>
@@ -111,7 +110,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Features Section */}
       <section className="features-section">
         <div className="section-header">
           <h2>Powerful Features for Modern Farming</h2>
@@ -128,7 +126,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* How It Works */}
       <section className="how-section">
         <div className="section-header">
           <h2>How It Works</h2>
@@ -158,7 +155,6 @@ export default function Home() {
         </Link>
       </section>
 
-      {/* Testimonials */}
       <section className="testimonials-section">
         <div className="section-header">
           <h2>What Farmers Say</h2>
@@ -183,7 +179,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* CTA Section */}
       <section className="cta-section">
         <h2>Ready to Transform Your Farm?</h2>
         <p>Join thousands of farmers already benefiting from AI-powered agriculture</p>
@@ -192,7 +187,6 @@ export default function Home() {
         </Link>
       </section>
 
-      {/* Footer */}
       <footer className="home-footer">
         <div className="footer-content">
           <div className="footer-brand">

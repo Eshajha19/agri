@@ -10,7 +10,6 @@
   overflow: hidden;
 }
 
-/* Decorative floating glow */
 .howitworks::before {
   content: "";
   position: absolute;
@@ -27,16 +26,12 @@
   font-size: 3rem;
   font-weight: 700;
   margin-bottom: 12px;
-
-  /* fallback color */
   color: #064e3b;
-
-  /* gradient text */
   background-image: linear-gradient(90deg, #22c55e, #0ea5e9);
   background-clip: text;
-  -webkit-background-clip: text; /* Safari/Chrome */
+  -webkit-background-clip: text;
   color: transparent;
-  -webkit-text-fill-color: transparent; /* Safari */
+  -webkit-text-fill-color: transparent;
 }
 
 
@@ -46,7 +41,6 @@
   margin-bottom: 50px;
 }
 
-/* Steps Grid */
 .steps {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -71,7 +65,6 @@
   border-color: #22c55e;
 }
 
-/* Step Number Badge */
 .step-card::before {
   content: attr(data-step);
   position: absolute;
@@ -86,7 +79,6 @@
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.2);
 }
 
-/* Icons */
 .step-icon {
   font-size: 2.5rem;
   margin-bottom: 15px;
@@ -107,7 +99,6 @@
   line-height: 1.5;
 }
 
-/* Animations */
 @keyframes bounce {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-8px); }

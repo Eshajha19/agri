@@ -28,7 +28,6 @@ function App() {
   );
   const videoRef = useRef(null);
 
-  // Auto-apply preferred language using Google Translate
   useEffect(() => {
     if (preferredLang) {
       const interval = setInterval(() => {
@@ -71,11 +70,9 @@ function App() {
   return (
     <Router>
       <div className="app">
-        {/* Google Translate Widget */}
        <GoogleTranslate lang={preferredLang} />
 
 
-        {/* Navbar */}
         <nav className="navbar">
           <div className="nav-left">
             <FaLeaf className="icon" />
@@ -103,7 +100,6 @@ function App() {
           </ul>
 
           <div className="nav-right">
-            {/* Language Dropdown */}
             <select
               className="lang-select"
               value={preferredLang}
@@ -153,7 +149,6 @@ function App() {
           </button>
         </nav>
 
-        {/* Alert */}
         {showAlert && (
           <div className="alert-bar">
             🌧️ Weather Alert: Heavy rainfall expected in parts of Maharashtra this evening.
@@ -163,13 +158,11 @@ function App() {
           </div>
         )}
 
-        {/* Routes */}
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/advisor" element={<Advisor />} />
           <Route path="/how-it-works" element={<How />} />
 
-          {/* Login Page */}
           <Route
             path="/login"
             element={

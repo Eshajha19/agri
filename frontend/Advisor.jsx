@@ -18,7 +18,7 @@ export default function Advisor() {
 
   const [showWeather, setShowWeather] = useState(false);
   const [showSoilChatbot, setShowSoilChatbot] = useState(false);
-  const [showComingSoon, setShowComingSoon] = useState(false); // 🔹 new state
+  const [showComingSoon, setShowComingSoon] = useState(false);
 
   useEffect(() => {
     let f = 0,
@@ -75,7 +75,6 @@ export default function Advisor() {
 
   return (
     <section className="advisor">
-      {/* Floating background icons */}
       <div className="floating-icons">
         <span>🌱</span>
         <span>☀️</span>
@@ -83,7 +82,6 @@ export default function Advisor() {
         <span>₹</span>
       </div>
 
-      {/* Hero Section */}
       <div className="advisor-hero">
         <h1 className="fade-in">🌱 AI-Powered Agricultural Advisor</h1>
         <p className="fade-in">
@@ -99,7 +97,6 @@ export default function Advisor() {
         </button>
       </div>
 
-      {/* Stats Section */}
       <div className="advisor-stats">
         <div className="stat">
           <h2>{farmers}+</h2>
@@ -118,13 +115,11 @@ export default function Advisor() {
       <br />
       <br />
 
-      {/* Highlights Section */}
       <div className="advisor-highlights">
         <h2 className="slide-in">✨ Features</h2>
         <br />
         <br />
         <div className="cards">
-          {/* Weather */}
           <div
             className="card reveal"
             style={{ cursor: "pointer" }}
@@ -139,7 +134,6 @@ export default function Advisor() {
             </p>
           </div>
 
-          {/* Farmer-to-Farmer Community */}
           <div className="card reveal" onClick={() => setShowComingSoon(true)}>
             <div className="icon">👨‍🌾👩‍🌾</div>
             <h3>Farmer Community</h3>
@@ -147,7 +141,6 @@ export default function Advisor() {
               Connect, share tips, and learn from other farmers in your region.
             </p>
           </div>
-          {/* Irrigation */}
           <div className="card reveal" onClick={() => setShowComingSoon(true)}>
             <div className="icon">
               <Droplets size={32} strokeWidth={2} />
@@ -158,7 +151,6 @@ export default function Advisor() {
             </p>
           </div>
 
-          {/* Market */}
           <div className="card reveal" onClick={() => setShowComingSoon(true)}>
             <div className="icon">
               <IndianRupee size={32} strokeWidth={2} />
@@ -169,7 +161,6 @@ export default function Advisor() {
             </p>
           </div>
 
-          {/* Soil → Opens Chatbot */}
           <div
             className="card reveal"
             style={{ cursor: "pointer" }}
@@ -182,20 +173,17 @@ export default function Advisor() {
             <p>Get soil analysis & recommendations via AI chatbot.</p>
           </div>
 
-          {/* Crop Disease Detection */}
           <div className="card reveal" onClick={() => setShowComingSoon(true)}>
             <div className="icon">🌿</div>
             <h3>Crop Disease Detection</h3>
             <p>Upload plant images to detect diseases and get remedies.</p>
           </div>
 
-          {/* Fertilizer Recommendations */}
           <div className="card reveal" onClick={() => setShowComingSoon(true)}>
             <div className="icon">🌾</div>
             <h3>Fertilizer Recommendations</h3>
             <p>AI-powered fertilizer advice tailored to your soil & crops.</p>
           </div>
-          {/* Offline Access */}
           <div className="card reveal" onClick={() => setShowComingSoon(true)}>
             <div className="icon">
               <WifiOff size={32} strokeWidth={2} />
@@ -203,14 +191,12 @@ export default function Advisor() {
             <h3>Offline Access</h3>
             <p>Use the app anytime, even without internet connectivity.</p>
           </div>
-          {/* Pest Management */}
           <div className="card reveal" onClick={() => setShowComingSoon(true)}>
             <div className="icon">🐛</div>
             <h3>Pest Management</h3>
             <p>Early warnings & organic pest control tips.</p>
           </div>
 
-          {/* Yield Prediction */}
           <div className="card reveal" onClick={() => setShowYieldPopup(true)}>
             <div className="icon">📊</div>
             <h3>Yield Prediction</h3>
@@ -218,7 +204,6 @@ export default function Advisor() {
           </div>
         </div>
       </div>
-      {/* Weather popup */}
       {showWeather && (
         <div className="weather-overlay">
           <div className="weather-popup">
@@ -227,7 +212,6 @@ export default function Advisor() {
         </div>
       )}
 
-      {/* Soil Chatbot popup */}
       {showSoilChatbot && (
         <div className="weather-overlay">
           <div className="weather-popup">
@@ -235,7 +219,6 @@ export default function Advisor() {
           </div>
         </div>
       )}
-      {/* Yield Prediction popup */}
       {showYieldPopup && (
         <div className="weather-overlay">
           <div className="yield-popup">
@@ -472,7 +455,6 @@ export default function Advisor() {
         </div>
       )}
 
-      {/* Coming Soon popup */}
       {showComingSoon && (
         <div className="weather-overlay">
           <div className="weather-popup coming-soon">
