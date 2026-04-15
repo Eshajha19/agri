@@ -259,6 +259,16 @@
   background: var(--white);
 }
 
+.weather-section {
+  padding: 100px 5%;
+  background: linear-gradient(180deg, #f7fee7 0%, #f0fdf4 100%);
+}
+
+.weather-section__content {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
 .section-header {
   text-align: center;
   max-width: 600px;
@@ -557,5 +567,9 @@
   .features-grid,
   .testimonials-grid {
     grid-template-columns: 1fr;
+  }
+
+  .weather-section {
+    padding-top: 70px;
   }
 }

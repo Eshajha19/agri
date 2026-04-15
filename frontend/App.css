@@ -1,25 +1,23 @@
-/* ========================= */
-/* 🌿 Global Reset */
-/* ========================= */
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
-html, body, #root, .app {
-  height: 100%;
+html,
+body,
+#root,
+.app {
+  min-height: 100%;
   width: 100%;
   font-family: "Poppins", sans-serif;
 }
 
-/* ========================= */
-/* 🌿 Navbar */
-/* ========================= */
 .navbar {
   display: flex;
-  justify-content: space-between; /* left | center | right */
+  justify-content: space-between;
   align-items: center;
+  gap: 20px;
   padding: 15px 40px;
   background: linear-gradient(90deg, #2ecc71, #27ae60);
   color: white;
@@ -27,12 +25,12 @@ html, body, #root, .app {
   width: 100%;
 }
 
-/* Left: Brand */
 .nav-left {
   display: flex;
   align-items: center;
   gap: 8px;
 }
+
 .nav-left .brand {
   font-size: 22px;
   font-weight: 600;
@@ -40,61 +38,35 @@ html, body, #root, .app {
   text-decoration: none;
 }
 
-/* Center: Links */
 .nav-center {
   list-style: none;
   display: flex;
   gap: 25px;
   align-items: center;
 }
+
 .nav-center a {
   color: white;
   text-decoration: none;
   font-weight: 500;
   transition: color 0.3s ease;
 }
-.nav-center a:hover {
+
+.nav-center a:hover,
+.nav-user a:hover {
   color: #dff9fb;
 }
 
-/* Right: Language + User */
 .nav-right {
   display: flex;
   align-items: center;
   gap: 20px;
 }
 
-.nav-user {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.95rem;
-  font-weight: 500;
-  color: white;
-}
-.nav-user .icon {
-  margin-right: 4px;
-  color: #ffd700;
-}
-.nav-user button.logout-btn {
-  background: #ff4d4d;
-  color: white;
-  border: none;
-  border-radius: 5px;
-  padding: 3px 8px;
-  cursor: pointer;
-  font-size: 0.8rem;
-  transition: background 0.3s;
-}
-.nav-user button.logout-btn:hover {
-  background: #cc0000;
-}
-
-/* Language dropdown */
 .lang-select {
   appearance: none;
-  background-color: yellow;
-  color: black;
+  background-color: #fef08a;
+  color: #1f2937;
   font-size: 16px;
   font-weight: 500;
   padding: 8px 14px;
@@ -102,18 +74,58 @@ html, body, #root, .app {
   border: none;
   cursor: pointer;
   transition: all 0.3s ease;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
 }
+
 .lang-select:hover {
-  background-color: #ffd600;
+  background-color: #fde047;
   transform: translateY(-2px);
 }
+
 .lang-select:focus {
   outline: none;
   box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.4);
 }
 
-/* Hamburger (desktop hidden) */
+.nav-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: white;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  backdrop-filter: blur(8px);
+  transition: all 0.3s ease;
+}
+
+.nav-user:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.nav-user a {
+  color: #fff !important;
+  text-decoration: none;
+}
+
+.nav-user .logout-btn {
+  background: #ff4d4d;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background 0.3s ease;
+}
+
+.nav-user .logout-btn:hover {
+  background: #cc0000;
+}
+
 .hamburger {
   display: none;
   font-size: 28px;
@@ -123,208 +135,123 @@ html, body, #root, .app {
   cursor: pointer;
 }
 
-/* ========================= */
-/* 📱 Responsive Navbar */
-/* ========================= */
-@media (max-width: 768px) {
-  .hamburger {
-    display: block;
-  }
-
-  .nav-center {
-    display: none;
-    flex-direction: column;
-    gap: 15px;
-    position: absolute;
-    top: 60px;
-    left: 0;
-    width: 100%;
-    background: #27ae60;
-    padding: 15px 0;
-    border-radius: 0 0 8px 8px;
-  }
-
-  .nav-center.active {
-    display: flex;
-    animation: slideDown 0.3s ease-in-out;
-  }
-
-  .nav-right {
-    display: none; /* hide in desktop row */
-    flex-direction: column;
-    gap: 12px;
-    margin-top: 10px;
-    width: 100%;
-    text-align: center;
-    background: #27ae60;
-    border-radius: 0 0 8px 8px;
-    padding-bottom: 15px;
-  }
-
-  .nav-center.active + .nav-right {
-    display: flex;
-  }
-}
-
-/* Animation */
-@keyframes slideDown {
-  from { opacity: 0; transform: translateY(-10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* ========================= */
-/* 🌿 Alert Bar */
-/* ========================= */
 .alert-bar {
-  background: #ffeb3b;
-  color: #333;
-  padding: 10px;
-  text-align: center;
-  position: relative;
   width: 100%;
-}
-.close-btn {
-  position: absolute;
-  right: 15px;
-  top: 5px;
-  background: none;
-  border: none;
-  font-size: 18px;
-  cursor: pointer;
+  padding: 14px 20px;
+  color: #16311f;
+  background: linear-gradient(90deg, #dcfce7 0%, #fef3c7 100%);
+  border-bottom: 1px solid rgba(22, 49, 31, 0.08);
 }
 
-/* ========================= */
-/* 🌿 Hero Section */
-/* ========================= */
-.hero {
-  position: relative;
-  height: 100vh;
-  width: 100%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  text-align: center;
-  color: white;
-  overflow: hidden;
-}
-.background-video {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  z-index: -1;
-}
-.hero .overlay {
-  position: relative;
-  z-index: 1;
-  background: rgba(0, 0, 0, 0.5);
-  padding: 20px 40px;
-  border-radius: 10px;
-  max-width: 90%;
-}
-.fade-in {
-  animation: fadeIn 2s ease-in-out;
-}
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
+.alert-bar.severity-watch {
+  background: linear-gradient(90deg, #fef3c7 0%, #fde68a 100%);
 }
 
-/* ========================= */
-/* 🌿 Mute Button */
-/* ========================= */
-#muteToggle {
-  position: fixed;
-  bottom: 20px;
-  right: 20px;
-  width: 50px;
-  height: 50px;
-  border: none;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.6);
-  color: white;
-  font-size: 22px;
-  cursor: pointer;
+.alert-bar.severity-warning {
+  background: linear-gradient(90deg, #ffedd5 0%, #fdba74 100%);
+}
+
+.alert-bar.severity-critical {
+  background: linear-gradient(90deg, #fee2e2 0%, #fca5a5 100%);
+}
+
+.alert-bar__content {
+  max-width: 1240px;
+  margin: 0 auto;
   display: flex;
   align-items: center;
+  gap: 14px;
+}
+
+.alert-bar__icon {
+  display: inline-flex;
+  width: 42px;
+  height: 42px;
+  align-items: center;
   justify-content: center;
-  z-index: 9999;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.45);
 }
 
-/* ========================= */
-/* 🌿 Responsive Hero & Mute */
-/* ========================= */
-@media (max-width: 992px) {
-  .hero {
-    height: 80vh;
-    padding: 0 20px;
-  }
-  .hero .overlay {
-    padding: 15px 20px;
-    font-size: 0.9rem;
-  }
-}
-@media (max-width: 600px) {
-  .hero {
-    height: auto;
-    padding: 40px 15px;
-  }
-  .hero .overlay {
-    padding: 12px 18px;
-    font-size: 0.85rem;
-  }
-  #muteToggle {
-    width: 40px;
-    height: 40px;
-    font-size: 18px;
-    bottom: 15px;
-    right: 15px;
-  }
+.alert-bar__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
 }
 
-/* ========================= */
-/* 🌿 Farmer-Friendly Login Page */
-/* ========================= */
+.alert-bar__text span {
+  font-size: 0.95rem;
+}
+
+.alert-bar__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.alert-bar__action,
+.alert-bar__dismiss {
+  border: none;
+  border-radius: 999px;
+  padding: 11px 16px;
+  font-weight: 600;
+}
+
+.alert-bar__action {
+  background: #166534;
+  color: white;
+}
+
+.alert-bar__dismiss {
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.45);
+  color: #16311f;
+}
+
+.alert-bar__error {
+  max-width: 1240px;
+  margin: 8px auto 0;
+  color: #b91c1c;
+  font-size: 0.92rem;
+}
+
 .login-page {
   display: flex;
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background: linear-gradient(to right, #f6d365, #fda085); /* warm, sunny colors */
-  font-family: "Poppins", sans-serif;
+  background: linear-gradient(to right, #f6d365, #fda085);
   padding: 20px;
 }
 
-/* Login Card */
 .login-card {
-  background: #fffaf0; /* soft background */
+  background: #fffaf0;
   padding: 40px 35px;
   border-radius: 18px;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
   max-width: 400px;
   width: 100%;
   text-align: center;
-  border: 2px solid #ffd27f; /* subtle border */
+  border: 2px solid #ffd27f;
   transition: transform 0.3s, box-shadow 0.3s;
 }
 
-/* Hover effect to make it interactive */
 .login-card:hover {
   transform: translateY(-5px);
   box-shadow: 0 12px 25px rgba(0, 0, 0, 0.2);
 }
 
-/* Heading */
 .login-card h2 {
   font-size: 2rem;
   margin-bottom: 20px;
-  color: #2e7d32; /* green, nature/farming */
+  color: #2e7d32;
   font-weight: 700;
 }
 
-/* Description text */
 .login-card p {
   font-size: 1rem;
   margin-bottom: 25px;
@@ -332,7 +259,6 @@ html, body, #root, .app {
   line-height: 1.5;
 }
 
-/* Inputs & Dropdown */
 .login-card input,
 .login-card select {
   width: 100%;
@@ -345,14 +271,12 @@ html, body, #root, .app {
   transition: border-color 0.3s, box-shadow 0.3s;
 }
 
-/* Focus effect for better accessibility */
 .login-card input:focus,
 .login-card select:focus {
   border-color: #2e7d32;
   box-shadow: 0 0 10px rgba(46, 125, 50, 0.4);
 }
 
-/* Button */
 .login-card button {
   width: 100%;
   padding: 16px 0;
@@ -366,7 +290,6 @@ html, body, #root, .app {
   transition: background 0.3s, transform 0.2s, box-shadow 0.2s;
 }
 
-/* Hover and active states */
 .login-card button:hover {
   background: #1b5e20;
   transform: translateY(-2px);
@@ -378,21 +301,73 @@ html, body, #root, .app {
   box-shadow: 0 3px 10px rgba(46, 125, 50, 0.2);
 }
 
-/* Note below form */
 .login-note {
   margin-top: 15px;
   font-size: 0.9rem;
   color: #555;
 }
 
-/* Placeholder style for readability */
 .login-card input::placeholder,
 .login-card select::placeholder {
   color: #999;
   font-size: 1rem;
 }
 
-/* Responsive adjustments for small screens */
+@media (max-width: 768px) {
+  .hamburger {
+    display: block;
+  }
+
+  .navbar {
+    flex-wrap: wrap;
+    padding: 15px 20px;
+  }
+
+  .nav-center {
+    display: none;
+    flex-direction: column;
+    gap: 15px;
+    width: 100%;
+    background: #27ae60;
+    padding: 15px 0 0;
+  }
+
+  .nav-center.active {
+    display: flex;
+    animation: slideDown 0.3s ease-in-out;
+  }
+
+  .nav-right {
+    display: none;
+    flex-direction: column;
+    width: 100%;
+    gap: 12px;
+    padding-bottom: 15px;
+  }
+
+  .nav-center.active + .nav-right {
+    display: flex;
+  }
+
+  .lang-select,
+  .nav-user {
+    width: 100%;
+  }
+
+  .alert-bar__content {
+    flex-wrap: wrap;
+  }
+
+  .alert-bar__meta {
+    order: 3;
+    width: 100%;
+  }
+
+  .alert-bar__action {
+    width: calc(100% - 56px);
+  }
+}
+
 @media (max-width: 480px) {
   .login-card {
     padding: 30px 20px;
@@ -414,51 +389,13 @@ html, body, #root, .app {
   }
 }
 
-/* ========================= */
-/* 🌿 Navbar User Section */
-/* ========================= */
-.nav-user {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 1rem;
-  font-weight: 600;
-  color: white;
-  background: rgba(255, 255, 255, 0.1);
-  padding: 6px 14px;
-  border-radius: 20px;
-  border: 1px solid rgba(255,255,255,0.3);
-  backdrop-filter: blur(8px);
-  transition: all 0.3s ease;
-}
-
-.nav-user:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.nav-user a {
-  color: #fff !important;
-  text-decoration: none;
-  transition: color 0.3s ease;
-}
-
-.nav-user a:hover {
-  color: #dff9fb;
-}
-
-/* Logout button */
-.nav-user .logout-btn {
-  background: #ff4d4d;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  padding: 5px 10px;
-  cursor: pointer;
-  font-size: 0.85rem;
-  transition: background 0.3s ease;
-}
-
-.nav-user .logout-btn:hover {
-  background: #cc0000;
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
