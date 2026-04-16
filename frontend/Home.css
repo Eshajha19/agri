@@ -18,6 +18,30 @@
   --gradient: linear-gradient(135deg, #2d5a27 0%, #4a7c44 100%);
 }
 
+/* Dark theme overrides (applied via <html class="theme-dark">) */
+.theme-dark {
+  --primary: #16a34a;
+  --primary-light: #22c55e;
+  --primary-dark: #15803d;
+  --secondary: #fbbf24;
+  --secondary-light: #fcd34d;
+  --accent: #10b981;
+
+  --dark: #e5e7eb;
+  --light: #0b1220;
+  --white: #0f172a;
+
+  --gray-100: #111827;
+  --gray-200: rgba(255, 255, 255, 0.12);
+  --gray-300: rgba(255, 255, 255, 0.18);
+  --gray-500: #a1a1aa;
+  --gray-700: #d1d5db;
+
+  --shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.55);
+  --gradient: linear-gradient(135deg, #16a34a 0%, #10b981 100%);
+}
+
 .sunlight {
   --primary: #000000;
   --primary-light: #000000;
@@ -54,6 +78,13 @@
   overflow: hidden;
 }
 
+.theme-dark .hero-section {
+  background: radial-gradient(circle at 25% 15%, rgba(34, 197, 94, 0.20), transparent 45%),
+    radial-gradient(circle at 80% 35%, rgba(16, 185, 129, 0.18), transparent 50%),
+    radial-gradient(circle at 50% 85%, rgba(251, 191, 36, 0.10), transparent 55%),
+    linear-gradient(180deg, #0b1220 0%, #070c16 100%);
+}
+
 .hero-bg {
   position: absolute;
   inset: 0;
@@ -67,6 +98,13 @@
     radial-gradient(circle at 20% 80%, rgba(45, 90, 39, 0.1) 0%, transparent 50%),
     radial-gradient(circle at 80% 20%, rgba(16, 185, 129, 0.1) 0%, transparent 50%),
     radial-gradient(circle at 40% 40%, rgba(245, 158, 11, 0.05) 0%, transparent 30%);
+}
+
+.theme-dark .hero-pattern {
+  background-image:
+    radial-gradient(circle at 20% 80%, rgba(34, 197, 94, 0.18) 0%, transparent 55%),
+    radial-gradient(circle at 80% 20%, rgba(16, 185, 129, 0.16) 0%, transparent 55%),
+    radial-gradient(circle at 40% 40%, rgba(251, 191, 36, 0.10) 0%, transparent 40%);
 }
 
 .hero-content {
@@ -88,6 +126,10 @@
   box-shadow: var(--shadow);
   margin-bottom: 24px;
   animation: slideDown 0.6s ease-out;
+}
+
+.theme-dark .hero-badge {
+  border: 1px solid rgba(255, 255, 255, 0.10);
 }
 
 @keyframes slideDown {
@@ -180,6 +222,10 @@
   transition: all 0.3s ease;
 }
 
+.theme-dark .btn-secondary {
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
 .btn-secondary:hover {
   background: var(--primary);
   color: var(--white);
@@ -236,6 +282,10 @@
   animation: float 3s ease-in-out infinite;
 }
 
+.theme-dark .floating-card {
+  border: 1px solid rgba(255, 255, 255, 0.10);
+}
+
 .floating-card.card-1 {
   top: 10%;
   right: 20%;
@@ -278,6 +328,10 @@
 .features-section {
   padding: 100px 5%;
   background: var(--white);
+}
+
+.theme-dark .features-section {
+  background: var(--light);
 }
 
 .section-header {
@@ -351,6 +405,11 @@
   background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
 }
 
+.theme-dark .how-section {
+  background: radial-gradient(circle at 20% 30%, rgba(34, 197, 94, 0.16), transparent 55%),
+    linear-gradient(180deg, #070c16, #0b1220);
+}
+
 .steps-container {
   display: flex;
   justify-content: center;
@@ -411,6 +470,10 @@
 .testimonials-section {
   padding: 100px 5%;
   background: var(--white);
+}
+
+.theme-dark .testimonials-section {
+  background: var(--light);
 }
 
 .testimonials-grid {

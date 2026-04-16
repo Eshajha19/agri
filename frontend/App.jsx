@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
 import "./App.css";
 import Advisor from "./Advisor";
@@ -17,6 +17,21 @@ function App() {
   const [showAlert, setShowAlert] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
   const [sunlight, setSunlight] = useState(false); 
+
+  const getInitialTheme = () => {
+    try {
+      const stored = localStorage.getItem("theme");
+      if (stored === "light" || stored === "dark") return stored;
+    } catch {
+      // ignore
+    }
+    return window.matchMedia &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light";
+  };
+
+  const [theme, setTheme] = useState(getInitialTheme);
 
   const [name, setName] = useState(localStorage.getItem("farmerName") || "");
   const [inputName, setInputName] = useState("");
@@ -43,6 +58,16 @@ function App() {
     setPreferredLang("en");
     window.location.href = "/";
   };
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("theme-dark", theme === "dark");
+    try {
+      localStorage.setItem("theme", theme);
+    } catch {
+      // ignore
+    }
+  }, [theme]);
 
   return (
     <Router>
@@ -74,6 +99,16 @@ function App() {
           </ul>
 
           <div className="nav-right">
+            <button
+              type="button"
+              onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+              className="theme-toggle"
+              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              title={theme === "dark" ? "Light mode" : "Dark mode"}
+            >
+              {theme === "dark" ? "☀️" : "🌙"}
+            </button>
+
             <button
               onClick={() => setSunlight(!sunlight)}
               className="sunlight-toggle"

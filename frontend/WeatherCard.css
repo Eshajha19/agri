@@ -24,6 +24,11 @@
   animation: slideUp 0.4s ease-in-out;
 }
 
+.theme-dark .weather-popup {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+}
+
 .sunlight .weather-popup {
   background: #fff !important;
   color: #000 !important;
@@ -99,6 +104,10 @@
   background: rgba(255,255,255,0.15);
   padding: 15px;
   border-radius: 15px;
+}
+
+.theme-dark .weather-info {
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .icon-temp {
