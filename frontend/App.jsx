@@ -113,9 +113,10 @@ function App() {
             <button
               onClick={() => setSunlight(!sunlight)}
               className="sunlight-toggle"
-              aria-label="Toggle High Contrast Sunlight Mode"
+              aria-label="Toggle high contrast mode"
+              aria-pressed={sunlight}
             >
-              {sunlight ? "👁️ Normal View" : "☀️ Sunlight Mode"}
+              {sunlight ? "Normal Contrast" : "High Contrast"}
             </button>
 
             <select

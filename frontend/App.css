@@ -42,6 +42,25 @@ body,
   transition: transform 0.2s ease, filter 0.2s ease, background-color 0.2s ease;
 }
 
+.sunlight-toggle {
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: none;
+  transition: transform 0.2s ease, filter 0.2s ease, background-color 0.2s ease;
+}
+
+.sunlight-toggle:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}
+
+.sunlight-toggle[aria-pressed="true"] {
+  background: rgba(255, 255, 255, 0.22);
+}
+
 .theme-toggle:hover {
   transform: translateY(-1px);
   filter: brightness(1.05);
