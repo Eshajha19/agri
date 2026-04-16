@@ -568,6 +568,10 @@ body,
   font-weight: bold;
 }
 
+.language-list li.focused {
+  background: #d0f0ff;
+}
+
 .language-list li.no-results {
   color: #999;
   font-style: italic;

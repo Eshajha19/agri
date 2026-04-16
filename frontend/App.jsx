@@ -47,6 +47,7 @@ function App() {
   const SearchableLanguageSelect = ({ value, onChange }) => {
     const [searchTerm, setSearchTerm] = useState("");
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const [focusedIndex, setFocusedIndex] = useState(0);
     const dropdownRef = useRef(null);
 
     // Filter languages based on search term
@@ -56,6 +57,13 @@ function App() {
 
     // Get selected language name
     const selectedLanguage = languages.find(lang => lang.code === value);
+
+    // Reset focus whenever the dropdown opens or the filtered list changes
+    useEffect(() => {
+      if (isDropdownOpen) {
+        setFocusedIndex(0);
+      }
+    }, [isDropdownOpen, searchTerm]);
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -67,6 +75,32 @@ function App() {
       document.addEventListener("mousedown", handleClickOutside);
       return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
+
+    const handleInputKeyDown = (event) => {
+      if (!isDropdownOpen || filteredLanguages.length === 0) return;
+
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setFocusedIndex((prevIndex) =>
+          prevIndex === filteredLanguages.length - 1 ? 0 : prevIndex + 1
+        );
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setFocusedIndex((prevIndex) =>
+          prevIndex === 0 ? filteredLanguages.length - 1 : prevIndex - 1
+        );
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        const selected = filteredLanguages[focusedIndex];
+        if (selected) {
+          onChange(selected.code);
+          setIsDropdownOpen(false);
+          setSearchTerm("");
+        }
+      } else if (event.key === "Escape") {
+        setIsDropdownOpen(false);
+      }
+    };
 
     return (
       <div className="searchable-dropdown" ref={dropdownRef}>
@@ -84,12 +118,14 @@ function App() {
               placeholder="Search languages..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              onKeyDown={handleInputKeyDown}
               className="search-input"
               onClick={(e) => e.stopPropagation()}
+              autoFocus
             />
             <ul className="language-list">
               {filteredLanguages.length > 0 ? (
-                filteredLanguages.map(lang => (
+                filteredLanguages.map((lang, index) => (
                   <li
                     key={lang.code}
                     onClick={() => {
@@ -97,7 +133,8 @@ function App() {
                       setIsDropdownOpen(false);
                       setSearchTerm("");
                     }}
-                    className={value === lang.code ? "selected" : ""}
+                    onMouseEnter={() => setFocusedIndex(index)}
+                    className={`${value === lang.code ? "selected" : ""} ${focusedIndex === index ? "focused" : ""}`}
                   >
                     {lang.flag} {lang.name}
                   </li>
