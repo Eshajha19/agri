@@ -104,6 +104,7 @@ function App() {
               onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
               className="theme-toggle"
               aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              aria-pressed={theme === "dark"}
               title={theme === "dark" ? "Light mode" : "Dark mode"}
             >
               {theme === "dark" ? "☀️" : "🌙"}

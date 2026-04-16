@@ -9,6 +9,9 @@
   --card-bg: #f9fafb;
   --border-color: #e5e7eb;
 
+  --chat-window-bg: #fdfdfd;
+  --chat-bot-bg: #f1f1f5;
+
   --focus-ring: rgba(34, 197, 94, 0.35);
 
   /* Typography */
@@ -39,6 +42,9 @@
   --accent-color: #fbbf24;
   --card-bg: #111827;
   --border-color: rgba(255, 255, 255, 0.12);
+
+  --chat-window-bg: rgba(255, 255, 255, 0.02);
+  --chat-bot-bg: rgba(255, 255, 255, 0.08);
 
   --focus-ring: rgba(34, 197, 94, 0.45);
 }
