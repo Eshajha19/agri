@@ -10,9 +10,11 @@ import { useLocation } from "react-router-dom";
 // 🔹 ScrollToTop component to fix navigation positioning
 function ScrollToTop() {
   const { pathname } = useLocation();
+
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [pathname]);
+
   return null;
 }
 
@@ -93,7 +95,7 @@ function App() {
             </li>
           </ul>
 
-          <div className="nav-right">
+          <div className={`nav-right ${isOpen ? "active" : ""}`}>
             <button
               onClick={() => setSunlight(!sunlight)}
               className="sunlight-toggle"

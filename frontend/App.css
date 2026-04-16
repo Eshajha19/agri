@@ -1,4 +1,3 @@
-
 * {
   margin: 0;
   padding: 0;
@@ -13,7 +12,6 @@ body,
   width: 100%;
   font-family: "Poppins", sans-serif;
 }
-
 
 .navbar {
   display: flex;
@@ -165,17 +163,18 @@ body,
 
   .nav-right {
     display: none;
-    /* hide in desktop row */
     flex-direction: column;
     gap: 12px;
     width: 100%;
     text-align: center;
     background: #27ae60;
     padding-bottom: 15px;
+    align-items: center;
   }
 
-  .nav-center.active+.nav-right {
-    display: flex;
+  .nav-right.active {
+    display: flex !important;
+    animation: slideDown 0.3s ease-in-out;
   }
 }
 
@@ -190,7 +189,6 @@ body,
     transform: translateY(0);
   }
 }
-
 
 .alert-bar {
   background: #ffeb3b;
@@ -210,7 +208,6 @@ body,
   font-size: 18px;
   cursor: pointer;
 }
-
 
 .hero {
   position: relative;
@@ -259,7 +256,6 @@ body,
   }
 }
 
-
 #muteToggle {
   position: fixed;
   bottom: 20px;
@@ -277,7 +273,6 @@ body,
   justify-content: center;
   z-index: 9999;
 }
-
 
 @media (max-width: 992px) {
   .hero {
@@ -311,21 +306,18 @@ body,
   }
 }
 
-
 .login-page {
   display: flex;
   justify-content: center;
   align-items: center;
   min-height: 100vh;
   background: linear-gradient(to right, #f6d365, #fda085);
-  /* warm, sunny colors */
   font-family: "Poppins", sans-serif;
   padding: 20px;
 }
 
 .login-card {
   background: #fffaf0;
-  /* soft background */
   padding: 40px 35px;
   border-radius: 18px;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
@@ -333,7 +325,6 @@ body,
   width: 100%;
   text-align: center;
   border: 2px solid #ffd27f;
-  /* subtle border */
   transition: transform 0.3s, box-shadow 0.3s;
 }
 
@@ -346,7 +337,6 @@ body,
   font-size: 2rem;
   margin-bottom: 20px;
   color: #2e7d32;
-  /* green, nature/farming */
   font-weight: 700;
 }
 
@@ -394,7 +384,6 @@ body,
   border: 4px solid #000 !important;
 }
 
-/* Hover and active states */
 .login-card button:hover {
   background: #1b5e20;
   transform: translateY(-2px);
@@ -438,7 +427,6 @@ body,
     padding: 14px 0;
   }
 }
-
 
 .nav-user {
   margin-left: auto;
@@ -484,7 +472,6 @@ body,
 .nav-user .logout-btn:hover {
   background: #cc0000;
 }
-
 
 .sunlight .sunlight-toggle {
   background: #000 !important;
