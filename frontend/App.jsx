@@ -28,6 +28,90 @@ function App() {
     localStorage.getItem("preferredLanguage") || ""
   );
 
+  // Languages array for dropdowns
+  const languages = [
+    { code: "en", name: "English", flag: "🌍" },
+    { code: "hi", name: "Hindi", flag: "🇮🇳" },
+    { code: "mr", name: "Marathi", flag: "🇮🇳" },
+    { code: "bn", name: "Bengali", flag: "🇮🇳" },
+    { code: "ta", name: "Tamil", flag: "🇮🇳" },
+    { code: "te", name: "Telugu", flag: "🇮🇳" },
+    { code: "gu", name: "Gujarati", flag: "🇮🇳" },
+    { code: "pa", name: "Punjabi", flag: "🇮🇳" },
+    { code: "kn", name: "Kannada", flag: "🇮🇳" },
+    { code: "ml", name: "Malayalam", flag: "🇮🇳" },
+    { code: "or", name: "Odia", flag: "🇮🇳" },
+  ];
+
+  // Searchable Language Select Component
+  const SearchableLanguageSelect = ({ value, onChange }) => {
+    const [searchTerm, setSearchTerm] = useState("");
+    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const dropdownRef = useRef(null);
+
+    // Filter languages based on search term
+    const filteredLanguages = languages.filter(lang =>
+      lang.name.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    // Get selected language name
+    const selectedLanguage = languages.find(lang => lang.code === value);
+
+    // Close dropdown when clicking outside
+    useEffect(() => {
+      const handleClickOutside = (event) => {
+        if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+          setIsDropdownOpen(false);
+        }
+      };
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
+
+    return (
+      <div className="searchable-dropdown" ref={dropdownRef}>
+        <div
+          className="dropdown-header"
+          onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+        >
+          {selectedLanguage ? `${selectedLanguage.flag} ${selectedLanguage.name}` : "Select Language"}
+          <span className="dropdown-arrow">{isDropdownOpen ? "▲" : "▼"}</span>
+        </div>
+        {isDropdownOpen && (
+          <div className="dropdown-content">
+            <input
+              type="text"
+              placeholder="Search languages..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="search-input"
+              onClick={(e) => e.stopPropagation()}
+            />
+            <ul className="language-list">
+              {filteredLanguages.length > 0 ? (
+                filteredLanguages.map(lang => (
+                  <li
+                    key={lang.code}
+                    onClick={() => {
+                      onChange(lang.code);
+                      setIsDropdownOpen(false);
+                      setSearchTerm("");
+                    }}
+                    className={value === lang.code ? "selected" : ""}
+                  >
+                    {lang.flag} {lang.name}
+                  </li>
+                ))
+              ) : (
+                <li className="no-results">No results found</li>
+              )}
+            </ul>
+          </div>
+        )}
+      </div>
+    );
+  };
+
 
   const handleLogin = (e) => {
     e.preventDefault();
@@ -179,15 +263,10 @@ function App() {
                       onChange={(e) => setInputName(e.target.value)}
                     />
 
-                    <select
+                    <SearchableLanguageSelect
                       value={loginLang}
-                      onChange={(e) => setLoginLang(e.target.value)}
-                    >
-                      <option value="">Select Language</option>
-                      <option value="en">English</option>
-                      <option value="hi">Hindi</option>
-                      <option value="mr">Marathi</option>
-                    </select>
+                      onChange={setLoginLang}
+                    />
 
                     <button type="submit">Login</button>
                   </form>
