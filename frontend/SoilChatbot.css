@@ -4,14 +4,18 @@
   max-width: 480px;
   margin: 40px auto;
   border-radius: 20px;
-  background: #ffffff;
+  background: var(--card-bg);
   display: flex;
   flex-direction: column;
-  font-family: "Poppins", sans-serif;
+  font-family: Poppins, sans-serif;
   box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
   overflow: hidden;
   animation: fadeInUp 0.5s ease;
   position: relative;
+}
+
+.theme-dark .soil-chatbot {
+  border: 1px solid var(--border-color);
 }
 
 /* 🌿 Header */
@@ -53,7 +57,7 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  background: #fdfdfd;
+  background: var(--chat-window-bg);
   scroll-behavior: smooth;
 }
 
@@ -81,8 +85,8 @@
 /* Bot message */
 .chat-message.bot {
   align-self: flex-start;
-  background: #f1f1f5;
-  color: #333;
+  background: var(--chat-bot-bg);
+  color: var(--text-primary);
   border-bottom-left-radius: 6px;
   box-shadow: 0 3px 6px rgba(0, 0, 0, 0.08);
 }

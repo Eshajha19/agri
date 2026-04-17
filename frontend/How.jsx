@@ -5,41 +5,51 @@ export default function How() {
   const steps = [
     {
       icon: "📡",
-      title: "Data Collection",
-      desc: "We gather live weather, soil, and market data from trusted sources.",
+      title: "Collect Farm Data",
+      desc: "Gather soil condition, crop type, weather patterns, and location-based insights.",
+      color: "blue",
     },
     {
       icon: "🤖",
-      title: "AI Processing",
-      desc: "Our AI analyzes the data and generates personalized advice.",
+      title: "Smart AI Analysis",
+      desc: "AI studies the data and generates accurate recommendations for farmers.",
+      color: "green",
+    },
+    {
+      icon: "🌱",
+      title: "Crop Suggestions",
+      desc: "Receive the best crop, fertilizer, and irrigation guidance for maximum yield.",
+      color: "yellow",
+    },
+    {
+      icon: "☁️",
+      title: "Weather Monitoring",
+      desc: "Stay updated with rainfall, temperature, and storm alerts in real time.",
+      color: "purple",
     },
     {
       icon: "📱",
-      title: "Easy Access",
-      desc: "Farmers get insights through mobile-friendly dashboards & voice support.",
-    },
-    {
-      icon: "🌐",
-      title: "Multilingual",
-      desc: "Available in English, Hindi, Marathi, and regional languages.",
-    },
-    {
-      icon: "📶",
-      title: "Offline Access",
-      desc: "Guidance is stored so you can use it even without internet.",
+      title: "Easy Dashboard Access",
+      desc: "View all insights on a clean, mobile-friendly dashboard anytime, anywhere.",
+      color: "orange",
     },
     {
       icon: "🚜",
-      title: "Smarter Farming",
-      desc: "Better crop planning, water saving, and increased profits.",
+      title: "Better Farming Results",
+      desc: "Improve productivity, reduce waste, and increase profits with smarter decisions.",
+      color: "red",
     },
   ];
 
   return (
     <section className="howitworks">
       <div className="howitworks-header">
-        <h1>🚀 How It Works</h1>
-        <p>From data to decisions — simple steps to empower farmers.</p>
+        <span className="section-tag">How It Works</span>
+        <h1>Transforming Farm Data into Smart Decisions</h1>
+        <p>
+          Our platform simplifies farming by turning complex data into clear,
+          actionable insights for better crop planning and productivity.
+        </p>
       </div>
 
       <div className="steps">
@@ -49,9 +59,14 @@ export default function How() {
             className="step-card fade-up"
             data-step={index + 1}
           >
+            <div className="step-number">0{index + 1}</div>
+
             <div className="step-icon">{step.icon}</div>
-            <h3>{step.title}</h3>
-            <p>{step.desc}</p>
+
+            <div className="step-content">
+              <h3>{step.title}</h3>
+              <p>{step.desc}</p>
+            </div>
           </div>
         ))}
       </div>

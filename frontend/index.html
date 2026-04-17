@@ -4,10 +4,42 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/x-icon" href="public/favicon.ico" />
+
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("theme");
+          var theme =
+            stored === "light" || stored === "dark"
+              ? stored
+              : window.matchMedia &&
+                window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+          if (theme === "dark") document.documentElement.classList.add("theme-dark");
+        } catch (e) {
+          // Ignore (private mode / blocked storage)
+        }
+      })();
+    </script>
     <title>Fasal Saathi</title>
   </head>
   <body>
     <div id="root"></div>
+    <div id="google_translate_element" style="opacity: 0; position: absolute; z-index: -1"></div>
+    <script type="text/javascript">
+      function googleTranslateElementInit() {
+        new google.translate.TranslateElement({
+          pageLanguage: 'en', 
+          autoDisplay: false,
+        }, 'google_translate_element');
+      }
+    </script>
+    <script
+      type="text/javascript"
+      src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"
+      defer
+    ></script>
     <script type="module" src="/main.jsx"></script>
   </body>
 </html>
