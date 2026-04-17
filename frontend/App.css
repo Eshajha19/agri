@@ -557,3 +557,66 @@ iframe.goog-te-banner-frame.skiptranslate {
   border: none !important;
   box-shadow: none !important;
 }
+.nav-links {
+  display: flex;
+  list-style: none;
+  gap: 20px;
+}
+
+.nav-link {
+  text-decoration: none;
+  color: white;
+}
+
+.nav-link.active {
+  border-bottom: 2px solid green;
+  font-weight: bold;
+}
+:root {
+  --primary: #2e7d32;
+  --primary-light: #66bb6a;
+  --bg-light: #ffffff;
+  --bg-dark: #121212;
+}
+.nav-link {
+  position: relative;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-weight: 600;
+  color: #d5d0d0;
+  transition: all 0.25s ease;
+}
+
+/* Hover */
+.nav-link:hover {
+  color: var(--primary);
+  background: rgba(46, 125, 50, 0.08);
+}
+
+/* ACTIVE */
+.nav-link.active {
+  color: #fff;
+  background: linear-gradient(135deg, var(--primary), var(--primary-light));
+  box-shadow: 0 6px 18px rgba(46, 125, 50, 0.35);
+  transform: translateY(-1px);
+}
+.nav-link::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  width: 0%;
+  height: 2px;
+  background: var(--primary);
+  transition: all 0.3s ease;
+  transform: translateX(-50%);
+}
+
+.nav-link:hover::after {
+  width: 60%;
+}
+
+.nav-link.active::after {
+  width: 80%;
+  background: #fff;
+}
