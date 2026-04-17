@@ -22,7 +22,6 @@ app.add_middleware(
 
 @app.get("/predict")
 def predict():
-    """It takes input the data from the dataset."""
     # Dummy input matching training features
     input_df = pd.DataFrame([{
         "NDVI": 4800,
