@@ -6,7 +6,7 @@ import How from "./How";
 import Home from "./Home";
 import { FaHome, FaComments, FaInfoCircle, FaLeaf, FaBars, FaTimes } from "react-icons/fa";
 
-// 🔹 ScrollToTop component
+// Scroll to top
 function ScrollToTop() {
   const { pathname } = useLocation();
   useEffect(() => {
@@ -27,71 +27,45 @@ function App() {
     localStorage.getItem("preferredLanguage") || ""
   );
 
-  // ✅ NEW STATES
   const [search, setSearch] = useState("");
   const [isLangOpen, setIsLangOpen] = useState(false);
 
+  // ✅ Language list with aliases (FIXED SEARCH)
   const languageOptions = [
-    { code: "en", label: "🌍 English" },
-    { code: "hi", label: "🇮🇳 हिंदी" },
-    { code: "mr", label: "🇮🇳 मराठी" },
-    { code: "bn", label: "🇮🇳 বাংলা" },
-    { code: "ta", label: "🇮🇳 தமிழ்" },
-    { code: "te", label: "🇮🇳 తెలుగు" },
-    { code: "gu", label: "🇮🇳 ગુજરાતી" },
-    { code: "pa", label: "🇮🇳 ਪੰਜਾਬੀ" },
-    { code: "kn", label: "🇮🇳 ಕನ್ನಡ" },
-    { code: "ml", label: "🇮🇳 മലയാളം" },
-    { code: "or", label: "🇮🇳 ଓଡ଼ିଆ" },
+    { code: "en", label: "🌍 English", aliases: ["english", "en"] },
+    { code: "hi", label: "🇮🇳 हिंदी", aliases: ["hindi", "hi"] },
+    { code: "mr", label: "🇮🇳 मराठी", aliases: ["marathi", "mr"] },
+    { code: "bn", label: "🇮🇳 বাংলা", aliases: ["bengali", "bn"] },
+    { code: "ta", label: "🇮🇳 தமிழ்", aliases: ["tamil", "ta"] },
+    { code: "te", label: "🇮🇳 తెలుగు", aliases: ["telugu", "te"] },
+    { code: "gu", label: "🇮🇳 ગુજરાતી", aliases: ["gujarati", "gu"] },
+    { code: "pa", label: "🇮🇳 ਪੰਜਾਬੀ", aliases: ["punjabi", "pa", "pu"] },
+    { code: "kn", label: "🇮🇳 ಕನ್ನಡ", aliases: ["kannada", "kn"] },
+    { code: "ml", label: "🇮🇳 മലയാളം", aliases: ["malayalam", "ml"] },
+    { code: "or", label: "🇮🇳 ଓଡ଼ିଆ", aliases: ["odia", "or"] },
   ];
 
-  // ✅ FIXED FILTER LOGIC
   const filteredLanguages = languageOptions.filter((lang) => {
-    const searchText = search.toLowerCase();
-    const label = lang.label.toLowerCase();
-    const code = lang.code.toLowerCase();
-
-    const aliases = {
-      en: "english",
-      hi: "hindi",
-      mr: "marathi",
-      bn: "bengali",
-      ta: "tamil",
-      te: "telugu",
-      gu: "gujarati",
-      pa: "punjabi",
-      kn: "kannada",
-      ml: "malayalam",
-      or: "odia",
-    };
-
+    const text = search.toLowerCase();
     return (
-      label.includes(searchText) ||
-      code.includes(searchText) ||
-      aliases[code]?.includes(searchText)
+      lang.label.toLowerCase().includes(text) ||
+      lang.aliases.some((alias) => alias.includes(text))
     );
   });
 
   const handleLogin = (e) => {
     e.preventDefault();
 
-    if (!inputName.trim()) {
-      alert("Name is required");
-      return;
-    }
-
-    if (!loginLang) {
-      alert("Please select a language");
-      return;
-    }
+    if (!inputName.trim()) return alert("Name is required");
+    if (!loginLang) return alert("Please select a language");
 
     localStorage.setItem("farmerName", inputName);
     localStorage.setItem("preferredLanguage", loginLang);
 
     setName(inputName);
     setPreferredLang(loginLang);
-
     setInputName("");
+
     window.location.href = "/";
   };
 
@@ -112,39 +86,23 @@ function App() {
         <nav className="navbar">
           <div className="nav-left">
             <FaLeaf className="icon" />
-            <Link to="/" className="brand">
-              Fasal Saathi
-            </Link>
+            <Link to="/" className="brand">Fasal Saathi</Link>
           </div>
 
           <ul className={`nav-center ${isOpen ? "active" : ""}`}>
-            <li>
-              <Link to="/" onClick={() => setIsOpen(false)}>
-                <FaHome className="icon" /> Home
-              </Link>
-            </li>
-            <li>
-              <Link to="/advisor" onClick={() => setIsOpen(false)}>
-                <FaComments className="icon" /> Chat
-              </Link>
-            </li>
-            <li>
-              <Link to="/how-it-works" onClick={() => setIsOpen(false)}>
-                <FaInfoCircle className="icon" /> How It Works
-              </Link>
-            </li>
+            <li><Link to="/" onClick={() => setIsOpen(false)}><FaHome /> Home</Link></li>
+            <li><Link to="/advisor" onClick={() => setIsOpen(false)}><FaComments /> Chat</Link></li>
+            <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}><FaInfoCircle /> How It Works</Link></li>
           </ul>
 
           <div className="nav-right">
-            <button
-              onClick={() => setSunlight(!sunlight)}
-              className="sunlight-toggle"
-            >
-              {sunlight ? "👁️ Normal View" : "☀️ Sunlight Mode"}
+            <button onClick={() => setSunlight(!sunlight)} className="sunlight-toggle">
+              {sunlight ? "👁️ Normal" : "☀️ Sunlight"}
             </button>
 
-            {/* ✅ SEARCHABLE LANGUAGE DROPDOWN (FIXED) */}
+            {/* LANGUAGE DROPDOWN */}
             <div className="lang-dropdown">
+
               <button
                 className="lang-selected"
                 onClick={() => setIsLangOpen(!isLangOpen)}
@@ -158,6 +116,7 @@ function App() {
 
               {isLangOpen && (
                 <div className="lang-menu" role="listbox">
+
                   <input
                     type="text"
                     placeholder="Search language..."
@@ -184,7 +143,7 @@ function App() {
                       </button>
                     ))
                   ) : (
-                    <div className="lang-item">No language found</div>
+                    <div className="lang-item">No results found</div>
                   )}
                 </div>
               )}
@@ -194,15 +153,11 @@ function App() {
             <div className="nav-user">
               {name ? (
                 <>
-                  👋 Welcome, {name}!
-                  <button className="logout-btn" onClick={handleLogout}>
-                    Logout
-                  </button>
+                  👋 {name}
+                  <button className="logout-btn" onClick={handleLogout}>Logout</button>
                 </>
               ) : (
-                <Link to="/login" onClick={() => setIsOpen(false)}>
-                  Login
-                </Link>
+                <Link to="/login">Login</Link>
               )}
             </div>
           </div>
@@ -215,7 +170,7 @@ function App() {
         {/* ALERT */}
         {showAlert && (
           <div className="alert-bar">
-            🌧️ Weather Alert: Heavy rainfall expected in parts of Maharashtra this evening.
+            🌧️ Heavy rainfall expected today
             <button className="close-btn" onClick={() => setShowAlert(false)}>
               <FaTimes />
             </button>
@@ -228,37 +183,34 @@ function App() {
           <Route path="/advisor" element={<Advisor />} />
           <Route path="/how-it-works" element={<How />} />
 
-          <Route
-            path="/login"
-            element={
-              <div className="login-page">
-                <div className="login-card">
-                  <h2>👨‍🌾 Farmer Login</h2>
+          <Route path="/login" element={
+            <div className="login-page">
+              <div className="login-card">
+                <h2>👨‍🌾 Farmer Login</h2>
 
-                  <form onSubmit={handleLogin}>
-                    <input
-                      type="text"
-                      placeholder="Enter your name"
-                      value={inputName}
-                      onChange={(e) => setInputName(e.target.value)}
-                    />
+                <form onSubmit={handleLogin}>
+                  <input
+                    type="text"
+                    placeholder="Enter your name"
+                    value={inputName}
+                    onChange={(e) => setInputName(e.target.value)}
+                  />
 
-                    <select
-                      value={loginLang}
-                      onChange={(e) => setLoginLang(e.target.value)}
-                    >
-                      <option value="">Select Language</option>
-                      <option value="en">English</option>
-                      <option value="hi">Hindi</option>
-                      <option value="mr">Marathi</option>
-                    </select>
+                  <select
+                    value={loginLang}
+                    onChange={(e) => setLoginLang(e.target.value)}
+                  >
+                    <option value="">Select Language</option>
+                    <option value="en">English</option>
+                    <option value="hi">Hindi</option>
+                    <option value="mr">Marathi</option>
+                  </select>
 
-                    <button type="submit">Login</button>
-                  </form>
-                </div>
+                  <button type="submit">Login</button>
+                </form>
               </div>
-            }
-          />
+            </div>
+          }/>
         </Routes>
       </div>
     </Router>
