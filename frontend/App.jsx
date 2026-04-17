@@ -1,13 +1,12 @@
-import React, { useState, useEffect, useRef } from "react";
-import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { BrowserRouter as Router, Routes, Route, Link, useLocation } from "react-router-dom";
 import "./App.css";
 import Advisor from "./Advisor";
 import How from "./How";
 import Home from "./Home";
 import { FaHome, FaComments, FaInfoCircle, FaLeaf, FaBars, FaTimes } from "react-icons/fa";
-import { useLocation } from "react-router-dom";
 
-// 🔹 ScrollToTop component to fix navigation positioning
+// 🔹 ScrollToTop component
 function ScrollToTop() {
   const { pathname } = useLocation();
   useEffect(() => {
@@ -28,6 +27,29 @@ function App() {
     localStorage.getItem("preferredLanguage") || ""
   );
 
+  // ✅ NEW STATES
+  const [search, setSearch] = useState("");
+  const [isLangOpen, setIsLangOpen] = useState(false);
+
+  const languageOptions = [
+    { code: "en", label: "🌍 English" },
+    { code: "hi", label: "🇮🇳 हिंदी" },
+    { code: "mr", label: "🇮🇳 मराठी" },
+    { code: "bn", label: "🇮🇳 বাংলা" },
+    { code: "ta", label: "🇮🇳 தமிழ்" },
+    { code: "te", label: "🇮🇳 తెలుగు" },
+    { code: "gu", label: "🇮🇳 ગુજરાતી" },
+    { code: "pa", label: "🇮🇳 ਪੰਜਾਬੀ" },
+    { code: "kn", label: "🇮🇳 ಕನ್ನಡ" },
+    { code: "ml", label: "🇮🇳 മലയാളം" },
+    { code: "or", label: "🇮🇳 ଓଡ଼ିଆ" },
+  ];
+
+  const filteredLanguages = languageOptions.filter((lang) =>
+  lang.label.toLowerCase().includes(search.toLowerCase()) ||
+  lang.code.toLowerCase().includes(search.toLowerCase()) ||
+  lang.label.toLowerCase().replace(/[^a-z]/g, "").includes(search.toLowerCase())
+);
 
   const handleLogin = (e) => {
     e.preventDefault();
@@ -65,7 +87,6 @@ function App() {
       <ScrollToTop />
       <div className={sunlight ? "app sunlight" : "app"}>
 
-        {/* Navbar */}
         {/* NAVBAR */}
         <nav className="navbar">
           <div className="nav-left">
@@ -101,30 +122,48 @@ function App() {
               {sunlight ? "👁️ Normal View" : "☀️ Sunlight Mode"}
             </button>
 
-            {/* Language Dropdown */}
-            {/* LANGUAGE SELECT */}
-            <select
-              className="lang-select"
-              value={preferredLang}
-              onChange={(e) => {
-                const lang = e.target.value;
-                setPreferredLang(lang);
-                localStorage.setItem("preferredLanguage", lang);
-              }}
-            >
-              <option value="">Select Language</option>
-              <option value="en">🌍 English</option>
-              <option value="hi">🇮🇳 हिंदी</option>
-              <option value="mr">🇮🇳 मराठी</option>
-              <option value="bn">🇮🇳 বাংলা</option>
-              <option value="ta">🇮🇳 தமிழ்</option>
-              <option value="te">🇮🇳 తెలుగు</option>
-              <option value="gu">🇮🇳 ગુજરાતી</option>
-              <option value="pa">🇮🇳 ਪੰਜਾਬੀ</option>
-              <option value="kn">🇮🇳 ಕನ್ನಡ</option>
-              <option value="ml">🇮🇳 മലയാളം</option>
-              <option value="or">🇮🇳 ଓଡ଼ିଆ</option>
-            </select>
+            {/* ✅ SEARCHABLE LANGUAGE DROPDOWN */}
+            <div className="lang-dropdown">
+              <div
+                className="lang-selected"
+                onClick={() => setIsLangOpen(!isLangOpen)}
+              >
+                {preferredLang
+                  ? languageOptions.find((l) => l.code === preferredLang)?.label
+                  : "Select Language"}
+              </div>
+
+              {isLangOpen && (
+                <div className="lang-menu">
+                  <input
+                    type="text"
+                    placeholder="Search language..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="lang-search"
+                  />
+
+                  {filteredLanguages.length > 0 ? (
+                    filteredLanguages.map((lang) => (
+                      <div
+                        key={lang.code}
+                        className="lang-item"
+                        onClick={() => {
+                          setPreferredLang(lang.code);
+                          localStorage.setItem("preferredLanguage", lang.code);
+                          setIsLangOpen(false);
+                          setSearch("");
+                        }}
+                      >
+                        {lang.label}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="lang-item">No language found</div>
+                  )}
+                </div>
+              )}
+            </div>
 
             {/* USER */}
             <div className="nav-user">

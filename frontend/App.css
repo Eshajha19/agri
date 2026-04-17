@@ -492,3 +492,61 @@ body,
   border: 3px solid #000 !important;
   border-radius: 4px !important;
 }
+/* 🌿 LANGUAGE DROPDOWN - MATCHING NAVBAR */
+
+.lang-dropdown {
+  position: relative;
+}
+
+.lang-selected {
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  padding: 10px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  backdrop-filter: blur(6px);
+  transition: all 0.3s ease;
+}
+
+.lang-selected:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.lang-menu {
+  position: absolute;
+  top: 45px;
+  width: 220px;
+  background: #ffffff;
+  border-radius: 10px;
+  overflow: hidden;
+  border: none;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+}
+
+.lang-search {
+  width: 100%;
+  padding: 10px;
+  border: none;
+  outline: none;
+  font-size: 0.95rem;
+  border-bottom: 1px solid #eee;
+}
+
+.lang-item {
+  padding: 10px 14px;
+  cursor: pointer;
+  color: #333;
+  transition: all 0.2s ease;
+}
+
+.lang-item:hover {
+  background: var(--brand-primary);
+  color: white;
+}
+.lang-selected::after {
+  content: " ▼";
+  font-size: 0.7rem;
+}
