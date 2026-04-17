@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   FaSeedling,
@@ -8,6 +8,10 @@ import {
   FaChartLine,
   FaPhoneAlt,
   FaQuoteLeft,
+  FaFlask,
+  FaLeaf,
+  FaLock,
+  FaGlobe,
 } from "react-icons/fa";
 import "./Home.css";
 
@@ -16,31 +20,82 @@ export default function Home() {
     {
       icon: <FaBrain />,
       title: "AI-Powered Predictions",
-      desc: "Smart crop yield predictions using advanced machine learning",
+      desc: "Smart crop yield predictions using advanced machine learning algorithms",
+      category: "Analytics",
     },
     {
       icon: <FaSun />,
       title: "Weather Insights",
-      desc: "Real-time weather forecasts tailored for farming decisions",
+      desc: "Real-time weather forecasts and custom alerts tailored for your farm",
+      category: "Monitoring",
     },
     {
       icon: <FaHandHoldingWater />,
-      title: "Irrigation Advice",
-      desc: "Smart irrigation recommendations to optimize water usage",
+      title: "Smart Irrigation",
+      desc: "Optimize water usage with AI-driven irrigation recommendations",
+      category: "Optimization",
     },
     {
       icon: <FaChartLine />,
       title: "Yield Optimization",
       desc: "Maximize your harvest with data-driven farming strategies",
+      category: "Analytics",
+    },
+    {
+      icon: <FaFlask />,
+      title: "Soil Analysis",
+      desc: "Comprehensive soil health monitoring and nutrient level analysis",
+      category: "Monitoring",
+    },
+    {
+      icon: <FaLeaf />,
+      title: "Crop Recommendations",
+      desc: "Get crop suggestions based on soil profile and regional climate",
+      category: "Recommendations",
+    },
+    {
+      icon: <FaChartLine />,
+      title: "Fertilizer Guidance",
+      desc: "Personalized fertilizer and pesticide recommendations",
+      category: "Recommendations",
+    },
+    {
+      icon: <FaLock />,
+      title: "Secure & Private",
+      desc: "Enterprise-grade security with Firebase authentication",
+      category: "Protection",
     },
   ];
 
   const stats = [
-    { number: "50K+", label: "Farmers Helped" },
-    { number: "120+", label: "Crop Types" },
-    { number: "98%", label: "Accuracy" },
-    { number: "24/7", label: "Support" },
+    { target: 50, suffix: "K+", label: "Farmers Helped" },
+    { target: 120, suffix: "+", label: "Crop Types" },
+    { target: 98, suffix: "%", label: "Accuracy" },
+    { target: 24, suffix: "/7", label: "Support" },
   ];
+
+  const [statValues, setStatValues] = useState(stats.map(() => 1));
+
+  useEffect(() => {
+    const duration = 1400;
+    const startTime = performance.now();
+    let rafId = 0;
+
+    const animateStats = (currentTime) => {
+      const progress = Math.min((currentTime - startTime) / duration, 1);
+
+      setStatValues(
+        stats.map((stat) => Math.max(1, Math.floor(stat.target * progress)))
+      );
+
+      if (progress < 1) {
+        rafId = requestAnimationFrame(animateStats);
+      }
+    };
+
+    rafId = requestAnimationFrame(animateStats);
+    return () => cancelAnimationFrame(rafId);
+  }, []);
 
   const testimonials = [
     {
@@ -67,28 +122,33 @@ export default function Home() {
           <div className="hero-pattern"></div>
         </div>
         <div className="hero-content">
-          <div className="hero-badge">
-            <FaSeedling /> AI-Powered Farming Assistant
-          </div>
-          <h1 className="hero-title">
-            Smart Farming with <span className="highlight">AI</span>
-          </h1>
-          <p className="hero-subtitle">
-            Get AI-driven crop recommendations, weather insights, and yield predictions
-            to maximize your agricultural productivity.
-          </p>
-          <div className="hero-buttons">
-            <Link to="/advisor" className="btn-primary">
-              Get Started
-            </Link>
-            <Link to="/how-it-works" className="btn-secondary">
-              Learn More
-            </Link>
+          <div className="hero-copy">
+            <div className="hero-badge">
+              <FaSeedling /> AI-Powered Farming Assistant
+            </div>
+            <h1 className="hero-title">
+              Smart Farming with <span className="highlight">AI</span>
+            </h1>
+            <p className="hero-subtitle">
+              Get AI-driven crop recommendations, weather insights, and yield predictions
+              to maximize your agricultural productivity.
+            </p>
+            <div className="hero-buttons">
+              <Link to="/advisor" className="btn-primary">
+                Get Started
+              </Link>
+              <Link to="/how-it-works" className="btn-secondary">
+                Learn More
+              </Link>
+            </div>
           </div>
           <div className="hero-stats">
             {stats.map((stat, index) => (
               <div key={index} className="stat-item">
-                <span className="stat-number">{stat.number}</span>
+                <span className="stat-number">
+                  {statValues[index]}
+                  {stat.suffix}
+                </span>
                 <span className="stat-label">{stat.label}</span>
               </div>
             ))}
@@ -118,6 +178,7 @@ export default function Home() {
         <div className="features-grid">
           {features.map((feature, index) => (
             <div key={index} className="feature-card">
+              <div className="feature-category">{feature.category}</div>
               <div className="feature-icon">{feature.icon}</div>
               <h3>{feature.title}</h3>
               <p>{feature.desc}</p>

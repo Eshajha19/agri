@@ -216,6 +216,7 @@
   background: #fff !important;
 }
 
+/* Weather overlay */
 .weather-overlay {
   position: fixed;
   top: 0;
