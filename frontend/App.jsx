@@ -6,6 +6,7 @@ import Home from "./Home";
 import How from "./How";
 import "./App.css";
 import { FaLeaf, FaHome, FaComments, FaInfoCircle, FaTimes, FaBars } from "react-icons/fa";
+import { NavLink } from "react-router-dom";
 
 
 const LANGUAGE_OPTIONS = [
@@ -147,21 +148,42 @@ function App() {
             </Link>
           </div>
 
-          <ul className={`nav-center ${isOpen ? "active" : ""}`}>
+         <ul className="nav-links">
             <li>
-              <Link to="/" onClick={() => setIsOpen(false)}>
+              <NavLink
+                to="/"
+                end
+                onClick={() => setIsOpen(false)}
+                className={({ isActive }) =>
+                  isActive ? "nav-link active" : "nav-link"
+                }
+              >
                 <FaHome className="icon" /> Home
-              </Link>
+              </NavLink>
             </li>
+
             <li>
-              <Link to="/advisor" onClick={() => setIsOpen(false)}>
+              <NavLink
+                to="/advisor"
+                onClick={() => setIsOpen(false)}
+                className={({ isActive }) =>
+                  isActive ? "nav-link active" : "nav-link"
+                }
+              >
                 <FaComments className="icon" /> Chat
-              </Link>
+              </NavLink>
             </li>
+
             <li>
-              <Link to="/how-it-works" onClick={() => setIsOpen(false)}>
+              <NavLink
+                to="/how-it-works"
+                onClick={() => setIsOpen(false)}
+                className={({ isActive }) =>
+                  isActive ? "nav-link active" : "nav-link"
+                }
+              >
                 <FaInfoCircle className="icon" /> How It Works
-              </Link>
+              </NavLink>
             </li>
           </ul>
 
