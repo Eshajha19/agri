@@ -429,60 +429,56 @@ body,
 }
 
 .nav-user {
+  margin-left: 0 !important;
+}
 
-  margin-left: 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 1rem;
-  font-weight: 600;
-  color: white;
-  background: rgba(255, 255, 255, 0.1);
-  padding: 6px 14px;
-  border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  backdrop-filter: blur(8px);
-  transition: all 0.3s ease;
 
-  @media (max-width: 768px) {
-    .nav-user {
-      margin-left: 0 !important;
-    }
+@media (max-width: 768px) {
+  .navbar {
+    padding: 15px 20px;
+    flex-wrap: wrap;
   }
-}
 
-.nav-user:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
+  .nav-left {
+    flex: 1;
+  }
 
-.nav-user a {
-  color: #fff !important;
-  text-decoration: none;
-  transition: color 0.3s ease;
-}
+  .hamburger {
+    display: block;
+    text-align: right;
+  }
 
-.nav-user a:hover {
-  color: #dff9fb;
-}
+  .nav-center {
+    display: none;
+    flex-direction: column;
+    gap: 15px;
+    width: 100%;
+    background: #27ae60;
+    padding: 15px 0 5px;
+  }
 
-.nav-user .logout-btn {
-  background: #ff4d4d;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  padding: 5px 10px;
-  cursor: pointer;
-  font-size: 0.85rem;
-  transition: background 0.3s ease;
-}
+  .nav-center.active {
+    display: flex;
+    animation: slideDown 0.3s ease-in-out;
+  }
 
-.nav-user .logout-btn:hover {
-  background: #cc0000;
-}
+  .nav-right {
+    display: none;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+    text-align: center;
+    background: #27ae60;
+    padding-bottom: 15px;
+    align-items: center;
+  }
 
-.sunlight .sunlight-toggle {
-  background: #000 !important;
-  color: #fff !important;
-  border: 3px solid #000 !important;
-  border-radius: 4px !important;
+  .nav-right.active {
+    display: flex !important;
+    animation: slideDown 0.3s ease-in-out;
+  }
+
+  .nav-user {
+    margin-left: 0 !important;
+  }
 }
