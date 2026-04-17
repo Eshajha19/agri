@@ -530,9 +530,12 @@ body,
   width: 100%;
   padding: 10px;
   border: none;
-  outline: none;
   font-size: 0.95rem;
   border-bottom: 1px solid #eee;
+}
+
+.lang-search:focus {
+  outline: 2px solid #27ae60;
 }
 
 .lang-item {

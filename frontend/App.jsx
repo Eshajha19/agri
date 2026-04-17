@@ -45,11 +45,32 @@ function App() {
     { code: "or", label: "🇮🇳 ଓଡ଼ିଆ" },
   ];
 
-  const filteredLanguages = languageOptions.filter((lang) =>
-  lang.label.toLowerCase().includes(search.toLowerCase()) ||
-  lang.code.toLowerCase().includes(search.toLowerCase()) ||
-  lang.label.toLowerCase().replace(/[^a-z]/g, "").includes(search.toLowerCase())
-);
+  // ✅ FIXED FILTER LOGIC
+  const filteredLanguages = languageOptions.filter((lang) => {
+    const searchText = search.toLowerCase();
+    const label = lang.label.toLowerCase();
+    const code = lang.code.toLowerCase();
+
+    const aliases = {
+      en: "english",
+      hi: "hindi",
+      mr: "marathi",
+      bn: "bengali",
+      ta: "tamil",
+      te: "telugu",
+      gu: "gujarati",
+      pa: "punjabi",
+      kn: "kannada",
+      ml: "malayalam",
+      or: "odia",
+    };
+
+    return (
+      label.includes(searchText) ||
+      code.includes(searchText) ||
+      aliases[code]?.includes(searchText)
+    );
+  });
 
   const handleLogin = (e) => {
     e.preventDefault();
@@ -122,19 +143,21 @@ function App() {
               {sunlight ? "👁️ Normal View" : "☀️ Sunlight Mode"}
             </button>
 
-            {/* ✅ SEARCHABLE LANGUAGE DROPDOWN */}
+            {/* ✅ SEARCHABLE LANGUAGE DROPDOWN (FIXED) */}
             <div className="lang-dropdown">
-              <div
+              <button
                 className="lang-selected"
                 onClick={() => setIsLangOpen(!isLangOpen)}
+                aria-haspopup="listbox"
+                aria-expanded={isLangOpen}
               >
                 {preferredLang
                   ? languageOptions.find((l) => l.code === preferredLang)?.label
                   : "Select Language"}
-              </div>
+              </button>
 
               {isLangOpen && (
-                <div className="lang-menu">
+                <div className="lang-menu" role="listbox">
                   <input
                     type="text"
                     placeholder="Search language..."
@@ -145,7 +168,7 @@ function App() {
 
                   {filteredLanguages.length > 0 ? (
                     filteredLanguages.map((lang) => (
-                      <div
+                      <button
                         key={lang.code}
                         className="lang-item"
                         onClick={() => {
@@ -154,9 +177,11 @@ function App() {
                           setIsLangOpen(false);
                           setSearch("");
                         }}
+                        role="option"
+                        aria-selected={preferredLang === lang.code}
                       >
                         {lang.label}
-                      </div>
+                      </button>
                     ))
                   ) : (
                     <div className="lang-item">No language found</div>
