@@ -668,7 +668,7 @@ iframe.goog-te-banner-frame.skiptranslate {
   color: #000;
   font-size: 0.95rem;
   font-weight: 700;
-  font-family: "Poppins", sans-serif;
+  font-family: Poppins, sans-serif;
   padding: 8px 14px;
   border-radius: 8px;
   border: 2px solid transparent;
@@ -702,7 +702,7 @@ iframe.goog-te-banner-frame.skiptranslate {
   border: none;
   border-bottom: 1px solid #eee;
   font-size: 0.9rem;
-  font-family: "Poppins", sans-serif;
+  font-family: Poppins, sans-serif;
   outline: none;
   background: #fff;
   color: #000;
@@ -723,7 +723,7 @@ iframe.goog-te-banner-frame.skiptranslate {
   align-items: center;
   padding: 10px 14px;
   font-size: 0.92rem;
-  font-family: "Poppins", sans-serif;
+  font-family: Poppins, sans-serif;
   color: #111;
   cursor: pointer;
   transition: background 0.15s ease;
@@ -775,4 +775,13 @@ iframe.goog-te-banner-frame.skiptranslate {
 
 .theme-dark .lang-dropdown-item--selected {
   background: #1b5e20;
+}
+.lang-dropdown-item--focused {
+  background: #d4edda;
+  outline: 2px solid #2e7d32;
+}
+
+.theme-dark .lang-dropdown-item--focused {
+  background: #1b5e20;
+  outline: 2px solid #66bb6a;
 }
