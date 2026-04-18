@@ -1,12 +1,25 @@
 import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
-import "./App.css";
+
 import Advisor from "./Advisor";
 import Home from "./Home";
+import Resources from "./Resources";
+import CropGuide from "./CropGuide";
+import {
+  FaHome,
+  FaComments,
+  FaInfoCircle,
+  FaLeaf,
+  FaBars,
+  FaTimes,
+} from "react-icons/fa";
 import How from "./How";
 import { FaLeaf, FaHome, FaComments, FaInfoCircle, FaTimes, FaBars } from "react-icons/fa";
 import { NavLink } from "react-router-dom";
 
+import "./App.css";
+
+/* ---------------- LANGUAGE ---------------- */
 
 const LANGUAGE_OPTIONS = [
   { value: "en", label: "🌍 English" },
@@ -23,64 +36,68 @@ const LANGUAGE_OPTIONS = [
   { value: "as", label: "🇮🇳 অসমীয়া" },
 ];
 
-const getInitialPreferredLanguage = () => {
+const getInitialLanguage = () => {
   try {
-    const storedLanguage = localStorage.getItem("preferredLanguage");
-    return LANGUAGE_OPTIONS.some((option) => option.value === storedLanguage)
-      ? storedLanguage
+    const stored = localStorage.getItem("preferredLanguage");
+    return LANGUAGE_OPTIONS.some((l) => l.value === stored)
+      ? stored
       : "en";
   } catch {
     return "en";
   }
 };
 
-const applyLanguageToGoogleTranslate = (language) => {
-  const gtCombo = document.querySelector(".goog-te-combo");
-  if (!gtCombo) {
-    return false;
-  }
+/* ---------------- GOOGLE TRANSLATE CONTROL ---------------- */
 
-  gtCombo.value = language;
-  gtCombo.dispatchEvent(new Event("change"));
+const applyGoogleTranslate = (lang) => {
+  const el = document.querySelector(".goog-te-combo");
+  if (!el) return false;
+
+  el.value = lang;
+  el.dispatchEvent(new Event("change"));
   return true;
 };
 
-const syncPreferredLanguage = (language, setPreferredLang) => {
-  setPreferredLang(language);
-  localStorage.setItem("preferredLanguage", language);
-  applyLanguageToGoogleTranslate(language);
+const syncLanguage = (lang, setLang) => {
+  setLang(lang);
+  localStorage.setItem("preferredLanguage", lang);
+  applyGoogleTranslate(lang);
 };
 
+/* ---------------- APP ---------------- */
 
 function App() {
-  const [preferredLang, setPreferredLang] = useState(getInitialPreferredLanguage);
+  const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
   const [isOpen, setIsOpen] = useState(false);
-  const [themeAnimNonce, setThemeAnimNonce] = useState(0);
 
-  const getInitialTheme = () => {
-    try {
-      const stored = localStorage.getItem("theme");
-      if (stored === "light" || stored === "dark") return stored;
-    } catch {
-      // ignore
-    }
-    return window.matchMedia &&
-      window.matchMedia("(prefers-color-scheme: dark)").matches
-      ? "dark"
-      : "light";
-  };
-
-  const [theme, setTheme] = useState(getInitialTheme);
+  const [theme, setTheme] = useState(() => {
+    return localStorage.getItem("theme") || "light";
+  });
 
   const [name, setName] = useState(localStorage.getItem("farmerName") || "");
   const [inputName, setInputName] = useState("");
 
-  const handleThemeToggle = () => {
-    setTheme((t) => (t === "dark" ? "light" : "dark"));
-    setThemeAnimNonce((n) => n + 1);
-  };
+  /* ---------------- THEME ---------------- */
+  useEffect(() => {
+    document.documentElement.classList.toggle(
+      "theme-dark",
+      theme === "dark"
+    );
+    localStorage.setItem("theme", theme);
+  }, [theme]);
 
+  /* ---------------- LANGUAGE AUTO APPLY ---------------- */
+  useEffect(() => {
+    if (applyGoogleTranslate(preferredLang)) return;
 
+    const id = setInterval(() => {
+      if (applyGoogleTranslate(preferredLang)) clearInterval(id);
+    }, 300);
+
+    return () => clearInterval(id);
+  }, [preferredLang]);
+
+  /* ---------------- LOGIN ---------------- */
   const handleLogin = (e) => {
     e.preventDefault();
 
@@ -90,9 +107,7 @@ function App() {
     }
 
     localStorage.setItem("farmerName", inputName);
-
     setName(inputName);
-
     setInputName("");
     window.location.href = "/";
   };
@@ -103,41 +118,16 @@ function App() {
     window.location.href = "/";
   };
 
-  useEffect(() => {
-    const root = document.documentElement;
-    root.classList.toggle("theme-dark", theme === "dark");
-    try {
-      localStorage.setItem("theme", theme);
-    } catch {
-      // ignore
-    }
-  }, [theme]);
+  const handleThemeToggle = () => {
+    setTheme((t) => (t === "dark" ? "light" : "dark"));
+  };
 
-  useEffect(() => {
-    if (applyLanguageToGoogleTranslate(preferredLang)) {
-      return;
-    }
-
-    let attempts = 0;
-    const maxAttempts = 20;
-    const retryId = window.setInterval(() => {
-      attempts += 1;
-      const applied = applyLanguageToGoogleTranslate(preferredLang);
-      if (applied || attempts >= maxAttempts) {
-        window.clearInterval(retryId);
-      }
-    }, 300);
-
-    return () => {
-      window.clearInterval(retryId);
-    };
-  }, [preferredLang]);
+  /* ---------------- UI ---------------- */
 
   return (
     <Router>
-      <div className="app">
+      <div className={`app ${theme === "dark" ? "theme-dark" : ""}`}>
 
-        {/* Navbar */}
         {/* NAVBAR */}
         <nav className="navbar">
           <div className="nav-left">
@@ -158,6 +148,11 @@ function App() {
               >
                 <FaHome className="icon" /> Home
               </NavLink>
+          <ul className={`nav-center ${isOpen ? "active" : ""}`}>
+            <li>
+              <Link to="/" onClick={() => setIsOpen(false)}>
+                <FaHome /> Home
+              </Link>
             </li>
 
             <li>
@@ -170,6 +165,9 @@ function App() {
               >
                 <FaComments className="icon" /> Chat
               </NavLink>
+              <Link to="/advisor" onClick={() => setIsOpen(false)}>
+                <FaComments /> Chat
+              </Link>
             </li>
 
             <li>
@@ -182,57 +180,52 @@ function App() {
               >
                 <FaInfoCircle className="icon" /> How It Works
               </NavLink>
+              <Link to="/how-it-works" onClick={() => setIsOpen(false)}>
+                <FaInfoCircle /> How It Works
+              </Link>
+            </li>
+            <li>
+              <Link to="/crop-guide" onClick={() => setIsOpen(false)}>
+                <FaLeaf className="icon" /> Crop Guide
+              </Link>
             </li>
           </ul>
 
           <div className="nav-right">
-            <button
-              type="button"
-              onClick={handleThemeToggle}
-              className="theme-toggle"
-              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-              aria-pressed={theme === "dark"}
-              title={theme === "dark" ? "Light mode" : "Dark mode"}
-            >
-              <span key={themeAnimNonce} className="theme-toggle-icon">
-                {theme === "dark" ? "☀️" : "🌙"}
-              </span>
+            <button onClick={handleThemeToggle}>
+              {theme === "dark" ? "☀️" : "🌙"}
             </button>
 
-            {/* Language Dropdown */}
-            {/* LANGUAGE SELECT */}
             <select
-              className="lang-select"
+              className="lang-select notranslate"
               value={preferredLang}
-              onChange={(e) => {
-                syncPreferredLanguage(e.target.value, setPreferredLang);
-              }}
+              onChange={(e) =>
+                syncLanguage(e.target.value, setPreferredLang)
+              }
             >
-              {LANGUAGE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
+              {LANGUAGE_OPTIONS.map((l) => (
+                <option key={l.value} value={l.value}>
+                  {l.label}
                 </option>
               ))}
             </select>
 
-            {/* USER */}
             <div className="nav-user">
               {name ? (
                 <>
-                  👋 Welcome, {name}!
-                  <button className="logout-btn" onClick={handleLogout}>
-                    Logout
-                  </button>
+                  👋 {name}
+                  <button onClick={handleLogout}>Change User</button>
                 </>
               ) : (
-                <Link to="/login" onClick={() => setIsOpen(false)}>
-                  Login
-                </Link>
+                <Link to="/login">Get Started</Link>
               )}
             </div>
           </div>
 
-          <button className="hamburger" onClick={() => setIsOpen(!isOpen)}>
+          <button
+            className="hamburger"
+            onClick={() => setIsOpen(!isOpen)}
+          >
             {isOpen ? <FaTimes /> : <FaBars />}
           </button>
         </nav>
@@ -257,20 +250,6 @@ function App() {
                       value={inputName}
                       onChange={(e) => setInputName(e.target.value)}
                     />
-
-                    <select
-                      value={preferredLang}
-                      onChange={(e) => {
-                        syncPreferredLanguage(e.target.value, setPreferredLang);
-                      }}
-                      style={{ marginBottom: "18px" }}
-                    >
-                      {LANGUAGE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
 
                     <button type="submit">Login</button>
                   </form>
