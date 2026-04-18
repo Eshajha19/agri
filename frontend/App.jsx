@@ -17,6 +17,7 @@ import How from "./How";
 import { NavLink } from "react-router-dom";
 
 import "./App.css";
+import LanguageDropdown from "./LanguageDropdown";
 
 /* ---------------- LANGUAGE ---------------- */
 
@@ -163,20 +164,12 @@ function App() {
             <button onClick={handleThemeToggle}>
               {theme === "dark" ? "☀️" : "🌙"}
             </button>
-
-            <select
-              className="lang-select notranslate"
+            
+            <LanguageDropdown
+              options={LANGUAGE_OPTIONS}
               value={preferredLang}
-              onChange={(e) =>
-                syncLanguage(e.target.value, setPreferredLang)
-              }
-            >
-              {LANGUAGE_OPTIONS.map((l) => (
-                <option key={l.value} value={l.value}>
-                  {l.label}
-                </option>
-              ))}
-            </select>
+              onChange={(val) => syncLanguage(val, setPreferredLang)}
+            />
 
             <div className="nav-user">
               {name ? (
