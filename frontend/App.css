@@ -490,8 +490,68 @@ body,
     padding: 14px 0;
   }
 }
+.form-group {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+}
 
+.form-group label {
+  margin-bottom: 5px;
+}
 
+.form-group input {
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 16px;
+}
+
+.social-login {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 20px;
+}
+
+.social-login::before {
+  content: "OR continue with -";
+  margin-bottom: 10px;
+  font-size: 1rem;
+  color: #333;
+}
+
+.social-icons {
+  display: flex;
+  gap: 20px;
+}
+
+.social-icons a {
+  color: #333;
+  text-decoration: none;
+}
+
+.social-icons a:hover {
+  opacity: 0.8;
+}
+
+.social-icons svg {
+  font-size: 24px;
+}
+
+.social-login p {
+  margin-top: 10px;
+  text-align: center;
+}
+
+.social-login a {
+  color: #007bff;
+  text-decoration: none;
+}
+
+.social-login a:hover {
+  text-decoration: underline;
+}
 .nav-user {
   margin-left: auto;
   display: flex;

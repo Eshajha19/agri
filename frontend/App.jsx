@@ -5,6 +5,7 @@ import Advisor from "./Advisor";
 import Home from "./Home";
 import Resources from "./Resources";
 import CropGuide from "./CropGuide";
+import { FaGoogle, FaTwitter, FaFacebook } from "react-icons/fa";
 import {
   FaHome,
   FaComments,
@@ -218,9 +219,24 @@ function App() {
                       value={inputName}
                       onChange={(e) => setInputName(e.target.value)}
                     />
-
                     <button type="submit">Login</button>
                   </form>
+                  <div className="social-login">
+                  <div className="social-icons">
+                    <a href="/auth/google">
+                      <FaGoogle />
+                    </a>
+                    <a href="/auth/twitter">
+                      <FaTwitter />
+                    </a>
+                    <a href="/auth/facebook">
+                      <FaFacebook />
+                    </a>
+                  </div>
+                  <p>
+                    Don't have an account? <Link to="/register">Register here</Link>
+                  </p>
+                </div>
                 </div>
               </div>
             }
