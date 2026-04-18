@@ -68,7 +68,7 @@ function LanguageDropdown({ options, value, onChange }) {
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setFocusedIndex((i) => Math.max(i - 1, 0));
-    } else if (e.key === "Enter" && focusedIndex >= 0) {
+    } else if (e.key === "Enter" && focusedIndex >= 0 && sorted.length > 0) {
       e.preventDefault();
       handleSelect(sorted[focusedIndex].value);
     }
