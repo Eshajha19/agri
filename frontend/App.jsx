@@ -7,7 +7,8 @@ import {
   FaLeaf, 
   FaBars, 
   FaTimes, 
-  FaChevronDown 
+  FaChevronDown,
+  FaArrowUp
 } from "react-icons/fa";
 import { ToastContainer } from "react-toastify";
 
@@ -71,6 +72,7 @@ function App() {
   const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
   const [isOpen, setIsOpen] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "light");
+  const [showScrollTop, setShowScrollTop] = useState(false);
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [profileCompleted, setProfileCompleted] = useState(true);
@@ -85,6 +87,31 @@ function App() {
     document.documentElement.classList.toggle("theme-dark", theme === "dark");
     localStorage.setItem("theme", theme);
   }, [theme]);
+
+  /* ---------------- SCROLL TO TOP ---------------- */
+  useEffect(() => {
+    const threshold = 300;
+    let timeoutId = null;
+
+    const onScroll = () => {
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+      timeoutId = window.setTimeout(() => {
+        setShowScrollTop(window.scrollY > threshold);
+      }, 100);
+    };
+
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+
+    return () => {
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, []);
 
   /* ---------------- LANGUAGE AUTO-TRANS ---------------- */
   useEffect(() => {
@@ -141,6 +168,10 @@ function App() {
 
   const handleThemeToggle = () => {
     setTheme((t) => (t === "dark" ? "light" : "dark"));
+  };
+
+  const handleScrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   return (
@@ -252,6 +283,18 @@ function App() {
         <Route path="/login" element={<Auth />} />
         <Route path="/profile-setup" element={<ProfileSetup />} />
       </Routes>
+
+      {showScrollTop && (
+        <button
+          type="button"
+          className="scroll-top-btn"
+          onClick={handleScrollToTop}
+          aria-label="Scroll to top"
+          title="Back to top"
+        >
+          <FaArrowUp />
+        </button>
+      )}
 
       <ToastContainer position="bottom-right" />
     </div>
