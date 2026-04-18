@@ -222,6 +222,7 @@ function App() {
                     <button type="submit">Login</button>
                   </form>
                   <div className="social-login">
+                    <span className="separator">OR Continue with-</span>
                   <div className="social-icons">
                     <a href="/auth/google">
                       <FaGoogle />
