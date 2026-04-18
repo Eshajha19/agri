@@ -48,6 +48,18 @@ export default function Advisor() {
     WaterCov: 50,
     Season: "Rabi",
   });
+  const [showCropAdvisor, setShowCropAdvisor] = useState(false);
+  const [cropResult, setCropResult] = useState(null);
+  const [cropLoading, setCropLoading] = useState(false);
+  const [cropError, setCropError] = useState(null);
+
+  const [cropForm, setCropForm] = useState({
+    ph: "",
+    nitrogen: "",
+    phosphorus: "",
+    potassium: "",
+    location: "",
+  });
 
   const fetchYield = async (e) => {
     e.preventDefault();
@@ -72,6 +84,37 @@ export default function Advisor() {
       setYieldLoading(false);
     }
   };
+  const fetchCropRecommendation = async (e) => {
+  e.preventDefault();
+  setCropLoading(true);
+  setCropError(null);
+
+  try {
+    const res = await fetch("http://127.0.0.1:5000/api/crop/recommend", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(cropForm),
+    });
+
+    if (!res.ok) {
+      throw new Error("Server not responding");
+    }
+
+    const data = await res.json();
+
+    console.log("Response:", data); // 👈 DEBUG
+
+    setCropResult(data.crop);
+
+  } catch (err) {
+    console.error(err);
+    setCropError("Failed to get recommendation");
+  }
+
+  setCropLoading(false);
+};
 
   return (
     <section className="advisor">
@@ -197,6 +240,12 @@ export default function Advisor() {
             <h3>Pest Management</h3>
             <p>Early warnings & organic pest control tips.</p>
           </div>
+          
+          <div className="card reveal" onClick={() => setShowCropAdvisor(true)}>
+            <div className="icon">🌾</div>
+            <h3>Crop Recommendation</h3>
+            <p>Get AI-based crop suggestions based on soil data.</p>
+          </div>
 
           <div className="card reveal" onClick={() => setShowYieldPopup(true)}>
             <div className="icon">📊</div>
@@ -235,7 +284,15 @@ export default function Advisor() {
             </button>
             <h2>📊 Yield Prediction</h2>
             {yieldError && (
-              <div style={{ color: '#dc2626', marginBottom: '16px', padding: '12px', background: '#fef2f2', borderRadius: '8px' }}>
+              <div
+                style={{
+                  color: "#dc2626",
+                  marginBottom: "16px",
+                  padding: "12px",
+                  background: "#fef2f2",
+                  borderRadius: "8px",
+                }}
+              >
                 Error: {yieldError}
               </div>
             )}
@@ -444,20 +501,74 @@ export default function Advisor() {
         </div>
       )}
 
-      {showComingSoon && (
-        <div className="weather-overlay">
-          <div className="weather-popup coming-soon">
-            <h2>🚧 Coming Soon</h2>
-            <p>This feature is under development. Stay tuned!</p>
-            <button
-              className="close-btn"
-              onClick={() => setShowComingSoon(false)}
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
+    {showCropAdvisor && (
+  <div className="weather-overlay">
+    <div className="crop-popup">
+      <button
+        className="close-btn"
+        onClick={() => {
+          setShowCropAdvisor(false);
+          setCropResult(null);
+          setCropError(null);
+        }}
+      >
+        ✕
+      </button>
+<div className="crop-popup glass">
+
+  {/* <button
+    className="close-btn"
+    onClick={() => {
+      setShowCropAdvisor(false);
+      setCropResult(null);
+      setCropError(null);
+    }}
+  >
+    ✕
+  </button> */}
+
+  <h2 className="popup-title">🌾 Crop Recommendation</h2>
+
+  <p className="subtitle">
+    Smart AI suggestions based on your soil data
+  </p>
+
+  {cropError && <p style={{ color: "red" }}>{cropError}</p>}
+
+  {!cropResult ? (
+    <form onSubmit={fetchCropRecommendation}>
+      <div className="form-grid">
+        <input placeholder="🌱 Soil pH"
+          onChange={(e) => setCropForm({...cropForm, ph: e.target.value})} />
+
+        <input placeholder="🧪 Nitrogen (N)"
+          onChange={(e) => setCropForm({...cropForm, nitrogen: e.target.value})} />
+
+        <input placeholder="🧬 Phosphorus (P)"
+          onChange={(e) => setCropForm({...cropForm, phosphorus: e.target.value})} />
+
+        <input placeholder="⚡ Potassium (K)"
+          onChange={(e) => setCropForm({...cropForm, potassium: e.target.value})} />
+
+        <input className="full-width" placeholder="📍 Location"
+          onChange={(e) => setCropForm({...cropForm, location: e.target.value})} />
+      </div>
+
+      <button className="recommend-btn" type="submit" disabled={cropLoading}>
+        {cropLoading ? "🌿 Analyzing..." : "🚀 Get Recommendation"}
+      </button>
+    </form>
+  ) : (
+    <div className="result-card animate-result">
+      🌿 Recommended Crop:
+      <br />
+      <strong>{cropResult}</strong>
+    </div>
+  )}
+</div>
+    </div>
+  </div>
+)}
 
       <br />
       <br />
