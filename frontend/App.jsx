@@ -158,6 +158,11 @@ function App() {
                 <FaLeaf className="icon" /> Crop Guide
               </Link>
             </li>
+            <li>
+      <Link to="/resources" onClick={() => setIsOpen(false)}>
+                Resources
+      </Link>
+      </li>
           </ul>
 
           <div className="nav-right">
@@ -196,6 +201,8 @@ function App() {
           <Route path="/" element={<Home />} />
           <Route path="/advisor" element={<Advisor />} />
           <Route path="/how-it-works" element={<How />} />
+          <Route path="/crop-guide" element={<CropGuide />} />
+          <Route path="/resources" element={<Resources />} />
 
           <Route
             path="/login"
