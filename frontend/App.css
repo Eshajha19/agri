@@ -587,7 +587,7 @@ iframe.goog-te-banner-frame.skiptranslate {
   gap: 6px;
 
   font-weight: 500;
-  color: #eef3fc;   /* single source */
+  color: #e5e7eb;    /* single source */
   padding: 6px 4px;
 
   transition: all 0.25s ease;
@@ -595,7 +595,7 @@ iframe.goog-te-banner-frame.skiptranslate {
 
 /* Hover effect */
 .nav-link:hover {
-  color: #111827;
+  color: #ffffff;
   transform: translateY(-1px);
 }
 
@@ -617,8 +617,8 @@ iframe.goog-te-banner-frame.skiptranslate {
 
 /* ACTIVE STATE (most important) */
 .nav-link.active {
-  color: #2563eb;
-  font-weight: 600;
+  color: #4ade80;
+  font-weight: 500;
   display: flex;
 }
 /* Active underline stays */
@@ -653,4 +653,7 @@ iframe.goog-te-banner-frame.skiptranslate {
   .hamburger {
     display: block;
   }
+}
+.navbar.open .nav-right {
+  display: flex;
 }

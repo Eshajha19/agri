@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect,useRef  } from "react";
 import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
 import "./App.css";
 import Advisor from "./Advisor";
@@ -7,6 +7,8 @@ import How from "./How";
 import { FaLeaf, FaHome, FaComments, FaInfoCircle, FaTimes, FaBars } from "react-icons/fa";
 import { NavLink } from "react-router-dom";
 import Loader from "./component/loader";
+import { useNavigate } from "react-router-dom";
+
 
 
 const LANGUAGE_OPTIONS = [
@@ -54,6 +56,8 @@ const syncPreferredLanguage = (language, setPreferredLang) => {
 
 
 function App() {
+  const navigate = useNavigate();
+  const isProcessing = useRef(false);
   const [loading, setLoading] = useState(false);
   const [preferredLang, setPreferredLang] = useState(getInitialPreferredLanguage);
   const [isOpen, setIsOpen] = useState(false);
@@ -82,40 +86,43 @@ function App() {
     setThemeAnimNonce((n) => n + 1);
   };
 
-
   const handleLogin = async (e) => {
-  e.preventDefault();
+    e.preventDefault();
 
-  if (!inputName.trim()) {
-    alert("Name is required");
-    return;
-  }
+    if (isProcessing.current) return;
+
+    const trimmed = inputName.trim();
+    if (!trimmed) {
+      alert("Name is required");
+      return;
+    }
+
+    isProcessing.current = true;
+    setLoading(true);
+
+    try {
+      localStorage.setItem("farmerName", trimmed);
+      setName(trimmed);
+      setInputName("");
+
+      navigate("/");
+    } finally {
+      setLoading(false);
+      isProcessing.current = false;
+    }
+  };
+
+const handleLogout = async () => {
+  if (loading) return; // re-entrancy guard
 
   setLoading(true);
-
-  try {
-    await new Promise((res) => setTimeout(res, 500)); // simulate delay
-
-    localStorage.setItem("farmerName", inputName);
-    setName(inputName);
-    setInputName("");
-
-    window.location.href = "/";
-  } finally {
-    setLoading(false);
-  }
-};
-
-  const handleLogout = async () => {
-  setLoading(true);
-
   try {
     await new Promise((res) => setTimeout(res, 300));
 
     localStorage.removeItem("farmerName");
     setName("");
 
-    window.location.href = "/";
+    navigate("/");
   } finally {
     setLoading(false);
   }
@@ -152,12 +159,15 @@ function App() {
   }, [preferredLang]);
 
   return (
-    <Router>
       <div className="app">
-         {loading && <Loader />}
+         {loading && (
+              <div className="loader-overlay">
+                <Loader />
+              </div>
+            )}
         {/* Navbar */}
         {/* NAVBAR */}
-        <nav className="navbar">
+        <nav className={`navbar ${isOpen ? "open" : ""}`}>
           <div className="nav-left">
             <FaLeaf className="icon" />
             <Link to="/" className="brand">
@@ -165,7 +175,8 @@ function App() {
             </Link>
           </div>
 
-      <ul className={`nav-links ${isOpen ? "active" : ""}`}>            <li>
+      <ul className={`nav-links ${isOpen ? "active" : ""}`}>            
+        <li>
               <NavLink
                 to="/"
                 end
@@ -298,7 +309,6 @@ function App() {
           />
         </Routes>
       </div>
-    </Router>
   );
 }
 
