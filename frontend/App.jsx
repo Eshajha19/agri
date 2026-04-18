@@ -5,6 +5,8 @@ import Advisor from "./Advisor";
 import Home from "./Home";
 import Resources from "./Resources";
 import CropGuide from "./CropGuide";
+import { ToastContainer } from "react-toastify";
+import useNotifications from "./Notifications";
 import {
   FaHome,
   FaComments,
@@ -18,22 +20,23 @@ import { NavLink } from "react-router-dom";
 import { useUiStore } from "./stores/uiStore";
 
 import "./App.css";
+import LanguageDropdown from "./LanguageDropdown";
 
 /* ---------------- LANGUAGE ---------------- */
 
 const LANGUAGE_OPTIONS = [
-  { value: "en", label: "🌍 English" },
-  { value: "hi", label: "🇮🇳 हिंदी" },
-  { value: "mr", label: "🇮🇳 मराठी" },
-  { value: "bn", label: "🇮🇳 বাংলা" },
-  { value: "ta", label: "🇮🇳 தமிழ்" },
-  { value: "te", label: "🇮🇳 తెలుగు" },
-  { value: "gu", label: "🇮🇳 ગુજરાતી" },
-  { value: "pa", label: "🇮🇳 ਪੰਜਾਬੀ" },
-  { value: "kn", label: "🇮🇳 ಕನ್ನಡ" },
-  { value: "ml", label: "🇮🇳 മലയാളം" },
-  { value: "or", label: "🇮🇳 ଓଡ଼ିଆ" },
-  { value: "as", label: "🇮🇳 অসমীয়া" },
+  { value: "en", label: "🌍 English", englishName: "english" },
+  { value: "hi", label: "🇮🇳 हिंदी", englishName: "hindi" },
+  { value: "mr", label: "🇮🇳 मराठी", englishName: "marathi" },
+  { value: "bn", label: "🇮🇳 বাংলা", englishName: "bengali" },
+  { value: "ta", label: "🇮🇳 தமிழ்", englishName: "tamil" },
+  { value: "te", label: "🇮🇳 తెలుగు", englishName: "telugu" },
+  { value: "gu", label: "🇮🇳 ગુજરાતી", englishName: "gujarati" },
+  { value: "pa", label: "🇮🇳 ਪੰਜਾਬੀ", englishName: "punjabi" },
+  { value: "kn", label: "🇮🇳 ಕನ್ನಡ", englishName: "kannada" },
+  { value: "ml", label: "🇮🇳 മലയാളം", englishName: "malayalam" },
+  { value: "or", label: "🇮🇳 ଓଡ଼ିଆ", englishName: "odia" },
+  { value: "as", label: "🇮🇳 অসমীয়া", englishName: "assamese" },
 ];
 
 const getInitialLanguage = () => {
@@ -67,20 +70,19 @@ const syncLanguage = (lang, setLang) => {
 /* APP COMPONENT */
 
 function App() {
-  const {
-    preferredLang,
-    setPreferredLang,
-    isNavOpen,
-    setNavOpen,
-    theme,
-    setTheme,
-    farmerName,
-    setFarmerName,
-    inputName,
-    setInputName,
-  } = useUiStore();
+  const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
+  const [isOpen, setIsOpen] = useState(false);
+  const [sunlight, setSunlight] = useState(false); 
+  useNotifications();
 
-  /* Apply theme changes */
+  const [theme, setTheme] = useState(() => {
+    return localStorage.getItem("theme") || "light";
+  });
+
+  const [name, setName] = useState(localStorage.getItem("farmerName") || "");
+  const [inputName, setInputName] = useState("");
+
+  /* ---------------- THEME ---------------- */
   useEffect(() => {
     document.documentElement.classList.toggle("theme-dark", theme === "dark");
   }, [theme]);
@@ -163,6 +165,15 @@ function App() {
                 <FaLeaf className="icon" /> Crop Guide
               </Link>
             </li>
+            <li>
+              <Link to="/crop-guide" onClick={() => setIsOpen(false)}>
+                <FaLeaf className="icon" /> Crop Guide
+              </Link>
+            </li>
+      <Link to="/resources" onClick={() => setIsOpen(false)}>
+                Resources
+      </Link>
+      </li>
           </ul>
 
           <div className="nav-right">
@@ -170,17 +181,11 @@ function App() {
               {theme === "dark" ? "☀️" : "🌙"}
             </button>
 
-            <select
-              className="lang-select notranslate"
+            <LanguageDropdown
+              options={LANGUAGE_OPTIONS}
               value={preferredLang}
-              onChange={handleLangChange}
-            >
-              {LANGUAGE_OPTIONS.map((l) => (
-                <option key={l.value} value={l.value}>
-                  {l.label}
-                </option>
-              ))}
-            </select>
+              onChange={(val) => syncLanguage(val, setPreferredLang)}
+            />
 
             <div className="nav-user">
               {farmerName ? (
@@ -207,6 +212,8 @@ function App() {
           <Route path="/" element={<Home />} />
           <Route path="/advisor" element={<Advisor />} />
           <Route path="/how-it-works" element={<How />} />
+          <Route path="/crop-guide" element={<CropGuide />} />
+          <Route path="/resources" element={<Resources />} />
 
           <Route
             path="/login"
@@ -231,6 +238,8 @@ function App() {
           />
         </Routes>
       </div>
+
+       <ToastContainer />
     </Router>
   );
 }
