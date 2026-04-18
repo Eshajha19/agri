@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import "./Advisor.css";
 import WeatherCard from "./weather/WeatherCard";
 import SoilChatbot from "./SoilChatbot";
+import Loader from "./component/loader";
 import {
   Sun,
   Droplets,
@@ -51,25 +52,31 @@ export default function Advisor() {
 
   const fetchYield = async (e) => {
     e.preventDefault();
+    if (yieldLoading) return;
+
     setYieldLoading(true);
     setYieldError(null);
+
     try {
       const response = await fetch("/predict", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(yieldForm),
-      });
-      if (!response.ok) {
-        throw new Error(`Server error: ${response.status}`);
-      }
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(yieldForm),
+          });
+
+          if (!response.ok) {
+            throw new Error(`Server error: ${response.status}`);
+          }
+
       const data = await response.json();
       setYieldPrediction(data.predicted_ExpYield);
       setShowYieldPopup(true);
     } catch (error) {
-      console.error("Error fetching yield:", error);
       setYieldError(error.message || "Failed to get prediction");
     } finally {
-      setYieldLoading(false);
+      setYieldLoading(false); // single exit point
     }
   };
 
@@ -412,7 +419,14 @@ export default function Advisor() {
                     className="action-btn"
                     disabled={yieldLoading}
                   >
-                    {yieldLoading ? "Predicting..." : "Predict Yield"}
+                    {yieldLoading ? (
+                      <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <Loader size={16} />
+                        Predicting...
+                      </span>
+                    ) : (
+                      "Predict Yield"
+                    )}
                   </button>
                   <button
                     type="button"

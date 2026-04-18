@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import "./SoilChatbot.css";
 import { FaMicrophone, FaStop, FaVolumeUp, FaPaperPlane, FaImage } from "react-icons/fa";
+import Loader from "./component/loader";
 
 function SoilChatbot({ onClose }) {
   const [messages, setMessages] = useState([
@@ -197,7 +198,11 @@ function SoilChatbot({ onClose }) {
             <div className="message-content">{msg.text}</div>
           </div>
         ))}
-        {isLoading && <div className="chat-message bot loading-dots">Thinking...</div>}
+        {isLoading && (
+            <div className="chat-message bot">
+              <Loader size={20} />
+            </div>
+          )}
         {isListening && <div className="chat-message user listening">Listening... 🎤</div>}
         <div ref={messagesEndRef} />
       </div>

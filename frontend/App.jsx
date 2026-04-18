@@ -6,6 +6,7 @@ import Home from "./Home";
 import How from "./How";
 import { FaLeaf, FaHome, FaComments, FaInfoCircle, FaTimes, FaBars } from "react-icons/fa";
 import { NavLink } from "react-router-dom";
+import Loader from "./component/loader";
 
 
 const LANGUAGE_OPTIONS = [
@@ -53,10 +54,11 @@ const syncPreferredLanguage = (language, setPreferredLang) => {
 
 
 function App() {
+  const [loading, setLoading] = useState(false);
   const [preferredLang, setPreferredLang] = useState(getInitialPreferredLanguage);
   const [isOpen, setIsOpen] = useState(false);
   const [themeAnimNonce, setThemeAnimNonce] = useState(0);
-
+  
   const getInitialTheme = () => {
     try {
       const stored = localStorage.getItem("theme");
@@ -81,27 +83,43 @@ function App() {
   };
 
 
-  const handleLogin = (e) => {
-    e.preventDefault();
+  const handleLogin = async (e) => {
+  e.preventDefault();
 
-    if (!inputName.trim()) {
-      alert("Name is required");
-      return;
-    }
+  if (!inputName.trim()) {
+    alert("Name is required");
+    return;
+  }
+
+  setLoading(true);
+
+  try {
+    await new Promise((res) => setTimeout(res, 500)); // simulate delay
 
     localStorage.setItem("farmerName", inputName);
-
     setName(inputName);
-
     setInputName("");
-    window.location.href = "/";
-  };
 
-  const handleLogout = () => {
+    window.location.href = "/";
+  } finally {
+    setLoading(false);
+  }
+};
+
+  const handleLogout = async () => {
+  setLoading(true);
+
+  try {
+    await new Promise((res) => setTimeout(res, 300));
+
     localStorage.removeItem("farmerName");
     setName("");
+
     window.location.href = "/";
-  };
+  } finally {
+    setLoading(false);
+  }
+};
 
   useEffect(() => {
     const root = document.documentElement;
@@ -136,7 +154,7 @@ function App() {
   return (
     <Router>
       <div className="app">
-
+         {loading && <Loader />}
         {/* Navbar */}
         {/* NAVBAR */}
         <nav className="navbar">
