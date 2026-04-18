@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect } from "react";
 import "./Advisor.css";
 import WeatherCard from "./weather/WeatherCard";
 import SoilChatbot from "./SoilChatbot";
@@ -10,68 +10,48 @@ import {
   Languages,
   WifiOff,
 } from "lucide-react";
+import { useAdvisorStore } from "./stores/advisorStore";
+import { useYieldPrediction } from "./hooks/useYieldPrediction";
 
 export default function Advisor() {
-  const [farmers, setFarmers] = useState(0);
-  const [crops, setCrops] = useState(0);
-  const [languages, setLanguages] = useState(0);
+  const {
+    farmers,
+    setCarmers,
+    crops,
+    setCrops,
+    languages,
+    setLanguages,
+    showWeather,
+    setShowWeather,
+    showSoilChatbot,
+    setShowSoilChatbot,
+    showComingSoon,
+    setShowComingSoon,
+  } = useAdvisorStore();
 
-  const [showWeather, setShowWeather] = useState(false);
-  const [showSoilChatbot, setShowSoilChatbot] = useState(false);
-  const [showComingSoon, setShowComingSoon] = useState(false);
+  const {
+    yieldForm,
+    updateYieldFormField,
+    yieldPrediction,
+    yieldError,
+    yieldLoading,
+    showYieldPopup,
+    fetchYield,
+    closeYieldPopup,
+  } = useYieldPrediction();
 
+  /* Animate stats on mount */
   useEffect(() => {
     let f = 0,
       c = 0,
       l = 0;
     const interval = setInterval(() => {
-      if (f < 5000) setFarmers((f += 50));
+      if (f < 5000) setCarmers((f += 50));
       if (c < 120) setCrops((c += 2));
       if (l < 10) setLanguages((l += 1));
     }, 50);
     return () => clearInterval(interval);
   }, []);
-  const [yieldPrediction, setYieldPrediction] = useState(null);
-  const [yieldError, setYieldError] = useState(null);
-  const [showYieldPopup, setShowYieldPopup] = useState(false);
-  const [yieldLoading, setYieldLoading] = useState(false);
-  const [yieldForm, setYieldForm] = useState({
-    Crop: "Paddy",
-    CropCoveredArea: 50,
-    CHeight: 50,
-    CNext: "Lentil",
-    CLast: "Pea",
-    CTransp: "Transplanting",
-    IrriType: "Flood",
-    IrriSource: "Groundwater",
-    IrriCount: 3,
-    WaterCov: 50,
-    Season: "Rabi",
-  });
-
-  const fetchYield = async (e) => {
-    e.preventDefault();
-    setYieldLoading(true);
-    setYieldError(null);
-    try {
-      const response = await fetch("/predict", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(yieldForm),
-      });
-      if (!response.ok) {
-        throw new Error(`Server error: ${response.status}`);
-      }
-      const data = await response.json();
-      setYieldPrediction(data.predicted_ExpYield);
-      setShowYieldPopup(true);
-    } catch (error) {
-      console.error("Error fetching yield:", error);
-      setYieldError(error.message || "Failed to get prediction");
-    } finally {
-      setYieldLoading(false);
-    }
-  };
 
   return (
     <section className="advisor">
@@ -205,7 +185,7 @@ export default function Advisor() {
           </div>
         </div>
       </div>
-      {showWeather && (
+          {showWeather && (
         <div className="weather-overlay">
           <div className="weather-popup">
             <WeatherCard onClose={() => setShowWeather(false)} />
@@ -225,11 +205,7 @@ export default function Advisor() {
           <div className="yield-popup">
             <button
               className="close-btn"
-              onClick={() => {
-                setShowYieldPopup(false);
-                setYieldPrediction(null);
-                setYieldError(null);
-              }}
+              onClick={closeYieldPopup}
             >
               ✕
             </button>
@@ -246,7 +222,7 @@ export default function Advisor() {
                   <select
                     value={yieldForm.Crop}
                     onChange={(e) =>
-                      setYieldForm({ ...yieldForm, Crop: e.target.value })
+                      updateYieldFormField("Crop", e.target.value)
                     }
                   >
                     <option value="Paddy">Paddy</option>
@@ -263,7 +239,7 @@ export default function Advisor() {
                   <select
                     value={yieldForm.Season}
                     onChange={(e) =>
-                      setYieldForm({ ...yieldForm, Season: e.target.value })
+                      updateYieldFormField("Season", e.target.value)
                     }
                   >
                     <option value="Rabi">Rabi</option>
@@ -276,10 +252,7 @@ export default function Advisor() {
                     type="number"
                     value={yieldForm.CropCoveredArea}
                     onChange={(e) =>
-                      setYieldForm({
-                        ...yieldForm,
-                        CropCoveredArea: parseFloat(e.target.value),
-                      })
+                      updateYieldFormField("CropCoveredArea", parseFloat(e.target.value))
                     }
                   />
                 </div>
@@ -289,10 +262,7 @@ export default function Advisor() {
                     type="number"
                     value={yieldForm.CHeight}
                     onChange={(e) =>
-                      setYieldForm({
-                        ...yieldForm,
-                        CHeight: parseInt(e.target.value),
-                      })
+                      updateYieldFormField("CHeight", parseInt(e.target.value))
                     }
                   />
                 </div>
@@ -301,7 +271,7 @@ export default function Advisor() {
                   <select
                     value={yieldForm.CNext}
                     onChange={(e) =>
-                      setYieldForm({ ...yieldForm, CNext: e.target.value })
+                      updateYieldFormField("CNext", e.target.value)
                     }
                   >
                     <option value="Pea">Pea</option>
@@ -321,7 +291,7 @@ export default function Advisor() {
                   <select
                     value={yieldForm.CLast}
                     onChange={(e) =>
-                      setYieldForm({ ...yieldForm, CLast: e.target.value })
+                      updateYieldFormField("CLast", e.target.value)
                     }
                   >
                     <option value="Lentil">Lentil</option>
@@ -341,7 +311,7 @@ export default function Advisor() {
                   <select
                     value={yieldForm.CTransp}
                     onChange={(e) =>
-                      setYieldForm({ ...yieldForm, CTransp: e.target.value })
+                      updateYieldFormField("CTransp", e.target.value)
                     }
                   >
                     <option value="Transplanting">Transplanting</option>
@@ -355,7 +325,7 @@ export default function Advisor() {
                   <select
                     value={yieldForm.IrriType}
                     onChange={(e) =>
-                      setYieldForm({ ...yieldForm, IrriType: e.target.value })
+                      updateYieldFormField("IrriType", e.target.value)
                     }
                   >
                     <option value="Flood">Flood</option>
@@ -369,7 +339,7 @@ export default function Advisor() {
                   <select
                     value={yieldForm.IrriSource}
                     onChange={(e) =>
-                      setYieldForm({ ...yieldForm, IrriSource: e.target.value })
+                      updateYieldFormField("IrriSource", e.target.value)
                     }
                   >
                     <option value="Groundwater">Groundwater</option>
@@ -385,10 +355,7 @@ export default function Advisor() {
                     type="number"
                     value={yieldForm.IrriCount}
                     onChange={(e) =>
-                      setYieldForm({
-                        ...yieldForm,
-                        IrriCount: parseInt(e.target.value),
-                      })
+                      updateYieldFormField("IrriCount", parseInt(e.target.value))
                     }
                   />
                 </div>
@@ -399,10 +366,7 @@ export default function Advisor() {
                     max="100"
                     value={yieldForm.WaterCov}
                     onChange={(e) =>
-                      setYieldForm({
-                        ...yieldForm,
-                        WaterCov: parseInt(e.target.value),
-                      })
+                      updateYieldFormField("WaterCov", parseInt(e.target.value))
                     }
                   />
                 </div>
@@ -417,7 +381,7 @@ export default function Advisor() {
                   <button
                     type="button"
                     className="action-btn secondary"
-                    onClick={() => setShowYieldPopup(false)}
+                    onClick={closeYieldPopup}
                   >
                     Cancel
                   </button>
@@ -432,8 +396,7 @@ export default function Advisor() {
                 <button
                   className="action-btn"
                   onClick={() => {
-                    setShowYieldPopup(false);
-                    setYieldPrediction(null);
+                    closeYieldPopup();
                   }}
                 >
                   Predict Another

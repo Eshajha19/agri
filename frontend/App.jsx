@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
 
 import Advisor from "./Advisor";
@@ -15,6 +15,7 @@ import {
 } from "react-icons/fa";
 import How from "./How";
 import { NavLink } from "react-router-dom";
+import { useUiStore } from "./stores/uiStore";
 
 import "./App.css";
 
@@ -63,29 +64,28 @@ const syncLanguage = (lang, setLang) => {
   applyGoogleTranslate(lang);
 };
 
-/* ---------------- APP ---------------- */
+/* APP COMPONENT */
 
 function App() {
-  const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
-  const [isOpen, setIsOpen] = useState(false);
+  const {
+    preferredLang,
+    setPreferredLang,
+    isNavOpen,
+    setNavOpen,
+    theme,
+    setTheme,
+    farmerName,
+    setFarmerName,
+    inputName,
+    setInputName,
+  } = useUiStore();
 
-  const [theme, setTheme] = useState(() => {
-    return localStorage.getItem("theme") || "light";
-  });
-
-  const [name, setName] = useState(localStorage.getItem("farmerName") || "");
-  const [inputName, setInputName] = useState("");
-
-  /* ---------------- THEME ---------------- */
+  /* Apply theme changes */
   useEffect(() => {
-    document.documentElement.classList.toggle(
-      "theme-dark",
-      theme === "dark"
-    );
-    localStorage.setItem("theme", theme);
+    document.documentElement.classList.toggle("theme-dark", theme === "dark");
   }, [theme]);
 
-  /* ---------------- LANGUAGE AUTO APPLY ---------------- */
+  /* Apply language changes with Google Translate */
   useEffect(() => {
     if (applyGoogleTranslate(preferredLang)) return;
 
@@ -96,7 +96,7 @@ function App() {
     return () => clearInterval(id);
   }, [preferredLang]);
 
-  /* ---------------- LOGIN ---------------- */
+  /* LOGIN handlers */
   const handleLogin = (e) => {
     e.preventDefault();
 
@@ -105,23 +105,29 @@ function App() {
       return;
     }
 
-    localStorage.setItem("farmerName", inputName);
-    setName(inputName);
+    setFarmerName(inputName);
     setInputName("");
     window.location.href = "/";
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("farmerName");
-    setName("");
+    setFarmerName("");
     window.location.href = "/";
   };
 
   const handleThemeToggle = () => {
-    setTheme((t) => (t === "dark" ? "light" : "dark"));
+    setTheme(theme === "dark" ? "light" : "dark");
   };
 
-  /* ---------------- UI ---------------- */
+  const handleLangChange = (e) => {
+    setPreferredLang(e.target.value);
+  };
+
+  const handleNavToggle = () => {
+    setNavOpen(!isNavOpen);
+  };
+
+  /* UI */
 
   return (
     <Router>
@@ -136,24 +142,24 @@ function App() {
             </Link>
           </div>
 
-          <ul className={`nav-center ${isOpen ? "active" : ""}`}>
+          <ul className={`nav-center ${isNavOpen ? "active" : ""}`}>
             <li>
-              <Link to="/" onClick={() => setIsOpen(false)}>
+              <Link to="/" onClick={() => setNavOpen(false)}>
                 <FaHome /> Home
               </Link>
             </li>
             <li>
-              <Link to="/advisor" onClick={() => setIsOpen(false)}>
+              <Link to="/advisor" onClick={() => setNavOpen(false)}>
                 <FaComments /> Chat
               </Link>
             </li>
             <li>
-              <Link to="/how-it-works" onClick={() => setIsOpen(false)}>
+              <Link to="/how-it-works" onClick={() => setNavOpen(false)}>
                 <FaInfoCircle /> How It Works
               </Link>
             </li>
             <li>
-              <Link to="/crop-guide" onClick={() => setIsOpen(false)}>
+              <Link to="/crop-guide" onClick={() => setNavOpen(false)}>
                 <FaLeaf className="icon" /> Crop Guide
               </Link>
             </li>
@@ -167,9 +173,7 @@ function App() {
             <select
               className="lang-select notranslate"
               value={preferredLang}
-              onChange={(e) =>
-                syncLanguage(e.target.value, setPreferredLang)
-              }
+              onChange={handleLangChange}
             >
               {LANGUAGE_OPTIONS.map((l) => (
                 <option key={l.value} value={l.value}>
@@ -179,9 +183,9 @@ function App() {
             </select>
 
             <div className="nav-user">
-              {name ? (
+              {farmerName ? (
                 <>
-                  👋 {name}
+                  👋 {farmerName}
                   <button onClick={handleLogout}>Change User</button>
                 </>
               ) : (
@@ -192,9 +196,9 @@ function App() {
 
           <button
             className="hamburger"
-            onClick={() => setIsOpen(!isOpen)}
+            onClick={handleNavToggle}
           >
-            {isOpen ? <FaTimes /> : <FaBars />}
+            {isNavOpen ? <FaTimes /> : <FaBars />}
           </button>
         </nav>
 
