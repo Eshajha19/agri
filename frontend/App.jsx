@@ -4,7 +4,6 @@ import "./App.css";
 import Advisor from "./Advisor";
 import Home from "./Home";
 import How from "./How";
-import "./App.css";
 import { FaLeaf, FaHome, FaComments, FaInfoCircle, FaTimes, FaBars } from "react-icons/fa";
 import { NavLink } from "react-router-dom";
 
@@ -148,8 +147,7 @@ function App() {
             </Link>
           </div>
 
-         <ul className="nav-links">
-            <li>
+      <ul className={`nav-links ${isOpen ? "active" : ""}`}>            <li>
               <NavLink
                 to="/"
                 end
