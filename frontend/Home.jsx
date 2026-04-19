@@ -15,6 +15,7 @@ import {
 } from "react-icons/fa";
 import WeatherAlertBar from "./weather/WeatherAlertBar";
 import WeatherQuickWidget from "./weather/WeatherQuickWidget";
+import { auth, isFirebaseConfigured } from "./lib/firebase";
 import "./Home.css";
 
 export default function Home() {
@@ -77,6 +78,18 @@ export default function Home() {
   ];
 
   const [statValues, setStatValues] = useState(stats.map(() => 1));
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    if (!isFirebaseConfigured()) {
+      setUser(null);
+      return;
+    }
+    const unsubscribe = auth?.onAuthStateChanged ? auth.onAuthStateChanged((u) => {
+      setUser(u);
+    }) : () => {};
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -151,7 +164,7 @@ export default function Home() {
               to maximize your agricultural productivity.
             </p>
             <div className="hero-buttons">
-              <Link to="/advisor" className="btn-primary">
+              <Link to={user ? "/advisor" : "/login"} className="btn-primary">
                 Get Started
               </Link>
               <Link to="/how-it-works" className="btn-secondary">
@@ -228,7 +241,7 @@ export default function Home() {
             <p>Receive personalized farming advice</p>
           </div>
         </div>
-        <Link to="/advisor" className="btn-primary">
+        <Link to={user ? "/advisor" : "/login"} className="btn-primary">
           Try It Now
         </Link>
       </section>
@@ -260,7 +273,7 @@ export default function Home() {
       <section className="cta-section">
         <h2>Ready to Transform Your Farm?</h2>
         <p>Join thousands of farmers already benefiting from AI-powered agriculture</p>
-        <Link to="/advisor" className="btn-primary">
+        <Link to={user ? "/advisor" : "/login"} className="btn-primary">
           Start Free Consultation
         </Link>
       </section>

@@ -1,0 +1,66 @@
+name: NSOC Label + Duplicate Handler
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  manage-issues:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Add label and handle duplicates
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const issueTitle = issue.title.toLowerCase();
+
+            // ✅ Always add NSOC label
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: ["NSOC'26"]
+            });
+
+            // 🔍 Check for duplicate issues
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open"
+            });
+
+            const similar = issues.find(i => 
+              i.number !== issue.number &&
+              i.title.toLowerCase().includes(issueTitle)
+            );
+
+            if (similar) {
+              // ⚠️ Comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `⚠️ Duplicate of #${similar.number}. Closing this issue.`
+              });
+
+              // 🏷️ Add duplicate label
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: ["duplicate"]
+              });
+
+              // ❌ Close issue
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: "closed"
+              });
+            }
