@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 from pydantic import BaseModel
 from typing import List
+from fastapi import HTTPException
 
 # Create FastAPI app
 app = FastAPI()
@@ -41,19 +42,23 @@ def predict():
     prediction = model.predict(input_df)[0]
     return {"predicted_yield": float(prediction)}
 
+
 @app.post("/predict-yield-lag")
 async def predict_yield_lag(input: YieldInput):
     try:
         data = input.data
-        
+        raise ValueError("Exactly 5 values are required")
+
         data = np.array(data).reshape(1, -1)
-        
+
         prediction = model_lag.predict(data)
-        
+
         return {
             "prediction": round(float(prediction[0]), 2),
             "model": "RandomForest Time Series (Lag Features)"
         }
-    
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail="Internal Server Error")
