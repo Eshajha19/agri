@@ -227,36 +227,11 @@ return () => {
     };
   }, []);
 
-  /* ---------------- AUTH & FIRESTORE SYNC ---------------- */
-  useEffect(() => {
-    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        const unsubscribeDoc = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
-          if (userDoc.exists()) {
-            const data = userDoc.data();
-            setUserData(data);
-            setProfileCompleted(data.profileCompleted === true);
-          } else {
-            setUserData(null);
-            setProfileCompleted(false);
-          }
-          setLoading(false);
-        }, (error) => {
-          console.error("Firestore sync error:", error);
-          setLoading(false);
-        });
-        return () => unsubscribeDoc();
-      } else {
-        setUserData(null);
-        setProfileCompleted(true);
-        setLoading(false);
-      }
-    });
-    return () => unsubscribeAuth();
-  }, []);
-
   const handleLogout = async () => {
+    if (!isFirebaseConfigured() || !auth) {
+      window.location.href = "/";
+      return;
+    }
     try {
       await signOut(auth);
       window.location.href = "/";

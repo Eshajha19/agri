@@ -155,12 +155,9 @@ const ProfileSetup = () => {
               <FaUser className="setup-icon" />
               <input
                 type="text"
-                placeholder="Full Name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
                 placeholder="Enter your full name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
                 className="setup-input"
                 required
               />
