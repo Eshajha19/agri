@@ -27,3 +27,26 @@ export default defineConfig([
     },
   },
 ])
+
+/**
+ * CSS Best Practices Guide (Manual Enforcement):
+ * 
+ * 1. Avoid !important - Use proper CSS specificity instead
+ *    - Bad:  .button { color: blue !important; }
+ *    - Good: .navbar .button { color: blue; }
+ * 
+ * 2. Use CSS Custom Properties for theming
+ *    - Bad:  .theme { color: #000 !important; }
+ *    - Good: :root.theme { --text-color: #000; } and use var(--text-color)
+ * 
+ * 3. Organize selectors by specificity (low to high)
+ *    - Start with base styles
+ *    - Add component-level overrides
+ *    - Use theme-specific classes last (with proper specificity, not !important)
+ * 
+ * 4. Reference: themes/sunlight.css demonstrates proper theme implementation
+ *    without relying on !important
+ * 
+ * 5. For CSS linting, use stylelint (https://stylelint.io/)
+ *    Configuration: .stylelintrc.json in project root (optional, for future enhancement)
+ */

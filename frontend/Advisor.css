@@ -11,7 +11,7 @@
 }
 
 .sunlight .advisor {
-  background: #fff !important;
+  background: #fff;
 }
 
 .floating-icons span {
@@ -212,8 +212,8 @@
 }
 
 .sunlight .card {
-  border: 4px solid #000 !important;
-  background: #fff !important;
+  border: 4px solid #000;
+  background: #fff;
 }
 
 /* Weather overlay */
@@ -591,9 +591,9 @@
   }
 
   .card {
-    opacity: 1 !important;
-    transform: translateY(0) !important;
-    animation: none !important;
+    opacity: 1;
+    transform: translateY(0);
+    animation: none;
   }
 
   .carousel {

@@ -55,42 +55,19 @@
   padding: 0;
 }
 
-/* Sunlight / High Contrast Mode */
-.sunlight {
-  --bg-primary: #ffffff !important;
-  --text-primary: #000000 !important;
-  --text-secondary: #000000 !important;
-  --brand-primary: #000000 !important;
-  --brand-hover: #1e293b !important;
-  --accent-color: #000000 !important;
-  --card-bg: #ffffff !important;
-  --border-color: #000000 !important;
-
-  --base-size: 22px !important;
-  --p-size: 1.5rem !important;
-
-  filter: contrast(1.1) brightness(1.02);
-}
-
-.sunlight * {
-  border-color: #000000 !important;
-  box-shadow: none !important;
-  text-shadow: none !important;
-}
-
-.sunlight .highlight {
-  -webkit-text-fill-color: initial !important;
-  color: #000 !important;
-  background: none !important;
-  font-size: 0.95em !important;
-  font-weight: 900 !important;
-  display: inline-block !important;
-}
-
-.sunlight .navbar a,
-.sunlight .navbar .brand,
-.sunlight .nav-user a {
-  color: #ffffff !important;
+/* Sunlight / High Contrast Mode - See themes/sunlight.css for full implementation */
+/* Using CSS custom properties and proper specificity instead of !important */
+:root.sunlight {
+  --bg-primary: #ffffff;
+  --text-primary: #000000;
+  --text-secondary: #000000;
+  --brand-primary: #000000;
+  --brand-hover: #1e293b;
+  --accent-color: #000000;
+  --card-bg: #ffffff;
+  --border-color: #000000;
+  --base-size: 22px;
+  --p-size: 1.5rem;
 }
 
 body {
@@ -163,9 +140,9 @@ a:hover {
 }
 
 .sunlight a {
-  color: #0000ee !important;
-  text-decoration: underline !important;
-  font-weight: 800 !important;
+  color: #0000ee;
+  text-decoration: underline;
+  font-weight: 800;
 }
 
 button {
@@ -186,25 +163,25 @@ button:hover {
 }
 
 .sunlight button {
-  background-color: #000000 !important;
-  color: #ffffff !important;
-  border: 4px solid #000000 !important;
-  font-weight: 900 !important;
+  background-color: #000000;
+  color: #ffffff;
+  border: 4px solid #000000;
+  font-weight: 900;
 }
 
 .sunlight .btn-primary,
 .sunlight .get-started {
-  background: #000 !important;
-  color: #fff !important;
-  border: 4px solid #000 !important;
-  font-weight: 800 !important;
-  text-decoration: none !important;
+  background: #000;
+  color: #fff;
+  border: 4px solid #000;
+  font-weight: 800;
+  text-decoration: none;
 }
 
 .sunlight .btn-secondary {
-  background: #fff !important;
-  color: #000 !important;
-  border: 4px solid #000 !important;
-  font-weight: 800 !important;
-  text-decoration: none !important;
+  background: #fff;
+  color: #000;
+  border: 4px solid #000;
+  font-weight: 800;
+  text-decoration: none;
 }

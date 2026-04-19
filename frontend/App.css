@@ -80,14 +80,14 @@ body,
 }
 
 .sunlight .theme-toggle {
-  background: #fff !important;
-  color: #000 !important;
-  border: 4px solid #000 !important;
-  font-weight: 900 !important;
+  background: #fff;
+  color: #000;
+  border: 4px solid #000;
+  font-weight: 900;
 }
 
 .sunlight .navbar {
-  background: #000 !important;
+  background: #000;
   border-bottom: 4px solid #000;
 }
 
@@ -177,9 +177,9 @@ body,
 }
 
 .sunlight .lang-select {
-  background: #fff !important;
-  color: #000 !important;
-  border: 4px solid #000 !important;
+  background: #fff;
+  color: #000;
+  border: 4px solid #000;
 }
 
 .hamburger {
@@ -441,9 +441,9 @@ body,
 }
 
 .sunlight .login-card button {
-  background: #000 !important;
-  color: #fff !important;
-  border: 4px solid #000 !important;
+  background: #000;
+  color: #fff;
+  border: 4px solid #000;
 }
 
 /* Hover and active states */
@@ -513,7 +513,7 @@ body,
 }
 
 .nav-user a {
-  color: #fff !important;
+  color: #fff;
   text-decoration: none;
   transition: color 0.3s ease;
 }
@@ -539,18 +539,18 @@ body,
 
 
 .sunlight .sunlight-toggle {
-  background: #000 !important;
-  color: #fff !important;
-  border: 3px solid #000 !important;
-  border-radius: 4px !important;
+  background: #000;
+  color: #fff;
+  border: 3px solid #000;
+  border-radius: 4px;
 }
 
 /* Google Translate overrides */
 iframe.goog-te-banner-frame.skiptranslate {
-  display: none !important;
+  display: none;
 }
 .goog-te-banner-frame {
-  display: none !important;
+  display: none;
 }
 #google_translate_element {
   top: 0;
@@ -559,15 +559,15 @@ iframe.goog-te-banner-frame.skiptranslate {
 
 /* Hide original text hover popup */
 .goog-tooltip {
-  display: none !important;
+  display: none;
 }
 .goog-tooltip:hover {
-  display: none !important;
+  display: none;
 }
 .goog-text-highlight {
-  background-color: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
+  background-color: transparent;
+  border: none;
+  box-shadow: none;
 }
 
 .nav-links {

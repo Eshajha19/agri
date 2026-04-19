@@ -18,6 +18,7 @@ import { NavLink } from "react-router-dom";
 import { useUiStore } from "./stores/uiStore";
 
 import "./App.css";
+import "./themes/sunlight.css";
 
 /* ---------------- LANGUAGE ---------------- */
 
@@ -74,6 +75,7 @@ function App() {
     setNavOpen,
     theme,
     setTheme,
+    isAccessibilityMode,
     farmerName,
     setFarmerName,
     inputName,
@@ -84,6 +86,11 @@ function App() {
   useEffect(() => {
     document.documentElement.classList.toggle("theme-dark", theme === "dark");
   }, [theme]);
+
+  /* Apply accessibility / sunlight mode */
+  useEffect(() => {
+    document.documentElement.classList.toggle("sunlight", isAccessibilityMode);
+  }, [isAccessibilityMode]);
 
   /* Apply language changes with Google Translate */
   useEffect(() => {

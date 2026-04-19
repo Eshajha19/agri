@@ -233,16 +233,16 @@
 }
 
 .sunlight .weather-alert-bar {
-  background: #ffffff !important;
-  color: #000000 !important;
-  border-top: 4px solid #000000 !important;
-  border-bottom: 4px solid #000000 !important;
-  box-shadow: none !important;
+  background: #ffffff;
+  color: #000000;
+  border-top: 4px solid #000000;
+  border-bottom: 4px solid #000000;
+  box-shadow: none;
 }
 
 .sunlight .weather-alert-bar__chip,
 .sunlight .weather-alert-bar__dismiss,
 .sunlight .weather-alert-bar__action {
-  border: 2px solid #000000 !important;
-  box-shadow: none !important;
+  border: 2px solid #000000;
+  box-shadow: none;
 }
