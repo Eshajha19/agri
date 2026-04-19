@@ -586,14 +586,7 @@ iframe.goog-te-banner-frame.skiptranslate {
   box-shadow: none;
 }
 
-.nav-links {
-  display: flex;
-  flex-direction: row;
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  gap: 24px;
-}
+
 
 .user-profile-trigger {
   position: relative;
@@ -844,17 +837,6 @@ iframe.goog-te-banner-frame.skiptranslate {
   text-decoration: underline;
 }
 
-.nav-link {
-  position: relative;
-  text-decoration: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 500;
-  color: #eef3fc;
-  padding: 6px 4px;
-  transition: all 0.25s ease;
-}
 
 /* Hover effect */
 .nav-link:hover {
@@ -1072,4 +1054,19 @@ iframe.goog-te-banner-frame.skiptranslate {
 .theme-dark .lang-dropdown-item--focused {
   background: #1b5e20;
   outline: 2px solid #66bb6a;
+}
+
+/* Offline Banner */
+.offline-banner {
+  background: #ff9800;
+  color: white;
+  text-align: center;
+  padding: 10px;
+  font-weight: bold;
+  z-index: 10000;
+  position: relative;
+}
+
+.theme-dark .offline-banner {
+  background: #f57c00;
 }

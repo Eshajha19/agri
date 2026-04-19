@@ -159,6 +159,7 @@ export default function WeatherAlertBar() {
       cancelled = true;
       window.clearInterval(refreshIntervalId);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applySnapshot, snapshot?.location?.latitude, snapshot?.location?.longitude, snapshot?.location?.source]);
 
   useEffect(() => {
@@ -214,6 +215,7 @@ export default function WeatherAlertBar() {
       cancelled = true;
       removePermissionListener();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applySnapshot, snapshot?.location?.source, snapshot?.location?.latitude, snapshot?.location?.longitude]);
 
   const dismissBar = () => {

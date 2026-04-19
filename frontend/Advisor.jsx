@@ -36,6 +36,7 @@ export default function Advisor() {
     yieldError,
     yieldLoading,
     showYieldPopup,
+    setShowYieldPopup,
     fetchYield,
     closeYieldPopup,
   } = useYieldPrediction();
@@ -51,6 +52,7 @@ export default function Advisor() {
       if (l < 10) setLanguages((l += 1));
     }, 50);
     return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

@@ -1,7 +1,16 @@
 import React, { useState } from "react";
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
+  sendEmailVerification,
+  signOut
+} from "firebase/auth";
+import { doc, setDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import { FaGoogle, FaEnvelope, FaLock, FaUser, FaArrowRight, FaLeaf } from "react-icons/fa";
-import { auth, db, doc, getDoc, setDoc, isFirebaseConfigured } from "./lib/firebase";
+import { auth, db, isFirebaseConfigured } from "./lib/firebase";
 import "./Auth.css";
 
 const Auth = () => {
@@ -38,56 +47,76 @@ const Auth = () => {
     setLoading(true);
 
     try {
-      const { createUserWithEmailAndPassword, signInWithEmailAndPassword } = await import("firebase/auth");
-      const { doc, setDoc } = await import("firebase/firestore");
-
       if (isLogin) {
+        // Login Logic
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
+
+        if (!user.emailVerified) {
+          setError("Please verify your email before logging in. Check your inbox.");
+          await signOut(auth);
+          setLoading(false);
+          return;
+        }
+
         navigate("/");
       } else {
+        // Sign Up Logic
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        await setDoc(doc(db, "users", userCredential.user.uid), {
-          email: userCredential.user.email,
+        const user = userCredential.user;
+
+        // Send verification email
+        await sendEmailVerification(user);
+
+        // Store user info in Firestore
+        await setDoc(doc(db, "users", user.uid), {
+          uid: user.uid,
           displayName: displayName,
-          profileCompleted: false,
+          email: email,
           createdAt: new Date().toISOString(),
+          verified: false
         });
-        setMessage("Account created! Please complete your profile.");
-        setTimeout(() => navigate("/profile-setup"), 1500);
+
+        setMessage("Account created! Please check your email for verification link.");
+        setIsLogin(true); // Switch to login after signup
       }
     } catch (err) {
-      setError(err.message || "Authentication failed");
+      console.error(err);
+      if (err.code === "auth/email-already-in-use") {
+        setError("Email already in use. Try logging in.");
+      } else if (err.code === "auth/invalid-credential") {
+        setError("Invalid email or password.");
+      } else if (err.code === "auth/weak-password") {
+        setError("Password should be at least 6 characters.");
+      } else {
+        setError(err.message);
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  const handleGoogleAuth = async () => {
-    setError("");
+  const handleGoogleLogin = async () => {
+    const provider = new GoogleAuthProvider();
     setLoading(true);
-
+    setError("");
     try {
-      const { signInWithPopup, GoogleAuthProvider } = await import("firebase/auth");
-      const { doc, setDoc, getDoc } = await import("firebase/firestore");
-
-      const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
 
-      const userDoc = await getDoc(doc(db, "users", user.uid));
-      if (!userDoc.exists()) {
-        await setDoc(doc(db, "users", user.uid), {
-          email: user.email,
-          displayName: user.displayName,
-          profileCompleted: false,
-          createdAt: new Date().toISOString(),
-        });
-        navigate("/profile-setup");
-      } else {
-        navigate("/");
-      }
+      // Create/Update user in Firestore
+      await setDoc(doc(db, "users", user.uid), {
+        uid: user.uid,
+        displayName: user.displayName,
+        email: user.email,
+        photoURL: user.photoURL,
+        lastLogin: new Date().toISOString()
+      }, { merge: true });
+
+      navigate("/");
     } catch (err) {
-      setError(err.message || "Google sign-in failed");
+      console.error(err);
+      setError("Failed to sign in with Google.");
     } finally {
       setLoading(false);
     }
@@ -96,73 +125,105 @@ const Auth = () => {
   return (
     <div className="auth-container">
       <div className="auth-card">
-        <div className="auth-logo">
-          <FaLeaf className="leaf-icon" />
-          <h1>Fasal Saathi</h1>
+        <div className="auth-header">
+          <div className="auth-logo">
+            <FaLeaf />
+            <span>Fasal Saathi</span>
+          </div>
+          <h1>{isLogin ? "Welcome Back" : "Join Fasal Saathi"}</h1>
+          <p>{isLogin ? "Continue your farming journey" : "Start your smart farming journey today"}</p>
         </div>
-        <p className="auth-subtitle">{isLogin ? "Welcome back, Farmer!" : "Join Fasal Saathi"}</p>
 
         {error && <div className="auth-error">{error}</div>}
-        {message && <div className="auth-message">{message}</div>}
+        {message && <div className="auth-success">{message}</div>}
 
         <form onSubmit={handleAuth} className="auth-form">
           {!isLogin && (
-            <div className="form-group">
-              <FaUser className="input-icon" />
+            <div className="input-group">
+              <label>Full Name</label>
+              <div className="input-wrapper">
+                <FaUser className="input-icon" />
+                <input
+                  type="text"
+                  placeholder="e.g. Ramesh Kumar"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+          )}
+          <div className="input-group">
+            <label>Email Address</label>
+            <div className="input-wrapper">
+              <FaEnvelope className="input-icon" />
               <input
-                type="text"
-                placeholder="Full Name"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
+                type="email"
+                placeholder="email@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 required
               />
             </div>
-          )}
-
-          <div className="form-group">
-            <FaEnvelope className="input-icon" />
-            <input
-              type="email"
-              placeholder="Email Address"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
           </div>
-
-          <div className="form-group">
-            <FaLock className="input-icon" />
-            <input
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={6}
-            />
+          <div className="input-group">
+            <label>Password</label>
+            <div className="input-wrapper">
+              <FaLock className="input-icon" />
+              <input
+                type="password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
           </div>
-
-          <button type="submit" className="auth-button" disabled={loading}>
-            {loading ? "Please wait..." : isLogin ? "Login" : "Sign Up"}
-            <FaArrowRight className="button-icon" />
+          <button type="submit" className="auth-submit-btn" disabled={loading}>
+            {loading ? "Processing..." : isLogin ? "Login to Account" : "Create Account"}
           </button>
         </form>
 
-        <div className="auth-divider">
-          <span>or</span>
-        </div>
+        {isLogin && (
+          <>
+            <div className="auth-divider">
+              <span>OR</span>
+            </div>
 
-        <button onClick={handleGoogleAuth} className="google-button" disabled={loading}>
-          <FaGoogle className="google-icon" />
-          Continue with Google
-        </button>
+            <button onClick={handleGoogleLogin} className="google-btn" disabled={loading}>
+              <img 
+                src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" 
+                alt="Google" 
+                className="google-icon"
+              /> 
+              Continue with Google
+            </button>
+          </>
+        )}
 
         <p className="auth-toggle">
-          {isLogin ? "Don't have an account? " : "Already have an account? "}
-          <button onClick={() => setIsLogin(!isLogin)} type="button">
-            {isLogin ? "Sign Up" : "Login"}
+          {isLogin ? "Don't have an account?" : "Already have an account?"}
+          <button onClick={() => setIsLogin(!isLogin)}>
+            {isLogin ? "Create Account" : "Login Now"}
           </button>
         </p>
+      </div>
+
+      <div className="auth-visual">
+        <div className="visual-content">
+          <h2>Empowering Farmers with AI</h2>
+          <p>Get personalized recommendations, real-time alerts, and expert guidance to optimize your yield.</p>
+          <div className="visual-stats">
+            <div className="v-stat">
+              <span>98%</span>
+              <p>Accuracy</p>
+            </div>
+            <div className="v-stat">
+              <span>50K+</span>
+              <p>Farmers</p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -18,90 +18,109 @@ import WeatherQuickWidget from "./weather/WeatherQuickWidget";
 import { auth, isFirebaseConfigured } from "./lib/firebase";
 import "./Home.css";
 
+// Static data defined outside component so it never triggers re-renders
+const features = [
+  {
+    icon: <FaBrain />,
+    title: "AI-Powered Predictions",
+    desc: "Smart crop yield predictions using advanced machine learning algorithms",
+    category: "Analytics",
+  },
+  {
+    icon: <FaSun />,
+    title: "Weather Insights",
+    desc: "Real-time weather forecasts and custom alerts tailored for your farm",
+    category: "Monitoring",
+  },
+  {
+    icon: <FaHandHoldingWater />,
+    title: "Smart Irrigation",
+    desc: "Optimize water usage with AI-driven irrigation recommendations",
+    category: "Optimization",
+  },
+  {
+    icon: <FaChartLine />,
+    title: "Yield Optimization",
+    desc: "Maximize your harvest with data-driven farming strategies",
+    category: "Analytics",
+  },
+  {
+    icon: <FaFlask />,
+    title: "Soil Analysis",
+    desc: "Comprehensive soil health monitoring and nutrient level analysis",
+    category: "Monitoring",
+  },
+  {
+    icon: <FaLeaf />,
+    title: "Crop Recommendations",
+    desc: "Get crop suggestions based on soil profile and regional climate",
+    category: "Recommendations",
+  },
+  {
+    icon: <FaChartLine />,
+    title: "Fertilizer Guidance",
+    desc: "Personalized fertilizer and pesticide recommendations",
+    category: "Recommendations",
+  },
+  {
+    icon: <FaLock />,
+    title: "Secure & Private",
+    desc: "Enterprise-grade security with Firebase authentication",
+    category: "Protection",
+  },
+];
+
+const stats = [
+  { target: 50, suffix: "K+", label: "Farmers Helped" },
+  { target: 120, suffix: "+", label: "Crop Types" },
+  { target: 98, suffix: "%", label: "Accuracy" },
+  { target: 24, suffix: "/7", label: "Support" },
+];
+
+const testimonials = [
+  {
+    name: "Ramesh Kumar",
+    location: "Maharashtra",
+    text: "Fasal Saathi helped me increase my rice yield by 30% this season!",
+  },
+  {
+    name: "Lakshmi Devi",
+    location: "Tamil Nadu",
+    text: "The weather predictions are accurate. I plan my irrigation accordingly.",
+  },
+  {
+    name: "Suresh Patel",
+    location: "Gujarat",
+    text: "Best AI farming assistant. Simple to use even for elderly farmers.",
+  },
+];
+
 export default function Home() {
-  const features = [
-    {
-      icon: <FaBrain />,
-      title: "AI-Powered Predictions",
-      desc: "Smart crop yield predictions using advanced machine learning algorithms",
-      category: "Analytics",
-    },
-    {
-      icon: <FaSun />,
-      title: "Weather Insights",
-      desc: "Real-time weather forecasts and custom alerts tailored for your farm",
-      category: "Monitoring",
-    },
-    {
-      icon: <FaHandHoldingWater />,
-      title: "Smart Irrigation",
-      desc: "Optimize water usage with AI-driven irrigation recommendations",
-      category: "Optimization",
-    },
-    {
-      icon: <FaChartLine />,
-      title: "Yield Optimization",
-      desc: "Maximize your harvest with data-driven farming strategies",
-      category: "Analytics",
-    },
-    {
-      icon: <FaFlask />,
-      title: "Soil Analysis",
-      desc: "Comprehensive soil health monitoring and nutrient level analysis",
-      category: "Monitoring",
-    },
-    {
-      icon: <FaLeaf />,
-      title: "Crop Recommendations",
-      desc: "Get crop suggestions based on soil profile and regional climate",
-      category: "Recommendations",
-    },
-    {
-      icon: <FaChartLine />,
-      title: "Fertilizer Guidance",
-      desc: "Personalized fertilizer and pesticide recommendations",
-      category: "Recommendations",
-    },
-    {
-      icon: <FaLock />,
-      title: "Secure & Private",
-      desc: "Enterprise-grade security with Firebase authentication",
-      category: "Protection",
-    },
-  ];
-
-  const stats = [
-    { target: 50, suffix: "K+", label: "Farmers Helped" },
-    { target: 120, suffix: "+", label: "Crop Types" },
-    { target: 98, suffix: "%", label: "Accuracy" },
-    { target: 24, suffix: "/7", label: "Support" },
-  ];
-
   const [statValues, setStatValues] = useState(stats.map(() => 1));
   const [user, setUser] = useState(null);
 
+  // Auth state listener
   useEffect(() => {
     if (!isFirebaseConfigured()) {
       setUser(null);
       return;
     }
-    const unsubscribe = auth?.onAuthStateChanged ? auth.onAuthStateChanged((u) => {
-      setUser(u);
-    }) : () => {};
+    const unsubscribe = auth?.onAuthStateChanged
+      ? auth.onAuthStateChanged((u) => setUser(u))
+      : () => {};
     return () => unsubscribe();
   }, []);
 
+  // Scroll to top on reload
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
+    if (typeof window === "undefined") return;
     const navigationEntry = performance.getEntriesByType("navigation")?.[0];
     if (navigationEntry?.type === "reload") {
       window.scrollTo(0, 0);
     }
   }, []);
 
+  // Animate stats counters — stats is stable (module-level const)
   useEffect(() => {
     const duration = 1400;
     const startTime = performance.now();
@@ -109,11 +128,7 @@ export default function Home() {
 
     const animateStats = (currentTime) => {
       const progress = Math.min((currentTime - startTime) / duration, 1);
-
-      setStatValues(
-        stats.map((stat) => Math.max(1, Math.floor(stat.target * progress)))
-      );
-
+      setStatValues(stats.map((stat) => Math.max(1, Math.floor(stat.target * progress))));
       if (progress < 1) {
         rafId = requestAnimationFrame(animateStats);
       }
@@ -122,24 +137,6 @@ export default function Home() {
     rafId = requestAnimationFrame(animateStats);
     return () => cancelAnimationFrame(rafId);
   }, []);
-
-  const testimonials = [
-    {
-      name: "Ramesh Kumar",
-      location: "Maharashtra",
-      text: "Fasal Saathi helped me increase my rice yield by 30% this season!",
-    },
-    {
-      name: "Lakshmi Devi",
-      location: "Tamil Nadu",
-      text: "The weather predictions are accurate. I plan my irrigation accordingly.",
-    },
-    {
-      name: "Suresh Patel",
-      location: "Gujarat",
-      text: "Best AI farming assistant. Simple to use even for elderly farmers.",
-    },
-  ];
 
   return (
     <div className="home">
@@ -257,9 +254,7 @@ export default function Home() {
               <FaQuoteLeft className="quote-icon" />
               <p className="testimonial-text">{testimonial.text}</p>
               <div className="testimonial-author">
-                <div className="author-avatar">
-                  {testimonial.name[0]}
-                </div>
+                <div className="author-avatar">{testimonial.name[0]}</div>
                 <div className="author-info">
                   <span className="author-name">{testimonial.name}</span>
                   <span className="author-location">{testimonial.location}</span>
@@ -278,61 +273,60 @@ export default function Home() {
         </Link>
       </section>
 
-      
-          <footer className="home-footer">
-  <div className="footer-content">
-    <div className="footer-grid">
-      <div className="footer-section">
-        <div className="footer-brand">
-          <FaSeedling className="footer-logo" />
-          <span>Fasal Saathi</span>
+      <footer className="home-footer">
+        <div className="footer-content">
+          <div className="footer-grid">
+            <div className="footer-section">
+              <div className="footer-brand">
+                <FaSeedling className="footer-logo" />
+                <span>Fasal Saathi</span>
+              </div>
+              <p className="footer-description">
+                AI-powered agricultural advisor helping farmers with crop planning,
+                weather insights, irrigation, and yield optimization.
+              </p>
+              <div className="footer-contact">
+                <FaPhoneAlt />
+                <span>+91 98765 43210</span>
+              </div>
+            </div>
+
+            <div className="footer-section">
+              <h4>Quick Links</h4>
+              <Link to="/">Home</Link>
+              <Link to="/advisor">Advisor</Link>
+              <Link to="/how-it-works">How It Works</Link>
+              <Link to="/dashboard">Dashboard</Link>
+            </div>
+
+            <div className="footer-section">
+              <h4>Resources</h4>
+              <Link to="/crop-guide">Crop Guide</Link>
+              <Link to="/weather">Weather Updates</Link>
+              <Link to="/soil-analysis">Soil Analysis</Link>
+              <Link to="/faq">FAQs</Link>
+            </div>
+
+            <div className="footer-section">
+              <h4>Company</h4>
+              <Link to="/about">About Us</Link>
+              <Link to="/contact">Contact</Link>
+              <Link to="/privacy-policy">Privacy Policy</Link>
+              <Link to="/terms">Terms of Service</Link>
+            </div>
+          </div>
+
+          <div className="footer-bottom">
+            <div className="footer-socials">
+              <FaGlobe />
+              <span>Available Across India</span>
+            </div>
+            <p className="footer-copyright">
+              © 2026 Fasal Saathi. All rights reserved. MIT Licensed.
+            </p>
+          </div>
         </div>
-        <p className="footer-description">
-          AI-powered agricultural advisor helping farmers with crop planning,
-          weather insights, irrigation, and yield optimization.
-        </p>
-        <div className="footer-contact">
-          <FaPhoneAlt />
-          <span>+91 98765 43210</span>
-        </div>
-      </div>
-
-      <div className="footer-section">
-        <h4>Quick Links</h4>
-        <Link to="/">Home</Link>
-        <Link to="/advisor">Advisor</Link>
-        <Link to="/how-it-works">How It Works</Link>
-        <Link to="/dashboard">Dashboard</Link>
-      </div>
-
-      <div className="footer-section">
-        <h4>Resources</h4>
-        <Link to="/crop-guide">Crop Guide</Link>
-        <Link to="/weather">Weather Updates</Link>
-        <Link to="/soil-analysis">Soil Analysis</Link>
-        <Link to="/faq">FAQs</Link>
-      </div>
-
-      <div className="footer-section">
-        <h4>Company</h4>
-        <Link to="/about">About Us</Link>
-        <Link to="/contact">Contact</Link>
-        <Link to="/privacy-policy">Privacy Policy</Link>
-        <Link to="/terms">Terms of Service</Link>
-      </div>
-    </div>
-
-    <div className="footer-bottom">
-      <div className="footer-socials">
-        <FaGlobe />
-        <span>Available Across India</span>
-      </div>
-      <p className="footer-copyright">
-        © 2026 Fasal Saathi. All rights reserved. MIT Licensed.
-      </p>
-    </div>
-  </div>
-</footer>
+      </footer>
     </div>
   );
 }

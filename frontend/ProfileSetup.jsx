@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { auth, db, doc, getDoc, updateDoc, isFirebaseConfigured } from "./lib/firebase";
+import { auth, db, isFirebaseConfigured } from "./lib/firebase";
+import { doc, updateDoc, getDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import { FaUser, FaGlobe, FaMapMarkerAlt, FaSeedling, FaArrowRight } from "react-icons/fa";
 import "./ProfileSetup.css";
@@ -10,6 +11,7 @@ const LANGUAGE_OPTIONS = [
   { value: "mr", label: "🇮🇳 मराठी" },
   { value: "bn", label: "🇮🇳 বাংলা" },
   { value: "ta", label: "🇮🇳 தமிழ்" },
+  { value: "te", label: "🇮🇳 తెలుగు" },
   { value: "te", label: "🇮🇳 তেলুগు" },
   { value: "gu", label: "🇮🇳 ગુજરાતી" },
   { value: "pa", label: "🇮🇳 ਪੰਜਾਬੀ" },
@@ -40,7 +42,6 @@ const ProfileSetup = () => {
     const checkExistingData = async () => {
       if (auth?.currentUser) {
         try {
-          const { doc, getDoc } = await import("firebase/firestore");
           const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
           if (userDoc.exists() && userDoc.data().profileCompleted) {
             navigate("/");
@@ -51,7 +52,7 @@ const ProfileSetup = () => {
       }
     };
     checkExistingData();
-  }, []);
+  }, [navigate]);
 
   const requestLocation = () => {
     if ("geolocation" in navigator) {
@@ -61,6 +62,7 @@ const ProfileSetup = () => {
           const { latitude, longitude } = position.coords;
           setLocation({ lat: latitude, lng: longitude });
 
+          // Reverse Geocoding via BigDataCloud (More reliable for client-side)
           try {
             const response = await fetch(
               `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
@@ -111,14 +113,14 @@ const ProfileSetup = () => {
     try {
       const user = auth?.currentUser;
       if (user) {
-        const { doc, setDoc } = await import("firebase/firestore");
-        await setDoc(doc(db, "users", user.uid), {
+        await updateDoc(doc(db, "users", user.uid), {
           displayName: name,
           language: language,
           cropType: cropType,
           location: location,
           address: address,
           profileCompleted: true,
+          updatedAt: new Date().toISOString()
         }, { merge: true });
         navigate("/");
       }
@@ -133,6 +135,9 @@ const ProfileSetup = () => {
     <div className="setup-container">
       <div className="setup-card">
         <div className="setup-header">
+          <FaSeedling className="setup-logo" />
+          <h1>Complete Your Profile</h1>
+          <p>Help us personalize your Fasal Saathi experience</p>
           <div className="setup-logo">🌱</div>
           <h1>Welcome to Fasal Saathi</h1>
           <p>Help us serve you better</p>
@@ -142,6 +147,7 @@ const ProfileSetup = () => {
 
         <form onSubmit={handleSubmit} className="setup-form">
           <div className="setup-group">
+            <label>Farmer Name</label>
             <label>
               <FaUser /> Your Name
             </label>
@@ -149,6 +155,9 @@ const ProfileSetup = () => {
               <FaUser className="setup-icon" />
               <input
                 type="text"
+                placeholder="Full Name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Enter your full name"
@@ -159,9 +168,7 @@ const ProfileSetup = () => {
           </div>
 
           <div className="setup-group">
-            <label>
-              <FaGlobe /> Preferred Language
-            </label>
+            <label>Preferred Language</label>
             <div className="setup-input">
               <FaGlobe className="setup-icon" />
               <select
@@ -179,9 +186,7 @@ const ProfileSetup = () => {
           </div>
 
           <div className="setup-group">
-            <label>
-              <FaSeedling /> Primary Crop You Grow
-            </label>
+            <label>Primary Crop Type</label>
             <div className="setup-input">
               <FaSeedling className="setup-icon" />
               <select
@@ -208,9 +213,22 @@ const ProfileSetup = () => {
           </div>
 
           <div className="setup-group">
-            <label>
-              <FaMapMarkerAlt /> Your Location
-            </label>
+            <label>Farm Location</label>
+            <div className={`loc-box ${address ? 'success' : 'pending'}`}>
+              <FaMapMarkerAlt />
+              <span>
+                {locLoading ? "Detecting location..." : 
+                 address ? `Location: ${address}` : 
+                 "Location not found"}
+              </span>
+              {!address && !locLoading && (
+                <button type="button" onClick={requestLocation}>Retry</button>
+              )}
+            </div>
+          </div>
+
+          <div className="setup-group">
+            <label>Farm Location</label>
             <div className={`loc-box ${address ? 'success' : locLoading ? 'pending' : ''}`}>
               {locLoading ? (
                 <>
@@ -244,7 +262,7 @@ const ProfileSetup = () => {
             />
           </div>
 
-          <button type="submit" className="setup-submit" disabled={loading}>
+          <button type="submit" className="setup-submit" disabled={loading || !address}>
             {loading ? "Saving..." : "Complete Setup"}
             {!loading && <FaArrowRight />}
           </button>
