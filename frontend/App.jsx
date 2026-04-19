@@ -54,6 +54,19 @@ const getInitialLanguage = () => {
   }
 };
 
+const setGoogleTranslateCookie = (lang) => {
+  try {
+    const cookieValue = encodeURIComponent(`/en/${lang}`);
+    document.cookie = `googtrans=${cookieValue}; path=/;`;
+    const hostname = window.location.hostname;
+    if (hostname) {
+      document.cookie = `googtrans=${cookieValue}; domain=.${hostname}; path=/;`;
+    }
+  } catch {
+    // Ignore if cookies are blocked
+  }
+};
+
 const applyGoogleTranslate = (lang) => {
   const el = document.querySelector(".goog-te-combo");
   if (!el) return false;
@@ -72,6 +85,8 @@ const syncLanguage = (lang, setLang) => {
 
 function App() {
   const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
+  const [loginLang, setLoginLang] = useState("");
+  const [showAlert, setShowAlert] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "light");
   const [user, setUser] = useState(null);
@@ -90,13 +105,127 @@ function App() {
   }, [theme]);
 
   /* ---------------- LANGUAGE AUTO-TRANS ---------------- */
-  useEffect(() => {
+   useEffect(() => {
+    setGoogleTranslateCookie(preferredLang);
+
     if (applyGoogleTranslate(preferredLang)) return;
+
     const id = setInterval(() => {
       if (applyGoogleTranslate(preferredLang)) clearInterval(id);
     }, 300);
+
     return () => clearInterval(id);
   }, [preferredLang]);
+
+  /* ---------------- TRANSLATION TOOLBAR DETECTION ---------------- */
+  // Detects when Chrome's translation toolbar is present and adjusts layout accordingly
+  // This prevents UI layout breaks when browser translation is enabled
+  useEffect(() => {
+    const cleanupGoogleTranslate = () => {
+      const selectors = [
+        '.goog-te-banner-frame',
+        '.goog-te-balloon-frame', 
+        '#goog-gt-tt',
+        'iframe[src*="translate.google"]',
+        '.VIpgJd-ZVi9od-ORHb-OEVgZj'
+      ];
+      selectors.forEach(sel => {
+        document.querySelectorAll(sel).forEach(el => {
+          el.style.display = 'none';
+          el.style.visibility = 'hidden';
+          el.style.height = '0';
+          el.style.width = '0';
+          el.style.position = 'absolute';
+          el.style.pointerEvents = 'none';
+        });
+      });
+      document.body.style.marginTop = '0';
+      document.body.style.paddingTop = '0';
+      document.body.style.transform = 'none';
+    };
+
+    const detectTranslationToolbar = () => {
+      cleanupGoogleTranslate();
+      // Multiple detection methods for translation toolbar
+      const hasTranslationToolbar =
+        // Check for Google Translate banner/frame
+        document.querySelector('.goog-te-banner-frame') ||
+        document.querySelector('.goog-te-gadget') ||
+        document.querySelector('[data-ogpc]') || // Google Translate attribute
+        // Check if body has translation-related transforms
+        (document.body.style.transform && document.body.style.transform.includes('translateY')) ||
+        (document.body.style.marginTop && parseInt(document.body.style.marginTop) > 0) ||
+        // Check for translation meta tags
+        document.querySelector('meta[name="google-translate-customization"]') ||
+        // Check if the page height has changed significantly (toolbar pushes content down)
+        (window.innerHeight < window.screen.height * 0.9 && document.documentElement.scrollHeight > window.innerHeight);
+
+      document.documentElement.classList.toggle('has-translation-toolbar', hasTranslationToolbar);
+    };
+
+    // Initial check
+    detectTranslationToolbar();
+
+    // Run cleanup immediately then check periodically
+    cleanupGoogleTranslate();
+    const interval = setInterval(() => {
+      cleanupGoogleTranslate();
+      detectTranslationToolbar();
+    }, 500);
+
+    // Check on various events that might indicate translation
+    const handleVisibilityChange = () => setTimeout(detectTranslationToolbar, 500);
+    const handleFocus = () => setTimeout(detectTranslationToolbar, 200);
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('resize', detectTranslationToolbar);
+
+    // Also run cleanup on any user interaction that might trigger translate
+    const handleClick = () => cleanupGoogleTranslate();
+    const handleScroll = () => cleanupGoogleTranslate();
+    document.addEventListener('click', handleClick, true);
+    document.addEventListener('scroll', handleScroll, true);
+
+    // Check for DOM changes that might indicate translation
+    const observer = new MutationObserver((mutations) => {
+      let shouldCheck = false;
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+          Array.from(mutation.addedNodes).forEach((node) => {
+            if (node.nodeType === Node.ELEMENT_NODE &&
+                (node.classList?.contains('goog-te') ||
+                 node.id?.includes('google_translate') ||
+                 node.tagName === 'IFRAME')) {
+              shouldCheck = true;
+            }
+          });
+        }
+        if (mutation.type === 'attributes' &&
+            (mutation.attributeName === 'style' || mutation.attributeName === 'class')) {
+          shouldCheck = true;
+        }
+      });
+      if (shouldCheck) detectTranslationToolbar();
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['style', 'class', 'id']
+    });
+
+return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      document.removeEventListener('focus', handleFocus);
+      document.removeEventListener('resize', detectTranslationToolbar);
+      document.removeEventListener('click', handleClick, true);
+      document.removeEventListener('scroll', handleScroll, true);
+      observer.disconnect();
+    };
+  }, []);
 
   /* ---------------- AUTH & FIRESTORE SYNC ---------------- */
   useEffect(() => {
