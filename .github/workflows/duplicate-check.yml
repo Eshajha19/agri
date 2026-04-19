@@ -24,7 +24,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issue.number,
-              labels: ["NSOC'26"]
+              labels: ["nsoc26"]
             });
 
             // 🔍 Check for duplicate issues
