@@ -4,6 +4,7 @@ import "./App.css";
 import Advisor from "./Advisor";
 import How from "./How";
 import Home from "./Home";
+import Dashboard from "./Dashboard";
 import {
   FaHome,
   FaComments,
@@ -11,6 +12,7 @@ import {
   FaLeaf,
   FaBars,
   FaTimes,
+  FaTachometerAlt,
 } from "react-icons/fa";
 
 function App() {
@@ -78,6 +80,13 @@ function App() {
                 <FaInfoCircle className="icon" /> How It Works
               </Link>
             </li>
+            {name && (
+              <li>
+                <Link to="/dashboard" onClick={() => setIsOpen(false)}>
+                  <FaTachometerAlt className="icon" /> Dashboard
+                </Link>
+              </li>
+            )}
           </ul>
 
           <div className="nav-right">
@@ -149,6 +158,7 @@ function App() {
           <Route path="/" element={<Home />} />
           <Route path="/advisor" element={<Advisor />} />
           <Route path="/how-it-works" element={<How />} />
+          <Route path="/dashboard" element={<Dashboard />} />
 
           <Route
             path="/login"
