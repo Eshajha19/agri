@@ -47,7 +47,8 @@ def predict():
 async def predict_yield_lag(input: YieldInput):
     try:
         data = input.data
-        raise ValueError("Exactly 5 values are required")
+        if len(data) != 5:
+            raise ValueError("Exactly 5 values are required")
 
         data = np.array(data).reshape(1, -1)
 
@@ -57,6 +58,36 @@ async def predict_yield_lag(input: YieldInput):
             "prediction": round(float(prediction[0]), 2),
             "model": "RandomForest Time Series (Lag Features)"
         }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+    
+@app.post("/predict-yield-trend")
+async def predict_yield_trend(input: YieldInput):
+    try:
+        data = input.data
+
+        if len(data) != 5:
+            raise ValueError("Exactly 5 values are required")
+
+        temp = data.copy()
+        trend = []
+
+        for _ in range(5):
+            pred = model_lag.predict([temp[-5:]])[0]
+            pred_value = round(float(pred), 2)
+
+            trend.append(pred_value)
+            temp.append(pred_value)
+
+        return {
+            "trend": trend,
+            "prediction": trend[-1],
+            "model": "RandomForest Trend Forecast (Lag Features)"
+        }
+
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
