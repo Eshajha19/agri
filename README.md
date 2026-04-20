@@ -1,3 +1,50 @@
+# 🌱 Fasal Saathi
+
+![NSoC 2026](https://img.shields.io/badge/NSoC-2026-blue)
+
+🚀 **This project is a part of Nexus Spring of Code (NSoC) 2026**
+
+---
+
+## 📘 Nexus Spring of Code 2026
+
+This repository is officially participating in **Nexus Spring of Code 2026 (NSoC'26)**.
+
+We welcome contributors from the NSoC program to collaborate and improve this project.
+
+### 🧑‍💻 For Contributors
+
+* Pick an issue labeled with `level1`, `level2`, or `level3` or raise an issue 
+* Ask to be assigned before starting work
+* Submit a Pull Request with **`NSoC'26`** in the title
+* Follow proper contribution guidelines
+
+---
+
+## 📌 Contribution Rules (NSoC Specific)
+
+* ✅ PR must include **NSoC'26** tag
+* ✅ Issue must be assigned before PR
+* ❌ PR without assignment will be closed
+* ❌ Inactive contributors (7 days) may be unassigned
+
+---
+
+## 🏷️ Issue Labels
+
+* `level1` — Beginner (level 1)
+* `level2` — Intermediate (level 2)
+* `level3` — Advanced (level 3)
+
+---
+
+## ⚠️ Note
+
+This project follows all rules and guidelines defined under the **Nexus Spring of Code 2026** program.
+
+Any misuse, spam, or low-quality contributions will not be accepted.
+
+---
 
 # 🌾 Fasal Saathi
 

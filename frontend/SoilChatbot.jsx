@@ -1,131 +1,125 @@
-import React, { useState } from "react";
+import React, { useRef, useEffect } from "react";
 import "./SoilChatbot.css";
+import { FaMicrophone, FaStop, FaVolumeUp, FaPaperPlane, FaImage } from "react-icons/fa";
+import { useChatbot } from "./hooks/useChatbot";
 
-function SoilChatbot({ onClose }) {   // ⬅️ take onClose as a prop
-  const [messages, setMessages] = useState([]);
-  const [soilImage, setSoilImage] = useState(null);
+function SoilChatbot({ onClose }) {
+  const {
+    messages,
+    userInput,
+    setUserInput,
+    soilImage,
+    setSoilImage,
+    isListening,
+    toggleListening,
+    isSpeaking,
+    stopSpeaking,
+    isLoading,
+    handleSendMessage,
+  } = useChatbot();
 
-  // 🔹 Convert image to base64 so it can be sent to Gemini
-  const toBase64 = (file) =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result.split(",")[1]); // only base64 part
-      reader.onerror = (error) => reject(error);
-    });
+  const messagesEndRef = useRef(null);
 
-  // 🔹 Real Gemini API call (frontend only)
-// 🔹 Real Gemini API call (frontend only - not secure for production)
-const callGeminiAPI = async (userText, imageFile) => {
-  try {
-    const parts = [];
-
-    if (userText) {
-      parts.push({ text: userText });
-    }
-
-    if (imageFile) {
-      parts.push({
-        inline_data: {
-          data: await toBase64(imageFile),
-          mime_type: imageFile.type,
-        },
-      });
-    }
-
-    if (parts.length === 0) return "❌ Please provide text or image.";
-
-    const API_KEY = ""; // put actual Gemini API key here
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=${API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts,
-            },
-          ],
-        }),
-      }
-    );
-
-    const data = await response.json();
-    console.log("Gemini response:", data);
-
-    return (
-      data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-      "🤖 No response from Gemini."
-    );
-  } catch (err) {
-    console.error("Gemini API Error:", err);
-    return "❌ Error: Unable to connect to Gemini API.";
-  }
-};
-
-  const addMessage = (text, from = "bot") => {
-    setMessages((prev) => [...prev, { text, from }]);
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  const handleUserInput = async (e) => {
-    e.preventDefault();
-    const userInput = e.target.userInput.value.trim();
-    if (!userInput && !soilImage) return;
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isLoading]);
 
-    addMessage(userInput || "[Image sent]", "user");
-    e.target.reset();
+  const handleSend = async (textOverride) => {
+    const textToSend = textOverride || userInput;
+    if (!textToSend && !soilImage) return;
 
-    const response = await callGeminiAPI(userInput, soilImage);
-    addMessage(response, "bot");
-    setSoilImage(null); // clear uploaded image after sending
+    await handleSendMessage(textToSend, soilImage);
   };
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
       setSoilImage(file);
-      addMessage(`🖼️ Image uploaded: ${file.name}`, "user");
     }
   };
 
+  const suggestions = [
+    "🌤️ Weather-based farming advice",
+    "🌾 Recommended crops for this month",
+    "🧪 How to improve my soil health?",
+    "🐛 Pest control for my crops"
+  ];
+
   return (
     <div className="soil-chatbot">
-      {/* 🌿 Header with close button */}
       <div className="chat-header">
-        <h2>Soil Health Chatbot</h2>
-        <button className="close-btn" onClick={onClose}>
-          ✖
-        </button>
+        <div className="header-info">
+          <h2>🌱 Agri Assistant <FaVolumeUp style={{ fontSize: '0.9rem', marginLeft: '8px', opacity: 0.8 }} /></h2>
+          <span className="status">AI Agricultural Expert</span>
+        </div>
+        <button className="close-btn" onClick={onClose}>✖</button>
       </div>
 
-      {/* Chat Window */}
       <div className="chat-window">
         {messages.map((msg, idx) => (
           <div key={idx} className={`chat-message ${msg.from}`}>
-            {msg.text}
+            <div className="message-content">{msg.text}</div>
           </div>
+        ))}
+        {isLoading && <div className="chat-message bot loading-dots">Thinking...</div>}
+        {isListening && <div className="chat-message user listening">Listening... 🎤</div>}
+        <div ref={messagesEndRef} />
+      </div>
+
+      <div className="suggestions-bar">
+        {suggestions.map((s, i) => (
+          <button key={i} className="suggestion-chip" onClick={() => handleSend(s)}>
+            {s}
+          </button>
         ))}
       </div>
 
-      {/* Input Section */}
-      <form className="chat-input" onSubmit={handleUserInput}>
-        <label htmlFor="file-upload" className="file-label">
-          📷 Upload
-        </label>
-        <input
-          id="file-upload"
-          type="file"
-          accept="image/*"
-          onChange={handleImageUpload}
-        />
-        <input
-          type="text"
-          name="userInput"
-          placeholder="Ask about soil or crops..."
-        />
-        <button type="submit">Send</button>
-      </form>
+      <div className="chat-controls">
+        <div className="voice-controls">
+          <button
+            className={`control-btn mic-btn ${isListening ? "active" : ""}`}
+            onClick={toggleListening}
+            title="Start / Stop Voice Input"
+          >
+            <FaMicrophone />
+          </button>
+
+          {isSpeaking && (
+            <button className="control-btn stop-btn" onClick={stopSpeaking} title="Stop Speaking">
+              <FaStop />
+            </button>
+          )}
+        </div>
+
+        <div className="input-area">
+          <label htmlFor="file-upload" className="image-btn" title="Upload Soil/Crop Image">
+            <FaImage />
+          </label>
+          <input
+            id="file-upload"
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={handleImageUpload}
+          />
+
+          <input
+            type="text"
+            value={userInput}
+            onChange={(e) => setUserInput(e.target.value)}
+            placeholder="Ask about crops, weather, soil..."
+            onKeyPress={(e) => e.key === "Enter" && handleSend()}
+          />
+
+          <button className="send-btn" onClick={() => handleSend()}>
+            <FaPaperPlane />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

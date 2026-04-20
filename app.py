@@ -1,39 +1,64 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 import joblib
 import pandas as pd
-
-# Load trained model (ensure this path is correct)
-model = joblib.load("yield_model.joblib")
+import numpy as np
+from pydantic import BaseModel
+from typing import List
+from fastapi import HTTPException
 
 # Create FastAPI app
 app = FastAPI()
+class YieldInput(BaseModel):
+    data: List[float]
 
-# Allow CORS for React frontend
+# Allow CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Change to your frontend URL in production
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+model = joblib.load("yield_model.joblib")  # existing model
+model_lag = joblib.load("sklearn_yield_model.pkl")  # your new model
+
 @app.get("/predict")
 def predict():
-    # Dummy input matching training features
     input_df = pd.DataFrame([{
         "NDVI": 4800,
         "Rainfall": 25.0,
         "SoilMoisture": 4.5,
-        "Crop-wise_Rice": 1  # Example crop, adjust if needed
+        "Crop-wise_Rice": 1
     }])
 
-    # Ensure all model features exist
     for col in model.get_booster().feature_names:
         if col not in input_df.columns:
             input_df[col] = 0
 
     input_df = input_df[model.get_booster().feature_names]
 
-    # Make prediction
     prediction = model.predict(input_df)[0]
     return {"predicted_yield": float(prediction)}
+
+
+@app.post("/predict-yield-lag")
+async def predict_yield_lag(input: YieldInput):
+    try:
+        data = input.data
+        raise ValueError("Exactly 5 values are required")
+
+        data = np.array(data).reshape(1, -1)
+
+        prediction = model_lag.predict(data)
+
+        return {
+            "prediction": round(float(prediction[0]), 2),
+            "model": "RandomForest Time Series (Lag Features)"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal Server Error")
