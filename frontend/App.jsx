@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
+import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { doc, onSnapshot } from "firebase/firestore";
 import { 
   FaHome, 
   FaComments, 
@@ -21,7 +23,7 @@ import ProfileSetup from "./ProfileSetup";
 import LanguageDropdown from "./LanguageDropdown";
 import useNotifications from "./Notifications";
 
-import { auth, db, onSnapshot, doc, isFirebaseConfigured } from "./lib/firebase";
+import { auth, db, isFirebaseConfigured } from "./lib/firebase";
 
 import "./App.css";
 import "./themes/sunlight.css";
@@ -52,14 +54,6 @@ const getInitialLanguage = () => {
   }
 };
 
-const applyGoogleTranslate = (lang) => {
-  const el = document.querySelector(".goog-te-combo");
-  if (!el) return false;
-  el.value = lang;
-  el.dispatchEvent(new Event("change"));
-  return true;
-};
-
 const setGoogleTranslateCookie = (lang) => {
   try {
     const cookieValue = encodeURIComponent(`/en/${lang}`);
@@ -73,18 +67,25 @@ const setGoogleTranslateCookie = (lang) => {
   }
 };
 
+const applyGoogleTranslate = (lang) => {
+  const el = document.querySelector(".goog-te-combo");
+  if (!el) return false;
+  el.value = lang;
+  el.dispatchEvent(new Event("change"));
+  return true;
+};
+
 const syncLanguage = (lang, setLang) => {
   setLang(lang);
   localStorage.setItem("preferredLanguage", lang);
-  setGoogleTranslateCookie(lang);
   applyGoogleTranslate(lang);
 };
 
 /* ---------------- APP MAIN ---------------- */
 
 function App() {
-  const [loginLang, setLoginLang] = useState("");
-  const [showAlert, setShowAlert] = useState(true);
+  const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
+
   const [isOpen, setIsOpen] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "light");
   const [user, setUser] = useState(null);
@@ -104,6 +105,14 @@ function App() {
 
   /* ---------------- LANGUAGE AUTO-TRANS ---------------- */
   useEffect(() => {
+    if (applyGoogleTranslate(preferredLang)) return;
+    const id = setInterval(() => {
+      if (applyGoogleTranslate(preferredLang)) clearInterval(id);
+    }, 300);
+    return () => clearInterval(id);
+  }, [preferredLang]);
+
+   useEffect(() => {
     setGoogleTranslateCookie(preferredLang);
 
     if (applyGoogleTranslate(preferredLang)) return;
@@ -119,7 +128,31 @@ function App() {
   // Detects when Chrome's translation toolbar is present and adjusts layout accordingly
   // This prevents UI layout breaks when browser translation is enabled
   useEffect(() => {
+    const cleanupGoogleTranslate = () => {
+      const selectors = [
+        '.goog-te-banner-frame',
+        '.goog-te-balloon-frame', 
+        '#goog-gt-tt',
+        'iframe[src*="translate.google"]',
+        '.VIpgJd-ZVi9od-ORHb-OEVgZj'
+      ];
+      selectors.forEach(sel => {
+        document.querySelectorAll(sel).forEach(el => {
+          el.style.display = 'none';
+          el.style.visibility = 'hidden';
+          el.style.height = '0';
+          el.style.width = '0';
+          el.style.position = 'absolute';
+          el.style.pointerEvents = 'none';
+        });
+      });
+      document.body.style.marginTop = '0';
+      document.body.style.paddingTop = '0';
+      document.body.style.transform = 'none';
+    };
+
     const detectTranslationToolbar = () => {
+      cleanupGoogleTranslate();
       // Multiple detection methods for translation toolbar
       const hasTranslationToolbar =
         // Check for Google Translate banner/frame
@@ -140,8 +173,12 @@ function App() {
     // Initial check
     detectTranslationToolbar();
 
-    // Check periodically for translation changes
-    const interval = setInterval(detectTranslationToolbar, 1000);
+    // Run cleanup immediately then check periodically
+    cleanupGoogleTranslate();
+    const interval = setInterval(() => {
+      cleanupGoogleTranslate();
+      detectTranslationToolbar();
+    }, 500);
 
     // Check on various events that might indicate translation
     const handleVisibilityChange = () => setTimeout(detectTranslationToolbar, 500);
@@ -150,6 +187,12 @@ function App() {
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('focus', handleFocus);
     window.addEventListener('resize', detectTranslationToolbar);
+
+    // Also run cleanup on any user interaction that might trigger translate
+    const handleClick = () => cleanupGoogleTranslate();
+    const handleScroll = () => cleanupGoogleTranslate();
+    document.addEventListener('click', handleClick, true);
+    document.addEventListener('scroll', handleScroll, true);
 
     // Check for DOM changes that might indicate translation
     const observer = new MutationObserver((mutations) => {
@@ -180,25 +223,31 @@ function App() {
       attributeFilter: ['style', 'class', 'id']
     });
 
-    return () => {
+return () => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleFocus);
-      window.removeEventListener('resize', detectTranslationToolbar);
+      document.removeEventListener('focus', handleFocus);
+      document.removeEventListener('resize', detectTranslationToolbar);
+      document.removeEventListener('click', handleClick, true);
+      document.removeEventListener('scroll', handleScroll, true);
       observer.disconnect();
     };
   }, []);
 
-  /* ---------------- LANGUAGE AUTO APPLY ---------------- */
-  useEffect(() => {
-    if (applyGoogleTranslate(preferredLang)) return;
-    const id = setInterval(() => {
-      if (applyGoogleTranslate(preferredLang)) clearInterval(id);
-    }, 300);
-    return () => clearInterval(id);
-  }, [preferredLang]);
+  const handleLogout = async () => {
+    if (!isFirebaseConfigured() || !auth) {
+      window.location.href = "/";
+      return;
+    }
+    try {
+      await signOut(auth);
+      window.location.href = "/";
+    } catch (error) {
+      console.error("Sign out error:", error);
+    }
+  };
 
-  /* ---------------- AUTH & FIRESTORE SYNC ---------------- */
+  /* ---------------- AUTH STATE LISTENER ---------------- */
   useEffect(() => {
     if (!isFirebaseConfigured()) {
       setLoading(false);
@@ -231,23 +280,38 @@ function App() {
     return () => unsubscribeAuth();
   }, []);
 
-  const handleLogout = async () => {
-    if (auth) {
-      try {
-        await auth.signOut();
-        window.location.href = "/";
-      } catch (error) {
-        console.error("Sign out error:", error);
-      }
-    }
-  };
-
   const handleThemeToggle = () => {
     setTheme(theme === "dark" ? "light" : "dark");
   };
 
+  /* ---------------- OFFLINE STATUS ---------------- */
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
+  useEffect(() => {
+    const handleNetworkChange = () => setIsOffline(!navigator.onLine);
+
+    window.addEventListener("online", handleNetworkChange);
+    window.addEventListener("offline", handleNetworkChange);
+    
+    // Polling fallback to detect DevTools offline toggling where the event might be suppressed
+    const interval = setInterval(handleNetworkChange, 1000);
+
+    return () => {
+      window.removeEventListener("online", handleNetworkChange);
+      window.removeEventListener("offline", handleNetworkChange);
+      clearInterval(interval);
+    };
+  }, []);
+
   return (
     <div className={`app ${theme === "dark" ? "theme-dark" : ""}`}>
+      {/* OFFLINE INDICATOR */}
+      {isOffline && (
+        <div className="offline-banner">
+          ⚠️ You are currently offline. Running in offline mode using local data.
+        </div>
+      )}
+
       {/* PROFESSIONAL NAVBAR */}
       <nav className="navbar">
         <div className="nav-left">

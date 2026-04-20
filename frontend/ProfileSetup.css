@@ -16,6 +16,7 @@
   background: white;
   padding: 3rem;
   border-radius: 24px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
   width: 100%;
   max-width: 500px;
@@ -25,6 +26,7 @@
 .theme-dark .setup-card {
   background: #1e293b;
   border-color: #334155;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
 }
 
@@ -67,12 +69,20 @@
 .setup-form {
   display: flex;
   flex-direction: column;
+  gap: 1.5rem;
   gap: 1.75rem;
 }
 
 .setup-group {
   display: flex;
   flex-direction: column;
+  gap: 0.5rem;
+}
+
+.setup-group label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #374151;
   gap: 0.6rem;
 }
 
@@ -91,6 +101,15 @@
 
 .setup-input {
   position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.setup-icon {
+  position: absolute;
+  left: 1rem;
+  color: #9ca3af;
+  font-size: 1rem;
 }
 
 .setup-input .setup-icon {
@@ -171,6 +190,10 @@
 }
 
 .setup-submit {
+  background: #2e7d32;
+  color: white;
+  padding: 1rem;
+  border-radius: 12px;
   background: linear-gradient(135deg, #2e7d32 0%, #43a047 100%);
   color: white;
   padding: 1rem 2rem;
@@ -183,6 +206,13 @@
   align-items: center;
   justify-content: center;
   gap: 0.75rem;
+  margin-top: 1rem;
+  transition: all 0.2s;
+}
+
+.setup-submit:hover {
+  background: #1b5e20;
+  transform: translateY(-2px);
   margin-top: 1.5rem;
   transition: all 0.3s ease;
   box-shadow: 0 4px 15px rgba(46, 125, 50, 0.3);

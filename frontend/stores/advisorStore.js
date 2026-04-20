@@ -21,6 +21,9 @@ export const useAdvisorStore = create((set) => ({
   showComingSoon: false,
   setShowComingSoon: (show) => set({ showComingSoon: show }),
 
+  showIrrigation: false,
+  setShowIrrigation: (show) => set({ showIrrigation: show }),
+
   // Reset store
   resetAdvisorStore: () =>
     set({

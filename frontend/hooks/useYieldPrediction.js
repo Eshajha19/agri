@@ -65,6 +65,7 @@ export const useYieldPrediction = () => {
     yieldError,
     yieldLoading,
     showYieldPopup,
+    setShowYieldPopup,
     fetchYield,
     closeYieldPopup,
     resetYieldStore,
