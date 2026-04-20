@@ -42,47 +42,28 @@ def predict():
     prediction = model.predict(input_df)[0]
     return {"predicted_yield": float(prediction)}
 
-
-@app.post("/predict-yield-lag")
-async def predict_yield_lag(input: YieldInput):
-    try:
-        data = input.data
-        if len(data) != 5:
-            raise ValueError("Exactly 5 values are required")
-
-        data = np.array(data).reshape(1, -1)
-
-        prediction = model_lag.predict(data)
-
-        return {
-            "prediction": round(float(prediction[0]), 2),
-            "model": "RandomForest Time Series (Lag Features)"
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Internal Server Error")
-    
 @app.post("/predict-yield-trend")
-async def predict_yield_trend(input: YieldInput):
+async def predict_yield_trend(payload: YieldInput):
     try:
-        data = input.data
+        data = payload.data
 
         if len(data) != 5:
             raise ValueError("Exactly 5 values are required")
 
-
-        temp = data[::-1] 
+        temp = data[::-1]  # reverse once
         trend = []
 
         for _ in range(5):
-            pred = model_lag.predict([temp[-5:]])[0]
+            features = temp[:5]  # latest 5 values (correct order)
+
+            pred = model_lag.predict([features])[0]
             pred_value = round(float(pred), 2)
 
             trend.append(pred_value)
-            temp.append(pred_value)
 
+            temp = [pred_value] + temp  # maintain correct lag order
+
+        # ✅ return AFTER loop (inside try)
         return {
             "trend": trend,
             "prediction": trend[-1],
@@ -93,4 +74,4 @@ async def predict_yield_trend(input: YieldInput):
         raise HTTPException(status_code=400, detail=str(e))
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Internal Server Error")
+        raise HTTPException(status_code=500, detail="Internal Server Error") from e
