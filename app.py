@@ -47,7 +47,8 @@ def predict():
 async def predict_yield_lag(input: YieldInput):
     try:
         data = input.data
-        raise ValueError("Exactly 5 values are required")
+        if len(data) != 5:
+            raise ValueError("Exactly 5 values are required")
 
         data = np.array(data).reshape(1, -1)
 
