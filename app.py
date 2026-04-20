@@ -72,7 +72,8 @@ async def predict_yield_trend(input: YieldInput):
         if len(data) != 5:
             raise ValueError("Exactly 5 values are required")
 
-        temp = data.copy()
+
+        temp = data[::-1] 
         trend = []
 
         for _ in range(5):
