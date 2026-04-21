@@ -12,6 +12,7 @@ import {
   FaLeaf,
   FaLock,
   FaGlobe,
+  FaCalculator,
 } from "react-icons/fa";
 import WeatherAlertBar from "./weather/WeatherAlertBar";
 import WeatherQuickWidget from "./weather/WeatherQuickWidget";
@@ -60,6 +61,12 @@ export default function Home() {
       title: "Fertilizer Guidance",
       desc: "Personalized fertilizer and pesticide recommendations",
       category: "Recommendations",
+    },
+    {
+      icon: <FaCalculator />,
+      title: "Profit Calculator",
+      desc: "Estimate potential profit before choosing crops with market analysis",
+      category: "Analytics",
     },
     {
       icon: <FaLock />,

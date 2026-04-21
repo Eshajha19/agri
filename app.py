@@ -4,7 +4,11 @@ import joblib
 import pandas as pd
 
 # Load trained model (ensure this path is correct)
-model = joblib.load("yield_model.joblib")
+try:
+    model = joblib.load("yield_model.joblib")
+except Exception as e:
+    print(f"Warning: Could not load model: {e}")
+    model = None
 
 # Create FastAPI app
 app = FastAPI()
@@ -19,6 +23,9 @@ app.add_middleware(
 
 @app.get("/predict")
 def predict():
+    if model is None:
+        return {"error": "Model not available", "predicted_yield": None}
+    
     # Dummy input matching training features
     input_df = pd.DataFrame([{
         "NDVI": 4800,

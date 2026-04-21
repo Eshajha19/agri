@@ -5,6 +5,7 @@ import Advisor from "./Advisor";
 import Home from "./Home";
 import Resources from "./Resources";
 import CropGuide from "./CropGuide";
+import CropProfitCalculator from "./CropProfitCalculator";
 import {
   FaHome,
   FaComments,
@@ -12,6 +13,7 @@ import {
   FaLeaf,
   FaBars,
   FaTimes,
+  FaCalculator,
 } from "react-icons/fa";
 import How from "./How";
 import { NavLink } from "react-router-dom";
@@ -170,6 +172,11 @@ function App() {
                 <FaLeaf className="icon" /> Crop Guide
               </Link>
             </li>
+            <li>
+              <Link to="/profit-calculator" onClick={() => setNavOpen(false)}>
+                <FaCalculator /> Profit Calculator
+              </Link>
+            </li>
           </ul>
 
           <div className="nav-right">
@@ -214,6 +221,7 @@ function App() {
           <Route path="/" element={<Home />} />
           <Route path="/advisor" element={<Advisor />} />
           <Route path="/how-it-works" element={<How />} />
+          <Route path="/profit-calculator" element={<CropProfitCalculator />} />
 
           <Route
             path="/login"
