@@ -12,8 +12,20 @@ html.goog-translate {
 body {
   margin-top: 0 !important;
   padding-top: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
   transform: none !important;
   position: relative !important;
+}
+
+html {
+  margin: 0;
+  padding: 0;
+}
+
+#root {
+  margin: 0;
+  padding: 0;
 }
 
 .goog-te-gadget,
@@ -52,6 +64,8 @@ body,
   width: 100%;
   font-family: "Poppins", sans-serif;
   padding-top: 68px;
+  margin: 0;
+  box-sizing: border-box;
 }
 
 
@@ -1084,10 +1098,8 @@ html body {
   background: #ff9800;
   color: white;
   text-align: center;
-  padding: 10px;
+  padding: 8px;
   font-weight: bold;
-  z-index: 10000;
-  position: relative;
 }
 
 .theme-dark .offline-banner {

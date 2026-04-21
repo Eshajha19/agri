@@ -45,8 +45,6 @@ const ProfileSetup = ({ user, profileCompleted }) => {
   }, [user, profileCompleted, navigate]);
 
   useEffect(() => {
-    requestLocation();
-  }, []);
     if (!isFirebaseConfigured()) {
       navigate("/login");
       return;
@@ -55,10 +53,6 @@ const ProfileSetup = ({ user, profileCompleted }) => {
     if (user && profileCompleted) {
       navigate("/");
     } else if (!user && !localStorage.getItem("isLoggingIn")) {
-      // Small delay to allow App.jsx state to stabilize? 
-      // Actually, if user is null in App.jsx, then we are not logged in.
-      // But avoid immediate redirect if we just clicked login
-      // navigate("/login");
     }
 
     requestLocation();

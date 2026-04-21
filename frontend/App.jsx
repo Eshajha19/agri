@@ -272,22 +272,9 @@ function App() {
         setProfileCompleted(true);
         setLoading(false);
       }
-    }) : () => { };
+    });
     return () => unsubscribeAuth();
   }, []);
-
-  const handleLogout = async () => {
-    if (!isFirebaseConfigured() || !auth) {
-      window.location.href = "/";
-      return;
-    }
-    try {
-      await signOut(auth);
-      window.location.href = "/";
-    } catch (error) {
-      console.error("Sign out error:", error);
-    }
-  };
 
 
   /* ---------------- AUTH STATE LISTENER ---------------- */
@@ -310,7 +297,7 @@ function App() {
   }, []);
 
   return (
-    <div className={`app ${theme === "dark" ? "theme-dark" : ""}`}>
+    <div className={`app ${isDarkTheme ? "theme-dark" : ""}`}>
       {isOffline && (
         <div className="offline-banner">
           You are currently offline. Running in offline mode using local data.
