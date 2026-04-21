@@ -85,9 +85,7 @@ const syncLanguage = (lang, setLang) => {
 
 function App() {
   const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
-
   const [isOpen, setIsOpen] = useState(false);
-  const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "light");
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [profileCompleted, setProfileCompleted] = useState(true);
@@ -98,10 +96,24 @@ function App() {
   useNotifications();
 
   /* ---------------- THEME SYSTEM ---------------- */
+  const [isDarkTheme, setIsDarkTheme] = useState(() => {
+    try {
+      return (localStorage.getItem("theme") || "light") === "dark";
+    } catch {
+      return false;
+    }
+  });
+
   useEffect(() => {
-    document.documentElement.classList.toggle("theme-dark", theme === "dark");
-    localStorage.setItem("theme", theme);
-  }, [theme]);
+    document.documentElement.classList.toggle("theme-dark", isDarkTheme);
+    try {
+      localStorage.setItem("theme", isDarkTheme ? "dark" : "light");
+    } catch {
+      // ignore
+    }
+  }, [isDarkTheme]);
+
+  const handleThemeToggle = () => setIsDarkTheme((prev) => !prev);
 
   /* ---------------- LANGUAGE AUTO-TRANS ---------------- */
   useEffect(() => {
@@ -280,9 +292,6 @@ return () => {
     return () => unsubscribeAuth();
   }, []);
 
-  const handleThemeToggle = () => {
-    setTheme(theme === "dark" ? "light" : "dark");
-  };
 
   /* ---------------- OFFLINE STATUS ---------------- */
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
@@ -304,7 +313,7 @@ return () => {
   }, []);
 
   return (
-    <div className={`app ${theme === "dark" ? "theme-dark" : ""}`}>
+    <div className="app">
       {/* OFFLINE INDICATOR */}
       {isOffline && (
         <div className="offline-banner">
@@ -329,7 +338,7 @@ return () => {
 
         <div className="nav-right">
           <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Toggle Theme">
-            {theme === "dark" ? "☀️" : "🌙"}
+            {isDarkTheme ? "☀️" : "🌙"}
           </button>
 
           <LanguageDropdown

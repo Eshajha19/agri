@@ -10,6 +10,7 @@ import {
   Sprout,
   Languages,
   WifiOff,
+  Info,
 } from "lucide-react";
 import { useAdvisorStore } from "./stores/advisorStore";
 import { useYieldPrediction } from "./hooks/useYieldPrediction";
@@ -236,7 +237,13 @@ export default function Advisor() {
             {yieldPrediction === null ? (
               <form onSubmit={fetchYield} className="yield-form">
                 <div className="form-group">
-                  <label>Crop</label>
+                  <label>
+                    Crop
+                    <span className="tooltip-container">
+                      <Info className="tooltip-icon" size={14} />
+                      <span className="tooltip-text">The crop you want to predict yield for.</span>
+                    </span>
+                  </label>
                   <select
                     value={yieldForm.Crop}
                     onChange={(e) =>
@@ -253,7 +260,13 @@ export default function Advisor() {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Season</label>
+                  <label>
+                    Season
+                    <span className="tooltip-container">
+                      <Info className="tooltip-icon" size={14} />
+                      <span className="tooltip-text">The growing season for the crop.</span>
+                    </span>
+                  </label>
                   <select
                     value={yieldForm.Season}
                     onChange={(e) =>
@@ -265,7 +278,13 @@ export default function Advisor() {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Covered Area (acres)</label>
+                  <label>
+                    Covered Area (acres)
+                    <span className="tooltip-container">
+                      <Info className="tooltip-icon" size={14} />
+                      <span className="tooltip-text">Total area planted in acres to gauge production volume.</span>
+                    </span>
+                  </label>
                   <input
                     type="number"
                     value={yieldForm.CropCoveredArea}
@@ -275,7 +294,13 @@ export default function Advisor() {
                   />
                 </div>
                 <div className="form-group">
-                  <label>Crop Height (cm)</label>
+                  <label>
+                    Crop Height (cm)
+                    <span className="tooltip-container">
+                      <Info className="tooltip-icon" size={14} />
+                      <span className="tooltip-text">Estimated average height of the mature crop in centimeters.</span>
+                    </span>
+                  </label>
                   <input
                     type="number"
                     value={yieldForm.CHeight}
@@ -285,7 +310,13 @@ export default function Advisor() {
                   />
                 </div>
                 <div className="form-group">
-                  <label>Next Crop</label>
+                  <label>
+                    Next Crop
+                    <span className="tooltip-container">
+                      <Info className="tooltip-icon" size={14} />
+                      <span className="tooltip-text">The expected crop to be planted in the following season.</span>
+                    </span>
+                  </label>
                   <select
                     value={yieldForm.CNext}
                     onChange={(e) =>
@@ -305,7 +336,13 @@ export default function Advisor() {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Last Crop</label>
+                  <label>
+                    Last Crop
+                    <span className="tooltip-container">
+                      <Info className="tooltip-icon" size={14} />
+                      <span className="tooltip-text">The crop that was planted in the previous season.</span>
+                    </span>
+                  </label>
                   <select
                     value={yieldForm.CLast}
                     onChange={(e) =>
@@ -325,7 +362,13 @@ export default function Advisor() {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Transplanting Method</label>
+                  <label>
+                    Transplanting Method
+                    <span className="tooltip-container">
+                      <Info className="tooltip-icon" size={14} />
+                      <span className="tooltip-text">The method used to plant the crop (e.g. Drilling).</span>
+                    </span>
+                  </label>
                   <select
                     value={yieldForm.CTransp}
                     onChange={(e) =>
@@ -339,7 +382,13 @@ export default function Advisor() {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Irrigation Type</label>
+                  <label>
+                    Irrigation Type
+                    <span className="tooltip-container">
+                      <Info className="tooltip-icon" size={14} />
+                      <span className="tooltip-text">The technique for distributing water in the field.</span>
+                    </span>
+                  </label>
                   <select
                     value={yieldForm.IrriType}
                     onChange={(e) =>
@@ -353,7 +402,13 @@ export default function Advisor() {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Irrigation Source</label>
+                  <label>
+                    Irrigation Source
+                    <span className="tooltip-container">
+                      <Info className="tooltip-icon" size={14} />
+                      <span className="tooltip-text">The origin of the water used for irrigation.</span>
+                    </span>
+                  </label>
                   <select
                     value={yieldForm.IrriSource}
                     onChange={(e) =>
@@ -368,7 +423,13 @@ export default function Advisor() {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Irrigation Count</label>
+                  <label>
+                    Irrigation Count
+                    <span className="tooltip-container">
+                      <Info className="tooltip-icon" size={14} />
+                      <span className="tooltip-text">Number of times the crop is irrigated per season.</span>
+                    </span>
+                  </label>
                   <input
                     type="number"
                     value={yieldForm.IrriCount}
@@ -378,7 +439,13 @@ export default function Advisor() {
                   />
                 </div>
                 <div className="form-group">
-                  <label>Water Coverage (%)</label>
+                  <label>
+                    Water Coverage (%)
+                    <span className="tooltip-container">
+                      <Info className="tooltip-icon" size={14} />
+                      <span className="tooltip-text">Percentage of field area receiving adequate water.</span>
+                    </span>
+                  </label>
                   <input
                     type="number"
                     max="100"
