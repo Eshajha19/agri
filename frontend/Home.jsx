@@ -18,56 +18,17 @@ import WeatherQuickWidget from "./weather/WeatherQuickWidget";
 import { auth, isFirebaseConfigured } from "./lib/firebase";
 import "./Home.css";
 
-// Static data defined outside component so it never triggers re-renders
+// ─── Static data at module scope (never causes re-renders) ───────────────────
+
 const features = [
-  {
-    icon: <FaBrain />,
-    title: "AI-Powered Predictions",
-    desc: "Smart crop yield predictions using advanced machine learning algorithms",
-    category: "Analytics",
-  },
-  {
-    icon: <FaSun />,
-    title: "Weather Insights",
-    desc: "Real-time weather forecasts and custom alerts tailored for your farm",
-    category: "Monitoring",
-  },
-  {
-    icon: <FaHandHoldingWater />,
-    title: "Smart Irrigation",
-    desc: "Optimize water usage with AI-driven irrigation recommendations",
-    category: "Optimization",
-  },
-  {
-    icon: <FaChartLine />,
-    title: "Yield Optimization",
-    desc: "Maximize your harvest with data-driven farming strategies",
-    category: "Analytics",
-  },
-  {
-    icon: <FaFlask />,
-    title: "Soil Analysis",
-    desc: "Comprehensive soil health monitoring and nutrient level analysis",
-    category: "Monitoring",
-  },
-  {
-    icon: <FaLeaf />,
-    title: "Crop Recommendations",
-    desc: "Get crop suggestions based on soil profile and regional climate",
-    category: "Recommendations",
-  },
-  {
-    icon: <FaChartLine />,
-    title: "Fertilizer Guidance",
-    desc: "Personalized fertilizer and pesticide recommendations",
-    category: "Recommendations",
-  },
-  {
-    icon: <FaLock />,
-    title: "Secure & Private",
-    desc: "Enterprise-grade security with Firebase authentication",
-    category: "Protection",
-  },
+  { icon: <FaBrain />, title: "AI-Powered Predictions", desc: "Smart crop yield predictions using advanced machine learning algorithms", category: "Analytics" },
+  { icon: <FaSun />, title: "Weather Insights", desc: "Real-time weather forecasts and custom alerts tailored for your farm", category: "Monitoring" },
+  { icon: <FaHandHoldingWater />, title: "Smart Irrigation", desc: "Optimize water usage with AI-driven irrigation recommendations", category: "Optimization" },
+  { icon: <FaChartLine />, title: "Yield Optimization", desc: "Maximize your harvest with data-driven farming strategies", category: "Analytics" },
+  { icon: <FaFlask />, title: "Soil Analysis", desc: "Comprehensive soil health monitoring and nutrient level analysis", category: "Monitoring" },
+  { icon: <FaLeaf />, title: "Crop Recommendations", desc: "Get crop suggestions based on soil profile and regional climate", category: "Recommendations" },
+  { icon: <FaChartLine />, title: "Fertilizer Guidance", desc: "Personalized fertilizer and pesticide recommendations", category: "Recommendations" },
+  { icon: <FaLock />, title: "Secure & Private", desc: "Enterprise-grade security with Firebase authentication", category: "Protection" },
 ];
 
 const stats = [
@@ -78,38 +39,79 @@ const stats = [
 ];
 
 const testimonials = [
-  {
-    name: "Ramesh Kumar",
-    location: "Maharashtra",
-    text: "Fasal Saathi helped me increase my rice yield by 30% this season!",
-  },
-  {
-    name: "Lakshmi Devi",
-    location: "Tamil Nadu",
-    text: "The weather predictions are accurate. I plan my irrigation accordingly.",
-  },
-  {
-    name: "Suresh Patel",
-    location: "Gujarat",
-    text: "Best AI farming assistant. Simple to use even for elderly farmers.",
-  },
+  { name: "Ramesh Kumar", location: "Maharashtra", text: "Fasal Saathi helped me increase my rice yield by 30% this season!" },
+  { name: "Lakshmi Devi", location: "Tamil Nadu", text: "The weather predictions are accurate. I plan my irrigation accordingly." },
+  { name: "Suresh Patel", location: "Gujarat", text: "Best AI farming assistant. Simple to use even for elderly farmers." },
 ];
 
+// ─── Pre-generated stable bird data (avoids Math.random() on every render) ───
+const BIRD_DATA = Array.from({ length: 7 }, (_, i) => ({
+  id: i,
+  width: 28 + (i * 3) % 12,
+  height: 14 + (i * 2) % 8,
+  className: `bird bird-${i + 1}`,
+}));
+
+// ─── Cloud component at module scope (never remounts during stats animation) ──
+const Cloud = ({ className = "" }) => (
+  <svg
+    className={className}
+    width="260"
+    height="140"
+    viewBox="0 0 260 140"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <defs>
+      <radialGradient id="cloudBlue" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stopColor="#e0f2ff" stopOpacity="0.98" />
+        <stop offset="100%" stopColor="#bfdbfe" stopOpacity="0.85" />
+      </radialGradient>
+      <radialGradient id="cloudWhite" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stopColor="#f8fafc" stopOpacity="0.97" />
+        <stop offset="100%" stopColor="#e2e8f0" stopOpacity="0.80" />
+      </radialGradient>
+      <filter id="cloudBlur">
+        <feGaussianBlur stdDeviation="2" />
+      </filter>
+    </defs>
+    <ellipse cx="130" cy="90" rx="110" ry="42" fill="var(--cloud-fill, url(#cloudBlue))" />
+    <ellipse cx="90" cy="72" rx="62" ry="44" fill="var(--cloud-fill, url(#cloudBlue))" />
+    <ellipse cx="160" cy="68" rx="54" ry="40" fill="var(--cloud-fill, url(#cloudBlue))" />
+    <ellipse cx="120" cy="58" rx="46" ry="36" fill="var(--cloud-fill, url(#cloudBlue))" />
+    <ellipse cx="130" cy="90" rx="108" ry="40" fill="none" stroke="var(--cloud-outline, #b6e0ff)" strokeWidth="1.5" strokeOpacity="0.4" />
+  </svg>
+);
+
+// ─── Birds component at module scope ─────────────────────────────────────────
+const Birds = () => (
+  <div className="birds-anim-wrap" aria-hidden="true">
+    {BIRD_DATA.map(({ id, width, height, className }) => (
+      <svg
+        key={id}
+        className={className}
+        width={width}
+        height={height}
+        viewBox="0 0 28 14"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          d="M1 7 Q7 1 14 7 Q21 1 27 7"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          fill="none"
+        />
+      </svg>
+    ))}
+  </div>
+);
+
+// ─── Home component ───────────────────────────────────────────────────────────
 export default function Home() {
   const [statValues, setStatValues] = useState(stats.map(() => 1));
   const [user, setUser] = useState(null);
-
-  // Auth state listener
-  useEffect(() => {
-    if (!isFirebaseConfigured()) {
-      setUser(null);
-      return;
-    }
-    const unsubscribe = auth?.onAuthStateChanged
-      ? auth.onAuthStateChanged((u) => setUser(u))
-      : () => {};
-    return () => unsubscribe();
-  }, []);
 
   // Scroll to top on reload
   useEffect(() => {
@@ -120,7 +122,7 @@ export default function Home() {
     }
   }, []);
 
-  // Animate stats counters — stats is stable (module-level const)
+  // Animate stats counters
   useEffect(() => {
     const duration = 1400;
     const startTime = performance.now();
@@ -144,10 +146,27 @@ export default function Home() {
       <div className="home-weather-relative-wrap">
         <WeatherQuickWidget />
       </div>
-      <section className="hero-section">
+      <section className="hero-section highlight-light">
+        {/* Real background image layer with overlay for contrast */}
+        <div className="hero-bg-image" aria-hidden="true">
+          <div className="hero-bg-overlay" />
+        </div>
+
+        {/* Cloud Animation Layer */}
+        <div className="clouds-anim-wrap" aria-hidden="true">
+          {/* Wrapper divs carry the scale so cloud-float keyframes aren't overridden */}
+          <div className="cloud-wrapper cloud-wrapper-1"><Cloud className="cloud cloud-1" /></div>
+          <div className="cloud-wrapper cloud-wrapper-2"><Cloud className="cloud cloud-2" /></div>
+          <div className="cloud-wrapper cloud-wrapper-3"><Cloud className="cloud cloud-3" /></div>
+        </div>
+
+        {/* Birds Animation Layer */}
+        <Birds />
+
         <div className="hero-bg">
           <div className="hero-pattern"></div>
         </div>
+
         <div className="hero-content">
           <div className="hero-copy">
             <div className="hero-badge">
@@ -181,6 +200,7 @@ export default function Home() {
             ))}
           </div>
         </div>
+
         <div className="hero-visual">
           <div className="floating-card card-1">
             <FaSun className="card-icon" />
@@ -290,7 +310,6 @@ export default function Home() {
                 <span>+91 98765 43210</span>
               </div>
             </div>
-
             <div className="footer-section">
               <h4>Quick Links</h4>
               <Link to="/">Home</Link>
@@ -298,7 +317,6 @@ export default function Home() {
               <Link to="/how-it-works">How It Works</Link>
               <Link to="/dashboard">Dashboard</Link>
             </div>
-
             <div className="footer-section">
               <h4>Resources</h4>
               <Link to="/crop-guide">Crop Guide</Link>
@@ -306,7 +324,6 @@ export default function Home() {
               <Link to="/soil-analysis">Soil Analysis</Link>
               <Link to="/faq">FAQs</Link>
             </div>
-
             <div className="footer-section">
               <h4>Company</h4>
               <Link to="/about">About Us</Link>
@@ -315,7 +332,6 @@ export default function Home() {
               <Link to="/terms">Terms of Service</Link>
             </div>
           </div>
-
           <div className="footer-bottom">
             <div className="footer-socials">
               <FaGlobe />
