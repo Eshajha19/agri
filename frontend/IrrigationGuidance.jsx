@@ -7,6 +7,8 @@ export default function IrrigationGuidance({ onClose }) {
     cropType: 'Wheat',
     soilType: 'Loamy',
     temperature: 30,
+    humidity: 50,
+    soilPH: 7.0,
     rainfall: 0,
     areaSize: 1,
   });
@@ -108,7 +110,13 @@ export default function IrrigationGuidance({ onClose }) {
           <form className="irri-form" onSubmit={(e) => { e.preventDefault(); calculateIrrigation(); }}>
             <div className="form-grid">
               <div className="form-group">
-                <label><Leaf size={16}/> Crop Type</label>
+                <label>
+                  <Leaf size={16}/> Crop Type 
+                  <span className="tooltip-container">
+                    <Info className="tooltip-icon" size={14} />
+                    <span className="tooltip-text">Select the type of crop you are currently growing.</span>
+                  </span>
+                </label>
                 <select name="cropType" value={formData.cropType} onChange={handleChange}>
                   <option>Wheat</option>
                   <option>Rice</option>
@@ -119,7 +127,13 @@ export default function IrrigationGuidance({ onClose }) {
               </div>
 
               <div className="form-group">
-                <label><MapPin size={16}/> Soil Type</label>
+                <label>
+                  <MapPin size={16}/> Soil Type 
+                  <span className="tooltip-container">
+                    <Info className="tooltip-icon" size={14} />
+                    <span className="tooltip-text">Select the primary soil type present in your farm area.</span>
+                  </span>
+                </label>
                 <select name="soilType" value={formData.soilType} onChange={handleChange}>
                   <option>Loamy</option>
                   <option>Sandy</option>
@@ -128,17 +142,57 @@ export default function IrrigationGuidance({ onClose }) {
               </div>
 
               <div className="form-group">
-                <label><ThermometerSun size={16}/> Avg Temperature (°C)</label>
+                <label>
+                  <ThermometerSun size={16}/> Avg Temperature (°C)
+                  <span className="tooltip-container">
+                    <Info className="tooltip-icon" size={14} />
+                    <span className="tooltip-text">Average daily temperature in your region. Affects crop water evaporation.</span>
+                  </span>
+                </label>
                 <input type="number" name="temperature" value={formData.temperature} onChange={handleChange} />
               </div>
 
               <div className="form-group">
-                <label><Droplets size={16}/> Recent Rainfall (mm)</label>
+                <label>
+                  <Droplets size={16}/> Humidity (%)
+                  <span className="tooltip-container">
+                    <Info className="tooltip-icon" size={14} />
+                    <span className="tooltip-text">Amount of moisture in the air. High humidity reduces crop water requirements.</span>
+                  </span>
+                </label>
+                <input type="number" name="humidity" value={formData.humidity} onChange={handleChange} />
+              </div>
+
+              <div className="form-group">
+                <label>
+                  <Activity size={16}/> Soil pH (0–14)
+                  <span className="tooltip-container">
+                    <Info className="tooltip-icon" size={14} />
+                    <span className="tooltip-text">Indicates acidity or alkalinity of soil. Value between 0 and 14.</span>
+                  </span>
+                </label>
+                <input type="number" name="soilPH" value={formData.soilPH} step="0.1" onChange={handleChange} />
+              </div>
+
+              <div className="form-group">
+                <label>
+                  <Droplets size={16}/> Recent Rainfall (mm)
+                  <span className="tooltip-container">
+                    <Info className="tooltip-icon" size={14} />
+                    <span className="tooltip-text">Amount of rain received over the last 7 days. Modifies irrigation calculations.</span>
+                  </span>
+                </label>
                 <input type="number" name="rainfall" value={formData.rainfall} onChange={handleChange} />
               </div>
 
               <div className="form-group full-width">
-                <label><Activity size={16}/> Farm Area (Acres)</label>
+                <label>
+                  <Activity size={16}/> Farm Area (Acres)
+                  <span className="tooltip-container">
+                    <Info className="tooltip-icon" size={14} />
+                    <span className="tooltip-text">Total size of the land to be irrigated.</span>
+                  </span>
+                </label>
                 <input type="number" name="areaSize" value={formData.areaSize} step="0.1" onChange={handleChange} />
               </div>
             </div>
