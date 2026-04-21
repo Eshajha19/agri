@@ -9,9 +9,6 @@ import ErrorBoundary from './ErrorBoundary.jsx'
 // Register service worker for offline support
 registerSW({ immediate: true })
 
-// Register service worker for offline support
-registerSW({ immediate: true })
-
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>

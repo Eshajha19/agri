@@ -24,6 +24,10 @@ import Auth from "./Auth";
 import ProfileSetup from "./ProfileSetup";
 import LanguageDropdown from "./LanguageDropdown";
 import useNotifications from "./Notifications";
+import Schemes from "./GovernmentSchemes";
+import Calendar from "./FarmingCalendar";
+import Feedback from "./Feedback";
+import AdminFeedback from "./AdminFeedback";
 
 import { auth, db, isFirebaseConfigured } from "./lib/firebase";
 
@@ -37,12 +41,12 @@ const LANGUAGE_OPTIONS = [
   { value: "bn", label: "🇮🇳 বাংলা", englishName: "bengali" },
   { value: "ta", label: "🇮🇳 தமிழ்", englishName: "tamil" },
   { value: "te", label: "🇮🇳 తెలుగు", englishName: "telugu" },
-  { value: "gu", label: "🇮🇳 ગુજરાતી", englishName: "gujarati" },
+  { value: "gu", label: "🇮🇳 ગુજરાତି", englishName: "gujarati" },
   { value: "pa", label: "🇮🇳 ਪੰਜਾਬੀ", englishName: "punjabi" },
   { value: "kn", label: "🇮🇳 ಕನ್ನಡ", englishName: "kannada" },
   { value: "ml", label: "🇮🇳 മലയാളം", englishName: "malayalam" },
   { value: "or", label: "🇮🇳 ଓଡ଼ିଆ", englishName: "odia" },
-  { value: "as", label: "🇮🇳 অসমীয়া", englishName: "assamese" },
+  { value: "as", label: "🇮🇳 অসমୀয়া", englishName: "assamese" },
 ];
 
 const getInitialLanguage = () => {
@@ -123,13 +127,10 @@ function App() {
 
   useEffect(() => {
     setGoogleTranslateCookie(preferredLang);
-
     if (applyGoogleTranslate(preferredLang)) return;
-
     const id = setInterval(() => {
       if (applyGoogleTranslate(preferredLang)) clearInterval(id);
-    }, 300);
-
+    }, 500);
     return () => clearInterval(id);
   }, [preferredLang]);
 
@@ -248,10 +249,10 @@ function App() {
       setLoading(false);
       return;
     }
-    const unsubscribeAuth = auth?.onAuthStateChanged ? auth.onAuthStateChanged((currentUser) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
-        const unsubscribeDoc = db && onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
+        const unsubscribeDoc = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
           if (userDoc.exists()) {
             const data = userDoc.data();
             setUserData(data);
@@ -265,7 +266,7 @@ function App() {
           console.error("Firestore sync error:", error);
           setLoading(false);
         });
-        return () => unsubscribeDoc?.();
+        return () => unsubscribeDoc();
       } else {
         setUserData(null);
         setProfileCompleted(true);
@@ -275,12 +276,28 @@ function App() {
     return () => unsubscribeAuth();
   }, []);
 
+  const handleLogout = async () => {
+    if (!isFirebaseConfigured() || !auth) {
+      window.location.href = "/";
+      return;
+    }
+    try {
+      await signOut(auth);
+      window.location.href = "/";
+    } catch (error) {
+      console.error("Sign out error:", error);
+    }
+  };
+
+
+  /* ---------------- AUTH STATE LISTENER ---------------- */
+
+
 
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
   useEffect(() => {
     const handleNetworkChange = () => setIsOffline(!navigator.onLine);
-
     window.addEventListener("online", handleNetworkChange);
     window.addEventListener("offline", handleNetworkChange);
 
@@ -289,7 +306,6 @@ function App() {
     return () => {
       window.removeEventListener("online", handleNetworkChange);
       window.removeEventListener("offline", handleNetworkChange);
-      clearInterval(interval);
     };
   }, []);
 
@@ -397,14 +413,18 @@ function App() {
       )}
 
       <Routes>
-        <Route path="/" element={<Home />} />
+        <Route path="/" element={<Home user={user} />} />
         <Route path="/advisor" element={<Advisor />} />
         <Route path="/how-it-works" element={<How />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/crop-guide" element={<CropGuide />} />
+        <Route path="/schemes" element={<Schemes />} />
         <Route path="/resources" element={<Resources />} />
         <Route path="/login" element={<Auth />} />
-        <Route path="/profile-setup" element={<ProfileSetup />} />
+        <Route path="/profile-setup" element={<ProfileSetup user={user} profileCompleted={profileCompleted} />} />
+        <Route path="/calendar" element={<Calendar />} />
+        <Route path="/admin/feedback" element={<AdminFeedback />} />
+        <Route path="/share-feedback" element={<Feedback />} />
       </Routes>
 
       <ToastContainer position="bottom-right" />

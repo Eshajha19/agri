@@ -10,12 +10,17 @@ import {
   Sprout,
   Languages,
   WifiOff,
+  Landmark,
+  Calendar,
+  MessageSquare,
   Info,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useAdvisorStore } from "./stores/advisorStore";
 import { useYieldPrediction } from "./hooks/useYieldPrediction";
 
 export default function Advisor() {
+  const navigate = useNavigate();
   const {
     farmers,
     setCarmers,
@@ -187,6 +192,30 @@ export default function Advisor() {
             <div className="icon">📊</div>
             <h3>Yield Prediction</h3>
             <p>AI predicts crop yield based on soil & weather data.</p>
+          </div>
+
+          <div className="card reveal" onClick={() => navigate("/schemes")}>
+            <div className="icon">
+              <Landmark size={32} strokeWidth={2} />
+            </div>
+            <h3>Govt Schemes</h3>
+            <p>Direct subsidies, insurance, and financial benefits for farmers.</p>
+          </div>
+
+          <div className="card reveal" onClick={() => navigate("/calendar")}>
+            <div className="icon">
+              <Calendar size={32} strokeWidth={2} />
+            </div>
+            <h3>Activity Calendar</h3>
+            <p>Schedule sowing, watering, and harvesting with reminders.</p>
+          </div>
+
+          <div className="card reveal" onClick={() => navigate("/share-feedback")}>
+            <div className="icon">
+              <MessageSquare size={32} strokeWidth={2} />
+            </div>
+            <h3>Share Feedback</h3>
+            <p>Help us improve Fasal Saathi with your valuable suggestions.</p>
           </div>
         </div>
       </div>

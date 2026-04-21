@@ -34,31 +34,9 @@ body {
   display: none !important;
 }
 
-body > .goog-te-banner-frame,
-html > .goog-te-banner-frame,
-.goog-te-banner-frame {
-  display: none !important;
-  position: absolute !important;
-  height: 0 !important;
-  width: 0 !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  border: none !important;
-  clip: rect(0, 0, 0, 0) !important;
-  overflow: hidden !important;
-}
 
-.navbar {
-  display: flex;
-  justify-content: space-between;
-  position: fixed !important;
-  top: 0 !important;
-  left: 0 !important;
-  right: 0 !important;
-  z-index: 9999 !important;
-  background: white;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
+
+
 
 :root {
   --primary: #2e7d32;
@@ -73,9 +51,6 @@ body,
   height: 100%;
   width: 100%;
   font-family: "Poppins", sans-serif;
-}
-
-.app {
   padding-top: 68px;
 }
 
@@ -617,22 +592,7 @@ body,
 }
 
 /* Google Translate overrides */
-iframe.goog-te-banner-frame.skiptranslate {
-  display: none !important;
-  height: 0 !important;
-  visibility: hidden !important;
-}
-.goog-te-banner-frame {
-  display: none !important;
-  height: 0 !important;
-  visibility: hidden !important;
-}
-#google_translate_element {
-  display: none !important;
-  height: 0 !important;
-  visibility: hidden !important;
-  position: absolute !important;
-}
+
 body.translated-ltr {
   direction: ltr;
 }
@@ -650,10 +610,6 @@ body.translated-rtl {
 }
 .goog-tooltip:hover {
   display: none;
-}
-.goog-text-highlight {
-  background: none !important;
-  box-shadow: none !important;
 }
 
 
@@ -970,48 +926,7 @@ html body {
   color: #111;
 }
 
-/* Google Translate overrides */
-iframe.goog-te-banner-frame.skiptranslate {
-  display: none !important;
-  height: 0 !important;
-  visibility: hidden !important;
-}
-.goog-te-banner-frame {
-  display: none !important;
-  height: 0 !important;
-  visibility: hidden !important;
-}
-#google_translate_element {
-  display: none !important;
-  height: 0 !important;
-  visibility: hidden !important;
-  position: absolute !important;
-}
-body > .goog-te-banner-frame,
-html > .goog-te-banner-frame {
-  display: none !important;
-  height: 0 !important;
-  position: absolute !important;
-  top: 0 !important;
-  left: -9999px !important;
-}
-html body {
-  margin-top: 0 !important;
-  padding-top: 0 !important;
-}
 
-/* Hide original text hover popup */
-.goog-tooltip {
-  display: none !important;
-}
-.goog-tooltip:hover {
-  display: none !important;
-}
-.goog-text-highlight {
-  background-color: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-}
 
 .nav-link.active .icon {
   color: #007bff;
