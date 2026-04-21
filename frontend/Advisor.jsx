@@ -190,30 +190,37 @@ export default function Advisor() {
         </div>
       </div>
           {showWeather && (
-        <div className="weather-overlay">
-          <div className="weather-popup">
+        <div className="weather-overlay" onClick={() => setShowWeather(false)}>
+          <div className="weather-popup" onClick={(e)=>{e.stopPropagation()}}>
             <WeatherCard onClose={() => setShowWeather(false)} />
           </div>
+
+
+
         </div>
+
       )}
 
       {showSoilChatbot && (
-        <div className="weather-overlay">
-          <div className="chatbot-popup">
+        <div className="weather-overlay" onClick={() => setShowSoilChatbot(false)}>
+          <div className="chatbot-popup" onClick={(e)=>{e.stopPropagation()}}>
             <SoilChatbot onClose={() => setShowSoilChatbot(false)} />
           </div>
         </div>
       )}
       
       {showIrrigation && (
-        <div className="weather-overlay" style={{ alignItems: 'center', justifyContent: 'center' }}>
+        <div className="weather-overlay" onClick={()=>setShowIrrigation(false)}
+         style={{ alignItems: 'center', justifyContent: 'center' }}>
+          <div onClick={(e)=>{e.stopPropagation()}}>
           <IrrigationGuidance onClose={() => setShowIrrigation(false)} />
+            </div>
         </div>
       )}
 
       {showYieldPopup && (
-        <div className="weather-overlay">
-          <div className="yield-popup">
+        <div className="weather-overlay" onClick={()=>{closeYieldPopup()}}>
+          <div className="yield-popup" onClick={(e)=>{e.stopPropagation()}}>
             <button
               className="close-btn"
               onClick={closeYieldPopup}
@@ -419,8 +426,8 @@ export default function Advisor() {
       )}
 
       {showComingSoon && (
-        <div className="weather-overlay">
-          <div className="weather-popup coming-soon">
+        <div className="weather-overlay" onClick={()=>{setShowComingSoon(false)}}>
+          <div className="weather-popup coming-soon" onClick={(e)=>e.stopPropagation()}>
             <h2>🚧 Coming Soon</h2>
             <p>This feature is under development. Stay tuned!</p>
             <button
