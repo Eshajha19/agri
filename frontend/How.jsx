@@ -2,6 +2,7 @@ import React from "react";
 import "./How.css";
 
 export default function How() {
+  
   const steps = [
     {
       icon: "📡",
