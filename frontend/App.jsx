@@ -14,22 +14,13 @@ import { useNavigate } from "react-router-dom";
 import { Routes, Route, Link } from "react-router-dom";
 import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import { FaGoogle } from "react-icons/fa";
+import { updateProfile } from "firebase/auth";
 
 // 🔹 ScrollToTop component to fix navigation positioning
 function ScrollToTop() {
   const { pathname } = useLocation();
-
-  useEffect(() => {
-  const unsubscribe = onAuthStateChanged(auth, (user) => {
-    if (user) {
-      setName(user.email); // ya displayName future me
-    } else {
-      setName("");
-    }
-  });
-
-  return () => unsubscribe();
-}, []);
+  useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
+  return null;
 }
 
 function App() {
@@ -58,6 +49,17 @@ const validatePassword = (password) => {
 };
 
   const [name, setName] = useState(localStorage.getItem("farmerName") || "");
+  useEffect(() => {
+  const unsubscribe = onAuthStateChanged(auth, (user) => {
+    if (user) {
+      setName(user.displayName || user.email);
+      localStorage.setItem("farmerName", user.displayName || user.email);
+    } else {
+      setName("");
+    }
+  });
+  return () => unsubscribe();
+}, []);
   const [inputName, setInputName] = useState("");
   const [preferredLang, setPreferredLang] = useState(
     localStorage.getItem("preferredLanguage") || ""
@@ -154,18 +156,29 @@ const handleSignup = async (e) => {
     valid = false;
   }
 
-  if (!valid) return;
+  if (!valid) {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    return;
+  }
+  
 
   // Firebase signup
   try {
-    await createUserWithEmailAndPassword(
-      auth,
-      signupEmail,
-      signupPassword
-    );
+    const userCredential = await createUserWithEmailAndPassword(
+  auth,
+  signupEmail,
+  signupPassword
+);
 
-    localStorage.setItem("farmerName", signupName);
-    navigate("/");
+// 🔥 IMPORTANT LINE (name save here)
+await updateProfile(userCredential.user, {
+  displayName: signupName,
+});
+
+localStorage.setItem("farmerName", signupName);
+setName(signupName);
+
+navigate("/");
 
   } catch (error) {
     if (error.code === "auth/email-already-in-use") {
@@ -385,9 +398,9 @@ const handleSignup = async (e) => {
   </div>
 
   <span className="social-icons">
-    <icon onClick={handleGoogleLogin} className="icon-btn google">
-      <FaGoogle></FaGoogle>
-    </icon>
+    <button onClick={handleGoogleLogin} className="icon-btn google">
+      <FaGoogle size={24} />
+    </button>
 
   </span>
 

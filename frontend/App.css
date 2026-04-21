@@ -575,29 +575,25 @@ body,
   gap: 10px;
 }
 
-.icon-btn {
-  width: 45px;
-  height: 45px;
-  border-radius: 50%;
-  
+.icon-btn.google {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;        /* perfect circle */
+  background: #2e7d32;       /* green */
+  color: white;              /* white icon */
+  border: none;
+
   display: flex;
   justify-content: center;
   align-items: center;
 
-  font-size: 20px;
+  font-size: 22px;
   cursor: pointer;
+
+  transition: all 0.3s ease;
 }
 
-.google {
-  background: #2e7d32;   /* green background */
-  border: none;          /* remove red border */
-  color: white;          /* icon white */
-  
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-.google:hover {
+.icon-btn.google:hover {
   background: #1b5e20;
   transform: scale(1.1);
 }
