@@ -3,11 +3,57 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/x-icon" href="public/favicon.ico" />
+    <meta name="theme-color" content="#4caf50" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌿</text></svg>" />
+
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("theme");
+          var theme =
+            stored === "light" || stored === "dark"
+              ? stored
+              : window.matchMedia &&
+                window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+          if (theme === "dark") document.documentElement.classList.add("theme-dark");
+        } catch (e) {
+          // Ignore (private mode / blocked storage)
+        }
+      })();
+      (function () {
+        try {
+          var lang = localStorage.getItem("preferredLanguage") || "en";
+          var cookieValue = encodeURIComponent("/en/" + lang);
+          document.cookie = "googtrans=" + cookieValue + "; path=/;";
+          if (window.location.hostname) {
+            document.cookie = "googtrans=" + cookieValue + "; domain=." + window.location.hostname + "; path=/;";
+          }
+        } catch (e) {
+          // Ignore private mode / storage blocked
+        }
+      })();
+    </script>
     <title>Fasal Saathi</title>
   </head>
-  <body>
+  <body style="margin-top: 0 !important; padding-top: 0 !important; transform: none !important;">
     <div id="root"></div>
+    <div id="google_translate_element" style="display: none !important; visibility: hidden !important; height: 0 !important; width: 0 !important; position: absolute !important;"></div>
+    <script type="text/javascript">
+      function googleTranslateElementInit() {
+        new google.translate.TranslateElement({
+          pageLanguage: 'en',
+          includedLanguages: 'en,hi,mr,bn,ta,te,gu,pa,kn,ml,or,as',
+          autoDisplay: false,
+        }, 'google_translate_element');
+      }
+    </script>
+    <script
+      type="text/javascript"
+      src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"
+      defer
+    ></script>
     <script type="module" src="/main.jsx"></script>
   </body>
 </html>

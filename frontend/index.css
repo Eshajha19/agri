@@ -9,6 +9,11 @@
   --card-bg: #f9fafb;
   --border-color: #e5e7eb;
 
+  --chat-window-bg: #fdfdfd;
+  --chat-bot-bg: #f1f1f5;
+
+  --focus-ring: rgba(34, 197, 94, 0.35);
+
   /* Typography */
   --font-main: "Poppins", system-ui, Avenir, Helvetica, Arial, sans-serif;
   --base-size: 18px;
@@ -25,48 +30,44 @@
   padding: 0;
 }
 
+/* Dark theme overrides (applied via <html class="theme-dark">) */
+.theme-dark {
+  color-scheme: dark;
+
+  --bg-primary: #0b1220;
+  --text-primary: #e5e7eb;
+  --text-secondary: #a1a1aa;
+  --brand-primary: #16a34a;
+  --brand-hover: #15803d;
+  --accent-color: #fbbf24;
+  --card-bg: #111827;
+  --border-color: rgba(255, 255, 255, 0.12);
+
+  --chat-window-bg: rgba(255, 255, 255, 0.02);
+  --chat-bot-bg: rgba(255, 255, 255, 0.08);
+
+  --focus-ring: rgba(34, 197, 94, 0.45);
+}
+
 * {
   box-sizing: inherit;
   margin: 0;
   padding: 0;
 }
 
-/* Sunlight / High Contrast Mode */
-.sunlight {
-  --bg-primary: #ffffff !important;
-  --text-primary: #000000 !important;
-  --text-secondary: #000000 !important;
-  --brand-primary: #000000 !important;
-  --brand-hover: #1e293b !important;
-  --accent-color: #000000 !important;
-  --card-bg: #ffffff !important;
-  --border-color: #000000 !important;
-
-  --base-size: 22px !important;
-  --p-size: 1.5rem !important;
-
-  filter: contrast(1.1) brightness(1.02);
-}
-
-.sunlight * {
-  border-color: #000000 !important;
-  box-shadow: none !important;
-  text-shadow: none !important;
-}
-
-.sunlight .highlight {
-  -webkit-text-fill-color: initial !important;
-  color: #000 !important;
-  background: none !important;
-  font-size: 0.95em !important;
-  font-weight: 900 !important;
-  display: inline-block !important;
-}
-
-.sunlight .navbar a,
-.sunlight .navbar .brand,
-.sunlight .nav-user a {
-  color: #ffffff !important;
+/* Sunlight / High Contrast Mode - See themes/sunlight.css for full implementation */
+/* Using CSS custom properties and proper specificity instead of !important */
+:root.sunlight {
+  --bg-primary: #ffffff;
+  --text-primary: #000000;
+  --text-secondary: #000000;
+  --brand-primary: #000000;
+  --brand-hover: #1e293b;
+  --accent-color: #000000;
+  --card-bg: #ffffff;
+  --border-color: #000000;
+  --base-size: 22px;
+  --p-size: 1.5rem;
 }
 
 body {
@@ -81,6 +82,22 @@ body {
   min-height: 100vh;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Accessible focus styling */
+:where(a, button, select, input, textarea):focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 #root {
@@ -123,9 +140,9 @@ a:hover {
 }
 
 .sunlight a {
-  color: #0000ee !important;
-  text-decoration: underline !important;
-  font-weight: 800 !important;
+  color: #0000ee;
+  text-decoration: underline;
+  font-weight: 800;
 }
 
 button {
@@ -146,25 +163,97 @@ button:hover {
 }
 
 .sunlight button {
-  background-color: #000000 !important;
-  color: #ffffff !important;
-  border: 4px solid #000000 !important;
-  font-weight: 900 !important;
+  background-color: #000000;
+  color: #ffffff;
+  border: 4px solid #000000;
+  font-weight: 900;
 }
 
 .sunlight .btn-primary,
 .sunlight .get-started {
-  background: #000 !important;
-  color: #fff !important;
-  border: 4px solid #000 !important;
-  font-weight: 800 !important;
-  text-decoration: none !important;
+  background: #000;
+  color: #fff;
+  border: 4px solid #000;
+  font-weight: 800;
+  text-decoration: none;
 }
 
 .sunlight .btn-secondary {
-  background: #fff !important;
-  color: #000 !important;
-  border: 4px solid #000 !important;
-  font-weight: 800 !important;
-  text-decoration: none !important;
+  background: #fff;
+  color: #000;
+  border: 4px solid #000;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+/* Tooltip styles */
+.tooltip-container {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  cursor: help;
+}
+
+.tooltip-icon {
+  color: #6b7280;
+  transition: color 0.2s;
+}
+
+.theme-dark .tooltip-icon {
+  color: #9ca3af;
+}
+
+.tooltip-container:hover .tooltip-icon {
+  color: var(--brand-primary);
+}
+
+.tooltip-text {
+  visibility: hidden;
+  width: max-content;
+  max-width: 250px;
+  background-color: #1f2937;
+  color: #fff;
+  text-align: center;
+  border-radius: 6px;
+  padding: 8px 12px;
+  position: absolute;
+  z-index: 1000;
+  bottom: 125%;
+  left: 50%;
+  transform: translateX(-50%);
+  opacity: 0;
+  transition: opacity 0.3s;
+  font-size: 0.85rem;
+  font-family: var(--font-main);
+  font-weight: 400;
+  line-height: 1.4;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  white-space: normal;
+}
+
+.theme-dark .tooltip-text {
+  background-color: #374151;
+  color: #f3f4f6;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+}
+
+.tooltip-text::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -6px;
+  border-width: 6px;
+  border-style: solid;
+  border-color: #1f2937 transparent transparent transparent;
+}
+
+.theme-dark .tooltip-text::after {
+  border-color: #374151 transparent transparent transparent;
+}
+
+.tooltip-container:hover .tooltip-text {
+  visibility: visible;
+  opacity: 1;
 }

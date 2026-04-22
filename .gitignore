@@ -25,3 +25,9 @@ dist-ssr
 
 .vercel
 .env
+
+# Python
+__pycache__/
+.python-version
+dev-dist/
+dist/

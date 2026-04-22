@@ -1,422 +1,422 @@
-import React, { useState, useEffect, useRef } from "react";
-import { createUserWithEmailAndPassword } from "firebase/auth";
-import { auth } from "./firebase"; // adjust path
-import "./App.css";
-import Advisor from "./Advisor";
-import How from "./How";
-import Home from "./Home";
-import { FaHome, FaComments, FaInfoCircle, FaLeaf, FaBars, FaTimes } from "react-icons/fa";
-import { useLocation } from "react-router-dom";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { onAuthStateChanged } from "firebase/auth";
-import { signOut } from "firebase/auth";
-import { useNavigate } from "react-router-dom";
-import { Routes, Route, Link } from "react-router-dom";
-import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
-import { FaGoogle } from "react-icons/fa";
-import { updateProfile } from "firebase/auth";
+import React, { useState, useRef, useEffect } from "react";
+import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { doc, onSnapshot } from "firebase/firestore";
+import {
+  FaHome,
+  FaComments,
+  FaInfoCircle,
+  FaLeaf,
+  FaBars,
+  FaTimes,
+  FaTachometerAlt,
+  FaChevronDown,
+} from "react-icons/fa";
+import { ToastContainer } from "react-toastify";
 
-// 🔹 ScrollToTop component to fix navigation positioning
-function ScrollToTop() {
-  const { pathname } = useLocation();
-  useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
-  return null;
-}
+import Advisor from "./Advisor";
+import Home from "./Home";
+import Resources from "./Resources";
+import CropGuide from "./CropGuide";
+import How from "./How";
+import Dashboard from "./Dashboard";
+import Auth from "./Auth";
+import ProfileSetup from "./ProfileSetup";
+import LanguageDropdown from "./LanguageDropdown";
+import useNotifications from "./Notifications";
+import Schemes from "./GovernmentSchemes";
+import Calendar from "./FarmingCalendar";
+import Feedback from "./Feedback";
+import AdminFeedback from "./AdminFeedback";
+
+import { auth, db, isFirebaseConfigured } from "./lib/firebase";
+
+import "./App.css";
+import "./themes/sunlight.css";
+
+const LANGUAGE_OPTIONS = [
+  { value: "en", label: "🌍 English", englishName: "english" },
+  { value: "hi", label: "🇮🇳 हिंदी", englishName: "hindi" },
+  { value: "mr", label: "🇮🇳 मराठी", englishName: "marathi" },
+  { value: "bn", label: "🇮🇳 বাংলা", englishName: "bengali" },
+  { value: "ta", label: "🇮🇳 தமிழ்", englishName: "tamil" },
+  { value: "te", label: "🇮🇳 తెలుగు", englishName: "telugu" },
+  { value: "gu", label: "🇮🇳 ગુજરાତି", englishName: "gujarati" },
+  { value: "pa", label: "🇮🇳 ਪੰਜਾਬੀ", englishName: "punjabi" },
+  { value: "kn", label: "🇮🇳 ಕನ್ನಡ", englishName: "kannada" },
+  { value: "ml", label: "🇮🇳 മലയാളം", englishName: "malayalam" },
+  { value: "or", label: "🇮🇳 ଓଡ଼ିଆ", englishName: "odia" },
+  { value: "as", label: "🇮🇳 অসমୀয়া", englishName: "assamese" },
+];
+
+const getInitialLanguage = () => {
+  try {
+    const stored = localStorage.getItem("preferredLanguage");
+    return LANGUAGE_OPTIONS.some((l) => l.value === stored) ? stored : "en";
+  } catch {
+    return "en";
+  }
+};
+
+const setGoogleTranslateCookie = (lang) => {
+  try {
+    const cookieValue = encodeURIComponent(`/en/${lang}`);
+    document.cookie = `googtrans=${cookieValue}; path=/;`;
+    const hostname = window.location.hostname;
+    if (hostname) {
+      document.cookie = `googtrans=${cookieValue}; domain=.${hostname}; path=/;`;
+    }
+  } catch {
+    // Ignore if cookies are blocked
+  }
+};
+
+const applyGoogleTranslate = (lang) => {
+  const el = document.querySelector(".goog-te-combo");
+  if (!el) return false;
+  el.value = lang;
+  el.dispatchEvent(new Event("change"));
+  return true;
+};
+
+const syncLanguage = (lang, setLang) => {
+  setLang(lang);
+  localStorage.setItem("preferredLanguage", lang);
+  applyGoogleTranslate(lang);
+};
 
 function App() {
-  const [error, setError] = useState("");
-  const [loginLang, setLoginLang] = useState("");
-  const [showAlert, setShowAlert] = useState(true);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
   const [isOpen, setIsOpen] = useState(false);
-  const [sunlight, setSunlight] = useState(false);
-  const [signupName, setSignupName] = useState("");
-const [signupEmail, setSignupEmail] = useState("");
-const [signupPassword, setSignupPassword] = useState("");
-const [nameError, setNameError] = useState("");
-const [emailError, setEmailError] = useState("");
-const [passwordError, setPasswordError] = useState("");
-const navigate = useNavigate();
-  const validateEmail = (email) => {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-};  
-const validatePassword = (password) => {
-  const regex =
-    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>]).{6,}$/;
+  const [user, setUser] = useState(null);
+  const [userData, setUserData] = useState(null);
+  const [profileCompleted, setProfileCompleted] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [showScorecard, setShowScorecard] = useState(false);
+  const location = useLocation();
 
-  return regex.test(password);
-};
+  useNotifications();
 
-  const [name, setName] = useState(localStorage.getItem("farmerName") || "");
-  useEffect(() => {
-  const unsubscribe = onAuthStateChanged(auth, (user) => {
-    if (user) {
-      setName(user.displayName || user.email);
-      localStorage.setItem("farmerName", user.displayName || user.email);
-    } else {
-      setName("");
+  /* ---------------- THEME SYSTEM ---------------- */
+  const [isDarkTheme, setIsDarkTheme] = useState(() => {
+    try {
+      return (localStorage.getItem("theme") || "light") === "dark";
+    } catch {
+      return false;
     }
   });
-  return () => unsubscribe();
-}, []);
-  const [inputName, setInputName] = useState("");
-  const [preferredLang, setPreferredLang] = useState(
-    localStorage.getItem("preferredLanguage") || ""
-  );
-  const handleGoogleLogin = async () => {
-  const provider = new GoogleAuthProvider();
 
-  try {
-    const result = await signInWithPopup(auth, provider);
-
-    const user = result.user;
-
-    localStorage.setItem("farmerName", user.displayName);
-    setName(user.displayName);
-
-    navigate("/");
-
-  } catch (error) {
-    console.error(error);
-    setError("Google sign-in failed");
-  }
-};
-
-
-  const handleLogin = async (e) => {
-  e.preventDefault();
-  if (!email || !password) {
-  alert("Enter email & password");
-  return;
-}
-
-  try {
-    const userCredential = await signInWithEmailAndPassword(
-      auth,
-      email,
-      password
-    );
-    localStorage.setItem("farmerName", inputName);
-    setName(inputName);
-
-    alert("Login successful!");
-
-    navigate("/");
-
-  } catch (error) {
-    alert("Invalid email or password");
-  }
-};
-const handleLogout = async () => {
-  
-
-  localStorage.removeItem("farmerName");
-  localStorage.removeItem("preferredLanguage");
-
-  setName("");
-  setPreferredLang("");
-
-  alert("Logged out");
-  navigate("/");
-};
-const handleSignup = async (e) => {
-  e.preventDefault();
-
-  // reset errors
-  setNameError("");
-  setEmailError("");
-  setPasswordError("");
-
-  let valid = true;
-
-  // Name validation
-  if (!signupName.trim()) {
-    setNameError("Name is required");
-    valid = false;
-  }
-
-  // Email validation
-  if (!signupEmail.trim()) {
-    setEmailError("Email is required");
-    valid = false;
-  } else if (!validateEmail(signupEmail)) {
-    setEmailError("Invalid email format");
-    valid = false;
-  }
-
-  // Password validation
-  if (!signupPassword.trim()) {
-    setPasswordError("Password is required");
-    valid = false;
-  } else if (!validatePassword(signupPassword)) {
-    setPasswordError(
-      "Min 6 chars, 1 upper, 1 lower, 1 number, 1 special char"
-    );
-    valid = false;
-  }
-
-  if (!valid) {
-    window.scrollTo({ top: 0, behavior: "smooth" });
-    return;
-  }
-  
-
-  // Firebase signup
-  try {
-    const userCredential = await createUserWithEmailAndPassword(
-  auth,
-  signupEmail,
-  signupPassword
-);
-
-// 🔥 IMPORTANT LINE (name save here)
-await updateProfile(userCredential.user, {
-  displayName: signupName,
-});
-
-localStorage.setItem("farmerName", signupName);
-setName(signupName);
-
-navigate("/");
-
-  } catch (error) {
-    if (error.code === "auth/email-already-in-use") {
-      setEmailError("Email already registered");
+  useEffect(() => {
+    document.documentElement.classList.toggle("theme-dark", isDarkTheme);
+    try {
+      localStorage.setItem("theme", isDarkTheme ? "dark" : "light");
+    } catch {
+      // ignore
     }
-  }
-};
+  }, [isDarkTheme]);
+
+  const handleThemeToggle = () => setIsDarkTheme((prev) => !prev);
+
+  useEffect(() => {
+    if (applyGoogleTranslate(preferredLang)) return;
+    const id = setInterval(() => {
+      if (applyGoogleTranslate(preferredLang)) clearInterval(id);
+    }, 300);
+    return () => clearInterval(id);
+  }, [preferredLang]);
+
+  useEffect(() => {
+    setGoogleTranslateCookie(preferredLang);
+    if (applyGoogleTranslate(preferredLang)) return;
+    const id = setInterval(() => {
+      if (applyGoogleTranslate(preferredLang)) clearInterval(id);
+    }, 500);
+    return () => clearInterval(id);
+  }, [preferredLang]);
+
+  useEffect(() => {
+    const cleanupGoogleTranslate = () => {
+      const selectors = [
+        '.goog-te-banner-frame',
+        '.goog-te-balloon-frame',
+        '#goog-gt-tt',
+        'iframe[src*="translate.google"]',
+        '.VIpgJd-ZVi9od-ORHb-OEVgZj'
+      ];
+      selectors.forEach(sel => {
+        document.querySelectorAll(sel).forEach(el => {
+          el.style.display = 'none';
+          el.style.visibility = 'hidden';
+          el.style.height = '0';
+          el.style.width = '0';
+          el.style.position = 'absolute';
+          el.style.pointerEvents = 'none';
+        });
+      });
+      document.body.style.marginTop = '0';
+      document.body.style.paddingTop = '0';
+      document.body.style.transform = 'none';
+    };
+
+    const detectTranslationToolbar = () => {
+      cleanupGoogleTranslate();
+      const hasTranslationToolbar =
+        document.querySelector('.goog-te-banner-frame') ||
+        document.querySelector('.goog-te-gadget') ||
+        document.querySelector('[data-ogpc]') ||
+        (document.body.style.transform && document.body.style.transform.includes('translateY')) ||
+        (document.body.style.marginTop && parseInt(document.body.style.marginTop) > 0) ||
+        document.querySelector('meta[name="google-translate-customization"]') ||
+        (window.innerHeight < window.screen.height * 0.9 && document.documentElement.scrollHeight > window.innerHeight);
+
+      document.documentElement.classList.toggle('has-translation-toolbar', hasTranslationToolbar);
+    };
+
+    detectTranslationToolbar();
+
+    cleanupGoogleTranslate();
+    const interval = setInterval(() => {
+      cleanupGoogleTranslate();
+      detectTranslationToolbar();
+    }, 500);
+
+    const handleVisibilityChange = () => setTimeout(detectTranslationToolbar, 500);
+    const handleFocus = () => setTimeout(detectTranslationToolbar, 200);
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('resize', detectTranslationToolbar);
+
+    const handleClick = () => cleanupGoogleTranslate();
+    const handleScroll = () => cleanupGoogleTranslate();
+    document.addEventListener('click', handleClick, true);
+    document.addEventListener('scroll', handleScroll, true);
+
+    const observer = new MutationObserver((mutations) => {
+      let shouldCheck = false;
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+          Array.from(mutation.addedNodes).forEach((node) => {
+            if (node.nodeType === Node.ELEMENT_NODE &&
+              (node.classList?.contains('goog-te') ||
+                node.id?.includes('google_translate') ||
+                node.tagName === 'IFRAME')) {
+              shouldCheck = true;
+            }
+          });
+        }
+        if (mutation.type === 'attributes' &&
+          (mutation.attributeName === 'style' || mutation.attributeName === 'class')) {
+          shouldCheck = true;
+        }
+      });
+      if (shouldCheck) detectTranslationToolbar();
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['style', 'class', 'id']
+    });
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      document.removeEventListener('focus', handleFocus);
+      document.removeEventListener('resize', detectTranslationToolbar);
+      document.removeEventListener('click', handleClick, true);
+      document.removeEventListener('scroll', handleScroll, true);
+      observer.disconnect();
+    };
+  }, []);
+
+  const handleLogout = async () => {
+    if (!isFirebaseConfigured() || !auth) {
+      window.location.href = "/";
+      return;
+    }
+    try {
+      await signOut(auth);
+      window.location.href = "/";
+    } catch (error) {
+      console.error("Sign out error:", error);
+    }
+  };
+
+  useEffect(() => {
+    if (!isFirebaseConfigured()) {
+      setLoading(false);
+      return;
+    }
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (currentUser) {
+        const unsubscribeDoc = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
+          if (userDoc.exists()) {
+            const data = userDoc.data();
+            setUserData(data);
+            setProfileCompleted(data.profileCompleted === true);
+          } else {
+            setUserData(null);
+            setProfileCompleted(false);
+          }
+          setLoading(false);
+        }, (error) => {
+          console.error("Firestore sync error:", error);
+          setLoading(false);
+        });
+        return () => unsubscribeDoc();
+      } else {
+        setUserData(null);
+        setProfileCompleted(true);
+        setLoading(false);
+      }
+    });
+    return () => unsubscribeAuth();
+  }, []);
+
+
+  /* ---------------- AUTH STATE LISTENER ---------------- */
+
+
+
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
+  useEffect(() => {
+    const handleNetworkChange = () => setIsOffline(!navigator.onLine);
+    window.addEventListener("online", handleNetworkChange);
+    window.addEventListener("offline", handleNetworkChange);
+
+    const interval = setInterval(handleNetworkChange, 1000);
+
+    return () => {
+      window.removeEventListener("online", handleNetworkChange);
+      window.removeEventListener("offline", handleNetworkChange);
+    };
+  }, []);
 
   return (
-    <>
-      <ScrollToTop />
-      <div className={sunlight ? "app sunlight" : "app"}>
+    <div className={`app ${isDarkTheme ? "theme-dark" : ""}`}>
+      {isOffline && (
+        <div className="offline-banner">
+          You are currently offline. Running in offline mode using local data.
+        </div>
+      )}
 
-        {/* Navbar */}
-        {/* NAVBAR */}
-        <nav className="navbar">
-          <div className="nav-left">
-            <FaLeaf className="icon" />
-            <Link to="/" className="brand">
-              Fasal Saathi
-            </Link>
-          </div>
+      <nav className="navbar">
+        <div className="nav-left">
+          <FaLeaf className="icon" />
+          <Link to="/" className="brand">Fasal Saathi</Link>
+        </div>
 
-          <ul className={`nav-center ${isOpen ? "active" : ""}`}>
-            <li>
-              <Link to="/" onClick={() => setIsOpen(false)}>
-                <FaHome className="icon" /> Home
-              </Link>
-            </li>
-            <li>
-              <Link to="/advisor" onClick={() => setIsOpen(false)}>
-                <FaComments className="icon" /> Chat
-              </Link>
-            </li>
-            <li>
-              <Link to="/how-it-works" onClick={() => setIsOpen(false)}>
-                <FaInfoCircle className="icon" /> How It Works
-              </Link>
-            </li>
-          </ul>
+        <ul className={`nav-center ${isOpen ? "active" : ""}`}>
+          <li><Link to="/" onClick={() => setIsOpen(false)}><FaHome /> Home</Link></li>
+          <li><Link to="/advisor" onClick={() => setIsOpen(false)}><FaComments /> Chat</Link></li>
+          <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}><FaInfoCircle /> How It Works</Link></li>
+          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}><FaLeaf className="icon" /> Crop Guide</Link></li>
+          <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
+          <li><Link to="/dashboard" onClick={() => setIsOpen(false)}><FaTachometerAlt /> Dashboard</Link></li>
 
-          <div className="nav-right">
-            <button
-              onClick={() => setSunlight(!sunlight)}
-              className="sunlight-toggle"
-            >
-              {sunlight ? "👁️ Normal View" : "☀️ Sunlight Mode"}
-            </button>
+        </ul>
 
-            {/* Language Dropdown */}
-            {/* LANGUAGE SELECT */}
-            <select
-              className="lang-select"
-              value={preferredLang}
-              onChange={(e) => {
-                const lang = e.target.value;
-                setPreferredLang(lang);
-                localStorage.setItem("preferredLanguage", lang);
-              }}
-            >
-              <option value="">Select Language</option>
-              <option value="en">🌍 English</option>
-              <option value="hi">🇮🇳 हिंदी</option>
-              <option value="mr">🇮🇳 मराठी</option>
-              <option value="bn">🇮🇳 বাংলা</option>
-              <option value="ta">🇮🇳 தமிழ்</option>
-              <option value="te">🇮🇳 తెలుగు</option>
-              <option value="gu">🇮🇳 ગુજરાતી</option>
-              <option value="pa">🇮🇳 ਪੰਜਾਬੀ</option>
-              <option value="kn">🇮🇳 ಕನ್ನಡ</option>
-              <option value="ml">🇮🇳 മലയാളം</option>
-              <option value="or">🇮🇳 ଓଡ଼ିଆ</option>
-            </select>
-            {/* <div className="nav-auth">
-  <button className="btn-outline">Login</button>
-  <button className="btn-primary">Sign Up</button>
-</div> */}
-
-            {/* USER */}
-            <div className="nav-user">
-  {name ? (
-    <>
-      👋 {name}
-      <button className="logout-btn" onClick={handleLogout}>
-        Logout
-      </button>
-    </>
-  ) : (
-    <div className="nav-auth">
-      <Link to="/login" onClick={() => setIsOpen(false)}>
-        <button className="btn-outline">Login</button>
-      </Link>
-
-      <Link to="/signup" onClick={() => setIsOpen(false)}>
-        <button className="btn-outline">Sign Up</button>
-      </Link>
-    </div>
-  )}
-</div>
-          </div>
-
-          <button className="hamburger" onClick={() => setIsOpen(!isOpen)}>
-            {isOpen ? <FaTimes /> : <FaBars />}
+        <div className="nav-right">
+          <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Toggle Theme">
+            {isDarkTheme ? "☀️" : "🌙"}
           </button>
-        </nav>
 
-        {/* ALERT */}
-        {showAlert && (
-          <div className="alert-bar">
-            🌧️ Weather Alert: Heavy rainfall expected in parts of Maharashtra this evening.
-            <button className="close-btn" onClick={() => setShowAlert(false)}>
-              <FaTimes />
-            </button>
-          </div>
-        )}
-
-        {/* ROUTES */}
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/advisor" element={<Advisor />} />
-          <Route path="/how-it-works" element={<How />} />
-          
-          <Route
-          
-            path="/login"
-            element={
-              <div className="login-page">
-                <div className="login-card">
-                  <h2>👨‍🌾 Farmer Login</h2>
-
-                <form onSubmit={handleLogin}>
-  <input
-  type="text"
-  placeholder="Name"
-  value={inputName}
-  onChange={(e) => setInputName(e.target.value)}
-/>
-
-  <input
-    type="email"
-    placeholder="Enter your email"
-    value={email}
-    onChange={(e) => setEmail(e.target.value)}
-  />
-
-  <input
-    type="password"
-    placeholder="Enter password"
-    value={password}
-    onChange={(e) => setPassword(e.target.value)}
-  />
-
-  <select
-    value={loginLang}
-    onChange={(e) => setLoginLang(e.target.value)}
-  >
-    <option value="">Select Language</option>
-    <option value="en">English</option>
-    <option value="hi">Hindi</option>
-    <option value="mr">Marathi</option>
-  </select>
-
-  <button type="submit">Login</button>
-  <p>
-  Don't have an account? <Link to="/signup">Signup</Link>
-</p>
-</form>
-                </div>
-              </div>
-
-            }
+          <LanguageDropdown
+            options={LANGUAGE_OPTIONS}
+            value={preferredLang}
+            onChange={(val) => syncLanguage(val, setPreferredLang)}
           />
-          <Route
-  path="/signup"
-  element={
-    <div className="login-page">
-      <div className="login-card">
-        <h2>📝 Register</h2>
-{error && <p className="error">{error}</p>}
-        <form onSubmit={handleSignup}>
-  <input
-  type="text"
-  placeholder="Name"
-  value={signupName}
-  onChange={(e) => setSignupName(e.target.value)}
-  className={nameError ? "input error-input" : "input"}
-/>
-{nameError && <p className="error-text">{nameError}</p>}
 
-<input
-  type="email"
-  placeholder="Email"
-  value={signupEmail}
-  onChange={(e) => setSignupEmail(e.target.value)}
-  className={emailError ? "input error-input" : "input"}
-/>
-{emailError && <p className="error-text">{emailError}</p>}
+          <div className="nav-user" onClick={() => setShowScorecard(!showScorecard)}>
+            {loading ? (
+              <span className="loading-text">Loading...</span>
+            ) : user ? (
+              <div className="user-profile-trigger">
+                <div className="profile-main">
+                  <span className="profile-name">{userData?.displayName || user.email?.split('@')[0]}</span>
+                  <FaChevronDown className={`chevron ${showScorecard ? 'open' : ''}`} />
+                </div>
 
-<input
-  type="password"
-  placeholder="Password"
-  value={signupPassword}
-  onChange={(e) => setSignupPassword(e.target.value)}
-  className={passwordError ? "input error-input" : "input"}
-/>
-{passwordError && <p className="error-text">{passwordError}</p>}
+                {showScorecard && userData && (
+                  <div className="profile-scorecard" onClick={(e) => e.stopPropagation()}>
+                    <div className="scorecard-header">
+                      <div className="scorecard-avatar">{userData.displayName?.[0] || 'F'}</div>
+                      <h3>{userData.displayName}</h3>
+                      <p>{userData.email}</p>
+                    </div>
+                    <div className="scorecard-body">
+                      {[
+                        { label: "Primary Crop", value: userData.cropType },
+                        { label: "Language", value: LANGUAGE_OPTIONS.find(l => l.value === userData.language)?.label || userData.language },
+                        { label: "Location", value: userData.address || "Fetching..." }
+                      ].map((item, i) => (
+                        <div key={i} className="score-item">
+                          <label>{item.label}</label>
+                          <span>{item.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="scorecard-footer">
+                      <button onClick={handleLogout} className="btn-logout-alt">Sign Out</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <Link to="/login" className="btn-get-started">Get Started</Link>
+            )}
+          </div>
+        </div>
 
-  <button type="submit">Signup</button>
-</form>
-{/* <p style={{ marginTop: "10px" }}>
-  Already have an account?{" "}
-  <Link to="/login">Login</Link>
-</p> */}
-<div className="social-login">
-  <div className="divider">
-    <span>OR</span>
-  </div>
+        <button className="hamburger" onClick={() => setIsOpen(!isOpen)} aria-label="Toggle Menu">
+          {isOpen ? <FaTimes /> : <FaBars />}
+        </button>
+      </nav>
 
-  <span className="social-icons">
-    <button onClick={handleGoogleLogin} className="icon-btn google">
-      <FaGoogle size={24} />
-    </button>
+      {!loading && user && !user.emailVerified && !showScorecard && location.pathname !== "/login" && (
+        <div className="verification-overlay">
+          <div className="verification-card">
+            <div className="verify-icon">✉️</div>
+            <h2>Verify Your Email</h2>
+            <p>We've sent a link to <b>{user.email}</b>.<br /> Please verify your email to unlock all features.</p>
+            <button
+              onClick={() => {
+                auth.currentUser.reload().then(() => window.location.reload());
+              }}
+              className="btn-refresh"
+            >
+              I've Verified My Email
+            </button>
+            <button onClick={handleLogout} className="btn-logout-simple">Sign Out</button>
+          </div>
+        </div>
+      )}
 
-  </span>
+      {!loading && user && user.emailVerified && !profileCompleted && location.pathname !== "/profile-setup" && (
+        <Navigate to="/profile-setup" />
+      )}
 
-  <p style={{ marginTop: "10px" }}>
-    Already have an account? <Link to="/login">Login</Link>
-  </p>
-</div>
+      <Routes>
+        <Route path="/" element={<Home user={user} />} />
+        <Route path="/advisor" element={<Advisor />} />
+        <Route path="/how-it-works" element={<How />} />
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/crop-guide" element={<CropGuide />} />
+        <Route path="/schemes" element={<Schemes />} />
+        <Route path="/resources" element={<Resources />} />
+        <Route path="/login" element={<Auth />} />
+        <Route path="/profile-setup" element={<ProfileSetup user={user} profileCompleted={profileCompleted} />} />
+        <Route path="/calendar" element={<Calendar />} />
+        <Route path="/admin/feedback" element={<AdminFeedback />} />
+        <Route path="/share-feedback" element={<Feedback />} />
+      </Routes>
 
-      </div>
+      <ToastContainer position="bottom-right" />
     </div>
-  }
-/>
-        </Routes>
-      </div>
-    </>
-    
   );
 }
 
