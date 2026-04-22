@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#4caf50" />
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌿</text></svg>" />
 
     <script>
@@ -21,20 +22,9 @@
           // Ignore (private mode / blocked storage)
         }
       })();
-      (function () {
-        try {
-          var lang = localStorage.getItem("preferredLanguage") || "en";
-          var cookieValue = encodeURIComponent("/en/" + lang);
-          document.cookie = "googtrans=" + cookieValue + "; path=/;";
-          if (window.location.hostname) {
-            document.cookie = "googtrans=" + cookieValue + "; domain=." + window.location.hostname + "; path=/;";
-          }
-        } catch (e) {
-          // Ignore private mode / storage blocked
-        }
-      })();
-    </script>
-    <title>Fasal Saathi</title>
+    </script>    
+
+  <title>Fasal Saathi</title>
   </head>
   <body style="margin-top: 0 !important; padding-top: 0 !important; transform: none !important;">
     <div id="root"></div>

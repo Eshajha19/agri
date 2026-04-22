@@ -3,6 +3,8 @@ import "./Advisor.css";
 import WeatherCard from "./weather/WeatherCard";
 import SoilChatbot from "./SoilChatbot";
 import IrrigationGuidance from "./IrrigationGuidance";
+import CropProfitCalculator from "./CropProfitCalculator";
+import FarmingMap from "./FarmingMap";
 import {
   Sun,
   Droplets,
@@ -10,15 +12,22 @@ import {
   Sprout,
   Languages,
   WifiOff,
+  Landmark,
+  Calendar,
+  MessageSquare,
   Info,
+  Map,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useAdvisorStore } from "./stores/advisorStore";
 import { useYieldPrediction } from "./hooks/useYieldPrediction";
+import CropDiseaseDetection from "./CropDiseaseDetection";
 
 export default function Advisor() {
+  const navigate = useNavigate();
   const {
     farmers,
-    setCarmers,
+    setFarmers,
     crops,
     setCrops,
     languages,
@@ -31,6 +40,12 @@ export default function Advisor() {
     setShowComingSoon,
     showIrrigation,
     setShowIrrigation,
+    showProfitCalculator,
+    setShowProfitCalculator,
+    showFarmingMap,
+    setShowFarmingMap,
+    showCropDiseaseDetection,
+    setShowCropDiseaseDetection,
   } = useAdvisorStore();
 
   const {
@@ -51,12 +66,12 @@ export default function Advisor() {
       c = 0,
       l = 0;
     const interval = setInterval(() => {
-      if (f < 5000) setCarmers((f += 50));
+      if (f < 5000) setFarmers((f += 50));
       if (c < 120) setCrops((c += 2));
       if (l < 10) setLanguages((l += 1));
     }, 50);
     return () => clearInterval(interval);
-  }, [setCarmers, setCrops, setLanguages]);
+  }, [setFarmers, setCrops, setLanguages]);
 
   return (
     <section className="advisor">
@@ -159,7 +174,7 @@ export default function Advisor() {
           </div>
 
           {/* Crop Disease Detection */}
-          <div className="card reveal" onClick={() => setShowComingSoon(true)}>
+          <div className="card reveal" onClick={() => setShowCropDiseaseDetection(true)}>
             <div className="icon">🌿</div>
             <h3>Crop Disease Detection</h3>
             <p>Upload plant images to detect diseases and get remedies.</p>
@@ -187,6 +202,48 @@ export default function Advisor() {
             <div className="icon">📊</div>
             <h3>Yield Prediction</h3>
             <p>AI predicts crop yield based on soil & weather data.</p>
+          </div>
+
+          <div className="card reveal" onClick={() => navigate("/schemes")}>
+            <div className="icon">
+              <Landmark size={32} strokeWidth={2} />
+            </div>
+            <h3>Govt Schemes</h3>
+            <p>Direct subsidies, insurance, and financial benefits for farmers.</p>
+          </div>
+
+          <div className="card reveal" onClick={() => setShowProfitCalculator(true)}>
+            <div className="icon">💰</div>
+            <h3>Profit Calculator</h3>
+            <p>Calculate your crop profits and ROI before planting.</p>
+          </div>
+
+          <div
+            className="card reveal"
+            style={{ cursor: "pointer" }}
+            onClick={() => setShowFarmingMap(true)}
+          >
+            <div className="icon">
+              <Map size={32} strokeWidth={2} />
+            </div>
+            <h3>Farming Map</h3>
+            <p>View your fields, weather data, and crop locations on an interactive map.</p>
+          </div>
+
+          <div className="card reveal" onClick={() => navigate("/calendar")}>
+            <div className="icon">
+              <Calendar size={32} strokeWidth={2} />
+            </div>
+            <h3>Activity Calendar</h3>
+            <p>Schedule sowing, watering, and harvesting with reminders.</p>
+          </div>
+
+          <div className="card reveal" onClick={() => navigate("/share-feedback")}>
+            <div className="icon">
+              <MessageSquare size={32} strokeWidth={2} />
+            </div>
+            <h3>Share Feedback</h3>
+            <p>Help us improve Fasal Saathi with your valuable suggestions.</p>
           </div>
         </div>
       </div>
@@ -488,6 +545,42 @@ export default function Advisor() {
                 </button>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {showProfitCalculator && (
+        <div className="weather-overlay" onClick={()=>{setShowProfitCalculator(false)}}>
+          <div className="weather-popup profit-popup" onClick={(e)=>e.stopPropagation()}>
+            <CropProfitCalculator />
+            <button
+              className="close-btn"
+              onClick={() => setShowProfitCalculator(false)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showFarmingMap && (
+        <div className="farming-map-overlay" onClick={() => setShowFarmingMap(false)}>
+          <div className="farming-map-popup" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="close-btn"
+              onClick={() => setShowFarmingMap(false)}
+            >
+              Close
+            </button>
+            <FarmingMap />
+          </div>
+        </div>
+      )}
+
+      {showCropDiseaseDetection && (
+        <div className="weather-overlay" onClick={() => setShowCropDiseaseDetection(false)}>
+          <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
+            <CropDiseaseDetection onClose={() => setShowCropDiseaseDetection(false)} />
           </div>
         </div>
       )}

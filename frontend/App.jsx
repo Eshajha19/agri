@@ -1,15 +1,16 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, onSnapshot } from "firebase/firestore";
-import { 
-  FaHome, 
-  FaComments, 
-  FaInfoCircle, 
-  FaLeaf, 
-  FaBars, 
-  FaTimes, 
-  FaChevronDown 
+import {
+  FaHome,
+  FaComments,
+  FaInfoCircle,
+  FaLeaf,
+  FaBars,
+  FaTimes,
+  FaTachometerAlt,
+  FaChevronDown,
 } from "react-icons/fa";
 import { ToastContainer } from "react-toastify";
 
@@ -18,17 +19,20 @@ import Home from "./Home";
 import Resources from "./Resources";
 import CropGuide from "./CropGuide";
 import How from "./How";
+import Dashboard from "./Dashboard";
 import Auth from "./Auth";
 import ProfileSetup from "./ProfileSetup";
 import LanguageDropdown from "./LanguageDropdown";
 import useNotifications from "./Notifications";
+import Schemes from "./GovernmentSchemes";
+import Calendar from "./FarmingCalendar";
+import Feedback from "./Feedback";
+import AdminFeedback from "./AdminFeedback";
 
 import { auth, db, isFirebaseConfigured } from "./lib/firebase";
 
 import "./App.css";
 import "./themes/sunlight.css";
-
-/* ---------------- LANGUAGE options ---------------- */
 
 const LANGUAGE_OPTIONS = [
   { value: "en", label: "🌍 English", englishName: "english" },
@@ -37,12 +41,12 @@ const LANGUAGE_OPTIONS = [
   { value: "bn", label: "🇮🇳 বাংলা", englishName: "bengali" },
   { value: "ta", label: "🇮🇳 தமிழ்", englishName: "tamil" },
   { value: "te", label: "🇮🇳 తెలుగు", englishName: "telugu" },
-  { value: "gu", label: "🇮🇳 ગુજરાતી", englishName: "gujarati" },
+  { value: "gu", label: "🇮🇳 ગુજરાତି", englishName: "gujarati" },
   { value: "pa", label: "🇮🇳 ਪੰਜਾਬੀ", englishName: "punjabi" },
   { value: "kn", label: "🇮🇳 ಕನ್ನಡ", englishName: "kannada" },
   { value: "ml", label: "🇮🇳 മലയാളം", englishName: "malayalam" },
   { value: "or", label: "🇮🇳 ଓଡ଼ିଆ", englishName: "odia" },
-  { value: "as", label: "🇮🇳 অসমীয়া", englishName: "assamese" },
+  { value: "as", label: "🇮🇳 অসমୀয়া", englishName: "assamese" },
 ];
 
 const getInitialLanguage = () => {
@@ -68,11 +72,8 @@ const setGoogleTranslateCookie = (lang) => {
 };
 
 const applyGoogleTranslate = (lang) => {
-  const el = document.querySelector(".goog-te-combo");
-  if (!el) return false;
-  el.value = lang;
-  el.dispatchEvent(new Event("change"));
-  return true;
+  document.cookie = `googtrans=/en/${lang}; path=/`;
+  window.location.reload();
 };
 
 const syncLanguage = (lang, setLang) => {
@@ -80,8 +81,6 @@ const syncLanguage = (lang, setLang) => {
   localStorage.setItem("preferredLanguage", lang);
   applyGoogleTranslate(lang);
 };
-
-/* ---------------- APP MAIN ---------------- */
 
 function App() {
   const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
@@ -95,55 +94,34 @@ function App() {
 
   useNotifications();
 
-  /* ---------------- THEME SYSTEM ---------------- */
-  const [isDarkTheme, setIsDarkTheme] = useState(() => {
-    try {
-      return (localStorage.getItem("theme") || "light") === "dark";
-    } catch {
-      return false;
-    }
-  });
-
-  useEffect(() => {
-    document.documentElement.classList.toggle("theme-dark", isDarkTheme);
-    try {
-      localStorage.setItem("theme", isDarkTheme ? "dark" : "light");
-    } catch {
-      // ignore
-    }
-  }, [isDarkTheme]);
-
-  const handleThemeToggle = () => setIsDarkTheme((prev) => !prev);
-
-  /* ---------------- LANGUAGE AUTO-TRANS ---------------- */
-  useEffect(() => {
-    if (applyGoogleTranslate(preferredLang)) return;
-    const id = setInterval(() => {
-      if (applyGoogleTranslate(preferredLang)) clearInterval(id);
-    }, 300);
-    return () => clearInterval(id);
-  }, [preferredLang]);
+   /* ---------------- THEME SYSTEM ---------------- */
+   const [isDarkTheme, setIsDarkTheme] = useState(() => {
+     try {
+       return (localStorage.getItem("theme") || "light") === "dark";
+     } catch {
+       return false;
+     }
+   });
 
    useEffect(() => {
-    setGoogleTranslateCookie(preferredLang);
+     document.documentElement.classList.toggle("theme-dark", isDarkTheme);
+     localStorage.setItem("theme", isDarkTheme ? "dark" : "light");
+   }, [isDarkTheme]);
 
-    if (applyGoogleTranslate(preferredLang)) return;
+   const handleThemeToggle = () => {
+     setIsDarkTheme(!isDarkTheme);
+   };
 
-    const id = setInterval(() => {
-      if (applyGoogleTranslate(preferredLang)) clearInterval(id);
-    }, 300);
 
-    return () => clearInterval(id);
-  }, [preferredLang]);
+   useEffect(() => {
+     setGoogleTranslateCookie(preferredLang);
+   }, [preferredLang]);
 
-  /* ---------------- TRANSLATION TOOLBAR DETECTION ---------------- */
-  // Detects when Chrome's translation toolbar is present and adjusts layout accordingly
-  // This prevents UI layout breaks when browser translation is enabled
   useEffect(() => {
     const cleanupGoogleTranslate = () => {
       const selectors = [
         '.goog-te-banner-frame',
-        '.goog-te-balloon-frame', 
+        '.goog-te-balloon-frame',
         '#goog-gt-tt',
         'iframe[src*="translate.google"]',
         '.VIpgJd-ZVi9od-ORHb-OEVgZj'
@@ -165,34 +143,26 @@ function App() {
 
     const detectTranslationToolbar = () => {
       cleanupGoogleTranslate();
-      // Multiple detection methods for translation toolbar
       const hasTranslationToolbar =
-        // Check for Google Translate banner/frame
         document.querySelector('.goog-te-banner-frame') ||
         document.querySelector('.goog-te-gadget') ||
-        document.querySelector('[data-ogpc]') || // Google Translate attribute
-        // Check if body has translation-related transforms
+        document.querySelector('[data-ogpc]') ||
         (document.body.style.transform && document.body.style.transform.includes('translateY')) ||
         (document.body.style.marginTop && parseInt(document.body.style.marginTop) > 0) ||
-        // Check for translation meta tags
         document.querySelector('meta[name="google-translate-customization"]') ||
-        // Check if the page height has changed significantly (toolbar pushes content down)
         (window.innerHeight < window.screen.height * 0.9 && document.documentElement.scrollHeight > window.innerHeight);
 
       document.documentElement.classList.toggle('has-translation-toolbar', hasTranslationToolbar);
     };
 
-    // Initial check
     detectTranslationToolbar();
 
-    // Run cleanup immediately then check periodically
     cleanupGoogleTranslate();
     const interval = setInterval(() => {
       cleanupGoogleTranslate();
       detectTranslationToolbar();
     }, 500);
 
-    // Check on various events that might indicate translation
     const handleVisibilityChange = () => setTimeout(detectTranslationToolbar, 500);
     const handleFocus = () => setTimeout(detectTranslationToolbar, 200);
 
@@ -200,28 +170,26 @@ function App() {
     window.addEventListener('focus', handleFocus);
     window.addEventListener('resize', detectTranslationToolbar);
 
-    // Also run cleanup on any user interaction that might trigger translate
     const handleClick = () => cleanupGoogleTranslate();
     const handleScroll = () => cleanupGoogleTranslate();
     document.addEventListener('click', handleClick, true);
     document.addEventListener('scroll', handleScroll, true);
 
-    // Check for DOM changes that might indicate translation
     const observer = new MutationObserver((mutations) => {
       let shouldCheck = false;
       mutations.forEach((mutation) => {
         if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
           Array.from(mutation.addedNodes).forEach((node) => {
             if (node.nodeType === Node.ELEMENT_NODE &&
-                (node.classList?.contains('goog-te') ||
-                 node.id?.includes('google_translate') ||
-                 node.tagName === 'IFRAME')) {
+              (node.classList?.contains('goog-te') ||
+                node.id?.includes('google_translate') ||
+                node.tagName === 'IFRAME')) {
               shouldCheck = true;
             }
           });
         }
         if (mutation.type === 'attributes' &&
-            (mutation.attributeName === 'style' || mutation.attributeName === 'class')) {
+          (mutation.attributeName === 'style' || mutation.attributeName === 'class')) {
           shouldCheck = true;
         }
       });
@@ -235,7 +203,7 @@ function App() {
       attributeFilter: ['style', 'class', 'id']
     });
 
-return () => {
+    return () => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       document.removeEventListener('focus', handleFocus);
@@ -259,16 +227,15 @@ return () => {
     }
   };
 
-  /* ---------------- AUTH STATE LISTENER ---------------- */
   useEffect(() => {
     if (!isFirebaseConfigured()) {
       setLoading(false);
       return;
     }
-    const unsubscribeAuth = auth?.onAuthStateChanged ? auth.onAuthStateChanged((currentUser) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
-        const unsubscribeDoc = db && onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
+        const unsubscribeDoc = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
           if (userDoc.exists()) {
             const data = userDoc.data();
             setUserData(data);
@@ -282,46 +249,45 @@ return () => {
           console.error("Firestore sync error:", error);
           setLoading(false);
         });
-        return () => unsubscribeDoc?.();
+        return () => unsubscribeDoc();
       } else {
         setUserData(null);
         setProfileCompleted(true);
         setLoading(false);
       }
-    }) : () => {};
+    });
     return () => unsubscribeAuth();
   }, []);
 
 
-  /* ---------------- OFFLINE STATUS ---------------- */
+  /* ---------------- AUTH STATE LISTENER ---------------- */
+
+
+
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
-  useEffect(() => {
-    const handleNetworkChange = () => setIsOffline(!navigator.onLine);
+   useEffect(() => {
+     const handleNetworkChange = () => setIsOffline(!navigator.onLine);
+     window.addEventListener("online", handleNetworkChange);
+     window.addEventListener("offline", handleNetworkChange);
 
-    window.addEventListener("online", handleNetworkChange);
-    window.addEventListener("offline", handleNetworkChange);
-    
-    // Polling fallback to detect DevTools offline toggling where the event might be suppressed
-    const interval = setInterval(handleNetworkChange, 1000);
+     const interval = setInterval(handleNetworkChange, 1000);
 
-    return () => {
-      window.removeEventListener("online", handleNetworkChange);
-      window.removeEventListener("offline", handleNetworkChange);
-      clearInterval(interval);
-    };
-  }, []);
+     return () => {
+       window.removeEventListener("online", handleNetworkChange);
+       window.removeEventListener("offline", handleNetworkChange);
+       clearInterval(interval);
+     };
+   }, []);
 
   return (
-    <div className="app">
-      {/* OFFLINE INDICATOR */}
+    <div className={`app ${isDarkTheme ? "theme-dark" : ""}`}>
       {isOffline && (
         <div className="offline-banner">
-          ⚠️ You are currently offline. Running in offline mode using local data.
+          You are currently offline. Running in offline mode using local data.
         </div>
       )}
 
-      {/* PROFESSIONAL NAVBAR */}
       <nav className="navbar">
         <div className="nav-left">
           <FaLeaf className="icon" />
@@ -334,6 +300,8 @@ return () => {
           <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}><FaInfoCircle /> How It Works</Link></li>
           <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}><FaLeaf className="icon" /> Crop Guide</Link></li>
           <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
+          <li><Link to="/dashboard" onClick={() => setIsOpen(false)}><FaTachometerAlt /> Dashboard</Link></li>
+
         </ul>
 
         <div className="nav-right">
@@ -353,7 +321,7 @@ return () => {
             ) : user ? (
               <div className="user-profile-trigger">
                 <div className="profile-main">
-                  <span className="profile-name">👋 {userData?.displayName || user.email?.split('@')[0]}</span>
+                  <span className="profile-name">{userData?.displayName || user.email?.split('@')[0]}</span>
                   <FaChevronDown className={`chevron ${showScorecard ? 'open' : ''}`} />
                 </div>
 
@@ -366,9 +334,9 @@ return () => {
                     </div>
                     <div className="scorecard-body">
                       {[
-                        { label: "🌾 Primary Crop", value: userData.cropType },
-                        { label: "🌐 Language", value: LANGUAGE_OPTIONS.find(l => l.value === userData.language)?.label || userData.language },
-                        { label: "📍 Location", value: userData.address || "Fetching..." }
+                        { label: "Primary Crop", value: userData.cropType },
+                        { label: "Language", value: LANGUAGE_OPTIONS.find(l => l.value === userData.language)?.label || userData.language },
+                        { label: "Location", value: userData.address || "Fetching..." }
                       ].map((item, i) => (
                         <div key={i} className="score-item">
                           <label>{item.label}</label>
@@ -393,17 +361,16 @@ return () => {
         </button>
       </nav>
 
-      {/* VERIFICATION GUARD */}
       {!loading && user && !user.emailVerified && !showScorecard && location.pathname !== "/login" && (
         <div className="verification-overlay">
           <div className="verification-card">
             <div className="verify-icon">✉️</div>
             <h2>Verify Your Email</h2>
             <p>We've sent a link to <b>{user.email}</b>.<br /> Please verify your email to unlock all features.</p>
-            <button 
+            <button
               onClick={() => {
                 auth.currentUser.reload().then(() => window.location.reload());
-              }} 
+              }}
               className="btn-refresh"
             >
               I've Verified My Email
@@ -413,20 +380,23 @@ return () => {
         </div>
       )}
 
-      {/* PROFILE COMPLETION GUARD */}
       {!loading && user && user.emailVerified && !profileCompleted && location.pathname !== "/profile-setup" && (
         <Navigate to="/profile-setup" />
       )}
 
-      {/* APP ROUTES */}
       <Routes>
-        <Route path="/" element={<Home />} />
+        <Route path="/" element={<Home user={user} />} />
         <Route path="/advisor" element={<Advisor />} />
         <Route path="/how-it-works" element={<How />} />
+        <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/crop-guide" element={<CropGuide />} />
+        <Route path="/schemes" element={<Schemes />} />
         <Route path="/resources" element={<Resources />} />
         <Route path="/login" element={<Auth />} />
-        <Route path="/profile-setup" element={<ProfileSetup />} />
+        <Route path="/profile-setup" element={<ProfileSetup user={user} profileCompleted={profileCompleted} />} />
+        <Route path="/calendar" element={<Calendar />} />
+        <Route path="/admin/feedback" element={<AdminFeedback />} />
+        <Route path="/share-feedback" element={<Feedback />} />
       </Routes>
 
       <ToastContainer position="bottom-right" />
