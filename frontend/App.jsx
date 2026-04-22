@@ -6,6 +6,7 @@ import Home from "./Home";
 import Resources from "./Resources";
 import CropGuide from "./CropGuide";
 import CropProfitCalculator from "./CropProfitCalculator";
+import FarmingMap from "./FarmingMap";
 import {
   FaHome,
   FaComments,
@@ -14,6 +15,7 @@ import {
   FaBars,
   FaTimes,
   FaCalculator,
+  FaMap,
 } from "react-icons/fa";
 import How from "./How";
 import { NavLink } from "react-router-dom";
@@ -163,6 +165,11 @@ function App() {
               </Link>
             </li>
             <li>
+              <Link to="/farming-map" onClick={() => setNavOpen(false)}>
+                <FaMap /> Map
+              </Link>
+            </li>
+            <li>
               <Link to="/how-it-works" onClick={() => setNavOpen(false)}>
                 <FaInfoCircle /> How It Works
               </Link>
@@ -220,6 +227,14 @@ function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/advisor" element={<Advisor />} />
+          <Route
+            path="/farming-map"
+            element={
+              <div className="page-container">
+                <FarmingMap />
+              </div>
+            }
+          />
           <Route path="/how-it-works" element={<How />} />
           <Route path="/profit-calculator" element={<CropProfitCalculator />} />
 

@@ -654,3 +654,13 @@ iframe.goog-te-banner-frame.skiptranslate {
     display: block;
   }
 }
+
+/* Page container for map and other full-page views */
+.page-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 70px); /* Full viewport minus navbar height */
+  width: 100%;
+  overflow: hidden;
+}
