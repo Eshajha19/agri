@@ -56,6 +56,7 @@ export default function WeatherCard({
     }
 
     handleUseMyLocation();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -245,7 +246,7 @@ export default function WeatherCard({
 
             <section className="weather-panel">
               <div className="weather-panel__title-row">
-                <h3>{cropOptions.find((option) => option.value === crop)?.label} Warnings</h3>
+                <h3>{cropOptions.find((option) => option.value === selectedCrop)?.label} Warnings</h3>
                 <span>Field action</span>
               </div>
               <div className="alert-list">

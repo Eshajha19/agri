@@ -20,7 +20,6 @@ export const useChatbot = () => {
   } = useChatbotStore();
 
   const recognitionRef = useRef(null);
-  const synthRef = useRef(window.speechSynthesis);
   const utteranceRef = useRef(null);
 
   // Initialize Speech Recognition

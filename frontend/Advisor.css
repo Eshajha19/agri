@@ -253,6 +253,10 @@
   border: 1px solid var(--border-color);
 }
 
+.profit-popup {
+  max-width: 700px;
+}
+
 .carousel {
   display: flex;
   gap: 20px;
