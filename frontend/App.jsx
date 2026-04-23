@@ -219,13 +219,13 @@ function App() {
           <li><Link to="/" onClick={() => setIsOpen(false)}><FaHome /> Home</Link></li>
           <li><Link to="/advisor" onClick={() => setIsOpen(false)}><FaComments /> Chat</Link></li>
           <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}><FaInfoCircle /> How It Works</Link></li>
-          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}><FaLeaf className="icon" /> Crop Guide</Link></li>
+          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}><FaLeaf /> Crop Guide</Link></li>
           <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
           <li><Link to="/dashboard" onClick={() => setIsOpen(false)}><FaTachometerAlt /> Dashboard</Link></li>
 
         </ul>
 
-        <div className="nav-right">
+        <nav className="nav-right">
           <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Toggle Theme">
             {isDarkTheme ? "☀️" : "🌙"}
           </button>
@@ -289,7 +289,7 @@ function App() {
             {isOpen ? <FaTimes /> : <FaBars />}
           </button>
         </nav>
-
+</nav>
 
 
       {!loading && user && !user.emailVerified && !showScorecard && location.pathname !== "/login" && (

@@ -79,9 +79,30 @@ function SoilChatbot({ onClose }) {
       </div>
 
       <div className="chat-controls">
-        <div className="voice-controls">
+        <div className="input-area">
+              
+          <label htmlFor="file-upload" className="icon left" title="Upload Soil/Crop Image">
+            <FaImage />
+          </label>
+          <input
+            id="file-upload"
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={handleImageUpload}
+          />
+
+          <input
+            type="text"
+            className="chat-textbox"
+            value={userInput}
+            onChange={(e) => setUserInput(e.target.value)}
+            placeholder="Ask about crops, weather, soil..."
+            onKeyPress={(e) => e.key === "Enter" && handleSend()}
+          />
+           <div className="voice-controls">
           <button
-            className={`control-btn mic-btn ${isListening ? "active" : ""}`}
+            className={`icon right ${isListening ? "active" : ""}`}
             onClick={toggleListening}
             title="Start / Stop Voice Input"
           >
@@ -95,30 +116,10 @@ function SoilChatbot({ onClose }) {
           )}
         </div>
 
-        <div className="input-area">
-          <label htmlFor="file-upload" className="image-btn" title="Upload Soil/Crop Image">
-            <FaImage />
-          </label>
-          <input
-            id="file-upload"
-            type="file"
-            accept="image/*"
-            style={{ display: "none" }}
-            onChange={handleImageUpload}
-          />
-
-          <input
-            type="text"
-            value={userInput}
-            onChange={(e) => setUserInput(e.target.value)}
-            placeholder="Ask about crops, weather, soil..."
-            onKeyPress={(e) => e.key === "Enter" && handleSend()}
-          />
-
+        </div>
           <button className="send-btn" onClick={() => handleSend()}>
             <FaPaperPlane />
           </button>
-        </div>
       </div>
     </div>
   );

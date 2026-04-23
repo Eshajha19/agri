@@ -129,6 +129,7 @@ body,
   will-change: transform, filter;
 }
 
+
 @keyframes theme-toggle-smooth {
   from {
     transform: rotate(0deg) scale(1);
