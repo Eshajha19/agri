@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import "./Advisor.css";
 import WeatherCard from "./weather/WeatherCard";
 import SoilChatbot from "./SoilChatbot";
@@ -18,7 +19,6 @@ import {
   Info,
   Map,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 import { useAdvisorStore } from "./stores/advisorStore";
 import { useYieldPrediction } from "./hooks/useYieldPrediction";
 import CropDiseaseDetection from "./CropDiseaseDetection";
@@ -151,7 +151,7 @@ export default function Advisor() {
             </p>
           </div>
 
-          <div className="card reveal" onClick={() => setShowComingSoon(true)}>
+          <div className="card reveal" onClick={() => navigate("/market-prices")}>
             <div className="icon">
               <IndianRupee size={32} strokeWidth={2} />
             </div>

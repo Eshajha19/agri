@@ -1,7 +1,10 @@
 import { useCallback, useRef, useEffect } from 'react';
 import { useChatbotStore } from '../stores/chatbotStore';
+import { useErrorHandler } from './useErrorHandler';
+import apiClient from '../services/api';
 
 export const useChatbot = () => {
+  const { handleWarning } = useErrorHandler();
   const {
     messages,
     addMessage,
@@ -39,7 +42,7 @@ export const useChatbot = () => {
       };
 
       recognitionRef.current.onerror = (event) => {
-        console.error('Speech recognition error:', event.error);
+        handleWarning(`Speech recognition: ${event.error}`, 'speech-recognition');
         setIsListening(false);
       };
 
@@ -146,19 +149,20 @@ export const useChatbot = () => {
           return;
         }
 
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${API_KEY}`,
+        const response = await apiClient.post(
+          'https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent',
           {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts }],
-            }),
+            contents: [{ parts }],
+          },
+          {
+            params: { key: API_KEY },
+            retries: 1,
+            errorContext: 'chatbot-message',
+            errorMessage: 'Failed to process your message. Please try again.',
           }
         );
 
-        const data = await response.json();
-        setIsLoading(false);
+        const data = response.data;
 
         if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
           const botMessage = data.candidates[0].content.parts[0].text;
@@ -170,13 +174,13 @@ export const useChatbot = () => {
             from: 'bot',
           });
         }
-      } catch (error) {
-        console.error('Error:', error);
-        setIsLoading(false);
+      } catch {
         addMessage({
           text: 'An error occurred. Please try again later.',
           from: 'bot',
         });
+      } finally {
+        setIsLoading(false);
       }
     },
     [addMessage, setUserInput, setSoilImage, setIsLoading, toBase64, speak]

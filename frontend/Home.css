@@ -89,6 +89,8 @@
 .home-weather-relative-wrap .weather-quick-widget {
   position: absolute;
   top: 5px;
+  top: calc(5px + constant(safe-area-inset-top));
+  top: calc(5px + env(safe-area-inset-top));
   right: 22px;
   pointer-events: auto;
 }
@@ -1003,53 +1005,6 @@
 .cta-section .btn-primary:hover {
   background: var(--secondary);
   color: var(--dark);
-}
-
-.home-footer {
-  padding: 60px 5%;
-  background: var(--dark);
-  text-align: center;
-}
-
-.footer-brand {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.footer-logo {
-  font-size: 32px;
-  color: var(--primary-light);
-}
-
-.footer-brand span {
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--white);
-}
-
-.footer-content p {
-  color: var(--gray-500);
-  margin-bottom: 12px;
-}
-
-.footer-contact {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  color: var(--gray-300);
-  margin-bottom: 20px;
-}
-
-.footer-copyright {
-  font-size: 14px;
-  color: var(--gray-500);
-  border-top: 1px solid var(--gray-700);
-  padding-top: 20px;
-  margin-top: 20px;
 }
 
 .home-footer {

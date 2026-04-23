@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { auth, db, isFirebaseConfigured } from "./lib/firebase";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, setDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import { FaUser, FaGlobe, FaMapMarkerAlt, FaSeedling, FaArrowRight } from "react-icons/fa";
 import "./ProfileSetup.css";
@@ -49,14 +49,17 @@ const ProfileSetup = ({ user, profileCompleted }) => {
       navigate("/login");
       return;
     }
-
+    
+    // If profile is already completed, go home
     if (user && profileCompleted) {
       navigate("/");
     } else if (!user && !localStorage.getItem("isLoggingIn")) {
     }
-
-    requestLocation();
   }, [user, profileCompleted, navigate]);
+
+  useEffect(() => {
+    requestLocation();
+  }, []);
 
   const requestLocation = () => {
     if ("geolocation" in navigator) {
@@ -64,12 +67,13 @@ const ProfileSetup = ({ user, profileCompleted }) => {
       setError("");
       navigator.geolocation.getCurrentPosition(
         async (position) => {
-          const { latitude, longitude } = position.coords;
-          setLocation({ lat: latitude, lng: longitude });
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+          setLocation({ lat, lng });
 
           try {
             const response = await fetch(
-              `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
+              `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`
             );
             const data = await response.json();
             
@@ -118,9 +122,9 @@ const ProfileSetup = ({ user, profileCompleted }) => {
 
     setLoading(true);
     try {
-      const user = auth.currentUser;
-      if (user) {
-        await setDoc(doc(db, "users", user.uid), {
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        await setDoc(doc(db, "users", currentUser.uid), {
           displayName: name,
           language: language,
           cropType: cropType,

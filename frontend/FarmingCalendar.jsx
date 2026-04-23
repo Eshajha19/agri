@@ -26,6 +26,7 @@ import {
 import { auth, db } from "./lib/firebase";
 import { collection, query, where, onSnapshot, addDoc, deleteDoc, doc, updateDoc } from "firebase/firestore";
 import "./FarmingCalendar.css";
+import Loader from "./Loader";
 
 const ACTIVITY_TYPES = [
   { id: "sowing", label: "Sowing", icon: <Sprout size={16} />, color: "#10b981" },
@@ -203,106 +204,113 @@ const FarmingCalendar = () => {
 
   return (
     <div className="farming-calendar-container">
-      <div className="calendar-main-glass">
-        <div className="calendar-col">
-          {renderHeader()}
-          {renderDays()}
-          {renderCells()}
-        </div>
-        
-        <div className="details-col">
-          <div className="details-header">
-            <h3>{format(selectedDate, "do MMMM, yyyy")}</h3>
-            <button className="add-activity-btn" onClick={() => setShowAddModal(true)}>
-              <Plus size={18} /> Add Activity
-            </button>
+      {loading ? (
+        <Loader message="Loading your farming schedule..." />
+      ) : (
+        <>
+          <div className="calendar-main-glass">
+            <div className="calendar-col">
+              {renderHeader()}
+              {renderDays()}
+              {renderCells()}
+            </div>
+            
+            <div className="details-col">
+              <div className="details-header">
+                <h3>{format(selectedDate, "do MMMM, yyyy")}</h3>
+                <button className="add-activity-btn" onClick={() => setShowAddModal(true)}>
+                  <Plus size={18} /> Add Activity
+                </button>
+              </div>
+
+              <div className="activities-list">
+                {selectedDayActivities.length === 0 ? (
+                  <div className="no-activities">
+                    <CalendarIcon size={48} className="empty-icon" />
+                    <p>No activities planned for this day.</p>
+                  </div>
+                ) : (
+                  selectedDayActivities.map((act) => (
+                    <div key={act.id} className={`activity-item ${act.completed ? 'completed' : ''}`}>
+                      <div className="activity-status" onClick={() => toggleComplete(act)}>
+                        {act.completed ? <CheckCircle2 size={20} className="done" /> : <div className="pending-circle" />}
+                      </div>
+                      <div className="activity-info">
+                        <div className="activity-type-badge" style={{ backgroundColor: ACTIVITY_TYPES.find(t => t.id === act.type)?.color + '20', color: ACTIVITY_TYPES.find(t => t.id === act.type)?.color }}>
+                          {ACTIVITY_TYPES.find(t => t.id === act.type)?.icon}
+                          {ACTIVITY_TYPES.find(t => t.id === act.type)?.label}
+                        </div>
+                        <h4>{act.title}</h4>
+                        <div className="activity-metadata">
+                          <span><Clock size={14} /> {act.time}</span>
+                          {act.description && <p>{act.description}</p>}
+                        </div>
+                      </div>
+                      <button className="delete-btn" onClick={() => handleDeleteActivity(act.id)}>
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
 
-          <div className="activities-list">
-            {selectedDayActivities.length === 0 ? (
-              <div className="no-activities">
-                <CalendarIcon size={48} className="empty-icon" />
-                <p>No activities planned for this day.</p>
+          {showAddModal && (
+            <div className="modal-overlay">
+              <div className="modal-card">
+                <h3>Add New Activity</h3>
+                <form onSubmit={handleAddActivity}>
+                  <div className="form-group">
+                    <label>Activity Title</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. Rice Sowing" 
+                      value={newActivity.title}
+                      onChange={(e) => setNewActivity({...newActivity, title: e.target.value})}
+                      required
+                    />
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Type</label>
+                      <select 
+                        value={newActivity.type}
+                        onChange={(e) => setNewActivity({...newActivity, type: e.target.value})}
+                      >
+                        {ACTIVITY_TYPES.map(t => (
+                          <option key={t.id} value={t.id}>{t.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label>Time</label>
+                      <input 
+                        type="time" 
+                        value={newActivity.time}
+                        onChange={(e) => setNewActivity({...newActivity, time: e.target.value})}
+                      />
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label>Description (Optional)</label>
+                    <textarea 
+                      rows="3" 
+                      placeholder="Details about the task..."
+                      value={newActivity.description}
+                      onChange={(e) => setNewActivity({...newActivity, description: e.target.value})}
+                    ></textarea>
+                  </div>
+                  <div className="modal-actions">
+                    <button type="button" onClick={() => setShowAddModal(false)} className="cancel-btn">Cancel</button>
+                    <button type="submit" className="submit-btn">Save Activity</button>
+                  </div>
+                </form>
               </div>
-            ) : (
-              selectedDayActivities.map((act) => (
-                <div key={act.id} className={`activity-item ${act.completed ? 'completed' : ''}`}>
-                  <div className="activity-status" onClick={() => toggleComplete(act)}>
-                    {act.completed ? <CheckCircle2 size={20} className="done" /> : <div className="pending-circle" />}
-                  </div>
-                  <div className="activity-info">
-                    <div className="activity-type-badge" style={{ backgroundColor: ACTIVITY_TYPES.find(t => t.id === act.type)?.color + '20', color: ACTIVITY_TYPES.find(t => t.id === act.type)?.color }}>
-                      {ACTIVITY_TYPES.find(t => t.id === act.type)?.icon}
-                      {ACTIVITY_TYPES.find(t => t.id === act.type)?.label}
-                    </div>
-                    <h4>{act.title}</h4>
-                    <div className="activity-metadata">
-                      <span><Clock size={14} /> {act.time}</span>
-                      {act.description && <p>{act.description}</p>}
-                    </div>
-                  </div>
-                  <button className="delete-btn" onClick={() => handleDeleteActivity(act.id)}>
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
+            </div>
+          )}
+        </>
 
-      {showAddModal && (
-        <div className="modal-overlay">
-          <div className="modal-card">
-            <h3>Add New Activity</h3>
-            <form onSubmit={handleAddActivity}>
-              <div className="form-group">
-                <label>Activity Title</label>
-                <input 
-                  type="text" 
-                  placeholder="e.g. Rice Sowing" 
-                  value={newActivity.title}
-                  onChange={(e) => setNewActivity({...newActivity, title: e.target.value})}
-                  required
-                />
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Type</label>
-                  <select 
-                    value={newActivity.type}
-                    onChange={(e) => setNewActivity({...newActivity, type: e.target.value})}
-                  >
-                    {ACTIVITY_TYPES.map(t => (
-                      <option key={t.id} value={t.id}>{t.label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Time</label>
-                  <input 
-                    type="time" 
-                    value={newActivity.time}
-                    onChange={(e) => setNewActivity({...newActivity, time: e.target.value})}
-                  />
-                </div>
-              </div>
-              <div className="form-group">
-                <label>Description (Optional)</label>
-                <textarea 
-                  rows="3" 
-                  placeholder="Details about the task..."
-                  value={newActivity.description}
-                  onChange={(e) => setNewActivity({...newActivity, description: e.target.value})}
-                ></textarea>
-              </div>
-              <div className="modal-actions">
-                <button type="button" onClick={() => setShowAddModal(false)} className="cancel-btn">Cancel</button>
-                <button type="submit" className="submit-btn">Save Activity</button>
-              </div>
-            </form>
-          </div>
-        </div>
       )}
     </div>
   );

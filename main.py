@@ -1,7 +1,7 @@
 # main.py
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, validator
 import base64
@@ -11,6 +11,13 @@ import pandas as pd
 import numpy as np
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 def generate_notifications():
     return [
@@ -95,4 +102,19 @@ async def predict_yield(data: PredictRequest):
         return {"predicted_ExpYield": float(predicted_yield)}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/log-error")
+async def log_error(request: Request):
+    """
+    Receive error reports from the frontend for monitoring and debugging.
+    """
+    try:
+        error_data = await request.json()
+        # Log to stdout (could be extended to file or external service)
+        print(f"[Error Log] {error_data.get('message', 'Unknown error')} | Context: {error_data.get('context', 'N/A')}")
+        return {"success": True, "message": "Error logged"}
+    except Exception:
+        # Silently ignore malformed payloads to avoid breaking error reporting
+        return {"success": False, "message": "Invalid error data"}
+
 
