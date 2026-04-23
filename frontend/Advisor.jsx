@@ -2,6 +2,9 @@ import React, { useEffect } from "react";
 import "./Advisor.css";
 import WeatherCard from "./weather/WeatherCard";
 import SoilChatbot from "./SoilChatbot";
+import IrrigationGuidance from "./IrrigationGuidance";
+import CropProfitCalculator from "./CropProfitCalculator";
+import FarmingMap from "./FarmingMap";
 import {
   Sun,
   Droplets,
@@ -9,14 +12,22 @@ import {
   Sprout,
   Languages,
   WifiOff,
+  Landmark,
+  Calendar,
+  MessageSquare,
+  Info,
+  Map,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useAdvisorStore } from "./stores/advisorStore";
 import { useYieldPrediction } from "./hooks/useYieldPrediction";
+import CropDiseaseDetection from "./CropDiseaseDetection";
 
 export default function Advisor() {
+  const navigate = useNavigate();
   const {
     farmers,
-    setCarmers,
+    setFarmers,
     crops,
     setCrops,
     languages,
@@ -27,6 +38,14 @@ export default function Advisor() {
     setShowSoilChatbot,
     showComingSoon,
     setShowComingSoon,
+    showIrrigation,
+    setShowIrrigation,
+    showProfitCalculator,
+    setShowProfitCalculator,
+    showFarmingMap,
+    setShowFarmingMap,
+    showCropDiseaseDetection,
+    setShowCropDiseaseDetection,
   } = useAdvisorStore();
 
   const {
@@ -36,6 +55,7 @@ export default function Advisor() {
     yieldError,
     yieldLoading,
     showYieldPopup,
+    setShowYieldPopup,
     fetchYield,
     closeYieldPopup,
   } = useYieldPrediction();
@@ -51,7 +71,7 @@ export default function Advisor() {
       if (l < 10) setLanguages((l += 1));
     }, 50);
     return () => clearInterval(interval);
-  }, []);
+  }, [setFarmers, setCrops, setLanguages]);
 
   return (
     <section className="advisor">
@@ -121,7 +141,7 @@ export default function Advisor() {
               Connect, share tips, and learn from other farmers in your region.
             </p>
           </div>
-          <div className="card reveal" onClick={() => setShowComingSoon(true)}>
+          <div className="card reveal" onClick={() => setShowIrrigation(true)}>
             <div className="icon">
               <Droplets size={32} strokeWidth={2} />
             </div>
@@ -131,7 +151,7 @@ export default function Advisor() {
             </p>
           </div>
 
-          <div className="card reveal" onClick={() => setShowComingSoon(true)}>
+          <div className="card reveal" onClick={() => navigate("/market-prices")}>
             <div className="icon">
               <IndianRupee size={32} strokeWidth={2} />
             </div>
@@ -154,7 +174,7 @@ export default function Advisor() {
           </div>
 
           {/* Crop Disease Detection */}
-          <div className="card reveal" onClick={() => setShowComingSoon(true)}>
+          <div className="card reveal" onClick={() => setShowCropDiseaseDetection(true)}>
             <div className="icon">🌿</div>
             <h3>Crop Disease Detection</h3>
             <p>Upload plant images to detect diseases and get remedies.</p>
@@ -183,26 +203,82 @@ export default function Advisor() {
             <h3>Yield Prediction</h3>
             <p>AI predicts crop yield based on soil & weather data.</p>
           </div>
+
+          <div className="card reveal" onClick={() => navigate("/schemes")}>
+            <div className="icon">
+              <Landmark size={32} strokeWidth={2} />
+            </div>
+            <h3>Govt Schemes</h3>
+            <p>Direct subsidies, insurance, and financial benefits for farmers.</p>
+          </div>
+
+          <div className="card reveal" onClick={() => setShowProfitCalculator(true)}>
+            <div className="icon">💰</div>
+            <h3>Profit Calculator</h3>
+            <p>Calculate your crop profits and ROI before planting.</p>
+          </div>
+
+          <div
+            className="card reveal"
+            style={{ cursor: "pointer" }}
+            onClick={() => setShowFarmingMap(true)}
+          >
+            <div className="icon">
+              <Map size={32} strokeWidth={2} />
+            </div>
+            <h3>Farming Map</h3>
+            <p>View your fields, weather data, and crop locations on an interactive map.</p>
+          </div>
+
+          <div className="card reveal" onClick={() => navigate("/calendar")}>
+            <div className="icon">
+              <Calendar size={32} strokeWidth={2} />
+            </div>
+            <h3>Activity Calendar</h3>
+            <p>Schedule sowing, watering, and harvesting with reminders.</p>
+          </div>
+
+          <div className="card reveal" onClick={() => navigate("/share-feedback")}>
+            <div className="icon">
+              <MessageSquare size={32} strokeWidth={2} />
+            </div>
+            <h3>Share Feedback</h3>
+            <p>Help us improve Fasal Saathi with your valuable suggestions.</p>
+          </div>
         </div>
       </div>
           {showWeather && (
-        <div className="weather-overlay">
-          <div className="weather-popup">
+        <div className="weather-overlay" onClick={() => setShowWeather(false)}>
+          <div className="weather-popup" onClick={(e)=>{e.stopPropagation()}}>
             <WeatherCard onClose={() => setShowWeather(false)} />
           </div>
+
+
+
         </div>
+
       )}
 
       {showSoilChatbot && (
-        <div className="weather-overlay">
-          <div className="chatbot-popup">
+        <div className="weather-overlay" onClick={() => setShowSoilChatbot(false)}>
+          <div className="chatbot-popup" onClick={(e)=>{e.stopPropagation()}}>
             <SoilChatbot onClose={() => setShowSoilChatbot(false)} />
           </div>
         </div>
       )}
+      
+      {showIrrigation && (
+        <div className="weather-overlay" onClick={()=>setShowIrrigation(false)}
+         style={{ alignItems: 'center', justifyContent: 'center' }}>
+          <div onClick={(e)=>{e.stopPropagation()}}>
+          <IrrigationGuidance onClose={() => setShowIrrigation(false)} />
+            </div>
+        </div>
+      )}
+
       {showYieldPopup && (
-        <div className="weather-overlay">
-          <div className="yield-popup">
+        <div className="weather-overlay" onClick={()=>{closeYieldPopup()}}>
+          <div className="yield-popup" onClick={(e)=>{e.stopPropagation()}}>
             <button
               className="close-btn"
               onClick={closeYieldPopup}
@@ -218,7 +294,13 @@ export default function Advisor() {
             {yieldPrediction === null ? (
               <form onSubmit={fetchYield} className="yield-form">
                 <div className="form-group">
-                  <label>Crop</label>
+                  <label>
+                    Crop
+                    <span className="tooltip-container">
+                      <Info className="tooltip-icon" size={14} />
+                      <span className="tooltip-text">The crop you want to predict yield for.</span>
+                    </span>
+                  </label>
                   <select
                     value={yieldForm.Crop}
                     onChange={(e) =>
@@ -235,7 +317,13 @@ export default function Advisor() {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Season</label>
+                  <label>
+                    Season
+                    <span className="tooltip-container">
+                      <Info className="tooltip-icon" size={14} />
+                      <span className="tooltip-text">The growing season for the crop.</span>
+                    </span>
+                  </label>
                   <select
                     value={yieldForm.Season}
                     onChange={(e) =>
@@ -247,7 +335,13 @@ export default function Advisor() {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Covered Area (acres)</label>
+                  <label>
+                    Covered Area (acres)
+                    <span className="tooltip-container">
+                      <Info className="tooltip-icon" size={14} />
+                      <span className="tooltip-text">Total area planted in acres to gauge production volume.</span>
+                    </span>
+                  </label>
                   <input
                     type="number"
                     value={yieldForm.CropCoveredArea}
@@ -257,7 +351,13 @@ export default function Advisor() {
                   />
                 </div>
                 <div className="form-group">
-                  <label>Crop Height (cm)</label>
+                  <label>
+                    Crop Height (cm)
+                    <span className="tooltip-container">
+                      <Info className="tooltip-icon" size={14} />
+                      <span className="tooltip-text">Estimated average height of the mature crop in centimeters.</span>
+                    </span>
+                  </label>
                   <input
                     type="number"
                     value={yieldForm.CHeight}
@@ -267,7 +367,13 @@ export default function Advisor() {
                   />
                 </div>
                 <div className="form-group">
-                  <label>Next Crop</label>
+                  <label>
+                    Next Crop
+                    <span className="tooltip-container">
+                      <Info className="tooltip-icon" size={14} />
+                      <span className="tooltip-text">The expected crop to be planted in the following season.</span>
+                    </span>
+                  </label>
                   <select
                     value={yieldForm.CNext}
                     onChange={(e) =>
@@ -287,7 +393,13 @@ export default function Advisor() {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Last Crop</label>
+                  <label>
+                    Last Crop
+                    <span className="tooltip-container">
+                      <Info className="tooltip-icon" size={14} />
+                      <span className="tooltip-text">The crop that was planted in the previous season.</span>
+                    </span>
+                  </label>
                   <select
                     value={yieldForm.CLast}
                     onChange={(e) =>
@@ -307,7 +419,13 @@ export default function Advisor() {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Transplanting Method</label>
+                  <label>
+                    Transplanting Method
+                    <span className="tooltip-container">
+                      <Info className="tooltip-icon" size={14} />
+                      <span className="tooltip-text">The method used to plant the crop (e.g. Drilling).</span>
+                    </span>
+                  </label>
                   <select
                     value={yieldForm.CTransp}
                     onChange={(e) =>
@@ -321,7 +439,13 @@ export default function Advisor() {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Irrigation Type</label>
+                  <label>
+                    Irrigation Type
+                    <span className="tooltip-container">
+                      <Info className="tooltip-icon" size={14} />
+                      <span className="tooltip-text">The technique for distributing water in the field.</span>
+                    </span>
+                  </label>
                   <select
                     value={yieldForm.IrriType}
                     onChange={(e) =>
@@ -335,7 +459,13 @@ export default function Advisor() {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Irrigation Source</label>
+                  <label>
+                    Irrigation Source
+                    <span className="tooltip-container">
+                      <Info className="tooltip-icon" size={14} />
+                      <span className="tooltip-text">The origin of the water used for irrigation.</span>
+                    </span>
+                  </label>
                   <select
                     value={yieldForm.IrriSource}
                     onChange={(e) =>
@@ -350,7 +480,13 @@ export default function Advisor() {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Irrigation Count</label>
+                  <label>
+                    Irrigation Count
+                    <span className="tooltip-container">
+                      <Info className="tooltip-icon" size={14} />
+                      <span className="tooltip-text">Number of times the crop is irrigated per season.</span>
+                    </span>
+                  </label>
                   <input
                     type="number"
                     value={yieldForm.IrriCount}
@@ -360,7 +496,13 @@ export default function Advisor() {
                   />
                 </div>
                 <div className="form-group">
-                  <label>Water Coverage (%)</label>
+                  <label>
+                    Water Coverage (%)
+                    <span className="tooltip-container">
+                      <Info className="tooltip-icon" size={14} />
+                      <span className="tooltip-text">Percentage of field area receiving adequate water.</span>
+                    </span>
+                  </label>
                   <input
                     type="number"
                     max="100"
@@ -407,9 +549,45 @@ export default function Advisor() {
         </div>
       )}
 
+      {showProfitCalculator && (
+        <div className="weather-overlay" onClick={()=>{setShowProfitCalculator(false)}}>
+          <div className="weather-popup profit-popup" onClick={(e)=>e.stopPropagation()}>
+            <CropProfitCalculator />
+            <button
+              className="close-btn"
+              onClick={() => setShowProfitCalculator(false)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showFarmingMap && (
+        <div className="farming-map-overlay" onClick={() => setShowFarmingMap(false)}>
+          <div className="farming-map-popup" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="close-btn"
+              onClick={() => setShowFarmingMap(false)}
+            >
+              Close
+            </button>
+            <FarmingMap />
+          </div>
+        </div>
+      )}
+
+      {showCropDiseaseDetection && (
+        <div className="weather-overlay" onClick={() => setShowCropDiseaseDetection(false)}>
+          <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
+            <CropDiseaseDetection onClose={() => setShowCropDiseaseDetection(false)} />
+          </div>
+        </div>
+      )}
+
       {showComingSoon && (
-        <div className="weather-overlay">
-          <div className="weather-popup coming-soon">
+        <div className="weather-overlay" onClick={()=>{setShowComingSoon(false)}}>
+          <div className="weather-popup coming-soon" onClick={(e)=>e.stopPropagation()}>
             <h2>🚧 Coming Soon</h2>
             <p>This feature is under development. Stay tuned!</p>
             <button

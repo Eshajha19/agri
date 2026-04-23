@@ -1,4 +1,6 @@
 # main.py
+from datetime import datetime
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, validator
@@ -10,6 +12,28 @@ import numpy as np
 
 app = FastAPI()
 
+def generate_notifications():
+    return [
+        {
+            "id": 1,
+            "type": "weather",
+            "message": "🌧️ Heavy rainfall expected in your region today.",
+            "time": datetime.now().isoformat()
+        },
+        {
+            "id": 2,
+            "type": "recommendation",
+            "message": "🌱 Ideal time to irrigate wheat crops.",
+            "time": datetime.now().isoformat()
+        }
+    ]
+
+@app.get("/api/notifications")
+def get_notifications():
+    return {
+        "success": True,
+        "data": generate_notifications()
+    }
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

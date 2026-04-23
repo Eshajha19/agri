@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { reportErrorToBackend } from '../utils/errorReporting';
 
 export const useMapStore = create((set) => ({
   // User location
@@ -72,12 +71,7 @@ export const useMapStore = create((set) => ({
           });
         },
         (error) => {
-          reportErrorToBackend({
-            error,
-            context: 'geolocation-fetch',
-            timestamp: new Date().toISOString(),
-            severity: 'low',
-          });
+          console.error('Error getting user location:', error);
           set({
             mapError: 'Unable to access user location',
             mapLoading: false,
