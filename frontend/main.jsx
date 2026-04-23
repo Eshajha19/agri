@@ -5,6 +5,11 @@ import './index.css'
 import App from './App.jsx'
 import ErrorBoundary from './ErrorBoundary.jsx'
 
+import { registerSW } from 'virtual:pwa-register'
+
+// Register service worker for offline support
+registerSW({ immediate: true })
+
 createRoot(document.getElementById("root")).render(
   <StrictMode>
     <BrowserRouter>

@@ -24,12 +24,48 @@
           // Ignore (private mode / blocked storage)
         }
       })();
-    </script>    
+    </script>
+    <style>
+      .preloader {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        background: #fff;
+        color: #166534;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+      .theme-dark .preloader {
+        background: #0f172a;
+        color: #22c55e;
+      }
+      .preloader-spinner {
+        width: 60px;
+        height: 60px;
+        border: 4px solid rgba(22, 101, 52, 0.2);
+        border-top-color: #166534;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-bottom: 1rem;
+      }
+      .theme-dark .preloader-spinner {
+        border-top-color: #22c55e;
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+    </style>
 
   <title>Fasal Saathi</title>
   </head>
   <body style="margin-top: 0 !important; padding-top: 0 !important; transform: none !important;">
-    <div id="root"></div>
+    <div id="root">
+      <div class="preloader">
+        <div class="preloader-spinner"></div>
+        <p>Loading Fasal Saathi...</p>
+      </div>
+    </div>
     <div id="google_translate_element" style="display: none !important; visibility: hidden !important; height: 0 !important; width: 0 !important; position: absolute !important;"></div>
     <script type="text/javascript">
       function googleTranslateElementInit() {

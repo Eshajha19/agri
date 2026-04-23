@@ -41,7 +41,7 @@ export const reportErrorToBackend = async (errorData) => {
     }
   } catch (e) {
     // Prevent error reporting from causing cascading failures
-    if (process.env.NODE_ENV === 'development') {
+    if (import.meta.env.MODE === 'development') {
       console.warn('[errorReporting] Failed to report error:', e);
     }
   }
@@ -68,7 +68,7 @@ export const formatErrorMessage = (error) => {
 
   if (error?.message) {
     // Hide technical details in production
-    if (process.env.NODE_ENV === 'production') {
+    if (import.meta.env.MODE === 'production') {
       // Check for common error patterns and provide friendly messages
       if (error.message.includes('NetworkError') || error.message.includes('fetch')) {
         return 'Network error. Please check your connection.';

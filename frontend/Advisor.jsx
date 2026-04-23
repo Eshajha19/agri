@@ -134,8 +134,10 @@ export default function Advisor() {
             </p>
           </div>
 
-          <div className="card reveal" onClick={() => setShowComingSoon(true)}>
-            <div className="icon">👨‍🌾👩‍🌾</div>
+          <div className="card reveal" onClick={() => navigate("/community")}>
+            <div className="icon">
+              <MessageSquare size={32} strokeWidth={2} />
+            </div>
             <h3>Farmer Community</h3>
             <p>
               Connect, share tips, and learn from other farmers in your region.

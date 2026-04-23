@@ -367,6 +367,7 @@ export default function Home({ user }) {
               <Link to="/dashboard">Dashboard</Link>
               <Link to="/calendar">Activity Calendar</Link>
               <Link to="/market-prices">Market Prices</Link>
+              <Link to="/community">Community</Link>
               <Link to="/share-feedback">Share Feedback</Link>
             </div>
             <div className="footer-section">
