@@ -120,44 +120,44 @@ Fasal-Saathi/
 
 > Requirements: Node.js (v16+), npm/yarn, Python 3.9+, pip, Firebase CLI (optional).
 
-### 1) Clone repository
+## Clone repository
 
 ```bash
 git clone https://github.com/your-username/fasal-saathi.git
 cd fasal-saathi
 ```
 
-2) Frontend (React)
+## Frontend (React)
 
 ```bash
 cd frontend
 ```
 
-# Install dependencies
+### Install dependencies
 
 ```bash
 npm install
 ```
 
-# Start dev server
+### Start dev server
 
 ```bash
 npm start
 ```
 
-# Build for production
+### Build for production
 
 ```bash
 npm run build
 ```
 
-3) Backend (Python — Flask example)
+## Backend (Python — Flask example)
 
 ```bash
 cd ../backend
 ```
 
-# Create virtual env (optional)
+### Create virtual env (optional)
 
 ```bash
 python -m venv venv
@@ -165,21 +165,21 @@ source venv/bin/activate      # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-# Run app
+### Run app
 
 ```bash
 export FLASK_APP=app.py
 export FLASK_ENV=development
 ```
 
-# Set environment variables (see .env.example)
+### Set environment variables (see .env.example)
 
 ```bash
 flask run
 ```
 
 
-# 4) Firebase
+## Firebase
 
 - Create a Firebase project.
 
@@ -191,7 +191,7 @@ flask run
 
 🔐 Environment variables (.env.example)
 
-# Backend
+## Backend
 
 ```
 WEATHER_API_KEY=your_weather_api_key
@@ -200,7 +200,7 @@ FIREBASE_ADMIN_CRED=/path/to/serviceAccountKey.json
 BACKEND_PORT=5000
 ```
 
-# Frontend
+## Frontend
 
 ```
 REACT_APP_FIREBASE_API_KEY=xxxxxxxxxxxx
@@ -209,7 +209,7 @@ REACT_APP_FIREBASE_PROJECT_ID=your-app
 REACT_APP_BACKEND_URL=http://localhost:5000
 ```
 
-🧩 API Endpoints (examples)
+# ☆ API Endpoints (examples)
 
 Backend (Flask)
 
@@ -221,7 +221,7 @@ Backend (Flask)
 
 (Document exact request/response schemas in docs/ or OpenAPI spec.)
 
-🧪 Testing
+# ☆ Testing
 
 - Frontend: use React Testing Library / Jest
 
@@ -229,11 +229,11 @@ Backend (Flask)
 
 - Add CI with GitHub Actions for linting + tests + deploy
 
-🎯 Objective
+# ☆ Objective
 
 Provide farmers with a lightweight, region-aware digital assistant that reduces risk, improves yields, and encourages sustainable decisions through actionable insights.
 
-🔮 Future scope & ideas
+# ☆ Future scope & ideas
 
 - On-device offline support / PWA for low-connectivity regions
 
