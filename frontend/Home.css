@@ -89,6 +89,8 @@
 .home-weather-relative-wrap .weather-quick-widget {
   position: absolute;
   top: 5px;
+  top: calc(5px + constant(safe-area-inset-top));
+  top: calc(5px + env(safe-area-inset-top));
   right: 22px;
   pointer-events: auto;
 }
