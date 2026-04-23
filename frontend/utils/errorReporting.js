@@ -1,5 +1,3 @@
-import axios from 'axios';
-
 /**
  * Error reporting utility for backend logging
  * Sends error details to the backend for monitoring and debugging
@@ -28,20 +26,22 @@ export const reportErrorToBackend = async (errorData) => {
       url: window.location.href,
     };
 
-    if (typeof window !== 'undefined') {
-      await axios.post(ERROR_LOG_ENDPOINT, payload, {
-        timeout: 5000,
-        suppressToast: true,
-        skipGlobalLoader: true,
-        logError: false,
-        retries: 0,
+    // Only attempt to report in browser environments
+    if (typeof fetch !== 'undefined') {
+      await fetch(ERROR_LOG_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
       }).catch(() => {
-        // Silently fail if backend logging endpoint is unavailable.
+        // Silently fail if backend logging endpoint is unavailable
+        // This prevents errors in error reporting from breaking the app
       });
     }
   } catch (e) {
     // Prevent error reporting from causing cascading failures
-    if (import.meta.env.DEV) {
+    if (process.env.NODE_ENV === 'development') {
       console.warn('[errorReporting] Failed to report error:', e);
     }
   }
@@ -68,7 +68,7 @@ export const formatErrorMessage = (error) => {
 
   if (error?.message) {
     // Hide technical details in production
-    if (import.meta.env.PROD) {
+    if (process.env.NODE_ENV === 'production') {
       // Check for common error patterns and provide friendly messages
       if (error.message.includes('NetworkError') || error.message.includes('fetch')) {
         return 'Network error. Please check your connection.';

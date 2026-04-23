@@ -58,10 +58,9 @@ export default function FarmingMap() {
       // Create map centered on India
       map.current = L.map(mapContainer.current).setView([20.5937, 78.9629], 5);
 
-      // Add tile layer
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      // Add tile layer - using a CORS-enabled tile provider
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri',
         maxZoom: 19,
       }).addTo(map.current);
     }
@@ -83,15 +82,22 @@ export default function FarmingMap() {
           clearTimeout(timeoutId);
           const { latitude, longitude } = position.coords;
           setUserLocation([latitude, longitude]);
+          setMapError(null);
           if (map.current) {
             map.current.setView([latitude, longitude], 12);
           }
         },
         (error) => {
           clearTimeout(timeoutId);
-          console.error('Geolocation error:', error.message);
-          setMapError('Location access denied. Using default location.');
+          let errorMsg = 'Location access denied. Using default location.';
+          if (error.code === error.PERMISSION_DENIED) {
+            errorMsg = 'Please enable location access to see your position on the map.';
+          }
+          setMapError(errorMsg);
           setUserLocation([20.5937, 78.9629]);
+          if (map.current) {
+            map.current.setView([20.5937, 78.9629], 5);
+          }
         }
       );
     } else {

@@ -50,6 +50,10 @@ const FarmingCalendar = () => {
 
   // Fetch activities from Firestore
   useEffect(() => {
+    if (!auth || !db) {
+      setLoading(false);
+      return;
+    }
     const user = auth.currentUser;
     if (!user) {
       setLoading(false);
@@ -153,6 +157,7 @@ const FarmingCalendar = () => {
 
   const handleAddActivity = async (e) => {
     e.preventDefault();
+    if (!auth || !db) return;
     const user = auth.currentUser;
     if (!user) return;
 
@@ -175,6 +180,7 @@ const FarmingCalendar = () => {
   };
 
   const handleDeleteActivity = async (id) => {
+    if (!db) return;
     try {
       await deleteDoc(doc(db, "activities", id));
     } catch (err) {
@@ -183,6 +189,7 @@ const FarmingCalendar = () => {
   };
 
   const toggleComplete = async (activity) => {
+    if (!db) return;
     try {
       await updateDoc(doc(db, "activities", activity.id), {
         completed: !activity.completed

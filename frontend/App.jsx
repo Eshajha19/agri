@@ -25,9 +25,18 @@ import Home from "./Home";
 import Resources from "./Resources";
 import CropGuide from "./CropGuide";
 import How from "./How";
-import { NavLink } from "react-router-dom";
-import { useUiStore } from "./stores/uiStore";
-import { useTheme } from "./hooks/useTheme";
+import Dashboard from "./Dashboard";
+import Auth from "./Auth";
+import ProfileSetup from "./ProfileSetup";
+import LanguageDropdown from "./LanguageDropdown";
+import useNotifications from "./Notifications";
+import Schemes from "./GovernmentSchemes";
+import Feedback from "./Feedback";
+import AdminFeedback from "./AdminFeedback";
+import Calendar from "./FarmingCalendar";
+import MarketPrices from "./MarketPrices";
+
+import { auth, db, isFirebaseConfigured } from "./lib/firebase";
 
 import "./App.css";
 import "./themes/sunlight.css";
@@ -46,7 +55,7 @@ const LANGUAGE_OPTIONS = [
   { value: "kn", label: "🇮🇳 ಕನ್ನಡ", englishName: "kannada" },
   { value: "ml", label: "🇮🇳 മലയാളം", englishName: "malayalam" },
   { value: "or", label: "🇮🇳 ଓଡ଼ିଆ", englishName: "odia" },
-  { value: "as", label: "🇮🇳 অসমୀয়া", englishName: "assamese" },
+  { value: "as", label: "🇮🇳 অসমীয়া", englishName: "assamese" },
 ];
 
 const getInitialLanguage = () => {
@@ -72,11 +81,8 @@ const setGoogleTranslateCookie = (lang) => {
 };
 
 const applyGoogleTranslate = (lang) => {
-  const el = document.querySelector(".goog-te-combo");
-  if (!el) return false;
-  el.value = lang;
-  el.dispatchEvent(new Event("change"));
-  return true;
+  document.cookie = `googtrans=/en/${lang}; path=/`;
+  window.location.reload();
 };
 
 const syncLanguage = (lang, setLang) => {
@@ -85,45 +91,40 @@ const syncLanguage = (lang, setLang) => {
   applyGoogleTranslate(lang);
 };
 
-/* APP COMPONENT */
-
 function App() {
-  const {
-    preferredLang,
-    setPreferredLang,
-    isNavOpen,
-    setNavOpen,
-    isAccessibilityMode,
-    farmerName,
-    setFarmerName,
-    inputName,
-    setInputName,
-    isApiLoading,
-  } = useUiStore();
-  const { toggleTheme, isDarkTheme } = useTheme();
+  const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
+  const [isOpen, setIsOpen] = useState(false);
+  const [user, setUser] = useState(null);
+  const [userData, setUserData] = useState(null);
+  const [profileCompleted, setProfileCompleted] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [showScorecard, setShowScorecard] = useState(false);
+  const location = useLocation();
 
-  /* Apply accessibility / sunlight mode */
-  useEffect(() => {
-    document.documentElement.classList.toggle("sunlight", isAccessibilityMode);
-  }, [isAccessibilityMode]);
+  useNotifications();
 
-  /* Apply language changes with Google Translate */
-  useEffect(() => {
-    if (applyGoogleTranslate(preferredLang)) return;
-    const id = setInterval(() => {
-      if (applyGoogleTranslate(preferredLang)) clearInterval(id);
-    }, 300);
-    return () => clearInterval(id);
-  }, [preferredLang]);
+   /* ---------------- THEME SYSTEM ---------------- */
+   const [isDarkTheme, setIsDarkTheme] = useState(() => {
+     try {
+       return (localStorage.getItem("theme") || "light") === "dark";
+     } catch {
+       return false;
+     }
+   });
 
-  useEffect(() => {
-    setGoogleTranslateCookie(preferredLang);
-    if (applyGoogleTranslate(preferredLang)) return;
-    const id = setInterval(() => {
-      if (applyGoogleTranslate(preferredLang)) clearInterval(id);
-    }, 500);
-    return () => clearInterval(id);
-  }, [preferredLang]);
+   useEffect(() => {
+     document.documentElement.classList.toggle("theme-dark", isDarkTheme);
+     localStorage.setItem("theme", isDarkTheme ? "dark" : "light");
+   }, [isDarkTheme]);
+
+   const handleThemeToggle = () => {
+     setIsDarkTheme(!isDarkTheme);
+   };
+
+
+   useEffect(() => {
+     setGoogleTranslateCookie(preferredLang);
+   }, [preferredLang]);
 
   /* LOGIN handlers */
   const handleLogin = (e) => {
@@ -134,49 +135,67 @@ function App() {
       return;
     }
 
-    setFarmerName(inputName);
-    setInputName("");
-    window.location.href = "/";
-  };
+  useEffect(() => {
+    if (!isFirebaseConfigured()) {
+      setLoading(false);
+      return;
+    }
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (currentUser) {
+        const unsubscribeDoc = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
+          if (userDoc.exists()) {
+            const data = userDoc.data();
+            setUserData(data);
+            setProfileCompleted(data.profileCompleted === true);
+          } else {
+            setUserData(null);
+            setProfileCompleted(false);
+          }
+          setLoading(false);
+        }, (error) => {
+          console.error("Firestore sync error:", error);
+          setLoading(false);
+        });
+        return () => unsubscribeDoc();
+      } else {
+        setUserData(null);
+        setProfileCompleted(true);
+        setLoading(false);
+      }
+    });
+    return () => unsubscribeAuth();
+  }, []);
 
-  const handleLogout = () => {
-    setFarmerName("");
-    window.location.href = "/";
-  };
 
-  const handleLangChange = (e) => {
-    setPreferredLang(e.target.value);
-  };
-
-  const handleNavToggle = () => {
-    setNavOpen(!isNavOpen);
-  };
+  /* ---------------- OFFLINE STATUS ---------------- */
+  /* ---------------- AUTH STATE LISTENER ---------------- */
 
 
-  /* UI */
+
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
+   useEffect(() => {
+     const handleNetworkChange = () => setIsOffline(!navigator.onLine);
+     window.addEventListener("online", handleNetworkChange);
+     window.addEventListener("offline", handleNetworkChange);
+
+     const interval = setInterval(handleNetworkChange, 1000);
+
+     return () => {
+       window.removeEventListener("online", handleNetworkChange);
+       window.removeEventListener("offline", handleNetworkChange);
+       clearInterval(interval);
+     };
+   }, []);
 
   return (
-    <Router>
-      <Toaster
-        position="top-right"
-        reverseOrder={false}
-        gutter={8}
-        toastOptions={{
-          duration: 4000,
-          style: {
-            background: '#363636',
-            color: '#fff',
-            borderRadius: '8px',
-            padding: '12px 16px',
-            fontSize: '14px',
-          },
-        }}
-      />
-      <div className={`api-activity ${isApiLoading ? "is-visible" : ""}`}>
-        <span className="api-activity__dot" />
-        <span className="api-activity__label">Syncing data</span>
-      </div>
-      <div className={`app ${isDarkTheme ? "theme-dark" : ""}`}>
+    <div className={`app ${isDarkTheme ? "theme-dark" : ""}`}>
+      {isOffline && (
+        <div className="offline-banner">
+          You are currently offline. Running in offline mode using local data.
+        </div>
+      )}
 
       <nav className="navbar">
         <div className="nav-left">
@@ -184,43 +203,20 @@ function App() {
           <Link to="/" className="brand">Fasal Saathi</Link>
         </div>
 
-          <ul className={`nav-center ${isNavOpen ? "active" : ""}`}>
-            <li>
-              <Link to="/" onClick={() => setNavOpen(false)}>
-                <FaHome /> Home
-              </Link>
-            </li>
-            <li>
-              <Link to="/advisor" onClick={() => setNavOpen(false)}>
-                <FaComments /> Chat
-              </Link>
-            </li>
-            <li>
-              <Link to="/farming-map" onClick={() => setNavOpen(false)}>
-                <FaMap /> Map
-              </Link>
-            </li>
-            <li>
-              <Link to="/how-it-works" onClick={() => setNavOpen(false)}>
-                <FaInfoCircle /> How It Works
-              </Link>
-            </li>
-            <li>
-              <Link to="/crop-guide" onClick={() => setNavOpen(false)}>
-                <FaLeaf className="icon" /> Crop Guide
-              </Link>
-            </li>
-            <li>
-              <Link to="/profit-calculator" onClick={() => setNavOpen(false)}>
-                <FaCalculator /> Profit Calculator
-              </Link>
-            </li>
-          </ul>
+        <ul className={`nav-center ${isOpen ? "active" : ""}`}>
+          <li><Link to="/" onClick={() => setIsOpen(false)}><FaHome /> Home</Link></li>
+          <li><Link to="/advisor" onClick={() => setIsOpen(false)}><FaComments /> Chat</Link></li>
+          <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}><FaInfoCircle /> How It Works</Link></li>
+          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}><FaLeaf className="icon" /> Crop Guide</Link></li>
+          <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
+          <li><Link to="/dashboard" onClick={() => setIsOpen(false)}><FaTachometerAlt /> Dashboard</Link></li>
 
-          <div className="nav-right">
-            <button onClick={toggleTheme}>
-              {isDarkTheme ? "☀️" : "🌙"}
-            </button>
+        </ul>
+
+        <div className="nav-right">
+          <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Toggle Theme">
+            {isDarkTheme ? "☀️" : "🌙"}
+          </button>
 
             <select
               className="lang-select notranslate"
@@ -288,11 +284,58 @@ function App() {
                   </form>
                 </div>
               </div>
-            }
-          />
-        </Routes>
-      </div>
-    </Router>
+            ) : (
+              <Link to="/login" className="btn-get-started">Get Started</Link>
+            )}
+          </div>
+        </div>
+
+        <button className="hamburger" onClick={() => setIsOpen(!isOpen)} aria-label="Toggle Menu">
+          {isOpen ? <FaTimes /> : <FaBars />}
+        </button>
+      </nav>
+
+      {!loading && user && !user.emailVerified && !showScorecard && location.pathname !== "/login" && (
+        <div className="verification-overlay">
+          <div className="verification-card">
+            <div className="verify-icon">✉️</div>
+            <h2>Verify Your Email</h2>
+            <p>We've sent a link to <b>{user.email}</b>.<br /> Please verify your email to unlock all features.</p>
+            <button
+              onClick={() => {
+                auth.currentUser.reload().then(() => window.location.reload());
+              }}
+              className="btn-refresh"
+            >
+              I've Verified My Email
+            </button>
+            <button onClick={handleLogout} className="btn-logout-simple">Sign Out</button>
+          </div>
+        </div>
+      )}
+
+      {!loading && user && user.emailVerified && !profileCompleted && location.pathname !== "/profile-setup" && (
+        <Navigate to="/profile-setup" />
+      )}
+
+      <Routes>
+        <Route path="/" element={<Home user={user} />} />
+        <Route path="/advisor" element={<Advisor />} />
+        <Route path="/how-it-works" element={<How />} />
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/crop-guide" element={<CropGuide />} />
+        <Route path="/schemes" element={<Schemes />} />
+        <Route path="/resources" element={<Resources />} />
+        <Route path="/login" element={<Auth />} />
+        <Route path="/profile-setup" element={<ProfileSetup user={user} profileCompleted={profileCompleted} />} />
+        <Route path="/calendar" element={<Calendar />} />
+        <Route path="/share-feedback" element={<Feedback />} />
+        <Route path="/admin/feedback" element={<AdminFeedback />} />
+        <Route path="/market-prices" element={<MarketPrices />} />
+      </Routes>
+
+      <ToastContainer position="bottom-right" />
+    </div>
   );
 }
 
