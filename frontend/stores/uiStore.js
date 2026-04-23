@@ -32,14 +32,6 @@ const getInitialTheme = () => {
   }
 };
 
-const getInitialAccessibilityMode = () => {
-  try {
-    return localStorage.getItem('accessibilityMode') === 'sunlight';
-  } catch {
-    return false;
-  }
-};
-
 export const useUiStore = create((set) => ({
   // Theme state
   theme: getInitialTheme(),
@@ -47,14 +39,6 @@ export const useUiStore = create((set) => ({
     document.documentElement.classList.toggle('theme-dark', theme === 'dark');
     localStorage.setItem('theme', theme);
     set({ theme });
-  },
-
-  // Accessibility / Sunlight mode state
-  isAccessibilityMode: getInitialAccessibilityMode(),
-  setAccessibilityMode: (enabled) => {
-    document.documentElement.classList.toggle('sunlight', enabled);
-    localStorage.setItem('accessibilityMode', enabled ? 'sunlight' : 'light');
-    set({ isAccessibilityMode: enabled });
   },
 
   // Language state

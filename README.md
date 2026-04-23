@@ -76,7 +76,7 @@ Fasal Saathi is a smart agriculture assistance platform built with React (fronte
 ---
 
 ## 📁 Project structure
-
+```tree
 Fasal-Saathi/
 ├── backend/
 │ ├── app.py # Flask/FastAPI app entry
@@ -112,7 +112,7 @@ Fasal-Saathi/
 ├── .env.example
 ├── README.md
 └── LICENSE
-
+```
 
 ---
 
