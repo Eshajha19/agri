@@ -1,6 +1,7 @@
 import { create } from 'zustand';
+import { predictYield } from '../services/yieldApi';
 
-export const useYieldStore = create((set) => ({
+export const useYieldStore = create((set, get) => ({
   // Yield form state
   yieldForm: {
     Crop: 'Paddy',
@@ -42,27 +43,23 @@ export const useYieldStore = create((set) => ({
   setShowYieldPopup: (show) => set({ showYieldPopup: show }),
 
   // Fetch yield prediction
+<<<<<<< HEAD
   fetchYield: async function () {
     set({ yieldLoading: true, yieldError: null });
     try {
       const response = await fetch('/predict', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(this.yieldForm),
-      });
-      if (!response.ok) {
-        throw new Error(`Server error: ${response.status}`);
-      }
-      const data = await response.json();
       set({ yieldPrediction: data.predicted_ExpYield, showYieldPopup: true });
     } catch (error) {
-      console.error('Error fetching yield:', error);
-      set({ yieldError: error.message || 'Failed to get prediction' });
+      const message =
+        error?.response?.data?.detail ||
+        error.message ||
+        'Failed to get prediction';
+      set({ yieldError: message });
+>>>>>>> 132
     } finally {
       set({ yieldLoading: false });
     }
   },
-
   // Reset store
   resetYieldStore: () =>
     set({

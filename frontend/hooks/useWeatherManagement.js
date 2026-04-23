@@ -1,7 +1,9 @@
 import { useCallback } from 'react';
 import { useWeatherStore } from '../stores/weatherStore';
+import { useErrorHandler } from './useErrorHandler';
 
 export const useWeatherManagement = () => {
+  const { handleSilentError } = useErrorHandler();
   const {
     snapshot,
     setSnapshot,
@@ -69,12 +71,7 @@ export const useWeatherManagement = () => {
       const permission = await Notification.requestPermission();
       setNotificationPermission(permission);
     } catch (error) {
-      console.error('Error requesting notification permission:', error);
-      setNotificationPermission('denied');
-    }
-  }, [setNotificationPermission]);
-
-  return {
+      handleSilentError(error, 'notification-permission');
     snapshot,
     setSnapshot,
     selectedCrop,
