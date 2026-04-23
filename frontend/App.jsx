@@ -21,6 +21,7 @@ import {
 import How from "./How";
 import { NavLink } from "react-router-dom";
 import { useUiStore } from "./stores/uiStore";
+import { useTheme } from "./hooks/useTheme";
 
 import "./App.css";
 import "./themes/sunlight.css";
@@ -78,8 +79,6 @@ function App() {
     setPreferredLang,
     isNavOpen,
     setNavOpen,
-    theme,
-    setTheme,
     isAccessibilityMode,
     farmerName,
     setFarmerName,
@@ -87,11 +86,7 @@ function App() {
     setInputName,
     isApiLoading,
   } = useUiStore();
-
-  /* Apply theme changes */
-  useEffect(() => {
-    document.documentElement.classList.toggle("theme-dark", theme === "dark");
-  }, [theme]);
+  const { toggleTheme, isDarkTheme } = useTheme();
 
   /* Apply accessibility / sunlight mode */
   useEffect(() => {
@@ -128,10 +123,6 @@ function App() {
     window.location.href = "/";
   };
 
-  const handleThemeToggle = () => {
-    setTheme(theme === "dark" ? "light" : "dark");
-  };
-
   const handleLangChange = (e) => {
     setPreferredLang(e.target.value);
   };
@@ -163,7 +154,7 @@ function App() {
         <span className="api-activity__dot" />
         <span className="api-activity__label">Syncing data</span>
       </div>
-      <div className={`app ${theme === "dark" ? "theme-dark" : ""}`}>
+      <div className={`app ${isDarkTheme ? "theme-dark" : ""}`}>
 
         {/* NAVBAR */}
         <nav className="navbar">
@@ -208,8 +199,8 @@ function App() {
           </ul>
 
           <div className="nav-right">
-            <button onClick={handleThemeToggle}>
-              {theme === "dark" ? "☀️" : "🌙"}
+            <button onClick={toggleTheme}>
+              {isDarkTheme ? "☀️" : "🌙"}
             </button>
 
             <select

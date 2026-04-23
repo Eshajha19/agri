@@ -44,7 +44,6 @@ export const useUiStore = create((set) => ({
   // Theme state
   theme: getInitialTheme(),
   setTheme: (theme) => {
-    document.documentElement.classList.toggle('theme-dark', theme === 'dark');
     localStorage.setItem('theme', theme);
     set({ theme });
   },
