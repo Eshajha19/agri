@@ -81,7 +81,7 @@ function SoilChatbot({ onClose }) {
       <div className="chat-controls">
         <div className="input-area">
               
-          <label htmlFor="file-upload" className="icon left" title="Upload Soil/Crop Image">
+          <label htmlFor="file-upload" className="icon left" aria-label="Upload image" title="Upload Soil/Crop Image">
             <FaImage />
           </label>
           <input
@@ -101,11 +101,13 @@ function SoilChatbot({ onClose }) {
             onKeyPress={(e) => e.key === "Enter" && handleSend()}
           />
            <div className="voice-controls">
-          <button
-            className={`icon right ${isListening ? "active" : ""}`}
-            onClick={toggleListening}
-            title="Start / Stop Voice Input"
-          >
+         <button
+  className={`icon right ${isListening ? "active" : ""}`}
+  onClick={toggleListening}
+  aria-label="Toggle voice input"
+  aria-pressed={isListening}
+  title="Start / Stop Voice Input"
+>
             <FaMicrophone />
           </button>
 
