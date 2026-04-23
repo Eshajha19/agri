@@ -133,19 +133,19 @@ cd fasal-saathi
 cd frontend
 ```
 
-### Install dependencies
+### 1. Install dependencies
 
 ```bash
 npm install
 ```
 
-### Start dev server
+### 2. Start dev server
 
 ```bash
 npm start
 ```
 
-### Build for production
+### 3. Build for production
 
 ```bash
 npm run build
@@ -157,7 +157,7 @@ npm run build
 cd ../backend
 ```
 
-### Create virtual env (optional)
+### 1. Create virtual env (optional)
 
 ```bash
 python -m venv venv
@@ -165,14 +165,14 @@ source venv/bin/activate      # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### Run app
+### 2. Run app
 
 ```bash
 export FLASK_APP=app.py
 export FLASK_ENV=development
 ```
 
-### Set environment variables (see .env.example)
+### 3. Set environment variables (see .env.example)
 
 ```bash
 flask run
