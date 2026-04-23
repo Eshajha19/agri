@@ -77,4 +77,24 @@ export const useUiStore = create((set) => ({
   },
   inputName: '',
   setInputName: (name) => set({ inputName: name }),
+
+  // Global API loading state
+  apiPendingRequests: 0,
+  isApiLoading: false,
+  incrementApiPendingRequests: () =>
+    set((state) => {
+      const nextPending = state.apiPendingRequests + 1;
+      return {
+        apiPendingRequests: nextPending,
+        isApiLoading: nextPending > 0,
+      };
+    }),
+  decrementApiPendingRequests: () =>
+    set((state) => {
+      const nextPending = Math.max(0, state.apiPendingRequests - 1);
+      return {
+        apiPendingRequests: nextPending,
+        isApiLoading: nextPending > 0,
+      };
+    }),
 }));

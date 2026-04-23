@@ -1,9 +1,9 @@
 import { useCallback } from 'react';
 import { useYieldStore } from '../stores/yieldStore';
-import { useErrorHandler } from './useErrorHandler';
+import { useYieldApi } from './useYieldApi';
 
 export const useYieldPrediction = () => {
-  const { handleError } = useErrorHandler();
+  const { requestYieldPrediction } = useYieldApi();
   const {
     yieldForm,
     updateYieldFormField,
@@ -25,26 +25,27 @@ export const useYieldPrediction = () => {
       setYieldLoading(true);
       setYieldError(null);
       try {
-        const response = await fetch('/predict', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(yieldForm),
-        });
-        if (!response.ok) {
-          throw new Error(`Server error: ${response.status}`);
-        }
-        const data = await response.json();
+        const data = await requestYieldPrediction(yieldForm);
         setYieldPrediction(data.predicted_ExpYield);
         setShowYieldPopup(true);
       } catch (error) {
-        const errorMessage = error.message || 'Failed to get prediction';
-        handleError(error, 'yield-prediction', 'Failed to get yield prediction. Please try again.');
+        const errorMessage =
+          error?.response?.data?.detail ||
+          error.message ||
+          'Failed to get prediction';
         setYieldError(errorMessage);
       } finally {
         setYieldLoading(false);
       }
     },
-    [yieldForm, setYieldLoading, setYieldError, setYieldPrediction, setShowYieldPopup]
+    [
+      requestYieldPrediction,
+      yieldForm,
+      setYieldLoading,
+      setYieldError,
+      setYieldPrediction,
+      setShowYieldPopup,
+    ]
   );
 
   const handleFormChange = useCallback(

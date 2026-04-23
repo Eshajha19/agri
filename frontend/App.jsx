@@ -85,6 +85,7 @@ function App() {
     setFarmerName,
     inputName,
     setInputName,
+    isApiLoading,
   } = useUiStore();
 
   /* Apply theme changes */
@@ -158,6 +159,10 @@ function App() {
           },
         }}
       />
+      <div className={`api-activity ${isApiLoading ? "is-visible" : ""}`}>
+        <span className="api-activity__dot" />
+        <span className="api-activity__label">Syncing data</span>
+      </div>
       <div className={`app ${theme === "dark" ? "theme-dark" : ""}`}>
 
         {/* NAVBAR */}

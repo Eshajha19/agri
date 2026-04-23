@@ -664,3 +664,47 @@ iframe.goog-te-banner-frame.skiptranslate {
   width: 100%;
   overflow: hidden;
 }
+
+.api-activity {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 1300;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(20, 24, 28, 0.9);
+  color: #f5f7fa;
+  font-size: 12px;
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.api-activity.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.api-activity__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #7ed957;
+  animation: api-dot-spin 0.85s linear infinite;
+}
+
+.api-activity__label {
+  letter-spacing: 0.02em;
+  font-weight: 600;
+}
+
+@keyframes api-dot-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
