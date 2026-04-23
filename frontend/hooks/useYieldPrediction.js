@@ -1,7 +1,9 @@
 import { useCallback } from 'react';
 import { useYieldStore } from '../stores/yieldStore';
+import { useErrorHandler } from './useErrorHandler';
 
 export const useYieldPrediction = () => {
+  const { handleError } = useErrorHandler();
   const {
     yieldForm,
     updateYieldFormField,
@@ -35,8 +37,9 @@ export const useYieldPrediction = () => {
         setYieldPrediction(data.predicted_ExpYield);
         setShowYieldPopup(true);
       } catch (error) {
-        console.error('Error fetching yield:', error);
-        setYieldError(error.message || 'Failed to get prediction');
+        const errorMessage = error.message || 'Failed to get prediction';
+        handleError(error, 'yield-prediction', 'Failed to get yield prediction. Please try again.');
+        setYieldError(errorMessage);
       } finally {
         setYieldLoading(false);
       }

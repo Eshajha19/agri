@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
+import { Toaster } from "react-hot-toast";
 
 import Advisor from "./Advisor";
 import Home from "./Home";
@@ -142,6 +143,21 @@ function App() {
 
   return (
     <Router>
+      <Toaster
+        position="top-right"
+        reverseOrder={false}
+        gutter={8}
+        toastOptions={{
+          duration: 4000,
+          style: {
+            background: '#363636',
+            color: '#fff',
+            borderRadius: '8px',
+            padding: '12px 16px',
+            fontSize: '14px',
+          },
+        }}
+      />
       <div className={`app ${theme === "dark" ? "theme-dark" : ""}`}>
 
         {/* NAVBAR */}

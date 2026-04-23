@@ -1,7 +1,9 @@
 import { useCallback, useRef, useEffect } from 'react';
 import { useChatbotStore } from '../stores/chatbotStore';
+import { useErrorHandler } from './useErrorHandler';
 
 export const useChatbot = () => {
+  const { handleError, handleWarning } = useErrorHandler();
   const {
     messages,
     addMessage,
@@ -40,7 +42,7 @@ export const useChatbot = () => {
       };
 
       recognitionRef.current.onerror = (event) => {
-        console.error('Speech recognition error:', event.error);
+        handleWarning(`Speech recognition: ${event.error}`, 'speech-recognition');
         setIsListening(false);
       };
 
@@ -172,7 +174,7 @@ export const useChatbot = () => {
           });
         }
       } catch (error) {
-        console.error('Error:', error);
+        handleError(error, 'chatbot-message', 'Failed to process your message. Please try again.');
         setIsLoading(false);
         addMessage({
           text: 'An error occurred. Please try again later.',

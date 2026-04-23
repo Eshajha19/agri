@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { reportErrorToBackend } from '../utils/errorReporting';
 
 export const useYieldStore = create((set) => ({
   // Yield form state
@@ -56,7 +57,11 @@ export const useYieldStore = create((set) => ({
       const data = await response.json();
       set({ yieldPrediction: data.predicted_ExpYield, showYieldPopup: true });
     } catch (error) {
-      console.error('Error fetching yield:', error);
+      reportErrorToBackend({
+        error,
+        context: 'yield-prediction-store',
+        timestamp: new Date().toISOString(),
+      });
       set({ yieldError: error.message || 'Failed to get prediction' });
     } finally {
       set({ yieldLoading: false });
