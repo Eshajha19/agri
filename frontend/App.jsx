@@ -29,6 +29,7 @@ import Calendar from "./FarmingCalendar";
 import Feedback from "./Feedback";
 import AdminFeedback from "./AdminFeedback";
 
+import { syncOfflineRequests } from "./lib/syncOfflineRequests";
 import { auth, db, isFirebaseConfigured } from "./lib/firebase";
 
 import "./App.css";
@@ -267,7 +268,13 @@ function App() {
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
    useEffect(() => {
-     const handleNetworkChange = () => setIsOffline(!navigator.onLine);
+     const handleNetworkChange = () => {
+       const offline = !navigator.onLine;
+       setIsOffline(offline);
+       if (!offline) {
+         syncOfflineRequests();
+       }
+     };
      window.addEventListener("online", handleNetworkChange);
      window.addEventListener("offline", handleNetworkChange);
 

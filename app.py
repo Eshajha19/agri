@@ -45,7 +45,6 @@ def predict():
 @app.post("/predict-yield-lag")
 async def predict_yield_lag(payload: YieldInput):
     try:
-        data = input.data
         data = payload.data
 
         if len(data) != 5:
