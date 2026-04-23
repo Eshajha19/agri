@@ -58,13 +58,29 @@ html {
 }
 html,
 body,
-#root,
+#root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  box-sizing: border-box;
+}
+
 .app {
   height: 100%;
   width: 100%;
   font-family: "Poppins", sans-serif;
   padding-top: 68px;
-  margin: 0;
+  padding-top: max(68px, calc(constant(safe-area-inset-top) + 68px));
+  padding-top: max(68px, calc(env(safe-area-inset-top) + 68px));
+  padding-bottom: 0;
+  padding-bottom: constant(safe-area-inset-bottom);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: 0;
+  padding-left: constant(safe-area-inset-left);
+  padding-left: env(safe-area-inset-left);
+  padding-right: 0;
+  padding-right: constant(safe-area-inset-right);
+  padding-right: env(safe-area-inset-right);
   box-sizing: border-box;
 }
 
@@ -74,6 +90,8 @@ body,
   justify-content: space-between;
   align-items: center;
   padding: 15px 40px;
+  padding-top: calc(15px + constant(safe-area-inset-top));
+  padding-top: calc(15px + env(safe-area-inset-top));
   background: var(--brand-primary);
   color: #fff;
   position: fixed;
@@ -82,6 +100,10 @@ body,
   z-index: 1000;
   width: 100%;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  padding-left: calc(40px + constant(safe-area-inset-left));
+  padding-left: calc(40px + env(safe-area-inset-left));
+  padding-right: calc(40px + constant(safe-area-inset-right));
+  padding-right: calc(40px + env(safe-area-inset-right));
 }
 
 .theme-toggle {
@@ -264,6 +286,8 @@ body,
   display: none;
   position: absolute;
   right: 20px;
+  right: calc(20px + constant(safe-area-inset-right));
+  right: calc(20px + env(safe-area-inset-right));
   top: 50%;
   transform: translateY(-50%);
 
@@ -409,7 +433,11 @@ body,
 #muteToggle {
   position: fixed;
   bottom: 20px;
+  bottom: calc(20px + constant(safe-area-inset-bottom));
+  bottom: calc(20px + env(safe-area-inset-bottom));
   right: 20px;
+  right: calc(20px + constant(safe-area-inset-right));
+  right: calc(20px + env(safe-area-inset-right));
   width: 50px;
   height: 50px;
   border: none;
@@ -448,12 +476,16 @@ body,
     font-size: 0.85rem;
   }
 
-  #muteToggle {
-    width: 40px;
-    height: 40px;
-    font-size: 18px;
-    bottom: 15px;
-    right: 15px;
+   #muteToggle {
+     width: 40px;
+     height: 40px;
+     font-size: 18px;
+     bottom: 15px;
+     bottom: calc(15px + constant(safe-area-inset-bottom));
+     bottom: calc(15px + env(safe-area-inset-bottom));
+     right: 15px;
+     right: calc(15px + constant(safe-area-inset-right));
+     right: calc(15px + env(safe-area-inset-right));
   }
 }
 
@@ -1029,6 +1061,8 @@ html body {
   font-weight: bold;
   position: sticky;
   top: 68px;
+  top: calc(68px + constant(safe-area-inset-top));
+  top: calc(68px + env(safe-area-inset-top));
   z-index: 1001;
 }
 

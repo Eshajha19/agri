@@ -66,7 +66,7 @@ export default function Advisor() {
       c = 0,
       l = 0;
     const interval = setInterval(() => {
-      if (f < 5000) setCarmers((f += 50));
+      if (f < 5000) setFarmers((f += 50));
       if (c < 120) setCrops((c += 2));
       if (l < 10) setLanguages((l += 1));
     }, 50);
