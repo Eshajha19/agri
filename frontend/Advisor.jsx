@@ -18,13 +18,11 @@ import {
   Info,
   Map,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 import { useAdvisorStore } from "./stores/advisorStore";
 import { useYieldPrediction } from "./hooks/useYieldPrediction";
 import CropDiseaseDetection from "./CropDiseaseDetection";
 
 export default function Advisor() {
-  const navigate = useNavigate();
   const {
     farmers,
     setFarmers,
@@ -55,7 +53,6 @@ export default function Advisor() {
     yieldError,
     yieldLoading,
     showYieldPopup,
-    setShowYieldPopup,
     fetchYield,
     closeYieldPopup,
   } = useYieldPrediction();

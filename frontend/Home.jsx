@@ -22,76 +22,63 @@ import WeatherQuickWidget from "./weather/WeatherQuickWidget";
 import { auth, isFirebaseConfigured } from "./lib/firebase";
 import "./Home.css";
 
-// ─── Static data at module scope (never causes re-renders) ───────────────────
-
-const features = [
-  {
-    icon: <FaBrain />,
-    title: "AI-Powered Predictions",
-    desc: "Smart crop yield predictions using advanced machine learning algorithms",
-    category: "Analytics",
-  },
-  {
-    icon: <FaSun />,
-    title: "Weather Insights",
-    desc: "Real-time weather forecasts and custom alerts tailored for your farm",
-    category: "Monitoring",
-  },
-  {
-    icon: <FaHandHoldingWater />,
-    title: "Smart Irrigation",
-    desc: "Optimize water usage with AI-driven irrigation recommendations",
-    category: "Optimization",
-  },
-  {
-    icon: <FaChartLine />,
-    title: "Yield Optimization",
-    desc: "Maximize your harvest with data-driven farming strategies",
-    category: "Analytics",
-  },
-  {
-    icon: <FaFlask />,
-    title: "Soil Analysis",
-    desc: "Comprehensive soil health monitoring and nutrient level analysis",
-    category: "Monitoring",
-  },
-  {
-    icon: <FaLeaf />,
-    title: "Crop Recommendations",
-    desc: "Get crop suggestions based on soil profile and regional climate",
-    category: "Recommendations",
-  },
-  {
-    icon: <FaChartLine />,
-    title: "Fertilizer Guidance",
-    desc: "Personalized fertilizer and pesticide recommendations",
-    category: "Recommendations",
-  },
-  {
-    icon: <FaLandmark />,
-    title: "Government Schemes",
-    desc: "Stay updated with latest subsidies, insurance, and financial schemes",
-    category: "Benefits",
-  },
-  {
-    icon: <FaCalendarAlt />,
-    title: "Activity Calendar",
-    desc: "Plan sowing, irrigation, and harvest schedules with reminders",
-    category: "Planning",
-  },
-  {
-    icon: <FaCommentDots />,
-    title: "Farmer Feedback",
-    desc: "Share your experience and help us improve the platform",
-    category: "Community",
-  },
-  {
-    icon: <FaLock />,
-    title: "Secure & Private",
-    desc: "Enterprise-grade security with Firebase authentication",
-    category: "Protection",
-  },
-];
+export default function Home() {
+  const features = [
+    {
+      icon: <FaBrain />,
+      title: "AI-Powered Predictions",
+      desc: "Smart crop yield predictions using advanced machine learning algorithms",
+      category: "Analytics",
+    },
+    {
+      icon: <FaSun />,
+      title: "Weather Insights",
+      desc: "Real-time weather forecasts and custom alerts tailored for your farm",
+      category: "Monitoring",
+    },
+    {
+      icon: <FaHandHoldingWater />,
+      title: "Smart Irrigation",
+      desc: "Optimize water usage with AI-driven irrigation recommendations",
+      category: "Optimization",
+    },
+    {
+      icon: <FaChartLine />,
+      title: "Yield Optimization",
+      desc: "Maximize your harvest with data-driven farming strategies",
+      category: "Analytics",
+    },
+    {
+      icon: <FaFlask />,
+      title: "Soil Analysis",
+      desc: "Comprehensive soil health monitoring and nutrient level analysis",
+      category: "Monitoring",
+    },
+    {
+      icon: <FaLeaf />,
+      title: "Crop Recommendations",
+      desc: "Get crop suggestions based on soil profile and regional climate",
+      category: "Recommendations",
+    },
+    {
+      icon: <FaChartLine />,
+      title: "Fertilizer Guidance",
+      desc: "Personalized fertilizer and pesticide recommendations",
+      category: "Recommendations",
+    },
+    {
+      icon: <FaCalculator />,
+      title: "Profit Calculator",
+      desc: "Estimate potential profit before choosing crops with market analysis",
+      category: "Analytics",
+    },
+    {
+      icon: <FaLock />,
+      title: "Secure & Private",
+      desc: "Enterprise-grade security with Firebase authentication",
+      category: "Protection",
+    },
+  ];
 
 const stats = [
   { target: 50, suffix: "K+", label: "Farmers Helped" },

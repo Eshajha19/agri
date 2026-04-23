@@ -187,7 +187,9 @@
   box-shadow: none;
 }
 
-.sunlight .weather-alert-bar__dismiss {
+.sunlight .weather-alert-bar__chip,
+.sunlight .weather-alert-bar__dismiss,
+.sunlight .weather-alert-bar__action {
   border: 2px solid #000000;
   box-shadow: none;
 }

@@ -1,7 +1,13 @@
-import React, { useState, useRef, useEffect } from "react";
-import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
-import { onAuthStateChanged, signOut } from "firebase/auth";
-import { doc, onSnapshot } from "firebase/firestore";
+import React, { useEffect } from "react";
+import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
+import { Toaster } from "react-hot-toast";
+
+import Advisor from "./Advisor";
+import Home from "./Home";
+import Resources from "./Resources";
+import CropGuide from "./CropGuide";
+import CropProfitCalculator from "./CropProfitCalculator";
+import FarmingMap from "./FarmingMap";
 import {
   FaHome,
   FaComments,
@@ -9,8 +15,8 @@ import {
   FaLeaf,
   FaBars,
   FaTimes,
-  FaTachometerAlt,
-  FaChevronDown,
+  FaCalculator,
+  FaMap,
 } from "react-icons/fa";
 import { ToastContainer } from "react-toastify";
 
@@ -34,6 +40,8 @@ import { auth, db, isFirebaseConfigured } from "./lib/firebase";
 
 import "./App.css";
 import "./themes/sunlight.css";
+
+/* ---------------- LANGUAGE ---------------- */
 
 const LANGUAGE_OPTIONS = [
   { value: "en", label: "🌍 English", englishName: "english" },
@@ -118,115 +126,14 @@ function App() {
      setGoogleTranslateCookie(preferredLang);
    }, [preferredLang]);
 
-  useEffect(() => {
-    const cleanupGoogleTranslate = () => {
-      const selectors = [
-        '.goog-te-banner-frame',
-        '.goog-te-balloon-frame',
-        '#goog-gt-tt',
-        'iframe[src*="translate.google"]',
-        '.VIpgJd-ZVi9od-ORHb-OEVgZj'
-      ];
-      selectors.forEach(sel => {
-        document.querySelectorAll(sel).forEach(el => {
-          el.style.display = 'none';
-          el.style.visibility = 'hidden';
-          el.style.height = '0';
-          el.style.width = '0';
-          el.style.position = 'absolute';
-          el.style.pointerEvents = 'none';
-        });
-      });
-      document.body.style.marginTop = '0';
-      document.body.style.paddingTop = '0';
-      document.body.style.transform = 'none';
-    };
+  /* LOGIN handlers */
+  const handleLogin = (e) => {
+    e.preventDefault();
 
-    const detectTranslationToolbar = () => {
-      cleanupGoogleTranslate();
-      const hasTranslationToolbar =
-        document.querySelector('.goog-te-banner-frame') ||
-        document.querySelector('.goog-te-gadget') ||
-        document.querySelector('[data-ogpc]') ||
-        (document.body.style.transform && document.body.style.transform.includes('translateY')) ||
-        (document.body.style.marginTop && parseInt(document.body.style.marginTop) > 0) ||
-        document.querySelector('meta[name="google-translate-customization"]') ||
-        (window.innerHeight < window.screen.height * 0.9 && document.documentElement.scrollHeight > window.innerHeight);
-
-      document.documentElement.classList.toggle('has-translation-toolbar', hasTranslationToolbar);
-    };
-
-    detectTranslationToolbar();
-
-    cleanupGoogleTranslate();
-    const interval = setInterval(() => {
-      cleanupGoogleTranslate();
-      detectTranslationToolbar();
-    }, 500);
-
-    const handleVisibilityChange = () => setTimeout(detectTranslationToolbar, 500);
-    const handleFocus = () => setTimeout(detectTranslationToolbar, 200);
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleFocus);
-    window.addEventListener('resize', detectTranslationToolbar);
-
-    const handleClick = () => cleanupGoogleTranslate();
-    const handleScroll = () => cleanupGoogleTranslate();
-    document.addEventListener('click', handleClick, true);
-    document.addEventListener('scroll', handleScroll, true);
-
-    const observer = new MutationObserver((mutations) => {
-      let shouldCheck = false;
-      mutations.forEach((mutation) => {
-        if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-          Array.from(mutation.addedNodes).forEach((node) => {
-            if (node.nodeType === Node.ELEMENT_NODE &&
-              (node.classList?.contains('goog-te') ||
-                node.id?.includes('google_translate') ||
-                node.tagName === 'IFRAME')) {
-              shouldCheck = true;
-            }
-          });
-        }
-        if (mutation.type === 'attributes' &&
-          (mutation.attributeName === 'style' || mutation.attributeName === 'class')) {
-          shouldCheck = true;
-        }
-      });
-      if (shouldCheck) detectTranslationToolbar();
-    });
-
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['style', 'class', 'id']
-    });
-
-    return () => {
-      clearInterval(interval);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      document.removeEventListener('focus', handleFocus);
-      document.removeEventListener('resize', detectTranslationToolbar);
-      document.removeEventListener('click', handleClick, true);
-      document.removeEventListener('scroll', handleScroll, true);
-      observer.disconnect();
-    };
-  }, []);
-
-  const handleLogout = async () => {
-    if (!isFirebaseConfigured() || !auth) {
-      window.location.href = "/";
+    if (!inputName.trim()) {
+      alert("Name is required");
       return;
     }
-    try {
-      await signOut(auth);
-      window.location.href = "/";
-    } catch (error) {
-      console.error("Sign out error:", error);
-    }
-  };
 
   useEffect(() => {
     if (!isFirebaseConfigured()) {
@@ -311,46 +218,71 @@ function App() {
             {isDarkTheme ? "☀️" : "🌙"}
           </button>
 
-          <LanguageDropdown
-            options={LANGUAGE_OPTIONS}
-            value={preferredLang}
-            onChange={(val) => syncLanguage(val, setPreferredLang)}
+            <select
+              className="lang-select notranslate"
+              value={preferredLang}
+              onChange={handleLangChange}
+            >
+              {LANGUAGE_OPTIONS.map((l) => (
+                <option key={l.value} value={l.value}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+
+            <div className="nav-user">
+              {farmerName ? (
+                <>
+                  👋 {farmerName}
+                  <button onClick={handleLogout}>Change User</button>
+                </>
+              ) : (
+                <Link to="/login">Get Started</Link>
+              )}
+            </div>
+          </div>
+
+          <button
+            className="hamburger"
+            onClick={handleNavToggle}
+          >
+            {isNavOpen ? <FaTimes /> : <FaBars />}
+          </button>
+        </nav>
+
+        {/* ROUTES */}
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/advisor" element={<Advisor />} />
+          <Route
+            path="/farming-map"
+            element={
+              <div className="page-container">
+                <FarmingMap />
+              </div>
+            }
           />
+          <Route path="/how-it-works" element={<How />} />
+          <Route path="/profit-calculator" element={<CropProfitCalculator />} />
 
-          <div className="nav-user" onClick={() => setShowScorecard(!showScorecard)}>
-            {loading ? (
-              <span className="loading-text">Loading...</span>
-            ) : user ? (
-              <div className="user-profile-trigger">
-                <div className="profile-main">
-                  <span className="profile-name">{userData?.displayName || user.email?.split('@')[0]}</span>
-                  <FaChevronDown className={`chevron ${showScorecard ? 'open' : ''}`} />
+          <Route
+            path="/login"
+            element={
+              <div className="login-page">
+                <div className="login-card">
+                  <h2>👨‍🌾 Farmer Login</h2>
+
+                  <form onSubmit={handleLogin}>
+                    <input
+                      type="text"
+                      placeholder="Enter your name"
+                      value={inputName}
+                      onChange={(e) => setInputName(e.target.value)}
+                    />
+
+                    <button type="submit">Login</button>
+                  </form>
                 </div>
-
-                {showScorecard && userData && (
-                  <div className="profile-scorecard" onClick={(e) => e.stopPropagation()}>
-                    <div className="scorecard-header">
-                      <div className="scorecard-avatar">{userData.displayName?.[0] || 'F'}</div>
-                      <h3>{userData.displayName}</h3>
-                      <p>{userData.email}</p>
-                    </div>
-                    <div className="scorecard-body">
-                      {[
-                        { label: "Primary Crop", value: userData.cropType },
-                        { label: "Language", value: LANGUAGE_OPTIONS.find(l => l.value === userData.language)?.label || userData.language },
-                        { label: "Location", value: userData.address || "Fetching..." }
-                      ].map((item, i) => (
-                        <div key={i} className="score-item">
-                          <label>{item.label}</label>
-                          <span>{item.value}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="scorecard-footer">
-                      <button onClick={handleLogout} className="btn-logout-alt">Sign Out</button>
-                    </div>
-                  </div>
-                )}
               </div>
             ) : (
               <Link to="/login" className="btn-get-started">Get Started</Link>

@@ -2,10 +2,13 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 import joblib
 import pandas as pd
-import numpy as np
-from pydantic import BaseModel
-from typing import List
-from fastapi import HTTPException
+
+# Load trained model (ensure this path is correct)
+try:
+    model = joblib.load("yield_model.joblib")
+except Exception as e:
+    print(f"Warning: Could not load model: {e}")
+    model = None
 
 # Create FastAPI app
 app = FastAPI()
@@ -26,6 +29,10 @@ model_lag = joblib.load("sklearn_yield_model.pkl")  # your new model
 
 @app.get("/predict")
 def predict():
+    if model is None:
+        return {"error": "Model not available", "predicted_yield": None}
+    
+    # Dummy input matching training features
     input_df = pd.DataFrame([{
         "NDVI": 4800,
         "Rainfall": 25.0,

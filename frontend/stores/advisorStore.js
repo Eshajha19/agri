@@ -3,7 +3,7 @@ import { create } from 'zustand';
 export const useAdvisorStore = create((set) => ({
   // Advisor stats counters
   farmers: 0,
-  setFarmers: (count) => set({ farmers: count }),
+  setCarmers: (count) => set({ farmers: count }),
 
   crops: 0,
   setCrops: (count) => set({ crops: count }),
@@ -15,11 +15,6 @@ export const useAdvisorStore = create((set) => ({
   showWeather: false,
   setShowWeather: (show) => set({ showWeather: show }),
 
-  
-  showSoilChatbot: false,
-  setShowSoilChatbot: (show) => set({ showSoilChatbot: show }),
-
-  showComingSoon: false,
   setShowComingSoon: (show) => set({ showComingSoon: show }),
 
   showIrrigation: false,
