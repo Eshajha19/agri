@@ -36,6 +36,7 @@ import Loader from "./Loader";
 import FarmingMap from "./FarmingMap";
 import CropProfitCalculator from "./CropProfitCalculator";
 import Community from "./Community";
+import SoilAnalysis from "./SoilAnalysis";
 
  import { syncOfflineRequests } from "./lib/syncOfflineRequests";
  import { auth, db, isFirebaseConfigured, doc, onSnapshot } from "./lib/firebase";
@@ -347,6 +348,7 @@ function App() {
         <Route path="/farming-map" element={<FarmingMap />} />
         <Route path="/profit-calculator" element={<CropProfitCalculator />} />
         <Route path="/community" element={<Community />} />
+        <Route path="/soil-analysis" element={<SoilAnalysis />} />
       </Routes>
 
       {/* Floating Chat Button */}
