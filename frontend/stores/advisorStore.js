@@ -30,21 +30,25 @@ export const useAdvisorStore = create((set) => ({
   showFarmingMap: false,
   setShowFarmingMap: (show) => set({ showFarmingMap: show }),
 
-  showCropDiseaseDetection: false,
-  setShowCropDiseaseDetection: (show) => set({ showCropDiseaseDetection: show }),
+   showCropDiseaseDetection: false,
+   setShowCropDiseaseDetection: (show) => set({ showCropDiseaseDetection: show }),
 
-  // Reset store
-  resetAdvisorStore: () =>
-    set({
-      farmers: 0,
-      crops: 0,
-      languages: 0,
-      showWeather: false,
-      showSoilChatbot: false,
-      showIrrigation: false,
-      showProfitCalculator: false,
-      showFarmingMap: false,
-      showCropDiseaseDetection: false,
-      showComingSoon: false,
-    }),
+   showSoilAnalysis: false,
+   setShowSoilAnalysis: (show) => set({ showSoilAnalysis: show }),
+
+   // Reset store
+   resetAdvisorStore: () =>
+     set({
+       farmers: 0,
+       crops: 0,
+       languages: 0,
+       showWeather: false,
+       showSoilChatbot: false,
+       showSoilAnalysis: false,
+       showIrrigation: false,
+       showProfitCalculator: false,
+       showFarmingMap: false,
+       showCropDiseaseDetection: false,
+       showComingSoon: false,
+     }),
 }));

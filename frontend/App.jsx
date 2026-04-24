@@ -14,6 +14,7 @@ import {
   FaMap,
   FaTachometerAlt,
   FaChevronDown,
+  FaUser,
 } from "react-icons/fa";
 
 import Advisor from "./Advisor";
@@ -35,6 +36,7 @@ import Loader from "./Loader";
 import FarmingMap from "./FarmingMap";
 import CropProfitCalculator from "./CropProfitCalculator";
 import Community from "./Community";
+import SoilAnalysis from "./SoilAnalysis";
 
  import { syncOfflineRequests } from "./lib/syncOfflineRequests";
  import { auth, db, isFirebaseConfigured, doc, onSnapshot } from "./lib/firebase";
@@ -101,6 +103,7 @@ function App() {
   const [profileCompleted, setProfileCompleted] = useState(true);
   const [loading, setLoading] = useState(true);
   const [showScorecard, setShowScorecard] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const location = useLocation();
 
   const handleLangChange = (e) => {
@@ -215,13 +218,11 @@ function App() {
         </div>
 
         <ul className={`nav-center ${isOpen ? "active" : ""}`}>
-          <li><Link to="/" onClick={() => setIsOpen(false)}><FaHome /> Home</Link></li>
-          <li><Link to="/advisor" onClick={() => setIsOpen(false)}><FaComments /> Chat</Link></li>
-          <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}><FaInfoCircle /> How It Works</Link></li>
-          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}><FaLeaf /> Crop Guide</Link></li>
+          <li><Link to="/" onClick={() => setIsOpen(false)}>Home</Link></li>
+          <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}>Works</Link></li>
+          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}>Guide</Link></li>
+
           <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
-          <li><Link to="/community" onClick={() => setIsOpen(false)}><FaComments /> Community</Link></li>
-          <li><Link to="/dashboard" onClick={() => setIsOpen(false)}><FaTachometerAlt /> Dashboard</Link></li>
         </ul>
 
         <div className="nav-right">
@@ -229,19 +230,35 @@ function App() {
             {isDarkTheme ? "☀️" : "🌙"}
           </button>
 
-          <select
-            className="lang-select notranslate"
-            value={preferredLang}
-            onChange={handleLangChange}
-          >
-            {LANGUAGE_OPTIONS.map((l) => (
-              <option key={l.value} value={l.value}>
-                {l.label}
-              </option>
-            ))}
-          </select>
+           <div className="more-menu-container" onClick={() => { setShowMoreMenu(!showMoreMenu); setShowScorecard(false); }}>
+             <button className="btn-more-menu" aria-label="Profile and Settings">
+               <FaUser style={{ width: "24px", height: "24px", fontSize: "24px", minWidth: "24px", minHeight: "24px" }} />
+             </button>
+             {showMoreMenu && (
+               <div className="more-dropdown" onClick={(e) => e.stopPropagation()}>
+                 <div className="dropdown-section">
+                   <label>Language</label>
+                   <select
+                     className="lang-select-dropdown notranslate"
+                     value={preferredLang}
+                     onChange={handleLangChange}
+                   >
+                     {LANGUAGE_OPTIONS.map((l) => (
+                       <option key={l.value} value={l.value}>
+                         {l.label}
+                       </option>
+                     ))}
+                   </select>
+                 </div>
+                 <div className="dropdown-links">
+                   <Link to="/dashboard" onClick={() => setShowMoreMenu(false)}><FaTachometerAlt /> Dashboard</Link>
+                   <Link to="/community" onClick={() => setShowMoreMenu(false)}><FaComments /> Community</Link>
+                 </div>
+               </div>
+             )}
+           </div>
 
-          <div className="nav-user" onClick={() => setShowScorecard(!showScorecard)}>
+          <div className="nav-user" onClick={() => { setShowScorecard(!showScorecard); setShowMoreMenu(false); }}>
             {loading ? (
               <div className="nav-loader-mini"></div>
             ) : user ? (
@@ -329,7 +346,13 @@ function App() {
         <Route path="/farming-map" element={<FarmingMap />} />
         <Route path="/profit-calculator" element={<CropProfitCalculator />} />
         <Route path="/community" element={<Community />} />
+        <Route path="/soil-analysis" element={<SoilAnalysis />} />
       </Routes>
+
+      {/* Floating Chat Button */}
+      <Link to="/advisor" className="floating-chat-btn" aria-label="Chat Support">
+        <FaComments size={28} />
+      </Link>
 
       <ToastContainer position="bottom-right" />
     </div>

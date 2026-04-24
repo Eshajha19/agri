@@ -2,8 +2,25 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
+const spaFallbackPlugin = () => ({
+  name: 'spa-fallback',
+  configureServer(server) {
+    server.middlewares.use((req, res, next) => {
+      // List of routes that conflict with .jsx filenames
+      const conflictRoutes = ['/advisor', '/community', '/dashboard', '/home', '/auth', '/resources'];
+      const urlPath = req.url.split('?')[0].toLowerCase();
+      
+      if (conflictRoutes.includes(urlPath)) {
+        req.url = '/index.html';
+      }
+      next();
+    });
+  }
+});
+
 export default defineConfig(() => ({
   plugins: [
+    spaFallbackPlugin(),
     react(),
     VitePWA({
       registerType: 'autoUpdate',

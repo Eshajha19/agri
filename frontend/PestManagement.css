@@ -1,0 +1,218 @@
+.pest-management-modal {
+  max-width: 550px;
+  margin: 40px auto;
+  padding: 30px;
+  background: var(--bg-primary, #ffffff);
+  border-radius: 16px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+  position: relative;
+  border: 1px solid var(--border-color, #e5e7eb);
+  color: var(--text-primary, #111111);
+}
+
+.pest-management-modal .close-btn {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  background: transparent;
+  border: none;
+  font-size: 20px;
+  color: var(--text-secondary, #666);
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.pest-management-modal .close-btn:hover {
+  color: var(--brand-primary, #16a34a);
+}
+
+.modal-title {
+  color: var(--brand-primary, #16a34a);
+  margin-bottom: 8px;
+  font-size: 24px;
+  padding-right: 40px;
+}
+
+.modal-subtitle {
+  color: var(--text-secondary, #555);
+  margin-bottom: 24px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.input-group {
+  margin-bottom: 20px;
+}
+
+.input-group label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: var(--text-primary, #111);
+}
+
+.pm-input,
+.pm-textarea {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 8px;
+  font-size: 15px;
+  background: var(--card-bg, #fff);
+  color: var(--text-primary, #111);
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-sizing: border-box;
+}
+
+.pm-textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.pm-input:focus,
+.pm-textarea:focus {
+  outline: none;
+  border-color: var(--brand-primary, #16a34a);
+  box-shadow: 0 0 0 3px var(--focus-ring, rgba(22, 163, 74, 0.2));
+}
+
+.pm-btn {
+  width: 100%;
+  padding: 14px;
+  background-color: var(--brand-primary, #16a34a);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s, transform 0.1s;
+}
+
+.pm-btn:hover {
+  background-color: var(--brand-hover, #15803d);
+}
+
+.pm-btn:active {
+  transform: scale(0.98);
+}
+
+.pm-btn.loading {
+  background-color: #86efac;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.pm-error {
+  color: #dc2626;
+  margin-top: 12px;
+  text-align: center;
+  font-size: 14px;
+  padding: 10px;
+  background-color: #fef2f2;
+  border-radius: 6px;
+}
+
+.pm-result {
+  margin-top: 24px;
+  animation: fadeIn 0.4s ease-out;
+}
+
+.result-item {
+  font-size: 16px;
+  margin-bottom: 12px;
+  color: var(--text-primary, #111);
+}
+
+.highlight-pest {
+  color: #dc2626;
+  font-weight: bold;
+}
+
+.severity-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.severity-badge.high {
+  background-color: #fee2e2;
+  color: #b91c1c;
+}
+
+.severity-badge.medium {
+  background-color: #fef3c7;
+  color: #b45309;
+}
+
+.severity-badge.low {
+  background-color: #dcfce3;
+  color: #15803d;
+}
+
+.result-box {
+  padding: 16px;
+  border-radius: 12px;
+  margin-top: 16px;
+  border-left: 4px solid;
+}
+
+.result-box h4 {
+  margin-top: 0;
+  margin-bottom: 8px;
+  font-size: 16px;
+}
+
+.result-box p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-secondary, #444);
+}
+
+.result-box.organic {
+  background-color: #f0fdf4;
+  border-left-color: #22c55e;
+}
+.result-box.organic h4 {
+  color: #166534;
+}
+
+.result-box.chemical {
+  background-color: #fef2f2;
+  border-left-color: #ef4444;
+}
+.result-box.chemical h4 {
+  color: #991b1b;
+}
+
+.result-box.prevention {
+  background-color: #eff6ff;
+  border-left-color: #3b82f6;
+}
+.result-box.prevention h4 {
+  color: #1e40af;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Dark mode specific tweaks if the app uses .theme-dark */
+.theme-dark .pm-input,
+.theme-dark .pm-textarea {
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+}
+.theme-dark .result-box.organic { background-color: rgba(34, 197, 94, 0.1); }
+.theme-dark .result-box.chemical { background-color: rgba(239, 68, 68, 0.1); }
+.theme-dark .result-box.prevention { background-color: rgba(59, 130, 246, 0.1); }
+.theme-dark .result-box.organic h4 { color: #4ade80; }
+.theme-dark .result-box.chemical h4 { color: #f87171; }
+.theme-dark .result-box.prevention h4 { color: #60a5fa; }
+.theme-dark .pm-error { background-color: rgba(220, 38, 38, 0.2); color: #fca5a5; }
