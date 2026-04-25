@@ -8,7 +8,21 @@ def get_season_from_month(month: int) -> str:
         return "rabi"
     return "zaid"
 
-
+def generate_alerts(
+    crop: str = None,
+    irrigation_count: int = None,
+    water_coverage: int = None,
+    season: str = None
+) -> list:
+    alerts = []
+    now = datetime.now()
+    
+    # normalize inputs
+    crop = crop.lower().strip() if crop else None
+    season = season.lower().strip() if season else None
+    
+    current_season = season or get_season_from_month(now.month)
+    
 def generate_alerts(
     crop: str = None,
     irrigation_count: int = None,

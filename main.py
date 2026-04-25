@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import joblib
@@ -15,6 +15,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+
 
 class PredictRequest(BaseModel):
     Crop: str
@@ -43,10 +46,10 @@ except Exception as e:
 # Store notifications
 @app.get("/api/notifications")
 def get_notifications(
-    crop: str = None,
-    irrigation_count: int = None,
-    water_coverage: int = None,
-    season: str = None
+    crop: str = Query(default=None),
+    irrigation_count: int = Query(default=None, ge=0),
+    water_coverage: int = Query(default=None, ge=0, le=100),
+    season: str = Query(default=None)
 ):
     """
     Generate dynamic farm advisory alerts.
