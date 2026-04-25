@@ -1,10 +1,11 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import "./Advisor.css";
 import WeatherCard from "./weather/WeatherCard";
 import SoilChatbot from "./SoilChatbot";
 import IrrigationGuidance from "./IrrigationGuidance";
 import CropProfitCalculator from "./CropProfitCalculator";
 import FarmingMap from "./FarmingMap";
+import FertilizerRecommendation from "./FertilizerRecommendation";
 import {
   Sun,
   Droplets,
@@ -18,11 +19,14 @@ import {
   Info,
   Map,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useAdvisorStore } from "./stores/advisorStore";
 import { useYieldPrediction } from "./hooks/useYieldPrediction";
 import CropDiseaseDetection from "./CropDiseaseDetection";
 
 export default function Advisor() {
+  const navigate = useNavigate();
+  const [showFertilizerPopup, setShowFertilizerPopup] = useState(false);
   const {
     farmers,
     setFarmers,
@@ -177,10 +181,10 @@ export default function Advisor() {
             <p>Upload plant images to detect diseases and get remedies.</p>
           </div>
 
-          <div className="card reveal" onClick={() => setShowComingSoon(true)}>
+          <div className="card reveal" onClick={() => setShowFertilizerPopup(true)}>
             <div className="icon">🌾</div>
             <h3>Fertilizer Recommendations</h3>
-            <p>AI-powered fertilizer advice tailored to your soil & crops.</p>
+            <p>Get a crop-aware fertilizer plan based on soil pH and nutrient status.</p>
           </div>
           <div className="card reveal" onClick={() => setShowComingSoon(true)}>
             <div className="icon">
@@ -556,6 +560,14 @@ export default function Advisor() {
             >
               Close
             </button>
+          </div>
+        </div>
+      )}
+
+      {showFertilizerPopup && (
+        <div className="weather-overlay" onClick={() => setShowFertilizerPopup(false)}>
+          <div className="weather-popup fertilizer-popup-shell" onClick={(e) => e.stopPropagation()}>
+            <FertilizerRecommendation onClose={() => setShowFertilizerPopup(false)} />
           </div>
         </div>
       )}
