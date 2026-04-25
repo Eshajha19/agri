@@ -15,15 +15,14 @@ import {
   FaGlobe,
   FaLandmark,
   FaCalendarAlt,
-  FaCommentDots
+  FaCommentDots,
+  FaCalculator
 } from "react-icons/fa";
 import WeatherAlertBar from "./weather/WeatherAlertBar";
 import WeatherQuickWidget from "./weather/WeatherQuickWidget";
-import { auth, isFirebaseConfigured } from "./lib/firebase";
 import "./Home.css";
 
-export default function Home() {
-  const features = [
+const features = [
     {
       icon: <FaBrain />,
       title: "AI-Powered Predictions",
@@ -368,6 +367,7 @@ export default function Home({ user }) {
               <Link to="/dashboard">Dashboard</Link>
               <Link to="/calendar">Activity Calendar</Link>
               <Link to="/market-prices">Market Prices</Link>
+              <Link to="/community">Community</Link>
               <Link to="/share-feedback">Share Feedback</Link>
             </div>
             <div className="footer-section">

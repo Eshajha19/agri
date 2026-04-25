@@ -3,6 +3,7 @@ import { collection, getDocs, deleteDoc, doc, query, orderBy } from "firebase/fi
 import { db, auth } from "./lib/firebase";
 import { Star, Trash2, RefreshCw, MessageSquare, TrendingUp, Users, Award, ShieldAlert } from "lucide-react";
 import "./AdminFeedback.css";
+import Loader from "./Loader";
 
 // ── ADMIN ACCESS CONTROL ──────────────────────────────────────────────────────
 // Add your admin email(s) here. Only these emails can access the admin panel.
@@ -58,9 +59,7 @@ export default function AdminFeedback() {
   // Block non-admins immediately, but wait for auth to check
   if (authChecking) {
     return (
-      <div className="admin-fb-page" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
-        Loading admin access...
-      </div>
+      <Loader fullPage={true} message="Authenticating Admin..." />
     );
   }
 
@@ -135,9 +134,7 @@ export default function AdminFeedback() {
       </div>
 
       {loading ? (
-        <div className="admin-loading" style={{ padding: "100px", textAlign: "center", color: "#64748b" }}>
-          Loading feedback...
-        </div>
+        <Loader message="Fetching feedback data..." />
       ) : (
         <>
           {/* Summary Cards */}

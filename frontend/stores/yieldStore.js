@@ -43,11 +43,10 @@ export const useYieldStore = create((set, get) => ({
   setShowYieldPopup: (show) => set({ showYieldPopup: show }),
 
   // Fetch yield prediction
-<<<<<<< HEAD
   fetchYield: async function () {
     set({ yieldLoading: true, yieldError: null });
     try {
-      const response = await fetch('/predict', {
+      const data = await predictYield(get().yieldForm);
       set({ yieldPrediction: data.predicted_ExpYield, showYieldPopup: true });
     } catch (error) {
       const message =
@@ -55,11 +54,11 @@ export const useYieldStore = create((set, get) => ({
         error.message ||
         'Failed to get prediction';
       set({ yieldError: message });
->>>>>>> 132
     } finally {
       set({ yieldLoading: false });
     }
   },
+
   // Reset store
   resetYieldStore: () =>
     set({

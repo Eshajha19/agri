@@ -2,8 +2,25 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
-export default defineConfig(({ mode }) => ({
+const spaFallbackPlugin = () => ({
+  name: 'spa-fallback',
+  configureServer(server) {
+    server.middlewares.use((req, res, next) => {
+      // List of routes that conflict with .jsx filenames
+      const conflictRoutes = ['/advisor', '/community', '/dashboard', '/home', '/auth', '/resources'];
+      const urlPath = req.url.split('?')[0].toLowerCase();
+      
+      if (conflictRoutes.includes(urlPath)) {
+        req.url = '/index.html';
+      }
+      next();
+    });
+  }
+});
+
+export default defineConfig(() => ({
   plugins: [
+    spaFallbackPlugin(),
     react(),
     VitePWA({
       registerType: 'autoUpdate',
@@ -16,7 +33,7 @@ export default defineConfig(({ mode }) => ({
         background_color: '#ffffff',
         display: 'standalone',
         start_url: '/',
-        orientation: 'any',
+        orientation: 'portrait',
         scope: '/',
         icons: [
           {
@@ -28,12 +45,6 @@ export default defineConfig(({ mode }) => ({
             src: '/icon-512x512.png',
             sizes: '512x512',
             type: 'image/png'
-          },
-          {
-            src: '/icon-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any maskable'
           }
         ],
         categories: ['productivity', 'utilities', 'education'],
@@ -212,9 +223,10 @@ export default defineConfig(({ mode }) => ({
     })
   ],
   server: {
+    port: 5173,
     host: true,
     hmr: {
-      overlay: false
+      overlay: true
     },
     proxy: {
       '/predict': {

@@ -1,14 +1,20 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import joblib
 import pandas as pd
+import numpy as np
+from typing import List
+from pydantic import BaseModel
 
-# Load trained model (ensure this path is correct)
+# Load trained models (ensure this path is correct)
 try:
     model = joblib.load("yield_model.joblib")
+    model_lag = joblib.load("sklearn_yield_model.pkl")
+    print("✅ Models loaded successfully")
 except Exception as e:
-    print(f"Warning: Could not load model: {e}")
+    print(f"Warning: Could not load models: {e}")
     model = None
+    model_lag = None
 
 # Create FastAPI app
 app = FastAPI()
@@ -24,8 +30,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-model = joblib.load("yield_model.joblib")  # existing model
-model_lag = joblib.load("sklearn_yield_model.pkl")  # your new model
+
 
 @app.get("/predict")
 def predict():
@@ -51,8 +56,9 @@ def predict():
 
 @app.post("/predict-yield-lag")
 async def predict_yield_lag(payload: YieldInput):
+    if model_lag is None:
+        raise HTTPException(status_code=500, detail="Model not loaded")
     try:
-        data = input.data
         data = payload.data
 
         if len(data) != 5:
@@ -76,6 +82,8 @@ async def predict_yield_lag(payload: YieldInput):
 
 @app.post("/predict-yield-trend")
 async def predict_yield_trend(payload: YieldInput):
+    if model_lag is None:
+        raise HTTPException(status_code=500, detail="Model not loaded")
     try:
         data = payload.data
 

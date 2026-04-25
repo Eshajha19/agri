@@ -3,7 +3,7 @@ import { create } from 'zustand';
 export const useAdvisorStore = create((set) => ({
   // Advisor stats counters
   farmers: 0,
-  setCarmers: (count) => set({ farmers: count }),
+  setFarmers: (count) => set({ farmers: count }),
 
   crops: 0,
   setCrops: (count) => set({ crops: count }),
@@ -15,6 +15,10 @@ export const useAdvisorStore = create((set) => ({
   showWeather: false,
   setShowWeather: (show) => set({ showWeather: show }),
 
+  showSoilChatbot: false,
+  setShowSoilChatbot: (show) => set({ showSoilChatbot: show }),
+
+  showComingSoon: false,
   setShowComingSoon: (show) => set({ showComingSoon: show }),
 
   showIrrigation: false,
@@ -23,11 +27,14 @@ export const useAdvisorStore = create((set) => ({
   showProfitCalculator: false,
   setShowProfitCalculator: (show) => set({ showProfitCalculator: show }),
 
-   showFarmingMap: false,
-   setShowFarmingMap: (show) => set({ showFarmingMap: show }),
+  showFarmingMap: false,
+  setShowFarmingMap: (show) => set({ showFarmingMap: show }),
 
    showCropDiseaseDetection: false,
    setShowCropDiseaseDetection: (show) => set({ showCropDiseaseDetection: show }),
+
+   showSoilAnalysis: false,
+   setShowSoilAnalysis: (show) => set({ showSoilAnalysis: show }),
 
    // Reset store
    resetAdvisorStore: () =>
@@ -37,6 +44,7 @@ export const useAdvisorStore = create((set) => ({
        languages: 0,
        showWeather: false,
        showSoilChatbot: false,
+       showSoilAnalysis: false,
        showIrrigation: false,
        showProfitCalculator: false,
        showFarmingMap: false,

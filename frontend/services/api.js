@@ -1,5 +1,4 @@
 import axios from 'axios';
-import toast from 'react-hot-toast';
 
 import { useUiStore } from '../stores/uiStore';
 import { formatErrorMessage, reportErrorToBackend } from '../utils/errorReporting';
@@ -91,14 +90,6 @@ apiClient.interceptors.response.use(
       return apiClient(config);
     }
 
-    if (!config.suppressToast) {
-      const message = config.errorMessage || formatErrorMessage(error);
-      toast.error(message, {
-        duration: 4000,
-        position: 'top-right',
-      });
-    }
-
     if (config.logError !== false && !isErrorLoggingEndpoint(config.url)) {
       reportErrorToBackend({
         error,
@@ -107,6 +98,9 @@ apiClient.interceptors.response.use(
       });
     }
 
+    // NOTE: UI feedback (like toast.error) is intentionally omitted here.
+    // Errors are propagated so that the specific component or hook making
+    // the request can handle them and provide context-aware feedback to the user.
     return Promise.reject(error);
   }
 );

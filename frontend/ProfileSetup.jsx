@@ -54,6 +54,7 @@ const ProfileSetup = ({ user, profileCompleted }) => {
     if (user && profileCompleted) {
       navigate("/");
     } else if (!user && !localStorage.getItem("isLoggingIn")) {
+      navigate("/login");
     }
   }, [user, profileCompleted, navigate]);
 

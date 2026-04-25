@@ -1,13 +1,8 @@
-import React, { useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
-import { Toaster } from "react-hot-toast";
+import React, { useEffect, useState } from "react";
+import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
 
-import Advisor from "./Advisor";
-import Home from "./Home";
-import Resources from "./Resources";
-import CropGuide from "./CropGuide";
-import CropProfitCalculator from "./CropProfitCalculator";
-import FarmingMap from "./FarmingMap";
+import { ToastContainer } from "react-toastify";
+
 import {
   FaHome,
   FaComments,
@@ -17,8 +12,10 @@ import {
   FaTimes,
   FaCalculator,
   FaMap,
+  FaTachometerAlt,
+  FaChevronDown,
+  FaUser,
 } from "react-icons/fa";
-import { ToastContainer } from "react-toastify";
 
 import Advisor from "./Advisor";
 import Home from "./Home";
@@ -35,8 +32,15 @@ import Feedback from "./Feedback";
 import AdminFeedback from "./AdminFeedback";
 import Calendar from "./FarmingCalendar";
 import MarketPrices from "./MarketPrices";
+import Loader from "./Loader";
+import FarmingMap from "./FarmingMap";
+import CropProfitCalculator from "./CropProfitCalculator";
+import Community from "./Community";
+import SoilAnalysis from "./SoilAnalysis";
 
-import { auth, db, isFirebaseConfigured } from "./lib/firebase";
+ import { syncOfflineRequests } from "./lib/syncOfflineRequests";
+ import { auth, db, isFirebaseConfigured, doc, onSnapshot } from "./lib/firebase";
+ import { onAuthStateChanged, signOut } from "firebase/auth";
 
 import "./App.css";
 import "./themes/sunlight.css";
@@ -99,7 +103,27 @@ function App() {
   const [profileCompleted, setProfileCompleted] = useState(true);
   const [loading, setLoading] = useState(true);
   const [showScorecard, setShowScorecard] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const location = useLocation();
+
+  const handleLangChange = (e) => {
+    syncLanguage(e.target.value, setPreferredLang);
+  };
+
+  const handleNavToggle = () => {
+    setIsOpen(!isOpen);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setUser(null);
+      setUserData(null);
+      setProfileCompleted(true);
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+  };
 
   useNotifications();
 
@@ -124,18 +148,9 @@ function App() {
 
    useEffect(() => {
      setGoogleTranslateCookie(preferredLang);
-   }, [preferredLang]);
+    }, [preferredLang]);
 
-  /* LOGIN handlers */
-  const handleLogin = (e) => {
-    e.preventDefault();
-
-    if (!inputName.trim()) {
-      alert("Name is required");
-      return;
-    }
-
-  useEffect(() => {
+   useEffect(() => {
     if (!isFirebaseConfigured()) {
       setLoading(false);
       return;
@@ -167,21 +182,19 @@ function App() {
     return () => unsubscribeAuth();
   }, []);
 
-
-  /* ---------------- OFFLINE STATUS ---------------- */
-  /* ---------------- AUTH STATE LISTENER ---------------- */
-
-
-
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
    useEffect(() => {
-     const handleNetworkChange = () => setIsOffline(!navigator.onLine);
+     const handleNetworkChange = () => {
+       const offline = !navigator.onLine;
+       setIsOffline(offline);
+       if (!offline) {
+         syncOfflineRequests();
+       }
+     };
      window.addEventListener("online", handleNetworkChange);
      window.addEventListener("offline", handleNetworkChange);
-
      const interval = setInterval(handleNetworkChange, 1000);
-
      return () => {
        window.removeEventListener("online", handleNetworkChange);
        window.removeEventListener("offline", handleNetworkChange);
@@ -191,6 +204,7 @@ function App() {
 
   return (
     <div className={`app ${isDarkTheme ? "theme-dark" : ""}`}>
+      {loading && <Loader fullPage={true} message="Initializing Fasal Saathi..." />}
       {isOffline && (
         <div className="offline-banner">
           You are currently offline. Running in offline mode using local data.
@@ -199,18 +213,15 @@ function App() {
 
       <nav className="navbar">
         <div className="nav-left">
-          <FaLeaf className="icon" />
           <Link to="/" className="brand">Fasal Saathi</Link>
         </div>
 
         <ul className={`nav-center ${isOpen ? "active" : ""}`}>
-          <li><Link to="/" onClick={() => setIsOpen(false)}><FaHome /> Home</Link></li>
-          <li><Link to="/advisor" onClick={() => setIsOpen(false)}><FaComments /> Chat</Link></li>
-          <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}><FaInfoCircle /> How It Works</Link></li>
-          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}><FaLeaf className="icon" /> Crop Guide</Link></li>
-          <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
-          <li><Link to="/dashboard" onClick={() => setIsOpen(false)}><FaTachometerAlt /> Dashboard</Link></li>
+          <li><Link to="/" onClick={() => setIsOpen(false)}>Home</Link></li>
+          <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}>Works</Link></li>
+          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}>Guide</Link></li>
 
+          <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
         </ul>
 
         <div className="nav-right">
@@ -218,79 +229,78 @@ function App() {
             {isDarkTheme ? "☀️" : "🌙"}
           </button>
 
-            <select
-              className="lang-select notranslate"
-              value={preferredLang}
-              onChange={handleLangChange}
-            >
-              {LANGUAGE_OPTIONS.map((l) => (
-                <option key={l.value} value={l.value}>
-                  {l.label}
-                </option>
-              ))}
-            </select>
+           <div className="more-menu-container" onClick={() => { setShowMoreMenu(!showMoreMenu); setShowScorecard(false); }}>
+             <button className="btn-more-menu" aria-label="Profile and Settings">
+               <FaUser style={{ width: "24px", height: "24px", fontSize: "24px", minWidth: "24px", minHeight: "24px" }} />
+             </button>
+             {showMoreMenu && (
+               <div className="more-dropdown" onClick={(e) => e.stopPropagation()}>
+                 <div className="dropdown-section">
+                   <label>Language</label>
+                   <select
+                     className="lang-select-dropdown notranslate"
+                     value={preferredLang}
+                     onChange={handleLangChange}
+                   >
+                     {LANGUAGE_OPTIONS.map((l) => (
+                       <option key={l.value} value={l.value}>
+                         {l.label}
+                       </option>
+                     ))}
+                   </select>
+                 </div>
+                 <div className="dropdown-links">
+                   <Link to="/dashboard" onClick={() => setShowMoreMenu(false)}><FaTachometerAlt /> Dashboard</Link>
+                   <Link to="/community" onClick={() => setShowMoreMenu(false)}><FaComments /> Community</Link>
+                 </div>
+               </div>
+             )}
+           </div>
 
-            <div className="nav-user">
-              {farmerName ? (
-                <>
-                  👋 {farmerName}
-                  <button onClick={handleLogout}>Change User</button>
-                </>
-              ) : (
-                <Link to="/login">Get Started</Link>
-              )}
-            </div>
-          </div>
-
-          <button
-            className="hamburger"
-            onClick={handleNavToggle}
-          >
-            {isNavOpen ? <FaTimes /> : <FaBars />}
-          </button>
-        </nav>
-
-        {/* ROUTES */}
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/advisor" element={<Advisor />} />
-          <Route
-            path="/farming-map"
-            element={
-              <div className="page-container">
-                <FarmingMap />
-              </div>
-            }
-          />
-          <Route path="/how-it-works" element={<How />} />
-          <Route path="/profit-calculator" element={<CropProfitCalculator />} />
-
-          <Route
-            path="/login"
-            element={
-              <div className="login-page">
-                <div className="login-card">
-                  <h2>👨‍🌾 Farmer Login</h2>
-
-                  <form onSubmit={handleLogin}>
-                    <input
-                      type="text"
-                      placeholder="Enter your name"
-                      value={inputName}
-                      onChange={(e) => setInputName(e.target.value)}
-                    />
-
-                    <button type="submit">Login</button>
-                  </form>
+          <div className="nav-user" onClick={() => { setShowScorecard(!showScorecard); setShowMoreMenu(false); }}>
+            {loading ? (
+              <div className="nav-loader-mini"></div>
+            ) : user ? (
+              <div className="user-profile-trigger">
+                <div className="profile-main">
+                  <span className="profile-name">{userData?.displayName || user.email?.split('@')?.[0] || "Farmer"}</span>
+                  <FaChevronDown className={`chevron ${showScorecard ? 'open' : ''}`} />
                 </div>
+
+                {showScorecard && userData && (
+                  <div className="profile-scorecard" onClick={(e) => e.stopPropagation()}>
+                    <div className="scorecard-header">
+                      <div className="scorecard-avatar">{userData.displayName?.[0] || 'F'}</div>
+                      <h3>{userData.displayName}</h3>
+                      <p>{userData.email}</p>
+                    </div>
+                    <div className="scorecard-body">
+                      {[
+                        { label: "Primary Crop", value: userData.cropType },
+                        { label: "Language", value: LANGUAGE_OPTIONS.find(l => l.value === userData.language)?.label || userData.language },
+                        { label: "Location", value: userData.address || "Fetching..." }
+                      ].map((item, i) => (
+                        <div key={i} className="score-item">
+                          <label>{item.label}</label>
+                          <span>{item.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="scorecard-footer">
+                      <button onClick={handleLogout} className="btn-logout-alt">Sign Out</button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <Link to="/login" className="btn-get-started">Get Started</Link>
             )}
           </div>
         </div>
-
-        <button className="hamburger" onClick={() => setIsOpen(!isOpen)} aria-label="Toggle Menu">
+        <button
+          className="hamburger"
+          onClick={handleNavToggle}
+        >
           {isOpen ? <FaTimes /> : <FaBars />}
         </button>
       </nav>
@@ -332,7 +342,16 @@ function App() {
         <Route path="/share-feedback" element={<Feedback />} />
         <Route path="/admin/feedback" element={<AdminFeedback />} />
         <Route path="/market-prices" element={<MarketPrices />} />
+        <Route path="/farming-map" element={<FarmingMap />} />
+        <Route path="/profit-calculator" element={<CropProfitCalculator />} />
+        <Route path="/community" element={<Community />} />
+        <Route path="/soil-analysis" element={<SoilAnalysis />} />
       </Routes>
+
+      {/* Floating Chat Button */}
+      <Link to="/advisor" className="floating-chat-btn" aria-label="Chat Support">
+        <FaComments size={28} />
+      </Link>
 
       <ToastContainer position="bottom-right" />
     </div>

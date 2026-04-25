@@ -79,24 +79,9 @@ function SoilChatbot({ onClose }) {
       </div>
 
       <div className="chat-controls">
-        <div className="voice-controls">
-          <button
-            className={`control-btn mic-btn ${isListening ? "active" : ""}`}
-            onClick={toggleListening}
-            title="Start / Stop Voice Input"
-          >
-            <FaMicrophone />
-          </button>
-
-          {isSpeaking && (
-            <button className="control-btn stop-btn" onClick={stopSpeaking} title="Stop Speaking">
-              <FaStop />
-            </button>
-          )}
-        </div>
-
         <div className="input-area">
-          <label htmlFor="file-upload" className="image-btn" title="Upload Soil/Crop Image">
+              
+          <label htmlFor="file-upload" className="icon left" aria-label="Upload image" title="Upload Soil/Crop Image">
             <FaImage />
           </label>
           <input
@@ -109,16 +94,34 @@ function SoilChatbot({ onClose }) {
 
           <input
             type="text"
+            className="chat-textbox"
             value={userInput}
             onChange={(e) => setUserInput(e.target.value)}
             placeholder="Ask about crops, weather, soil..."
             onKeyPress={(e) => e.key === "Enter" && handleSend()}
           />
+           <div className="voice-controls">
+         <button
+  className={`icon right ${isListening ? "active" : ""}`}
+  onClick={toggleListening}
+  aria-label="Toggle voice input"
+  aria-pressed={isListening}
+  title="Start / Stop Voice Input"
+>
+            <FaMicrophone />
+          </button>
 
+          {isSpeaking && (
+            <button className="control-btn stop-btn" onClick={stopSpeaking} title="Stop Speaking">
+              <FaStop />
+            </button>
+          )}
+        </div>
+
+        </div>
           <button className="send-btn" onClick={() => handleSend()}>
             <FaPaperPlane />
           </button>
-        </div>
       </div>
     </div>
   );

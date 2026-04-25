@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import "./Advisor.css";
 import WeatherCard from "./weather/WeatherCard";
 import SoilChatbot from "./SoilChatbot";
+import SoilAnalysis from "./SoilAnalysis";
 import IrrigationGuidance from "./IrrigationGuidance";
 import CropProfitCalculator from "./CropProfitCalculator";
 import FarmingMap from "./FarmingMap";
@@ -18,15 +20,16 @@ import {
   MessageSquare,
   Info,
   Map,
+  FlaskConical,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAdvisorStore } from "./stores/advisorStore";
 import { useYieldPrediction } from "./hooks/useYieldPrediction";
 import CropDiseaseDetection from "./CropDiseaseDetection";
+import PestManagement from "./PestManagement";
 
 export default function Advisor() {
   const navigate = useNavigate();
-  const [showFertilizerPopup, setShowFertilizerPopup] = useState(false);
   const {
     farmers,
     setFarmers,
@@ -38,6 +41,8 @@ export default function Advisor() {
     setShowWeather,
     showSoilChatbot,
     setShowSoilChatbot,
+    showSoilAnalysis,
+    setShowSoilAnalysis,
     showComingSoon,
     setShowComingSoon,
     showIrrigation,
@@ -48,6 +53,8 @@ export default function Advisor() {
     setShowFarmingMap,
     showCropDiseaseDetection,
     setShowCropDiseaseDetection,
+    showPestManagement,
+    setShowPestManagement,
   } = useAdvisorStore();
 
   const {
@@ -57,6 +64,7 @@ export default function Advisor() {
     yieldError,
     yieldLoading,
     showYieldPopup,
+    setShowYieldPopup,
     fetchYield,
     closeYieldPopup,
   } = useYieldPrediction();
@@ -135,8 +143,10 @@ export default function Advisor() {
             </p>
           </div>
 
-          <div className="card reveal" onClick={() => setShowComingSoon(true)}>
-            <div className="icon">👨‍🌾👩‍🌾</div>
+          <div className="card reveal" onClick={() => navigate("/community")}>
+            <div className="icon">
+              <MessageSquare size={32} strokeWidth={2} />
+            </div>
             <h3>Farmer Community</h3>
             <p>
               Connect, share tips, and learn from other farmers in your region.
@@ -162,16 +172,24 @@ export default function Advisor() {
             </p>
           </div>
 
-          <div
-            className="card reveal"
-            style={{ cursor: "pointer" }}
-            onClick={() => setShowSoilChatbot(true)}
-          >
+          <div className="card reveal" onClick={() => setShowSoilChatbot(true)}>
             <div className="icon">
               <Sprout size={32} strokeWidth={2} />
             </div>
             <h3>Soil Health</h3>
             <p>Get soil analysis & recommendations via AI chatbot.</p>
+          </div>
+
+          <div
+            className="card reveal"
+            style={{ cursor: "pointer" }}
+            onClick={() => setShowSoilAnalysis(true)}
+          >
+            <div className="icon">
+              <FlaskConical size={32} strokeWidth={2} />
+            </div>
+            <h3>Soil Analysis</h3>
+            <p>Analyze NPK nutrients and get personalized crop & fertilizer recommendations.</p>
           </div>
 
           {/* Crop Disease Detection */}
@@ -193,7 +211,7 @@ export default function Advisor() {
             <h3>Offline Access</h3>
             <p>Use the app anytime, even without internet connectivity.</p>
           </div>
-          <div className="card reveal" onClick={() => setShowComingSoon(true)}>
+          <div className="card reveal" onClick={() => setShowPestManagement(true)}>
             <div className="icon">🐛</div>
             <h3>Pest Management</h3>
             <p>Early warnings & organic pest control tips.</p>
@@ -267,7 +285,22 @@ export default function Advisor() {
           </div>
         </div>
       )}
-      
+
+      {showSoilAnalysis && (
+        <div className="weather-overlay" onClick={() => setShowSoilAnalysis(false)}>
+          <div className="soil-analysis-popup" onClick={(e)=>e.stopPropagation()}>
+            <button
+              className="close-btn"
+              onClick={() => setShowSoilAnalysis(false)}
+              style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 10 }}
+            >
+              ✕
+            </button>
+            <SoilAnalysis />
+          </div>
+        </div>
+      )}
+
       {showIrrigation && (
         <div className="weather-overlay" onClick={()=>setShowIrrigation(false)}
          style={{ alignItems: 'center', justifyContent: 'center' }}>
@@ -590,6 +623,14 @@ export default function Advisor() {
         <div className="weather-overlay" onClick={() => setShowCropDiseaseDetection(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
             <CropDiseaseDetection onClose={() => setShowCropDiseaseDetection(false)} />
+          </div>
+        </div>
+      )}
+
+      {showPestManagement && (
+        <div className="weather-overlay" onClick={() => setShowPestManagement(false)}>
+          <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ padding: 0, background: 'transparent', boxShadow: 'none' }}>
+            <PestManagement onClose={() => setShowPestManagement(false)} />
           </div>
         </div>
       )}
