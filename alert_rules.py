@@ -8,6 +8,7 @@ def get_season_from_month(month: int) -> str:
         return "rabi"
     return "zaid"
 
+
 def generate_alerts(
     crop: str = None,
     irrigation_count: int = None,
@@ -16,22 +17,15 @@ def generate_alerts(
 ) -> list:
     alerts = []
     now = datetime.now()
-    
+
     # normalize inputs
-    crop = crop.lower().strip() if crop else None
-    season = season.lower().strip() if season else None
-    
-    current_season = season or get_season_from_month(now.month)
-    
-def generate_alerts(
-    crop: str = None,
-    irrigation_count: int = None,
-    water_coverage: int = None,
-    season: str = None
-) -> list:
-    alerts = []
-    now = datetime.now()
-    current_season = season or get_season_from_month(now.month)
+    crop = crop.strip().lower() if crop else None
+    normalized_season = season.strip().lower() if season else None
+    current_season = (
+        normalized_season
+        if normalized_season in {"kharif", "rabi", "zaid"}
+        else get_season_from_month(now.month)
+    )
 
     # Rule 1 — low water coverage
     if water_coverage is not None and water_coverage < 40:
@@ -39,7 +33,7 @@ def generate_alerts(
             "id": len(alerts) + 1,
             "type": "warning",
             "message": (
-                f"⚠️ Water coverage is only {water_coverage}%. "
+                f"Water coverage is only {water_coverage}%. "
                 "Consider increasing irrigation to avoid crop stress."
             ),
             "time": now.isoformat()
@@ -51,7 +45,7 @@ def generate_alerts(
             "id": len(alerts) + 1,
             "type": "warning",
             "message": (
-                f"⚠️ High irrigation count ({irrigation_count}). "
+                f"High irrigation count ({irrigation_count}). "
                 "Excess irrigation may cause waterlogging and root damage."
             ),
             "time": now.isoformat()
@@ -63,7 +57,7 @@ def generate_alerts(
             "id": len(alerts) + 1,
             "type": "recommendation",
             "message": (
-                "🌱 Kharif season active. Ideal crops: Rice, Maize, "
+                "Kharif season active. Ideal crops: Rice, Maize, "
                 "Soybean, Cotton. Ensure adequate drainage."
             ),
             "time": now.isoformat()
@@ -73,7 +67,7 @@ def generate_alerts(
             "id": len(alerts) + 1,
             "type": "recommendation",
             "message": (
-                "🌾 Rabi season active. Ideal crops: Wheat, Mustard, "
+                "Rabi season active. Ideal crops: Wheat, Mustard, "
                 "Chickpea. Monitor for frost risk."
             ),
             "time": now.isoformat()
@@ -83,7 +77,7 @@ def generate_alerts(
             "id": len(alerts) + 1,
             "type": "recommendation",
             "message": (
-                "☀️ Zaid season active. Suitable for Moong, Watermelon, "
+                "Zaid season active. Suitable for Moong, Watermelon, "
                 "Cucumber. Watch for heat stress."
             ),
             "time": now.isoformat()
@@ -91,33 +85,32 @@ def generate_alerts(
 
     # Rule 4 — crop-specific
     if crop:
-        crop_lower = crop.lower()
-        if crop_lower == "rice":
+        if crop == "rice":
             alerts.append({
                 "id": len(alerts) + 1,
                 "type": "info",
                 "message": (
-                    "🌾 Rice advisory: Maintain 2–5 cm standing water "
+                    "Rice advisory: Maintain 2-5 cm standing water "
                     "during tillering stage for best yield."
                 ),
                 "time": now.isoformat()
             })
-        elif crop_lower == "wheat":
+        elif crop == "wheat":
             alerts.append({
                 "id": len(alerts) + 1,
                 "type": "info",
                 "message": (
-                    "🌿 Wheat advisory: First irrigation at crown root "
+                    "Wheat advisory: First irrigation at crown root "
                     "initiation (21 days after sowing) is critical."
                 ),
                 "time": now.isoformat()
             })
-        elif crop_lower == "maize":
+        elif crop == "maize":
             alerts.append({
                 "id": len(alerts) + 1,
                 "type": "info",
                 "message": (
-                    "🌽 Maize advisory: Ensure irrigation at tasseling "
+                    "Maize advisory: Ensure irrigation at tasseling "
                     "and silking stages to prevent yield loss."
                 ),
                 "time": now.isoformat()
@@ -128,7 +121,7 @@ def generate_alerts(
         alerts.append({
             "id": 1,
             "type": "info",
-            "message": "✅ No critical advisories. Crop conditions look stable.",
+            "message": "No critical advisories. Crop conditions look stable.",
             "time": now.isoformat()
         })
 
