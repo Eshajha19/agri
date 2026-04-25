@@ -5,6 +5,7 @@ import joblib
 import pandas as pd
 import numpy as np
 from datetime import datetime
+from alert_rules import generate_alerts
 
 app = FastAPI()
 
@@ -40,20 +41,29 @@ except Exception as e:
     model = None
 
 # Store notifications
-notifications = [
-    {
-        "id": 1,
-        "type": "weather",
-        "message": "🌧️ Heavy rainfall expected in your region today.",
-        "time": datetime.now().isoformat()
-    },
-    {
-        "id": 2,
-        "type": "recommendation",
-        "message": "🌱 Ideal time to irrigate wheat crops.",
-        "time": datetime.now().isoformat()
-    }
-]
+@app.get("/api/notifications")
+def get_notifications(
+    crop: str = None,
+    irrigation_count: int = None,
+    water_coverage: int = None,
+    season: str = None
+):
+    """
+    Generate dynamic farm advisory alerts.
+    
+    Query params (all optional):
+    - crop: rice / wheat / maize
+    - irrigation_count: number of irrigations done
+    - water_coverage: 0-100 (% of field covered)
+    - season: kharif / rabi / zaid (auto-detected if not passed)
+    """
+    alerts = generate_alerts(
+        crop=crop,
+        irrigation_count=irrigation_count,
+        water_coverage=water_coverage,
+        season=season
+    )
+    return {"success": True, "data": alerts}
 
 @app.get("/")
 def root():
@@ -110,7 +120,3 @@ async def log_error(request: Request):
     except Exception:
         return {"success": False, "message": "Invalid error data"}
 
-@app.get("/api/notifications")
-def get_notifications():
-    """Get notifications for the frontend."""
-    return {"success": True, "data": notifications}
