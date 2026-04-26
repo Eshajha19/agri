@@ -1,0 +1,126 @@
+/* Sunlight / High Contrast Theme */
+/* This theme provides accessibility for users who need high contrast and larger text */
+:root.sunlight {
+  /* Override all color variables */
+  --bg-primary: #ffffff;
+  --text-primary: #000000;
+  --text-secondary: #000000;
+  --brand-primary: #000000;
+  --brand-hover: #1e293b;
+  --accent-color: #000000;
+  --card-bg: #ffffff;
+  --border-color: #000000;
+  --chat-window-bg: #ffffff;
+  --chat-bot-bg: #f5f5f5;
+  --focus-ring: rgba(0, 0, 0, 0.5);
+
+  /* Increase typography for accessibility */
+  --base-size: 22px;
+  --p-size: 1.5rem;
+  --h1-size: 3.5rem;
+  --h2-size: 2.8rem;
+  --h3-size: 2.1rem;
+}
+
+/* Remove shadow and decoration effects in sunlight mode */
+.sunlight {
+  filter: contrast(1.1) brightness(1.02);
+}
+
+/* Universal high-contrast borders */
+.sunlight * {
+  border-color: #000000;
+  box-shadow: none;
+  text-shadow: none;
+}
+
+/* Navbar styling for sunlight mode */
+.sunlight .navbar {
+  background: #000000;
+  color: #ffffff;
+  border-bottom: 4px solid #000000;
+}
+
+.sunlight .navbar a,
+.sunlight .navbar .brand,
+.sunlight .nav-user a {
+  color: #ffffff;
+}
+
+.sunlight .theme-toggle {
+  background: #ffffff;
+  color: #000000;
+  border: 4px solid #000000;
+  font-weight: 900;
+}
+
+.sunlight .lang-select {
+  background: #ffffff;
+  color: #000000;
+  border: 4px solid #000000;
+}
+
+/* Typography adjustments */
+.sunlight .highlight {
+  -webkit-text-fill-color: initial;
+  color: #000000;
+  background: none;
+  font-size: 0.95em;
+  font-weight: 900;
+  display: inline-block;
+}
+
+.sunlight a {
+  color: #0000ee;
+  text-decoration: underline;
+  font-weight: 800;
+}
+
+/* Button styling for sunlight mode */
+.sunlight button,
+.sunlight .btn-primary,
+.sunlight .get-started {
+  background: #000000;
+  color: #ffffff;
+  border: 4px solid #000000;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.sunlight .btn-secondary {
+  background: #ffffff;
+  color: #000000;
+  border: 4px solid #000000;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+/* Specific component overrides */
+.sunlight .howitworks {
+  background: #ffffff;
+}
+
+.sunlight .howitworks-header h1 {
+  -webkit-text-fill-color: initial;
+  color: #000000;
+  background: none;
+}
+
+.sunlight .advisor {
+  background: #ffffff;
+}
+
+.sunlight .login-card button {
+  background: #000000;
+  color: #ffffff;
+  border: 4px solid #000000;
+}
+
+/* Maintain accessibility features */
+@media (prefers-reduced-motion: reduce) {
+  .sunlight * {
+    animation-duration: 0.001ms;
+    animation-iteration-count: 1;
+    transition-duration: 0.001ms;
+  }
+}

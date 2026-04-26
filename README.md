@@ -76,7 +76,7 @@ Fasal Saathi is a smart agriculture assistance platform built with React (fronte
 ---
 
 ## 📁 Project structure
-
+```tree
 Fasal-Saathi/
 ├── backend/
 │ ├── app.py # Flask/FastAPI app entry
@@ -112,7 +112,7 @@ Fasal-Saathi/
 ├── .env.example
 ├── README.md
 └── LICENSE
-
+```
 
 ---
 
@@ -120,88 +120,127 @@ Fasal-Saathi/
 
 > Requirements: Node.js (v16+), npm/yarn, Python 3.9+, pip, Firebase CLI (optional).
 
-### 1) Clone repository
+## Clone repository
+
 ```bash
 git clone https://github.com/your-username/fasal-saathi.git
 cd fasal-saathi
+```
 
-2) Frontend (React)
+## Frontend (React)
+
+```bash
 cd frontend
-# Install dependencies
-npm install
-# Start dev server
-npm start
-# Build for production
-npm run build
+```
 
-3) Backend (Python — Flask example)
+### 1. Install dependencies
+
+```bash
+npm install
+```
+
+### 2. Start dev server
+
+```bash
+npm start
+```
+
+### 3. Build for production
+
+```bash
+npm run build
+```
+
+## Backend (Python — Flask example)
+
+```bash
 cd ../backend
-# Create virtual env (optional)
+```
+
+### 1. Create virtual env (optional)
+
+```bash
 python -m venv venv
 source venv/bin/activate      # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-# Run app
+```
+
+### 2. Run app
+
+```bash
 export FLASK_APP=app.py
 export FLASK_ENV=development
-# Set environment variables (see .env.example)
+```
+
+### 3. Set environment variables (see .env.example)
+
+```bash
 flask run
+```
 
 
-# 4) Firebase
+## Firebase
 
-Create a Firebase project.
+- Create a Firebase project.
 
-Enable Firestore (or Realtime DB) and Firebase Auth (Email/Phone).
+- Enable Firestore (or Realtime DB) and Firebase Auth (Email/Phone).
 
-Add Firebase config to frontend env (see .env.example).
+- Add Firebase config to frontend env (see .env.example).
 
-(Optional) Deploy security rules found in firebase/.
+- (Optional) Deploy security rules found in firebase/.
 
 🔐 Environment variables (.env.example)
-# Backend
+
+## Backend
+
+```
 WEATHER_API_KEY=your_weather_api_key
 SOIL_API_KEY=your_soil_api_key
 FIREBASE_ADMIN_CRED=/path/to/serviceAccountKey.json
 BACKEND_PORT=5000
+```
 
-# Frontend
+## Frontend
+
+```
 REACT_APP_FIREBASE_API_KEY=xxxxxxxxxxxx
 REACT_APP_FIREBASE_AUTH_DOMAIN=your-app.firebaseapp.com
 REACT_APP_FIREBASE_PROJECT_ID=your-app
 REACT_APP_BACKEND_URL=http://localhost:5000
+```
 
-🧩 API Endpoints (examples)
+# ☆ API Endpoints (examples)
 
 Backend (Flask)
 
-GET /api/weather?lat={lat}&lon={lon} — returns current weather + forecast
+- GET /api/weather?lat={lat}&lon={lon} — returns current weather + forecast
 
-POST /api/soil/analyze — send soil params (pH, NPK) to get recommendations
+- POST /api/soil/analyze — send soil params (pH, NPK) to get recommendations
 
-POST /api/crop/recommend — returns recommended crops for given soil & climate
+- POST /api/crop/recommend — returns recommended crops for given soil & climate
 
 (Document exact request/response schemas in docs/ or OpenAPI spec.)
 
-🧪 Testing
+# ☆ Testing
 
-Frontend: use React Testing Library / Jest
+- Frontend: use React Testing Library / Jest
 
-Backend: pytest / unittest
+- Backend: pytest / unittest
 
-Add CI with GitHub Actions for linting + tests + deploy
+- Add CI with GitHub Actions for linting + tests + deploy
 
-🎯 Objective
+# ☆ Objective
 
 Provide farmers with a lightweight, region-aware digital assistant that reduces risk, improves yields, and encourages sustainable decisions through actionable insights.
 
-🔮 Future scope & ideas
+# ☆ Future scope & ideas
 
-On-device offline support / PWA for low-connectivity regions
+- On-device offline support / PWA for low-connectivity regions
 
-Integrate satellite / remote sensing for crop stress detection
+- Integrate satellite / remote sensing for crop stress detection
 
-SMS / WhatsApp alerts for farmers without smartphones
+- SMS / WhatsApp alerts for farmers without smartphones
 
-Integrate local market price data for crop sale recommendations
+- Integrate local market price data for crop sale recommendations
 
-Train ML models using local farm historical data for precision recommendations
+- Train ML models using local farm historical data for precision recommendations

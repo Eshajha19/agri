@@ -1,0 +1,92 @@
+.crop-page {
+  padding: 20px;
+  font-family: "Poppins", sans-serif;
+}
+
+/* HERO */
+.crop-hero {
+  text-align: center;
+  padding: 50px 20px;
+  background: linear-gradient(135deg, #e8f5e9, #f1f8e9);
+  border-radius: 16px;
+}
+
+.crop-hero h1 {
+  font-size: 2.8rem;
+  color: #1b5e20;
+}
+
+/* FILTER */
+.crop-filter {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin: 20px 0;
+  flex-wrap: wrap;
+}
+
+.crop-filter button {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 20px;
+  background: #eee;
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+.crop-filter button.active,
+.crop-filter button:hover {
+  background: #2e7d32;
+  color: white;
+}
+
+/* GRID */
+.crop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px;
+  padding: 20px;
+}
+
+/* CARD */
+.crop-card {
+  background: #fff;
+  padding: 20px;
+  border-radius: 16px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+  transition: 0.3s;
+  text-align: center;
+}
+
+.crop-card:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 12px 24px rgba(0,0,0,0.15);
+}
+
+.crop-icon {
+  font-size: 2rem;
+  margin-bottom: 10px;
+}
+
+.crop-card h2 {
+  color: #1b5e20;
+}
+
+.crop-info {
+  margin: 10px 0;
+  color: #555;
+  font-size: 0.9rem;
+}
+
+.crop-card button {
+  padding: 8px 12px;
+  border: none;
+  background: #2e7d32;
+  color: white;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.crop-card button:hover {
+  background: #1b5e20;
+}

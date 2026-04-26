@@ -1,4 +1,4 @@
-# Contributing to AgriAdvisor
+# Contributing to Fasal Saathi
 
 Thank you for your interest in contributing!
 
