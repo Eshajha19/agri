@@ -122,19 +122,6 @@
   display: none;
 }
 
-.file-label {
-  background: #2ecc71;
-  color: white;
-  font-size: 0.9rem;
-  padding: 8px 12px;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: 0.3s;
-}
-
-.file-label:hover {
-  background: #27ae60;
-}
 
 /* 🌿 Send Button */
 .chat-input button {
@@ -149,10 +136,77 @@
   box-shadow: 0 4px 10px rgba(39, 174, 96, 0.3);
   transition: 0.25s;
 }
+.suggestions-bar{
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 4px;
 
-.chat-input button:hover {
-  background: linear-gradient(135deg, #219150, #1e874b);
-  transform: scale(1.05);
+}
+.chat-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+}
+
+.input-area {
+  position: relative;
+  flex: 1;
+}
+
+/* Input field */
+.chat-textbox {
+  width: 100%;
+  padding: 10px 45px;
+  border-radius: 20px;
+  border: 1px solid #ccc;
+  outline: none;
+}
+
+/* Common icon style */
+.icon {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  color: #666;
+}
+
+.icon.left {
+  left: 12px;
+}
+.icon.left:hover {
+  color:#219150;
+  font-size: large;
+}
+
+.icon.right {
+  right: 12px;
+}
+
+.icon.right:hover{
+  background:transparent;
+  color: #219150;
+  font-size: large;
+}
+
+/* Active mic */
+.icon.right.active {
+  color: red;
+}
+
+/* Send button */
+.send-btn {
+  background: #2ecc71;
+  border: none;
+  padding: 10px 14px;
+  border-radius: 50%;
+  color: white;
+  cursor: pointer;
 }
 
 /* 🌿 Animations */

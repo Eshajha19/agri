@@ -2,8 +2,11 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/x-icon" href="public/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#4caf50" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌿</text></svg>" />
 
     <script>
       (function () {
@@ -22,15 +25,53 @@
         }
       })();
     </script>
-    <title>Fasal Saathi</title>
+    <style>
+      .preloader {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        background: #fff;
+        color: #166534;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+      .theme-dark .preloader {
+        background: #0f172a;
+        color: #22c55e;
+      }
+      .preloader-spinner {
+        width: 60px;
+        height: 60px;
+        border: 4px solid rgba(22, 101, 52, 0.2);
+        border-top-color: #166534;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-bottom: 1rem;
+      }
+      .theme-dark .preloader-spinner {
+        border-top-color: #22c55e;
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+    </style>
+
+  <title>Fasal Saathi</title>
   </head>
-  <body>
-    <div id="root"></div>
-    <div id="google_translate_element" style="opacity: 0; position: absolute; z-index: -1"></div>
+  <body style="margin-top: 0 !important; padding-top: 0 !important; transform: none !important;">
+    <div id="root">
+      <div class="preloader">
+        <div class="preloader-spinner"></div>
+        <p>Loading Fasal Saathi...</p>
+      </div>
+    </div>
+    <div id="google_translate_element" style="display: none !important; visibility: hidden !important; height: 0 !important; width: 0 !important; position: absolute !important;"></div>
     <script type="text/javascript">
       function googleTranslateElementInit() {
         new google.translate.TranslateElement({
-          pageLanguage: 'en', 
+          pageLanguage: 'en',
+          includedLanguages: 'en,hi,mr,bn,ta,te,gu,pa,kn,ml,or,as',
           autoDisplay: false,
         }, 'google_translate_element');
       }

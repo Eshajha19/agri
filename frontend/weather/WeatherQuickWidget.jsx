@@ -16,6 +16,7 @@ import "./WeatherQuickWidget.css";
 
 const WEATHER_CACHE_KEY = "agriWeatherSnapshot";
 const LEGACY_WIDGET_DISMISS_KEY = "agriWeatherWidgetDismissed";
+const ALERT_BAR_SHOWN_KEY = "agriAlertBarActive";
 
 export default function WeatherQuickWidget() {
   const [snapshot, setSnapshot] = useState(() => getStoredWeatherSnapshot());
@@ -106,7 +107,13 @@ export default function WeatherQuickWidget() {
     return snapshot?.location?.name || snapshot?.location?.city || "Your area";
   }, [snapshot?.location?.city, snapshot?.location?.name]);
 
-  if (dismissed) {
+ if (dismissed) {
+    return null;
+  }
+
+  // Don't show widget if WeatherAlertBar is already showing weather info
+  // This prevents duplicate weather display on the page
+  if (snapshot) {
     return null;
   }
 
