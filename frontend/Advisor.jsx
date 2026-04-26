@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import "./Advisor.css";
-import WeatherCard from "./WeatherCard";
+import WeatherCard from "./weather/WeatherCard";
 import SoilChatbot from "./SoilChatbot";
 import {
   Sun,
@@ -91,7 +91,7 @@ export default function Advisor() {
         </p>
         <button
           className="get-started shine"
-          onClick={() => setShowComingSoon(true)}
+          onClick={() => setShowSoilChatbot(true)}
         >
           🚀 Get Started
         </button>
@@ -173,6 +173,7 @@ export default function Advisor() {
             <p>Get soil analysis & recommendations via AI chatbot.</p>
           </div>
 
+          {/* Crop Disease Detection */}
           <div className="card reveal" onClick={() => setShowComingSoon(true)}>
             <div className="icon">🌿</div>
             <h3>Crop Disease Detection</h3>
@@ -214,7 +215,7 @@ export default function Advisor() {
 
       {showSoilChatbot && (
         <div className="weather-overlay">
-          <div className="weather-popup">
+          <div className="chatbot-popup">
             <SoilChatbot onClose={() => setShowSoilChatbot(false)} />
           </div>
         </div>
@@ -238,7 +239,7 @@ export default function Advisor() {
                 Error: {yieldError}
               </div>
             )}
-            {!yieldPrediction ? (
+            {yieldPrediction === null ? (
               <form onSubmit={fetchYield} className="yield-form">
                 <div className="form-group">
                   <label>Crop</label>
@@ -349,7 +350,7 @@ export default function Advisor() {
                     <option value="Seed Drilling">Seed Drilling</option>
                   </select>
                 </div>
-<div className="form-group">
+                <div className="form-group">
                   <label>Irrigation Type</label>
                   <select
                     value={yieldForm.IrriType}
@@ -376,18 +377,6 @@ export default function Advisor() {
                     <option value="Rainfed">Rainfed</option>
                     <option value="Well">Well</option>
                     <option value="Tubewell">Tubewell</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Irrigation Source</label>
-                  <select
-                    value={yieldForm.IrriSource}
-                    onChange={(e) =>
-                      setYieldForm({ ...yieldForm, IrriSource: e.target.value })
-                    }
-                  >
-                    <option value="Groundwater">Groundwater</option>
-                    <option value="Canal">Canal</option>
                   </select>
                 </div>
                 <div className="form-group">

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   FaSeedling,
@@ -13,6 +13,8 @@ import {
   FaLock,
   FaGlobe,
 } from "react-icons/fa";
+import WeatherAlertBar from "./weather/WeatherAlertBar";
+import WeatherQuickWidget from "./weather/WeatherQuickWidget";
 import "./Home.css";
 
 export default function Home() {
@@ -68,11 +70,45 @@ export default function Home() {
   ];
 
   const stats = [
-    { number: "50K+", label: "Farmers Helped" },
-    { number: "120+", label: "Crop Types" },
-    { number: "98%", label: "Accuracy" },
-    { number: "24/7", label: "Support" },
+    { target: 50, suffix: "K+", label: "Farmers Helped" },
+    { target: 120, suffix: "+", label: "Crop Types" },
+    { target: 98, suffix: "%", label: "Accuracy" },
+    { target: 24, suffix: "/7", label: "Support" },
   ];
+
+  const [statValues, setStatValues] = useState(stats.map(() => 1));
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const navigationEntry = performance.getEntriesByType("navigation")?.[0];
+    if (navigationEntry?.type === "reload") {
+      window.scrollTo(0, 0);
+    }
+  }, []);
+
+  useEffect(() => {
+    const duration = 1400;
+    const startTime = performance.now();
+    let rafId = 0;
+
+    const animateStats = (currentTime) => {
+      const progress = Math.min((currentTime - startTime) / duration, 1);
+
+      setStatValues(
+        stats.map((stat) => Math.max(1, Math.floor(stat.target * progress)))
+      );
+
+      if (progress < 1) {
+        rafId = requestAnimationFrame(animateStats);
+      }
+    };
+
+    rafId = requestAnimationFrame(animateStats);
+    return () => cancelAnimationFrame(rafId);
+  }, []);
 
   const testimonials = [
     {
@@ -94,33 +130,42 @@ export default function Home() {
 
   return (
     <div className="home">
+      <WeatherAlertBar />
+      <div className="home-weather-relative-wrap">
+        <WeatherQuickWidget />
+      </div>
       <section className="hero-section">
         <div className="hero-bg">
           <div className="hero-pattern"></div>
         </div>
         <div className="hero-content">
-          <div className="hero-badge">
-            <FaSeedling /> AI-Powered Farming Assistant
-          </div>
-          <h1 className="hero-title">
-            Smart Farming with <span className="highlight">AI</span>
-          </h1>
-          <p className="hero-subtitle">
-            Get AI-driven crop recommendations, weather insights, and yield predictions
-            to maximize your agricultural productivity.
-          </p>
-          <div className="hero-buttons">
-            <Link to="/advisor" className="btn-primary">
-              Get Started
-            </Link>
-            <Link to="/how-it-works" className="btn-secondary">
-              Learn More
-            </Link>
+          <div className="hero-copy">
+            <div className="hero-badge">
+              <FaSeedling /> AI-Powered Farming Assistant
+            </div>
+            <h1 className="hero-title">
+              Smart Farming with <span className="highlight">AI</span>
+            </h1>
+            <p className="hero-subtitle">
+              Get AI-driven crop recommendations, weather insights, and yield predictions
+              to maximize your agricultural productivity.
+            </p>
+            <div className="hero-buttons">
+              <Link to="/advisor" className="btn-primary">
+                Get Started
+              </Link>
+              <Link to="/how-it-works" className="btn-secondary">
+                Learn More
+              </Link>
+            </div>
           </div>
           <div className="hero-stats">
             {stats.map((stat, index) => (
               <div key={index} className="stat-item">
-                <span className="stat-number">{stat.number}</span>
+                <span className="stat-number">
+                  {statValues[index]}
+                  {stat.suffix}
+                </span>
                 <span className="stat-label">{stat.label}</span>
               </div>
             ))}
@@ -220,21 +265,61 @@ export default function Home() {
         </Link>
       </section>
 
-      <footer className="home-footer">
-        <div className="footer-content">
-          <div className="footer-brand">
-            <FaSeedling className="footer-logo" />
-            <span>Fasal Saathi</span>
-          </div>
-          <p>AI-Powered Agricultural Advisor for Indian Farmers</p>
-          <div className="footer-contact">
-            <FaPhoneAlt /> Need help? Call us: +91 98765 43210
-          </div>
-          <p className="footer-copyright">
-            © 2026 Fasal Saathi. All rights reserved. MIT Licensed.
-          </p>
+      
+          <footer className="home-footer">
+  <div className="footer-content">
+    <div className="footer-grid">
+      <div className="footer-section">
+        <div className="footer-brand">
+          <FaSeedling className="footer-logo" />
+          <span>Fasal Saathi</span>
         </div>
-      </footer>
+        <p className="footer-description">
+          AI-powered agricultural advisor helping farmers with crop planning,
+          weather insights, irrigation, and yield optimization.
+        </p>
+        <div className="footer-contact">
+          <FaPhoneAlt />
+          <span>+91 98765 43210</span>
+        </div>
+      </div>
+
+      <div className="footer-section">
+        <h4>Quick Links</h4>
+        <Link to="/">Home</Link>
+        <Link to="/advisor">Advisor</Link>
+        <Link to="/how-it-works">How It Works</Link>
+        <Link to="/dashboard">Dashboard</Link>
+      </div>
+
+      <div className="footer-section">
+        <h4>Resources</h4>
+        <Link to="/crop-guide">Crop Guide</Link>
+        <Link to="/weather">Weather Updates</Link>
+        <Link to="/soil-analysis">Soil Analysis</Link>
+        <Link to="/faq">FAQs</Link>
+      </div>
+
+      <div className="footer-section">
+        <h4>Company</h4>
+        <Link to="/about">About Us</Link>
+        <Link to="/contact">Contact</Link>
+        <Link to="/privacy-policy">Privacy Policy</Link>
+        <Link to="/terms">Terms of Service</Link>
+      </div>
+    </div>
+
+    <div className="footer-bottom">
+      <div className="footer-socials">
+        <FaGlobe />
+        <span>Available Across India</span>
+      </div>
+      <p className="footer-copyright">
+        © 2026 Fasal Saathi. All rights reserved. MIT Licensed.
+      </p>
+    </div>
+  </div>
+</footer>
     </div>
   );
 }

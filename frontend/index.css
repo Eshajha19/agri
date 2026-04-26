@@ -9,6 +9,11 @@
   --card-bg: #f9fafb;
   --border-color: #e5e7eb;
 
+  --chat-window-bg: #fdfdfd;
+  --chat-bot-bg: #f1f1f5;
+
+  --focus-ring: rgba(34, 197, 94, 0.35);
+
   /* Typography */
   --font-main: "Poppins", system-ui, Avenir, Helvetica, Arial, sans-serif;
   --base-size: 18px;
@@ -23,6 +28,25 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+}
+
+/* Dark theme overrides (applied via <html class="theme-dark">) */
+.theme-dark {
+  color-scheme: dark;
+
+  --bg-primary: #0b1220;
+  --text-primary: #e5e7eb;
+  --text-secondary: #a1a1aa;
+  --brand-primary: #16a34a;
+  --brand-hover: #15803d;
+  --accent-color: #fbbf24;
+  --card-bg: #111827;
+  --border-color: rgba(255, 255, 255, 0.12);
+
+  --chat-window-bg: rgba(255, 255, 255, 0.02);
+  --chat-bot-bg: rgba(255, 255, 255, 0.08);
+
+  --focus-ring: rgba(34, 197, 94, 0.45);
 }
 
 * {
@@ -81,6 +105,22 @@ body {
   min-height: 100vh;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Accessible focus styling */
+:where(a, button, select, input, textarea):focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 #root {

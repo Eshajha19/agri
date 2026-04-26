@@ -24,3 +24,21 @@
   margin-bottom: 8px;
   color: #2e7d32;
 }
+
+.faq-list {
+  margin-bottom: 30px;
+}
+
+.faq-item {
+  margin-bottom: 20px;
+  padding: 15px;
+  background-color: #f9f9f9;
+  border-radius: 8px;
+  border-left: 4px solid #2e7d32;
+}
+
+.faq-item h2 {
+  margin-bottom: 10px;
+  color: #1b5e20;
+  font-size: 1.1em;
+}

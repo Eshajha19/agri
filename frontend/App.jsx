@@ -1,12 +1,12 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
 import "./App.css";
 import Advisor from "./Advisor";
-import How from "./How";
 import Home from "./Home";
-import FAQ from "./pages/FAQ";
-import Terms from "./pages/Terms";
-import Privacy from "./pages/Privacy";
+import Terms from "./Terms";
+import Privacy from "./Privacy";
+import How from "./How";
+import FAQ from "./FAQ";
 import {
   FaHome,
   FaComments,
@@ -17,39 +17,92 @@ import {
 } from "react-icons/fa";
 
 function App() {
-  const [showAlert, setShowAlert] = useState(true);
+  const [preferredLang, setPreferredLang] = useState(getInitialPreferredLanguage);
   const [isOpen, setIsOpen] = useState(false);
-  const [sunlight, setSunlight] = useState(false); 
+  const [themeAnimNonce, setThemeAnimNonce] = useState(0);
+
+  const getInitialTheme = () => {
+    try {
+      const stored = localStorage.getItem("theme");
+      if (stored === "light" || stored === "dark") return stored;
+    } catch {
+      // ignore
+    }
+    return window.matchMedia &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light";
+  };
+
+  const [theme, setTheme] = useState(getInitialTheme);
 
   const [name, setName] = useState(localStorage.getItem("farmerName") || "");
   const [inputName, setInputName] = useState("");
-  const [preferredLang, setPreferredLang] = useState(
-    localStorage.getItem("preferredLanguage") || "en"
-  );
+
+  const handleThemeToggle = () => {
+    setTheme((t) => (t === "dark" ? "light" : "dark"));
+    setThemeAnimNonce((n) => n + 1);
+  };
 
 
   const handleLogin = (e) => {
     e.preventDefault();
-    if (inputName.trim() && preferredLang) {
-      localStorage.setItem("farmerName", inputName);
-      localStorage.setItem("preferredLanguage", preferredLang);
-      setName(inputName);
-      setInputName("");
-      window.location.href = "/";
+
+    if (!inputName.trim()) {
+      alert("Name is required");
+      return;
     }
+
+    localStorage.setItem("farmerName", inputName);
+
+    setName(inputName);
+
+    setInputName("");
+    window.location.href = "/";
   };
 
   const handleLogout = () => {
     localStorage.removeItem("farmerName");
-    localStorage.removeItem("preferredLanguage");
     setName("");
-    setPreferredLang("en");
     window.location.href = "/";
   };
 
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("theme-dark", theme === "dark");
+    try {
+      localStorage.setItem("theme", theme);
+    } catch {
+      // ignore
+    }
+  }, [theme]);
+
+  useEffect(() => {
+    if (applyLanguageToGoogleTranslate(preferredLang)) {
+      return;
+    }
+
+    let attempts = 0;
+    const maxAttempts = 20;
+    const retryId = window.setInterval(() => {
+      attempts += 1;
+      const applied = applyLanguageToGoogleTranslate(preferredLang);
+      if (applied || attempts >= maxAttempts) {
+        window.clearInterval(retryId);
+      }
+    }, 300);
+
+    return () => {
+      window.clearInterval(retryId);
+    };
+  }, [preferredLang]);
+
   return (
     <Router>
-      <div className={sunlight ? "app sunlight" : "app"}>
+      <div className="app">
+
+        {/* Navbar */}
+        {/* NAVBAR */}
         <nav className="navbar">
           <div className="nav-left">
             <FaLeaf className="icon" />
@@ -78,35 +131,35 @@ function App() {
 
           <div className="nav-right">
             <button
-              onClick={() => setSunlight(!sunlight)}
-              className="sunlight-toggle"
-              aria-label="Toggle High Contrast Sunlight Mode"
+              type="button"
+              onClick={handleThemeToggle}
+              className="theme-toggle"
+              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              aria-pressed={theme === "dark"}
+              title={theme === "dark" ? "Light mode" : "Dark mode"}
             >
-              {sunlight ? "👁️ Normal View" : "☀️ Sunlight Mode"}
+              <span key={themeAnimNonce} className="theme-toggle-icon">
+                {theme === "dark" ? "☀️" : "🌙"}
+              </span>
             </button>
 
+            {/* Language Dropdown */}
+            {/* LANGUAGE SELECT */}
             <select
               className="lang-select"
               value={preferredLang}
               onChange={(e) => {
-                const lang = e.target.value;
-                setPreferredLang(lang);
-                localStorage.setItem("preferredLanguage", lang);
+                syncPreferredLanguage(e.target.value, setPreferredLang);
               }}
             >
-              <option value="en">🌍 English</option>
-              <option value="hi">🇮🇳 हिंदी</option>
-              <option value="mr">🇮🇳 मराठी</option>
-              <option value="bn">🇮🇳 বাংলা</option>
-              <option value="ta">🇮🇳 தமிழ்</option>
-              <option value="te">🇮🇳 తెలుగు</option>
-              <option value="gu">🇮🇳 ગુજરાતી</option>
-              <option value="pa">🇮🇳 ਪੰਜਾਬੀ</option>
-              <option value="kn">🇮🇳 ಕನ್ನಡ</option>
-              <option value="ml">🇮🇳 മലയാളം</option>
-              <option value="or">🇮🇳 ଓଡ଼ିଆ</option>
+              {LANGUAGE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
 
+            {/* USER */}
             <div className="nav-user">
               {name ? (
                 <>
@@ -128,15 +181,7 @@ function App() {
           </button>
         </nav>
 
-        {showAlert && (
-          <div className="alert-bar">
-            🌧️ Weather Alert: Heavy rainfall expected in parts of Maharashtra this evening.
-            <button className="close-btn" onClick={() => setShowAlert(false)}>
-              <FaTimes />
-            </button>
-          </div>
-        )}
-
+        {/* ROUTES */}
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/advisor" element={<Advisor />} />
@@ -153,29 +198,31 @@ function App() {
               <div className="login-page">
                 <div className="login-card">
                   <h2>👨‍🌾 Farmer Login</h2>
-                  <p>Welcome! Please provide your details to continue.</p>
+
                   <form onSubmit={handleLogin}>
                     <input
                       type="text"
                       placeholder="Enter your name"
                       value={inputName}
                       onChange={(e) => setInputName(e.target.value)}
-                      required
                     />
+
                     <select
                       value={preferredLang}
-                      onChange={(e) => setPreferredLang(e.target.value)}
-                      required
+                      onChange={(e) => {
+                        syncPreferredLanguage(e.target.value, setPreferredLang);
+                      }}
+                      style={{ marginBottom: "18px" }}
                     >
-                      <option value="en">English</option>
-                      <option value="hi">Hindi</option>
-                      <option value="mr">Marathi</option>
+                      {LANGUAGE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
                     </select>
+
                     <button type="submit">Login</button>
                   </form>
-                  <p className="login-note">
-                    Your preferences will be saved for future visits.
-                  </p>
                 </div>
               </div>
             }
