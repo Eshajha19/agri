@@ -29,5 +29,8 @@ dist-ssr
 # Python
 __pycache__/
 .python-version
+<<<<<<< HEAD
+=======
 dev-dist/
 dist/
+>>>>>>> 5caec509b2a20656186fe7d5fec8bdf01b85a0eb
