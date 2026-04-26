@@ -7,6 +7,10 @@ import Home from "./Home";
 import FAQ from "./pages/FAQ";
 import Terms from "./pages/Terms";
 import Privacy from "./pages/Privacy";
+import Resources from "./Resources";
+import CropGuide from "./CropGuide";
+import { ToastContainer } from "react-toastify";
+import useNotifications from "./Notifications";
 import React, { useEffect, useState } from "react";
 import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
 
@@ -107,6 +111,8 @@ const syncLanguage = (lang, setLang) => {
 function App() {
   const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
   const [isOpen, setIsOpen] = useState(false);
+  const [sunlight, setSunlight] = useState(false); 
+  useNotifications();
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [profileCompleted, setProfileCompleted] = useState(true);
@@ -325,6 +331,30 @@ function App() {
         </button>
       </nav>
 
+          <ul className={`nav-center ${isOpen ? "active" : ""}`}>
+            <li>
+              <Link to="/" onClick={() => setIsOpen(false)}>
+                <FaHome className="icon" /> Home
+              </Link>
+            </li>
+            <li>
+              <Link to="/advisor" onClick={() => setIsOpen(false)}>
+                <FaComments className="icon" /> Chat
+              </Link>
+            </li>
+            <li>
+              <Link to="/how-it-works" onClick={() => setIsOpen(false)}>
+                <FaInfoCircle className="icon" /> How It Works
+              </Link>
+            </li>
+            <li>
+              <Link to="/crop-guide" onClick={() => setIsOpen(false)}>
+                <FaLeaf className="icon" /> Crop Guide
+              </Link>
+            </li>
+          </ul>
+
+          <div className="nav-right">
       {!loading && user && !user.emailVerified && !showScorecard && location.pathname !== "/login" && (
         <div className="verification-overlay">
           <div className="verification-card">
@@ -403,6 +433,10 @@ function App() {
           
         </Routes>
       </div>
+        </Routes>
+      </div>
+
+       <ToastContainer />
     </Router>
       <Routes>
         <Route path="/" element={<Home user={user} />} />
