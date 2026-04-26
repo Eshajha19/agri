@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 
 
 def get_season_from_month(month: int) -> str:
@@ -10,10 +11,10 @@ def get_season_from_month(month: int) -> str:
 
 
 def generate_alerts(
-    crop: str = None,
-    irrigation_count: int = None,
-    water_coverage: int = None,
-    season: str = None
+    crop: Optional[str] = None,
+    irrigation_count: Optional[int] = None,
+    water_coverage: Optional[int] = None,
+    season: Optional[str] = None
 ) -> list:
     alerts = []
     now = datetime.now()
@@ -83,14 +84,6 @@ def generate_alerts(
             "id": len(alerts) + 1,
             "type": "info",
             "message": "Maize advisory: Ensure irrigation at tasseling and silking stages to prevent yield loss.",
-            "time": now.isoformat()
-        })
-
-    if not alerts:
-        alerts.append({
-            "id": 1,
-            "type": "info",
-            "message": "No critical advisories. Crop conditions look stable.",
             "time": now.isoformat()
         })
 
