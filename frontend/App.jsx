@@ -98,6 +98,8 @@ const syncLanguage = (lang, setLang) => {
 function App() {
   const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
   const [isOpen, setIsOpen] = useState(false);
+  const [sunlight, setSunlight] = useState(false); 
+  useNotifications();
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [profileCompleted, setProfileCompleted] = useState(true);

@@ -66,6 +66,30 @@ const features = [
       category: "Recommendations",
     },
     {
+      icon: <FaLock />,
+      title: "Secure & Private",
+      desc: "Enterprise-grade security with Firebase authentication",
+      category: "Protection",
+    },
+    {
+      icon: <FaFlask />,
+      title: "Soil Analysis",
+      desc: "Comprehensive soil health monitoring and nutrient level analysis",
+      category: "Monitoring",
+    },
+    {
+      icon: <FaLeaf />,
+      title: "Crop Recommendations",
+      desc: "Get crop suggestions based on soil profile and regional climate",
+      category: "Recommendations",
+    },
+    {
+      icon: <FaChartLine />,
+      title: "Fertilizer Guidance",
+      desc: "Personalized fertilizer and pesticide recommendations",
+      category: "Recommendations",
+    },
+    {
       icon: <FaCalculator />,
       title: "Profit Calculator",
       desc: "Estimate potential profit before choosing crops with market analysis",
@@ -396,6 +420,31 @@ export default function Home({ user }) {
           </div>
         </div>
       </footer>
+        <Link to="/weather">Weather Updates</Link>
+        <Link to="/soil-analysis">Soil Analysis</Link>
+        <Link to="/faq">FAQs</Link>
+      </div>
+
+      <div className="footer-section">
+        <h4>Company</h4>
+        <Link to="/about">About Us</Link>
+        <Link to="/contact">Contact</Link>
+        <Link to="/privacy-policy">Privacy Policy</Link>
+        <Link to="/terms">Terms of Service</Link>
+      </div>
+    </div>
+
+    <div className="footer-bottom">
+      <div className="footer-socials">
+        <FaGlobe />
+        <span>Available Across India</span>
+      </div>
+      <p className="footer-copyright">
+        © 2026 Fasal Saathi. All rights reserved. MIT Licensed.
+      </p>
+    </div>
+  </div>
+</footer>
     </div>
   );
 }

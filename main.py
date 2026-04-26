@@ -1,11 +1,11 @@
+# main.py
+from datetime import datetime
 from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel, Field
 import joblib
 import pandas as pd
 import numpy as np
-from datetime import datetime
 from alert_rules import generate_alerts
 
 app = FastAPI()
@@ -113,4 +113,3 @@ async def log_error(request: Request):
         return {"success": True, "message": "Error logged"}
     except Exception:
         return {"success": False, "message": "Invalid error data"}
-
