@@ -3,6 +3,8 @@ from typing import Optional
 
 
 def get_season_from_month(month: int) -> str:
+    if month < 1 or month > 12:
+        raise ValueError(f"Invalid month: {month}")
     if month in [6, 7, 8, 9]:
         return "kharif"
     elif month in [11, 12, 1, 2]:
