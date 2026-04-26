@@ -1,125 +1,128 @@
-import React, { useState } from "react";
+import React, { useRef, useEffect } from "react";
 import "./SoilChatbot.css";
+import { FaMicrophone, FaStop, FaVolumeUp, FaPaperPlane, FaImage } from "react-icons/fa";
+import { useChatbot } from "./hooks/useChatbot";
 
 function SoilChatbot({ onClose }) {
-  const [messages, setMessages] = useState([]);
-  const [soilImage, setSoilImage] = useState(null);
+  const {
+    messages,
+    userInput,
+    setUserInput,
+    soilImage,
+    setSoilImage,
+    isListening,
+    toggleListening,
+    isSpeaking,
+    stopSpeaking,
+    isLoading,
+    handleSendMessage,
+  } = useChatbot();
 
-  const toBase64 = (file) =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result.split(",")[1]);
-      reader.onerror = (error) => reject(error);
-    });
+  const messagesEndRef = useRef(null);
 
-const callGeminiAPI = async (userText, imageFile) => {
-  try {
-    const parts = [];
-
-    if (userText) {
-      parts.push({ text: userText });
-    }
-
-    if (imageFile) {
-      parts.push({
-        inline_data: {
-          data: await toBase64(imageFile),
-          mime_type: imageFile.type,
-        },
-      });
-    }
-
-    if (parts.length === 0) return "❌ Please provide text or image.";
-
-    const API_KEY = ""; 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=${API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts,
-            },
-          ],
-        }),
-      }
-    );
-
-    const data = await response.json();
-    console.log("Gemini response:", data);
-
-    return (
-      data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-      "🤖 No response from Gemini."
-    );
-  } catch (err) {
-    console.error("Gemini API Error:", err);
-    return "❌ Error: Unable to connect to Gemini API.";
-  }
-};
-
-  const addMessage = (text, from = "bot") => {
-    setMessages((prev) => [...prev, { text, from }]);
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  const handleUserInput = async (e) => {
-    e.preventDefault();
-    const userInput = e.target.userInput.value.trim();
-    if (!userInput && !soilImage) return;
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isLoading]);
 
-    addMessage(userInput || "[Image sent]", "user");
-    e.target.reset();
+  const handleSend = async (textOverride) => {
+    const textToSend = textOverride || userInput;
+    if (!textToSend && !soilImage) return;
 
-    const response = await callGeminiAPI(userInput, soilImage);
-    addMessage(response, "bot");
-    setSoilImage(null);
+    await handleSendMessage(textToSend, soilImage);
   };
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
       setSoilImage(file);
-      addMessage(`🖼️ Image uploaded: ${file.name}`, "user");
     }
   };
+
+  const suggestions = [
+    "🌤️ Weather-based farming advice",
+    "🌾 Recommended crops for this month",
+    "🧪 How to improve my soil health?",
+    "🐛 Pest control for my crops"
+  ];
 
   return (
     <div className="soil-chatbot">
       <div className="chat-header">
-        <h2>Soil Health Chatbot</h2>
-        <button className="close-btn" onClick={onClose}>
-          ✖
-        </button>
+        <div className="header-info">
+          <h2>🌱 Agri Assistant <FaVolumeUp style={{ fontSize: '0.9rem', marginLeft: '8px', opacity: 0.8 }} /></h2>
+          <span className="status">AI Agricultural Expert</span>
+        </div>
+        <button className="close-btn" onClick={onClose}>✖</button>
       </div>
 
       <div className="chat-window">
         {messages.map((msg, idx) => (
           <div key={idx} className={`chat-message ${msg.from}`}>
-            {msg.text}
+            <div className="message-content">{msg.text}</div>
           </div>
+        ))}
+        {isLoading && <div className="chat-message bot loading-dots">Thinking...</div>}
+        {isListening && <div className="chat-message user listening">Listening... 🎤</div>}
+        <div ref={messagesEndRef} />
+      </div>
+
+      <div className="suggestions-bar">
+        {suggestions.map((s, i) => (
+          <button key={i} className="suggestion-chip" onClick={() => handleSend(s)}>
+            {s}
+          </button>
         ))}
       </div>
 
-      <form className="chat-input" onSubmit={handleUserInput}>
-        <label htmlFor="file-upload" className="file-label">
-          📷 Upload
-        </label>
-        <input
-          id="file-upload"
-          type="file"
-          accept="image/*"
-          onChange={handleImageUpload}
-        />
-        <input
-          type="text"
-          name="userInput"
-          placeholder="Ask about soil or crops..."
-        />
-        <button type="submit">Send</button>
-      </form>
+      <div className="chat-controls">
+        <div className="input-area">
+              
+          <label htmlFor="file-upload" className="icon left" aria-label="Upload image" title="Upload Soil/Crop Image">
+            <FaImage />
+          </label>
+          <input
+            id="file-upload"
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={handleImageUpload}
+          />
+
+          <input
+            type="text"
+            className="chat-textbox"
+            value={userInput}
+            onChange={(e) => setUserInput(e.target.value)}
+            placeholder="Ask about crops, weather, soil..."
+            onKeyPress={(e) => e.key === "Enter" && handleSend()}
+          />
+           <div className="voice-controls">
+         <button
+  className={`icon right ${isListening ? "active" : ""}`}
+  onClick={toggleListening}
+  aria-label="Toggle voice input"
+  aria-pressed={isListening}
+  title="Start / Stop Voice Input"
+>
+            <FaMicrophone />
+          </button>
+
+          {isSpeaking && (
+            <button className="control-btn stop-btn" onClick={stopSpeaking} title="Stop Speaking">
+              <FaStop />
+            </button>
+          )}
+        </div>
+
+        </div>
+          <button className="send-btn" onClick={() => handleSend()}>
+            <FaPaperPlane />
+          </button>
+      </div>
     </div>
   );
 }
