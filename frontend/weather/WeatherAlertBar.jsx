@@ -159,6 +159,7 @@ export default function WeatherAlertBar() {
       cancelled = true;
       window.clearInterval(refreshIntervalId);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applySnapshot, snapshot?.location?.latitude, snapshot?.location?.longitude, snapshot?.location?.source]);
 
   useEffect(() => {
@@ -214,6 +215,7 @@ export default function WeatherAlertBar() {
       cancelled = true;
       removePermissionListener();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applySnapshot, snapshot?.location?.source, snapshot?.location?.latitude, snapshot?.location?.longitude]);
 
   const dismissBar = () => {
@@ -229,6 +231,8 @@ export default function WeatherAlertBar() {
   const alertMessage = topAlert
     ? `${snapshot?.location?.city || "Your area"}: ${topAlert.message}`
     : error || "Allow location access to receive real-time farm weather alerts.";
+  const roundedTemperature = Math.round(snapshot?.current?.temperature_2m || 0);
+  const weatherSummary = snapshot?.summary || "Current conditions";
 
   return (
     <section
@@ -246,6 +250,16 @@ export default function WeatherAlertBar() {
             <span>{alertMessage}</span>
           </div>
         </div>
+
+        {snapshot && (
+          <div className="weather-alert-bar__temp-display">
+            <strong className="weather-alert-bar__temp-value">
+              {roundedTemperature}
+              {snapshot?.units?.temperature_2m || "°C"}
+            </strong>
+            <span className="weather-alert-bar__temp-summary">{weatherSummary}</span>
+          </div>
+        )}
 
         <button className="weather-alert-bar__dismiss" onClick={dismissBar} aria-label="Dismiss alerts">
           <FaTimes />

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo } from "react";
 import {
   FaBell,
   FaCrosshairs,
@@ -14,9 +14,9 @@ import {
   getAvailableCrops,
   getCropWarnings,
   getCurrentPosition,
-  getStoredWeatherSnapshot,
   searchLocationByName,
 } from "./weatherService";
+import { useWeatherManagement } from "../hooks/useWeatherManagement";
 
 const SENT_NOTIFICATION_KEY = "agriWeatherNotificationSignature";
 
@@ -31,18 +31,23 @@ export default function WeatherCard({
   subtitle = "Use your farm location for real-time alerts, crop advisories, and next-step recommendations.",
 }) {
   const cropOptions = getAvailableCrops();
-  const [query, setQuery] = useState("");
-  const [crop, setCrop] = useState("paddy");
-  const [snapshot, setSnapshot] = useState(() => getStoredWeatherSnapshot());
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [notificationPermission, setNotificationPermission] = useState(
-    typeof Notification === "undefined" ? "unsupported" : Notification.permission
-  );
+  const {
+    snapshot,
+    selectedCrop,
+    setSelectedCrop,
+    searchQuery,
+    setSearchQuery,
+    weatherError,
+    setWeatherError,
+    weatherLoading,
+    loadWeather,
+    notificationPermission,
+    requestNotificationPermission,
+  } = useWeatherManagement();
 
   const cropWarnings = useMemo(
-    () => getCropWarnings(snapshot?.alerts || [], crop),
-    [snapshot, crop]
+    () => getCropWarnings(snapshot?.alerts || [], selectedCrop),
+    [snapshot, selectedCrop]
   );
 
   useEffect(() => {
@@ -51,6 +56,7 @@ export default function WeatherCard({
     }
 
     handleUseMyLocation();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -80,28 +86,14 @@ export default function WeatherCard({
     localStorage.setItem(SENT_NOTIFICATION_KEY, signature);
   }, [snapshot, cropWarnings, notificationPermission]);
 
-  const loadWeather = async (loader) => {
-    setLoading(true);
-    setError("");
-
-    try {
-      const latestSnapshot = await loader();
-      setSnapshot(latestSnapshot);
-    } catch (loadError) {
-      setError(loadError.message || "Unable to load weather data.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleSearch = async () => {
-    if (!query.trim()) {
-      setError("Enter a city or district name first.");
+    if (!searchQuery.trim()) {
+      setWeatherError("Enter a city or district name first.");
       return;
     }
 
     await loadWeather(async () => {
-      const location = await searchLocationByName(query);
+      const location = await searchLocationByName(searchQuery);
       return fetchWeatherByLocation(location);
     });
   };
@@ -111,16 +103,6 @@ export default function WeatherCard({
       const location = await getCurrentPosition();
       return fetchWeatherByLocation(location);
     });
-  };
-
-  const enableNotifications = async () => {
-    if (typeof Notification === "undefined") {
-      setNotificationPermission("unsupported");
-      return;
-    }
-
-    const permission = await Notification.requestPermission();
-    setNotificationPermission(permission);
   };
 
   const topAlert = snapshot?.alerts?.[0];
@@ -146,28 +128,28 @@ export default function WeatherCard({
           <input
             type="text"
             placeholder="Search city or district"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") {
                 handleSearch();
               }
             }}
           />
-          <button onClick={handleSearch} disabled={loading}>
+          <button onClick={handleSearch} disabled={weatherLoading}>
             <FaSearch />
-            <span>{loading ? "Loading..." : "Search"}</span>
+            <span>{weatherLoading ? "Loading..." : "Search"}</span>
           </button>
         </div>
 
         <div className="weather-card__actions">
-          <button className="location-btn" onClick={handleUseMyLocation} disabled={loading}>
+          <button className="location-btn" onClick={handleUseMyLocation} disabled={weatherLoading}>
             <FaCrosshairs />
             <span>Use My Location</span>
           </button>
           <button
             className="notify-btn"
-            onClick={enableNotifications}
+            onClick={requestNotificationPermission}
             disabled={notificationPermission === "granted"}
           >
             <FaBell />
@@ -185,8 +167,8 @@ export default function WeatherCard({
           <label htmlFor={`crop-${embedded ? "landing" : "modal"}`}>Crop</label>
           <select
             id={`crop-${embedded ? "landing" : "modal"}`}
-            value={crop}
-            onChange={(event) => setCrop(event.target.value)}
+            value={selectedCrop}
+            onChange={(event) => setSelectedCrop(event.target.value)}
           >
             {cropOptions.map((option) => (
               <option key={option.value} value={option.value}>
@@ -197,7 +179,7 @@ export default function WeatherCard({
         </div>
       </div>
 
-      {error && <p className="error">{error}</p>}
+      {weatherError && <p className="error">{weatherError}</p>}
 
       {snapshot ? (
         <>
@@ -264,7 +246,7 @@ export default function WeatherCard({
 
             <section className="weather-panel">
               <div className="weather-panel__title-row">
-                <h3>{cropOptions.find((option) => option.value === crop)?.label} Warnings</h3>
+                <h3>{cropOptions.find((option) => option.value === selectedCrop)?.label} Warnings</h3>
                 <span>Field action</span>
               </div>
               <div className="alert-list">

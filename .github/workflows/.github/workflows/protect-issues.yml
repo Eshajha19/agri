@@ -1,0 +1,25 @@
+name: Protect Issues
+
+on:
+  issues:
+    types: [closed]
+
+jobs:
+  reopen:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reopen if not owner
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const closer = issue.user.login;
+
+            if (closer !== 'Eshajha19') {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'open'
+              });
+            }

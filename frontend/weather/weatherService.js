@@ -1,3 +1,5 @@
+import apiClient from '../services/api';
+
 const WEATHER_CODE_LABELS = {
   0: "Clear sky",
   1: "Mostly clear",
@@ -179,16 +181,18 @@ export function notifyWeatherSnapshotUpdated(snapshot) {
 }
 
 export async function searchLocationByName(query) {
-  const response = await fetch(
+  const response = await apiClient.get(
     `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
       query
-    )}&count=1&language=en&format=json`
+    )}&count=1&language=en&format=json`,
+    {
+      retries: 1,
+      errorContext: 'weather-location-search',
+      errorMessage: 'Unable to search for that location right now.',
+    }
   );
-  if (!response.ok) {
-    throw new Error("Unable to search for that location right now.");
-  }
 
-  const data = await response.json();
+  const data = response.data;
   if (!data.results?.length) {
     throw new Error("No matching location found.");
   }
@@ -198,21 +202,25 @@ export async function searchLocationByName(query) {
 
 export async function reverseGeocode(latitude, longitude, source = "manual") {
   try {
-    const response = await fetch(
-      `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
+    const response = await apiClient.get(
+      `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`,
+      {
+        skipGlobalLoader: true,
+        suppressToast: true,
+        logError: false,
+        retries: 1,
+      }
     );
-    if (response.ok) {
-      const data = await response.json();
-      return {
-        city: data.locality || data.city || "Your area",
-        admin1: data.principalSubdivision || "",
-        country: data.countryName || "",
-        latitude,
-        longitude,
-        name: data.locality || "Your area",
-        source: normaliseSource(source, "manual"),
-      };
-    }
+    const data = response.data;
+    return {
+      city: data.locality || data.city || "Your area",
+      admin1: data.principalSubdivision || "",
+      country: data.countryName || "",
+      latitude,
+      longitude,
+      name: data.locality || "Your area",
+      source: normaliseSource(source, "manual"),
+    };
   } catch {
     // Silently handle fetch failures
   }
@@ -359,15 +367,16 @@ export async function fetchWeatherByLocation(location) {
     throw new Error("A valid location is required to fetch weather data.");
   }
 
-  const response = await fetch(
-    `https://api.open-meteo.com/v1/forecast?latitude=${normalisedLocation.latitude}&longitude=${normalisedLocation.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,wind_speed_10m,weather_code,precipitation,rain,showers,is_day&hourly=temperature_2m,precipitation_probability,precipitation,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max&timezone=auto&forecast_days=3`
+  const response = await apiClient.get(
+    `https://api.open-meteo.com/v1/forecast?latitude=${normalisedLocation.latitude}&longitude=${normalisedLocation.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,wind_speed_10m,weather_code,precipitation,rain,showers,is_day&hourly=temperature_2m,precipitation_probability,precipitation,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max&timezone=auto&forecast_days=3`,
+    {
+      retries: 2,
+      errorContext: 'weather-forecast',
+      errorMessage: 'Unable to fetch weather data right now.',
+    }
   );
 
-  if (!response.ok) {
-    throw new Error("Unable to fetch weather data right now.");
-  }
-
-  const weather = await response.json();
+  const weather = response.data;
   const alerts = deriveAlerts(weather);
 
   const snapshot = {
@@ -388,11 +397,12 @@ export async function fetchWeatherByLocation(location) {
 
 export async function getLocationByIP() {
   try {
-    const response = await fetch("https://get.geojs.io/v1/ip/geo.json");
-    if (!response.ok) {
-      throw new Error("IP fetch failed");
-    }
-    const data = await response.json();
+    const response = await apiClient.get("https://get.geojs.io/v1/ip/geo.json", {
+      retries: 1,
+      errorContext: 'weather-ip-location',
+      errorMessage: 'Could not determine location by IP.',
+    });
+    const data = response.data;
     const latitude = parseFloat(data.latitude);
     const longitude = parseFloat(data.longitude);
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
