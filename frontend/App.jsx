@@ -4,6 +4,9 @@ import "./App.css";
 import Advisor from "./Advisor";
 import How from "./How";
 import Home from "./Home";
+import FAQ from "./pages/FAQ";
+import Terms from "./pages/Terms";
+import Privacy from "./pages/Privacy";
 import {
   FaHome,
   FaComments,
@@ -138,6 +141,11 @@ function App() {
           <Route path="/" element={<Home />} />
           <Route path="/advisor" element={<Advisor />} />
           <Route path="/how-it-works" element={<How />} />
+          
+  {/* NEW ROUTES */}
+  <Route path="/faq" element={<FAQ />} />
+  <Route path="/terms" element={<Terms />} />
+  <Route path="/privacy-policy" element={<Privacy />} />
 
           <Route
             path="/login"
@@ -172,6 +180,7 @@ function App() {
               </div>
             }
           />
+          
         </Routes>
       </div>
     </Router>
