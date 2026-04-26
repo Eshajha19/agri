@@ -336,3 +336,232 @@
     flex-direction: column;
   }
 }
+.weather-card {
+  position: relative;
+  width: 100%;
+  color: #16311f;
+  background: linear-gradient(160deg, #f6fff8 0%, #ecfdf3 52%, #ffffff 100%);
+  border: 1px solid rgba(34, 102, 52, 0.12);
+  border-radius: 28px;
+  padding: 28px;
+  box-shadow: 0 25px 60px rgba(21, 83, 45, 0.12);
+  overflow: hidden;
+}
+
+/* CLOSE BUTTON */
+.weather-card__close-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(22, 49, 31, 0.08);
+  color: #16311f;
+  cursor: pointer;
+}
+
+/* HEADER */
+.weather-card__eyebrow {
+  display: inline-flex;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #d9f99d;
+  color: #365314;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.weather-card h2 {
+  margin: 12px 0 8px;
+  font-size: clamp(1.7rem, 2.2vw, 2.4rem);
+}
+
+.subtitle {
+  color: #4b6354;
+}
+
+/* INPUT CONTROLS */
+.weather-card__controls {
+  display: grid;
+  gap: 14px;
+}
+
+.input-group {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+}
+
+.input-group input {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(22, 49, 31, 0.14);
+}
+
+/* BUTTONS */
+.input-group button,
+.location-btn,
+.notify-btn {
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+  transition: 0.2s ease;
+}
+
+.input-group button {
+  background: #166534;
+  color: #fff;
+}
+
+.location-btn {
+  background: #f59e0b;
+}
+
+.notify-btn {
+  background: #dcfce7;
+  color: #166534;
+}
+
+/* ACTION ROW */
+.weather-card__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* SUMMARY CARD */
+.weather-summary {
+  margin-top: 18px;
+  padding: 20px;
+  border-radius: 24px;
+  background: linear-gradient(135deg, #166534, #22c55e);
+  color: white;
+  box-shadow: 0 18px 40px rgba(0,0,0,0.12);
+}
+
+.weather-summary__temp {
+  font-size: 3rem;
+  font-weight: 800;
+}
+
+/* 🌦️ STATUS */
+.weather-summary__status {
+  margin-top: 6px;
+  opacity: 0.9;
+  font-size: 1rem;
+}
+
+/* METRICS */
+.weather-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.weather-metric {
+  background: rgba(255,255,255,0.12);
+  padding: 12px;
+  border-radius: 16px;
+}
+
+/* 🌤️ FORECAST STRIP (NEW) */
+.forecast-strip {
+  display: flex;
+  gap: 12px;
+  margin: 18px 0;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.forecast-day {
+  min-width: 120px;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(255,255,255,0.85);
+  border: 1px solid rgba(22,49,31,0.08);
+  text-align: center;
+  transition: 0.2s ease;
+}
+
+.forecast-day:hover {
+  transform: translateY(-3px);
+}
+
+/* PANELS */
+.weather-panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+/* PANEL CARD */
+.weather-panel {
+  background: rgba(255,255,255,0.88);
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(22,49,31,0.08);
+}
+
+/* ALERTS */
+.alert-list {
+  display: grid;
+  gap: 12px;
+}
+
+.alert-item {
+  padding: 14px;
+  border-radius: 16px;
+  background: #f8fafc;
+  border-left: 5px solid transparent;
+}
+
+/* SEVERITY COLORS */
+.severity-info { border-left-color: #38bdf8; }
+.severity-watch { border-left-color: #f59e0b; }
+.severity-warning { border-left-color: #f97316; }
+.severity-critical { border-left-color: #dc2626; }
+
+/* 🧠 AI ADVICE (NEW EMPHASIS) */
+.alert-item.severity-info {
+  background: linear-gradient(135deg, #ecfdf5, #f0fdf4);
+}
+
+/* EMPTY STATE */
+.weather-empty-state {
+  text-align: center;
+  padding: 30px;
+  border: 1px dashed rgba(22,49,31,0.2);
+  border-radius: 20px;
+}
+
+/* RESPONSIVE */
+@media (max-width: 900px) {
+  .weather-panels,
+  .weather-metrics {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .input-group {
+    grid-template-columns: 1fr;
+  }
+
+  .weather-card {
+    padding: 18px;
+  }
+
+  .weather-card__actions {
+    flex-direction: column;
+  }
+
+  .forecast-strip {
+    flex-direction: column;
+  }
+}
