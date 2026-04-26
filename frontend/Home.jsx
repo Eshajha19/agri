@@ -66,6 +66,30 @@ const features = [
       category: "Recommendations",
     },
     {
+      icon: <FaLock />,
+      title: "Secure & Private",
+      desc: "Enterprise-grade security with Firebase authentication",
+      category: "Protection",
+    },
+    {
+      icon: <FaFlask />,
+      title: "Soil Analysis",
+      desc: "Comprehensive soil health monitoring and nutrient level analysis",
+      category: "Monitoring",
+    },
+    {
+      icon: <FaLeaf />,
+      title: "Crop Recommendations",
+      desc: "Get crop suggestions based on soil profile and regional climate",
+      category: "Recommendations",
+    },
+    {
+      icon: <FaChartLine />,
+      title: "Fertilizer Guidance",
+      desc: "Personalized fertilizer and pesticide recommendations",
+      category: "Recommendations",
+    },
+    {
       icon: <FaCalculator />,
       title: "Profit Calculator",
       desc: "Estimate potential profit before choosing crops with market analysis",
@@ -341,6 +365,22 @@ export default function Home({ user }) {
         </Link>
       </section>
 
+      
+          <footer className="home-footer">
+  <div className="footer-content">
+    <div className="footer-grid">
+      <div className="footer-section">
+        <div className="footer-brand">
+          <FaSeedling className="footer-logo" />
+          <span>Fasal Saathi</span>
+        </div>
+        <p className="footer-description">
+          AI-powered agricultural advisor helping farmers with crop planning,
+          weather insights, irrigation, and yield optimization.
+        </p>
+        <div className="footer-contact">
+          <FaPhoneAlt />
+          <span>+91 98765 43210</span>
       <footer className="home-footer">
         <div className="footer-content">
           <div className="footer-grid">
@@ -395,7 +435,44 @@ export default function Home({ user }) {
             </p>
           </div>
         </div>
-      </footer>
+      </div>
+
+      <div className="footer-section">
+        <h4>Quick Links</h4>
+        <Link to="/">Home</Link>
+        <Link to="/advisor">Advisor</Link>
+        <Link to="/how-it-works">How It Works</Link>
+        <Link to="/dashboard">Dashboard</Link>
+      </div>
+
+      <div className="footer-section">
+        <h4>Resources</h4>
+        <Link to="/crop-guide">Crop Guide</Link>
+        <Link to="/weather">Weather Updates</Link>
+        <Link to="/soil-analysis">Soil Analysis</Link>
+        <Link to="/faq">FAQs</Link>
+      </div>
+
+      <div className="footer-section">
+        <h4>Company</h4>
+        <Link to="/about">About Us</Link>
+        <Link to="/contact">Contact</Link>
+        <Link to="/privacy-policy">Privacy Policy</Link>
+        <Link to="/terms">Terms of Service</Link>
+      </div>
+    </div>
+
+    <div className="footer-bottom">
+      <div className="footer-socials">
+        <FaGlobe />
+        <span>Available Across India</span>
+      </div>
+      <p className="footer-copyright">
+        © 2026 Fasal Saathi. All rights reserved. MIT Licensed.
+      </p>
+    </div>
+  </div>
+</footer>
     </div>
   );
 }
