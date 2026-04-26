@@ -93,7 +93,7 @@ export default function FAQ() {
       {/* Extra Section */}
       <div className="faq-contact">
         <h3>Still have questions?</h3>
-        <p>We’re here to help you with your farming journey.</p>
+        <p>We're here to help you with your farming journey.</p>
         <a href="/contact" className="faq-btn">
           Contact Support
         </a>
