@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel, Field
 import joblib
 import pandas as pd
@@ -16,21 +17,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-
-
 class PredictRequest(BaseModel):
-    Crop: str
+    # FIX: Add max_length to prevent OOM exceptions
+    # A malicious user can send a 5GB string in the Crop field, causing an Out of Memory (OOM) exception on the server.
+    Crop: str = Field(..., max_length=50)
     CropCoveredArea: float = Field(..., gt=0)
     CHeight: int = Field(..., ge=0)
-    CNext: str
-    CLast: str
-    CTransp: str
-    IrriType: str
-    IrriSource: str
+    CNext: str = Field(..., max_length=50)
+    CLast: str = Field(..., max_length=50)
+    CTransp: str = Field(..., max_length=50)
+    IrriType: str = Field(..., max_length=50)
+    IrriSource: str = Field(..., max_length=50)
     IrriCount: int = Field(..., ge=1)
     WaterCov: int = Field(..., ge=0, le=100)
-    Season: str
+    # FIX: Add max_length to prevent OOM exceptions
+    # A malicious user can send a 5GB string in the Season field, causing an Out of Memory (OOM) exception on the server.
+    Season: str = Field(..., max_length=50)
 
 class PredictResponse(BaseModel):
     predicted_ExpYield: float
@@ -82,19 +84,8 @@ def predict_yield(data: PredictRequest):
         raise HTTPException(status_code=500, detail="Model not loaded")
     
     try:
-        input_data = {
-            'Crop': data.Crop,
-            'CropCoveredArea': data.CropCoveredArea,
-            'CHeight': data.CHeight,
-            'CNext': data.CNext,
-            'CLast': data.CLast,
-            'CTransp': data.CTransp,
-            'IrriType': data.IrriType,
-            'IrriSource': data.IrriSource,
-            'IrriCount': data.IrriCount,
-            'WaterCov': data.WaterCov,
-            'Season': data.Season
-        }
+        # Use Pydantic's dict() method to convert request data to a dictionary, avoiding manual mapping
+        input_data = data.model_dump() if hasattr(data, 'model_dump') else data.dict()
         df = pd.DataFrame([input_data])
         
         dummy_cols = ['Crop', 'CNext', 'CLast', 'CTransp', 'IrriType', 'IrriSource', 'Season']
