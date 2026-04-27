@@ -103,7 +103,6 @@ const syncLanguage = (lang, setLang) => {
 function App() {
   const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
   const [isOpen, setIsOpen] = useState(false);
-  const [sunlight, setSunlight] = useState(false);
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [profileCompleted, setProfileCompleted] = useState(true);
@@ -244,33 +243,32 @@ function App() {
             {isDarkTheme ? "☀️" : "🌙"}
           </button>
 
-          <div className="more-menu-container" onClick={() => { setShowMoreMenu(!showMoreMenu); setShowScorecard(false); }}>
-            <button className="btn-more-menu" aria-label="Profile and Settings">
-              <FaUser style={{ width: "24px", height: "24px", fontSize: "24px", minWidth: "24px", minHeight: "24px" }} />
-            </button>
-            {showMoreMenu && (
-              <div className="more-dropdown" onClick={(e) => e.stopPropagation()}>
-                <div className="dropdown-section">
-                  <label>Language</label>
-                  <select
-                    className="lang-select-dropdown notranslate"
-                    value={preferredLang}
-                    onChange={handleLangChange}
-                  >
-                    {LANGUAGE_OPTIONS.map((l) => (
-                      <option key={l.value} value={l.value}>
-                        {l.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="dropdown-links">
-                  <Link to="/dashboard" onClick={() => setShowMoreMenu(false)}><FaTachometerAlt /> Dashboard</Link>
-                  <Link to="/community" onClick={() => setShowMoreMenu(false)}><FaComments /> Community</Link>
-                </div>
+          <button onClick={() => setShowMoreMenu(!showMoreMenu)} className="more-menu-toggle" aria-label="More Options">
+            <FaBars />
+          </button>
+
+          {showMoreMenu && (
+            <div className="more-dropdown" onClick={(e) => e.stopPropagation()}>
+              <div className="dropdown-section">
+                <label>Language</label>
+                <select
+                  className="lang-select-dropdown notranslate"
+                  value={preferredLang}
+                  onChange={handleLangChange}
+                >
+                  {LANGUAGE_OPTIONS.map((l) => (
+                    <option key={l.value} value={l.value}>
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
               </div>
-            )}
-          </div>
+              <div className="dropdown-links">
+                <Link to="/dashboard" onClick={() => setShowMoreMenu(false)}><FaTachometerAlt /> Dashboard</Link>
+                <Link to="/community" onClick={() => setShowMoreMenu(false)}><FaComments /> Community</Link>
+              </div>
+            </div>
+          )}
 
           <div className="nav-user" onClick={() => { setShowScorecard(!showScorecard); setShowMoreMenu(false); }}>
             {loading ? (
@@ -320,22 +318,21 @@ function App() {
         </button>
       </nav>
 
-      {!loading && user && !user.emailVerified && !showScorecard && location.pathname !== "/login" && (
-        <div className="verification-overlay">
-          <div className="verification-card">
-            <div className="verify-icon">✉️</div>
-            <h2>Verify Your Email</h2>
-            <p>We've sent a link to <b>{user.email}</b>.<br /> Please verify your email to unlock all features.</p>
-            <button
-               onClick={() => {
-                 auth?.currentUser?.reload().then(() => window.location.reload()).catch(() => window.location.reload());
-               }}
-               className="btn-refresh"
-            >
-              I've Verified My Email
-            </button>
-            <button onClick={handleLogout} className="btn-logout-simple">Sign Out</button>
-          </div>
+    {!loading && user && !user.emailVerified && !showScorecard && location.pathname !== "/login" && (
+      <div className="verification-overlay">
+        <div className="verification-card">
+          <div className="verify-icon">✉️</div>
+          <h2>Verify Your Email</h2>
+          <p>We've sent a link to <b>{user.email}</b>.<br /> Please verify your email to unlock all features.</p>
+          <button
+             onClick={() => {
+               auth?.currentUser?.reload().then(() => window.location.reload()).catch(() => window.location.reload());
+             }}
+             className="btn-refresh"
+          >
+            I've Verified My Email
+          </button>
+          <button onClick={handleLogout} className="btn-logout-simple">Sign Out</button>
         </div>
       )}
 
