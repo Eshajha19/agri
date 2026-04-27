@@ -16,6 +16,9 @@ export default function PrivacyPolicy() {
             Fasal Saathi is committed to protecting your personal information.
             This policy explains what we collect, how we use it, and your rights.
           </p>
+          <p className="policy-date">
+            <strong>Effective Date:</strong> April 27, 2026
+          </p>
         </section>
 
         <section>

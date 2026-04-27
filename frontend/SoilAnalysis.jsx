@@ -3,9 +3,9 @@ import { Leaf, FlaskConical, Sprout, AlertCircle, RotateCcw, BarChart3, Wheat, D
 import "./SoilAnalysis.css";
 
 const NUTRIENT_RANGES = {
-  nitrogen: { low: 140, medium: 280, unit: "kg/ha", label: "Nitrogen (N)" },
-  phosphorus: { low: 10, medium: 25, unit: "kg/ha", label: "Phosphorus (P)" },
-  potassium: { low: 110, medium: 280, unit: "kg/ha", label: "Potassium (K)" },
+  nitrogen: { veryLow: 80, low: 140, medium: 280, high: 360, unit: "kg/ha", label: "Nitrogen (N)" },
+  phosphorus: { veryLow: 5, low: 10, medium: 25, high: 40, unit: "kg/ha", label: "Phosphorus (P)" },
+  potassium: { veryLow: 70, low: 110, medium: 280, high: 420, unit: "kg/ha", label: "Potassium (K)" },
 };
 
 const CROP_DATABASE = [
@@ -25,60 +25,164 @@ const CROP_DATABASE = [
 
 const FERTILIZER_MAP = {
   low_nitrogen: [
-    { name: "Urea (46-0-0)", dosage: "80–120 kg/ha", priority: "high" },
-    { name: "Ammonium Sulphate", dosage: "100–150 kg/ha", priority: "medium" },
-    { name: "Vermicompost", dosage: "2–5 tons/ha", priority: "medium" },
+    { name: "Urea (46-0-0)", dosage: "80–120 kg/ha", priority: "high", type: "Fast-release", benefit: "Boosts green leafy growth quickly." },
+    { name: "Ammonium Sulphate", dosage: "100–150 kg/ha", priority: "medium", type: "High-Nitrogen", benefit: "Supports strong vegetative growth in acid soils." },
+    { name: "Blood Meal", dosage: "20–30 kg/ha", priority: "medium", type: "Organic", benefit: "Provides rapid nitrogen release with better soil microbial support." },
+    { name: "Vermicompost", dosage: "2–5 tons/ha", priority: "medium", type: "Organic", benefit: "Builds long-term nitrogen availability and improves soil structure." },
   ],
   low_phosphorus: [
-    { name: "DAP (18-46-0)", dosage: "50–100 kg/ha", priority: "high" },
-    { name: "Single Super Phosphate", dosage: "150–200 kg/ha", priority: "medium" },
-    { name: "Bone Meal (Organic)", dosage: "200–400 kg/ha", priority: "medium" },
+    { name: "DAP (18-46-0)", dosage: "50–100 kg/ha", priority: "high", type: "Fast-release", benefit: "Delivers phosphorus and nitrogen for early crop establishment." },
+    { name: "Single Super Phosphate", dosage: "150–200 kg/ha", priority: "medium", type: "Balanced", benefit: "Boosts root development and flowering over time." },
+    { name: "Bone Meal", dosage: "200–400 kg/ha", priority: "medium", type: "Organic", benefit: "Releases phosphorus slowly for sustained use." },
+    { name: "Rock Phosphate", dosage: "250–400 kg/ha", priority: "low", type: "Slow-release", benefit: "Feeds phosphorus gradually and improves soil fertility long-term." },
   ],
   low_potassium: [
-    { name: "Muriate of Potash (MOP)", dosage: "50–80 kg/ha", priority: "high" },
-    { name: "Sulphate of Potash (SOP)", dosage: "60–100 kg/ha", priority: "medium" },
-    { name: "Wood Ash (Organic)", dosage: "500–1000 kg/ha", priority: "low" },
+    { name: "Muriate of Potash (MOP)", dosage: "50–80 kg/ha", priority: "high", type: "Fast-release", benefit: "Restores potassium quickly for improved fruit quality." },
+    { name: "Sulphate of Potash (SOP)", dosage: "60–100 kg/ha", priority: "medium", type: "Balanced", benefit: "Adds potassium without increasing chloride levels." },
+    { name: "Sulphate of Potash Magnesia (SPM)", dosage: "80–120 kg/ha", priority: "medium", type: "Balanced", benefit: "Supports potassium and magnesium for stronger plant health." },
+    { name: "Wood Ash", dosage: "500–1000 kg/ha", priority: "low", type: "Organic", benefit: "Provides potassium and calcium while raising soil pH." },
   ],
   balanced: [
-    { name: "NPK Complex (10-26-26)", dosage: "100–150 kg/ha", priority: "medium" },
-    { name: "Farm Yard Manure (FYM)", dosage: "5–10 tons/ha", priority: "medium" },
-    { name: "Neem Cake", dosage: "100–200 kg/ha", priority: "low" },
+    { name: "NPK Complex (10-26-26)", dosage: "100–150 kg/ha", priority: "medium", type: "Balanced", benefit: "Delivers a complete nutrient blend for stable crop growth." },
+    { name: "Farm Yard Manure (FYM)", dosage: "5–10 tons/ha", priority: "medium", type: "Organic", benefit: "Improves soil texture while releasing nutrients slowly." },
+    { name: "Neem Cake", dosage: "100–200 kg/ha", priority: "low", type: "Organic", benefit: "Enhances soil biology and acts as a mild pest deterrent." },
+    { name: "Green Manure", dosage: "2–4 tons/ha", priority: "low", type: "Organic", benefit: "Builds soil organic matter and stabilizes nutrient release." },
   ],
 };
 
+const SOIL_INSIGHTS = {
+  nitrogen: {
+    title: "Nitrogen for leafy vigor",
+    description:
+      "Nitrogen is the key to strong vegetative growth, darker leaves, and good protein levels in crops.",
+    actionLow: "Add nitrogen-rich fertilizers and plant legume cover crops.",
+    actionMedium: "Maintain nitrogen with compost and balanced fertilization.",
+    actionHigh: "Avoid excess nitrogen and focus on balanced nutrition and soil testing.",
+  },
+  phosphorus: {
+    title: "Phosphorus for roots & blooms",
+    description:
+      "Phosphorus supports root development, flowering and early fruit set, especially in young plants.",
+    actionLow: "Use phosphorus-rich fertilizers and organic residues near the root zone.",
+    actionMedium: "Keep phosphorus levels stable with crop rotation and mulch.",
+    actionHigh: "Prevent runoff and use slow-release phosphorus sources." ,
+  },
+  potassium: {
+    title: "Potassium for strength",
+    description:
+      "Potassium improves water use efficiency, disease resistance, and crop quality.",
+    actionLow: "Supply potassium through potash fertilizers and organic amendments.",
+    actionMedium: "Sustain potassium with residue recycling and proper irrigation.",
+    actionHigh: "Limit potassium inputs and watch for nutrient balance issues.",
+  },
+};
+
+function getSoilInsights(levels) {
+  return Object.keys(levels).map((key) => {
+    const insight = SOIL_INSIGHTS[key];
+    return {
+      nutrient: key,
+      label: levels[key],
+      title: insight.title,
+      description: insight.description,
+      tip:
+        levels[key] === "low" || levels[key] === "verylow"
+          ? insight.actionLow
+          : levels[key] === "medium"
+          ? insight.actionMedium
+          : insight.actionHigh,
+    };
+  });
+}
+
 function getNutrientLevel(nutrient, value) {
   const range = NUTRIENT_RANGES[nutrient];
+  if (value < range.veryLow) return "verylow";
   if (value < range.low) return "low";
   if (value < range.medium) return "medium";
-  return "high";
+  if (value < range.high) return "high";
+  return "veryhigh";
+}
+
+function normalizeLevel(level) {
+  if (level === "verylow") return "low";
+  if (level === "veryhigh") return "high";
+  return level;
+}
+
+function formatLevelLabel(level) {
+  if (level === "verylow") return "Very Low";
+  if (level === "veryhigh") return "Very High";
+  return level.charAt(0).toUpperCase() + level.slice(1);
 }
 
 function getSoilQuality(levels) {
-  const scores = { low: 1, medium: 2, high: 3 };
+  const scores = { verylow: 0.5, low: 1, medium: 2, high: 3, veryhigh: 4 };
   const avg = (scores[levels.nitrogen] + scores[levels.phosphorus] + scores[levels.potassium]) / 3;
-  if (avg >= 2.5) return { label: "Excellent", score: 90, color: "#10b981" };
-  if (avg >= 2.0) return { label: "Good", score: 72, color: "#22c55e" };
-  if (avg >= 1.5) return { label: "Moderate", score: 55, color: "#f59e0b" };
-  return { label: "Poor", score: 30, color: "#ef4444" };
+  if (avg >= 3.0) return { label: "Excellent", score: 95, color: "#10b981" };
+  if (avg >= 2.2) return { label: "Good", score: 78, color: "#22c55e" };
+  if (avg >= 1.4) return { label: "Moderate", score: 60, color: "#f59e0b" };
+  return { label: "Poor", score: 32, color: "#ef4444" };
 }
 
 function getRecommendedCrops(levels) {
   return CROP_DATABASE.filter((crop) => {
     let matchScore = 0;
-    if (crop.nitrogen === levels.nitrogen) matchScore++;
-    if (crop.phosphorus === levels.phosphorus) matchScore++;
-    if (crop.potassium === levels.potassium) matchScore++;
+    if (crop.nitrogen === normalizeLevel(levels.nitrogen)) matchScore++;
+    if (crop.phosphorus === normalizeLevel(levels.phosphorus)) matchScore++;
+    if (crop.potassium === normalizeLevel(levels.potassium)) matchScore++;
     return matchScore >= 2;
   }).slice(0, 6);
 }
 
 function getRecommendedFertilizers(levels) {
   const fertilizers = [];
-  if (levels.nitrogen === "low") fertilizers.push(...FERTILIZER_MAP.low_nitrogen);
-  if (levels.phosphorus === "low") fertilizers.push(...FERTILIZER_MAP.low_phosphorus);
-  if (levels.potassium === "low") fertilizers.push(...FERTILIZER_MAP.low_potassium);
+  if (levels.nitrogen === "low" || levels.nitrogen === "verylow") fertilizers.push(...FERTILIZER_MAP.low_nitrogen);
+  if (levels.phosphorus === "low" || levels.phosphorus === "verylow") fertilizers.push(...FERTILIZER_MAP.low_phosphorus);
+  if (levels.potassium === "low" || levels.potassium === "verylow") fertilizers.push(...FERTILIZER_MAP.low_potassium);
   if (fertilizers.length === 0) fertilizers.push(...FERTILIZER_MAP.balanced);
   return fertilizers;
+}
+
+function getSoilUpdateSuggestions(levels) {
+  return [
+    {
+      nutrient: "Nitrogen",
+      level: levels.nitrogen,
+      advice:
+        levels.nitrogen === "low"
+          ? "Boost nitrogen with urea, green manure, and legume cover crops."
+          : levels.nitrogen === "medium"
+          ? "Maintain balance with compost, legumes, and slow-release nitrogen."
+          : "Avoid excess nitrogen and monitor nutrient levels regularly.",
+    },
+    {
+      nutrient: "Phosphorus",
+      level: levels.phosphorus,
+      advice:
+        levels.phosphorus === "low"
+          ? "Apply phosphorus-rich fertilizers like DAP and bone meal, and use organic residues."
+          : levels.phosphorus === "medium"
+          ? "Keep phosphorus steady with balanced fertilizer and crop rotation."
+          : "Use controlled phosphorus sources and prevent runoff loss.",
+    },
+    {
+      nutrient: "Potassium",
+      level: levels.potassium,
+      advice:
+        levels.potassium === "low"
+          ? "Increase potassium with MOP, SOP, and composted plant material."
+          : levels.potassium === "medium"
+          ? "Support potassium with mulch, organic matter, and regular soil testing."
+          : "Maintain potassium balance and avoid over-application to protect root health.",
+    },
+  ];
+}
+
+function getUpdateFrequency(score) {
+  if (score >= 72) return "Recheck soil nutrients every 3-4 months and maintain existing practices.";
+  if (score >= 55) return "Retest each season and adjust fertilizer applications as needed.";
+  return "Retest in 6-8 weeks after applying amendments for best recovery tracking.";
 }
 
 export default function SoilAnalysis() {
@@ -123,8 +227,20 @@ export default function SoilAnalysis() {
     const quality = getSoilQuality(levels);
     const crops = getRecommendedCrops(levels);
     const fertilizers = getRecommendedFertilizers(levels);
+    const updateSuggestions = getSoilUpdateSuggestions(levels);
+    const updateFrequency = getUpdateFrequency(quality.score);
+    const soilInsights = getSoilInsights(levels);
 
-    setResults({ levels, quality, crops, fertilizers, values: { nitrogen: n, phosphorus: p, potassium: k } });
+    setResults({
+      levels,
+      quality,
+      crops,
+      fertilizers,
+      values: { nitrogen: n, phosphorus: p, potassium: k },
+      updateSuggestions,
+      updateFrequency,
+      soilInsights,
+    });
     setHasAnalyzed(true);
   };
 
@@ -136,9 +252,11 @@ export default function SoilAnalysis() {
   };
 
   const getLevelBadgeClass = (level) => {
+    if (level === "veryhigh") return "badge-veryhigh";
     if (level === "high") return "badge-high";
     if (level === "medium") return "badge-medium";
-    return "badge-low";
+    if (level === "low") return "badge-low";
+    return "badge-verylow";
   };
 
   return (
@@ -197,9 +315,11 @@ export default function SoilAnalysis() {
                     </div>
                   )}
                   <div className="sa-range-hint">
-                    <span>Low: &lt;{range.low}</span>
+                    <span>Very Low: &lt;{range.veryLow}</span>
+                    <span>Low: {range.veryLow}–{range.low}</span>
                     <span>Medium: {range.low}–{range.medium}</span>
-                    <span>High: &gt;{range.medium}</span>
+                    <span>High: {range.medium}–{range.high}</span>
+                    <span>Very High: &gt;{range.high}</span>
                   </div>
                 </div>
               ))}
@@ -258,7 +378,7 @@ export default function SoilAnalysis() {
                       <div className="sa-nutrient-info">
                         <span className={`sa-nutrient-dot dot-${key}`}></span>
                         <span className="sa-nutrient-name">{NUTRIENT_RANGES[key].label}</span>
-                        <span className={`sa-level-badge ${getLevelBadgeClass(level)}`}>{level}</span>
+                        <span className={`sa-level-badge ${getLevelBadgeClass(level)}`}>{formatLevelLabel(level)}</span>
                       </div>
                       <div className="sa-bar-track">
                         <div
@@ -271,6 +391,46 @@ export default function SoilAnalysis() {
                       <span className="sa-nutrient-value">{results.values[key]} {NUTRIENT_RANGES[key].unit}</span>
                     </div>
                   ))}
+                </div>
+              </div>
+
+              <div className="sa-insights-card">
+                <div className="sa-section-title">
+                  <FlaskConical size={22} />
+                  <h2>Detailed Soil Insights</h2>
+                </div>
+                <div className="sa-insight-grid">
+                  {results.soilInsights.map((insight, index) => (
+                    <div className="sa-insight-item" key={index}>
+                      <div className={`sa-insight-tag insight-${insight.label}`}>{insight.label.toUpperCase()}</div>
+                      <h3>{insight.title}</h3>
+                      <p>{insight.description}</p>
+                      <p className="sa-insight-tip">{insight.tip}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="sa-update-card">
+                <div className="sa-section-title">
+                  <Leaf size={22} />
+                  <h2>Soil Update Plan</h2>
+                </div>
+                <p className="sa-update-intro">
+                  Follow these focused updates to improve your soil health and strengthen future yields.
+                </p>
+                <div className="sa-update-grid">
+                  {results.updateSuggestions.map((item, index) => (
+                    <div className="sa-update-item" key={index}>
+                      <span className={`sa-update-chip update-${item.level}`}>{item.level}</span>
+                      <h3>{item.nutrient}</h3>
+                      <p>{item.advice}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="sa-update-frequency">
+                  <h3>Recommended Review</h3>
+                  <p>{results.updateFrequency}</p>
                 </div>
               </div>
 
@@ -312,6 +472,10 @@ export default function SoilAnalysis() {
                       <div className="sa-fert-header">
                         <span className="sa-fert-name">{fert.name}</span>
                         <span className={`sa-priority-badge priority-${fert.priority}`}>{fert.priority}</span>
+                      </div>
+                      <div className="sa-fert-meta">
+                        <span className="sa-fert-type">{fert.type}</span>
+                        <span className="sa-fert-benefit">{fert.benefit}</span>
                       </div>
                       <div className="sa-fert-dosage">
                         <span className="sa-dosage-label">Recommended Dosage</span>

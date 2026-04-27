@@ -1,16 +1,21 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
 import "./App.css";
 import Advisor from "./Advisor";
 import How from "./How";
 import Home from "./Home";
-import FAQ from "./FAQ";
-import Terms from "./Terms";
-import Privacy from "./Privacy";
+import FAQ from "./pages/FAQ";
+import Terms from "./pages/Terms";
+import Privacy from "./pages/Privacy";
 import Resources from "./Resources";
 import CropGuide from "./CropGuide";
 import { ToastContainer } from "react-toastify";
 import useNotifications from "./Notifications";
+import React, { useEffect, useState } from "react";
+import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
+
+import { ToastContainer } from "react-toastify";
+
 import {
   FaHome,
   FaComments,
@@ -24,10 +29,17 @@ import {
   FaChevronDown,
   FaUser,
 } from "react-icons/fa";
+
+import Advisor from "./Advisor";
+import Home from "./Home";
+import Resources from "./Resources";
+import CropGuide from "./CropGuide";
+import How from "./How";
 import Dashboard from "./Dashboard";
 import Auth from "./Auth";
 import ProfileSetup from "./ProfileSetup";
 import LanguageDropdown from "./LanguageDropdown";
+import useNotifications from "./Notifications";
 import Schemes from "./GovernmentSchemes";
 import Feedback from "./Feedback";
 import AdminFeedback from "./AdminFeedback";
@@ -98,7 +110,6 @@ const syncLanguage = (lang, setLang) => {
 function App() {
   const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
   const [isOpen, setIsOpen] = useState(false);
-  const [sunlight, setSunlight] = useState(false);
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [profileCompleted, setProfileCompleted] = useState(true);
@@ -203,7 +214,8 @@ function App() {
   }, []);
 
   return (
-    <div className={`app ${isDarkTheme ? "theme-dark" : ""}`}>
+    <BrowserRouter>
+      <div className={`app ${isDarkTheme ? "theme-dark" : ""}`}>
       {loading && <Loader fullPage={true} message="Initializing Fasal Saathi..." />}
       {isOffline && (
         <div className="offline-banner">
@@ -239,33 +251,32 @@ function App() {
             {isDarkTheme ? "☀️" : "🌙"}
           </button>
 
-          <div className="more-menu-container" onClick={() => { setShowMoreMenu(!showMoreMenu); setShowScorecard(false); }}>
-            <button className="btn-more-menu" aria-label="Profile and Settings">
-              <FaUser style={{ width: "24px", height: "24px", fontSize: "24px", minWidth: "24px", minHeight: "24px" }} />
-            </button>
-            {showMoreMenu && (
-              <div className="more-dropdown" onClick={(e) => e.stopPropagation()}>
-                <div className="dropdown-section">
-                  <label>Language</label>
-                  <select
-                    className="lang-select-dropdown notranslate"
-                    value={preferredLang}
-                    onChange={handleLangChange}
-                  >
-                    {LANGUAGE_OPTIONS.map((l) => (
-                      <option key={l.value} value={l.value}>
-                        {l.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="dropdown-links">
-                  <Link to="/dashboard" onClick={() => setShowMoreMenu(false)}><FaTachometerAlt /> Dashboard</Link>
-                  <Link to="/community" onClick={() => setShowMoreMenu(false)}><FaComments /> Community</Link>
-                </div>
+          <button onClick={() => setShowMoreMenu(!showMoreMenu)} className="more-menu-toggle" aria-label="More Options">
+            <FaBars />
+          </button>
+
+          {showMoreMenu && (
+            <div className="more-dropdown" onClick={(e) => e.stopPropagation()}>
+              <div className="dropdown-section">
+                <label>Language</label>
+                <select
+                  className="lang-select-dropdown notranslate"
+                  value={preferredLang}
+                  onChange={handleLangChange}
+                >
+                  {LANGUAGE_OPTIONS.map((l) => (
+                    <option key={l.value} value={l.value}>
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
               </div>
-            )}
-          </div>
+              <div className="dropdown-links">
+                <Link to="/dashboard" onClick={() => setShowMoreMenu(false)}><FaTachometerAlt /> Dashboard</Link>
+                <Link to="/community" onClick={() => setShowMoreMenu(false)}><FaComments /> Community</Link>
+              </div>
+            </div>
+          )}
 
           <div className="nav-user" onClick={() => { setShowScorecard(!showScorecard); setShowMoreMenu(false); }}>
             {loading ? (
@@ -315,22 +326,21 @@ function App() {
         </button>
       </nav>
 
-      {!loading && user && !user.emailVerified && !showScorecard && location.pathname !== "/login" && (
-        <div className="verification-overlay">
-          <div className="verification-card">
-            <div className="verify-icon">✉️</div>
-            <h2>Verify Your Email</h2>
-            <p>We've sent a link to <b>{user.email}</b>.<br /> Please verify your email to unlock all features.</p>
-            <button
-               onClick={() => {
-                 auth?.currentUser?.reload().then(() => window.location.reload()).catch(() => window.location.reload());
-               }}
-               className="btn-refresh"
-            >
-              I've Verified My Email
-            </button>
-            <button onClick={handleLogout} className="btn-logout-simple">Sign Out</button>
-          </div>
+    {!loading && user && !user.emailVerified && !showScorecard && location.pathname !== "/login" && (
+      <div className="verification-overlay">
+        <div className="verification-card">
+          <div className="verify-icon">✉️</div>
+          <h2>Verify Your Email</h2>
+          <p>We've sent a link to <b>{user.email}</b>.<br /> Please verify your email to unlock all features.</p>
+          <button
+             onClick={() => {
+               auth?.currentUser?.reload().then(() => window.location.reload()).catch(() => window.location.reload());
+             }}
+             className="btn-refresh"
+          >
+            I've Verified My Email
+          </button>
+          <button onClick={handleLogout} className="btn-logout-simple">Sign Out</button>
         </div>
       )}
 
@@ -338,6 +348,8 @@ function App() {
          <Navigate to="/profile-setup" />
        )}
 
+      <Routes>
+        <Route path="/" element={<Home user={user} />} />
        <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/advisor" element={<Advisor />} />
@@ -361,13 +373,14 @@ function App() {
         <Route path="/privacy-policy" element={<Privacy />} />
       </Routes>
 
-      {/* Floating Chat Button */}
-      <Link to="/advisor" className="floating-chat-btn" aria-label="Chat Support">
-        <FaComments size={28} />
-      </Link>
+        {/* Floating Chat Button */}
+        <Link to="/advisor" className="floating-chat-btn" aria-label="Chat Support">
+          <FaComments size={28} />
+        </Link>
 
-      <ToastContainer position="bottom-right" />
-    </div>
+        <ToastContainer position="bottom-right" />
+      </div>
+    </BrowserRouter>
   );
 }
 

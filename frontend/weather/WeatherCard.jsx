@@ -15,10 +15,21 @@ import {
   getCropWarnings,
   getCurrentPosition,
   searchLocationByName,
+  getWeatherLabel,
 } from "./weatherService";
 import { useWeatherManagement } from "../hooks/useWeatherManagement";
 
 const SENT_NOTIFICATION_KEY = "agriWeatherNotificationSignature";
+
+/* 🌦️ Weather Icon Helper */
+const getWeatherIcon = (summary = "") => {
+  const s = summary.toLowerCase();
+  if (s.includes("rain")) return "🌧️";
+  if (s.includes("cloud")) return "☁️";
+  if (s.includes("storm")) return "⛈️";
+  if (s.includes("sun")) return "☀️";
+  return "🌤️";
+};
 
 function formatSeverity(severity) {
   return severity.charAt(0).toUpperCase() + severity.slice(1);
@@ -28,9 +39,10 @@ export default function WeatherCard({
   onClose,
   embedded = false,
   title = "Hyperlocal Weather Intelligence",
-  subtitle = "Use your farm location for real-time alerts, crop advisories, and next-step recommendations.",
+  subtitle = "AI-powered alerts, crop advisories & farming insights.",
 }) {
   const cropOptions = getAvailableCrops();
+
   const {
     snapshot,
     selectedCrop,
@@ -50,35 +62,46 @@ export default function WeatherCard({
     [snapshot, selectedCrop]
   );
 
-  useEffect(() => {
-    if (!embedded || snapshot) {
-      return;
-    }
+  /* 🌾 Smart Farming Advice Engine */
+  const getFarmingAdvice = () => {
+    if (!snapshot) return [];
 
+    const advice = [];
+    const temp = snapshot.current?.temperature_2m;
+    const humidity = snapshot.current?.relative_humidity_2m;
+    const wind = snapshot.current?.wind_speed_10m;
+
+    if (temp > 35) advice.push("🌡️ Heat stress: Water crops early morning/evening.");
+    if (humidity > 80) advice.push("💧 High humidity: Watch for fungal infections.");
+    if (wind > 25) advice.push("🌬️ Strong winds: Avoid spraying pesticides.");
+    if (snapshot.alerts?.some(a => a.type === "rain"))
+      advice.push("🌧️ Rain alert: Delay irrigation & fertilizer use.");
+
+    return advice;
+  };
+
+  /* 📡 Auto location load */
+  useEffect(() => {
+    if (!embedded || snapshot) return;
     handleUseMyLocation();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* 🔔 Smart Notifications */
   useEffect(() => {
-    if (!snapshot?.alerts?.length || notificationPermission !== "granted") {
-      return;
-    }
+    if (!snapshot?.alerts?.length || notificationPermission !== "granted") return;
 
     const topAlert = snapshot.alerts[0];
-    if (topAlert.severity === "info") {
-      return;
-    }
+    if (topAlert.severity === "info") return;
 
     const signature = `${snapshot.location?.name}-${topAlert.type}-${topAlert.severity}`;
     const lastSent = localStorage.getItem(SENT_NOTIFICATION_KEY);
 
-    if (lastSent === signature) {
-      return;
-    }
+    if (lastSent === signature) return;
 
     const warning = cropWarnings[0]?.message || topAlert.message;
-    const notification = new Notification(topAlert.title, {
-      body: `${snapshot.location?.city || "Your area"}: ${warning}`,
+
+    const notification = new Notification(`⚠️ ${topAlert.title}`, {
+      body: `${warning}\nTake action immediately.`,
       tag: signature,
     });
 
@@ -111,68 +134,56 @@ export default function WeatherCard({
 
   return (
     <div className={`weather-card ${embedded ? "weather-card--embedded" : ""}`}>
+
+      {/* CLOSE */}
       {!embedded && onClose && (
-        <button className="weather-card__close-btn" onClick={onClose} aria-label="Close weather panel">
-          x
-        </button>
+        <button className="weather-card__close-btn" onClick={onClose}>×</button>
       )}
 
+      {/* HEADER */}
       <div className="weather-card__header">
-        <span className="weather-card__eyebrow">Real-time alerts</span>
+        <span className="weather-card__eyebrow">🌾 Real-time farm intelligence</span>
         <h2>{title}</h2>
         <p className="subtitle">{subtitle}</p>
       </div>
 
+      {/* CONTROLS */}
       <div className="weather-card__controls">
+
         <div className="input-group">
           <input
             type="text"
-            placeholder="Search city or district"
+            placeholder="Search village / district"
             value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                handleSearch();
-              }
-            }}
+            onChange={(e) => setSearchQuery(e.target.value)}
           />
           <button onClick={handleSearch} disabled={weatherLoading}>
-            <FaSearch />
-            <span>{weatherLoading ? "Loading..." : "Search"}</span>
+            <FaSearch /> {weatherLoading ? "Loading..." : "Search"}
           </button>
         </div>
 
         <div className="weather-card__actions">
-          <button className="location-btn" onClick={handleUseMyLocation} disabled={weatherLoading}>
-            <FaCrosshairs />
-            <span>Use My Location</span>
+          <button onClick={handleUseMyLocation}>
+            <FaCrosshairs /> Use My Location
           </button>
-          <button
-            className="notify-btn"
-            onClick={requestNotificationPermission}
-            disabled={notificationPermission === "granted"}
-          >
+
+          <button onClick={requestNotificationPermission}>
             <FaBell />
-            <span>
-              {notificationPermission === "granted"
-                ? "Alerts Enabled"
-                : notificationPermission === "unsupported"
-                ? "Browser Alerts Unavailable"
-                : "Enable Push Alerts"}
-            </span>
+            {notificationPermission === "granted"
+              ? "Alerts ON"
+              : "Enable Alerts"}
           </button>
         </div>
 
         <div className="weather-card__crop-selector">
-          <label htmlFor={`crop-${embedded ? "landing" : "modal"}`}>Crop</label>
+          <label>Crop</label>
           <select
-            id={`crop-${embedded ? "landing" : "modal"}`}
             value={selectedCrop}
-            onChange={(event) => setSelectedCrop(event.target.value)}
+            onChange={(e) => setSelectedCrop(e.target.value)}
           >
-            {cropOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
+            {cropOptions.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
               </option>
             ))}
           </select>
@@ -181,9 +192,12 @@ export default function WeatherCard({
 
       {weatherError && <p className="error">{weatherError}</p>}
 
+      {/* MAIN DATA */}
       {snapshot ? (
         <>
+          {/* SUMMARY */}
           <div className="weather-summary">
+
             <div className="weather-summary__location">
               <FaMapMarkerAlt />
               <span>{locationLabel}</span>
@@ -195,85 +209,89 @@ export default function WeatherCard({
                   {Math.round(snapshot.current?.temperature_2m || 0)}
                   {units.temperature_2m || "°C"}
                 </div>
-                <p className="weather-summary__status">{snapshot.summary}</p>
+
+                <p className="weather-summary__status">
+                  {getWeatherIcon(snapshot.summary)} {snapshot.summary}
+                </p>
               </div>
 
-              <div className={`weather-alert-pill severity-${topAlert?.severity || "info"}`}>
-                {topAlert?.title || "Weather update"}
+              <div className={`weather-alert-pill severity-${topAlert?.severity}`}>
+                {topAlert?.title || "Stable weather"}
               </div>
             </div>
 
+            {/* METRICS */}
             <div className="weather-metrics">
-              <div className="weather-metric">
-                <FaTemperatureHigh />
-                <span>
-                  Feels like {Math.round(snapshot.current?.apparent_temperature || 0)}
-                  {units.apparent_temperature || "°C"}
-                </span>
-              </div>
-              <div className="weather-metric">
-                <FaTint />
-                <span>
-                  Humidity {Math.round(snapshot.current?.relative_humidity_2m || 0)}
-                  {units.relative_humidity_2m || "%"}
-                </span>
-              </div>
-              <div className="weather-metric">
-                <FaWind />
-                <span>
-                  Wind {Math.round(snapshot.current?.wind_speed_10m || 0)}
-                  {units.wind_speed_10m || " km/h"}
-                </span>
-              </div>
+              <div><FaTemperatureHigh /> Feels {snapshot.current?.apparent_temperature}°</div>
+              <div><FaTint /> Humidity {snapshot.current?.relative_humidity_2m}%</div>
+              <div><FaWind /> Wind {snapshot.current?.wind_speed_10m} km/h</div>
             </div>
           </div>
 
+          {/* FORECAST */}
+          <div className="forecast-strip">
+            {snapshot.daily && snapshot.daily.weather_code && snapshot.daily.weather_code.length > 0 ? (
+              snapshot.daily.weather_code.slice(0, 5).map((_, i) => {
+                const date = new Date();
+                date.setDate(date.getDate() + i);
+                const dayName = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : date.toLocaleDateString('en-US', { weekday: 'short' });
+
+                return (
+                  <div key={i} className="forecast-day">
+                    <p>{dayName}</p>
+                    <p>{Math.round(snapshot.daily.temperature_2m_max[i])}° / {Math.round(snapshot.daily.temperature_2m_min[i])}°</p>
+                    <p>{getWeatherIcon(getWeatherLabel(snapshot.daily.weather_code[i]))}</p>
+                  </div>
+                );
+              })
+            ) : null}
+          </div>
+
+          {/* PANELS */}
           <div className="weather-panels">
+
+            {/* ALERTS */}
             <section className="weather-panel">
-              <div className="weather-panel__title-row">
-                <h3>Extreme Weather Alerts</h3>
-                {topAlert && <span>{formatSeverity(topAlert.severity)}</span>}
-              </div>
-              <div className="alert-list">
-                {snapshot.alerts.map((alert) => (
-                  <article key={`${alert.type}-${alert.title}`} className={`alert-item severity-${alert.severity}`}>
-                    <h4>{alert.title}</h4>
-                    <p>{alert.message}</p>
-                  </article>
-                ))}
-              </div>
+              <h3>⚠️ Extreme Alerts</h3>
+              {snapshot.alerts.map((a) => (
+                <div key={a.title} className={`alert-item severity-${a.severity}`}>
+                  <h4>{a.title}</h4>
+                  <p>{a.message}</p>
+                </div>
+              ))}
             </section>
 
+            {/* CROP WARNINGS */}
             <section className="weather-panel">
-              <div className="weather-panel__title-row">
-                <h3>{cropOptions.find((option) => option.value === selectedCrop)?.label} Warnings</h3>
-                <span>Field action</span>
-              </div>
-              <div className="alert-list">
-                {cropWarnings.length ? (
-                  cropWarnings.map((warning) => (
-                    <article
-                      key={`${warning.type}-${warning.message}`}
-                      className={`alert-item severity-${warning.severity}`}
-                    >
-                      <h4>{warning.title}</h4>
-                      <p>{warning.message}</p>
-                    </article>
-                  ))
-                ) : (
-                  <article className="alert-item severity-info">
-                    <h4>No crop-specific warning right now</h4>
-                    <p>Current conditions look suitable for routine monitoring and scheduled field work.</p>
-                  </article>
-                )}
-              </div>
+              <h3>🌾 Crop Warnings</h3>
+
+              {cropWarnings.length ? cropWarnings.map((w) => (
+                <div key={w.message} className="alert-item severity-info">
+                  <h4>{w.title}</h4>
+                  <p>{w.message}</p>
+                </div>
+              )) : (
+                <p>No crop risk detected</p>
+              )}
             </section>
+
+            {/* SMART ADVICE */}
+            <section className="weather-panel">
+              <h3>🧠 Smart Farming Advice</h3>
+
+              {getFarmingAdvice().map((tip, i) => (
+                <div key={i} className="alert-item severity-info">
+                  <p>{tip}</p>
+                </div>
+              ))}
+            </section>
+
           </div>
         </>
       ) : (
         <div className="weather-empty-state">
-          <h3>Live farm weather will appear here</h3>
-          <p>Search your district or use device location to unlock hyperlocal alerts and crop guidance.</p>
+          <h3>🌾 Live farm intelligence ready</h3>
+          <p>Search your location to unlock AI farming insights.</p>
         </div>
       )}
     </div>

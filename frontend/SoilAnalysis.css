@@ -526,6 +526,26 @@
   color: #f87171;
 }
 
+.badge-verylow {
+  background: #fde68a;
+  color: #92400e;
+}
+
+.theme-dark .badge-verylow {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+}
+
+.badge-veryhigh {
+  background: #d1fae5;
+  color: #0f766e;
+}
+
+.theme-dark .badge-veryhigh {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+
 .sa-bar-track {
   width: 100%;
   height: 8px;
@@ -558,6 +578,7 @@
   color: #9ca3af;
 }
 
+.sa-update-card,
 .sa-crops-card,
 .sa-fertilizer-card {
   background: white;
@@ -567,6 +588,7 @@
   border: 1px solid rgba(0, 0, 0, 0.04);
 }
 
+.theme-dark .sa-update-card,
 .theme-dark .sa-crops-card,
 .theme-dark .sa-fertilizer-card {
   background: #1a2332;
@@ -789,6 +811,156 @@
 
 .theme-dark .sa-dosage-value {
   color: #34d399;
+}
+
+.sa-update-grid,
+.sa-insight-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.sa-update-item,
+.sa-insight-item {
+  padding: 18px;
+  border-radius: 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.theme-dark .sa-update-item,
+.theme-dark .sa-insight-item {
+  background: #111827;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.sa-update-chip,
+.sa-insight-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  margin-bottom: 10px;
+}
+
+.sa-update-chip.update-verylow,
+.sa-insight-tag.insight-verylow {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.theme-dark .sa-update-chip.update-verylow,
+.theme-dark .sa-insight-tag.insight-verylow {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+}
+
+.sa-update-chip.update-low,
+.sa-insight-tag.insight-low {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.theme-dark .sa-update-chip.update-low,
+.theme-dark .sa-insight-tag.insight-low {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+
+.sa-update-chip.update-medium,
+.sa-insight-tag.insight-medium {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.theme-dark .sa-update-chip.update-medium,
+.theme-dark .sa-insight-tag.insight-medium {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+}
+
+.sa-update-chip.update-high,
+.sa-insight-tag.insight-high {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.theme-dark .sa-update-chip.update-high,
+.theme-dark .sa-insight-tag.insight-high {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+
+.sa-update-chip.update-veryhigh,
+.sa-insight-tag.insight-veryhigh {
+  background: #d1fae5;
+  color: #0f766e;
+}
+
+.theme-dark .sa-update-chip.update-veryhigh,
+.theme-dark .sa-insight-tag.insight-veryhigh {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+
+.sa-insight-item h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.sa-insight-item p {
+  margin: 0 0 8px;
+  color: #475569;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.theme-dark .sa-insight-item p {
+  color: #cbd5e1;
+}
+
+.sa-insight-tip {
+  margin-top: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.theme-dark .sa-insight-tip {
+  color: #d1d5db;
+}
+
+.sa-update-frequency {
+  margin-top: 18px;
+  padding: 18px;
+  background: #ecfdf5;
+  border-radius: 14px;
+  border: 1px solid #d1fae5;
+}
+
+.theme-dark .sa-update-frequency {
+  background: #052e1f;
+  border-color: rgba(74, 222, 128, 0.18);
+}
+
+.sa-update-frequency h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.sa-update-frequency p {
+  margin: 0;
+  color: #065f46;
+  font-size: 0.92rem;
+}
+
+.theme-dark .sa-update-frequency p {
+  color: #d1fae1;
 }
 
 .sa-summary-card {
