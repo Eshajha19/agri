@@ -191,11 +191,11 @@ function App() {
     };
     window.addEventListener("online", handleNetworkChange);
     window.addEventListener("offline", handleNetworkChange);
-    const interval = setInterval(handleNetworkChange, 1000);
+    
     return () => {
       window.removeEventListener("online", handleNetworkChange);
       window.removeEventListener("offline", handleNetworkChange);
-      clearInterval(interval);
+      
     };
   }, []);
 
