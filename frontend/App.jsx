@@ -1,8 +1,16 @@
-import React, { useEffect, useState } from "react";
-import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
-
+import React, { useState, useRef, useEffect } from "react";
+import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
+import "./App.css";
+import Advisor from "./Advisor";
+import How from "./How";
+import Home from "./Home";
+import FAQ from "./FAQ";
+import Terms from "./Terms";
+import Privacy from "./Privacy";
+import Resources from "./Resources";
+import CropGuide from "./CropGuide";
 import { ToastContainer } from "react-toastify";
-
+import useNotifications from "./Notifications";
 import {
   FaHome,
   FaComments,
@@ -16,17 +24,10 @@ import {
   FaChevronDown,
   FaUser,
 } from "react-icons/fa";
-
-import Advisor from "./Advisor";
-import Home from "./Home";
-import Resources from "./Resources";
-import CropGuide from "./CropGuide";
-import How from "./How";
 import Dashboard from "./Dashboard";
 import Auth from "./Auth";
 import ProfileSetup from "./ProfileSetup";
 import LanguageDropdown from "./LanguageDropdown";
-import useNotifications from "./Notifications";
 import Schemes from "./GovernmentSchemes";
 import Feedback from "./Feedback";
 import AdminFeedback from "./AdminFeedback";
@@ -38,11 +39,10 @@ import CropProfitCalculator from "./CropProfitCalculator";
 import Community from "./Community";
 import SoilAnalysis from "./SoilAnalysis";
 
- import { syncOfflineRequests } from "./lib/syncOfflineRequests";
- import { auth, db, isFirebaseConfigured, doc, onSnapshot } from "./lib/firebase";
- import { onAuthStateChanged, signOut } from "firebase/auth";
+import { syncOfflineRequests } from "./lib/syncOfflineRequests";
+import { auth, db, isFirebaseConfigured, doc, onSnapshot } from "./lib/firebase";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 
-import "./App.css";
 import "./themes/sunlight.css";
 
 /* ---------------- LANGUAGE ---------------- */
@@ -54,7 +54,7 @@ const LANGUAGE_OPTIONS = [
   { value: "bn", label: "🇮🇳 বাংলা", englishName: "bengali" },
   { value: "ta", label: "🇮🇳 தமிழ்", englishName: "tamil" },
   { value: "te", label: "🇮🇳 తెలుగు", englishName: "telugu" },
-  { value: "gu", label: "🇮🇳 ગુજરાତି", englishName: "gujarati" },
+  { value: "gu", label: "🇮🇳 ગુજરાતી", englishName: "gujarati" },
   { value: "pa", label: "🇮🇳 ਪੰਜਾਬੀ", englishName: "punjabi" },
   { value: "kn", label: "🇮🇳 ಕನ್ನಡ", englishName: "kannada" },
   { value: "ml", label: "🇮🇳 മലയാളം", englishName: "malayalam" },
@@ -98,6 +98,7 @@ const syncLanguage = (lang, setLang) => {
 function App() {
   const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
   const [isOpen, setIsOpen] = useState(false);
+  const [sunlight, setSunlight] = useState(false);
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [profileCompleted, setProfileCompleted] = useState(true);
@@ -127,30 +128,29 @@ function App() {
 
   useNotifications();
 
-   /* ---------------- THEME SYSTEM ---------------- */
-   const [isDarkTheme, setIsDarkTheme] = useState(() => {
-     try {
-       return (localStorage.getItem("theme") || "light") === "dark";
-     } catch {
-       return false;
-     }
-   });
+  /* ---------------- THEME SYSTEM ---------------- */
+  const [isDarkTheme, setIsDarkTheme] = useState(() => {
+    try {
+      return (localStorage.getItem("theme") || "light") === "dark";
+    } catch {
+      return false;
+    }
+  });
 
-   useEffect(() => {
-     document.documentElement.classList.toggle("theme-dark", isDarkTheme);
-     localStorage.setItem("theme", isDarkTheme ? "dark" : "light");
-   }, [isDarkTheme]);
+  useEffect(() => {
+    document.documentElement.classList.toggle("theme-dark", isDarkTheme);
+    localStorage.setItem("theme", isDarkTheme ? "dark" : "light");
+  }, [isDarkTheme]);
 
-   const handleThemeToggle = () => {
-     setIsDarkTheme(!isDarkTheme);
-   };
+  const handleThemeToggle = () => {
+    setIsDarkTheme(!isDarkTheme);
+  };
 
+  useEffect(() => {
+    setGoogleTranslateCookie(preferredLang);
+  }, [preferredLang]);
 
-   useEffect(() => {
-     setGoogleTranslateCookie(preferredLang);
-    }, [preferredLang]);
-
-   useEffect(() => {
+  useEffect(() => {
     if (!isFirebaseConfigured()) {
       setLoading(false);
       return;
@@ -184,23 +184,23 @@ function App() {
 
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
-   useEffect(() => {
-     const handleNetworkChange = () => {
-       const offline = !navigator.onLine;
-       setIsOffline(offline);
-       if (!offline) {
-         syncOfflineRequests();
-       }
-     };
-     window.addEventListener("online", handleNetworkChange);
-     window.addEventListener("offline", handleNetworkChange);
-     const interval = setInterval(handleNetworkChange, 1000);
-     return () => {
-       window.removeEventListener("online", handleNetworkChange);
-       window.removeEventListener("offline", handleNetworkChange);
-       clearInterval(interval);
-     };
-   }, []);
+  useEffect(() => {
+    const handleNetworkChange = () => {
+      const offline = !navigator.onLine;
+      setIsOffline(offline);
+      if (!offline) {
+        syncOfflineRequests();
+      }
+    };
+    window.addEventListener("online", handleNetworkChange);
+    window.addEventListener("offline", handleNetworkChange);
+    const interval = setInterval(handleNetworkChange, 1000);
+    return () => {
+      window.removeEventListener("online", handleNetworkChange);
+      window.removeEventListener("offline", handleNetworkChange);
+      clearInterval(interval);
+    };
+  }, []);
 
   return (
     <div className={`app ${isDarkTheme ? "theme-dark" : ""}`}>
@@ -231,7 +231,6 @@ function App() {
           <li><Link to="/" onClick={() => setIsOpen(false)}>Home</Link></li>
           <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}>Works</Link></li>
           <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}>Guide</Link></li>
-
           <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
         </ul>
 
@@ -240,33 +239,33 @@ function App() {
             {isDarkTheme ? "☀️" : "🌙"}
           </button>
 
-           <div className="more-menu-container" onClick={() => { setShowMoreMenu(!showMoreMenu); setShowScorecard(false); }}>
-             <button className="btn-more-menu" aria-label="Profile and Settings">
-               <FaUser style={{ width: "24px", height: "24px", fontSize: "24px", minWidth: "24px", minHeight: "24px" }} />
-             </button>
-             {showMoreMenu && (
-               <div className="more-dropdown" onClick={(e) => e.stopPropagation()}>
-                 <div className="dropdown-section">
-                   <label>Language</label>
-                   <select
-                     className="lang-select-dropdown notranslate"
-                     value={preferredLang}
-                     onChange={handleLangChange}
-                   >
-                     {LANGUAGE_OPTIONS.map((l) => (
-                       <option key={l.value} value={l.value}>
-                         {l.label}
-                       </option>
-                     ))}
-                   </select>
-                 </div>
-                 <div className="dropdown-links">
-                   <Link to="/dashboard" onClick={() => setShowMoreMenu(false)}><FaTachometerAlt /> Dashboard</Link>
-                   <Link to="/community" onClick={() => setShowMoreMenu(false)}><FaComments /> Community</Link>
-                 </div>
-               </div>
-             )}
-           </div>
+          <div className="more-menu-container" onClick={() => { setShowMoreMenu(!showMoreMenu); setShowScorecard(false); }}>
+            <button className="btn-more-menu" aria-label="Profile and Settings">
+              <FaUser style={{ width: "24px", height: "24px", fontSize: "24px", minWidth: "24px", minHeight: "24px" }} />
+            </button>
+            {showMoreMenu && (
+              <div className="more-dropdown" onClick={(e) => e.stopPropagation()}>
+                <div className="dropdown-section">
+                  <label>Language</label>
+                  <select
+                    className="lang-select-dropdown notranslate"
+                    value={preferredLang}
+                    onChange={handleLangChange}
+                  >
+                    {LANGUAGE_OPTIONS.map((l) => (
+                      <option key={l.value} value={l.value}>
+                        {l.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="dropdown-links">
+                  <Link to="/dashboard" onClick={() => setShowMoreMenu(false)}><FaTachometerAlt /> Dashboard</Link>
+                  <Link to="/community" onClick={() => setShowMoreMenu(false)}><FaComments /> Community</Link>
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="nav-user" onClick={() => { setShowScorecard(!showScorecard); setShowMoreMenu(false); }}>
             {loading ? (
@@ -326,7 +325,7 @@ function App() {
                onClick={() => {
                  auth?.currentUser?.reload().then(() => window.location.reload()).catch(() => window.location.reload());
                }}
-              className="btn-refresh"
+               className="btn-refresh"
             >
               I've Verified My Email
             </button>
@@ -335,12 +334,12 @@ function App() {
         </div>
       )}
 
-      {!loading && user && user.emailVerified && !profileCompleted && location.pathname !== "/profile-setup" && (
-        <Navigate to="/profile-setup" />
-      )}
+       {!loading && user && user.emailVerified && !profileCompleted && location.pathname !== "/profile-setup" && (
+         <Navigate to="/profile-setup" />
+       )}
 
-      <Routes>
-        <Route path="/" element={<Home user={user} />} />
+       <Routes>
+        <Route path="/" element={<Home />} />
         <Route path="/advisor" element={<Advisor />} />
         <Route path="/how-it-works" element={<How />} />
         <Route path="/dashboard" element={<Dashboard />} />
@@ -357,6 +356,9 @@ function App() {
         <Route path="/profit-calculator" element={<CropProfitCalculator />} />
         <Route path="/community" element={<Community />} />
         <Route path="/soil-analysis" element={<SoilAnalysis />} />
+        <Route path="/faq" element={<FAQ />} />
+        <Route path="/terms" element={<Terms />} />
+        <Route path="/privacy-policy" element={<Privacy />} />
       </Routes>
 
       {/* Floating Chat Button */}
