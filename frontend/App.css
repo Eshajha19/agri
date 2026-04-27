@@ -100,6 +100,7 @@ body,
   padding-left: calc(48px + env(safe-area-inset-left));
   padding-right: calc(48px + constant(safe-area-inset-right));
   padding-right: calc(48px + env(safe-area-inset-right));
+  overflow: visible;
 }
 
 .theme-toggle {
@@ -128,7 +129,6 @@ body,
   animation: theme-toggle-smooth 0.9s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: transform, filter;
 }
-
 
 @keyframes theme-toggle-smooth {
   from {
@@ -162,16 +162,14 @@ body,
 .nav-left {
   display: flex;
   align-items: center;
-  min-width: 0;
+  gap: 8px;
 }
 
 .nav-left .brand {
-  font-size: 20px;
-  font-weight: 700;
+  font-size: 22px;
+  font-weight: 600;
   color: white;
   text-decoration: none;
-  letter-spacing: 0.5px;
-  white-space: nowrap;
 }
 
 .nav-center {
@@ -260,43 +258,6 @@ body,
   font-size: 0.85rem;
   font-weight: 600;
   transition: all 0.2s ease;
-}
-
-.scroll-to-top {
-  position: fixed;
-  right: 22px;
-  bottom: 24px;
-  z-index: 1100;
-  width: 52px;
-  height: 52px;
-  border-radius: 9999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--brand-primary);
-  color: #ffffff;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  box-shadow: 0 18px 30px rgba(0, 0, 0, 0.16);
-  opacity: 0;
-  visibility: hidden;
-  transform: translateY(16px);
-  transition: opacity 0.25s ease, transform 0.25s ease, visibility 0.25s ease;
-}
-
-.scroll-to-top.show {
-  opacity: 1;
-  visibility: visible;
-  transform: translateY(0);
-}
-
-.scroll-to-top:hover {
-  background: var(--brand-hover);
-  transform: translateY(-2px);
-}
-
-.scroll-to-top svg {
-  width: 30px;
-  height: 30px;
 }
 
 .btn-logout:hover {
@@ -509,6 +470,7 @@ body,
     padding-right: calc(20px + constant(safe-area-inset-right));
     padding-right: calc(20px + env(safe-area-inset-right));
     flex-wrap: wrap;
+    overflow: visible;
   }
 
   .nav-left {
@@ -904,7 +866,7 @@ html body {
   animation: slideIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.theme-dark .profile-scorecard {
+.theme-dark .profile-card {
   background: #1e293b;
   border-color: #334155;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
@@ -916,7 +878,7 @@ html body {
   transition: color 0.3s ease;
 }
 
-.theme-dark .scorecard-header {
+.theme-dark .card-header {
   background: linear-gradient(to bottom, #0f172a, #1e293b);
   border-bottom: 1px solid #334155;
 }
@@ -935,6 +897,12 @@ html body {
   margin: 0 auto 1rem;
   box-shadow: 0 4px 12px rgba(46, 125, 50, 0.2);
 }
+/* Parent container */
+.user-profile-trigger {
+  position: relative;  /* ✅ IMPORTANT */
+}
+
+
 
 
 
@@ -1174,4 +1142,134 @@ html body {
 
 @keyframes nav-spin {
   to { transform: rotate(360deg); }
+}
+
+/* Dropdown Animation */
+.animate-dropdown {
+  animation: dropdownFade 0.2s ease-out;
+  transform-origin: top right;
+}
+
+@keyframes dropdownFade {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.user-profile-trigger {
+  position: relative;
+  cursor: pointer;
+}
+
+.profile-scorecard {
+  width: 260px;
+  max-width: 90vw;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+  z-index: 2000;
+  color: #111;
+  overflow: hidden;
+}
+
+.scorecard-header {
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.scorecard-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #2e7d32;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 8px;
+  font-weight: bold;
+}
+
+.scorecard-header h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #1f2937;
+}
+
+.scorecard-header p {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.scorecard-body {
+  margin-top: 10px;
+}
+
+.score-item {
+  display: flex;
+  grid-template-columns: 140px 1fr;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.score-item label {
+  font-weight: 700;
+  color: #111;
+  min-width: 110px; /* keeps alignment clean */
+}
+
+
+.scorecard-footer {
+  margin-top: 12px;
+}
+
+.score-item span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.4;
+  white-space: normal;        /* allow wrapping */
+  word-break: keep-all;       /* don’t break English word */
+  overflow-wrap: break-word;  /* wrap if needed */
+}
+
+.btn-logout-green {
+  width: 100%;
+  padding: 8px;
+  background: #2e7d32;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.btn-logout-green:hover {
+  background: #1b5e20;
+}
+
+.animate-dropdown {
+  animation: dropdownFade 0.2s ease-out;
+  transform-origin: top right;
+}
+
+@keyframes dropdownFade {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.navbar {
+  overflow: visible;
 }
