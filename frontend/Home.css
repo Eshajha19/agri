@@ -98,7 +98,7 @@
 .hero-section {
   min-height: 100vh;
   display: block;
-  padding: 20px 20px 80px;
+  padding: 80px 20px 80px;
   position: relative;
   background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 50%, #f0fdf4 100%);
   overflow: hidden;

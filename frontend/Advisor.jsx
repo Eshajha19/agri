@@ -263,7 +263,7 @@ export default function Advisor() {
               <MessageSquare size={32} strokeWidth={2} />
             </div>
             <h3>Share Feedback</h3>
-            <p>Help us improve Fasal Saathi with your valuable suggestions.</p>
+             <p>Help us improve <span className="notranslate">Fasal Saathi</span> with your valuable suggestions.</p>
           </div>
         </div>
       </div>
