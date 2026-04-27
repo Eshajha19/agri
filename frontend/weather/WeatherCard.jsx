@@ -15,6 +15,7 @@ import {
   getCropWarnings,
   getCurrentPosition,
   searchLocationByName,
+  getWeatherLabel,
 } from "./weatherService";
 import { useWeatherManagement } from "../hooks/useWeatherManagement";
 
@@ -229,13 +230,21 @@ export default function WeatherCard({
 
           {/* FORECAST */}
           <div className="forecast-strip">
-            {snapshot.daily?.slice(0, 5).map((d, i) => (
-              <div key={i} className="forecast-day">
-                <p>{d.date}</p>
-                <p>{Math.round(d.temp_max)}° / {Math.round(d.temp_min)}°</p>
-                <p>{d.condition}</p>
-              </div>
-            ))}
+            {snapshot.daily && snapshot.daily.weather_code && snapshot.daily.weather_code.length > 0 ? (
+              snapshot.daily.weather_code.slice(0, 5).map((_, i) => {
+                const date = new Date();
+                date.setDate(date.getDate() + i);
+                const dayName = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : date.toLocaleDateString('en-US', { weekday: 'short' });
+
+                return (
+                  <div key={i} className="forecast-day">
+                    <p>{dayName}</p>
+                    <p>{Math.round(snapshot.daily.temperature_2m_max[i])}° / {Math.round(snapshot.daily.temperature_2m_min[i])}°</p>
+                    <p>{getWeatherIcon(getWeatherLabel(snapshot.daily.weather_code[i]))}</p>
+                  </div>
+                );
+              })
+            ) : null}
           </div>
 
           {/* PANELS */}

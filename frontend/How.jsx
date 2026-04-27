@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { Link } from "react-router-dom";
 import "./How.css";
 
 export default function How() {
@@ -129,7 +130,9 @@ export default function How() {
       <div className="cta-section">
         <h2>Ready to Transform Your Farm?</h2>
         <p>Start using our platform today and see the difference in your crop yield and farm profitability.</p>
-        <button className="cta-button">Get Started Free</button>
+        <Link to="/login">
+          <button className="cta-button">Get Started Free</button>
+        </Link>
       </div>
     </section>
   );
