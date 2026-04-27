@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
 import "./App.css";
 import Advisor from "./Advisor";
@@ -98,7 +98,6 @@ const syncLanguage = (lang, setLang) => {
 function App() {
   const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
   const [isOpen, setIsOpen] = useState(false);
-  const [sunlight, setSunlight] = useState(false);
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [profileCompleted, setProfileCompleted] = useState(true);
@@ -239,7 +238,10 @@ function App() {
             {isDarkTheme ? "☀️" : "🌙"}
           </button>
 
-          </div>
+          <button onClick={() => setShowMoreMenu(!showMoreMenu)} className="more-menu-toggle" aria-label="More Options">
+            <FaBars />
+          </button>
+
           {showMoreMenu && (
             <div className="more-dropdown" onClick={(e) => e.stopPropagation()}>
               <div className="dropdown-section">
@@ -262,55 +264,54 @@ function App() {
               </div>
             </div>
           )}
-        </div>
 
-        <div className="nav-user" onClick={() => { setShowScorecard(!showScorecard); setShowMoreMenu(false); }}>
-          {loading ? (
-            <div className="nav-loader-mini"></div>
-          ) : user ? (
-            <div className="user-profile-trigger">
-              <div className="profile-main">
-                <span className="profile-name">{userData?.displayName || user.email?.split('@')?.[0] || "Farmer"}</span>
-                <FaChevronDown className={`chevron ${showScorecard ? 'open' : ''}`} />
-              </div>
-
-              {showScorecard && userData && (
-                <div className="profile-scorecard" onClick={(e) => e.stopPropagation()}>
-                  <div className="scorecard-header">
-                    <div className="scorecard-avatar">{userData.displayName?.[0] || 'F'}</div>
-                    <h3>{userData.displayName}</h3>
-                    <p>{userData.email}</p>
-                  </div>
-                  <div className="scorecard-body">
-                    {[
-                      { label: "Primary Crop", value: userData.cropType },
-                      { label: "Language", value: LANGUAGE_OPTIONS.find(l => l.value === userData.language)?.label || userData.language },
-                      { label: "Location", value: userData.address || "Fetching..." }
-                    ].map((item, i) => (
-                      <div key={i} className="score-item">
-                        <label>{item.label}</label>
-                        <span>{item.value}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="scorecard-footer">
-                    <button onClick={handleLogout} className="btn-logout-alt">Sign Out</button>
-                  </div>
+          <div className="nav-user" onClick={() => { setShowScorecard(!showScorecard); setShowMoreMenu(false); }}>
+            {loading ? (
+              <div className="nav-loader-mini"></div>
+            ) : user ? (
+              <div className="user-profile-trigger">
+                <div className="profile-main">
+                  <span className="profile-name">{userData?.displayName || user.email?.split('@')?.[0] || "Farmer"}</span>
+                  <FaChevronDown className={`chevron ${showScorecard ? 'open' : ''}`} />
                 </div>
-              )}
-            </div>
-          ) : (
-            <Link to="/login" className="btn-get-started">Get Started</Link>
-          )}
+
+                {showScorecard && userData && (
+                  <div className="profile-scorecard" onClick={(e) => e.stopPropagation()}>
+                    <div className="scorecard-header">
+                      <div className="scorecard-avatar">{userData.displayName?.[0] || 'F'}</div>
+                      <h3>{userData.displayName}</h3>
+                      <p>{userData.email}</p>
+                    </div>
+                    <div className="scorecard-body">
+                      {[
+                        { label: "Primary Crop", value: userData.cropType },
+                        { label: "Language", value: LANGUAGE_OPTIONS.find(l => l.value === userData.language)?.label || userData.language },
+                        { label: "Location", value: userData.address || "Fetching..." }
+                      ].map((item, i) => (
+                        <div key={i} className="score-item">
+                          <label>{item.label}</label>
+                          <span>{item.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="scorecard-footer">
+                      <button onClick={handleLogout} className="btn-logout-alt">Sign Out</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <Link to="/login" className="btn-get-started">Get Started</Link>
+            )}
+          </div>
         </div>
-      </div>
-      <button
-        className="hamburger"
-        onClick={handleNavToggle}
-      >
-        {isOpen ? <FaTimes /> : <FaBars />}
-      </button>
-    </nav>
+        <button
+          className="hamburger"
+          onClick={handleNavToggle}
+        >
+          {isOpen ? <FaTimes /> : <FaBars />}
+        </button>
+      </nav>
 
     {!loading && user && !user.emailVerified && !showScorecard && location.pathname !== "/login" && (
       <div className="verification-overlay">
