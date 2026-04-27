@@ -229,6 +229,7 @@ export default function SoilAnalysis() {
     const fertilizers = getRecommendedFertilizers(levels);
     const updateSuggestions = getSoilUpdateSuggestions(levels);
     const updateFrequency = getUpdateFrequency(quality.score);
+    const soilInsights = getSoilInsights(levels);
 
     setResults({
       levels,
@@ -238,6 +239,7 @@ export default function SoilAnalysis() {
       values: { nitrogen: n, phosphorus: p, potassium: k },
       updateSuggestions,
       updateFrequency,
+      soilInsights,
     });
     setHasAnalyzed(true);
   };

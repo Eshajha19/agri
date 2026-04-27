@@ -1,53 +1,16 @@
-import React, { useState, useRef, useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
 import "./App.css";
 import Advisor from "./Advisor";
 import How from "./How";
 import Home from "./Home";
-import FAQ from "./pages/FAQ";
-import Terms from "./pages/Terms";
-import Privacy from "./pages/Privacy";
+import FAQ from "./FAQ";
+import Terms from "./Terms";
+import Privacy from "./Privacy";
 import Resources from "./Resources";
 import CropGuide from "./CropGuide";
 import { ToastContainer } from "react-toastify";
 import useNotifications from "./Notifications";
-import React, { useEffect, useState } from "react";
-import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
-
-import { ToastContainer } from "react-toastify";
-
-import {
-  FaHome,
-  FaComments,
-  FaInfoCircle,
-  FaLeaf,
-  FaBars,
-  FaTimes,
-  FaCalculator,
-  FaMap,
-  FaTachometerAlt,
-  FaChevronDown,
-  FaUser,
-} from "react-icons/fa";
-
-import Advisor from "./Advisor";
-import Home from "./Home";
-import Resources from "./Resources";
-import CropGuide from "./CropGuide";
-import How from "./How";
-import Dashboard from "./Dashboard";
-import Auth from "./Auth";
-import ProfileSetup from "./ProfileSetup";
-import LanguageDropdown from "./LanguageDropdown";
-import useNotifications from "./Notifications";
-import Schemes from "./GovernmentSchemes";
-import Feedback from "./Feedback";
-import AdminFeedback from "./AdminFeedback";
-import Calendar from "./FarmingCalendar";
-import MarketPrices from "./MarketPrices";
-import Loader from "./Loader";
-import FarmingMap from "./FarmingMap";
-import CropProfitCalculator from "./CropProfitCalculator";
 import Community from "./Community";
 import SoilAnalysis from "./SoilAnalysis";
 
@@ -218,7 +181,8 @@ function App() {
    }, []);
 
   return (
-    <div className={`app ${isDarkTheme ? "theme-dark" : ""}`}>
+    <BrowserRouter>
+      <div className={`app ${isDarkTheme ? "theme-dark" : ""}`}>
       {loading && <Loader fullPage={true} message="Initializing Fasal Saathi..." />}
       {isOffline && (
         <div className="offline-banner">
@@ -331,30 +295,6 @@ function App() {
         </button>
       </nav>
 
-          <ul className={`nav-center ${isOpen ? "active" : ""}`}>
-            <li>
-              <Link to="/" onClick={() => setIsOpen(false)}>
-                <FaHome className="icon" /> Home
-              </Link>
-            </li>
-            <li>
-              <Link to="/advisor" onClick={() => setIsOpen(false)}>
-                <FaComments className="icon" /> Chat
-              </Link>
-            </li>
-            <li>
-              <Link to="/how-it-works" onClick={() => setIsOpen(false)}>
-                <FaInfoCircle className="icon" /> How It Works
-              </Link>
-            </li>
-            <li>
-              <Link to="/crop-guide" onClick={() => setIsOpen(false)}>
-                <FaLeaf className="icon" /> Crop Guide
-              </Link>
-            </li>
-          </ul>
-
-          <div className="nav-right">
       {!loading && user && !user.emailVerified && !showScorecard && location.pathname !== "/login" && (
         <div className="verification-overlay">
           <div className="verification-card">
@@ -378,66 +318,6 @@ function App() {
         <Navigate to="/profile-setup" />
       )}
 
-        {showAlert && (
-          <div className="alert-bar">
-            🌧️ Weather Alert: Heavy rainfall expected in parts of Maharashtra this evening.
-            <button className="close-btn" onClick={() => setShowAlert(false)}>
-              <FaTimes />
-            </button>
-          </div>
-        )}
-
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/advisor" element={<Advisor />} />
-          <Route path="/how-it-works" element={<How />} />
-          
-  {/* NEW ROUTES */}
-  <Route path="/faq" element={<FAQ />} />
-  <Route path="/terms" element={<Terms />} />
-  <Route path="/privacy-policy" element={<Privacy />} />
-
-          <Route
-            path="/login"
-            element={
-              <div className="login-page">
-                <div className="login-card">
-                  <h2>👨‍🌾 Farmer Login</h2>
-                  <p>Welcome! Please provide your details to continue.</p>
-                  <form onSubmit={handleLogin}>
-                    <input
-                      type="text"
-                      placeholder="Enter your name"
-                      value={inputName}
-                      onChange={(e) => setInputName(e.target.value)}
-                      required
-                    />
-                    <select
-                      value={preferredLang}
-                      onChange={(e) => setPreferredLang(e.target.value)}
-                      required
-                    >
-                      <option value="en">English</option>
-                      <option value="hi">Hindi</option>
-                      <option value="mr">Marathi</option>
-                    </select>
-                    <button type="submit">Login</button>
-                  </form>
-                  <p className="login-note">
-                    Your preferences will be saved for future visits.
-                  </p>
-                </div>
-              </div>
-            }
-          />
-          
-        </Routes>
-      </div>
-        </Routes>
-      </div>
-
-       <ToastContainer />
-    </Router>
       <Routes>
         <Route path="/" element={<Home user={user} />} />
         <Route path="/advisor" element={<Advisor />} />
@@ -456,15 +336,19 @@ function App() {
         <Route path="/profit-calculator" element={<CropProfitCalculator />} />
         <Route path="/community" element={<Community />} />
         <Route path="/soil-analysis" element={<SoilAnalysis />} />
+        <Route path="/faq" element={<FAQ />} />
+        <Route path="/terms" element={<Terms />} />
+        <Route path="/privacy-policy" element={<Privacy />} />
       </Routes>
 
-      {/* Floating Chat Button */}
-      <Link to="/advisor" className="floating-chat-btn" aria-label="Chat Support">
-        <FaComments size={28} />
-      </Link>
+        {/* Floating Chat Button */}
+        <Link to="/advisor" className="floating-chat-btn" aria-label="Chat Support">
+          <FaComments size={28} />
+        </Link>
 
-      <ToastContainer position="bottom-right" />
-    </div>
+        <ToastContainer position="bottom-right" />
+      </div>
+    </BrowserRouter>
   );
 }
 
