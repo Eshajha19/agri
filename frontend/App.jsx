@@ -17,6 +17,8 @@ import {
   FaTimes,
   FaCalculator,
   FaMap,
+  FaUsers,
+  FaTachometerAlt,
 } from "react-icons/fa";
 import { ToastContainer } from "react-toastify";
 
@@ -35,6 +37,7 @@ import Feedback from "./Feedback";
 import AdminFeedback from "./AdminFeedback";
 import Calendar from "./FarmingCalendar";
 import MarketPrices from "./MarketPrices";
+import Contributors from "./Contributors";
 
 import { auth, db, isFirebaseConfigured } from "./lib/firebase";
 
@@ -210,6 +213,7 @@ function App() {
           <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}><FaLeaf className="icon" /> Crop Guide</Link></li>
           <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
           <li><Link to="/dashboard" onClick={() => setIsOpen(false)}><FaTachometerAlt /> Dashboard</Link></li>
+          <li><Link to="/contributors" onClick={() => setIsOpen(false)}><FaUsers /> Contributors</Link></li>
 
         </ul>
 
@@ -326,6 +330,7 @@ function App() {
         <Route path="/crop-guide" element={<CropGuide />} />
         <Route path="/schemes" element={<Schemes />} />
         <Route path="/resources" element={<Resources />} />
+        <Route path="/contributors" element={<Contributors />} />
         <Route path="/login" element={<Auth />} />
         <Route path="/profile-setup" element={<ProfileSetup user={user} profileCompleted={profileCompleted} />} />
         <Route path="/calendar" element={<Calendar />} />
