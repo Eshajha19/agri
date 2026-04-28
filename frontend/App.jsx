@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
 
 import { ToastContainer } from "react-toastify";
@@ -96,6 +96,7 @@ const syncLanguage = (lang, setLang) => {
 };
 
 function App() {
+  const scorecardRef = useRef(null);
   const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
   const [isOpen, setIsOpen] = useState(false);
   const [user, setUser] = useState(null);
@@ -254,7 +255,7 @@ function App() {
               </div>
             )}
 
-          <div className="nav-user" onClick={() => { setShowScorecard(!showScorecard); setShowMoreMenu(false); }}>
+          <div className="nav-user" ref={scorecardRef} onClick={() => { setShowScorecard(!showScorecard); setShowMoreMenu(false); }}>
             {loading ? (
               <div className="nav-loader-mini"></div>
             ) : user ? (
