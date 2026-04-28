@@ -72,6 +72,10 @@ export const useWeatherManagement = () => {
       setNotificationPermission(permission);
     } catch (error) {
       handleSilentError(error, 'notification-permission');
+    }
+  }, [handleSilentError]);
+
+  return {
     snapshot,
     setSnapshot,
     selectedCrop,

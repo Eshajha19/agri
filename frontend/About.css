@@ -1,0 +1,142 @@
+.about-page {
+  max-width: 1200px;
+  margin: auto;
+  padding: 40px 20px;
+}
+
+.about-hero {
+  text-align: center;
+  padding: 60px 20px;
+  background: linear-gradient(135deg, #1b4332 0%, #2d6a4f 100%);
+  border-radius: 16px;
+  color: white;
+  margin-bottom: 60px;
+}
+
+.hero-icon {
+  font-size: 4rem;
+  margin-bottom: 20px;
+  color: #b7e4c7;
+}
+
+.about-hero h1 {
+  font-size: 2.5rem;
+  margin-bottom: 10px;
+}
+
+.hero-subtitle {
+  font-size: 1.2rem;
+  opacity: 0.9;
+}
+
+.about-mission {
+  text-align: center;
+  max-width: 800px;
+  margin: 0 auto 60px;
+}
+
+.about-mission h2 {
+  font-size: 2rem;
+  margin-bottom: 20px;
+  color: #1b4332;
+}
+
+.about-mission p {
+  font-size: 1.1rem;
+  line-height: 1.8;
+  color: #555;
+}
+
+.about-values h2,
+.about-why h2,
+.about-cta h2 {
+  text-align: center;
+  font-size: 2rem;
+  margin-bottom: 40px;
+  color: #1b4332;
+}
+
+.values-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 30px;
+  margin-bottom: 60px;
+}
+
+.value-card {
+  background: #f8f9fa;
+  padding: 30px;
+  border-radius: 12px;
+  text-align: center;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.value-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+}
+
+.value-icon {
+  font-size: 3rem;
+  color: #2d6a4f;
+  margin-bottom: 20px;
+}
+
+.value-card h3 {
+  font-size: 1.3rem;
+  margin-bottom: 10px;
+  color: #1b4332;
+}
+
+.value-card p {
+  color: #666;
+  line-height: 1.6;
+}
+
+.about-why {
+  margin-bottom: 60px;
+}
+
+.why-list {
+  list-style: none;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.why-list li {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 15px 0;
+  font-size: 1.1rem;
+  color: #444;
+  border-bottom: 1px solid #eee;
+}
+
+.why-list li:last-child {
+  border-bottom: none;
+}
+
+.why-list svg {
+  color: #2d6a4f;
+  font-size: 1.3rem;
+  flex-shrink: 0;
+}
+
+.about-cta {
+  text-align: center;
+  padding: 60px 20px;
+  background: linear-gradient(135deg, #2d6a4f 0%, #40916c 100%);
+  border-radius: 16px;
+  color: white;
+}
+
+.about-cta h2 {
+  font-size: 2rem;
+  margin-bottom: 10px;
+}
+
+.about-cta p {
+  font-size: 1.1rem;
+  opacity: 0.9;
+}

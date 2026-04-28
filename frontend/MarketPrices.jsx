@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { fetchMarketPrices, fetchPriceTrends, getUniqueStates, getUniqueCommodities } from "./lib/marketApi";
 import "./MarketPrices.css";
+import Loader from "./Loader";
 
 const MarketPrices = () => {
   const [prices, setPrices] = useState([]);
@@ -169,10 +170,7 @@ const MarketPrices = () => {
         </div>
 
         {loading ? (
-          <div className="market-loading">
-            <RefreshCw size={40} className="spin" />
-            <p>Fetching latest market data from official sources...</p>
-          </div>
+          <Loader message="Fetching latest market data from official sources..." />
         ) : activeTab === 'list' ? (
           <div className="mandi-table-container">
             <table className="mandi-table">

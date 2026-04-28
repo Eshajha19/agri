@@ -1,0 +1,165 @@
+.contact-page {
+  max-width: 1000px;
+  margin: auto;
+  padding: 40px 20px;
+}
+
+.contact-hero {
+  text-align: center;
+  padding: 60px 20px;
+  background: linear-gradient(135deg, #1b4332 0%, #2d6a4f 100%);
+  border-radius: 16px;
+  color: white;
+  margin-bottom: 60px;
+}
+
+.contact-hero h1 {
+  font-size: 2.5rem;
+  margin-bottom: 10px;
+}
+
+.contact-hero p {
+  font-size: 1.1rem;
+  opacity: 0.9;
+}
+
+.contact-content .container {
+  width: 100%;
+}
+
+.contact-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr;
+  gap: 50px;
+  align-items: start;
+}
+
+.contact-info h2 {
+  font-size: 1.8rem;
+  margin-bottom: 15px;
+  color: #1b4332;
+}
+
+.contact-info > p {
+  color: #666;
+  line-height: 1.6;
+  margin-bottom: 30px;
+}
+
+.info-items {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.info-item {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.info-icon {
+  font-size: 1.5rem;
+  color: #2d6a4f;
+}
+
+.info-item h4 {
+  font-size: 1rem;
+  margin-bottom: 3px;
+  color: #333;
+}
+
+.info-item p {
+  font-size: 0.95rem;
+  color: #666;
+}
+
+.contact-form-wrapper {
+  background: #f8f9fa;
+  padding: 40px;
+  border-radius: 12px;
+}
+
+.contact-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-group label {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #333;
+}
+
+.form-group input,
+.form-group textarea {
+  padding: 12px 15px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-family: inherit;
+  transition: border-color 0.3s;
+}
+
+.form-group input:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: #2d6a4f;
+  box-shadow: 0 0 0 3px rgba(45, 106, 79, 0.1);
+}
+
+.submit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 28px;
+  background: #2d6a4f;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.3s ease;
+}
+
+.submit-btn:hover {
+  background: #1b4332;
+}
+
+.success-message {
+  text-align: center;
+  padding: 60px 20px;
+}
+
+.success-message h3 {
+  font-size: 1.8rem;
+  color: #2d6a4f;
+  margin-bottom: 10px;
+}
+
+.success-message p {
+  color: #666;
+}
+
+@media (max-width: 768px) {
+  .contact-grid {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+  
+  .contact-form-wrapper {
+    padding: 25px;
+  }
+}

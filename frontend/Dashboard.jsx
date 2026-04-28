@@ -13,6 +13,7 @@ import {
   FaBell,
   FaWater,
   FaBug,
+  FaComments,
 } from "react-icons/fa";
 import "./Dashboard.css";
 
@@ -124,7 +125,7 @@ export default function Dashboard() {
 
   const quickActions = [
     { label: "AI Advisor", icon: <FaSeedling />, link: "/advisor" },
-    { label: "Weather", icon: <FaCloudSun />, link: "/advisor" },
+    { label: "Community", icon: <FaComments />, link: "/community" },
     { label: "How It Works", icon: <FaChartLine />, link: "/how-it-works" },
   ];
 

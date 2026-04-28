@@ -17,7 +17,7 @@ export const useErrorHandler = () => {
   const handleError = useCallback(
     (error, context, userMessage = 'An error occurred. Please try again.') => {
       // Log to backend in production
-      if (process.env.NODE_ENV === 'production') {
+      if (import.meta.env.MODE === 'production') {
         reportErrorToBackend({
           error,
           context,
@@ -33,7 +33,7 @@ export const useErrorHandler = () => {
       });
 
       // Log for debugging in development
-      if (process.env.NODE_ENV === 'development') {
+      if (import.meta.env.MODE === 'development') {
         console.warn(`[${context}]`, error);
       }
     },
@@ -46,7 +46,7 @@ export const useErrorHandler = () => {
    * @param {string} context - Context for logging
    */
   const handleWarning = useCallback((message, context) => {
-    if (process.env.NODE_ENV === 'development') {
+    if (import.meta.env.MODE === 'development') {
       console.warn(`[${context}]`, message);
     }
 
@@ -63,7 +63,7 @@ export const useErrorHandler = () => {
    * @param {string} context - Context where error occurred
    */
   const handleSilentError = useCallback((error, context) => {
-    if (process.env.NODE_ENV === 'production') {
+    if (import.meta.env.MODE === 'production') {
       reportErrorToBackend({
         error,
         context,
@@ -72,7 +72,7 @@ export const useErrorHandler = () => {
       });
     }
 
-    if (process.env.NODE_ENV === 'development') {
+    if (import.meta.env.MODE === 'development') {
       console.warn(`[${context}] (silent)`, error);
     }
   }, []);

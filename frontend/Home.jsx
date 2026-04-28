@@ -15,15 +15,14 @@ import {
   FaGlobe,
   FaLandmark,
   FaCalendarAlt,
-  FaCommentDots
+  FaCommentDots,
+  FaCalculator
 } from "react-icons/fa";
 import WeatherAlertBar from "./weather/WeatherAlertBar";
 import WeatherQuickWidget from "./weather/WeatherQuickWidget";
-import { auth, isFirebaseConfigured } from "./lib/firebase";
 import "./Home.css";
 
-export default function Home() {
-  const features = [
+const features = [
     {
       icon: <FaBrain />,
       title: "AI-Powered Predictions",
@@ -67,6 +66,30 @@ export default function Home() {
       category: "Recommendations",
     },
     {
+      icon: <FaLock />,
+      title: "Secure & Private",
+      desc: "Enterprise-grade security with Firebase authentication",
+      category: "Protection",
+    },
+    {
+      icon: <FaFlask />,
+      title: "Soil Analysis",
+      desc: "Comprehensive soil health monitoring and nutrient level analysis",
+      category: "Monitoring",
+    },
+    {
+      icon: <FaLeaf />,
+      title: "Crop Recommendations",
+      desc: "Get crop suggestions based on soil profile and regional climate",
+      category: "Recommendations",
+    },
+    {
+      icon: <FaChartLine />,
+      title: "Fertilizer Guidance",
+      desc: "Personalized fertilizer and pesticide recommendations",
+      category: "Recommendations",
+    },
+    {
       icon: <FaCalculator />,
       title: "Profit Calculator",
       desc: "Estimate potential profit before choosing crops with market analysis",
@@ -88,7 +111,7 @@ const stats = [
 ];
 
 const testimonials = [
-  { name: "Ramesh Kumar", location: "Maharashtra", text: "Fasal Saathi helped me increase my rice yield by 30% this season!" },
+  { name: "Ramesh Kumar", location: "Maharashtra", text: <><span className="notranslate">Fasal Saathi</span> helped me increase my rice yield by 30% this season!</> },
   { name: "Lakshmi Devi", location: "Tamil Nadu", text: "The weather predictions are accurate. I plan my irrigation accordingly." },
   { name: "Suresh Patel", location: "Gujarat", text: "Best AI farming assistant. Simple to use even for elderly farmers." },
 ];
@@ -346,10 +369,10 @@ export default function Home({ user }) {
         <div className="footer-content">
           <div className="footer-grid">
             <div className="footer-section">
-              <div className="footer-brand">
-                <FaSeedling className="footer-logo" />
-                <span>Fasal Saathi</span>
-              </div>
+               <div className="footer-brand">
+                 <FaSeedling className="footer-logo" />
+                 <span className="notranslate">Fasal Saathi</span>
+               </div>
               <p className="footer-description">
                 AI-powered agricultural advisor helping farmers with crop planning,
                 weather insights, irrigation, and yield optimization.
@@ -368,6 +391,7 @@ export default function Home({ user }) {
               <Link to="/dashboard">Dashboard</Link>
               <Link to="/calendar">Activity Calendar</Link>
               <Link to="/market-prices">Market Prices</Link>
+              <Link to="/community">Community</Link>
               <Link to="/share-feedback">Share Feedback</Link>
             </div>
             <div className="footer-section">
@@ -390,9 +414,9 @@ export default function Home({ user }) {
               <FaGlobe />
               <span>Available Across India</span>
             </div>
-            <p className="footer-copyright">
-              © 2026 Fasal Saathi. All rights reserved. MIT Licensed.
-            </p>
+           <p className="footer-copyright">
+             © 2026 <span className="notranslate">Fasal Saathi</span>. All rights reserved. MIT Licensed.
+           </p>
           </div>
         </div>
       </footer>

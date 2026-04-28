@@ -2,12 +2,29 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
-export default defineConfig(({ mode }) => ({
+const spaFallbackPlugin = () => ({
+  name: 'spa-fallback',
+  configureServer(server) {
+    server.middlewares.use((req, res, next) => {
+      // List of routes that conflict with .jsx filenames
+      const conflictRoutes = ['/advisor', '/community', '/dashboard', '/home', '/auth', '/resources'];
+      const urlPath = req.url.split('?')[0].toLowerCase();
+      
+      if (conflictRoutes.includes(urlPath)) {
+        req.url = '/index.html';
+      }
+      next();
+    });
+  }
+});
+
+export default defineConfig(() => ({
   plugins: [
+    spaFallbackPlugin(),
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon-192x192.png', 'icon-512x512.png'],
+      includeAssets: [],
       manifest: {
         name: 'Fasal Saathi - AI-Powered Farming Assistant',
         short_name: 'FasalSaathi',
@@ -16,66 +33,9 @@ export default defineConfig(({ mode }) => ({
         background_color: '#ffffff',
         display: 'standalone',
         start_url: '/',
-        orientation: 'any',
+        orientation: 'portrait',
         scope: '/',
-        icons: [
-          {
-            src: '/icon-192x192.png',
-            sizes: '192x192',
-            type: 'image/png'
-          },
-          {
-            src: '/icon-512x512.png',
-            sizes: '512x512',
-            type: 'image/png'
-          },
-          {
-            src: '/icon-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any maskable'
-          }
-        ],
         categories: ['productivity', 'utilities', 'education'],
-        screenshots: [
-          {
-            src: '/screenshot-wide.png',
-            sizes: '1280x720',
-            type: 'image/png',
-            form_factor: 'wide',
-            label: 'Home screen with weather and features'
-          },
-          {
-            src: '/screenshot-narrow.png',
-            sizes: '750x1334',
-            type: 'image/png',
-            form_factor: 'narrow',
-            label: 'Mobile home screen'
-          }
-        ],
-        shortcuts: [
-          {
-            name: 'AI Advisor',
-            short_name: 'Advisor',
-            description: 'Get AI farming advice',
-            url: '/advisor',
-            icons: [{ src: '/icon-192x192.png', sizes: '192x192' }]
-          },
-          {
-            name: 'Weather',
-            short_name: 'Weather',
-            description: 'Check weather forecast',
-            url: '/weather',
-            icons: [{ src: '/icon-192x192.png', sizes: '192x192' }]
-          },
-          {
-            name: 'Market Prices',
-            short_name: 'Market',
-            description: 'Latest crop market prices',
-            url: '/market-prices',
-            icons: [{ src: '/icon-192x192.png', sizes: '192x192' }]
-          }
-        ]
       },
        workbox: {
          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,json,webmanifest}'],
@@ -212,9 +172,10 @@ export default defineConfig(({ mode }) => ({
     })
   ],
   server: {
+    port: 5173,
     host: true,
     hmr: {
-      overlay: false
+      overlay: true
     },
     proxy: {
       '/predict': {
@@ -223,15 +184,16 @@ export default defineConfig(({ mode }) => ({
       }
     }
   },
-  build: {
-    outDir: 'dist',
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom'],
-          firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore']
+    build: {
+      outDir: 'build',
+      rollupOptions: {
+        external: [],
+        output: {
+          manualChunks: {
+            vendor: ['react', 'react-dom', 'react-router-dom'],
+            firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore']
+          }
         }
       }
     }
-  }
 }))

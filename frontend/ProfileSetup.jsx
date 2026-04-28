@@ -54,6 +54,7 @@ const ProfileSetup = ({ user, profileCompleted }) => {
     if (user && profileCompleted) {
       navigate("/");
     } else if (!user && !localStorage.getItem("isLoggingIn")) {
+      navigate("/login");
     }
   }, [user, profileCompleted, navigate]);
 
@@ -121,23 +122,24 @@ const ProfileSetup = ({ user, profileCompleted }) => {
     }
 
     setLoading(true);
-    try {
-      const currentUser = auth.currentUser;
-      if (currentUser) {
-        await setDoc(doc(db, "users", currentUser.uid), {
-          displayName: name,
-          language: language,
-          cropType: cropType,
-          location: location,
-          address: address,
-          profileCompleted: true,
-          updatedAt: new Date().toISOString()
-        }, { merge: true });
-        
-        navigate("/");
-      } else {
-        navigate("/login");
-      }
+      try {
+        const currentUser = auth?.currentUser;
+        if (isFirebaseConfigured() && currentUser) {
+          await setDoc(doc(db, "users", currentUser.uid), {
+            displayName: name,
+            language: language,
+            cropType: cropType,
+            location: location,
+            address: address,
+            profileCompleted: true,
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
+          
+          navigate("/");
+        } else {
+          setError("Unable to save profile. Please try again.");
+          setLoading(false);
+        }
     } catch (err) {
       console.error("Save profile error:", err);
       setError("Failed to save profile. Please try again.");
@@ -152,7 +154,7 @@ const ProfileSetup = ({ user, profileCompleted }) => {
         <div className="setup-header">
           <FaSeedling className="setup-logo-icon" />
           <h1>Complete Your Profile</h1>
-          <p>Help us personalize your Fasal Saathi experience</p>
+           <p>Help us personalize your <span className="notranslate">Fasal Saathi</span> experience</p>
         </div>
 
         {error && <div className="setup-error">{error}</div>}
