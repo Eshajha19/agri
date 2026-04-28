@@ -37,6 +37,7 @@ import FarmingMap from "./FarmingMap";
 import CropProfitCalculator from "./CropProfitCalculator";
 import Community from "./Community";
 import ContactUs from "./ContactUs";
+import AboutUs from "./AboutUs";
 
 import { syncOfflineRequests } from "./lib/syncOfflineRequests";
 import { auth, db, isFirebaseConfigured, doc, onSnapshot } from "./lib/firebase";
@@ -225,6 +226,7 @@ function App() {
           <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}>Works</Link></li>
           <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}>Guide</Link></li>
           <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
+          <li><Link to="/about" onClick={() => setIsOpen(false)}>About</Link></li>
           <li><Link to="/contact" onClick={() => setIsOpen(false)}>Contact</Link></li>
         </ul>
 
@@ -347,6 +349,7 @@ function App() {
         <Route path="/profit-calculator" element={<CropProfitCalculator />} />
         <Route path="/community" element={<Community />} />
         <Route path="/contact" element={<ContactUs />} />
+        <Route path="/about" element={<AboutUs />} />
       </Routes>
 
         {/* Floating Chat Button */}
