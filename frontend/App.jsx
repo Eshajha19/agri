@@ -42,6 +42,7 @@ import Community from "./Community";
 import ContactUs from "./ContactUs";
 import AboutUs from "./AboutUs";
 import Contributors from "./Contributors";
+import FAQ from "./FAQ";
 
 import { syncOfflineRequests } from "./lib/syncOfflineRequests";
 import { auth, db, isFirebaseConfigured, doc, onSnapshot } from "./lib/firebase";
@@ -223,6 +224,7 @@ function App() {
       }
     };
 
+    handleScroll();
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
@@ -480,6 +482,7 @@ function App() {
           <Route path="/community" element={<Community />} />
           <Route path="/contact" element={<ContactUs />} />
           <Route path="/about" element={<AboutUs />} />
+          <Route path="/faq" element={<FAQ />} />
         </Routes>
       </main>
 
