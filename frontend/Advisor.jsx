@@ -8,6 +8,7 @@ import IrrigationGuidance from "./IrrigationGuidance";
 import CropProfitCalculator from "./CropProfitCalculator";
 import FarmingMap from "./FarmingMap";
 import FertilizerRecommendation from "./FertilizerRecommendation";
+import LastUpdated from "./LastUpdated";
 import {
   Sun,
   Droplets,
@@ -62,6 +63,7 @@ export default function Advisor() {
     yieldForm,
     updateYieldFormField,
     yieldPrediction,
+    yieldLastUpdated,
     yieldError,
     yieldLoading,
     showYieldPopup,
@@ -570,6 +572,11 @@ export default function Advisor() {
                   Predicted Yield: <strong>{yieldPrediction.toFixed(2)}</strong>{" "}
                   quintals/acre
                 </p>
+                {yieldLastUpdated && (
+                  <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'center' }}>
+                    <LastUpdated timestamp={yieldLastUpdated} />
+                  </div>
+                )}
                 <button
                   className="action-btn"
                   onClick={() => {

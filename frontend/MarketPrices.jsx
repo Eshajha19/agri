@@ -8,6 +8,7 @@ import {
 import { fetchMarketPrices, fetchPriceTrends, getUniqueStates, getUniqueCommodities } from "./lib/marketApi";
 import "./MarketPrices.css";
 import Loader from "./Loader";
+import LastUpdated from "./LastUpdated";
 
 const MarketPrices = () => {
   const [prices, setPrices] = useState([]);
@@ -16,6 +17,7 @@ const MarketPrices = () => {
   const [filters, setFilters] = useState({ state: "All", commodity: "All", search: "" });
   const [selectedCommodity, setSelectedCommodity] = useState("Wheat");
   const [activeTab, setActiveTab] = useState("list");
+  const [lastUpdated, setLastUpdated] = useState(null);
 
   // Derive unique values from the current prices list
   const states = useMemo(() => getUniqueStates(), []);
@@ -28,6 +30,7 @@ const MarketPrices = () => {
       const trendData = await fetchPriceTrends(selectedCommodity);
       setPrices(priceData || []);
       setTrends(trendData || []);
+      setLastUpdated(Date.now());
     } catch (err) {
       console.error("Failed to load market data:", err);
     } finally {
@@ -93,6 +96,11 @@ const MarketPrices = () => {
           </button>
         </div>
       </header>
+      {lastUpdated && (
+        <div style={{ padding: '0 2rem' }}>
+          <LastUpdated timestamp={lastUpdated} />
+        </div>
+      )}
 
       <section className="market-filters">
         <div className="search-wrapper">

@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import "./FAQ.css";
 
-export default function Faq() {
+export default function FAQ() {
   const [activeIndex, setActiveIndex] = useState(null);
 
   const faqs = [
@@ -63,7 +63,7 @@ export default function Faq() {
     <div className="faq-page">
       <h1>Frequently Asked Questions</h1>
         <p className="faq-subtitle">
-          Everything you need to know about using <span className="notranslate\">Fasal Saathi</span> effectively
+          Everything you need to know about using <span className="notranslate">Fasal Saathi</span> effectively
         </p>
 
       <div className="faq-container">

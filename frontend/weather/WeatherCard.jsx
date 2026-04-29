@@ -18,6 +18,7 @@ import {
   getWeatherLabel,
 } from "./weatherService";
 import { useWeatherManagement } from "../hooks/useWeatherManagement";
+import LastUpdated from "../LastUpdated";
 
 const SENT_NOTIFICATION_KEY = "agriWeatherNotificationSignature";
 
@@ -141,6 +142,9 @@ export default function WeatherCard({
         <span className="weather-card__eyebrow">🌾 Real-time farm intelligence</span>
         <h2>{title}</h2>
         <p className="subtitle">{subtitle}</p>
+        {snapshot?.fetchedAt && (
+          <LastUpdated timestamp={snapshot.fetchedAt} />
+        )}
       </div>
 
       {/* CONTROLS */}
