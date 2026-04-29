@@ -15,6 +15,7 @@ import {
   FaMap,
   FaTachometerAlt,
   FaChevronDown,
+  FaChevronUp,
   FaWhatsapp,
   FaUser,
 } from "react-icons/fa";
@@ -210,6 +211,28 @@ function App() {
       clearInterval(interval);
     };
   }, []);
+
+  const [showScrollTop, setShowScrollTop] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      if (window.scrollY > 300) {
+        setShowScrollTop(true);
+      } else {
+        setShowScrollTop(false);
+      }
+    };
+
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  const scrollToTop = () => {
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
+  };
 
   return (
     <div className={`app ${isDarkTheme ? "theme-dark" : ""}`}>
@@ -484,6 +507,17 @@ function App() {
         <FaWhatsapp />
         <span className="tooltip">Chat with Bot</span>
       </a>
+
+      {showScrollTop && (
+        <button 
+          className="scroll-to-top" 
+          onClick={scrollToTop}
+          aria-label="Scroll to top"
+          title="Scroll to top"
+        >
+          <FaChevronUp size={24} />
+        </button>
+      )}
 
       <ToastContainer position="bottom-right" />
     </div>
