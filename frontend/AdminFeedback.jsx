@@ -126,7 +126,7 @@ export default function AdminFeedback() {
       <div className="admin-fb-header">
         <div>
           <h1>📋 Feedback Dashboard</h1>
-          <p>All submissions from Fasal Saathi users</p>
+           <p>All submissions from <span className="notranslate">Fasal Saathi</span> users</p>
         </div>
         <button className="refresh-btn" onClick={fetchFeedbacks} disabled={loading}>
           <RefreshCw size={16} className={loading ? "spin" : ""} /> Refresh

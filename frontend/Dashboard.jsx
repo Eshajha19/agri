@@ -14,6 +14,8 @@ import {
   FaWater,
   FaBug,
   FaComments,
+  FaWhatsapp,
+  FaCheckCircle,
 } from "react-icons/fa";
 import "./Dashboard.css";
 
@@ -23,10 +25,43 @@ export default function Dashboard() {
 
   const [currentTime, setCurrentTime] = useState(new Date());
 
+  const [phoneNumber, setPhoneNumber] = useState(localStorage.getItem("farmerPhone") || "");
+  const [whatsappAlerts, setWhatsappAlerts] = useState(localStorage.getItem("whatsappAlerts") === "true");
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [updateMsg, setUpdateMsg] = useState("");
+
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
   }, []);
+
+  const handleUpdateWhatsApp = async () => {
+    setIsUpdating(true);
+    setUpdateMsg("");
+    try {
+      const response = await fetch("http://localhost:8000/api/whatsapp/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: localStorage.getItem("userId") || "user_" + name,
+          phone_number: phoneNumber,
+          name: name,
+          enabled: whatsappAlerts
+        }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        localStorage.setItem("farmerPhone", phoneNumber);
+        localStorage.setItem("whatsappAlerts", whatsappAlerts.toString());
+        setUpdateMsg("Settings saved successfully!");
+        setTimeout(() => setUpdateMsg(""), 3000);
+      }
+    } catch (err) {
+      setUpdateMsg("Error saving settings.");
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
   const getGreeting = () => {
     const hour = currentTime.getHours();
@@ -248,6 +283,46 @@ export default function Dashboard() {
             <Link to="/advisor" className="farm-cta-btn">
               Get AI Advice <FaArrowRight />
             </Link>
+          </div>
+
+          <div className="dashboard-section-card whatsapp-settings-card">
+            <div className="section-card-header">
+              <h2><FaWhatsapp /> WhatsApp Alerts</h2>
+              <span className={`status-dot ${whatsappAlerts ? "status-active" : ""}`}></span>
+            </div>
+            <div className="whatsapp-settings-body">
+              <p className="settings-intro">Receive real-time weather and pest alerts on your phone.</p>
+              <div className="input-group">
+                <label>Phone Number (with code)</label>
+                <input 
+                  type="text" 
+                  placeholder="+91 9876543210" 
+                  value={phoneNumber} 
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                />
+              </div>
+              <div className="checkbox-group">
+                <input 
+                  type="checkbox" 
+                  id="wa-toggle" 
+                  checked={whatsappAlerts} 
+                  onChange={(e) => setWhatsappAlerts(e.target.checked)}
+                />
+                <label htmlFor="wa-toggle">Enable Real-time Alerts</label>
+              </div>
+              <button 
+                className={`save-wa-btn ${isUpdating ? "loading" : ""}`} 
+                onClick={handleUpdateWhatsApp}
+                disabled={isUpdating}
+              >
+                {isUpdating ? "Saving..." : "Save Settings"}
+              </button>
+              {updateMsg && (
+                <p className={`update-msg ${updateMsg.includes("Error") ? "error" : "success"}`}>
+                  {updateMsg.includes("success") && <FaCheckCircle />} {updateMsg}
+                </p>
+              )}
+            </div>
           </div>
         </div>
       </section>

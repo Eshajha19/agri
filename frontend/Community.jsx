@@ -14,7 +14,7 @@ import {
   Send,
   X
 } from "lucide-react";
-import { auth, db } from "./lib/firebase";
+import { auth, db, isFirebaseConfigured } from "./lib/firebase";
 import { 
   collection, 
   addDoc, 
@@ -53,9 +53,13 @@ const Community = () => {
   const [postComments, setPostComments] = useState([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
 
-  const currentUser = auth.currentUser;
+  const currentUser = isFirebaseConfigured() ? auth?.currentUser : null;
 
   useEffect(() => {
+    if (!isFirebaseConfigured()) {
+      setLoading(false);
+      return;
+    }
     let q = query(collection(db, "posts"), orderBy("createdAt", "desc"));
     
     if (activeCategory !== "all") {
@@ -79,7 +83,7 @@ const Community = () => {
 
   const handleCreatePost = async (e) => {
     e.preventDefault();
-    if (!currentUser || !newPost.content.trim()) return;
+    if (!isFirebaseConfigured() || !currentUser || !newPost.content.trim()) return;
 
     try {
       await addDoc(collection(db, "posts"), {
@@ -101,7 +105,7 @@ const Community = () => {
   };
 
   const handleLikePost = async (post) => {
-    if (!currentUser) return;
+    if (!isFirebaseConfigured() || !currentUser) return;
     const postRef = doc(db, "posts", post.id);
     const isLiked = post.likes?.includes(currentUser.uid);
 
@@ -135,7 +139,7 @@ const Community = () => {
 
   const handleAddComment = async (e) => {
     e.preventDefault();
-    if (!currentUser || !newComment.trim() || !showCommentsModal) return;
+    if (!isFirebaseConfigured() || !currentUser || !newComment.trim() || !showCommentsModal) return;
 
     const postId = showCommentsModal.id;
     try {
@@ -184,7 +188,7 @@ const Community = () => {
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-          <button className="create-post-btn" onClick={() => setShowCreateModal(true)}>
+          <button className="create-post-btn" onClick={() => setShowCreateModal(true)} disabled={!isFirebaseConfigured()}>
             <Plus size={20} /> Create Discussion
           </button>
         </div>
@@ -206,12 +210,16 @@ const Community = () => {
       <main className="community-feed">
         {loading ? (
           <Loader message="Loading discussions..." />
-        ) : filteredPosts.length === 0 ? (
+         ) : filteredPosts.length === 0 ? (
           <div className="empty-feed">
             <MessageSquare size={64} className="empty-icon" />
             <h3>No discussions found</h3>
-            <p>Be the first one to start a conversation in this category!</p>
-            <button className="btn-secondary" onClick={() => setShowCreateModal(true)}>Start a Discussion</button>
+            {!isFirebaseConfigured() ? (
+              <p>Community features require Firebase configuration. Please check your Firebase settings.</p>
+            ) : (
+              <p>Be the first one to start a conversation in this category!</p>
+            )}
+            {isFirebaseConfigured() && <button className="btn-secondary" onClick={() => setShowCreateModal(true)}>Start a Discussion</button>}
           </div>
         ) : (
           <div className="posts-grid">
@@ -239,10 +247,11 @@ const Community = () => {
                   <p>{post.content}</p>
                 </div>
 
-                <div className="post-actions">
+                 <div className="post-actions">
                   <button 
                     className={`action-btn ${post.likes?.includes(currentUser?.uid) ? 'liked' : ''}`}
                     onClick={() => handleLikePost(post)}
+                    disabled={!isFirebaseConfigured() || !currentUser}
                   >
                     <ThumbsUp size={18} fill={post.likes?.includes(currentUser?.uid) ? "currentColor" : "none"} />
                     {post.likes?.length || 0}
@@ -285,10 +294,11 @@ const Community = () => {
                 <label>Your Message</label>
                 <textarea 
                   rows="5" 
-                  placeholder="What's on your mind? Ask a question or share an experience..." 
+                  placeholder={isFirebaseConfigured() ? "What's on your mind? Ask a question or share an experience..." : "Firebase not configured - cannot create posts"}
                   value={newPost.content}
                   onChange={(e) => setNewPost({...newPost, content: e.target.value})}
                   required
+                  disabled={!isFirebaseConfigured()}
                 ></textarea>
               </div>
               <div className="modal-footer">
@@ -335,16 +345,17 @@ const Community = () => {
               )}
             </div>
 
-            <form className="comment-form" onSubmit={handleAddComment}>
-              <input 
-                type="text" 
-                placeholder="Write a reply..." 
-                value={newComment}
-                onChange={(e) => setNewComment(e.target.value)}
-                required
-              />
-              <button type="submit" className="send-btn"><Send size={18} /></button>
-            </form>
+             <form className="comment-form" onSubmit={handleAddComment}>
+               <input 
+                 type="text" 
+                 placeholder={isFirebaseConfigured() && currentUser ? "Write a reply..." : "Login to comment"}
+                 value={newComment}
+                 onChange={(e) => setNewComment(e.target.value)}
+                 required
+                 disabled={!isFirebaseConfigured() || !currentUser}
+               />
+               <button type="submit" className="send-btn" disabled={!isFirebaseConfigured() || !currentUser}><Send size={18} /></button>
+             </form>
           </div>
         </div>
       )}

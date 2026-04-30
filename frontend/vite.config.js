@@ -22,9 +22,11 @@ export default defineConfig(() => ({
   plugins: [
     spaFallbackPlugin(),
     react(),
+    // Legacy browser support removed: React Router 7 requires modern syntax.
+    // Minimum supported: Chrome 90+, Android 5+, Safari 14+, Edge 90+
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon-192x192.png', 'icon-512x512.png'],
+      includeAssets: [],
       manifest: {
         name: 'Fasal Saathi - AI-Powered Farming Assistant',
         short_name: 'FasalSaathi',
@@ -35,58 +37,7 @@ export default defineConfig(() => ({
         start_url: '/',
         orientation: 'portrait',
         scope: '/',
-        icons: [
-          {
-            src: '/icon-192x192.png',
-            sizes: '192x192',
-            type: 'image/png'
-          },
-          {
-            src: '/icon-512x512.png',
-            sizes: '512x512',
-            type: 'image/png'
-          }
-        ],
         categories: ['productivity', 'utilities', 'education'],
-        screenshots: [
-          {
-            src: '/screenshot-wide.png',
-            sizes: '1280x720',
-            type: 'image/png',
-            form_factor: 'wide',
-            label: 'Home screen with weather and features'
-          },
-          {
-            src: '/screenshot-narrow.png',
-            sizes: '750x1334',
-            type: 'image/png',
-            form_factor: 'narrow',
-            label: 'Mobile home screen'
-          }
-        ],
-        shortcuts: [
-          {
-            name: 'AI Advisor',
-            short_name: 'Advisor',
-            description: 'Get AI farming advice',
-            url: '/advisor',
-            icons: [{ src: '/icon-192x192.png', sizes: '192x192' }]
-          },
-          {
-            name: 'Weather',
-            short_name: 'Weather',
-            description: 'Check weather forecast',
-            url: '/weather',
-            icons: [{ src: '/icon-192x192.png', sizes: '192x192' }]
-          },
-          {
-            name: 'Market Prices',
-            short_name: 'Market',
-            description: 'Latest crop market prices',
-            url: '/market-prices',
-            icons: [{ src: '/icon-192x192.png', sizes: '192x192' }]
-          }
-        ]
       },
        workbox: {
          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,json,webmanifest}'],
@@ -235,15 +186,16 @@ export default defineConfig(() => ({
       }
     }
   },
-  build: {
-    outDir: 'dist',
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom'],
-          firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore']
+    build: {
+      outDir: 'build',
+      rollupOptions: {
+        external: [],
+        output: {
+          manualChunks: {
+            vendor: ['react', 'react-dom', 'react-router-dom'],
+            firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore']
+          }
         }
       }
     }
-  }
 }))

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="theme-color" content="#4caf50" />
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌿</text></svg>" />
@@ -55,27 +55,185 @@
       @keyframes spin {
         to { transform: rotate(360deg); }
       }
+
+      /* Hide Google Translate banner and floating UI elements only */
+      iframe.goog-te-banner-frame,
+      div.goog-te-gadget,
+      div.goog-te-gadget-simple,
+      div#goog-gt-tt,
+      iframe.goog-te-balloon-frame,
+      div.goog-tooltip,
+      .goog-text-highlight,
+      .skiptranslate,
+      iframe.goog-te-menu-frame,
+      .VIpgJd-ZVi9od-ORHb-OEVgZj,
+      .goog-te-menu-frame.skiptranslate,
+      .goog-te-menu-frame {
+        display: none !important;
+        visibility: hidden !important;
+        height: 0 !important;
+        width: 0 !important;
+        max-height: 0 !important;
+        max-width: 0 !important;
+        opacity: 0 !important;
+        position: absolute !important;
+        left: -9999px !important;
+        top: -9999px !important;
+        pointer-events: none !important;
+        overflow: hidden !important;
+      }
+
+      /* Ensure no body offset from GT */
+      html.goog-translate body,
+      body.goog-translate {
+        margin-top: 0 !important;
+        padding-top: 0 !important;
+        top: 0 !important;
+        transform: none !important;
+      }
+
+      /* Hide any GT tooltips/dialogs that appear as direct children of body */
+      body > div[role="dialog"]:has(> .goog-te-),
+      body > div[aria-live="polite"]:has(> .goog-te-) {
+        display: none !important;
+      }
     </style>
 
-  <title>Fasal Saathi</title>
+    <title translate="no">Fasal Saathi</title>
   </head>
   <body style="margin-top: 0 !important; padding-top: 0 !important; transform: none !important;">
     <div id="root">
       <div class="preloader">
         <div class="preloader-spinner"></div>
-        <p>Loading Fasal Saathi...</p>
+         <p>Loading <span class="notranslate">Fasal Saathi</span>...</p>
       </div>
     </div>
-    <div id="google_translate_element" style="display: none !important; visibility: hidden !important; height: 0 !important; width: 0 !important; position: absolute !important;"></div>
-    <script type="text/javascript">
-      function googleTranslateElementInit() {
-        new google.translate.TranslateElement({
-          pageLanguage: 'en',
-          includedLanguages: 'en,hi,mr,bn,ta,te,gu,pa,kn,ml,or,as',
-          autoDisplay: false,
-        }, 'google_translate_element');
-      }
+    <script>
+      // Set CSS variable for navbar height to properly position the weather alert bar
+      (function() {
+        function updateNavbarHeight() {
+          const navbar = document.querySelector('.navbar');
+          if (navbar) {
+            const height = navbar.offsetHeight;
+            document.documentElement.style.setProperty('--navbar-height', height + 'px');
+          }
+        }
+        // Set initial value before layout to prevent FOUC
+        document.documentElement.style.setProperty('--navbar-height', '68px');
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', updateNavbarHeight);
+        } else {
+          updateNavbarHeight();
+        }
+        window.addEventListener('resize', updateNavbarHeight);
+      })();
+      
+      // Set Google Translate cookie based on stored language before widget loads
+      (function() {
+        try {
+          const storedLang = localStorage.getItem('preferredLanguage');
+          console.log('[GT Init]STORED LANG:', storedLang);
+          
+          // Clear any existing cookie first
+          document.cookie = 'googtrans=; path=/; max-age=0';
+          
+          if (storedLang && storedLang !== 'en') {
+            const rawCookieValue = '/en/' + storedLang;
+            const expires = new Date();
+            expires.setFullYear(expires.getFullYear() + 10);
+            document.cookie = 'googtrans=' + rawCookieValue + '; path=/; expires=' + expires.toUTCString();
+            console.log('[GT Init]SET COOKIE:', rawCookieValue);
+          } else {
+            console.log('[GT Init]English or no stored lang, cookie cleared');
+          }
+          
+          // Debug: list all cookies
+          console.log('[GT Init]Cookies:', document.cookie);
+        } catch (e) {
+          console.error('[GT Init]Error:', e);
+        }
+      })();
     </script>
+    
+     <div id="google_translate_element" style="position: absolute; top: -9999px; left: -9999px; width: 1px; height: 1px; overflow: hidden;"></div>
+     <script type="text/javascript">
+       // Global reference of GT widget select
+       let gtSelect = null;
+       let gtInitialized = false;
+       
+       function applyStoredLanguage() {
+         try {
+           const stored = localStorage.getItem('preferredLanguage');
+           console.log('[GT Apply] Stored language:', stored);
+           
+           if (!stored || stored === 'en') {
+             console.log('[GT Apply] No translation needed');
+             return;
+           }
+           
+           let select = document.querySelector('.goog-te-combo');
+           if (!select) {
+             const gtEl = document.getElementById('google_translate_element');
+             if (gtEl) select = gtEl.querySelector('select');
+           }
+           
+           if (select) {
+             console.log('[GT Apply] Found select, current value:', select.value);
+             if (select.value !== stored) {
+               select.value = stored;
+               const event = new Event('change', { bubbles: true });
+               select.dispatchEvent(event);
+               console.log('[GT Apply] Set select to:', stored);
+             }
+           } else {
+             console.log('[GT Apply] Select not found yet');
+           }
+         } catch (e) {
+           console.error('[GT Apply] Error:', e);
+         }
+       }
+       
+       function googleTranslateElementInit() {
+         new google.translate.TranslateElement({
+           pageLanguage: 'en',
+           includedLanguages: 'en,hi,mr,bn,ta,te,gu,pa,kn,ml,or,as',
+           autoDisplay: false,
+         }, 'google_translate_element');
+         
+         gtInitialized = true;
+         
+         // Multiple attempts with different strategies
+         const attempts = [200, 500, 800, 1200, 2000, 3000];
+         attempts.forEach((delay, i) => {
+           setTimeout(() => {
+             applyStoredLanguage();
+             // Also try forcing by setting cookie + re-dispatching
+             if (i >= 2) {
+               const select = document.querySelector('.goog-te-combo');
+               if (select) {
+                 // Trigger another change to force re-translation
+                 const stored = localStorage.getItem('preferredLanguage');
+                 if (stored && stored !== 'en') {
+                   select.value = stored;
+                   select.dispatchEvent(new Event('change', { bubbles: true }));
+                 }
+               }
+             }
+           }, delay);
+         });
+         
+         // Use MutationObserver to catch when GT injects content
+         const observer = new MutationObserver((mutations) => {
+           const select = document.querySelector('.goog-te-combo');
+           if (select && select.options?.length > 1) {
+             applyStoredLanguage();
+             observer.disconnect();
+           }
+         });
+         observer.observe(document.body, { childList: true, subtree: true });
+         setTimeout(() => observer.disconnect(), 5000);
+       }
+     </script>
     <script
       type="text/javascript"
       src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"

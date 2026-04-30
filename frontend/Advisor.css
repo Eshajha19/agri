@@ -247,7 +247,33 @@
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
 }
 
-.theme-dark .weather-popup {
+.chatbot-popup {
+  position: relative;
+  background: white;
+  border-radius: 16px;
+  padding: 0;
+  max-width: 520px;
+  width: 90%;
+  max-height: 90vh;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.soil-analysis-popup {
+  position: relative;
+  background: white;
+  border-radius: 16px;
+  padding: 0;
+  max-width: 1100px;
+  width: 95%;
+  max-height: 95vh;
+  overflow-y: auto;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.theme-dark .weather-popup,
+.theme-dark .chatbot-popup,
+.theme-dark .soil-analysis-popup {
   background: var(--card-bg);
   color: var(--text-primary);
   border: 1px solid var(--border-color);
@@ -503,6 +529,104 @@
   background: #f0fdf4;
   border-radius: 12px;
   border: 2px solid #22c55e;
+}
+
+.fertilizer-popup-shell {
+  max-width: 760px;
+}
+
+.fertilizer-popup .fertilizer-summary {
+  margin-top: 18px;
+}
+
+.fertilizer-popup .fertilizer-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0 20px;
+  justify-content: center;
+}
+
+.fertilizer-popup .fertilizer-chip {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #ecfdf5;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.theme-dark .fertilizer-popup .fertilizer-chip {
+  background: rgba(34, 197, 94, 0.14);
+  color: #bbf7d0;
+  border-color: rgba(34, 197, 94, 0.35);
+}
+
+.fertilizer-popup .fertilizer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 14px;
+  margin: 18px 0;
+  text-align: left;
+}
+
+.fertilizer-popup .fertilizer-card {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.theme-dark .fertilizer-popup .fertilizer-card {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.fertilizer-popup .fertilizer-card h4 {
+  margin: 0 0 8px;
+  color: #16a34a;
+}
+
+.fertilizer-popup .fertilizer-dose {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: #111827;
+}
+
+.theme-dark .fertilizer-popup .fertilizer-dose {
+  color: var(--text-primary);
+}
+
+.fertilizer-popup .fertilizer-card p,
+.fertilizer-popup .fertilizer-card small {
+  display: block;
+  line-height: 1.45;
+}
+
+.fertilizer-popup .fertilizer-note {
+  text-align: left;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  margin: 12px 0;
+}
+
+.theme-dark .fertilizer-popup .fertilizer-note {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.fertilizer-popup .fertilizer-note strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #16a34a;
+}
+
+.fertilizer-popup .fertilizer-actions {
+  margin-top: 18px;
 }
 
 .yield-popup .close-btn {

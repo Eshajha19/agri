@@ -5,8 +5,11 @@
   --weather-alert-icon-bg: rgba(22, 101, 52, 0.14);
   --weather-alert-primary: #0e9f6e;
 
-  position: relative;
-  z-index: 20;
+  position: fixed;
+  top: var(--navbar-height, 68px);
+  left: 0;
+  right: 0;
+  z-index: 999;
   color: var(--weather-alert-text);
   background: var(--weather-alert-bg);
   border-bottom: 1px solid var(--weather-alert-border);

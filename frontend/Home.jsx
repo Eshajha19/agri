@@ -16,7 +16,8 @@ import {
   FaLandmark,
   FaCalendarAlt,
   FaCommentDots,
-  FaCalculator
+  FaCalculator,
+  FaUsers
 } from "react-icons/fa";
 import WeatherAlertBar from "./weather/WeatherAlertBar";
 import WeatherQuickWidget from "./weather/WeatherQuickWidget";
@@ -66,12 +67,6 @@ const features = [
       category: "Recommendations",
     },
     {
-      icon: <FaCalculator />,
-      title: "Profit Calculator",
-      desc: "Estimate potential profit before choosing crops with market analysis",
-      category: "Analytics",
-    },
-    {
       icon: <FaLock />,
       title: "Secure & Private",
       desc: "Enterprise-grade security with Firebase authentication",
@@ -87,7 +82,7 @@ const stats = [
 ];
 
 const testimonials = [
-  { name: "Ramesh Kumar", location: "Maharashtra", text: "Fasal Saathi helped me increase my rice yield by 30% this season!" },
+  { name: "Ramesh Kumar", location: "Maharashtra", text: <><span className="notranslate">Fasal Saathi</span> helped me increase my rice yield by 30% this season!</> },
   { name: "Lakshmi Devi", location: "Tamil Nadu", text: "The weather predictions are accurate. I plan my irrigation accordingly." },
   { name: "Suresh Patel", location: "Gujarat", text: "Best AI farming assistant. Simple to use even for elderly farmers." },
 ];
@@ -227,13 +222,30 @@ export default function Home({ user }) {
               to maximize your agricultural productivity.
             </p>
             <div className="hero-buttons">
-              <Link to={user ? "/advisor" : "/login"} className="btn-primary">
+              {/* 
+                Primary CTA Link:
+                Directs the user to either the AI advisor or the login page.
+                We provide a clear aria-label so screen readers understand the context.
+              */}
+              <Link 
+                to={user ? "/advisor" : "/login"} 
+                className="btn-primary"
+                aria-label={user ? "Get started with AI Advisor" : "Log in to get started with AI Advisor"}
+              >
                 Get Started
               </Link>
-              <Link to="/how-it-works" className="btn-secondary">
+
+              {/* 
+                Secondary Info Link:
+                Explains the app's functionality.
+              */}
+              <Link 
+                to="/how-it-works" 
+                className="btn-secondary"
+                aria-label="Learn how the AI advisor helps farmers"
+              >
                 Learn More
               </Link>
-              
             </div>
           </div>
           <div className="hero-stats">
@@ -280,9 +292,52 @@ export default function Home({ user }) {
             </div>
           ))}
         </div>
-      </section>
+       </section>
 
-      <section className="how-section">
+       {/* Contributors Section */}
+       <section className="contributors-home-section">
+         <div className="section-header">
+           <h2>🌟 Our Contributors</h2>
+           <p>Meet the amazing people behind Fasal Saathi</p>
+         </div>
+         <div className="contributors-home-card">
+           <div className="contributors-home-content">
+             <div className="contributors-info">
+               <h3>Built by the Community</h3>
+               <p>
+                 Fasal Saathi is made possible by passionate developers, designers, 
+                 and farmers from around the world. Join our open-source community!
+               </p>
+               <div className="contributors-stats">
+                 <div className="stat">
+                   <span className="stat-number">25+</span>
+                   <span className="stat-label">Contributors</span>
+                 </div>
+                 <div className="stat">
+                   <span className="stat-number">💚</span>
+                   <span className="stat-label">Open Source</span>
+                 </div>
+                 <div className="stat">
+                   <span className="stat-number">🌍</span>
+                   <span className="stat-label">Global Community</span>
+                 </div>
+               </div>
+                <Link 
+                  to="/contributors" 
+                  className="btn btn-primary"
+                  aria-label="View all people who contributed to this project"
+                >
+                  <FaUsers aria-hidden="true" /> View All Contributors
+                </Link>
+             </div>
+             <div className="contributors-illustration">
+               <FaUsers className="big-icon" aria-hidden="true" />
+             </div>
+           </div>
+         </div>
+       </section>
+
+       <section className="how-section">
         <div className="section-header">
           <h2>How It Works</h2>
           <p>Three simple steps to smarter farming</p>
@@ -306,7 +361,11 @@ export default function Home({ user }) {
             <p>Receive personalized farming advice</p>
           </div>
         </div>
-        <Link to={user ? "/advisor" : "/login"} className="btn-primary">
+        <Link 
+          to={user ? "/advisor" : "/login"} 
+          className="btn-primary"
+          aria-label={user ? "Try the AI advisor now" : "Log in to try the AI advisor"}
+        >
           Try It Now
         </Link>
       </section>
@@ -322,9 +381,9 @@ export default function Home({ user }) {
               <FaQuoteLeft className="quote-icon" />
               <p className="testimonial-text">{testimonial.text}</p>
               <div className="testimonial-author">
-                <div className="author-avatar">{testimonial.name[0]}</div>
+                 <div className="author-avatar">{testimonial.name[0]}</div>
                 <div className="author-info">
-                  <span className="author-name">{testimonial.name}</span>
+                  <span className="author-name"><span className="notranslate">{testimonial.name}</span></span>
                   <span className="author-location">{testimonial.location}</span>
                 </div>
               </div>
@@ -336,7 +395,11 @@ export default function Home({ user }) {
       <section className="cta-section">
         <h2>Ready to Transform Your Farm?</h2>
         <p>Join thousands of farmers already benefiting from AI-powered agriculture</p>
-        <Link to={user ? "/advisor" : "/login"} className="btn-primary">
+        <Link 
+          to={user ? "/advisor" : "/login"} 
+          className="btn-primary"
+          aria-label={user ? "Start a free consultation with the AI" : "Log in to start a free consultation"}
+        >
           Start Free Consultation
         </Link>
       </section>
@@ -345,10 +408,10 @@ export default function Home({ user }) {
         <div className="footer-content">
           <div className="footer-grid">
             <div className="footer-section">
-              <div className="footer-brand">
-                <FaSeedling className="footer-logo" />
-                <span>Fasal Saathi</span>
-              </div>
+               <div className="footer-brand">
+                 <FaSeedling className="footer-logo" />
+                 <span className="notranslate">Fasal Saathi</span>
+               </div>
               <p className="footer-description">
                 AI-powered agricultural advisor helping farmers with crop planning,
                 weather insights, irrigation, and yield optimization.
@@ -359,30 +422,34 @@ export default function Home({ user }) {
               </div>
             </div>
             <div className="footer-section">
+              {/* 
+                ACCESSIBILITY BEST PRACTICE: Footer Navigation
+                Using clear, descriptive link text and aria-labels for footer links.
+              */}
               <h4>Quick Links</h4>
-              <Link to="/">Home</Link>
-              <Link to="/advisor">Advisor</Link>
-              <Link to="/how-it-works">How It Works</Link>
-              <Link to="/schemes">Govt Schemes</Link>
-              <Link to="/dashboard">Dashboard</Link>
-              <Link to="/calendar">Activity Calendar</Link>
-              <Link to="/market-prices">Market Prices</Link>
-              <Link to="/community">Community</Link>
-              <Link to="/share-feedback">Share Feedback</Link>
+              <Link to="/" aria-label="Go to Home Page">Home</Link>
+              <Link to="/advisor" aria-label="Consult the AI Advisor">Advisor</Link>
+              <Link to="/how-it-works" aria-label="How Fasal Saathi helps you">How It Works</Link>
+              <Link to="/schemes" aria-label="View Government Schemes for farmers">Govt Schemes</Link>
+              <Link to="/dashboard" aria-label="Go to your farming dashboard">Dashboard</Link>
+              <Link to="/calendar" aria-label="View your farming activity calendar">Activity Calendar</Link>
+              <Link to="/market-prices" aria-label="Check latest market prices for crops">Market Prices</Link>
+              <Link to="/community" aria-label="Join the community discussion">Community</Link>
+              <Link to="/share-feedback" aria-label="Share your thoughts with us">Share Feedback</Link>
             </div>
             <div className="footer-section">
               <h4>Resources</h4>
-              <Link to="/crop-guide">Crop Guide</Link>
-              <Link to="/weather">Weather Updates</Link>
-              <Link to="/soil-analysis">Soil Analysis</Link>
-              <Link to="/faq">FAQs</Link>
+              <Link to="/crop-guide" aria-label="View the Crop Guide">Crop Guide</Link>
+              <Link to="/weather" aria-label="Check weather updates">Weather Updates</Link>
+              <Link to="/soil-analysis" aria-label="Get soil analysis insights">Soil Analysis</Link>
+              <Link to="/faq" aria-label="Frequently Asked Questions">FAQs</Link>
             </div>
             <div className="footer-section">
               <h4>Company</h4>
-              <Link to="/about">About Us</Link>
-              <Link to="/contact">Contact</Link>
-              <Link to="/privacy-policy">Privacy Policy</Link>
-              <Link to="/terms">Terms of Service</Link>
+              <Link to="/about" aria-label="Learn about Fasal Saathi">About Us</Link>
+              <Link to="/contact" aria-label="Contact our support team">Contact</Link>
+              <Link to="/privacy-policy" aria-label="Read our Privacy Policy">Privacy Policy</Link>
+              <Link to="/terms" aria-label="Read our Terms of Service">Terms of Service</Link>
             </div>
           </div>
           <div className="footer-bottom">
@@ -390,9 +457,9 @@ export default function Home({ user }) {
               <FaGlobe />
               <span>Available Across India</span>
             </div>
-            <p className="footer-copyright">
-              © 2026 Fasal Saathi. All rights reserved. MIT Licensed.
-            </p>
+           <p className="footer-copyright">
+             © 2026 <span className="notranslate">Fasal Saathi</span>. All rights reserved. MIT Licensed.
+           </p>
           </div>
         </div>
       </footer>

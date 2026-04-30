@@ -84,6 +84,11 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 96px;
+}
+
 /* Prefer reduced motion */
 @media (prefers-reduced-motion: reduce) {
   * {

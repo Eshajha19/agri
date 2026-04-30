@@ -125,7 +125,7 @@ function getDayValue(values, index = 0) {
   return Array.isArray(values) && values.length > index ? toNumber(values[index]) : 0;
 }
 
-function getWeatherLabel(code) {
+export function getWeatherLabel(code) {
   return WEATHER_CODE_LABELS[code] || "Current conditions";
 }
 

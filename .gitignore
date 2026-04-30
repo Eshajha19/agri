@@ -31,3 +31,7 @@ __pycache__/
 .python-version
 dev-dist/
 dist/
+whatsapp_subscribers.json
+# Frontend build output
+frontend/build/
+frontend/dist/
