@@ -1038,6 +1038,9 @@
   text-decoration: none;
   margin-bottom: 10px;
   transition: color 0.3s ease;
+  pointer-events: auto;
+  position: relative;
+  z-index: 10;
 }
 
 .footer-section a:hover {
