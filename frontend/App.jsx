@@ -194,23 +194,18 @@ function App() {
     return () => unsubscribeAuth();
   }, []);
 
-  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [isOffline, setIsOffline] = useState(false);
 
   useEffect(() => {
-    const handleNetworkChange = () => {
-      const offline = !navigator.onLine;
-      setIsOffline(offline);
-      if (!offline) {
-        syncOfflineRequests();
-      }
-    };
-    window.addEventListener("online", handleNetworkChange);
-    window.addEventListener("offline", handleNetworkChange);
-    const interval = setInterval(handleNetworkChange, 1000);
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
     return () => {
-      window.removeEventListener("online", handleNetworkChange);
-      window.removeEventListener("offline", handleNetworkChange);
-      clearInterval(interval);
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
     };
   }, []);
 
@@ -242,7 +237,7 @@ function App() {
       <SkipLink />
 
        {loading && <Loader fullPage={true} message={<span className="notranslate">Initializing Fasal Saathi...</span>} />}
-      {isOffline && (
+      {false && (
         <div className="offline-banner" role="alert">
           You are currently offline. Running in offline mode using local data.
         </div>
@@ -467,7 +462,7 @@ function App() {
           <Route path="/" element={<Home user={user} />} />
           <Route path="/advisor" element={<Advisor />} />
           <Route path="/how-it-works" element={<How />} />
-          <Route path="/dashboard" element={!loading && !user ? <Navigate to="/login" state={{ from: location }} replace /> : <Dashboard />} />
+          <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/crop-guide" element={<CropGuide />} />
           <Route path="/schemes" element={<Schemes />} />
           <Route path="/resources" element={<Resources />} />

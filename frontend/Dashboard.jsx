@@ -18,6 +18,10 @@ import {
   FaCheckCircle,
 } from "react-icons/fa";
 import "./Dashboard.css";
+import {
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  BarChart, Bar, CartesianGrid
+} from "recharts";
 
 export default function Dashboard() {
   const name = localStorage.getItem("farmerName") || "Farmer";
@@ -29,10 +33,21 @@ export default function Dashboard() {
   const [whatsappAlerts, setWhatsappAlerts] = useState(localStorage.getItem("whatsappAlerts") === "true");
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateMsg, setUpdateMsg] = useState("");
-
+  const [yieldData, setYieldData] = useState([]);
+  const [selectedCrop, setSelectedCrop] = useState("");
+  const [selectedRegion, setSelectedRegion] = useState("");
+  const [selectedSeason, setSelectedSeason] = useState("");
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    setYieldData([
+      { year: "2019", crop: "Wheat", yield: 30, region: "North", season: "Rabi" },
+      { year: "2020", crop: "Rice", yield: 45, region: "South", season: "Kharif" },
+      { year: "2021", crop: "Wheat", yield: 50, region: "North", season: "Rabi" },
+      { year: "2022", crop: "Rice", yield: 60, region: "South", season: "Kharif" },
+    ]);
   }, []);
 
   const handleUpdateWhatsApp = async () => {
@@ -163,6 +178,13 @@ export default function Dashboard() {
     { label: "Community", icon: <FaComments />, link: "/community" },
     { label: "How It Works", icon: <FaChartLine />, link: "/how-it-works" },
   ];
+  const filteredData = yieldData.filter((item) => {
+    return (
+      (selectedCrop === "" || item.crop === selectedCrop) &&
+      (selectedRegion === "" || item.region === selectedRegion) &&
+      (selectedSeason === "" || item.season === selectedSeason)
+    );
+  });
 
   return (
     <div className="dashboard">
@@ -325,6 +347,145 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+      </section>
+      <section className="dashboard-section-card" style={{ marginTop: "30px" }}>
+        <div className="section-card-header">
+          <h2>📊 Crop Yield Insights</h2>
+          <span className="section-badge">Analytics</span>
+        </div>
+
+        <p style={{ color: "#6b7280", marginBottom: "20px" }}>
+          Visual trends and comparison of crop yield over time
+        </p>
+
+        {/* 🔽 FILTERS HERE */}
+        <div style={{ display: "flex", gap: "12px", marginBottom: "20px" }}>
+          <select value={selectedCrop}
+            onChange={(e) => setSelectedCrop(e.target.value)}
+            style={{ padding: "8px", borderRadius: "6px" }}
+          >
+            <option value="">All Crops</option>
+            <option value="Wheat">Wheat</option>
+            <option value="Rice">Rice</option>
+          </select>
+
+          <select value={selectedRegion}
+            onChange={(e) => setSelectedRegion(e.target.value)}
+            style={{ padding: "8px", borderRadius: "6px" }}
+          >
+            <option value="">All Regions</option>
+            <option value="North">North</option>
+            <option value="South">South</option>
+          </select>
+
+          <select value={selectedSeason}
+            onChange={(e) => setSelectedSeason(e.target.value)}
+            style={{ padding: "8px", borderRadius: "6px" }}
+          >
+            <option value="">All Seasons</option>
+            <option value="Kharif">Kharif</option>
+            <option value="Rabi">Rabi</option>
+          </select>
+          <button
+            onClick={() => {
+              setSelectedCrop("");
+              setSelectedRegion("");
+              setSelectedSeason("");
+            }}
+            style={{
+              padding: "8px 14px",
+              borderRadius: "8px",
+              border: "none",
+              background: "#22c55e",
+              color: "#fff",
+              fontWeight: "500",
+              cursor: "pointer",
+            }}
+          >
+            Reset
+          </button>
+        </div>
+
+        {/* CONDITION START */}
+        {yieldData.length === 0 ? (
+          <div
+            style={{
+              padding: "60px",
+              textAlign: "center",
+              color: "#6b7280",
+              fontSize: "14px",
+            }}
+          >
+            Loading chart...
+          </div>
+        ) : (
+          /* GRID */
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: window.innerWidth > 768 ? "1fr 1fr" : "1fr",
+              gap: "24px",
+            }}
+          >
+            {/* 📈 Line Chart */}
+            <div
+              style={{
+                background: "#ffffff",
+                borderRadius: "12px",
+                padding: "16px",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+              }}
+            >
+              <h4 style={{ marginBottom: "10px" }}>Yield Trend</h4>
+              <div style={{ width: "100%", height: 350 }}>
+                {filteredData.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "40px" }}>
+                    No data found. Try changing filters.
+                  </div>
+                ) : (
+                  <ResponsiveContainer>
+                    <LineChart data={filteredData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="year" />
+                      <YAxis />
+                      <Tooltip />
+                      <Line
+                        type="monotone"
+                        dataKey="yield"
+                        stroke="#22c55e"
+                        strokeWidth={3}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+
+            {/* 📊 Bar Chart */}
+            <div
+              style={{
+                background: "#ffffff",
+                borderRadius: "12px",
+                padding: "16px",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+              }}
+            >
+              <h4 style={{ marginBottom: "10px" }}>Crop Comparison</h4>
+              <div style={{ width: "100%", height: 350 }}>
+                <ResponsiveContainer>
+                  <BarChart data={yieldData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="crop" />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="yield" fill="#10b981" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* CONDITION END */}
       </section>
     </div>
   );
