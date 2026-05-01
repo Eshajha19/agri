@@ -100,7 +100,7 @@ export default function Feedback() {
             <CheckCircle2 size={64} className="success-icon" />
           </div>
           <h2>Thank You! 🙏</h2>
-           <p>Your feedback has been submitted successfully. We'll use it to make <span className="notranslate">Fasal Saathi</span> even better for farmers like you.</p>
+           <p>Your feedback has been submitted successfully. We'll use it to make <span className="notranslate" translate="no">Fasal Saathi</span> even better for farmers like you.</p>
           <div className="submitted-rating">
             {[1, 2, 3, 4, 5].map((s) => (
               <Star
@@ -126,10 +126,10 @@ export default function Feedback() {
         <div className="feedback-info-panel">
           <div className="info-badge">🌾 Farmer Feedback</div>
           <h1>Help Us Grow Better</h1>
-           <p>
-             Your opinion directly shapes the future of <span className="notranslate">Fasal Saathi</span>. Share your
-             experience, suggest features, or report issues — every word matters.
-           </p>
+            <p>
+              Your opinion directly shapes the future of <span className="notranslate" translate="no">Fasal Saathi</span>. Share your
+              experience, suggest features, or report issues — every word matters.
+            </p>
           <div className="info-stats">
             {[
               { icon: "⭐", label: "Average Rating", value: "4.8/5" },

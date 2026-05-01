@@ -268,14 +268,14 @@ export default function SoilAnalysis() {
               <FlaskConical className="sa-header-icon" />
             </div>
             <div>
-              <h1>Soil Analysis Tool</h1>
+              <h1><span className="notranslate">Soil Analysis Tool</span></h1>
               <p>Analyze your soil nutrients and get personalized crop & fertilizer recommendations</p>
             </div>
           </div>
           <div className="sa-header-badges">
-            <span className="sa-badge"><Leaf size={14} /> NPK Analysis</span>
-            <span className="sa-badge"><Sprout size={14} /> Crop Matching</span>
-            <span className="sa-badge"><Droplets size={14} /> Fertilizer Guide</span>
+            <span className="sa-badge"><Leaf size={14} /> <span className="notranslate">NPK Analysis</span></span>
+            <span className="sa-badge"><Sprout size={14} /> <span className="notranslate">Crop Matching</span></span>
+            <span className="sa-badge"><Droplets size={14} /> <span className="notranslate">Fertilizer Guide</span></span>
           </div>
         </div>
 

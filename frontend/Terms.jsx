@@ -4,13 +4,13 @@ import "./Legal.css";
 export default function Terms() {
   return (
     <div className="legal-page">
-      <h1>Terms of Service</h1>
+      <h1><span className="notranslate">Terms of Service</span></h1>
       <p className="last-updated">Last Updated: April 2026</p>
 
       <section>
         <h2>1. Introduction</h2>
         <p>
-          Welcome to <span className="notranslate">Fasal Saathi</span>. By using our platform, you agree to comply
+          Welcome to <span className="notranslate" translate="no">Fasal Saathi</span>. By using our platform, you agree to comply
           with and be bound by these Terms of Service. Please read them carefully.
         </p>
       </section>
@@ -58,7 +58,7 @@ export default function Terms() {
       </section>
 
       <section>
-        <h2>7. Contact Us</h2>
+        <h2>7. <span className="notranslate">Contact Us</span></h2>
         <p>
           If you have any questions about these Terms, please contact us via the
           Contact page.

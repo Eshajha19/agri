@@ -184,6 +184,7 @@ export default function Dashboard() {
 
   const quickActions = [
     { label: "AI Advisor", icon: <FaSeedling />, link: "/advisor" },
+    { label: "Crop Planner", icon: <FaCalendarAlt />, link: "/crop-planner" },
     { label: "Community", icon: <FaComments />, link: "/community" },
     { label: "How It Works", icon: <FaChartLine />, link: "/how-it-works" },
   ];
@@ -210,14 +211,14 @@ export default function Dashboard() {
               <p className="welcome-sub">Here is an overview of your farm activity and insights</p>
             </div>
           </div>
-          <div className="quick-actions-row">
-            {quickActions.map((action, idx) => (
-              <Link to={action.link} key={idx} className="quick-action-btn">
-                {action.icon}
-                <span>{action.label}</span>
-              </Link>
-            ))}
-          </div>
+           <div className="quick-actions-row">
+             {quickActions.map((action, idx) => (
+               <Link to={action.link} key={idx} className="quick-action-btn">
+                 {action.icon}
+                 <span className="notranslate">{action.label}</span>
+               </Link>
+             ))}
+           </div>
         </div>
       </section>
 
@@ -227,7 +228,7 @@ export default function Dashboard() {
             <div className="stat-card-icon">{stat.icon}</div>
             <div className="stat-card-info">
               <span className="stat-card-value">{stat.value}</span>
-              <span className="stat-card-label">{stat.label}</span>
+              <span className="stat-card-label notranslate">{stat.label}</span>
               <span className="stat-card-trend">{stat.trend}</span>
             </div>
           </div>

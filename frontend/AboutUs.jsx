@@ -10,23 +10,23 @@ import {
 import "./AboutUs.css";
 
 const VALUES = [
-  { icon: <FaHeart />, title: "Farmer First", desc: "Every feature we build starts with one question: does this make a farmer's life better?", color: "#ef4444" },
-  { icon: <FaBrain />, title: "AI for Good", desc: "We harness machine learning to give small farmers the same edge as large agribusinesses.", color: "#6366f1" },
-  { icon: <FaGlobe />, title: "Inclusive Access", desc: "Available in 12 Indian languages so no farmer is left behind due to a language barrier.", color: "#10b981" },
-  { icon: <FaShieldAlt />, title: "Trust & Privacy", desc: "Your farm data is yours. We never sell or misuse the information you share with us.", color: "#f59e0b" },
+  { icon: <FaHeart />, title: <span className="notranslate">Farmer First</span>, desc: "Every feature we build starts with one question: does this make a farmer's life better?", color: "#ef4444" },
+  { icon: <FaBrain />, title: <span className="notranslate">AI for Good</span>, desc: "We harness machine learning to give small farmers the same edge as large agribusinesses.", color: "#6366f1" },
+  { icon: <FaGlobe />, title: <span className="notranslate">Inclusive Access</span>, desc: "Available in 12 Indian languages so no farmer is left behind due to a language barrier.", color: "#10b981" },
+  { icon: <FaShieldAlt />, title: <span className="notranslate">Trust & Privacy</span>, desc: "Your farm data is yours. We never sell or misuse the information you share with us.", color: "#f59e0b" },
 ];
 
 const FEATURES = [
-  { icon: <FaBrain />, title: "AI Crop Advisor", desc: "Smart recommendations based on soil, season, and location." },
-  { icon: <FaSun />, title: "Weather Insights", desc: "Real-time forecasts and custom alerts for your farm." },
-  { icon: <FaHandHoldingWater />, title: "Smart Irrigation", desc: "Optimize water usage with AI-driven guidance." },
-  { icon: <FaChartLine />, title: "Market Prices", desc: "Live mandi prices to help you sell at the right time." },
-  { icon: <FaSeedling />, title: "Soil Analysis", desc: "Comprehensive soil health and nutrient monitoring." },
-  { icon: <FaRocket />, title: "Offline Mode", desc: "Core features work without internet — syncs when back online." },
+  { icon: <FaBrain />, title: <span className="notranslate">AI Crop Advisor</span>, desc: "Smart recommendations based on soil, season, and location." },
+  { icon: <FaSun />, title: <span className="notranslate">Weather Insights</span>, desc: "Real-time forecasts and custom alerts for your farm." },
+  { icon: <FaHandHoldingWater />, title: <span className="notranslate">Smart Irrigation</span>, desc: "Optimize water usage with AI-driven guidance." },
+  { icon: <FaChartLine />, title: <span className="notranslate">Market Prices</span>, desc: "Live mandi prices to help you sell at the right time." },
+  { icon: <FaSeedling />, title: <span className="notranslate">Soil Analysis</span>, desc: "Comprehensive soil health and nutrient monitoring." },
+  { icon: <FaRocket />, title: <span className="notranslate">Offline Mode</span>, desc: "Core features work without internet — syncs when back online." },
 ];
 
 const TIMELINE = [
-  { year: "2022", title: "Idea Born", desc: "Fasal Saathi started as a college project to solve real problems faced by Indian farmers.", emoji: "💡" },
+  { year: "2022", title: "Idea Born", desc: <><span className="notranslate" translate="no">Fasal Saathi</span> started as a college project to solve real problems faced by Indian farmers.</>, emoji: "💡" },
   { year: "2023", title: "First Prototype", desc: "Launched MVP with crop recommendations and basic weather alerts for 3 states.", emoji: "🚀" },
   { year: "2024", title: "Multi-language Launch", desc: "Expanded to 12 Indian languages and onboarded 10,000+ farmers.", emoji: "🌍" },
   { year: "2025", title: "AI Integration", desc: "Integrated machine learning models for yield prediction and soil analysis.", emoji: "🤖" },
@@ -56,9 +56,9 @@ export default function AboutUs() {
       {/* ── HERO — editorial style like reference ── */}
       <section className="about-hero-editorial">
         <div className="about-hero-left">
-          <h1 className="about-hero-title">
-            Hey, we are<br /><span className="about-hero-highlight">Fasal Saathi</span>
-          </h1>
+           <h1 className="about-hero-title">
+             Hey, we are<br /><span className="about-hero-highlight notranslate" translate="no">Fasal Saathi</span>
+           </h1>
           <p className="about-hero-body">
             We're an <strong>AI-powered agricultural platform</strong> built to empower Indian farmers with smart technology, real-time insights, and practical knowledge. Our goal is to make farming more efficient and profitable by helping farmers choose the right crops, monitor soil health, access weather updates, and track live market prices — all in one simple, multilingual platform that works even in low-connectivity areas.
           </p>
@@ -106,10 +106,10 @@ export default function AboutUs() {
         <div className="about-intro-text">
           <div className="about-section-badge">What We Do</div>
           <h2>Your Digital Farming Companion</h2>
-          <p>Fasal Saathi (meaning "Crop Companion") is a free, multilingual platform that combines AI, real-time data, and agricultural expertise to help farmers make smarter decisions every day.</p>
-          <p>From choosing the right crop for your soil to knowing when to irrigate, from checking live mandi prices to getting government scheme updates — Fasal Saathi is the one-stop solution for modern Indian farming.</p>
+          <p><span className="notranslate" translate="no">Fasal Saathi</span> (meaning "Crop Companion") is a free, multilingual platform that combines AI, real-time data, and agricultural expertise to help farmers make smarter decisions every day.</p>
+          <p>From choosing the right crop for your soil to knowing when to irrigate, from checking live mandi prices to getting government scheme updates — <span className="notranslate" translate="no">Fasal Saathi</span> is the one-stop solution for modern Indian farming.</p>
           <Link to="/crop-guide" className="about-btn-primary" style={{ width: "fit-content" }}>
-            <FaSeedling /> Explore Crop Guide
+            <FaSeedling /> <span className="notranslate">Explore Crop Guide</span>
           </Link>
         </div>
         <div className="about-intro-visual">
@@ -149,7 +149,7 @@ export default function AboutUs() {
         <div className="about-section-header">
           <div className="about-section-badge">Our Values</div>
           <h2>What Drives Us</h2>
-          <p>The principles that guide every decision we make at Fasal Saathi.</p>
+           <p>The principles that guide every decision we make at <span className="notranslate" translate="no">Fasal Saathi</span>.</p>
         </div>
         <div className="about-values-grid">
           {VALUES.map((v, i) => (
@@ -206,7 +206,7 @@ export default function AboutUs() {
       <div className="about-section">
         <div className="about-section-header">
           <div className="about-section-badge">The Team</div>
-          <h2>People Behind Fasal Saathi</h2>
+           <h2>People Behind <span className="notranslate" translate="no">Fasal Saathi</span></h2>
           <p>A passionate group of developers and agri-tech enthusiasts.</p>
         </div>
         <div className="about-team-grid">
@@ -239,11 +239,11 @@ export default function AboutUs() {
           </div>
           <FaLeaf className="about-cta-icon" />
           <h2>Ready to Farm Smarter?</h2>
-          <p>Join farmers already using Fasal Saathi to grow better crops and earn more.</p>
-          <div className="about-cta-actions">
-            <Link to="/crop-guide" className="about-btn-primary">Get Started Free</Link>
-            <Link to="/contact" className="about-btn-outline-white">Talk to Us</Link>
-          </div>
+           <p>Join farmers already using <span className="notranslate" translate="no">Fasal Saathi</span> to grow better crops and earn more.</p>
+           <div className="about-cta-actions">
+             <Link to="/crop-guide" className="about-btn-primary"><span className="notranslate">Get Started Free</span></Link>
+             <Link to="/contact" className="about-btn-outline-white"><span className="notranslate">Talk to Us</span></Link>
+           </div>
         </div>
       </section>
     </div>

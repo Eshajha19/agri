@@ -175,7 +175,7 @@ const ProfileSetup = ({ user, profileCompleted }) => {
         <div className="setup-header">
           <FaSeedling className="setup-logo-icon" />
           <h1>Complete Your Profile</h1>
-           <p>Help us personalize your <span className="notranslate">Fasal Saathi</span> experience</p>
+            <p>Help us personalize your <span className="notranslate" translate="no">Fasal Saathi</span> experience</p>
         </div>
 
         {error && <div className="setup-error">{error}</div>}

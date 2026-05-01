@@ -5,13 +5,13 @@ import "./Legal.css";
 export default function Privacy() {
   return (
     <div className="legal-page">
-      <h1>Privacy Policy</h1>
+      <h1><span className="notranslate">Privacy Policy</span></h1>
       <p className="last-updated">Last Updated: April 2026</p>
 
       <section>
         <h2>1. Introduction</h2>
         <p>
-          At <span className="notranslate">Fasal Saathi</span>, we are committed to protecting your privacy. This Privacy
+          At <span className="notranslate" translate="no">Fasal Saathi</span>, we are committed to protecting your privacy. This Privacy
           Policy explains how we collect, use, and safeguard your information when
           you use our agricultural advisory platform.
         </p>
@@ -93,7 +93,7 @@ export default function Privacy() {
       </section>
 
       <section>
-        <h2>10. Contact Us</h2>
+        <h2>10. <span className="notranslate">Contact Us</span></h2>
         <p>
           If you have questions about this Privacy Policy, please contact us via
           the Contact page or through our support channels.

@@ -175,15 +175,15 @@ export default function CropProfitCalculator() {
     <div className="profit-calculator-page">
       <div className="calculator-container">
         {/* Header */}
-        <div className="calculator-header">
-          <div className="header-content">
-            <TrendingUp className="header-icon" />
-            <div>
-              <h1>Crop Profit Calculator</h1>
-              <p>Estimate your potential profit before choosing crops</p>
-            </div>
-          </div>
-        </div>
+         <div className="calculator-header">
+           <div className="header-content">
+             <TrendingUp className="header-icon" />
+             <div>
+               <h1><span className="notranslate">Crop Profit Calculator</span></h1>
+               <p>Estimate your potential profit before choosing crops</p>
+             </div>
+           </div>
+         </div>
 
         {/* Mode Toggle */}
         <div className="mode-toggle-container">

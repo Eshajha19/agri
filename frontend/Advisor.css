@@ -20,21 +20,25 @@
   opacity: 0.2;
   animation: float 12s infinite ease-in-out;
 }
+
 .floating-icons span:nth-child(1) {
   top: 20%;
   left: 10%;
   animation-delay: 0s;
 }
+
 .floating-icons span:nth-child(2) {
   top: 60%;
   left: 80%;
   animation-delay: 3s;
 }
+
 .floating-icons span:nth-child(3) {
   top: 80%;
   left: 30%;
   animation-delay: 6s;
 }
+
 .floating-icons span:nth-child(4) {
   top: 40%;
   left: 60%;
@@ -206,7 +210,7 @@
 }
 
 .card p {
-  font-size: 1.1rem;
+  font-size: 0.95rem;
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -315,7 +319,7 @@
   flex-direction: column;
 }
 
-.farming-map-popup > div:first-child {
+.farming-map-popup>div:first-child {
   flex: 1;
   min-height: 0;
 }
@@ -361,10 +365,12 @@
 }
 
 @keyframes float {
+
   0%,
   100% {
     transform: translateY(0) rotate(0deg);
   }
+
   50% {
     transform: translateY(-30px) rotate(15deg);
   }
@@ -375,6 +381,7 @@
     opacity: 0;
     transform: translateY(20px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -385,17 +392,26 @@
   0% {
     left: -100%;
   }
+
   50% {
     left: 100%;
   }
+
   100% {
     left: 100%;
   }
 }
 
 @keyframes slideUp {
-  from { transform: translateY(40px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
+  from {
+    transform: translateY(40px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 .modal {
@@ -453,7 +469,7 @@
   width: 90%;
   text-align: center;
   color: #333;
-  box-shadow: 0 10px 40px rgba(0,0,0,0.25);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
   animation: slideUp 0.4s ease-in-out;
   max-height: 85vh;
   overflow-y: auto;

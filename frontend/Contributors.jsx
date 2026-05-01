@@ -51,7 +51,7 @@ export default function Contributors() {
       <div className="contributors-hero">
         <h1>🌟 Meet Our Contributors</h1>
         <p>
-          Fasal Saathi is built by a passionate community of developers, 
+          <span className="notranslate" translate="no">Fasal Saathi</span> is built by a passionate community of developers,
           designers, and farmers dedicated to revolutionizing agriculture
         </p>
       </div>
@@ -91,7 +91,7 @@ export default function Contributors() {
             rel="noopener noreferrer"
             className="btn btn-secondary"
           >
-            View Contributing Guide
+            <span className="notranslate">View Contributing Guide</span>
           </a>
         </div>
       </div>
@@ -145,11 +145,11 @@ export default function Contributors() {
                   </p>
                 )}
 
-                {contributor.isOwner && (
-                  <p className="founder-description">
-                    <FaStar /> Visionary leader driving Fasal Saathi's mission to revolutionize agriculture
-                  </p>
-                )}
+                 {contributor.isOwner && (
+                   <p className="founder-description">
+                     <FaStar /> Visionary leader driving <span className="notranslate" translate="no">Fasal Saathi</span>'s mission to revolutionize agriculture
+                   </p>
+                 )}
 
                 <div className="social-links">
                   {contributor.github && (
@@ -200,7 +200,7 @@ export default function Contributors() {
       <div className="contributors-footer">
         <h2>Made with 💚 by farmers and developers</h2>
         <p>
-          Fasal Saathi is an open-source project dedicated to empowering 
+          <span className="notranslate" translate="no">Fasal Saathi</span> is an open-source project dedicated to empowering
           farmers with AI-driven insights
         </p>
         <a
@@ -209,7 +209,7 @@ export default function Contributors() {
           rel="noopener noreferrer"
           className="btn btn-outline"
         >
-          View Repository on GitHub
+          <span className="notranslate">View Repository on GitHub</span>
         </a>
       </div>
     </div>

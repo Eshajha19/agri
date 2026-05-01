@@ -82,17 +82,17 @@ const MarketPrices = () => {
 
   return (
     <div className="market-prices-container">
-      <header className="market-header">
-        <div className="header-info">
-          <h1><TrendingUp className="header-icon-svg" size={32} /> Market Price Guidance</h1>
-          <p>Real-time mandi prices and analytics for informed selling</p>
-        </div>
+       <header className="market-header">
+         <div className="header-info">
+           <h1><TrendingUp className="header-icon-svg" size={32} /> <span className="notranslate">Market Price Guidance</span></h1>
+           <p>Real-time mandi prices and analytics for informed selling</p>
+         </div>
         <div className="header-actions">
           <button className="alert-btn">
-            <Bell size={18} /> Set Price Alert
+            <Bell size={18} /> <span className="notranslate">Set Price Alert</span>
           </button>
           <button className="refresh-btn-market" onClick={loadData}>
-            <RefreshCw size={18} className={loading ? "spin" : ""} /> Refresh Data
+            <RefreshCw size={18} className={loading ? "spin" : ""} /> <span className="notranslate">Refresh Data</span>
           </button>
         </div>
       </header>

@@ -227,12 +227,12 @@ export default function Home({ user }) {
                 Directs the user to either the AI advisor or the login page.
                 We provide a clear aria-label so screen readers understand the context.
               */}
-              <Link 
-                to={user ? "/advisor" : "/login"} 
+              <Link
+                to={user ? "/advisor" : "/login"}
                 className="btn-primary"
                 aria-label={user ? "Get started with AI Advisor" : "Log in to get started with AI Advisor"}
               >
-                Get Started
+                <span className="notranslate">Get Started</span>
               </Link>
 
               {/* 
@@ -298,16 +298,16 @@ export default function Home({ user }) {
        <section className="contributors-home-section">
          <div className="section-header">
            <h2>🌟 Our Contributors</h2>
-           <p>Meet the amazing people behind Fasal Saathi</p>
+            <p>Meet the amazing people behind <span className="notranslate">Fasal Saathi</span></p>
          </div>
          <div className="contributors-home-card">
            <div className="contributors-home-content">
              <div className="contributors-info">
                <h3>Built by the Community</h3>
-               <p>
-                 Fasal Saathi is made possible by passionate developers, designers, 
-                 and farmers from around the world. Join our open-source community!
-               </p>
+                <p>
+                  <span className="notranslate" translate="no">Fasal Saathi</span> is made possible by passionate developers, designers,
+                  and farmers from around the world. Join our open-source community!
+                </p>
                <div className="contributors-stats">
                  <div className="stat">
                    <span className="stat-number">25+</span>
@@ -337,11 +337,11 @@ export default function Home({ user }) {
          </div>
        </section>
 
-       <section className="how-section">
-        <div className="section-header">
-          <h2>How It Works</h2>
-          <p>Three simple steps to smarter farming</p>
-        </div>
+        <section className="how-section">
+         <div className="section-header">
+           <h2><span className="notranslate">How It Works</span></h2>
+           <p>Three simple steps to smarter farming</p>
+         </div>
         <div className="steps-container">
           <div className="step">
             <div className="step-number">1</div>
@@ -426,31 +426,31 @@ export default function Home({ user }) {
                 ACCESSIBILITY BEST PRACTICE: Footer Navigation
                 Using clear, descriptive link text and aria-labels for footer links.
               */}
-              <h4>Quick Links</h4>
-              <Link to="/" aria-label="Go to Home Page">Home</Link>
-              <Link to="/advisor" aria-label="Consult the AI Advisor">Advisor</Link>
-              <Link to="/how-it-works" aria-label="How Fasal Saathi helps you">How It Works</Link>
-              <Link to="/schemes" aria-label="View Government Schemes for farmers">Govt Schemes</Link>
-              <Link to="/dashboard" aria-label="Go to your farming dashboard">Dashboard</Link>
-              <Link to="/calendar" aria-label="View your farming activity calendar">Activity Calendar</Link>
-              <Link to="/market-prices" aria-label="Check latest market prices for crops">Market Prices</Link>
-              <Link to="/community" aria-label="Join the community discussion">Community</Link>
-              <Link to="/share-feedback" aria-label="Share your thoughts with us">Share Feedback</Link>
+               <h4>Quick Links</h4>
+              <Link to="/" aria-label="Go to Home Page"><span className="notranslate">Home</span></Link>
+              <Link to="/advisor" aria-label="Consult the AI Advisor"><span className="notranslate">Advisor</span></Link>
+              <Link to="/how-it-works" aria-label="How Fasal Saathi helps you"><span className="notranslate">How It Works</span></Link>
+              <Link to="/schemes" aria-label="View Government Schemes for farmers"><span className="notranslate">Govt Schemes</span></Link>
+              <Link to="/dashboard" aria-label="Go to your farming dashboard"><span className="notranslate">Dashboard</span></Link>
+              <Link to="/calendar" aria-label="View your farming activity calendar"><span className="notranslate">Activity Calendar</span></Link>
+              <Link to="/market-prices" aria-label="Check latest market prices for crops"><span className="notranslate">Market Prices</span></Link>
+              <Link to="/community" aria-label="Join the community discussion"><span className="notranslate">Community</span></Link>
+              <Link to="/share-feedback" aria-label="Share your thoughts with us"><span className="notranslate">Share Feedback</span></Link>
             </div>
             <div className="footer-section">
               <h4>Resources</h4>
-              <Link to="/crop-guide" aria-label="View the Crop Guide">Crop Guide</Link>
-              <Link to="/weather" aria-label="Check weather updates">Weather Updates</Link>
-              <Link to="/soil-analysis" aria-label="Get soil analysis insights">Soil Analysis</Link>
-              <Link to="/faq" aria-label="Frequently Asked Questions">FAQs</Link>
+              <Link to="/crop-guide" aria-label="View the Crop Guide"><span className="notranslate">Crop Guide</span></Link>
+              <Link to="/weather" aria-label="Check weather updates"><span className="notranslate">Weather Updates</span></Link>
+              <Link to="/soil-analysis" aria-label="Get soil analysis insights"><span className="notranslate">Soil Analysis</span></Link>
+              <Link to="/faq" aria-label="Frequently Asked Questions"><span className="notranslate">FAQs</span></Link>
             </div>
-            <div className="footer-section">
-              <h4>Company</h4>
-              <Link to="/about" aria-label="Learn about Fasal Saathi">About Us</Link>
-              <Link to="/contact" aria-label="Contact our support team">Contact</Link>
-              <Link to="/privacy-policy" aria-label="Read our Privacy Policy">Privacy Policy</Link>
-              <Link to="/terms" aria-label="Read our Terms of Service">Terms of Service</Link>
-            </div>
+             <div className="footer-section">
+               <h4>Company</h4>
+               <Link to="/about" aria-label="Learn about Fasal Saathi"><span className="notranslate">About Us</span></Link>
+               <Link to="/contact" aria-label="Contact our support team"><span className="notranslate">Contact</span></Link>
+               <Link to="/privacy-policy" aria-label="Read our Privacy Policy"><span className="notranslate">Privacy Policy</span></Link>
+               <Link to="/terms" aria-label="Read our Terms of Service"><span className="notranslate">Terms of Service</span></Link>
+             </div>
           </div>
           <div className="footer-bottom">
             <div className="footer-socials">
@@ -458,7 +458,7 @@ export default function Home({ user }) {
               <span>Available Across India</span>
             </div>
            <p className="footer-copyright">
-             © 2026 <span className="notranslate">Fasal Saathi</span>. All rights reserved. MIT Licensed.
+              © 2026 <span className="notranslate" translate="no">Fasal Saathi</span>. All rights reserved. MIT Licensed.
            </p>
           </div>
         </div>

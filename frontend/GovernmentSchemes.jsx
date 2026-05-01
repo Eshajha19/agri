@@ -129,7 +129,7 @@ export default function Schemes() {
   return (
     <div className="schemes-page">
       <div className="schemes-hero">
-        <h1>🇮🇳 Government Schemes</h1>
+        <h1>🇮🇳 <span className="notranslate">Government Schemes</span></h1>
         <p>Empowering farmers with direct benefits, insurance, and financial assistance. Find the right scheme for your growth.</p>
       </div>
 

@@ -4,7 +4,7 @@ import { SkipLink } from "./NavigationManager";
 
 import { ToastContainer } from "react-toastify";
 import { useFloating, flip, shift, offset, autoUpdate } from "@floating-ui/react";
-import {
+  import {
   FaHome,
   FaComments,
   FaInfoCircle,
@@ -42,8 +42,13 @@ import Community from "./Community";
 import ContactUs from "./ContactUs";
 import AboutUs from "./AboutUs";
 import Contributors from "./Contributors";
+import SeasonalCropPlanner from "./SeasonalCropPlanner";
+import SoilGuide from "./SoilGuide";
+
 import FAQ from "./FAQ";
 import NotFound from "./NotFound";
+import PrivacyPolicy from "./PrivacyPolicy";
+import Terms from "./Terms";
 
 import { syncOfflineRequests } from "./lib/syncOfflineRequests";
 import { auth, db, isFirebaseConfigured, doc, onSnapshot } from "./lib/firebase";
@@ -53,26 +58,21 @@ import "./App.css";
 import "./themes/sunlight.css";
 
 /* ---------------- LANGUAGE ---------------- */
-
 const LANGUAGE_OPTIONS = [
-  { value: "en", label: "🌍 English", englishName: "english" },
-  { value: "hi", label: "🇮🇳 हिंदी", englishName: "hindi" },
-  { value: "mr", label: "🇮🇳 मराठी", englishName: "marathi" },
-  { value: "bn", label: "🇮🇳 বাংলা", englishName: "bengali" },
-  { value: "ta", label: "🇮🇳 தமிழ்", englishName: "tamil" },
-  { value: "te", label: "🇮🇳 తెలుగు", englishName: "telugu" },
-  { value: "gu", label: "🇮🇳 ગુજરાતી", englishName: "gujarati" },
-  { value: "pa", label: "🇮🇳 ਪੰਜਾਬੀ", englishName: "punjabi" },
-  { value: "kn", label: "🇮🇳 ಕನ್ನಡ", englishName: "kannada" },
-  { value: "ml", label: "🇮🇳 മലയാളം", englishName: "malayalam" },
-  { value: "or", label: "🇮🇳 ଓଡ଼ିଆ", englishName: "odia" },
-  { value: "as", label: "🇮🇳 অসমীয়া", englishName: "assamese" },
+  { value: "en", label: "English", englishName: "english" },
+  { value: "hi", label: "हिन्दी", englishName: "hindi" },
+  { value: "bn", label: "বাংলা", englishName: "bengali" },
+  { value: "te", label: "తెలుగు", englishName: "telugu" },
+  { value: "ta", label: "தமிழ்", englishName: "tamil" },
+  { value: "mr", label: "मराठी", englishName: "marathi" },
+  { value: "gu", label: "ગુજરાતી", englishName: "gujarati" },
+  { value: "kn", label: "ಕನ್ನಡ", englishName: "kannada" },
+  { value: "ml", label: "മലയാളം", englishName: "malayalam" },
 ];
 
 const getInitialLanguage = () => {
   try {
-    const stored = localStorage.getItem("preferredLanguage");
-    return LANGUAGE_OPTIONS.some((l) => l.value === stored) ? stored : "en";
+    return localStorage.getItem("preferredLanguage") || "en";
   } catch {
     return "en";
   }
@@ -80,39 +80,55 @@ const getInitialLanguage = () => {
 
 const syncLanguage = (lang, setLang) => {
   setLang(lang);
-  localStorage.setItem("preferredLanguage", lang);
-
-  // Set cookie WITHOUT encoding first so Google can read it
-  if (lang === 'en') {
-    // Clear cookie for English
-    document.cookie = 'googtrans=; path=/; max-age=0';
-    if (window.location.hostname) {
-      document.cookie = 'googtrans=; domain=.' + window.location.hostname + '; path=/; max-age=0';
-    }
-  } else {
-    const rawCookieValue = '/en/' + lang;
-    const expires = new Date();
-    expires.setFullYear(expires.getFullYear() + 10);
-    // Set raw value (no encoding)
-    document.cookie = 'googtrans=' + rawCookieValue + '; path=/; expires=' + expires.toUTCString();
-    if (window.location.hostname) {
-      document.cookie = 'googtrans=' + rawCookieValue + '; domain=.' + window.location.hostname + '; path=/; expires=' + expires.toUTCString();
+  try {
+    localStorage.setItem("preferredLanguage", lang);
+  } catch {}
+  
+  // Trigger Google Translate if available
+  if (window.google && window.google.translate && window.google.translate.TranslateElement) {
+    try {
+      // Find the Google Translate select element
+      let select = document.querySelector('.goog-te-combo');
+      if (!select) {
+        // Try to find it in the hidden translate element
+        const gtEl = document.getElementById('google_translate_element');
+        if (gtEl) {
+          select = gtEl.querySelector('select');
+        }
+      }
+      
+      if (select) {
+        select.value = lang;
+        // Trigger change event to force translation
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      
+      // Also update the cookie for Google Translate
+      if (lang !== 'en') {
+        const cookieValue = '/en/' + lang;
+        const expires = new Date();
+        expires.setFullYear(expires.getFullYear() + 1);
+        document.cookie = 'googtrans=' + cookieValue + '; path=/; expires=' + expires.toUTCString();
+      } else {
+        // Clear cookie for English
+        document.cookie = 'googtrans=; path=/; max-age=0';
+      }
+    } catch (e) {
+      console.error('Google Translate sync error:', e);
     }
   }
-  // Use a small delay to ensure cookies are set before reload
-  setTimeout(() => window.location.reload(), 50);
 };
 
 function App() {
   const scorecardRef = useRef(null);
-  const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
+  const [settings, setSettings] = useState({ language: getInitialLanguage() });
   const [isOpen, setIsOpen] = useState(false);
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [profileCompleted, setProfileCompleted] = useState(true);
   const [loading, setLoading] = useState(true);
   const [showScorecard, setShowScorecard] = useState(false);
-  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
 
   const { floatingStyles } = useFloating({
     placement: "bottom-end",
@@ -161,6 +177,16 @@ function App() {
   const handleThemeToggle = () => {
     setIsDarkTheme(!isDarkTheme);
   };
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (scorecardRef.current && !scorecardRef.current.contains(event.target)) {
+        setShowScorecard(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   useEffect(() => {
     if (!isFirebaseConfigured()) {
@@ -248,129 +274,98 @@ function App() {
         The 'nav' element defines a landmark region for screen readers.
         Using Link components from react-router-dom ensures client-side routing.
       */}
-      <nav className="navbar" role="navigation" aria-label="Main Navigation">
+        <nav className={`navbar ${isOpen ? "menu-open" : ""}`} role="navigation" aria-label="Main Navigation">
           <div className="nav-left">
             {/* 
               Brand Link: Directs users back to the landing page.
               We ensure this is the first link in the tab order for consistency.
             */}
-            <Link to="/" className="brand" aria-label="Fasal Saathi Home">
-              <FaLeaf className="brand-icon" />
-              <span>Fasal Saathi</span>
-            </Link>
-          </div>
+             <Link to="/" className="brand" aria-label="Fasal Saathi Home">
+               <FaLeaf className="brand-icon" />
+               <span className="notranslate" translate="no">Fasal Saathi</span>
+             </Link>
+           </div>
 
         <ul className={`nav-center ${isOpen ? "active" : ""}`}>
-          {/* 
-            Navigation List: Organized as a list (ul) so screen readers 
-            can announce the number of items in the menu.
-          */}
           <li>
-            <Link 
-              to="/" 
+            <Link
+              to="/"
               onClick={() => setIsOpen(false)}
               aria-label="Navigate to Home Page"
             >
-              Home
+              <span className="notranslate">Home</span>
             </Link>
           </li>
           <li>
-            <Link 
-              to="/how-it-works" 
+            <Link
+              to="/how-it-works"
               onClick={() => setIsOpen(false)}
               aria-label="Learn how Fasal Saathi works"
             >
-              Works
+              <span className="notranslate">Works</span>
             </Link>
           </li>
+
           <li>
-            <Link 
-              to="/crop-guide" 
-              onClick={() => setIsOpen(false)}
-              aria-label="View our comprehensive Crop Guide"
-            >
-              Guide
-            </Link>
-          </li>
-          <li>
-            <Link 
-              to="/resources" 
+            <Link
+              to="/resources"
               onClick={() => setIsOpen(false)}
               aria-label="Access farming resources and materials"
             >
-              Resources
+              <span className="notranslate">Resources</span>
             </Link>
           </li>
           <li>
-            <Link 
-              to="/about" 
+            <Link
+              to="/about"
               onClick={() => setIsOpen(false)}
               aria-label="Learn about our mission and team"
             >
-              About
+              <span className="notranslate">About</span>
             </Link>
           </li>
           <li>
-            <Link 
-              to="/contact" 
+            <Link
+              to="/contact"
               onClick={() => setIsOpen(false)}
               aria-label="Get in touch with us"
             >
-              Contact
+              <span className="notranslate">Contact</span>
             </Link>
           </li>
+
+          <li>
+            <Link
+              to="/dashboard"
+              onClick={() => setIsOpen(false)}
+              aria-label="Go to Farmer Dashboard"
+            >
+              <FaTachometerAlt aria-hidden="true" /> <span className="notranslate">Dashboard</span>
+            </Link>
+          </li>
+          <li className="nav-language">
+            <span className="language-label-mobile">
+              <span className="notranslate">Language:</span>
+            </span>
+            <div className="language-dropdown-mobile" onClick={(e) => e.stopPropagation()}>
+              <LanguageDropdown 
+                options={LANGUAGE_OPTIONS}
+                value={settings.language}
+                onChange={(lang) => {
+                  setSettings({ ...settings, language: lang });
+                  syncLanguage(lang, setPreferredLang);
+                }}
+              />
+            </div>
+          </li>
         </ul>
+ 
+              <div className="nav-right">
+                <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Toggle Theme">
+                  {isDarkTheme ? "☀️" : "🌙"}
+                </button>
 
-          <div className="nav-right">
-            <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Toggle Theme">
-              {isDarkTheme ? "☀️" : "🌙"}
-            </button>
-
-            <button onClick={() => setShowMoreMenu(!showMoreMenu)} className="more-menu-toggle" aria-label="More Options">
-              <FaBars />
-            </button>
-
-            {showMoreMenu && (
-              <div className="more-dropdown" onClick={(e) => e.stopPropagation()} role="menu">
-                 <div className="dropdown-section">
-                   <label id="language-label">Language</label>
-                   <LanguageDropdown
-                     options={LANGUAGE_OPTIONS}
-                     value={preferredLang}
-                     onChange={(lang) => {
-                       syncLanguage(lang, setPreferredLang);
-                       setShowMoreMenu(false);
-                     }}
-                     aria-labelledby="language-label"
-                   />
-                 </div>
-                <div className="dropdown-links">
-                  {/* 
-                    Internal App Links:
-                    Using Dashboard and Community links within the dropdown.
-                    We ensure these are also focusable and labeled correctly.
-                  */}
-                  <Link 
-                    to="/dashboard" 
-                    onClick={() => setShowMoreMenu(false)}
-                    role="menuitem"
-                    aria-label="Go to Farmer Dashboard"
-                  >
-                    <FaTachometerAlt aria-hidden="true" /> Dashboard
-                  </Link>
-                  <Link 
-                    to="/community" 
-                    onClick={() => setShowMoreMenu(false)}
-                    role="menuitem"
-                    aria-label="Join our Community forum"
-                  >
-                    <FaComments aria-hidden="true" /> Community
-                  </Link>
-                </div>
-              </div>
-            )}
-
-          <div className="nav-user" ref={scorecardRef} onClick={() => { setShowScorecard(!showScorecard); setShowMoreMenu(false); }}>
+            <div className="nav-user" ref={scorecardRef} onClick={() => { setShowScorecard(!showScorecard); }}>
             {loading ? (
               <div className="nav-loader-mini"></div>
             ) : user ? (
@@ -410,12 +405,12 @@ function App() {
                 Login Link: Prominently displayed for guest users.
                 This is often the primary call-to-action in the navbar.
               */
-              <Link 
-                to="/login" 
+              <Link
+                to="/login"
                 className="btn-get-started"
                 aria-label="Log in or Sign up to get started"
               >
-                Get Started
+                <span className="notranslate">Get Started</span>
               </Link>
             )}
           </div>
@@ -478,7 +473,11 @@ function App() {
           <Route path="/community" element={<Community />} />
           <Route path="/contact" element={<ContactUs />} />
           <Route path="/about" element={<AboutUs />} />
+          <Route path="/crop-planner" element={<SeasonalCropPlanner />} />
+          <Route path="/soil-guide" element={<SoilGuide />} />
           <Route path="/faq" element={<FAQ />} />
+          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+          <Route path="/terms" element={<Terms />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>

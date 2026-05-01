@@ -9,9 +9,9 @@ import "./ContactUs.css";
 
 const FAQ_ITEMS = [
   { q: "How do I get crop recommendations?", a: "Navigate to the Advisor section and enter your soil type, location, and season. Our AI will suggest the best crops for you." },
-  { q: "Is Fasal Saathi available in my language?", a: "Yes! We support 12 Indian languages including Hindi, Bengali, Tamil, Telugu, Marathi, and more. Use the language selector in the navbar." },
+  { q: <span>Is <span className="notranslate" translate="no">Fasal Saathi</span> available in my language?</span>, a: "Yes! We support 12 Indian languages including Hindi, Bengali, Tamil, Telugu, Marathi, and more. Use the language selector in the navbar." },
   { q: "How accurate are the weather forecasts?", a: "We use real-time data from trusted meteorological sources to provide forecasts accurate up to 7 days for your location." },
-  { q: "Can I use Fasal Saathi offline?", a: "Yes, basic features work offline. Your data syncs automatically when you reconnect to the internet." },
+  { q: <span>Can I use <span className="notranslate" translate="no">Fasal Saathi</span> offline?</span>, a: "Yes, basic features work offline. Your data syncs automatically when you reconnect to the internet." },
   { q: "How do I report a bug or issue?", a: "Use this contact form with the subject 'Bug Report', or visit our Community page to post in the support thread. Our team responds within 24 hours." },
 ];
 
@@ -78,7 +78,7 @@ export default function ContactUs() {
       <div className="contact-hero">
         <div className="contact-hero-badge"><FaLeaf /> Get In Touch</div>
         <h1>We're Here to<br /><span className="hero-highlight">Help You Grow</span></h1>
-        <p>Have a question, suggestion, or need support? The Fasal Saathi team is just a message away.</p>
+         <p>Have a question, suggestion, or need support? The <span className="notranslate" translate="no">Fasal Saathi</span> team is just a message away.</p>
         {/* TODO: Replace placeholder contact links below with real values before shipping.
             Update CONTACT_EMAIL, CONTACT_PHONE, and SOCIAL_LINKS with actual
             project details once available. */}
@@ -255,7 +255,7 @@ export default function ContactUs() {
           <div className="faq-header">
             <div>
               <h2>Frequently Asked Questions</h2>
-              <p className="faq-subtitle">Quick answers to common questions about Fasal Saathi.</p>
+               <p className="faq-subtitle">Quick answers to common questions about <span className="notranslate" translate="no">Fasal Saathi</span>.</p>
             </div>
             <div className="faq-badge">{FAQ_ITEMS.length} Questions</div>
           </div>
