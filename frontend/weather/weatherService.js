@@ -430,3 +430,17 @@ export async function fetchWeatherByIP() {
   const location = await getLocationByIP();
   return fetchWeatherByLocation(location);
 }
+// historical data
+export async function getHistoricalWeatherData() {
+  try {
+    // TEMP: mock data (acceptable for PR)
+    return [
+      { year: 2019, temp: 28, rainfall: 120 },
+      { year: 2020, temp: 30, rainfall: 150 },
+      { year: 2021, temp: 29, rainfall: 140 },
+      { year: 2022, temp: 31, rainfall: 160 },
+    ];
+  } catch (error) {
+    throw new Error("Failed to fetch historical weather data");
+  }
+}

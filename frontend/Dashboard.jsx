@@ -22,13 +22,14 @@ import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
   BarChart, Bar, CartesianGrid
 } from "recharts";
+import { getHistoricalWeatherData } from "./weather/weatherService";
 
 export default function Dashboard() {
   const name = localStorage.getItem("farmerName") || "Farmer";
   const preferredLang = localStorage.getItem("preferredLanguage") || "en";
 
   const [currentTime, setCurrentTime] = useState(new Date());
-
+  const [historicalWeather, setHistoricalWeather] = useState([]);
   const [phoneNumber, setPhoneNumber] = useState(localStorage.getItem("farmerPhone") || "");
   const [whatsappAlerts, setWhatsappAlerts] = useState(localStorage.getItem("whatsappAlerts") === "true");
   const [isUpdating, setIsUpdating] = useState(false);
@@ -48,6 +49,14 @@ export default function Dashboard() {
       { year: "2021", crop: "Wheat", yield: 50, region: "North", season: "Rabi" },
       { year: "2022", crop: "Rice", yield: 60, region: "South", season: "Kharif" },
     ]);
+  }, []);
+  useEffect(() => {
+    const fetchData = async () => {
+      const data = await getHistoricalWeatherData();
+      setHistoricalWeather(data);
+    };
+
+    fetchData();
   }, []);
 
   const handleUpdateWhatsApp = async () => {
@@ -486,6 +495,54 @@ export default function Dashboard() {
           </div>
         )}
         {/* CONDITION END */}
+      </section>
+      <section className="dashboard-section-card" style={{ marginTop: "30px" }}>
+        <div className="section-card-header">
+          <h2>🌦 Historical Weather Trends</h2>
+          <span className="section-badge">Weather</span>
+        </div>
+
+        <p style={{ color: "#6b7280", marginBottom: "20px" }}>
+          Temperature trends based on past years to improve crop decisions
+        </p>
+
+        {/* Weather Chart */}
+        <div style={{ width: "100%", height: 350 }}>
+          {historicalWeather.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "40px" }}>
+              Loading weather data...
+            </div>
+          ) : (
+            <ResponsiveContainer>
+              <LineChart data={historicalWeather}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="year" />
+                <YAxis />
+                <Tooltip />
+                <Line
+                  type="monotone"
+                  dataKey="temp"
+                  stroke="#f59e0b"
+                  strokeWidth={3}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Insight */}
+        <div style={{ marginTop: "15px", fontWeight: "500", color: "#374151" }}>
+          🌱 Insight: {
+            historicalWeather.length > 0
+              ? (
+                  historicalWeather.reduce((sum, d) => sum + d.rainfall, 0) /
+                  historicalWeather.length
+                ) > 140
+                ? "Rice is suitable based on historical rainfall trends"
+                : "Wheat is more suitable based on climate trends"
+              : "Analyzing data..."
+          }
+        </div>
       </section>
     </div>
   );
