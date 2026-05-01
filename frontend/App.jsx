@@ -42,8 +42,12 @@ import Community from "./Community";
 import ContactUs from "./ContactUs";
 import AboutUs from "./AboutUs";
 import Contributors from "./Contributors";
+import SeasonalCropPlanner from "./SeasonalCropPlanner";
+
 import FAQ from "./FAQ";
 import NotFound from "./NotFound";
+import PrivacyPolicy from "./PrivacyPolicy";
+import Terms from "./Terms";
 
 import { syncOfflineRequests } from "./lib/syncOfflineRequests";
 import { auth, db, isFirebaseConfigured, doc, onSnapshot } from "./lib/firebase";
@@ -161,6 +165,16 @@ function App() {
   const handleThemeToggle = () => {
     setIsDarkTheme(!isDarkTheme);
   };
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (scorecardRef.current && !scorecardRef.current.contains(event.target)) {
+        setShowScorecard(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   useEffect(() => {
     if (!isFirebaseConfigured()) {
@@ -317,6 +331,16 @@ function App() {
               aria-label="Get in touch with us"
             >
               Contact
+            </Link>
+          </li>
+          <li>
+            <Link 
+              to="/crop-planner" 
+              onClick={() => setIsOpen(false)}
+              className="planner-nav-link"
+              aria-label="Plan your seasonal crops"
+            >
+              Planner
             </Link>
           </li>
         </ul>
@@ -478,7 +502,10 @@ function App() {
           <Route path="/community" element={<Community />} />
           <Route path="/contact" element={<ContactUs />} />
           <Route path="/about" element={<AboutUs />} />
+          <Route path="/crop-planner" element={<SeasonalCropPlanner />} />
           <Route path="/faq" element={<FAQ />} />
+          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+          <Route path="/terms" element={<Terms />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
