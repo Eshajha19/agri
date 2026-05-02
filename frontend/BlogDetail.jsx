@@ -74,7 +74,7 @@ Use PM-KISAN instalments strategically by timing withdrawals with your crop inpu
     author: "Prof. Suresh Patel",
     date: "April 18, 2026",
     readTime: "7 min read",
-    thumbnail: "https://images.unsplash.com/photo-1536594424649-24285e120d5f?w=900&q=80",
+    thumbnail: "https://images.unsplash.com/photo-1595841696677-6489ff3f8cd1?w=900&q=80",
     content: `Rice blast, caused by the fungus Magnaporthe oryzae, is the most economically destructive disease of rice worldwide. Under favourable conditions it can cause total crop failure. Early identification and timely management are essential for protecting your paddy crop.
 
 **Identifying Rice Blast**
@@ -105,7 +105,7 @@ Rotate fungicides with different modes of action to delay resistance development
     author: "Meena Krishnan",
     date: "April 14, 2026",
     readTime: "5 min read",
-    thumbnail: "https://images.unsplash.com/photo-1504386106-b5b6e8e0e7c2?w=900&q=80",
+    thumbnail: "https://images.unsplash.com/photo-1561470508-fd4df1ed90b2?w=900&q=80",
     content: `The Southwest Monsoon is the lifeblood of Indian agriculture, delivering approximately 70 to 90 percent of annual rainfall to most parts of the country between June and September. Understanding how to read monsoon forecasts and plan your kharif season accordingly can significantly improve your outcomes.
 
 **Reading IMD Forecasts**
@@ -136,7 +136,7 @@ El Nino years are often associated with below-normal monsoon rainfall, while La 
     author: "Dr. Kavita Rao",
     date: "April 10, 2026",
     readTime: "6 min read",
-    thumbnail: "https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=900&q=80",
+    thumbnail: "https://images.unsplash.com/photo-1500937386664-56d1dfef3854?w=900&q=80",
     content: `The Soil Health Card Scheme was launched to provide every farmer in India with a soil health card once every two years. The card contains information on 12 parameters including macro-nutrients (N, P, K), secondary nutrients (S, Ca, Mg), and micro-nutrients (Zn, Fe, Cu, Mn, B) along with pH and electrical conductivity.
 
 **Understanding Soil pH**

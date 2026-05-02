@@ -32,7 +32,7 @@ const BLOG_POSTS = [
     author: "Prof. Suresh Patel",
     date: "April 18, 2026",
     readTime: "7 min read",
-    thumbnail: "https://images.unsplash.com/photo-1536594424649-24285e120d5f?w=600&q=80",
+    thumbnail: "https://images.unsplash.com/photo-1595841696677-6489ff3f8cd1?w=600&q=80",
   },
   {
     id: 4,
@@ -42,7 +42,7 @@ const BLOG_POSTS = [
     author: "Meena Krishnan",
     date: "April 14, 2026",
     readTime: "5 min read",
-    thumbnail: "https://images.unsplash.com/photo-1504386106-b5b6e8e0e7c2?w=600&q=80",
+    thumbnail: "https://images.unsplash.com/photo-1561470508-fd4df1ed90b2?w=600&q=80",
   },
   {
     id: 5,
@@ -52,7 +52,7 @@ const BLOG_POSTS = [
     author: "Dr. Kavita Rao",
     date: "April 10, 2026",
     readTime: "6 min read",
-    thumbnail: "https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=600&q=80",
+    thumbnail: "https://images.unsplash.com/photo-1500937386664-56d1dfef3854?w=600&q=80",
   },
   {
     id: 6,
