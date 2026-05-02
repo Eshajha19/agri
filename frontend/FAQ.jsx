@@ -88,9 +88,9 @@ export default function FAQ() {
               <p>Join the Discussion</p>
             </div>
           </div>
-           <a href="/contact" className="faq-btn">Contact Us Now</a>
-         </div>
-       </div>
-     </div>
-   );
+          <a href="/contact" className="faq-btn">Contact Us Now</a>
+        </div>
+      </div>
+    </div>
+  );
 }

@@ -18,6 +18,8 @@ import { useFloating, flip, shift, offset, autoUpdate } from "@floating-ui/react
   FaChevronUp,
   FaWhatsapp,
   FaUser,
+  FaBook,
+  FaShieldAlt,
 } from "react-icons/fa";
 
 import Advisor from "./Advisor";
@@ -44,6 +46,10 @@ import AboutUs from "./AboutUs";
 import Contributors from "./Contributors";
 import SeasonalCropPlanner from "./SeasonalCropPlanner";
 import SoilGuide from "./SoilGuide";
+import CropDiseaseAwareness from "./CropDiseaseAwareness";
+import Helpline from "./Helpline";
+import Glossary from "./Glossary";
+import RiskIndex from "./RiskIndex";
 
 import FAQ from "./FAQ";
 import NotFound from "./NotFound";
@@ -129,6 +135,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [showScorecard, setShowScorecard] = useState(false);
   const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   const { floatingStyles } = useFloating({
     placement: "bottom-end",
@@ -305,7 +312,15 @@ function App() {
               <span className="notranslate">Works</span>
             </Link>
           </li>
-
+          <li>
+            <Link
+              to="/crop-guide"
+              onClick={() => setIsOpen(false)}
+              aria-label="View our comprehensive Crop Guide"
+            >
+              <span className="notranslate">Guide</span>
+            </Link>
+          </li>
           <li>
             <Link
               to="/resources"
@@ -313,6 +328,15 @@ function App() {
               aria-label="Access farming resources and materials"
             >
               <span className="notranslate">Resources</span>
+            </Link>
+          </li>
+          <li>
+            <Link
+              to="/disease-awareness"
+              onClick={() => setIsOpen(false)}
+              aria-label="Learn about crop diseases and remedies"
+            >
+              <span className="notranslate">Awareness</span>
             </Link>
           </li>
           <li>
@@ -333,21 +357,28 @@ function App() {
               <span className="notranslate">Contact</span>
             </Link>
           </li>
-
           <li>
             <Link
-              to="/dashboard"
+              to="/helpline"
               onClick={() => setIsOpen(false)}
-              aria-label="Go to Farmer Dashboard"
+              aria-label="Emergency farming helplines and support"
             >
-              <FaTachometerAlt aria-hidden="true" /> <span className="notranslate">Dashboard</span>
+              <span className="notranslate">Helpline</span>
             </Link>
           </li>
-          <li className="nav-language">
-            <span className="language-label-mobile">
-              <span className="notranslate">Language:</span>
-            </span>
-            <div className="language-dropdown-mobile" onClick={(e) => e.stopPropagation()}>
+          <li>
+            <Link
+              to="/crop-planner"
+              onClick={() => setIsOpen(false)}
+              className="planner-nav-link"
+              aria-label="Plan your seasonal crops"
+            >
+              <span className="notranslate">Planner</span>
+            </Link>
+          </li>
+          <li className="mobile-only-language">
+            <div className="language-selector-section">
+              <label className="language-label">Language:</label>
               <LanguageDropdown 
                 options={LANGUAGE_OPTIONS}
                 value={settings.language}
@@ -365,7 +396,72 @@ function App() {
                   {isDarkTheme ? "☀️" : "🌙"}
                 </button>
 
-            <div className="nav-user" ref={scorecardRef} onClick={() => { setShowScorecard(!showScorecard); }}>
+              <button 
+                onClick={(e) => { e.stopPropagation(); setShowMoreMenu(!showMoreMenu); }} 
+                className={`more-menu-toggle ${showMoreMenu ? 'active' : ''}`} 
+                aria-label="More Options"
+              >
+                <span className="notranslate">More</span>
+                <FaChevronDown className="chevron" />
+              </button>
+
+              {showMoreMenu && (
+                <div className="more-dropdown" onClick={(e) => e.stopPropagation()} role="menu">
+                  <div className="dropdown-links">
+                    {/* Language Selector in hamburger menu */}
+                    <div className="language-selector-section">
+                      <label className="language-label">Language:</label>
+                      <LanguageDropdown 
+                        options={LANGUAGE_OPTIONS}
+                        value={settings.language}
+                        onChange={(lang) => {
+                          setSettings({ ...settings, language: lang });
+                          syncLanguage(lang, setPreferredLang);
+                        }}
+                      />
+                    </div>
+                    {/* 
+                      Internal App Links:
+                      Using Dashboard and Community links within the dropdown.
+                      We ensure these are also focusable and labeled correctly.
+                    */}
+                     <Link
+                       to="/dashboard"
+                       onClick={() => setShowMoreMenu(false)}
+                       role="menuitem"
+                       aria-label="Go to Farmer Dashboard"
+                     >
+                       <FaTachometerAlt aria-hidden="true" /> <span className="notranslate">Dashboard</span>
+                     </Link>
+                     <Link
+                       to="/community"
+                       onClick={() => setShowMoreMenu(false)}
+                       role="menuitem"
+                       aria-label="Join our Community forum"
+                     >
+                       <FaComments aria-hidden="true" /> <span className="notranslate">Community</span>
+                     </Link>
+                     <Link
+                       to="/glossary"
+                       onClick={() => setShowMoreMenu(false)}
+                       role="menuitem"
+                       aria-label="View Agricultural Glossary"
+                     >
+                       <FaBook aria-hidden="true" /> <span className="notranslate">Glossary</span>
+                     </Link>
+                     <Link
+                       to="/risk-index"
+                       onClick={() => setShowMoreMenu(false)}
+                       role="menuitem"
+                       aria-label="Access AI Risk Index"
+                     >
+                       <FaShieldAlt aria-hidden="true" /> <span className="notranslate">Risk Index</span>
+                     </Link>
+                  </div>
+                </div>
+              )}
+
+           <div className="nav-user" ref={scorecardRef} onClick={() => { setShowScorecard(!showScorecard); setShowMoreMenu(false); }}>
             {loading ? (
               <div className="nav-loader-mini"></div>
             ) : user ? (
@@ -475,6 +571,10 @@ function App() {
           <Route path="/about" element={<AboutUs />} />
           <Route path="/crop-planner" element={<SeasonalCropPlanner />} />
           <Route path="/soil-guide" element={<SoilGuide />} />
+          <Route path="/disease-awareness" element={<CropDiseaseAwareness />} />
+          <Route path="/helpline" element={<Helpline />} />
+          <Route path="/glossary" element={<Glossary />} />
+          <Route path="/risk-index" element={<RiskIndex />} />
           <Route path="/faq" element={<FAQ />} />
           <Route path="/privacy-policy" element={<PrivacyPolicy />} />
           <Route path="/terms" element={<Terms />} />

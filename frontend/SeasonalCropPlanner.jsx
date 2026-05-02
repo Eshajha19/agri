@@ -64,7 +64,6 @@ export default function SeasonalCropPlanner() {
     <div className="crop-planner-page">
       <div className="planner-header">
         <div className="header-content">
-          <h1>Seasonal Crop Planner</h1>
           <h1><span className="notranslate">Seasonal Crop Planner</span></h1>
           <p>Optimize your yearly farming cycles and reduce crop failure risks with AI-driven insights.</p>
         </div>
@@ -191,22 +190,22 @@ export default function SeasonalCropPlanner() {
                            </div>
                          </div>
 
-                         <div className="crop-card-footer">
-                           <button className="details-btn">
-                             Detailed Guide <ArrowRight size={16} />
-                           </button>
-                         </div>
-                       </div>
-                     ))
-                   ) : (
-                     <div className="no-results glass-card">
-                       <AlertTriangle size={48} />
-                       <h3>No direct matches found</h3>
-                       <p>Try adjusting your soil type or exploring crops for adjacent regions.</p>
-                     </div>
-                   )}
-                 </div>
-               ) : (
+                        <div className="crop-card-footer">
+                          <button className="details-btn">
+                            Detailed Guide <ArrowRight size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="no-results glass-card">
+                      <AlertTriangle size={48} />
+                      <h3>No direct matches found</h3>
+                      <p>Try adjusting your soil type or exploring crops for adjacent regions.</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
                 <div className="yearly-cycle-view">
                   <div className="cycle-timeline">
                     {['Kharif', 'Rabi', 'Zaid'].map((seasonId) => {

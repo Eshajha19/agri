@@ -17,7 +17,11 @@ import {
   FaCalendarAlt,
   FaCommentDots,
   FaCalculator,
-  FaUsers
+  FaUsers,
+  FaBug,
+  FaArrowRight,
+  FaBook,
+  FaShieldAlt
 } from "react-icons/fa";
 import WeatherAlertBar from "./weather/WeatherAlertBar";
 import WeatherQuickWidget from "./weather/WeatherQuickWidget";
@@ -29,48 +33,91 @@ const features = [
       title: "AI-Powered Predictions",
       desc: "Smart crop yield predictions using advanced machine learning algorithms",
       category: "Analytics",
+      link: "/advisor"
     },
     {
       icon: <FaSun />,
       title: "Weather Insights",
       desc: "Real-time weather forecasts and custom alerts tailored for your farm",
       category: "Monitoring",
+      link: "/dashboard"
     },
     {
       icon: <FaHandHoldingWater />,
       title: "Smart Irrigation",
       desc: "Optimize water usage with AI-driven irrigation recommendations",
       category: "Optimization",
+      link: "/advisor"
     },
     {
       icon: <FaChartLine />,
       title: "Yield Optimization",
       desc: "Maximize your harvest with data-driven farming strategies",
       category: "Analytics",
+      link: "/advisor"
     },
     {
       icon: <FaFlask />,
       title: "Soil Analysis",
       desc: "Comprehensive soil health monitoring and nutrient level analysis",
       category: "Monitoring",
+      link: "/soil-guide"
     },
     {
       icon: <FaLeaf />,
       title: "Crop Recommendations",
       desc: "Get crop suggestions based on soil profile and regional climate",
       category: "Recommendations",
+      link: "/crop-guide"
     },
     {
       icon: <FaChartLine />,
       title: "Fertilizer Guidance",
       desc: "Personalized fertilizer and pesticide recommendations",
       category: "Recommendations",
+      link: "/advisor"
+    },
+    {
+      icon: <FaBug />,
+      title: "Disease Awareness",
+      desc: "Learn about common crop diseases, their symptoms, and effective remedies",
+      category: "Education",
+      link: "/disease-awareness"
+    },
+    {
+      icon: <FaCalendarAlt />,
+      title: "Seasonal Crop Planner",
+      desc: "Plan your yearly farming cycles with optimized crop rotation schedules",
+      category: "Planning",
+      link: "/crop-planner"
     },
     {
       icon: <FaLock />,
       title: "Secure & Private",
       desc: "Enterprise-grade security with Firebase authentication",
       category: "Protection",
+      link: "/login"
+    },
+    {
+      icon: <FaPhoneAlt />,
+      title: "Emergency Helpline",
+      desc: "Instant access to agriculture support, weather emergencies, and insurance helplines",
+      category: "Support",
+      link: "/helpline"
+    },
+    {
+      icon: <FaBook />,
+      title: "Agri Glossary",
+      desc: "Learn common farming terms like Mulching, Drip Irrigation, and more in simple language",
+      category: "Learning",
+      link: "/glossary"
+    },
+    {
+      icon: <FaShieldAlt />,
+      title: "AI Risk Index",
+      desc: "Advanced vulnerability scoring for weather, disease, and market instability",
+      category: "Analytics",
+      link: "/risk-index"
     },
   ];
 
@@ -262,18 +309,22 @@ export default function Home({ user }) {
         </div>
 
         <div className="hero-visual">
-          <div className="floating-card card-1">
+          <Link to="/dashboard" className="floating-card card-1">
             <FaSun className="card-icon" />
             <span>28°C - Sunny</span>
-          </div>
-          <div className="floating-card card-2">
+          </Link>
+          <Link to="/advisor" className="floating-card card-2">
             <FaSeedling className="card-icon" />
             <span>Yield: +30%</span>
-          </div>
-          <div className="floating-card card-3">
+          </Link>
+          <Link to="/advisor" className="floating-card card-3">
             <FaHandHoldingWater className="card-icon" />
             <span>Optimal Irrigation</span>
-          </div>
+          </Link>
+          <Link to="/disease-awareness" className="floating-card card-4">
+            <FaBug className="card-icon" />
+            <span>Disease Alerts</span>
+          </Link>
         </div>
       </section>
 
@@ -284,12 +335,18 @@ export default function Home({ user }) {
         </div>
         <div className="features-grid">
           {features.map((feature, index) => (
-            <div key={index} className="feature-card">
-              <div className="feature-category">{feature.category}</div>
-              <div className="feature-icon">{feature.icon}</div>
-              <h3>{feature.title}</h3>
-              <p>{feature.desc}</p>
-            </div>
+            <Link to={feature.link || "/"} key={index} className="feature-card-link">
+              <div className="feature-card">
+                <div className="feature-category">{feature.category}</div>
+                <div className="feature-icon">{feature.icon}</div>
+                <h3>{feature.title}</h3>
+                <p>{feature.desc}</p>
+                <div className="feature-card-footer">
+                  <span>Learn more</span>
+                  <FaArrowRight size={16} />
+                </div>
+              </div>
+            </Link>
           ))}
         </div>
        </section>

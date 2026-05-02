@@ -583,6 +583,7 @@
   gap: 12px;
   box-shadow: var(--shadow-lg);
   animation: float 3s ease-in-out infinite;
+  text-decoration: none;
 }
 
 .theme-dark .floating-card {
@@ -605,6 +606,12 @@
   bottom: 24%;
   right: 29%;
   animation-delay: 1s;
+}
+
+.floating-card.card-4 {
+  bottom: 5%;
+  right: 12%;
+  animation-delay: 1.5s;
 }
 
 @keyframes float {
@@ -987,6 +994,31 @@
 
 .feature-card:hover p {
   color: var(--gray-700);
+}
+
+.feature-card-link {
+  text-decoration: none;
+  color: inherit;
+  display: block;
+}
+
+.feature-card-footer {
+  margin-top: auto;
+  padding-top: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--primary);
+  font-weight: 600;
+  font-size: 14px;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: all 0.4s ease;
+}
+
+.feature-card:hover .feature-card-footer {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .how-section {
