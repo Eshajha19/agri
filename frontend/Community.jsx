@@ -172,11 +172,11 @@ const Community = () => {
 
   return (
     <div className="community-container">
-      <header className="community-header">
-        <div className="header-top">
-          <h1><MessageSquare className="title-icon" /> Farmer Community</h1>
-          <p>Share knowledge, ask questions, and grow together with farmers across India</p>
-        </div>
+       <header className="community-header">
+         <div className="header-top">
+           <h1><MessageSquare className="title-icon" /> <span className="notranslate">Farmer Community</span></h1>
+           <p>Share knowledge, ask questions, and grow together with farmers across India</p>
+         </div>
         
         <div className="header-controls">
           <div className="search-bar">
@@ -302,8 +302,8 @@ const Community = () => {
                 ></textarea>
               </div>
               <div className="modal-footer">
-                <button type="button" className="btn-cancel" onClick={() => setShowCreateModal(false)}>Cancel</button>
-                <button type="submit" className="btn-submit">Post to Community</button>
+                <button type="button" className="btn-cancel" onClick={() => setShowCreateModal(false)}><span className="notranslate">Cancel</span></button>
+                <button type="submit" className="btn-submit"><span className="notranslate">Post to Community</span></button>
               </div>
             </form>
           </div>
