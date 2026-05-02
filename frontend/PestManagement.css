@@ -216,3 +216,46 @@
 .theme-dark .result-box.chemical h4 { color: #f87171; }
 .theme-dark .result-box.prevention h4 { color: #60a5fa; }
 .theme-dark .pm-error { background-color: rgba(220, 38, 38, 0.2); color: #fca5a5; }
+
+.pm-whatsapp-trigger {
+  margin-top: 20px;
+  text-align: center;
+  padding-top: 15px;
+  border-top: 1px solid var(--border-color, #e5e7eb);
+}
+
+.whatsapp-btn {
+  background-color: #25D366;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 30px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 0 auto;
+  transition: all 0.3s;
+  box-shadow: 0 4px 10px rgba(37, 211, 102, 0.3);
+}
+
+.whatsapp-btn:hover:not(:disabled) {
+  background-color: #128C7E;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 15px rgba(37, 211, 102, 0.4);
+}
+
+.whatsapp-btn:disabled {
+  background-color: #a0aec0;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.pm-success-msg {
+  color: #059669;
+  font-size: 14px;
+  margin-top: 10px;
+  font-weight: 500;
+}

@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 import { useUiStore } from '../stores/uiStore';
-import { formatErrorMessage, reportErrorToBackend } from '../utils/errorReporting';
+import { reportErrorToBackend } from '../utils/errorReporting';
 
 const toNumberOr = (value, fallback) => {
   const parsed = Number(value);

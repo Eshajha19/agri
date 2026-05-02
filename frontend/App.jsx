@@ -17,6 +17,14 @@ import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
 import { ToastContainer } from "react-toastify";
 
 import {
+import React, { useEffect, useState, useRef } from "react";
+import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
+import { SkipLink } from "./NavigationManager";
+import { useTranslation } from "react-i18next";
+
+import { ToastContainer } from "react-toastify";
+import { useFloating, flip, shift, offset, autoUpdate } from "@floating-ui/react";
+  import {
   FaHome,
   FaComments,
   FaInfoCircle,
@@ -27,7 +35,11 @@ import {
   FaMap,
   FaTachometerAlt,
   FaChevronDown,
+  FaChevronUp,
+  FaWhatsapp,
   FaUser,
+  FaBook,
+  FaShieldAlt,
 } from "react-icons/fa";
 
 import Advisor from "./Advisor";
@@ -49,66 +61,57 @@ import Loader from "./Loader";
 import FarmingMap from "./FarmingMap";
 import CropProfitCalculator from "./CropProfitCalculator";
 import Community from "./Community";
-import SoilAnalysis from "./SoilAnalysis";
+import ContactUs from "./ContactUs";
+import AboutUs from "./AboutUs";
+import Contributors from "./Contributors";
+import SeasonalCropPlanner from "./SeasonalCropPlanner";
+import SoilGuide from "./SoilGuide";
+import CropDiseaseAwareness from "./CropDiseaseAwareness";
+import Helpline from "./Helpline";
+import Glossary from "./Glossary";
+import RiskIndex from "./RiskIndex";
+import Blog from "./Blog";
+import BlogDetail from "./BlogDetail";
+
+import FAQ from "./FAQ";
+import NotFound from "./NotFound";
+import PrivacyPolicy from "./PrivacyPolicy";
+import Terms from "./Terms";
 
 import { syncOfflineRequests } from "./lib/syncOfflineRequests";
 import { auth, db, isFirebaseConfigured, doc, onSnapshot } from "./lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 
+import "./App.css";
 import "./themes/sunlight.css";
 
 /* ---------------- LANGUAGE ---------------- */
-
 const LANGUAGE_OPTIONS = [
-  { value: "en", label: "🌍 English", englishName: "english" },
-  { value: "hi", label: "🇮🇳 हिंदी", englishName: "hindi" },
-  { value: "mr", label: "🇮🇳 मराठी", englishName: "marathi" },
-  { value: "bn", label: "🇮🇳 বাংলা", englishName: "bengali" },
-  { value: "ta", label: "🇮🇳 தமிழ்", englishName: "tamil" },
-  { value: "te", label: "🇮🇳 తెలుగు", englishName: "telugu" },
-  { value: "gu", label: "🇮🇳 ગુજરાતી", englishName: "gujarati" },
-  { value: "pa", label: "🇮🇳 ਪੰਜਾਬੀ", englishName: "punjabi" },
-  { value: "kn", label: "🇮🇳 ಕನ್ನಡ", englishName: "kannada" },
-  { value: "ml", label: "🇮🇳 മലയാളം", englishName: "malayalam" },
-  { value: "or", label: "🇮🇳 ଓଡ଼ିଆ", englishName: "odia" },
-  { value: "as", label: "🇮🇳 অসমীয়া", englishName: "assamese" },
+  { value: "en", label: "English", englishName: "english" },
+  { value: "hi", label: "हिन्दी", englishName: "hindi" },
+  { value: "bn", label: "বাংলা", englishName: "bengali" },
+  { value: "te", label: "తెలుగు", englishName: "telugu" },
+  { value: "ta", label: "தமிழ்", englishName: "tamil" },
+  { value: "mr", label: "मराठी", englishName: "marathi" },
+  { value: "gu", label: "ગુજરાતી", englishName: "gujarati" },
+  { value: "kn", label: "ಕನ್ನಡ", englishName: "kannada" },
+  { value: "ml", label: "മലയാളം", englishName: "malayalam" },
+  { value: "pa", label: "ਪੰਜਾਬੀ", englishName: "punjabi" },
+  { value: "or", label: "ଓଡ଼ିଆ", englishName: "odia" },
+  { value: "as", label: "অসমীয়া", englishName: "assamese" },
 ];
 
 const getInitialLanguage = () => {
   try {
-    const stored = localStorage.getItem("preferredLanguage");
-    return LANGUAGE_OPTIONS.some((l) => l.value === stored) ? stored : "en";
+    return localStorage.getItem("preferredLanguage") || "en";
   } catch {
     return "en";
   }
 };
 
-const setGoogleTranslateCookie = (lang) => {
-  try {
-    const cookieValue = encodeURIComponent(`/en/${lang}`);
-    document.cookie = `googtrans=${cookieValue}; path=/;`;
-    const hostname = window.location.hostname;
-    if (hostname) {
-      document.cookie = `googtrans=${cookieValue}; domain=.${hostname}; path=/;`;
-    }
-  } catch {
-    // Ignore if cookies are blocked
-  }
-};
-
-const applyGoogleTranslate = (lang) => {
-  document.cookie = `googtrans=/en/${lang}; path=/`;
-  window.location.reload();
-};
-
-const syncLanguage = (lang, setLang) => {
-  setLang(lang);
-  localStorage.setItem("preferredLanguage", lang);
-  applyGoogleTranslate(lang);
-};
-
 function App() {
-  const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
+  const scorecardRef = useRef(null);
+  const [settings, setSettings] = useState({ language: getInitialLanguage() });
   const [isOpen, setIsOpen] = useState(false);
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
@@ -116,11 +119,19 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [showScorecard, setShowScorecard] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
-  const location = useLocation();
 
-  const handleLangChange = (e) => {
-    syncLanguage(e.target.value, setPreferredLang);
-  };
+  const { i18n } = useTranslation();
+
+  const { floatingStyles } = useFloating({
+    placement: "bottom-end",
+    middleware: [
+      offset(8),
+      flip(),
+      shift({ padding: 10 })
+    ],
+    whileElementsMounted: autoUpdate
+  });
+  const location = useLocation();
 
   const handleNavToggle = () => {
     setIsOpen(!isOpen);
@@ -133,7 +144,9 @@ function App() {
       setUserData(null);
       setProfileCompleted(true);
     } catch (error) {
-      console.error("Logout error:", error);
+      if (import.meta.env.DEV) {
+        console.error("Logout error:", error);
+      }
     }
   };
 
@@ -158,8 +171,20 @@ function App() {
   };
 
   useEffect(() => {
-    setGoogleTranslateCookie(preferredLang);
-  }, [preferredLang]);
+    const lang = getInitialLanguage();
+    i18n.changeLanguage(lang);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (scorecardRef.current && !scorecardRef.current.contains(event.target)) {
+        setShowScorecard(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   useEffect(() => {
     if (!isFirebaseConfigured()) {
@@ -193,25 +218,43 @@ function App() {
     return () => unsubscribeAuth();
   }, []);
 
-  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [isOffline, setIsOffline] = useState(false);
 
   useEffect(() => {
-    const handleNetworkChange = () => {
-      const offline = !navigator.onLine;
-      setIsOffline(offline);
-      if (!offline) {
-        syncOfflineRequests();
-      }
-    };
-    window.addEventListener("online", handleNetworkChange);
-    window.addEventListener("offline", handleNetworkChange);
-    const interval = setInterval(handleNetworkChange, 1000);
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
     return () => {
-      window.removeEventListener("online", handleNetworkChange);
-      window.removeEventListener("offline", handleNetworkChange);
-      clearInterval(interval);
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
     };
   }, []);
+
+  const [showScrollTop, setShowScrollTop] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      if (window.scrollY > 300) {
+        setShowScrollTop(true);
+      } else {
+        setShowScrollTop(false);
+      }
+    };
+
+    handleScroll();
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  const scrollToTop = () => {
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
+  };
 
   return (
     <BrowserRouter>
@@ -222,63 +265,218 @@ function App() {
           You are currently offline. Running in offline mode using local data.
         </div>
       )}
+    <div className={`app ${isDarkTheme ? "theme-dark" : ""}`}>
+      <SkipLink />
 
-      <nav className="navbar">
-        <div className="nav-left">
-          <Link
-            to="/"
-            className="brand"
-            onClick={(e) => {
-              if (location.pathname === "/") {
-                e.preventDefault();
-                window.scrollTo({ top: 0, behavior: "smooth" });
-              }
-            }}
-          >
-            Fasal Saathi
-          </Link>
-        </div>
+       {loading && <Loader fullPage={true} message={<span className="notranslate">Initializing Fasal Saathi...</span>} />}
+       {isOffline && (
+         <div className="offline-banner" role="alert">
+           You are currently offline. Running in offline mode using local data.
+         </div>
+       )}
+
+      {/* 
+        ACCESSIBILITY IMPROVEMENT: Semantic Navigation
+        The 'nav' element defines a landmark region for screen readers.
+        Using Link components from react-router-dom ensures client-side routing.
+      */}
+        <nav className={`navbar ${isOpen ? "menu-open" : ""}`} role="navigation" aria-label="Main Navigation">
+          <div className="nav-left">
+            {/* 
+              Brand Link: Directs users back to the landing page.
+              We ensure this is the first link in the tab order for consistency.
+            */}
+             <Link to="/" className="brand" aria-label="Fasal Saathi Home">
+               <FaLeaf className="brand-icon" />
+               <span className="notranslate" translate="no">Fasal Saathi</span>
+             </Link>
+           </div>
 
         <ul className={`nav-center ${isOpen ? "active" : ""}`}>
-          <li><Link to="/" onClick={() => setIsOpen(false)}>Home</Link></li>
-          <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}>Works</Link></li>
-          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}>Guide</Link></li>
-          <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
-        </ul>
+          <li>
+            <Link
+              to="/"
+              onClick={() => setIsOpen(false)}
+              aria-label="Navigate to Home Page"
+            >
+              <span className="notranslate">Home</span>
+            </Link>
+          </li>
+          <li>
+            <Link
+              to="/how-it-works"
+              onClick={() => setIsOpen(false)}
+              aria-label="Learn how Fasal Saathi works"
+            >
+              <span className="notranslate">Works</span>
+            </Link>
+          </li>
+          <li>
+            <Link
+              to="/crop-guide"
+              onClick={() => setIsOpen(false)}
+              aria-label="View our comprehensive Crop Guide"
+            >
+              <span className="notranslate">Guide</span>
+            </Link>
+          </li>
+          <li>
+            <Link
+              to="/resources"
+              onClick={() => setIsOpen(false)}
+              aria-label="Access farming resources and materials"
+            >
+              <span className="notranslate">Resources</span>
+            </Link>
+           </li>
+           <li>
+             <Link
+               to="/about"
+               onClick={() => setIsOpen(false)}
+               aria-label="Learn about our mission and team"
+             >
+               <span className="notranslate">About</span>
+             </Link>
+           </li>
+           <li>
+             <Link
+               to="/contact"
+               onClick={() => setIsOpen(false)}
+               aria-label="Get in touch with us"
+             >
+               <span className="notranslate">Contact</span>
+             </Link>
+           </li>
+<li className="mobile-only-language">
+             <div className="language-selector-section">
+               <label className="language-label">Language:</label>
+               <LanguageDropdown 
+                 options={LANGUAGE_OPTIONS}
+                 value={settings.language}
+                 onChange={(lang) => {
+                   setSettings({ ...settings, language: lang });
+                   i18n.changeLanguage(lang);
+                   localStorage.setItem("preferredLanguage", lang);
+                   if (navigator.onLine && window.google && window.google.translate) {
+                     try {
+                       let select = document.querySelector('.goog-te-combo');
+                       if (!select) {
+                         const gtEl = document.getElementById('google_translate_element');
+                         if (gtEl) select = gtEl.querySelector('select');
+                       }
+                       if (select) {
+                         select.value = lang;
+                         select.dispatchEvent(new Event('change', { bubbles: true }));
+                       }
+                       if (lang !== 'en') {
+                         const cookieValue = '/en/' + lang;
+                         const expires = new Date();
+                         expires.setFullYear(expires.getFullYear() + 1);
+                         document.cookie = 'googtrans=' + cookieValue + '; path=/; expires=' + expires.toUTCString();
+                       } else {
+                         document.cookie = 'googtrans=; path=/; max-age=0';
+                       }
+                     } catch (e) { console.error('GT sync error:', e); }
+                   }
+                 }}
+               />
+             </div>
+           </li>
+         </ul>
+  
+               <div className="nav-right">
+                 <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Toggle Theme">
+                   {isDarkTheme ? "☀️" : "🌙"}
+                 </button>
 
-        <div className="nav-right">
-          <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Toggle Theme">
-            {isDarkTheme ? "☀️" : "🌙"}
-          </button>
+               <button 
+                 onClick={(e) => { e.stopPropagation(); setShowMoreMenu(!showMoreMenu); }} 
+                 className={`more-menu-toggle ${showMoreMenu ? 'active' : ''}`} 
+                 aria-label="More Options"
+               >
+                 <span className="notranslate">More</span>
+                 <FaChevronDown className="chevron" />
+               </button>
 
-          <button onClick={() => setShowMoreMenu(!showMoreMenu)} className="more-menu-toggle" aria-label="More Options">
-            <FaBars />
-          </button>
+               {showMoreMenu && (
+                 <div className="more-dropdown" onClick={(e) => e.stopPropagation()} role="menu">
+                   <div className="dropdown-links">
+                     {/* Language Selector in hamburger menu */}
+                     <div className="language-selector-section">
+                       <label className="language-label">Language:</label>
+                       <LanguageDropdown 
+                         options={LANGUAGE_OPTIONS}
+                         value={settings.language}
+                         onChange={(lang) => {
+                           setSettings({ ...settings, language: lang });
+                           i18n.changeLanguage(lang);
+                           localStorage.setItem("preferredLanguage", lang);
+                           if (navigator.onLine && window.google && window.google.translate) {
+                             try {
+                               let select = document.querySelector('.goog-te-combo');
+                               if (!select) {
+                                 const gtEl = document.getElementById('google_translate_element');
+                                 if (gtEl) select = gtEl.querySelector('select');
+                               }
+                               if (select) {
+                                 select.value = lang;
+                                 select.dispatchEvent(new Event('change', { bubbles: true }));
+                               }
+                               if (lang !== 'en') {
+                                 const cookieValue = '/en/' + lang;
+                                 const expires = new Date();
+                                 expires.setFullYear(expires.getFullYear() + 1);
+                                 document.cookie = 'googtrans=' + cookieValue + '; path=/; expires=' + expires.toUTCString();
+                               } else {
+                                 document.cookie = 'googtrans=; path=/; max-age=0';
+                               }
+                             } catch (e) { console.error('GT sync error:', e); }
+                           }
+                         }}
+                       />
+                     </div>
+                    {/* 
+                      Internal App Links:
+                      Using Dashboard and Community links within the dropdown.
+                      We ensure these are also focusable and labeled correctly.
+                    */}
+                     <Link
+                       to="/dashboard"
+                       onClick={() => setShowMoreMenu(false)}
+                       role="menuitem"
+                       aria-label="Go to Farmer Dashboard"
+                     >
+                       <FaTachometerAlt aria-hidden="true" /> <span className="notranslate">Dashboard</span>
+                     </Link>
+                     <Link
+                       to="/community"
+                       onClick={() => setShowMoreMenu(false)}
+                       role="menuitem"
+                       aria-label="Join our Community forum"
+                     >
+                       <FaComments aria-hidden="true" /> <span className="notranslate">Community</span>
+                     </Link>
+                     <Link
+                       to="/glossary"
+                       onClick={() => setShowMoreMenu(false)}
+                       role="menuitem"
+                       aria-label="View Agricultural Glossary"
+                     >
+                       <FaBook aria-hidden="true" /> <span className="notranslate">Glossary</span>
+                     </Link>
+                     <Link
+                       to="/risk-index"
+                       onClick={() => setShowMoreMenu(false)}
+                       role="menuitem"
+                       aria-label="Access AI Risk Index"
+                     >
+                       <FaShieldAlt aria-hidden="true" /> <span className="notranslate">Risk Index</span>
+                     </Link>
+                  </div>
+                </div>
+              )}
 
-          {showMoreMenu && (
-            <div className="more-dropdown" onClick={(e) => e.stopPropagation()}>
-              <div className="dropdown-section">
-                <label>Language</label>
-                <select
-                  className="lang-select-dropdown notranslate"
-                  value={preferredLang}
-                  onChange={handleLangChange}
-                >
-                  {LANGUAGE_OPTIONS.map((l) => (
-                    <option key={l.value} value={l.value}>
-                      {l.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="dropdown-links">
-                <Link to="/dashboard" onClick={() => setShowMoreMenu(false)}><FaTachometerAlt /> Dashboard</Link>
-                <Link to="/community" onClick={() => setShowMoreMenu(false)}><FaComments /> Community</Link>
-              </div>
-            </div>
-          )}
-
-          <div className="nav-user" onClick={() => { setShowScorecard(!showScorecard); setShowMoreMenu(false); }}>
+           <div className="nav-user" ref={scorecardRef} onClick={() => { setShowScorecard(!showScorecard); setShowMoreMenu(false); }}>
             {loading ? (
               <div className="nav-loader-mini"></div>
             ) : user ? (
@@ -314,7 +512,17 @@ function App() {
                 )}
               </div>
             ) : (
-              <Link to="/login" className="btn-get-started">Get Started</Link>
+              /* 
+                Login Link: Prominently displayed for guest users.
+                This is often the primary call-to-action in the navbar.
+              */
+              <Link
+                to="/login"
+                className="btn-get-started"
+                aria-label="Log in or Sign up to get started"
+              >
+                <span className="notranslate">Get Started</span>
+              </Link>
             )}
           </div>
         </div>
@@ -326,27 +534,24 @@ function App() {
         </button>
       </nav>
 
-    {!loading && user && !user.emailVerified && !showScorecard && location.pathname !== "/login" && (
-      <div className="verification-overlay">
-        <div className="verification-card">
-          <div className="verify-icon">✉️</div>
-          <h2>Verify Your Email</h2>
-          <p>We've sent a link to <b>{user.email}</b>.<br /> Please verify your email to unlock all features.</p>
-          <button
-             onClick={() => {
-               auth?.currentUser?.reload().then(() => window.location.reload()).catch(() => window.location.reload());
-             }}
-             className="btn-refresh"
-          >
-            I've Verified My Email
-          </button>
-          <button onClick={handleLogout} className="btn-logout-simple">Sign Out</button>
-        </div>
-      )}
-
-       {!loading && user && user.emailVerified && !profileCompleted && location.pathname !== "/profile-setup" && (
-         <Navigate to="/profile-setup" />
-       )}
+        {!loading && user && !user.emailVerified && !showScorecard && window.location.pathname !== "/login" && (
+          <div className="verification-overlay">
+            <div className="verification-card">
+              <div className="verify-icon">✉️</div>
+              <h2>Verify Your Email</h2>
+              <p>We've sent a link to <b>{user.email}</b>.<br /> Please verify your email to unlock all features.</p>
+              <button
+                 onClick={() => {
+                   auth?.currentUser?.reload().then(() => window.location.reload()).catch(() => window.location.reload());
+                 }}
+                 className="btn-refresh"
+              >
+                I've Verified My Email
+              </button>
+               <button onClick={handleLogout} className="btn-logout-simple">Sign Out</button>
+             </div>
+           </div>
+          )}
 
       <Routes>
         <Route path="/" element={<Home user={user} />} />
@@ -381,6 +586,90 @@ function App() {
         <ToastContainer position="bottom-right" />
       </div>
     </BrowserRouter>
+        {!loading && user && user.emailVerified && !profileCompleted && window.location.pathname !== "/profile-setup" && (
+          <Navigate to="/profile-setup" />
+        )}
+
+      {/* 
+        MAIN CONTENT AREA:
+        We wrap the Routes in a <main> element with an ID of 'main-content'.
+        This serves as the target for our SkipLink, allowing users to bypass 
+        the header and navigation menu.
+      */}
+      <main id="main-content" tabIndex="-1" style={{ outline: 'none' }}>
+        <Routes>
+          <Route path="/" element={<Home user={user} />} />
+          <Route path="/advisor" element={<Advisor />} />
+          <Route path="/how-it-works" element={<How />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/crop-guide" element={<CropGuide />} />
+          <Route path="/schemes" element={<Schemes />} />
+          <Route path="/resources" element={<Resources />} />
+          <Route path="/contributors" element={<Contributors />} />
+          <Route path="/login" element={<Auth />} />
+          <Route path="/profile-setup" element={<ProfileSetup user={user} profileCompleted={profileCompleted} />} />
+          <Route path="/calendar" element={<Calendar />} />
+          <Route path="/share-feedback" element={<Feedback />} />
+          <Route path="/admin/feedback" element={<AdminFeedback />} />
+          <Route path="/market-prices" element={<MarketPrices />} />
+          <Route path="/farming-map" element={<FarmingMap />} />
+          <Route path="/profit-calculator" element={<CropProfitCalculator />} />
+          <Route path="/community" element={<Community />} />
+          <Route path="/contact" element={<ContactUs />} />
+          <Route path="/about" element={<AboutUs />} />
+          <Route path="/crop-planner" element={<SeasonalCropPlanner />} />
+          <Route path="/soil-guide" element={<SoilGuide />} />
+          <Route path="/disease-awareness" element={<CropDiseaseAwareness />} />
+          <Route path="/helpline" element={<Helpline />} />
+           <Route path="/glossary" element={<Glossary />} />
+           <Route path="/risk-index" element={<RiskIndex />} />
+            <Route path="/blog" element={<Blog />} />
+           <Route path="/blog/:id" element={<BlogDetail />} />
+           <Route path="/faq" element={<FAQ />} />
+          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+          <Route path="/terms" element={<Terms />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </main>
+
+      {/* 
+        Floating Action Button:
+        A fixed-position link for quick access to the AI advisor.
+        We provide a descriptive aria-label and ensure icons are hidden from screen readers
+        to avoid redundant announcements.
+      */}
+      <Link 
+        to="/advisor" 
+        className="floating-chat-btn" 
+        aria-label="Open AI Advisor Chat"
+      >
+        <FaComments size={28} aria-hidden="true" />
+      </Link>
+
+      <a 
+        href="https://wa.me/14155238886?text=I%20want%20to%20start%20the%20conversation%20for%20real-time%20data%20sharing" 
+        target="_blank" 
+        rel="noopener noreferrer" 
+        className="whatsapp-float"
+        title="Chat with WhatsApp Bot"
+      >
+        <FaWhatsapp />
+        <span className="tooltip">Chat with Bot</span>
+      </a>
+
+      {showScrollTop && (
+        <button 
+          className="scroll-to-top" 
+          onClick={scrollToTop}
+          aria-label="Scroll to top"
+          title="Scroll to top"
+        >
+          <FaChevronUp size={24} />
+        </button>
+      )}
+
+      <ToastContainer position="bottom-right" />
+    </div>
   );
 }
 
