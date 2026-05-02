@@ -1,0 +1,17 @@
+{
+  "nav": {"home": "હોમ","advisor": "સલાહદાતા","howItWorks": "કેવી રીતે કાર્ય કરે","cropGuide": "પીક માર્ગદર્શન","dashboard": "ડેશબોર્ડ","contributors": "યોગદાનકર્તાઓ","getStarted": "શરૂ કરો"},
+  "hero": {"title": "ફસલ સાથીમાં સ્વાગત","subtitle": "તમારો AI-આધારિત કૃષि સાથી","cta": "શરૂ કરો"},
+  "home": {"welcome": "ફસલ સાથીમાં સ્વાગત","farmingAssistant": "તમારો AI-આધારિત કૃષि સહાયક"},
+  "advisor": {"title": "સલાહદાતા","description": "પીક વ્યવસ્થાપન, હવામાન અને કૃષि પ્રથાઓ પર વિશેષજ્ઞ સલાહ મેળવો"},
+  "dashboard": {"title": "ડેશબોર્ડ","description": "તમારા ખેતનું નિરીક્ષણ કરો અને મહત્વપૂર્ણ મેટ્રિક્સ ટ્રૅક કરો"},
+  "cropGuide": {"title": "પીક માર્ગદર્શન","description": "વિવિધ પીક અને તેમની જરૂરિયાતો વિશે જાણો"},
+  "profitCalculator": {"title": "નફો કેલક્યુલેટર","description": "તમારો કૃષि નફો ગણતરી કરો"},
+  "farmingMap": {"title": "કૃષि નકશો","description": "ઇન્ટરેક્ટિવ નકશા પર તમારો ખેત જુઓ"},
+  "schemes": {"title": "સરકારી યોજનાઓ","description": "ખેડૂતો માટે સરકારી યોજનાઓ અન્વેષણ કરો"},
+  "resources": {"title": "સંસાધનો","description": "સહાયક કૃષિ સંસાધનોને ઍક્સેસ કરો"},
+  "marketPrices": {"title": "બજાર ભાવ","description": "પીકના વર્તમાન બજાર ભાવ ચકાસો"},
+  "contributors": {"title": "યોગદાનકર્તાઓ","description": "આપણી ટીમને મળો"},
+  "login": {"title": "લૉગિન","email": "ઈમેલ","password": "પાસવર્ડ","loginButton": "લૉગિન","signUp": "સાઈન અપ","noAccount": "ખાતું નથી?","haveAccount": "પહેલેથી ખાતું છે?"},
+  "profileSetup": {"title": "તમારી પ્રોફાઇલ પૂર્ણ કરો","subtitle": "તમારો ફસલ સાથી અનુભવ વ્યક્તિગત કરવામાં મદદ કરો","name": "ખેડૂતનું નામ","language": "પસંદની ભાષા","cropType": "પીક પ્રકાર","location": "સ્થાન","submit": "પ્રોફાઇલ સાચવો","required": "કૃપયા તમામ વિગતો ભરો."},
+  "common": {"loading": "લોડ થઇ રહ્યું છે...","error": "ભૂલ","success": "સફલ","cancel": "રદ્દ કરો","save": "સાચવો","delete": "કાઢી નાખો","edit": "સંપાદિત કરો","close": "બંધ કરો"}
+}
