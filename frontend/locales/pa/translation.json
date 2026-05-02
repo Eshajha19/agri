@@ -1,0 +1,17 @@
+{
+  "nav": {"home": "ਹੋਮ","advisor": "ਸਲਾਹਕਾਰ","howItWorks": "ਕਿਵੇਂ ਕੰਮ ਕਰਦਾ ਹੈ","cropGuide": "ਫਸਲ ਗਾਈਡ","dashboard": "ਡੈਸ਼ਬੋਰਡ","contributors": "ਯੋਗਦਾਨਕਰਤਾ","getStarted": "ਸ਼ੁਰੂ ਕਰੋ"},
+  "hero": {"title": "ਫਸਲ ਸਾਥੀ ਵਿੱਚ ਸਵਾਗਤ ਹੈ","subtitle": "ਤੁਹਾਡਾ AI-ਸੰਚਾਲਿਤ ਖੇਤੀ ਸਾਥੀ","cta": "ਸ਼ੁਰੂ ਕਰੋ"},
+  "home": {"welcome": "ਫਸਲ ਸਾਥੀ ਵਿੱਚ ਸਵਾਗਤ ਹੈ","farmingAssistant": "ਤੁਹਾਡਾ AI-ਸੰਚਾਲਿਤ ਖੇਤੀ ਸਹਾਇਕ"},
+  "advisor": {"title": "ਸਲਾਹਕਾਰ","description": "ਫਸਲ ਪ੍ਰਬੰਧਨ, ਮੌਸਮ ਅਤੇ ਖੇਤੀ ਵਿਧੀਆਂ 'ਤੇ ਮਾਹਿਰ ਸਲਾਹ ਪ੍ਰਾਪਤ ਕਰੋ"},
+  "dashboard": {"title": "ਡੈਸ਼ਬੋਰਡ","description": "ਆਪਣੇ ਖੇਤ ਦੀ ਨਿਗਰਾਨੀ ਕਰੋ ਅਤੇ ਮਹੱਤਵਪੂਰਨ ਮੈਟ੍ਰਿਕਸ ਦਾ ਪਾਲਣ ਕਰੋ"},
+  "cropGuide": {"title": "ਫਸਲ ਗਾਈਡ","description": "ਵੱਖ-ਵੱਖ ਫਸਲਾਂ ਅਤੇ ਉਨ੍ਹਾਂ ਦੀਆਂ ਲੋੜਾਂ ਬਾਰੇ ਜਾਣੋ"},
+  "profitCalculator": {"title": "ਮੁਨਾਫਾ ਕੈਲਕੁਲੇਟਰ","description": "ਆਪਣੀ ਖੇਤੀ ਮੁਨਾਫਾ ਦਾ ਹਿਸਾਬ ਲਗਾਓ"},
+  "farmingMap": {"title": "ਖੇਤੀ ਨਕਸ਼ਾ","description": "ਇੰਟਰਐਕਟਿਵ ਨਕਸ਼ੇ 'ਤੇ ਆਪਣਾ ਖੇਤ ਵੇਖੋ"},
+  "schemes": {"title": "ਸਰਕਾਰੀ ਸਕੀਮਾਂ","description": "ਕਿਸਾਨਾਂ ਲਈ ਸਰਕਾਰੀ ਸਕੀਮਾਂ ਦੀ ਖੋਜ ਕਰੋ"},
+  "resources": {"title": "ਸਰੋਤ","description": "ਸਹਾਇਕ ਖੇਤੀ ਸਰੋਤਾਂ ਤੱਕ ਪਹੁੰਚ ਪ੍ਰਾਪਤ ਕਰੋ"},
+  "marketPrices": {"title": "ਮਾਰਕੀਟ ਕੀਮਤਾਂ","description": "ਫਸਲਾਂ ਦੀਆਂ ਮੌਜੂਦਾ ਮਾਰਕੀਟ ਕੀਮਤਾਂ ਚੈੱਕ ਕਰੋ"},
+  "contributors": {"title": "ਯੋਗਦਾਨਕਰਤਾ","description": "ਸਾਡੀ ਟੀਮ ਨੂੰ ਮਿਲੋ"},
+  "login": {"title": "ਲੌਗਇਨ","email": "ਈ-ਮੇਲ","password": "ਪਾਸਵਰਡ","loginButton": "ਲੌਗਇਨ","signUp": "ਸਾਈਨ ਅਪ","noAccount": "ਖਾਤਾ ਨਹੀਂ?","haveAccount": "ਪਹਲਾਂ ਹੀ ਖਾਤਾ ਹੈ?"},
+  "profileSetup": {"title": "ਆਪਣੀ ਪ੍ਰੋਫਾਈਲ ਪੂਰੀ ਕਰੋ","subtitle": "ਆਪਣੀ ਫਸਲ ਸਾਥੀ ਤਜ਼ੂਰਬੇ ਨੂੰ ਨਿੱਜੀ ਬਣਾਉਣ ਵਿੱਚ ਮਦਦ ਕਰੋ","name": "ਕਿਸਾਨ ਦਾ ਨਾਮ","language": "ਪਸੰਦਦਾ ਭਾਸ਼ਾ","cropType": "ਫਸਲ ਕਿਸਮ","location": "ਥਾਂ","submit": "ਪ੍ਰੋਫਾਈਲ ਬਚਾਓ","required": "ਕਿਰਪਾ ਕਰਕੇ ਸਭ ਜਾਣਕਾਰੀ ਭਰੋ।"},
+  "common": {"loading": "ਲੋਡ ਹੋ ਰਿਹਾ ਹੈ...","error": "ਗਲਤੀ","success": "ਸਫਲ","cancel": "ਰੱਦ ਕਰੋ","save": "ਬਚਾਓ","delete": "ਹਟਾਓ","edit": "ਸੰਪਾਦਿਤ ਕਰੋ","close": "ਬੰਦ ਕਰੋ"}
+}
