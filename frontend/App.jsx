@@ -73,7 +73,7 @@ const getInitialLanguage = () => {
 
 const setGoogleTranslateCookie = (lang) => {
   try {
-    const cookieValue = encodeURIComponent(`/en/${lang}`);
+    const cookieValue = `/en/${lang}`;
     document.cookie = `googtrans=${cookieValue}; path=/;`;
     const hostname = window.location.hostname;
     if (hostname) {
@@ -327,7 +327,11 @@ function App() {
             <p>We've sent a link to <b>{user.email}</b>.<br /> Please verify your email to unlock all features.</p>
             <button
               onClick={() => {
-                auth.currentUser.reload().then(() => window.location.reload());
+                if (auth.currentUser) {
+                  auth.currentUser.reload().then(() => {
+                    window.location.reload();
+                  });
+                }
               }}
               className="btn-refresh"
             >
@@ -369,10 +373,10 @@ function App() {
       </Link>
 
       {/* Floating WhatsApp Button */}
-      <a 
-        href="https://wa.me/14155238886?text=I%20want%20to%20start%20the%20conversation%20for%20real-time%20data%20sharing" 
-        target="_blank" 
-        rel="noopener noreferrer" 
+      <a
+        href="https://wa.me/14155238886?text=I%20want%20to%20start%20the%20conversation%20for%20real-time%20data%20sharing"
+        target="_blank"
+        rel="noopener noreferrer"
         className="whatsapp-float"
         title="Chat with WhatsApp Bot"
       >
