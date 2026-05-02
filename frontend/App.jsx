@@ -15,6 +15,7 @@ import {
   FaTachometerAlt,
   FaChevronDown,
   FaUser,
+  FaWhatsapp,
 } from "react-icons/fa";
 
 import Advisor from "./Advisor";
@@ -93,6 +94,15 @@ const syncLanguage = (lang, setLang) => {
   localStorage.setItem("preferredLanguage", lang);
   applyGoogleTranslate(lang);
 };
+
+// 🔹 ScrollToTop component to fix navigation positioning
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+  return null;
+}
 
 function App() {
   const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
@@ -203,6 +213,7 @@ function App() {
 
   return (
     <div className={`app ${isDarkTheme ? "theme-dark" : ""}`}>
+      <ScrollToTop />
       {loading && <Loader fullPage={true} message="Initializing Fasal Saathi..." />}
       {isOffline && (
         <div className="offline-banner">
@@ -356,6 +367,18 @@ function App() {
       <Link to="/advisor" className="floating-chat-btn" aria-label="Chat Support">
         <FaComments size={28} />
       </Link>
+
+      {/* Floating WhatsApp Button */}
+      <a 
+        href="https://wa.me/14155238886?text=I%20want%20to%20start%20the%20conversation%20for%20real-time%20data%20sharing" 
+        target="_blank" 
+        rel="noopener noreferrer" 
+        className="whatsapp-float"
+        title="Chat with WhatsApp Bot"
+      >
+        <FaWhatsapp />
+        <span className="tooltip">Chat with Bot</span>
+      </a>
 
       <ToastContainer position="bottom-right" />
     </div>
