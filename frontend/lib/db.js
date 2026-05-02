@@ -1,9 +1,12 @@
 import { openDB } from 'idb';
 
-const dbPromise = openDB('fasal-sathi-db', 1, {
-  upgrade(db) {
-    if (!db.objectStoreNames.contains('offline-data')) {
+const dbPromise = openDB('fasal-sathi-db', 2, {
+  upgrade(db, oldVersion) {
+    if (oldVersion < 1 && !db.objectStoreNames.contains('offline-data')) {
       db.createObjectStore('offline-data');
+    }
+    if (oldVersion < 2 && !db.objectStoreNames.contains('offline-requests')) {
+      db.createObjectStore('offline-requests', { keyPath: 'id', autoIncrement: true });
     }
   },
 });
@@ -22,4 +25,16 @@ export const deleteOfflineData = async (key) => {
 
 export const clearOfflineData = async () => {
   return (await dbPromise).clear('offline-data');
+};
+
+export const addOfflineRequest = async (requestConfig) => {
+  return (await dbPromise).add('offline-requests', requestConfig);
+};
+
+export const getOfflineRequests = async () => {
+  return (await dbPromise).getAll('offline-requests');
+};
+
+export const deleteOfflineRequest = async (id) => {
+  return (await dbPromise).delete('offline-requests', id);
 };

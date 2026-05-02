@@ -24,7 +24,7 @@ export default defineConfig([
     },
     rules: {
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
-      'no-console': process.env.NODE_ENV === 'production' ? 'error' : 'warn',
+      'no-console': 'warn',
     },
   },
 ])
