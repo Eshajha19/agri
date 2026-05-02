@@ -81,5 +81,62 @@
     "delete": "हटाएं",
     "edit": "संपादित करें",
     "close": "बंद करें"
+  },
+  "smartCropRecommendation": {
+    "title": "स्मार्ट फसल सिफारिशकर्ता",
+    "subtitle": "मौसम, मिट्टी और मौसम के आधार पर AI-संचालित फसल सुझाव",
+    "description": "अपने स्थान, मिट्टी के प्रकार और मौसम के आधार पर व्यक्तिगत फसल सुझाव प्राप्त करें",
+    "location": "स्थान",
+    "locationPlaceholder": "शहर या क्षेत्र दर्ज करें...",
+    "soilType": "मिट्टी का प्रकार",
+    "season": "मौसम",
+    "getRecommendations": "सुझाव प्राप्त करें",
+    "analyzing": "विश्लेषण किया जा रहा है...",
+    "reset": "रीसेट करें",
+    "noRecommendations": "इन परिस्थितियों के लिए कोई उपयुक्त फसल नहीं मिली।",
+    "tryAdjusting": "अपनी मिट्टी के प्रकार या मौसम को समायोजित करने का प्रयास करें।",
+    "recommendedCrops": "अनुशंसित फसलें",
+    "compatibility": "अनुकूलता",
+    "optimalSeason": "इष्टतम मौसम",
+    "learnMore": "और जानें",
+    "currentWeatherConditions": "वर्तमान मौसम की स्थिति",
+    "temperature": "तापमान",
+    "rainfall": "वर्षा",
+    "humidity": "आर्द्रता",
+    "startYourCropJourney": "अपनी फसल यात्रा शुरू करें",
+    "fillInDetails": "व्यक्तिगत फसल सुझाव प्राप्त करने के लिए अपना स्थान और मिट्टी के विवरण भरें",
+    "tips": "सुझाव",
+    "useGeolocation": "सटीक मौसम डेटा के लिए जियोलोकेशन का उपयोग करें",
+    "selectSoilType": "बेहतर सुझावों के लिए सही मिट्टी का प्रकार चुनें",
+    "chooseSeason": "अपने आने वाले कृषि मौसम को चुनें",
+    "analyzingWeather": "मौसम के पैटर्न और मिट्टी की अनुकूलता का विश्लेषण किया जा रहा है...",
+    "soilTypes": {
+      "blackSoil": "काली मिट्टी",
+      "redSoil": "लाल मिट्टी",
+      "loamySoil": "दोमट मिट्टी",
+      "clayeySoil": "चिकनी मिट्टी",
+      "sandySoil": "बलुई मिट्टी",
+      "sandyLoam": "बलुई दोमट",
+      "alluvialSoil": "जलोढ़ मिट्टी",
+      "siltySoil": "सिल्ट मिट्टी",
+      "lateriteSoil": "लेटराइट मिट्टी"
+    },
+    "seasons": {
+      "kharif": "🌾 खरीफ (जून-अक्टूबर)",
+      "rabi": "🌾 रबी (अक्टूबर-मार्च)",
+      "summer": "☀️ गर्मी (मार्च-जून)"
+    },
+    "crops": {
+      "wheat": "गेहूं",
+      "rice": "चावल",
+      "maize": "मकई",
+      "cotton": "कपास",
+      "sugarcane": "गन्ना",
+      "groundnut": "मूंगफली",
+      "pulses": "दालें",
+      "soybean": "सोयाबीन",
+      "tomato": "टमाटर",
+      "onion": "प्याज"
+    }
   }
 }

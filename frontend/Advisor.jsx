@@ -6,6 +6,7 @@ import IrrigationGuidance from "./IrrigationGuidance";
 import CropProfitCalculator from "./CropProfitCalculator";
 import FarmingMap from "./FarmingMap";
 import FertilizerRecommendation from "./FertilizerRecommendation";
+import SmartCropRecommendation from "./SmartCropRecommendation";
 import {
   Sun,
   Droplets,
@@ -18,6 +19,7 @@ import {
   MessageSquare,
   Info,
   Map,
+  Leaf,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAdvisorStore } from "./stores/advisorStore";
@@ -27,6 +29,7 @@ import CropDiseaseDetection from "./CropDiseaseDetection";
 export default function Advisor() {
   const navigate = useNavigate();
   const [showFertilizerPopup, setShowFertilizerPopup] = useState(false);
+  const [showSmartCropRecommendation, setShowSmartCropRecommendation] = useState(false);
   const {
     farmers,
     setFarmers,
@@ -172,6 +175,19 @@ export default function Advisor() {
             </div>
             <h3>Soil Health</h3>
             <p>Get soil analysis & recommendations via AI chatbot.</p>
+          </div>
+
+          {/* Smart Crop Recommendation */}
+          <div
+            className="card reveal"
+            style={{ cursor: "pointer" }}
+            onClick={() => setShowSmartCropRecommendation(true)}
+          >
+            <div className="icon">
+              <Leaf size={32} strokeWidth={2} />
+            </div>
+            <h3>Smart Crop Recommender</h3>
+            <p>AI-powered crop recommendations based on weather, soil & season.</p>
           </div>
 
           {/* Crop Disease Detection */}
@@ -590,6 +606,14 @@ export default function Advisor() {
         <div className="weather-overlay" onClick={() => setShowCropDiseaseDetection(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
             <CropDiseaseDetection onClose={() => setShowCropDiseaseDetection(false)} />
+          </div>
+        </div>
+      )}
+
+      {showSmartCropRecommendation && (
+        <div className="weather-overlay" onClick={() => setShowSmartCropRecommendation(false)}>
+          <div className="smart-crop-popup" onClick={(e) => e.stopPropagation()}>
+            <SmartCropRecommendation onClose={() => setShowSmartCropRecommendation(false)} />
           </div>
         </div>
       )}
