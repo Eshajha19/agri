@@ -73,7 +73,7 @@ export const useWeatherManagement = () => {
     } catch (error) {
       handleSilentError(error, 'notification-permission');
     }
-  }, [handleSilentError, setNotificationPermission]);
+  }, [handleSilentError]);
 
   return {
     snapshot,

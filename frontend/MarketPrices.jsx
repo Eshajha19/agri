@@ -7,6 +7,8 @@ import {
 } from "lucide-react";
 import { fetchMarketPrices, fetchPriceTrends, getUniqueStates, getUniqueCommodities } from "./lib/marketApi";
 import "./MarketPrices.css";
+import Loader from "./Loader";
+import LastUpdated from "./LastUpdated";
 
 const MarketPrices = () => {
   const [prices, setPrices] = useState([]);
@@ -15,6 +17,7 @@ const MarketPrices = () => {
   const [filters, setFilters] = useState({ state: "All", commodity: "All", search: "" });
   const [selectedCommodity, setSelectedCommodity] = useState("Wheat");
   const [activeTab, setActiveTab] = useState("list");
+  const [lastUpdated, setLastUpdated] = useState(null);
 
   // Derive unique values from the current prices list
   const states = useMemo(() => getUniqueStates(), []);
@@ -27,6 +30,7 @@ const MarketPrices = () => {
       const trendData = await fetchPriceTrends(selectedCommodity);
       setPrices(priceData || []);
       setTrends(trendData || []);
+      setLastUpdated(Date.now());
     } catch (err) {
       console.error("Failed to load market data:", err);
     } finally {
@@ -78,20 +82,25 @@ const MarketPrices = () => {
 
   return (
     <div className="market-prices-container">
-      <header className="market-header">
-        <div className="header-info">
-          <h1><TrendingUp className="header-icon-svg" size={32} /> Market Price Guidance</h1>
-          <p>Real-time mandi prices and analytics for informed selling</p>
-        </div>
+       <header className="market-header">
+         <div className="header-info">
+           <h1><TrendingUp className="header-icon-svg" size={32} /> <span className="notranslate">Market Price Guidance</span></h1>
+           <p>Real-time mandi prices and analytics for informed selling</p>
+         </div>
         <div className="header-actions">
           <button className="alert-btn">
-            <Bell size={18} /> Set Price Alert
+            <Bell size={18} /> <span className="notranslate">Set Price Alert</span>
           </button>
           <button className="refresh-btn-market" onClick={loadData}>
-            <RefreshCw size={18} className={loading ? "spin" : ""} /> Refresh Data
+            <RefreshCw size={18} className={loading ? "spin" : ""} /> <span className="notranslate">Refresh Data</span>
           </button>
         </div>
       </header>
+      {lastUpdated && (
+        <div style={{ padding: '0 2rem' }}>
+          <LastUpdated timestamp={lastUpdated} />
+        </div>
+      )}
 
       <section className="market-filters">
         <div className="search-wrapper">
@@ -169,10 +178,7 @@ const MarketPrices = () => {
         </div>
 
         {loading ? (
-          <div className="market-loading">
-            <RefreshCw size={40} className="spin" />
-            <p>Fetching latest market data from official sources...</p>
-          </div>
+          <Loader message="Fetching latest market data from official sources..." />
         ) : activeTab === 'list' ? (
           <div className="mandi-table-container">
             <table className="mandi-table">

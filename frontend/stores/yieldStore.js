@@ -28,7 +28,8 @@ export const useYieldStore = create((set, get) => ({
 
   // Prediction results
   yieldPrediction: null,
-  setYieldPrediction: (prediction) => set({ yieldPrediction: prediction }),
+  yieldLastUpdated: null,
+  setYieldPrediction: (prediction) => set({ yieldPrediction: prediction, yieldLastUpdated: Date.now() }),
 
   // Error handling
   yieldError: null,
@@ -43,16 +44,11 @@ export const useYieldStore = create((set, get) => ({
   setShowYieldPopup: (show) => set({ showYieldPopup: show }),
 
   // Fetch yield prediction
-  fetchYield: async () => {
+  fetchYield: async function () {
     set({ yieldLoading: true, yieldError: null });
     try {
       const data = await predictYield(get().yieldForm);
-      const yieldValue = data?.predicted_ExpYield ?? data?.prediction ?? data;
-
-      set({
-        yieldPrediction: yieldValue,
-        showYieldPopup: true,
-      });
+      set({ yieldPrediction: data.predicted_ExpYield, yieldLastUpdated: Date.now(), showYieldPopup: true });
     } catch (error) {
       const message =
         error?.response?.data?.detail ||
@@ -63,6 +59,7 @@ export const useYieldStore = create((set, get) => ({
       set({ yieldLoading: false });
     }
   },
+
   // Reset store
   resetYieldStore: () =>
     set({
@@ -80,6 +77,7 @@ export const useYieldStore = create((set, get) => ({
         Season: 'Rabi',
       },
       yieldPrediction: null,
+      yieldLastUpdated: null,
       yieldError: null,
       showYieldPopup: false,
     }),

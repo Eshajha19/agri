@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { Link } from "react-router-dom";
 import "./ResourcesPage.css";
 
 const resourcesData = [
@@ -33,6 +34,15 @@ const resourcesData = [
     description:
       "Natural and chemical methods to protect crops from pests effectively.",
     tags: ["Pest", "Organic", "Protection"],
+  },
+  {
+    id: 5,
+    type: "Guides",
+    title: "Crop Disease Awareness",
+    description:
+      "Comprehensive guide on identifying symptoms, prevention, and remedies for crop diseases.",
+    tags: ["Disease", "Symptoms", "Remedy"],
+    link: "/disease-awareness"
   },
 ];
 
@@ -92,11 +102,17 @@ export default function ResourcesPage() {
 
               <div className="tags">
                 {item.tags.map((tag, i) => (
-                  <span key={i}>{tag}</span>
+                   <span key={i}>{tag}</span>
                 ))}
               </div>
 
-              <button>Explore →</button>
+              {item.link ? (
+                <Link to={item.link}>
+                  <button className="explore-btn">Explore →</button>
+                </Link>
+              ) : (
+                <button className="explore-btn">Explore →</button>
+              )}
             </div>
           ))
         ) : (
