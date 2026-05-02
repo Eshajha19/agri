@@ -11,7 +11,8 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID || "",
 };
 
-const isConfigured = !!firebaseConfig.apiKey && firebaseConfig.apiKey.length > 10;
+const isConfigured = !!(firebaseConfig.apiKey && firebaseConfig.apiKey.length > 10 &&
+  firebaseConfig.projectId && firebaseConfig.authDomain);
 
 let app = null;
 let auth = null;

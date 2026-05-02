@@ -26,6 +26,8 @@ const ProfileSetup = ({ user, profileCompleted }) => {
   const [cropType, setCropType] = useState("");
   const [location, setLocation] = useState(null);
   const [address, setAddress] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [whatsappAlerts, setWhatsappAlerts] = useState(false);
   const [loading, setLoading] = useState(false);
   const [locLoading, setLocLoading] = useState(false);
   const [error, setError] = useState("");
@@ -125,15 +127,35 @@ const ProfileSetup = ({ user, profileCompleted }) => {
     try {
       const currentUser = auth.currentUser;
       if (currentUser) {
+        // Save profile to Firestore
         await setDoc(doc(db, "users", currentUser.uid), {
           displayName: name,
           language: language,
           cropType: cropType,
           location: location,
           address: address,
+          phoneNumber: phoneNumber,
+          whatsappAlerts: whatsappAlerts,
           profileCompleted: true,
           updatedAt: new Date().toISOString()
         }, { merge: true });
+
+        // If WhatsApp alerts are enabled, subscribe via backend
+        if (whatsappAlerts && phoneNumber) {
+          try {
+            await fetch("http://localhost:8000/api/whatsapp/subscribe", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                phone_number: phoneNumber,
+                user_id: currentUser.uid,
+                name: name
+              })
+            });
+          } catch (whatsappErr) {
+            console.error("WhatsApp subscription error:", whatsappErr);
+          }
+        }
         
         navigate("/");
       } else {
@@ -153,7 +175,7 @@ const ProfileSetup = ({ user, profileCompleted }) => {
         <div className="setup-header">
           <FaSeedling className="setup-logo-icon" />
           <h1>Complete Your Profile</h1>
-          <p>Help us personalize your Fasal Saathi experience</p>
+            <p>Help us personalize your <span className="notranslate" translate="no">Fasal Saathi</span> experience</p>
         </div>
 
         {error && <div className="setup-error">{error}</div>}
@@ -214,6 +236,31 @@ const ProfileSetup = ({ user, profileCompleted }) => {
                 <option value="other">🌱 Other</option>
               </select>
             </div>
+          </div>
+          
+          <div className="setup-group">
+            <label><FaMapMarkerAlt /> Phone Number (for WhatsApp Alerts)</label>
+            <div className="setup-input-wrapper">
+              <span className="setup-icon" style={{ fontSize: '1.2rem' }}>📱</span>
+              <input
+                type="tel"
+                placeholder="e.g. +91 98765 43210"
+                value={phoneNumber}
+                onChange={(e) => setPhoneNumber(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="setup-group checkbox-group">
+            <label className="checkbox-container">
+              <input
+                type="checkbox"
+                checked={whatsappAlerts}
+                onChange={(e) => setWhatsappAlerts(e.target.checked)}
+              />
+              <span className="checkmark"></span>
+              Receive real-time weather & pest alerts on WhatsApp
+            </label>
           </div>
 
           <div className="setup-group">

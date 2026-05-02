@@ -1,8 +1,7 @@
 import axios from 'axios';
-import toast from 'react-hot-toast';
 
 import { useUiStore } from '../stores/uiStore';
-import { formatErrorMessage, reportErrorToBackend } from '../utils/errorReporting';
+import { reportErrorToBackend } from '../utils/errorReporting';
 
 const toNumberOr = (value, fallback) => {
   const parsed = Number(value);
@@ -16,6 +15,16 @@ const RETRY_BASE_DELAY_MS = toNumberOr(import.meta.env.VITE_API_RETRY_DELAY_MS, 
 const isErrorLoggingEndpoint = (url) => String(url || '').includes('/api/log-error');
 
 const canRetryRequest = (error, config) => {
+  // Prevent automatic retries on non-idempotent HTTP methods (like POST)
+  // to avoid side-effects such as creating duplicate database entries
+  // (e.g. submitting the same feedback multiple times on a timeout).
+  const method = (config.method || 'get').toLowerCase();
+  const isIdempotent = ['get', 'head', 'options', 'put', 'delete'].includes(method);
+  
+  if (!isIdempotent && !config.retryNonIdempotent) {
+    return false;
+  }
+
   const retries =
     typeof config.retries === 'number' ? config.retries : DEFAULT_RETRIES;
   const retryCount = config.__retryCount || 0;
@@ -84,19 +93,22 @@ apiClient.interceptors.response.use(
     }
 
     if (canRetryRequest(error, config)) {
+      // Increment the retry count to track attempts
       const retryCount = config.__retryCount || 0;
       config.__retryCount = retryCount + 1;
-      const retryDelay = getRetryDelayMs(retryCount, config.retryDelayMs);
-      await wait(retryDelay);
-      return apiClient(config);
-    }
 
-    if (!config.suppressToast) {
-      const message = config.errorMessage || formatErrorMessage(error);
-      toast.error(message, {
-        duration: 4000,
-        position: 'top-right',
-      });
+      // Enforce a strict timeout on retries to prevent indefinite waiting
+      // if a server connection drops without a proper response
+      config.timeout = 10000;
+
+      // Calculate the exponential backoff delay based on the retry count
+      const retryDelay = getRetryDelayMs(retryCount, config.retryDelayMs);
+
+      // Pause execution for the calculated delay duration
+      await wait(retryDelay);
+
+      // Re-issue the request with the updated configuration
+      return apiClient(config);
     }
 
     if (config.logError !== false && !isErrorLoggingEndpoint(config.url)) {
@@ -107,6 +119,9 @@ apiClient.interceptors.response.use(
       });
     }
 
+    // NOTE: UI feedback (like toast.error) is intentionally omitted here.
+    // Errors are propagated so that the specific component or hook making
+    // the request can handle them and provide context-aware feedback to the user.
     return Promise.reject(error);
   }
 );

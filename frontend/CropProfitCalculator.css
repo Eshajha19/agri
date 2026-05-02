@@ -686,3 +686,312 @@
     flex: none;
   }
 }
+
+/* =========================================
+   COMPARE MODE STYLES
+   ========================================= */
+
+/* Mode Toggle */
+.mode-toggle-container {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 30px;
+}
+
+.mode-toggle {
+  background: #e5e7eb;
+  padding: 6px;
+  border-radius: 30px;
+  display: inline-flex;
+  gap: 5px;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.theme-dark .mode-toggle {
+  background: #374151;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.toggle-btn {
+  background: transparent;
+  border: none;
+  padding: 10px 24px;
+  border-radius: 24px;
+  font-family: 'Poppins', sans-serif;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.theme-dark .toggle-btn {
+  color: #9ca3af;
+}
+
+.toggle-btn:hover:not(.active) {
+  color: #374151;
+}
+
+.theme-dark .toggle-btn:hover:not(.active) {
+  color: #d1d5db;
+}
+
+.toggle-btn.active {
+  background: linear-gradient(135deg, #2d5a27 0%, #4a7c44 100%);
+  color: white;
+  box-shadow: 0 4px 10px rgba(45, 90, 39, 0.2);
+}
+
+.theme-dark .toggle-btn.active {
+  background: linear-gradient(135deg, #16a34a 0%, #4ade80 100%);
+  box-shadow: 0 4px 10px rgba(22, 163, 74, 0.3);
+}
+
+/* Compare Mode Form */
+.calculator-content.compare-mode-active {
+  grid-template-columns: 1fr;
+}
+
+.compare-form-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.compare-crop-row {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 20px;
+  position: relative;
+  transition: all 0.3s ease;
+}
+
+.theme-dark .compare-crop-row {
+  background: #111827;
+  border-color: #374151;
+}
+
+.compare-crop-row:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+  border-color: #d1d5db;
+}
+
+.theme-dark .compare-crop-row:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  border-color: #4b5563;
+}
+
+.crop-row-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed #d1d5db;
+}
+
+.theme-dark .crop-row-header {
+  border-bottom-color: #4b5563;
+}
+
+.crop-row-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #2d5a27;
+}
+
+.theme-dark .crop-row-header h3 {
+  color: #4ade80;
+}
+
+.btn-remove-crop {
+  background: #fee2e2;
+  color: #ef4444;
+  border: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.theme-dark .btn-remove-crop {
+  background: rgba(239, 68, 68, 0.1);
+  color: #f87171;
+}
+
+.btn-remove-crop:hover {
+  background: #fecaca;
+  transform: scale(1.1);
+}
+
+.theme-dark .btn-remove-crop:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.compare-inputs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+}
+
+.compare-input {
+  padding: 10px 12px !important;
+}
+
+.btn-add-crop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  background: #f0fdf4;
+  color: #16a34a;
+  border: 2px dashed #86efac;
+  border-radius: 12px;
+  font-family: 'Poppins', sans-serif;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.theme-dark .btn-add-crop {
+  background: rgba(22, 163, 74, 0.1);
+  color: #4ade80;
+  border-color: #16a34a;
+}
+
+.btn-add-crop:hover {
+  background: #dcfce7;
+  border-color: #4ade80;
+}
+
+.theme-dark .btn-add-crop:hover {
+  background: rgba(22, 163, 74, 0.2);
+  border-color: #4ade80;
+}
+
+/* Compare Results Table */
+.compare-results-container {
+  margin-top: 10px;
+}
+
+.table-responsive {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  background: white;
+}
+
+.theme-dark .table-responsive {
+  border-color: #374151;
+  background: #111827;
+}
+
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 600px;
+}
+
+.comparison-table th,
+.comparison-table td {
+  padding: 15px;
+  text-align: left;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.theme-dark .comparison-table th,
+.theme-dark .comparison-table td {
+  border-bottom-color: #374151;
+}
+
+.comparison-table th {
+  background: #f9fafb;
+  font-weight: 600;
+  color: #374151;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+}
+
+.theme-dark .comparison-table th {
+  background: #1f2937;
+  color: #d1d5db;
+}
+
+.comparison-table tbody tr {
+  transition: background-color 0.2s ease;
+}
+
+.comparison-table tbody tr:hover {
+  background-color: #f3f4f6;
+}
+
+.theme-dark .comparison-table tbody tr:hover {
+  background-color: #1f2937;
+}
+
+.comparison-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.crop-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.theme-dark .crop-name-cell {
+  color: #f3f4f6;
+}
+
+.winner-icon {
+  color: #fbbf24;
+}
+
+.winner-row {
+  background-color: #f0fdf4 !important;
+}
+
+.theme-dark .winner-row {
+  background-color: rgba(16, 185, 129, 0.1) !important;
+}
+
+.text-positive {
+  color: #10b981;
+  font-weight: 600;
+}
+
+.theme-dark .text-positive {
+  color: #4ade80;
+}
+
+.text-negative {
+  color: #ef4444;
+  font-weight: 600;
+}
+
+.theme-dark .text-negative {
+  color: #f87171;
+}
+
+.mt-4 {
+  margin-top: 20px;
+}
+
+@media (max-width: 768px) {
+  .compare-inputs-grid {
+    grid-template-columns: 1fr;
+  }
+}
+

@@ -39,14 +39,12 @@ import Community from "./Community";
 import Blog from "./Blog";
 import BlogDetail from "./BlogDetail";
 
- import { syncOfflineRequests } from "./lib/syncOfflineRequests";
- import { auth, db, isFirebaseConfigured, doc, onSnapshot } from "./lib/firebase";
- import { onAuthStateChanged, signOut } from "firebase/auth";
+import { syncOfflineRequests } from "./lib/syncOfflineRequests";
+import { auth, db, isFirebaseConfigured, doc, onSnapshot } from "./lib/firebase";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 
 import "./App.css";
 import "./themes/sunlight.css";
-
-/* ---------------- LANGUAGE ---------------- */
 
 const LANGUAGE_OPTIONS = [
   { value: "en", label: "🌍 English", englishName: "english" },
@@ -128,30 +126,30 @@ function App() {
 
   useNotifications();
 
-   /* ---------------- THEME SYSTEM ---------------- */
-   const [isDarkTheme, setIsDarkTheme] = useState(() => {
-     try {
-       return (localStorage.getItem("theme") || "light") === "dark";
-     } catch {
-       return false;
-     }
-   });
+  /* ---------------- THEME SYSTEM ---------------- */
+  const [isDarkTheme, setIsDarkTheme] = useState(() => {
+    try {
+      return (localStorage.getItem("theme") || "light") === "dark";
+    } catch {
+      return false;
+    }
+  });
 
-   useEffect(() => {
-     document.documentElement.classList.toggle("theme-dark", isDarkTheme);
-     localStorage.setItem("theme", isDarkTheme ? "dark" : "light");
-   }, [isDarkTheme]);
+  useEffect(() => {
+    document.documentElement.classList.toggle("theme-dark", isDarkTheme);
+    localStorage.setItem("theme", isDarkTheme ? "dark" : "light");
+  }, [isDarkTheme]);
 
-   const handleThemeToggle = () => {
-     setIsDarkTheme(!isDarkTheme);
-   };
+  const handleThemeToggle = () => {
+    setIsDarkTheme(!isDarkTheme);
+  };
 
 
-   useEffect(() => {
-     setGoogleTranslateCookie(preferredLang);
-    }, [preferredLang]);
+  useEffect(() => {
+    setGoogleTranslateCookie(preferredLang);
+  }, [preferredLang]);
 
-   useEffect(() => {
+  useEffect(() => {
     if (!isFirebaseConfigured()) {
       setLoading(false);
       return;
@@ -185,23 +183,23 @@ function App() {
 
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
-   useEffect(() => {
-     const handleNetworkChange = () => {
-       const offline = !navigator.onLine;
-       setIsOffline(offline);
-       if (!offline) {
-         syncOfflineRequests();
-       }
-     };
-     window.addEventListener("online", handleNetworkChange);
-     window.addEventListener("offline", handleNetworkChange);
-     const interval = setInterval(handleNetworkChange, 1000);
-     return () => {
-       window.removeEventListener("online", handleNetworkChange);
-       window.removeEventListener("offline", handleNetworkChange);
-       clearInterval(interval);
-     };
-   }, []);
+  useEffect(() => {
+    const handleNetworkChange = () => {
+      const offline = !navigator.onLine;
+      setIsOffline(offline);
+      if (!offline) {
+        syncOfflineRequests();
+      }
+    };
+    window.addEventListener("online", handleNetworkChange);
+    window.addEventListener("offline", handleNetworkChange);
+    const interval = setInterval(handleNetworkChange, 1000);
+    return () => {
+      window.removeEventListener("online", handleNetworkChange);
+      window.removeEventListener("offline", handleNetworkChange);
+      clearInterval(interval);
+    };
+  }, []);
 
   return (
     <div className={`app ${isDarkTheme ? "theme-dark" : ""}`}>
@@ -226,38 +224,38 @@ function App() {
           <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
         </ul>
 
-         <div className="nav-right">
-           <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Toggle Theme">
-             {isDarkTheme ? "☀️" : "🌙"}
-           </button>
+        <div className="nav-right">
+          <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Toggle Theme">
+            {isDarkTheme ? "☀️" : "🌙"}
+          </button>
 
-           <div className="more-menu-container" onClick={() => { setShowMoreMenu(!showMoreMenu); setShowScorecard(false); }}>
-             <button className="btn-more-menu" aria-label="Profile and Settings">
-               <FaUser style={{ width: "24px", height: "24px", fontSize: "24px", minWidth: "24px", minHeight: "24px" }} />
-             </button>
-             {showMoreMenu && (
-               <div className="more-dropdown" onClick={(e) => e.stopPropagation()}>
-                 <div className="dropdown-section">
-                   <label>Language</label>
-                   <select
-                     className="lang-select-dropdown notranslate"
-                     value={preferredLang}
-                     onChange={handleLangChange}
-                   >
-                     {LANGUAGE_OPTIONS.map((l) => (
-                       <option key={l.value} value={l.value}>
-                         {l.label}
-                       </option>
-                     ))}
-                   </select>
-                 </div>
-                 <div className="dropdown-links">
-                   <Link to="/dashboard" onClick={() => setShowMoreMenu(false)}><FaTachometerAlt /> Dashboard</Link>
-                   <Link to="/community" onClick={() => setShowMoreMenu(false)}><FaComments /> Community</Link>
-                 </div>
-               </div>
-             )}
-           </div>
+          <div className="more-menu-container" onClick={() => { setShowMoreMenu(!showMoreMenu); setShowScorecard(false); }}>
+            <button className="btn-more-menu" aria-label="Profile and Settings">
+              <FaUser style={{ width: "24px", height: "24px", fontSize: "24px", minWidth: "24px", minHeight: "24px" }} />
+            </button>
+            {showMoreMenu && (
+              <div className="more-dropdown" onClick={(e) => e.stopPropagation()}>
+                <div className="dropdown-section">
+                  <label>Language</label>
+                  <select
+                    className="lang-select-dropdown notranslate"
+                    value={preferredLang}
+                    onChange={handleLangChange}
+                  >
+                    {LANGUAGE_OPTIONS.map((l) => (
+                      <option key={l.value} value={l.value}>
+                        {l.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="dropdown-links">
+                  <Link to="/dashboard" onClick={() => setShowMoreMenu(false)}><FaTachometerAlt /> Dashboard</Link>
+                  <Link to="/community" onClick={() => setShowMoreMenu(false)}><FaComments /> Community</Link>
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="nav-user" onClick={() => { setShowScorecard(!showScorecard); setShowMoreMenu(false); }}>
             {loading ? (

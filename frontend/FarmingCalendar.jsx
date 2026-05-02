@@ -23,7 +23,7 @@ import {
   CheckCircle2,
   AlertCircle
 } from "lucide-react";
-import { auth, db } from "./lib/firebase";
+import { auth, db, isFirebaseConfigured } from "./lib/firebase";
 import { collection, query, where, onSnapshot, addDoc, deleteDoc, doc, updateDoc } from "firebase/firestore";
 import "./FarmingCalendar.css";
 import Loader from "./Loader";
@@ -51,11 +51,11 @@ const FarmingCalendar = () => {
 
   // Fetch activities from Firestore
   useEffect(() => {
-    if (!auth || !db) {
+    if (!isFirebaseConfigured()) {
       setLoading(false);
       return;
     }
-    const user = auth.currentUser;
+    const user = auth?.currentUser;
     if (!user) {
       setLoading(false);
       return;
@@ -158,8 +158,8 @@ const FarmingCalendar = () => {
 
   const handleAddActivity = async (e) => {
     e.preventDefault();
-    if (!auth || !db) return;
-    const user = auth.currentUser;
+    if (!isFirebaseConfigured()) return;
+    const user = auth?.currentUser;
     if (!user) return;
 
     try {
@@ -173,8 +173,8 @@ const FarmingCalendar = () => {
         completed: false,
         createdAt: new Date().toISOString()
       });
+      setNewActivity({ title: "", type: "Sprout", time: "09:00", description: "" });
       setShowAddModal(false);
-      setNewActivity({ title: "", type: "sowing", time: "09:00", description: "" });
     } catch (err) {
       console.error("Error adding activity:", err);
     }

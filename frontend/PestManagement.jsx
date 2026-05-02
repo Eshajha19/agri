@@ -6,7 +6,9 @@ export default function PestManagement({ onClose }) {
   const [symptoms, setSymptoms] = useState("");
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
 
   // Handle escape key
   useEffect(() => {
@@ -86,6 +88,44 @@ export default function PestManagement({ onClose }) {
     }
   };
 
+  const handleSendWhatsApp = async () => {
+    if (!result) return;
+    
+    setSending(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const userData = JSON.parse(localStorage.getItem("user") || "{}");
+      const userId = userData.uid;
+      
+      if (!userId) {
+        throw new Error("User not logged in");
+      }
+
+      const response = await fetch("http://localhost:8000/api/whatsapp/trigger-alert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          alert_type: "pest",
+          message: `🚨 SEVERE PEST DETECTED: ${result.likelyPest} in ${crop}. \nAction: ${result.organicTreatment}`
+        })
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setSuccess("Alert sent to your WhatsApp successfully!");
+      } else {
+        throw new Error(data.error || "Failed to send alert");
+      }
+    } catch (err) {
+      console.error("WhatsApp Send Error:", err);
+      setError("Failed to send WhatsApp alert. Make sure you are subscribed in Profile Settings.");
+    } finally {
+      setSending(false);
+    }
+  };
+
   return (
     <div className="pest-management-modal">
       <button
@@ -155,6 +195,19 @@ export default function PestManagement({ onClose }) {
             <h4>🛡️ Prevention Tips</h4>
             <p>{result.prevention}</p>
           </div>
+
+          {result.severity?.toLowerCase().includes('high') && (
+            <div className="pm-whatsapp-trigger">
+              <button 
+                onClick={handleSendWhatsApp} 
+                disabled={sending}
+                className="whatsapp-btn"
+              >
+                {sending ? "Sending..." : "📲 Send Alert to WhatsApp"}
+              </button>
+              {success && <p className="pm-success-msg">{success}</p>}
+            </div>
+          )}
         </div>
       )}
     </div>
