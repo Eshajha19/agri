@@ -45,9 +45,48 @@ export const useAdvisorStore = create((set) => ({
    showFertilizerPopup: false,
    setShowFertilizerPopup: (show) => set({ showFertilizerPopup: show }),
 
-   showAgriMarketplace: false,
-   setShowAgriMarketplace: (show) => set({ showAgriMarketplace: show }),
+  showFarmDiary: false,
+  setShowFarmDiary: (show) => set({ showFarmDiary: show }),
 
+  showAgriMarketplace: false,
+  setShowAgriMarketplace: (show) => set({ showAgriMarketplace: show }),
+
+  showAgriLMS: false,
+  setShowAgriLMS: (show) => set({ showAgriLMS: show }),
+
+  showQRTraceability: false,
+  setShowQRTraceability: (show) => set({ showQRTraceability: show }),
+
+  showFarmPlanner3D: false,
+  setShowFarmPlanner3D: (show) => set({ showFarmPlanner3D: show }),
+
+  showCropRotation: false,
+  setShowCropRotation: (show) => set({ showCropRotation: show }),
+
+  // Reset all modals to closed
+  resetAdvisorStore: () =>
+    set({
+      farmers: 0,
+      crops: 0,
+      languages: 0,
+      showWeather: false,
+      showSoilChatbot: false,
+      showSoilAnalysis: false,
+      showSoilGuide: false,
+      showIrrigation: false,
+      showProfitCalculator: false,
+      showFertilizerPopup: false,
+      showFarmingMap: false,
+      showCropDiseaseDetection: false,
+      showPestManagement: false,
+      showComingSoon: false,
+      showAgriMarketplace: false,
+      showAgriLMS: false,
+      showQRTraceability: false,
+      showFarmPlanner3D: false,
+      showFarmDiary: false,
+      showCropRotation: false,
+    }),
    showQRTraceability: false,
    setShowQRTraceability: (show) => set({ showQRTraceability: show }),
 
@@ -62,6 +101,9 @@ export const useAdvisorStore = create((set) => ({
 
    showForecast: false,
    setShowForecast: (show) => set({ showForecast: show }),
+
+   showExpertStatus: false,
+   setShowExpertStatus: (show) => set({ showExpertStatus: show }),
 
    // Reset all modals to closed
    resetAdvisorStore: () =>

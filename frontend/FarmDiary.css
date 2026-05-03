@@ -345,6 +345,12 @@ textarea.diary-input {
     left: 10px;
   }
   
+  .diary-timeline-dot {
+    left: 2px;
+    width: 14px;
+    height: 14px;
+  }
+}
    .diary-timeline-dot {
      left: 2px;
      width: 14px;

@@ -79,7 +79,8 @@ const Auth = () => {
           email: email,
           phoneNumber: phoneNumber,
           createdAt: new Date().toISOString(),
-          verified: false
+          verified: false,
+          reputation: 0
         });
 
         setMessage("Account created! Please check your email for verification link.");
@@ -121,7 +122,8 @@ const Auth = () => {
           email: user.email,
           photoURL: user.photoURL,
           lastLogin: new Date().toISOString(),
-          profileCompleted: true // Google users often don't need the full setup
+          profileCompleted: true, // Google users often don't need the full setup
+          reputation: 0
         }, { merge: true });
       } catch (fsErr) {
         console.error("Firestore sync error:", fsErr);

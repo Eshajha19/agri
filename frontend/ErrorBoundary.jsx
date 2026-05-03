@@ -11,11 +11,13 @@ class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, errorInfo) {
+    this.setState({ errorInfo });
     console.error('Error caught by boundary:', error, errorInfo);
   }
 
   render() {
     if (this.state.hasError) {
+      // You can render any custom fallback UI
       return (
         <div style={{
           padding: '2rem',
@@ -28,13 +30,13 @@ class ErrorBoundary extends React.Component {
           <button
             onClick={() => window.location.reload()}
             style={{
-              padding: '0.5rem 1rem',
               marginTop: '1rem',
-              cursor: 'pointer',
+              padding: '0.5rem 1rem',
               backgroundColor: '#1976d2',
               color: 'white',
               border: 'none',
-              borderRadius: '4px'
+              borderRadius: '4px',
+              cursor: 'pointer'
             }}
           >
             Refresh Page

@@ -367,6 +367,9 @@
   cursor: pointer;
 }
 
+@media (max-width: 1024px) {
+  .course-view-grid {
+    grid-template-columns: 1fr;
 /* AI Advisor Floating Button */
 .advisor-fab {
   position: fixed;

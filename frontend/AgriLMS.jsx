@@ -61,16 +61,10 @@ export default function AgriLMS() {
   };
 
   const generateCertificate = (course) => {
-    const doc = new jsPDF({
-      orientation: 'landscape',
-      unit: 'mm',
-      format: 'a4'
-    });
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
 
-    // Simple Certificate Design
     doc.setFillColor(245, 247, 241);
     doc.rect(0, 0, 297, 210, 'F');
-    
     doc.setDrawColor(46, 125, 50);
     doc.setLineWidth(5);
     doc.rect(10, 10, 277, 190);
@@ -82,7 +76,7 @@ export default function AgriLMS() {
     doc.setTextColor(33, 33, 33);
     doc.setFontSize(20);
     doc.text('This is to certify that', 148.5, 80, { align: 'center' });
-    
+
     doc.setFontSize(30);
     doc.setFont('helvetica', 'bold');
     doc.text('Fasal Saathi Student', 148.5, 105, { align: 'center' });
@@ -136,13 +130,13 @@ export default function AgriLMS() {
                   <div className="lesson-text">
                     <h3>{activeLesson.title}</h3>
                     <p className="instruction-text">
-                      {progress[activeLesson.id] 
-                        ? "You've completed this lesson!" 
+                      {progress[activeLesson.id]
+                        ? "You've completed this lesson!"
                         : "Watch the video and click the button to mark it as finished."}
                     </p>
                   </div>
                   <div className="video-actions">
-                    <button 
+                    <button
                       className={`complete-btn ${progress[activeLesson.id] ? 'completed' : 'pulse'}`}
                       onClick={() => markAsComplete(activeLesson.id)}
                     >
@@ -168,8 +162,8 @@ export default function AgriLMS() {
           <div className="lessons-list">
             <h3>Course Content</h3>
             {activeCourse.lessons.map((lesson, idx) => (
-              <div 
-                key={lesson.id} 
+              <div
+                key={lesson.id}
                 className={`lesson-item ${activeLesson?.id === lesson.id ? 'active' : ''} ${progress[lesson.id] ? 'finished' : ''}`}
                 onClick={() => setActiveLesson(lesson)}
               >
@@ -181,7 +175,7 @@ export default function AgriLMS() {
                 {progress[lesson.id] && <CheckCircle size={16} className="status-icon" />}
               </div>
             ))}
-            
+
             {getCourseProgress(activeCourse) === 100 && (
               <div className="certification-ready">
                 <Award size={32} />
@@ -212,12 +206,9 @@ export default function AgriLMS() {
                 <span><Clock size={14} /> {course.duration}</span>
                 <span><Play size={14} /> {course.lessons.length} Lessons</span>
               </div>
-              
+
               <div className="progress-bar-container">
-                <div 
-                  className="progress-bar-fill" 
-                  style={{ width: `${getCourseProgress(course)}%` }}
-                ></div>
+                <div className="progress-bar-fill" style={{ width: `${getCourseProgress(course)}%` }}></div>
               </div>
               <div className="progress-text">
                 {getCourseProgress(course)}% Completed

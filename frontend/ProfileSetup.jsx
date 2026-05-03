@@ -137,6 +137,8 @@ const ProfileSetup = ({ user, profileCompleted }) => {
           phoneNumber: phoneNumber,
           whatsappAlerts: whatsappAlerts,
           profileCompleted: true,
+          reputation: 0,
+          badges: [],
           updatedAt: new Date().toISOString()
         }, { merge: true });
 

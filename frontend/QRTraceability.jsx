@@ -1,10 +1,10 @@
-
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { QrCode, Sprout, MapPin, Calendar, CheckCircle, ShieldCheck, ArrowRight, Share2, Download, MessageCircle } from 'lucide-react';
 import './QRTraceability.css';
 import SoilChatbot from './SoilChatbot';
+
 
 const MOCK_BATCHES = [
   {

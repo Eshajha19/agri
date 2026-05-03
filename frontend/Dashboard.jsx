@@ -41,6 +41,7 @@ export default function Dashboard() {
   const [selectedCrop, setSelectedCrop] = useState("");
   const [selectedRegion, setSelectedRegion] = useState("");
   const [selectedSeason, setSelectedSeason] = useState("");
+
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
@@ -323,6 +324,7 @@ export default function Dashboard() {
             </Link>
           </div>
 
+
           <div className="dashboard-section-card whatsapp-settings-card">
             <div className="section-card-header">
               <h2><FaWhatsapp /> WhatsApp Alerts</h2>
@@ -461,15 +463,17 @@ export default function Dashboard() {
                 ) : (
                   <ResponsiveContainer>
                     <LineChart data={filteredData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="year" />
-                      <YAxis />
-                      <Tooltip />
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                      <XAxis dataKey="year" axisLine={false} tickLine={false} />
+                      <YAxis axisLine={false} tickLine={false} />
+                      <Tooltip isAnimationActive={false} />
                       <Line
                         type="monotone"
                         dataKey="yield"
                         stroke="#22c55e"
                         strokeWidth={3}
+                        dot={false}
+                        isAnimationActive={false}
                       />
                     </LineChart>
                   </ResponsiveContainer>
@@ -490,11 +494,11 @@ export default function Dashboard() {
               <div style={{ width: "100%", height: 350 }}>
                 <ResponsiveContainer>
                   <BarChart data={yieldData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="crop" />
-                    <YAxis />
-                    <Tooltip />
-                    <Bar dataKey="yield" fill="#10b981" />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                    <XAxis dataKey="crop" axisLine={false} tickLine={false} />
+                    <YAxis axisLine={false} tickLine={false} />
+                    <Tooltip isAnimationActive={false} />
+                    <Bar dataKey="yield" fill="#10b981" isAnimationActive={false} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -522,15 +526,17 @@ export default function Dashboard() {
           ) : (
             <ResponsiveContainer>
               <LineChart data={historicalWeather}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="year" />
-                <YAxis />
-                <Tooltip />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                <XAxis dataKey="year" axisLine={false} tickLine={false} />
+                <YAxis axisLine={false} tickLine={false} />
+                <Tooltip isAnimationActive={false} />
                 <Line
                   type="monotone"
                   dataKey="temp"
                   stroke="#f59e0b"
                   strokeWidth={3}
+                  dot={false}
+                  isAnimationActive={false}
                 />
               </LineChart>
             </ResponsiveContainer>

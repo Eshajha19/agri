@@ -1,7 +1,6 @@
-import React, { useState, useRef, Suspense } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Grid, Plane, Box, Sphere, Cylinder, PerspectiveCamera, ContactShadows, Environment, Text } from '@react-three/drei';
-import * as THREE from 'three';
+import React, { useState, Suspense } from 'react';
+import { Canvas } from '@react-three/fiber';
+import { OrbitControls, Grid, Plane, Box, Sphere, Cylinder, PerspectiveCamera, ContactShadows, Environment } from '@react-three/drei';
 import { Save, Trash2, Box as BoxIcon, TreePine, Droplets, Home, Grid as GridIcon, Info, Download, MessageCircle } from 'lucide-react';
 import './FarmPlanner3D.css';
 import SoilChatbot from './SoilChatbot';
@@ -15,9 +14,7 @@ const OBJECT_TYPES = {
 
 function DraggableObject({ position, type, isSelected, onSelect }) {
   const [hovered, setHover] = useState(false);
-  const color = isSelected ? '#ffeb3b' : (hovered ? '#fff176' : '#ffffff');
 
-  // Realistic 3D Models
   const renderModel = () => {
     switch (type) {
       case 'TREE':
@@ -69,8 +66,8 @@ function DraggableObject({ position, type, isSelected, onSelect }) {
   };
 
   return (
-    <group 
-      position={position} 
+    <group
+      position={position}
       onPointerOver={() => setHover(true)}
       onPointerOut={() => setHover(false)}
       onClick={(e) => { e.stopPropagation(); onSelect(); }}
@@ -90,11 +87,9 @@ export default function FarmPlanner3D() {
   const [items, setItems] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [activeTool, setActiveTool] = useState('CROP');
-  const [gridSize, setGridSize] = useState(10);
   const [showAdvisor, setShowAdvisor] = useState(false);
 
   const addItem = (e) => {
-    // Basic Raycasting projection for placement (simplified)
     const newId = Date.now();
     const newItem = {
       id: newId,
@@ -119,102 +114,97 @@ export default function FarmPlanner3D() {
     a.href = url;
     a.download = 'my-farm-layout.json';
     a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
-    <div className="farm-planner-container">
-      <div className="planner-sidebar">
-        <div className="sidebar-header">
-          <h2><GridIcon size={20} /> 3D Planner</h2>
-          <p>Optimize your land usage</p>
-        </div>
+    <>
+      <div className="farm-planner-container">
+        <div className="planner-sidebar">
+          <div className="sidebar-header">
+            <h2><GridIcon size={20} /> 3D Planner</h2>
+            <p>Optimize your land usage</p>
+          </div>
 
-        <div className="tool-section">
-          <label>Add Elements</label>
-          <div className="tool-grid">
-            {Object.keys(OBJECT_TYPES).map(type => (
-              <button 
-                key={type}
-                className={`tool-btn ${activeTool === type ? 'active' : ''}`}
-                onClick={() => setActiveTool(type)}
-                title={OBJECT_TYPES[type].name}
-              >
-                {type === 'CROP' && <BoxIcon size={20} />}
-                {type === 'TREE' && <TreePine size={20} />}
-                {type === 'WATER' && <Droplets size={20} />}
-                {type === 'BUILDING' && <Home size={20} />}
-                <span>{OBJECT_TYPES[type].name}</span>
-              </button>
-            ))}
+          <div className="tool-section">
+            <label>Add Elements</label>
+            <div className="tool-grid">
+              {Object.keys(OBJECT_TYPES).map(type => (
+                <button
+                  key={type}
+                  className={`tool-btn ${activeTool === type ? 'active' : ''}`}
+                  onClick={() => setActiveTool(type)}
+                  title={OBJECT_TYPES[type].name}
+                >
+                  {type === 'CROP' && <BoxIcon size={20} />}
+                  {type === 'TREE' && <TreePine size={20} />}
+                  {type === 'WATER' && <Droplets size={20} />}
+                  {type === 'BUILDING' && <Home size={20} />}
+                  <span>{OBJECT_TYPES[type].name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="action-section">
+            <button className="action-btn delete" onClick={deleteSelected} disabled={!selectedId}>
+              <Trash2 size={18} /> Delete Selected
+            </button>
+            <button className="action-btn save" onClick={exportLayout}>
+              <Download size={18} /> Export JSON
+            </button>
+          </div>
+
+          <div className="planner-info">
+            <Info size={16} />
+            <p>Click on the grid to place objects. Use mouse to rotate/zoom.</p>
           </div>
         </div>
 
-        <div className="action-section">
-          <button className="action-btn delete" onClick={deleteSelected} disabled={!selectedId}>
-            <Trash2 size={18} /> Delete Selected
-          </button>
-          <button className="action-btn save" onClick={exportLayout}>
-            <Download size={18} /> Export JSON
-          </button>
-        </div>
+        <div className="planner-viewport">
+          <Canvas shadows>
+            <PerspectiveCamera makeDefault position={[10, 10, 10]} fov={50} />
+            <OrbitControls makeDefault minPolarAngle={0} maxPolarAngle={Math.PI / 2.1} />
+            <ambientLight intensity={0.5} />
+            <pointLight position={[10, 10, 10]} intensity={1} castShadow />
+            <Environment preset="city" />
 
-        <div className="planner-info">
-          <Info size={16} />
-          <p>Click on the grid to place objects. Use mouse to rotate/zoom.</p>
-        </div>
-      </div>
+            <Suspense fallback={null}>
+              <Grid infiniteGrid fadeDistance={50} fadeStrength={5} cellSize={1} sectionSize={5} sectionColor="#2e7d32" cellColor="#999" />
 
-      <div className="planner-viewport">
-        <Canvas shadows>
-          <PerspectiveCamera makeDefault position={[10, 10, 10]} fov={50} />
-          <OrbitControls makeDefault minPolarAngle={0} maxPolarAngle={Math.PI / 2.1} />
-          
-          <ambientLight intensity={0.5} />
-          <pointLight position={[10, 10, 10]} intensity={1} castShadow />
-          <Environment preset="city" />
+              <Plane args={[100, 100]} rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} onClick={addItem}>
+                <meshStandardMaterial color="#f0fdf4" transparent opacity={0.5} />
+              </Plane>
 
-          <Suspense fallback={null}>
-            {/* Ground Grid */}
-            <Grid 
-              infiniteGrid 
-              fadeDistance={50} 
-              fadeStrength={5} 
-              cellSize={1} 
-              sectionSize={5} 
-              sectionColor="#2e7d32"
-              cellColor="#999"
-            />
-            
-            {/* Clickable Plane for object placement */}
-            <Plane 
-              args={[100, 100]} 
-              rotation={[-Math.PI / 2, 0, 0]} 
-              position={[0, -0.01, 0]} 
-              onClick={addItem}
-            >
-              <meshStandardMaterial color="#f0fdf4" transparent opacity={0.5} />
-            </Plane>
+              {items.map(item => (
+                <DraggableObject
+                  key={item.id}
+                  {...item}
+                  isSelected={selectedId === item.id}
+                  onSelect={() => setSelectedId(item.id)}
+                />
+              ))}
 
-            {/* Render Items */}
-            {items.map(item => (
-              <DraggableObject 
-                key={item.id}
-                {...item}
-                isSelected={selectedId === item.id}
-                onSelect={() => setSelectedId(item.id)}
-              />
-            ))}
+              <ContactShadows position={[0, 0, 0]} opacity={0.4} scale={20} blur={2} far={4.5} />
+            </Suspense>
+          </Canvas>
 
-            <ContactShadows position={[0, 0, 0]} opacity={0.4} scale={20} blur={2} far={4.5} />
-          </Suspense>
-        </Canvas>
-        
-        <div className="viewport-overlay">
-          <div className="stats-badge">
-            Total Elements: {items.length}
+          <div className="viewport-overlay">
+            <div className="stats-badge">Total Elements: {items.length}</div>
           </div>
         </div>
       </div>
-    </div>
+
+      <button className="advisor-fab" onClick={() => setShowAdvisor(true)} aria-label="Open AI Advisor">
+        <MessageCircle size={24} />
+      </button>
+      {showAdvisor && (
+        <div className="advisor-overlay" onClick={() => setShowAdvisor(false)}>
+          <div className="advisor-modal" onClick={e => e.stopPropagation()}>
+            <SoilChatbot onClose={() => setShowAdvisor(false)} />
+          </div>
+        </div>
+      )}
+    </>
   );
 }

@@ -154,6 +154,10 @@
   .planner-sidebar {
     height: 300px;
   }
+  .planner-viewport {
+    height: 400px;
+  }
+}
    .planner-viewport {
      height: 400px;
    }
