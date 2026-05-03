@@ -48,6 +48,21 @@ export const useAdvisorStore = create((set) => ({
    showAgriMarketplace: false,
    setShowAgriMarketplace: (show) => set({ showAgriMarketplace: show }),
 
+   showQRTraceability: false,
+   setShowQRTraceability: (show) => set({ showQRTraceability: show }),
+
+   showFarmPlanner3D: false,
+   setShowFarmPlanner3D: (show) => set({ showFarmPlanner3D: show }),
+
+   showFarmDiary: false,
+   setShowFarmDiary: (show) => set({ showFarmDiary: show }),
+
+   showAgriLMS: false,
+   setShowAgriLMS: (show) => set({ showAgriLMS: show }),
+
+   showForecast: false,
+   setShowForecast: (show) => set({ showForecast: show }),
+
    // Reset all modals to closed
    resetAdvisorStore: () =>
      set({
@@ -66,5 +81,10 @@ export const useAdvisorStore = create((set) => ({
        showPestManagement: false,
        showComingSoon: false,
        showAgriMarketplace: false,
+       showQRTraceability: false,
+       showFarmPlanner3D: false,
+       showFarmDiary: false,
+       showAgriLMS: false,
+       showForecast: false,
      }),
 }));

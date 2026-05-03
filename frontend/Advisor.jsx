@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import "./Advisor.css";
 import WeatherCard from "./weather/WeatherCard";
+import Forecast from "./Forecast";
 import SoilChatbot from "./SoilChatbot";
 import SoilAnalysis from "./SoilAnalysis";
 import SoilGuide from "./SoilGuide";
@@ -26,12 +27,17 @@ import {
   FlaskConical,
   Layers,
   Book,
+  CloudSun,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAdvisorStore } from "./stores/advisorStore";
 import { useYieldPrediction } from "./hooks/useYieldPrediction";
 import CropDiseaseDetection from "./CropDiseaseDetection";
 import PestManagement from "./PestManagement";
+import QRTraceability from "./QRTraceability";
+import FarmPlanner3D from "./FarmPlanner3D";
+import FarmDiary from "./FarmDiary";
+import AgriLMS from "./AgriLMS";
 
 export default function Advisor() {
   const navigate = useNavigate();
@@ -66,6 +72,16 @@ export default function Advisor() {
     setShowPestManagement,
     showAgriMarketplace,
     setShowAgriMarketplace,
+    showQRTraceability,
+    setShowQRTraceability,
+    showFarmPlanner3D,
+    setShowFarmPlanner3D,
+    showFarmDiary,
+    setShowFarmDiary,
+    showAgriLMS,
+    setShowAgriLMS,
+    showForecast,
+    setShowForecast,
   } = useAdvisorStore();
 
   const {
@@ -138,31 +154,42 @@ export default function Advisor() {
          <h2 className="slide-in">✨ <span className="notranslate">Features</span></h2>
          <br />
          <br />
-         <div className="cards">
-           <div
-             className="card reveal"
-             style={{ cursor: "pointer" }}
-             onClick={() => navigate("/crop-planner")}
-           >
-             <div className="icon">
-               <Calendar size={32} strokeWidth={2} />
-             </div>
-             <h3><span className="notranslate">Seasonal Crop Planner</span></h3>
-             <p>Plan your crops throughout the year with seasonal recommendations and crop rotation cycles.</p>
-           </div>
-           <div
-             className="card reveal"
-             style={{ cursor: "pointer" }}
-             onClick={() => setShowWeather(true)}
-           >
-             <div className="icon">
-               <Sun size={32} strokeWidth={2} />
-             </div>
-             <h3><span className="notranslate">Weather Forecasts</span></h3>
-             <p>
-               Accurate daily & weekly weather insights for farming decisions.
-             </p>
-           </div>
+          <div className="cards">
+            <div
+              className="card reveal"
+              style={{ cursor: "pointer" }}
+              onClick={() => navigate("/crop-planner")}
+            >
+              <div className="icon">
+                <Calendar size={32} strokeWidth={2} />
+              </div>
+              <h3><span className="notranslate">Seasonal Crop Planner</span></h3>
+              <p>Plan your crops throughout the year with seasonal recommendations and crop rotation cycles.</p>
+            </div>
+
+            {/* Weather card - opens full modal on click */}
+            <div
+              className="card reveal"
+              onClick={() => setShowWeather(true)}
+            >
+              <div className="icon">
+                <Sun size={32} strokeWidth={2} />
+              </div>
+              <h3><span className="notranslate">Weather Intelligence</span></h3>
+              <p>Get hyperlocal weather forecasts, alerts, and crop-specific advisories.</p>
+            </div>
+            
+            {/* 7-Day Forecast card - opens forecast modal on click */}
+            <div
+              className="card reveal"
+              onClick={() => setShowForecast(true)}
+            >
+              <div className="icon">
+                <CloudSun size={32} strokeWidth={2} />
+              </div>
+              <h3><span className="notranslate">7-Day Forecast</span></h3>
+              <p>Detailed weekly weather outlook to plan your farming activities.</p>
+            </div>
 
             <div className="card reveal" onClick={() => navigate("/community")}>
               <div className="icon">
@@ -342,6 +369,26 @@ export default function Advisor() {
             <h3><span className="notranslate">Share Feedback</span></h3>
              <p>Help us improve <span className="notranslate" translate="no">Fasal Saathi</span> with your valuable suggestions.</p>
             </div>
+          <div className="card reveal" onClick={() => setShowQRTraceability(true)}>
+            <div className="icon">🔍</div>
+            <h3><span className="notranslate">QR Traceability</span></h3>
+            <p>Track your crop journey from farm to consumer with QR codes.</p>
+          </div>
+          <div className="card reveal" onClick={() => setShowFarmPlanner3D(true)}>
+            <div className="icon">🏗️</div>
+            <h3><span className="notranslate">3D Farm Planner</span></h3>
+            <p>Design and visualize your farm layout in 3D.</p>
+          </div>
+          <div className="card reveal" onClick={() => setShowFarmDiary(true)}>
+            <div className="icon">📓</div>
+            <h3><span className="notranslate">Farm Diary</span></h3>
+            <p>Record and track your farming activities and expenses.</p>
+          </div>
+          <div className="card reveal" onClick={() => setShowAgriLMS(true)}>
+            <div className="icon">🎓</div>
+            <h3><span className="notranslate">Agri LMS</span></h3>
+            <p>Learn advanced farming techniques through interactive courses.</p>
+          </div>
          </div>
        </div>
           {showWeather && (
@@ -356,15 +403,23 @@ export default function Advisor() {
 
       )}
 
-      {showSoilChatbot && (
-        <div className="weather-overlay" onClick={() => setShowSoilChatbot(false)}>
-          <div className="chatbot-popup" onClick={(e)=>{e.stopPropagation()}}>
-            <SoilChatbot onClose={() => setShowSoilChatbot(false)} />
-          </div>
-        </div>
-      )}
+       {showSoilChatbot && (
+         <div className="weather-overlay" onClick={() => setShowSoilChatbot(false)}>
+           <div className="chatbot-popup" onClick={(e)=>{e.stopPropagation()}}>
+             <SoilChatbot onClose={() => setShowSoilChatbot(false)} />
+           </div>
+         </div>
+       )}
 
-      {showSoilAnalysis && (
+       {showForecast && (
+         <div className="weather-overlay" onClick={() => setShowForecast(false)}>
+           <div className="weather-popup" onClick={(e)=>{e.stopPropagation()}}>
+             <Forecast onClose={() => setShowForecast(false)} />
+           </div>
+         </div>
+       )}
+
+       {showSoilAnalysis && (
         <div className="weather-overlay" onClick={() => setShowSoilAnalysis(false)}>
           <div className="soil-analysis-popup" onClick={(e)=>e.stopPropagation()}>
             <button
@@ -750,6 +805,56 @@ export default function Advisor() {
             <button
               className="close-btn"
               onClick={() => setShowComingSoon(false)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showQRTraceability && (
+        <div className="weather-overlay" onClick={() => setShowQRTraceability(false)}>
+          <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
+            <QRTraceability />
+            <button
+              className="close-btn"
+              onClick={() => setShowQRTraceability(false)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showFarmPlanner3D && (
+        <div className="weather-overlay" onClick={() => setShowFarmPlanner3D(false)}>
+          <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
+            <FarmPlanner3D />
+            <button
+              className="close-btn"
+              onClick={() => setShowFarmPlanner3D(false)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showFarmDiary && (
+        <div className="weather-overlay" onClick={() => setShowFarmDiary(false)}>
+          <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
+            <FarmDiary onClose={() => setShowFarmDiary(false)} />
+          </div>
+        </div>
+      )}
+
+      {showAgriLMS && (
+        <div className="weather-overlay" onClick={() => setShowAgriLMS(false)}>
+          <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
+            <AgriLMS />
+            <button
+              className="close-btn"
+              onClick={() => setShowAgriLMS(false)}
             >
               Close
             </button>

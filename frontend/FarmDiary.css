@@ -1,0 +1,432 @@
+/* FarmDiary.css */
+
+.diary-container {
+  background: rgba(20, 20, 20, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 30px;
+  color: #fff;
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+/* Custom Scrollbar for Diary */
+.diary-container::-webkit-scrollbar {
+  width: 8px;
+}
+.diary-container::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+.diary-container::-webkit-scrollbar-thumb {
+  background: rgba(46, 204, 113, 0.5);
+  border-radius: 4px;
+}
+.diary-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(46, 204, 113, 0.8);
+}
+
+.diary-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 20px;
+}
+
+.diary-header h2 {
+  font-size: 2rem;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #fff;
+}
+
+.diary-header-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.diary-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+  font-size: 0.95rem;
+}
+
+.diary-btn.primary {
+  background: #2ecc71;
+  color: #111;
+}
+
+.diary-btn.primary:hover {
+  background: #27ae60;
+  transform: translateY(-2px);
+}
+
+.diary-btn.secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.diary-btn.secondary:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+.diary-btn.close-modal-btn {
+  background: rgba(231, 76, 60, 0.15);
+  color: #e74c3c;
+  border: 1px solid rgba(231, 76, 60, 0.3);
+  padding: 10px;
+}
+
+.diary-btn.close-modal-btn:hover {
+  background: rgba(231, 76, 60, 0.25);
+  transform: translateY(-2px);
+}
+
+/* Timeline Layout */
+.diary-timeline-container {
+  position: relative;
+  margin-top: 20px;
+}
+
+.diary-timeline-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 20px;
+  width: 2px;
+  background: rgba(46, 204, 113, 0.3);
+}
+
+.timeline-entry {
+  position: relative;
+  padding-left: 60px;
+  margin-bottom: 30px;
+}
+
+.diary-timeline-dot {
+  position: absolute;
+  left: 12px;
+  top: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #2ecc71;
+  border: 4px solid #111;
+  box-shadow: 0 0 10px rgba(46, 204, 113, 0.5);
+  transform: none; /* Reset transform leaked from AboutUs.css */
+}
+
+.timeline-entry.reminder .diary-timeline-dot {
+  background: #f39c12;
+  box-shadow: 0 0 10px rgba(243, 156, 18, 0.5);
+}
+
+.timeline-content {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 16px;
+  padding: 20px;
+  transition: all 0.3s ease;
+}
+
+.timeline-content:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(46, 204, 113, 0.3);
+  transform: translateX(5px);
+}
+
+.timeline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.entry-type-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: rgba(46, 204, 113, 0.15);
+  color: #2ecc71;
+  border: 1px solid rgba(46, 204, 113, 0.3);
+}
+
+.entry-type-badge.Sowing { background: rgba(52, 152, 219, 0.15); color: #3498db; border-color: rgba(52, 152, 219, 0.3); }
+.entry-type-badge.Irrigation { background: rgba(0, 210, 211, 0.15); color: #00d2d1; border-color: rgba(0, 210, 211, 0.3); }
+.entry-type-badge.Fertilizer { background: rgba(155, 89, 182, 0.15); color: #9b59b6; border-color: rgba(155, 89, 182, 0.3); }
+.entry-type-badge.Harvest { background: rgba(241, 196, 15, 0.15); color: #f1c40f; border-color: rgba(241, 196, 15, 0.3); }
+.entry-type-badge.Pesticide { background: rgba(231, 76, 60, 0.15); color: #e74c3c; border-color: rgba(231, 76, 60, 0.3); }
+
+.entry-date {
+  font-size: 0.9rem;
+  color: #a0a0a0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.entry-date .reminder-tag {
+  background: rgba(243, 156, 18, 0.2);
+  color: #f39c12;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.timeline-notes {
+  color: #e0e0e0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  margin: 10px 0;
+}
+
+.timeline-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.entry-cost {
+  color: #2ecc71;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.entry-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.entry-action-btn {
+  background: none;
+  border: none;
+  color: #a0a0a0;
+  cursor: pointer;
+  padding: 5px;
+  transition: color 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.entry-action-btn:hover {
+  color: #fff;
+}
+.entry-action-btn.delete:hover {
+  color: #e74c3c;
+}
+
+/* Form Styles */
+.diary-form {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 25px;
+  border-radius: 16px;
+  margin-bottom: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-group.full-width {
+  grid-column: 1 / -1;
+}
+
+.form-group label {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #e0e0e0;
+}
+
+.diary-input {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 12px 16px;
+  border-radius: 10px;
+  color: #fff;
+  font-size: 1rem;
+  transition: border-color 0.2s;
+}
+
+.diary-input:focus {
+  outline: none;
+  border-color: #2ecc71;
+}
+
+.diary-input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
+
+textarea.diary-input {
+  min-height: 100px;
+  resize: vertical;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: #a0a0a0;
+}
+
+.empty-state .icon {
+  font-size: 3rem;
+  margin-bottom: 15px;
+  color: rgba(255, 255, 255, 0.2);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .diary-container {
+    padding: 20px;
+  }
+  
+  .diary-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+  }
+  
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .timeline-entry {
+    padding-left: 40px;
+  }
+  
+  .diary-timeline-container::before {
+    left: 10px;
+  }
+  
+   .diary-timeline-dot {
+     left: 2px;
+     width: 14px;
+     height: 14px;
+   }
+ }
+
+/* AI Advisor Floating Button */
+.advisor-fab {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2ecc71, #27ae60);
+  color: white;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 15px rgba(46, 204, 113, 0.4);
+  z-index: 1000;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.advisor-fab:hover {
+  transform: scale(1.1);
+  box-shadow: 0 6px 20px rgba(46, 204, 113, 0.6);
+}
+
+.advisor-fab:active {
+  transform: scale(0.95);
+}
+
+/* Advisor Modal Overlay */
+.advisor-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  backdrop-filter: blur(4px);
+}
+
+.theme-dark .advisor-overlay {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+/* Advisor Modal Container */
+.advisor-modal {
+  position: relative;
+  background: white;
+  border-radius: 16px;
+  padding: 0;
+  max-width: 520px;
+  width: 90%;
+  max-height: 90vh;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.theme-dark .advisor-modal {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+}
+
+@media (max-width: 600px) {
+  .advisor-fab {
+    width: 50px;
+    height: 50px;
+    bottom: 16px;
+    right: 16px;
+  }
+  .advisor-fab svg {
+    width: 20px;
+    height: 20px;
+  }
+}

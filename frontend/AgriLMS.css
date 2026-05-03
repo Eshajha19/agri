@@ -1,0 +1,447 @@
+.lms-container, .lms-content {
+  padding: 2rem;
+  color: var(--text-color);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.lms-header {
+  margin-bottom: 2.5rem;
+  text-align: center;
+}
+
+.lms-header h1 {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
+  color: #2e7d32;
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+}
+
+.lms-header p {
+  color: var(--text-muted);
+  font-size: 1.1rem;
+}
+
+.course-categories {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 2rem;
+}
+
+.course-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 1.5rem;
+  position: relative;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.course-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+}
+
+.course-badge {
+  background: rgba(46, 125, 50, 0.1);
+  color: #2e7d32;
+  padding: 0.3rem 0.8rem;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: inline-block;
+  margin-bottom: 1rem;
+}
+
+.course-card h3 {
+  font-size: 1.4rem;
+  margin-bottom: 1rem;
+}
+
+.course-meta {
+  display: flex;
+  gap: 1.5rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-bottom: 1.5rem;
+}
+
+.course-meta span {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.progress-bar-container {
+  height: 8px;
+  background: rgba(0,0,0,0.05);
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4caf50, #2e7d32);
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 1.5rem;
+}
+
+.start-course-btn {
+  width: 100%;
+  padding: 0.8rem;
+  border-radius: 10px;
+  border: none;
+  background: #2e7d32;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.start-course-btn:hover {
+  opacity: 0.9;
+}
+
+.card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.cert-btn-small {
+  width: 100%;
+  padding: 0.8rem;
+  border-radius: 10px;
+  border: 1px solid #2e7d32;
+  background: white;
+  color: #2e7d32;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cert-btn-small:hover {
+  background: #f1f8e9;
+}
+
+/* Active Course View */
+.active-course .lms-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 1rem;
+}
+
+.active-header {
+  padding-right: 60px; /* Make space for the X button */
+  display: flex;
+  justify-content: flex-start !important;
+  gap: 2rem;
+  align-items: center;
+}
+
+.active-title-group {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.course-progress-tag {
+  background: #2e7d32;
+  color: white;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.back-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.course-view-grid {
+  display: grid;
+  grid-template-columns: 1fr 350px;
+  gap: 2rem;
+  margin-top: 1.5rem;
+}
+
+.video-container {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 12px;
+  overflow: hidden;
+  max-height: 450px;
+}
+
+.video-container iframe {
+  width: 100%;
+  height: 100%;
+}
+
+.video-info {
+  margin-top: 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  background: rgba(46, 125, 50, 0.05);
+  padding: 1.2rem;
+  border-radius: 12px;
+  border: 1px solid rgba(46, 125, 50, 0.1);
+}
+
+.instruction-text {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-top: 0.3rem;
+}
+
+.video-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  align-items: flex-end;
+}
+
+.complete-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.7rem 1.2rem;
+  border-radius: 8px;
+  border: 1px solid #2e7d32;
+  background: white;
+  color: #2e7d32;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.complete-btn.completed {
+  background: #2e7d32;
+  color: white;
+}
+
+.complete-btn.locked {
+  background: #f5f5f5;
+  border-color: #ddd;
+  color: #999;
+  cursor: not-allowed;
+}
+
+.complete-btn.pulse {
+  box-shadow: 0 0 0 0 rgba(46, 125, 50, 0.4);
+  animation: pulse-green 2s infinite;
+  background: #f1f8e9;
+}
+
+@keyframes pulse-green {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(46, 125, 50, 0.7); }
+  70% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(46, 125, 50, 0); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(46, 125, 50, 0); }
+}
+
+.cert-btn-mini {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem 1rem;
+  border-radius: 8px;
+  border: none;
+  background: #1b5e20;
+  color: white;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(27, 94, 32, 0.3);
+}
+
+.lessons-list {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.lesson-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  border-radius: 10px;
+  cursor: pointer;
+  margin-bottom: 0.5rem;
+  transition: background 0.2s;
+}
+
+.lesson-item:hover {
+  background: rgba(0,0,0,0.03);
+}
+
+.lesson-item.active {
+  background: rgba(46, 125, 50, 0.08);
+  border: 1px solid rgba(46, 125, 50, 0.2);
+}
+
+.lesson-num {
+  width: 28px;
+  height: 28px;
+  background: rgba(0,0,0,0.05);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.lesson-details h4 {
+  font-size: 0.95rem;
+  margin-bottom: 0.2rem;
+}
+
+.lesson-details span {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.status-icon {
+  margin-left: auto;
+  color: #4caf50;
+}
+
+.certification-ready {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background: linear-gradient(135deg, #2e7d32, #1b5e20);
+  color: white;
+  border-radius: 12px;
+  text-align: center;
+}
+
+.certification-ready p {
+  margin: 0.8rem 0 1.2rem;
+  font-size: 0.95rem;
+  opacity: 0.9;
+}
+
+.cert-btn {
+  width: 100%;
+  padding: 0.8rem;
+  border-radius: 8px;
+  border: none;
+  background: white;
+  color: #2e7d32;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  cursor: pointer;
+}
+
+/* AI Advisor Floating Button */
+.advisor-fab {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2ecc71, #27ae60);
+  color: white;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 15px rgba(46, 204, 113, 0.4);
+  z-index: 1000;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.advisor-fab:hover {
+  transform: scale(1.1);
+  box-shadow: 0 6px 20px rgba(46, 204, 113, 0.6);
+}
+
+.advisor-fab:active {
+  transform: scale(0.95);
+}
+
+/* Advisor Modal Overlay */
+.advisor-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  backdrop-filter: blur(4px);
+}
+
+.theme-dark .advisor-overlay {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+/* Advisor Modal Container */
+.advisor-modal {
+  position: relative;
+  background: white;
+  border-radius: 16px;
+  padding: 0;
+  max-width: 520px;
+  width: 90%;
+  max-height: 90vh;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.theme-dark .advisor-modal {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+}
+
+@media (max-width: 600px) {
+  .advisor-fab {
+    width: 50px;
+    height: 50px;
+    bottom: 16px;
+    right: 16px;
+  }
+  .advisor-fab svg {
+    width: 20px;
+    height: 20px;
+  }
+}
