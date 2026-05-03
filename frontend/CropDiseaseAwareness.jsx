@@ -1,104 +1,202 @@
-import React from "react";
-import { FaShieldAlt, FaStethoscope, FaFlask, FaLeaf } from "react-icons/fa";
+import React, { useState, useEffect } from "react";
+import {
+  FaShieldAlt,
+  FaStethoscope,
+  FaFlask,
+  FaVolumeUp,
+  FaBookmark,
+} from "react-icons/fa";
 import "./CropDiseaseAwareness.css";
 
 const diseaseData = [
   {
     id: 1,
     name: "Late Blight",
-    crop: "Potato & Tomato",
-    icon: "🥔",
-    symptoms: "Water-soaked spots on leaves that turn brown/black. White fungal growth appears on leaf undersides in humid conditions. Fruits and tubers develop firm, brown decay.",
-    prevention: "Use certified disease-free seeds. Avoid overhead irrigation to keep leaves dry. Maintain proper spacing for air circulation and practice crop rotation.",
-    remedies: "Apply copper-based fungicides. Remove and destroy infected plants immediately. Use resistant varieties in areas prone to the disease.",
+    crop: "Potato",
+    image: "https://upload.wikimedia.org/wikipedia/commons/6/60/Phytophthora_infestans_on_potato_leaf.jpg",
+    severity: "High",
+    season: "Monsoon",
+    symptoms:
+      "Water-soaked spots on leaves that turn brown/black. White fungal growth appears underneath.",
+    prevention:
+      "Use disease-free seeds, avoid overhead irrigation, maintain spacing.",
+    remedies:
+      "Apply copper fungicides, remove infected plants immediately.",
+    action: "Remove infected leaves and spray fungicide within 24 hours.",
   },
   {
     id: 2,
     name: "Rice Blast",
     crop: "Rice",
-    icon: "🌾",
-    symptoms: "Diamond-shaped (spindle) lesions with gray or white centers and brown borders on leaves. Infected nodes turn black and break easily. Neck rot causes grain failure.",
-    prevention: "Avoid excessive nitrogen fertilization. Maintain continuous flooding in fields. Treat seeds before sowing and use blast-resistant cultivars.",
-    remedies: "Spray recommended fungicides like Tricyclazole or Carbendazim. Burn or bury infected crop residues after harvest to prevent spore survival.",
+    image: "https://upload.wikimedia.org/wikipedia/commons/3/3b/Rice_blast.jpg",
+    severity: "High",
+    season: "Kharif",
+    symptoms:
+      "Diamond-shaped lesions with gray centers. Affects leaves and nodes.",
+    prevention:
+      "Avoid excess nitrogen, maintain water level, use resistant seeds.",
+    remedies:
+      "Use Tricyclazole or Carbendazim spray.",
+    action: "Spray fungicide immediately and control nitrogen usage.",
   },
   {
     id: 3,
-    name: "Wheat Rust",
-    crop: "Wheat",
-    icon: "🍞",
-    symptoms: "Orange-red or reddish-brown powdery pustules on leaves, leaf sheaths, and stems. Severely infected plants turn yellow and produce shriveled grains.",
-    prevention: "Plant resistant varieties. Avoid early or late sowing beyond the optimal window. Monitor fields regularly for the first signs of pustules.",
-    remedies: "Apply systemic fungicides such as Propiconazole or Tebuconazole. Ensure balanced nutrient application to maintain plant vigor.",
-  },
-  {
-    id: 4,
-    name: "Black Rot",
-    crop: "Cabbage & Cauliflower",
-    icon: "🥬",
-    symptoms: "V-shaped yellow lesions appearing at the margins of the leaves. Veins within the yellowed areas turn black. Stems may show blackening when cut.",
-    prevention: "Hot water treatment for seeds. Practice a 3-year crop rotation without cruciferous crops. Control weeds that may harbor the bacteria.",
-    remedies: "Apply copper-based sprays during the growing season. Remove infected debris. Avoid working in fields when plants are wet.",
-  },
-  {
-    id: 5,
     name: "Powdery Mildew",
-    crop: "Many (Peas, Cucurbits, etc.)",
-    icon: "🎃",
-    symptoms: "White, powdery fungal growth on the surface of leaves, stems, and fruits. Affected leaves may turn yellow, curl, and drop prematurely.",
-    prevention: "Ensure plants are in sunny locations with good air movement. Avoid overcrowding. Use resistant varieties whenever available.",
-    remedies: "Spray with sulfur-based fungicides, neem oil, or a mixture of baking soda and water. Prune affected parts to improve light penetration.",
+    crop: "Cucurbits",
+    image: "https://upload.wikimedia.org/wikipedia/commons/5/5c/Powdery_mildew.jpg",
+    severity: "Medium",
+    season: "Winter",
+    symptoms:
+      "White powdery growth on leaves and stems, leading to leaf drop.",
+    prevention:
+      "Ensure sunlight, avoid overcrowding.",
+    remedies:
+      "Use neem oil or sulfur spray.",
+    action: "Spray neem oil weekly and remove infected parts.",
   },
-  {
-    id: 6,
-    name: "Citrus Canker",
-    crop: "Citrus Fruits",
-    icon: "🍋",
-    symptoms: "Raised, corky, brown lesions on leaves, twigs, and fruits, often surrounded by a yellow halo. Severe infection leads to premature leaf and fruit drop.",
-    prevention: "Plant windbreaks to reduce bacterial spread. Use disease-free nursery stock. Disinfect pruning tools and equipment regularly.",
-    remedies: "Apply copper-based bactericides as a preventive measure. Prune and destroy infected branches during the dry season.",
-  }
 ];
 
 const CropDiseaseAwareness = () => {
+  const [search, setSearch] = useState("");
+  const [filterCrop, setFilterCrop] = useState("All");
+  const [openCard, setOpenCard] = useState(null);
+  const [saved, setSaved] = useState([]);
+
+  // Voice function
+  const speak = (text) => {
+    const msg = new SpeechSynthesisUtterance(text);
+    window.speechSynthesis.speak(msg);
+  };
+
+  // Filter logic
+  const filteredDiseases = diseaseData.filter((d) => {
+    return (
+      d.name.toLowerCase().includes(search.toLowerCase()) &&
+      (filterCrop === "All" || d.crop === filterCrop)
+    );
+  });
+
   return (
     <div className="disease-awareness-container">
       <header className="disease-header">
-        <h1>Crop Disease Awareness 🌱</h1>
-        <p>Identify, prevent, and treat common agricultural diseases to protect your harvest.</p>
+        <h1>🌱 Crop Disease Awareness</h1>
+        <p>Identify, prevent, and treat crop diseases effectively.</p>
       </header>
 
+      {/* 🔍 Search + Filter */}
+      <div className="disease-controls">
+        <input
+          type="text"
+          placeholder="Search disease..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+
+        <select onChange={(e) => setFilterCrop(e.target.value)}>
+          <option>All</option>
+          <option>Rice</option>
+          <option>Potato</option>
+          <option>Cucurbits</option>
+        </select>
+      </div>
+
+      {/* 📸 AI Upload Section */}
+      <div className="upload-section">
+        <h3>📸 Detect Disease Using AI</h3>
+        <input type="file" accept="image/*" />
+        <button>Analyze Crop</button>
+      </div>
+
+      {/* 🌾 Disease Cards */}
       <div className="disease-grid">
-        {diseaseData.map((disease) => (
-          <div key={disease.id} className="disease-card">
-            <div className="disease-image-placeholder">
-              {disease.icon}
-            </div>
+        {filteredDiseases.map((disease) => (
+          <div
+            key={disease.id}
+            className={`disease-card ${disease.severity.toLowerCase()}`}
+          >
+            <img src={disease.image} alt={disease.name} />
+
             <div className="disease-content">
               <span className="crop-tag">{disease.crop}</span>
-              <h2 className="disease-title">{disease.name}</h2>
-              
-              <div className="disease-section">
-                <h4><FaStethoscope /> Symptoms</h4>
-                <p>{disease.symptoms}</p>
+              <span className={`severity ${disease.severity.toLowerCase()}`}>
+                {disease.severity} Risk
+              </span>
+              <span className="season-tag">🌤 {disease.season}</span>
+
+              <h2>{disease.name}</h2>
+
+              {/* ⚡ Quick Action */}
+              <div className="quick-action">
+                ⚡ {disease.action}
               </div>
 
-              <div className="disease-section">
-                <h4><FaShieldAlt /> Prevention</h4>
-                <p>{disease.prevention}</p>
+              {/* 🔘 Controls */}
+              <div className="card-actions">
+                <button onClick={() => speak(disease.symptoms)}>
+                  <FaVolumeUp /> Listen
+                </button>
+
+                <button
+                  onClick={() =>
+                    setSaved((prev) =>
+                      prev.includes(disease.id)
+                        ? prev.filter((id) => id !== disease.id)
+                        : [...prev, disease.id]
+                    )
+                  }
+                >
+                  <FaBookmark />{" "}
+                  {saved.includes(disease.id) ? "Saved" : "Save"}
+                </button>
               </div>
-            </div>
-            <div className="disease-footer">
-              <div className="remedy-badge">
-                <FaFlask size={20} style={{ marginTop: '4px' }} />
-                <p>
-                  <strong>Basic Remedies:</strong>
-                  {disease.remedies}
-                </p>
-              </div>
+
+              {/* 📖 Expand */}
+              <button
+                className="expand-btn"
+                onClick={() =>
+                  setOpenCard(openCard === disease.id ? null : disease.id)
+                }
+              >
+                {openCard === disease.id ? "Hide Details" : "View Details"}
+              </button>
+
+              {/* 📋 Details */}
+              {openCard === disease.id && (
+                <div className="disease-details">
+                  <div>
+                    <h4>
+                      <FaStethoscope /> Symptoms
+                    </h4>
+                    <p>{disease.symptoms}</p>
+                  </div>
+
+                  <div>
+                    <h4>
+                      <FaShieldAlt /> Prevention
+                    </h4>
+                    <p>{disease.prevention}</p>
+                  </div>
+
+                  <div>
+                    <h4>
+                      <FaFlask /> Remedies
+                    </h4>
+                    <p>{disease.remedies}</p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         ))}
       </div>
+
+      {/* ⭐ Saved Section */}
+      {saved.length > 0 && (
+        <div className="saved-section">
+          <h3>⭐ Saved Diseases</h3>
+          <p>You have saved {saved.length} diseases for quick access.</p>
+        </div>
+      )}
     </div>
   );
 };
