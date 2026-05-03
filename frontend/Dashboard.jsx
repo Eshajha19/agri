@@ -14,19 +14,81 @@ import {
   FaWater,
   FaBug,
   FaComments,
+  FaWhatsapp,
+  FaCheckCircle,
+  FaBook,
+  FaPhoneAlt,
+  FaShieldAlt,
 } from "react-icons/fa";
 import "./Dashboard.css";
+import {
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  BarChart, Bar, CartesianGrid
+} from "recharts";
+import { getHistoricalWeatherData } from "./weather/weatherService";
 
 export default function Dashboard() {
   const name = localStorage.getItem("farmerName") || "Farmer";
   const preferredLang = localStorage.getItem("preferredLanguage") || "en";
 
   const [currentTime, setCurrentTime] = useState(new Date());
-
+  const [historicalWeather, setHistoricalWeather] = useState([]);
+  const [phoneNumber, setPhoneNumber] = useState(localStorage.getItem("farmerPhone") || "");
+  const [whatsappAlerts, setWhatsappAlerts] = useState(localStorage.getItem("whatsappAlerts") === "true");
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [updateMsg, setUpdateMsg] = useState("");
+  const [yieldData, setYieldData] = useState([]);
+  const [selectedCrop, setSelectedCrop] = useState("");
+  const [selectedRegion, setSelectedRegion] = useState("");
+  const [selectedSeason, setSelectedSeason] = useState("");
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
   }, []);
+  useEffect(() => {
+    setYieldData([
+      { year: "2019", crop: "Wheat", yield: 30, region: "North", season: "Rabi" },
+      { year: "2020", crop: "Rice", yield: 45, region: "South", season: "Kharif" },
+      { year: "2021", crop: "Wheat", yield: 50, region: "North", season: "Rabi" },
+      { year: "2022", crop: "Rice", yield: 60, region: "South", season: "Kharif" },
+    ]);
+  }, []);
+  useEffect(() => {
+    const fetchData = async () => {
+      const data = await getHistoricalWeatherData();
+      setHistoricalWeather(data);
+    };
+
+    fetchData();
+  }, []);
+
+  const handleUpdateWhatsApp = async () => {
+    setIsUpdating(true);
+    setUpdateMsg("");
+    try {
+      const response = await fetch("http://localhost:8000/api/whatsapp/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: localStorage.getItem("userId") || "user_" + name,
+          phone_number: phoneNumber,
+          name: name,
+          enabled: whatsappAlerts
+        }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        localStorage.setItem("farmerPhone", phoneNumber);
+        localStorage.setItem("whatsappAlerts", whatsappAlerts.toString());
+        setUpdateMsg("Settings saved successfully!");
+        setTimeout(() => setUpdateMsg(""), 3000);
+      }
+    } catch (err) {
+      setUpdateMsg("Error saving settings.");
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
   const getGreeting = () => {
     const hour = currentTime.getHours();
@@ -125,9 +187,20 @@ export default function Dashboard() {
 
   const quickActions = [
     { label: "AI Advisor", icon: <FaSeedling />, link: "/advisor" },
+    { label: "Crop Planner", icon: <FaCalendarAlt />, link: "/crop-planner" },
     { label: "Community", icon: <FaComments />, link: "/community" },
-    { label: "How It Works", icon: <FaChartLine />, link: "/how-it-works" },
+    { label: "Diseases", icon: <FaBug />, link: "/disease-awareness" },
+    { label: "Helpline", icon: <FaPhoneAlt />, link: "/helpline" },
+    { label: "Glossary", icon: <FaBook />, link: "/glossary" },
+    { label: "Risk Index", icon: <FaShieldAlt />, link: "/risk-index" },
   ];
+  const filteredData = yieldData.filter((item) => {
+    return (
+      (selectedCrop === "" || item.crop === selectedCrop) &&
+      (selectedRegion === "" || item.region === selectedRegion) &&
+      (selectedSeason === "" || item.season === selectedSeason)
+    );
+  });
 
   return (
     <div className="dashboard">
@@ -144,14 +217,14 @@ export default function Dashboard() {
               <p className="welcome-sub">Here is an overview of your farm activity and insights</p>
             </div>
           </div>
-          <div className="quick-actions-row">
-            {quickActions.map((action, idx) => (
-              <Link to={action.link} key={idx} className="quick-action-btn">
-                {action.icon}
-                <span>{action.label}</span>
-              </Link>
-            ))}
-          </div>
+           <div className="quick-actions-row">
+             {quickActions.map((action, idx) => (
+               <Link to={action.link} key={idx} className="quick-action-btn">
+                 {action.icon}
+                 <span className="notranslate">{action.label}</span>
+               </Link>
+             ))}
+           </div>
         </div>
       </section>
 
@@ -161,7 +234,7 @@ export default function Dashboard() {
             <div className="stat-card-icon">{stat.icon}</div>
             <div className="stat-card-info">
               <span className="stat-card-value">{stat.value}</span>
-              <span className="stat-card-label">{stat.label}</span>
+              <span className="stat-card-label notranslate">{stat.label}</span>
               <span className="stat-card-trend">{stat.trend}</span>
             </div>
           </div>
@@ -249,6 +322,237 @@ export default function Dashboard() {
               Get AI Advice <FaArrowRight />
             </Link>
           </div>
+
+          <div className="dashboard-section-card whatsapp-settings-card">
+            <div className="section-card-header">
+              <h2><FaWhatsapp /> WhatsApp Alerts</h2>
+              <span className={`status-dot ${whatsappAlerts ? "status-active" : ""}`}></span>
+            </div>
+            <div className="whatsapp-settings-body">
+              <p className="settings-intro">Receive real-time weather and pest alerts on your phone.</p>
+              <div className="input-group">
+                <label>Phone Number (with code)</label>
+                <input 
+                  type="text" 
+                  placeholder="+91 9876543210" 
+                  value={phoneNumber} 
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                />
+              </div>
+              <div className="checkbox-group">
+                <input 
+                  type="checkbox" 
+                  id="wa-toggle" 
+                  checked={whatsappAlerts} 
+                  onChange={(e) => setWhatsappAlerts(e.target.checked)}
+                />
+                <label htmlFor="wa-toggle">Enable Real-time Alerts</label>
+              </div>
+              <button 
+                className={`save-wa-btn ${isUpdating ? "loading" : ""}`} 
+                onClick={handleUpdateWhatsApp}
+                disabled={isUpdating}
+              >
+                {isUpdating ? "Saving..." : "Save Settings"}
+              </button>
+              {updateMsg && (
+                <p className={`update-msg ${updateMsg.includes("Error") ? "error" : "success"}`}>
+                  {updateMsg.includes("success") && <FaCheckCircle />} {updateMsg}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+      <section className="dashboard-section-card" style={{ marginTop: "30px" }}>
+        <div className="section-card-header">
+          <h2>📊 Crop Yield Insights</h2>
+          <span className="section-badge">Analytics</span>
+        </div>
+
+        <p style={{ color: "#6b7280", marginBottom: "20px" }}>
+          Visual trends and comparison of crop yield over time
+        </p>
+
+        {/* 🔽 FILTERS HERE */}
+        <div style={{ display: "flex", gap: "12px", marginBottom: "20px" }}>
+          <select value={selectedCrop}
+            onChange={(e) => setSelectedCrop(e.target.value)}
+            style={{ padding: "8px", borderRadius: "6px" }}
+          >
+            <option value="">All Crops</option>
+            <option value="Wheat">Wheat</option>
+            <option value="Rice">Rice</option>
+          </select>
+
+          <select value={selectedRegion}
+            onChange={(e) => setSelectedRegion(e.target.value)}
+            style={{ padding: "8px", borderRadius: "6px" }}
+          >
+            <option value="">All Regions</option>
+            <option value="North">North</option>
+            <option value="South">South</option>
+          </select>
+
+          <select value={selectedSeason}
+            onChange={(e) => setSelectedSeason(e.target.value)}
+            style={{ padding: "8px", borderRadius: "6px" }}
+          >
+            <option value="">All Seasons</option>
+            <option value="Kharif">Kharif</option>
+            <option value="Rabi">Rabi</option>
+          </select>
+          <button
+            onClick={() => {
+              setSelectedCrop("");
+              setSelectedRegion("");
+              setSelectedSeason("");
+            }}
+            style={{
+              padding: "8px 14px",
+              borderRadius: "8px",
+              border: "none",
+              background: "#22c55e",
+              color: "#fff",
+              fontWeight: "500",
+              cursor: "pointer",
+            }}
+          >
+            Reset
+          </button>
+        </div>
+
+        {/* CONDITION START */}
+        {yieldData.length === 0 ? (
+          <div
+            style={{
+              padding: "60px",
+              textAlign: "center",
+              color: "#6b7280",
+              fontSize: "14px",
+            }}
+          >
+            Loading chart...
+          </div>
+        ) : (
+          /* GRID */
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: window.innerWidth > 768 ? "1fr 1fr" : "1fr",
+              gap: "24px",
+            }}
+          >
+            {/* 📈 Line Chart */}
+            <div
+              style={{
+                background: "#ffffff",
+                borderRadius: "12px",
+                padding: "16px",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+              }}
+            >
+              <h4 style={{ marginBottom: "10px" }}>Yield Trend</h4>
+              <div style={{ width: "100%", height: 350 }}>
+                {filteredData.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "40px" }}>
+                    No data found. Try changing filters.
+                  </div>
+                ) : (
+                  <ResponsiveContainer>
+                    <LineChart data={filteredData}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                      <XAxis dataKey="year" axisLine={false} tickLine={false} />
+                      <YAxis axisLine={false} tickLine={false} />
+                      <Tooltip isAnimationActive={false} />
+                      <Line
+                        type="monotone"
+                        dataKey="yield"
+                        stroke="#22c55e"
+                        strokeWidth={3}
+                        dot={false}
+                        isAnimationActive={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+
+            {/* 📊 Bar Chart */}
+            <div
+              style={{
+                background: "#ffffff",
+                borderRadius: "12px",
+                padding: "16px",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+              }}
+            >
+              <h4 style={{ marginBottom: "10px" }}>Crop Comparison</h4>
+              <div style={{ width: "100%", height: 350 }}>
+                <ResponsiveContainer>
+                  <BarChart data={yieldData}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                    <XAxis dataKey="crop" axisLine={false} tickLine={false} />
+                    <YAxis axisLine={false} tickLine={false} />
+                    <Tooltip isAnimationActive={false} />
+                    <Bar dataKey="yield" fill="#10b981" isAnimationActive={false} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* CONDITION END */}
+      </section>
+      <section className="dashboard-section-card" style={{ marginTop: "30px" }}>
+        <div className="section-card-header">
+          <h2>🌦 Historical Weather Trends</h2>
+          <span className="section-badge">Weather</span>
+        </div>
+
+        <p style={{ color: "#6b7280", marginBottom: "20px" }}>
+          Temperature trends based on past years to improve crop decisions
+        </p>
+
+        {/* Weather Chart */}
+        <div style={{ width: "100%", height: 350 }}>
+          {historicalWeather.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "40px" }}>
+              Loading weather data...
+            </div>
+          ) : (
+            <ResponsiveContainer>
+              <LineChart data={historicalWeather}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                <XAxis dataKey="year" axisLine={false} tickLine={false} />
+                <YAxis axisLine={false} tickLine={false} />
+                <Tooltip isAnimationActive={false} />
+                <Line
+                  type="monotone"
+                  dataKey="temp"
+                  stroke="#f59e0b"
+                  strokeWidth={3}
+                  dot={false}
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Insight */}
+        <div style={{ marginTop: "15px", fontWeight: "500", color: "#374151" }}>
+          🌱 Insight: {
+            historicalWeather.length > 0
+              ? (
+                  historicalWeather.reduce((sum, d) => sum + d.rainfall, 0) /
+                  historicalWeather.length
+                ) > 140
+                ? "Rice is suitable based on historical rainfall trends"
+                : "Wheat is more suitable based on climate trends"
+              : "Analyzing data..."
+          }
         </div>
       </section>
     </div>

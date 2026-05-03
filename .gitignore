@@ -7,10 +7,15 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies
 node_modules
 dist
 dist-ssr
+
+# Environment / Secrets
+.env*
 *.local
+.vercel
 
 # Editor directories and files
 .vscode/*
@@ -23,14 +28,13 @@ dist-ssr
 *.sln
 *.sw?
 
-.vercel
-.env
-
 # Python
 __pycache__/
 .python-version
-<<<<<<< HEAD
-=======
+whatsapp_subscribers.json
+
+# Frontend build output
 dev-dist/
 dist/
->>>>>>> 5caec509b2a20656186fe7d5fec8bdf01b85a0eb
+frontend/build/
+frontend/dist/

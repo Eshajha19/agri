@@ -1,0 +1,365 @@
+.risk-container {
+  max-width: 1300px;
+  margin: 0 auto;
+  padding: 40px 20px;
+  animation: fadeIn 0.6s ease-out;
+}
+
+.risk-header {
+  margin-bottom: 40px;
+}
+
+.header-top {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.badge {
+  display: inline-block;
+  background: rgba(46, 125, 50, 0.1);
+  color: #2e7d32;
+  padding: 6px 14px;
+  border-radius: 99px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  margin-bottom: 16px;
+}
+
+.header-top h1 {
+  font-size: 3rem;
+  font-weight: 800;
+  color: #1a1a1a;
+  margin-bottom: 12px;
+}
+
+.theme-dark .header-top h1 {
+  color: #f8fafc;
+}
+
+.header-top p {
+  color: #64748b;
+  font-size: 1.1rem;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.risk-summary-card {
+  display: flex;
+  align-items: center;
+  gap: 40px;
+  background: white;
+  padding: 40px;
+  border-radius: 24px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.05);
+  border: 1px solid #f1f5f9;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.theme-dark .risk-summary-card {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.score-circle {
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  border: 12px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.5s ease;
+}
+
+.score-value {
+  font-size: 3.5rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.score-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #94a3b8;
+  letter-spacing: 0.1em;
+}
+
+.summary-details {
+  position: relative;
+  flex: 1;
+}
+
+.summary-details h2 {
+  font-size: 2rem;
+  font-weight: 800;
+  margin-bottom: 12px;
+}
+
+.summary-details p {
+  color: #64748b;
+  line-height: 1.6;
+}
+
+.status-icon {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.risk-content-grid {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 30px;
+  margin-top: 40px;
+}
+
+.risk-controls {
+  background: #f8fafc;
+  padding: 30px;
+  border-radius: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 25px;
+}
+
+.theme-dark .risk-controls {
+  background: #0f172a;
+}
+
+.control-section h3 {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.theme-dark .control-section h3 {
+  color: #94a3b8;
+}
+
+.control-section input[type="range"] {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: #e2e8f0;
+  appearance: none;
+  cursor: pointer;
+}
+
+.theme-dark .control-section input[type="range"] {
+  background: #334155;
+}
+
+.control-section input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  background: #2e7d32;
+  border-radius: 50%;
+  border: 3px solid white;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.control-section .val {
+  display: block;
+  text-align: right;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #2e7d32;
+  margin-top: 8px;
+}
+
+.info-box {
+  background: white;
+  padding: 15px;
+  border-radius: 12px;
+  display: flex;
+  gap: 12px;
+  font-size: 0.8rem;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+}
+
+.theme-dark .info-box {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.risk-visualization {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+.chart-container {
+  background: white;
+  padding: 30px;
+  border-radius: 24px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.03);
+  border: 1px solid #f1f5f9;
+}
+
+.theme-dark .chart-container {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.chart-header {
+  margin-bottom: 30px;
+}
+
+.chart-header h3 {
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+
+.chart-header p {
+  font-size: 0.9rem;
+  color: #94a3b8;
+}
+
+.radar-wrapper {
+  margin: 0 auto;
+}
+
+.recommendations-section {
+  background: white;
+  padding: 30px;
+  border-radius: 24px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.03);
+  border: 1px solid #f1f5f9;
+}
+
+.theme-dark .recommendations-section {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 25px;
+  color: #1e293b;
+}
+
+.theme-dark .section-header {
+  color: #f1f5f9;
+}
+
+.section-header h3 {
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+
+.recommendations-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+.rec-card {
+  padding: 24px;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  transition: all 0.2s ease;
+}
+
+.theme-dark .rec-card {
+  border-color: #334155;
+}
+
+.rec-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 20px rgba(0,0,0,0.05);
+}
+
+.rec-type {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.rec-card.insurance .rec-type { background: #dcfce7; color: #166534; }
+.rec-card.action .rec-type { background: #fef9c3; color: #854d0e; }
+.rec-card.fintech .rec-type { background: #dbeafe; color: #1e40af; }
+
+.rec-card h4 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.rec-card p {
+  font-size: 0.9rem;
+  color: #64748b;
+  line-height: 1.5;
+  margin-bottom: 18px;
+}
+
+.rec-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #2e7d32;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.risk-footer {
+  margin-top: 60px;
+  text-align: center;
+}
+
+.disclaimer {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+  background: #f8fafc;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+
+.theme-dark .disclaimer {
+  background: #0f172a;
+}
+
+@media (max-width: 1000px) {
+  .risk-content-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .risk-summary-card {
+    flex-direction: column;
+    text-align: center;
+  }
+}
+
+@media (max-width: 768px) {
+  .header-top h1 {
+    font-size: 2.2rem;
+  }
+}

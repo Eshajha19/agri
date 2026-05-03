@@ -100,6 +100,11 @@ export default function CropGuide() {
           onChange={(e) => setSearch(e.target.value)}
         />
       </div>
+        {/* HEADER */}
+        <div className="crop-hero">
+          <h1>🌾 <span className="notranslate">Crop Guide</span></h1>
+          <p>Explore crops based on season and soil type</p>
+        </div>
 
       {/* FILTER */}
       <div className="crop-filter">

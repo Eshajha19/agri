@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
@@ -51,24 +51,74 @@ export default function FarmingMap() {
   const [showWeatherLayer, setShowWeatherLayer] = useState(true);
   const [showCropLayer, setShowCropLayer] = useState(true);
   const [showAlertLayer, setShowAlertLayer] = useState(true);
+  const [isLiteMode, setIsLiteMode] = useState(false);
+
+  const updateTileLayer = useCallback(() => {
+    if (!map.current) return;
+    
+    // Remove existing tile layers
+    map.current.eachLayer((layer) => {
+      if (layer instanceof L.TileLayer) {
+        map.current.removeLayer(layer);
+      }
+    });
+
+    try {
+      if (isLiteMode) {
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap',
+          maxZoom: 19,
+        }).addTo(map.current);
+      } else {
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+          attribution: 'Tiles &copy; Esri',
+          maxZoom: 19,
+        }).addTo(map.current);
+      }
+    } catch (err) {
+      console.error("Tile layer error:", err);
+    }
+  }, [isLiteMode]);
 
   // Initialize map
   useEffect(() => {
-    if (mapContainer.current && !map.current) {
-      // Create map centered on India
-      map.current = L.map(mapContainer.current).setView([20.5937, 78.9629], 5);
+    if (!mapContainer.current) return;
 
-      // Add tile layer - using a CORS-enabled tile provider
-      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        attribution: 'Tiles &copy; Esri',
-        maxZoom: 19,
-      }).addTo(map.current);
+    // Robust check for existing map
+    if (map.current) {
+      map.current.remove();
+      map.current = null;
+    }
+
+    try {
+      const mapInstance = L.map(mapContainer.current, {
+        preferCanvas: true,
+        zoomControl: false,
+      }).setView([20.5937, 78.9629], 5);
+
+      L.control.zoom({ position: 'bottomright' }).addTo(mapInstance);
+      map.current = mapInstance;
+      
+      updateTileLayer();
+    } catch (err) {
+      console.error("Map initialization error:", err);
+      setMapError("Failed to initialize map. Please refresh.");
     }
 
     return () => {
-      // Cleanup
+      if (map.current) {
+        map.current.remove();
+        map.current = null;
+      }
     };
-  }, []);
+  }, []); // Run once on mount
+
+  // Handle Lite Mode toggle separately
+  useEffect(() => {
+    if (map.current) {
+      updateTileLayer();
+    }
+  }, [isLiteMode, updateTileLayer]);
 
   // Fetch user location
   useEffect(() => {
@@ -319,6 +369,16 @@ export default function FarmingMap() {
 
       <div className="map-layers-panel">
         <h3>Map Layers</h3>
+        <div className="layer-toggle performance-toggle">
+          <label className="lite-mode-label">
+            <input
+              type="checkbox"
+              checked={isLiteMode}
+              onChange={(e) => setIsLiteMode(e.target.checked)}
+            />
+            <FaLocationArrow /> High Performance (Lite Mode)
+          </label>
+        </div>
         <div className="layer-toggle">
           <label>
             <input

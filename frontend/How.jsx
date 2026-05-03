@@ -3,6 +3,11 @@ import { Link } from "react-router-dom";
 import "./How.css";
 
 export default function How() {
+import React, { useState } from "react";
+import { Link } from "react-router-dom";
+import "./How.css";
+
+export default function How() {
   const [activeStep, setActiveStep] = useState(0);
 
   const steps = [
@@ -74,6 +79,44 @@ export default function How() {
         </p>
       </div>
 
+      <div className="steps-container">
+        <div className="steps">
+          {steps.map((step, index) => (
+            <div
+              key={index}
+              className={`step-card fade-up ${activeStep === index ? "active" : ""}`}
+              data-step={index + 1}
+              onClick={() => setActiveStep(index)}
+              role="button"
+              tabIndex="0"
+              onKeyPress={(e) => {
+                if (e.key === "Enter" || e.key === " ") setActiveStep(index);
+              }}
+            >
+              <div className="step-number">0{index + 1}</div>
+
+              <div className="step-icon">{step.icon}</div>
+
+              <div className="step-content">
+                <h3>{step.title}</h3>
+                <p>{step.desc}</p>
+                
+                {activeStep === index && (
+                  <div className="step-expanded">
+                    <div className="step-details">{step.details}</div>
+                    <div className="step-benefits">
+                      {step.benefits.map((benefit, i) => (
+                        <span key={i} className="benefit-tag">✓ {benefit}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="step-indicator"></div>
+            </div>
+          </div>
+        ))}
       <div className="steps-container">
         <div className="steps">
           {steps.map((step, index) => (
