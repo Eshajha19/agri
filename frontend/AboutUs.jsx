@@ -52,6 +52,8 @@ export default function AboutUs() {
     <div className="about-page">
       <div className="about-blob about-blob-1" />
       <div className="about-blob about-blob-2" />
+      <div className="about-blob-3" />
+      <div className="about-blob-4" />
 
       {/* ── HERO — editorial style like reference ── */}
       <section className="about-hero-editorial">
@@ -86,17 +88,38 @@ export default function AboutUs() {
       {/* ── FARM STRIP removed ── */}
 
       {/* MISSION & VISION */}
-      <div className="about-section">
-        <div className="about-mv-grid">
-          <div className="about-mv-card mission">
-            <div className="about-mv-icon"><FaBullseye /></div>
-            <h2>Our Mission</h2>
-            <p>To democratize agricultural intelligence by providing every Indian farmer — regardless of land size, literacy, or language — with AI-powered tools that improve crop yield, reduce losses, and increase income.</p>
+      <div className="about-section mv-section-transparent">
+        <div className="mv-infographic-grid">
+          {/* Mission Card */}
+          <div className="mv-infographic-card mv-mission">
+            <div className="mv-card-inner">
+              <div className="mv-icon-wrap mv-icon-mission">
+                <FaBullseye />
+              </div>
+              <h3 className="mv-card-title">MISSION</h3>
+              <p className="mv-card-text">
+                To democratize agricultural intelligence by providing every Indian farmer — regardless of land size, literacy, or language — with <strong>AI-powered tools</strong> that improve crop yield, reduce losses, and increase income.
+              </p>
+            </div>
+            <div className="mv-card-footer mv-footer-mission">
+              <span className="mv-number">01</span>
+            </div>
           </div>
-          <div className="about-mv-card vision">
-            <div className="about-mv-icon"><FaEye /></div>
-            <h2>Our Vision</h2>
-            <p>A future where no farmer makes a decision without data. Where technology bridges the gap between traditional farming wisdom and modern science, creating a resilient and prosperous agricultural India.</p>
+
+          {/* Vision Card */}
+          <div className="mv-infographic-card mv-vision">
+            <div className="mv-card-inner">
+              <div className="mv-icon-wrap mv-icon-vision">
+                <FaEye />
+              </div>
+              <h3 className="mv-card-title">VISION</h3>
+              <p className="mv-card-text">
+                A future where <strong>no farmer makes a decision without data</strong>. Where technology bridges the gap between traditional farming wisdom and modern science, creating a resilient and prosperous agricultural India.
+              </p>
+            </div>
+            <div className="mv-card-footer mv-footer-vision">
+              <span className="mv-number">02</span>
+            </div>
           </div>
         </div>
       </div>

@@ -473,21 +473,128 @@
   opacity: 0.3;
 }
 
+/* P2P Messaging Styles */
+.verified-badge-community {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  background: white;
+  color: #3b82f6;
+  border-radius: 50%;
+  padding: 1px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.p2p-action-btn {
+  background: #f0fdf4 !important;
+  color: #166534 !important;
+  border: 1px solid #dcfce7 !important;
+}
+
+.p2p-action-btn:hover {
+  background: #dcfce7 !important;
+  transform: translateY(-2px);
+}
+
+.p2p-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.chat-modal-overlay {
+  z-index: 2000;
+}
+
+.p2p-chat-modal-wrapper {
+  max-width: 500px !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  background: none !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
 @media (max-width: 768px) {
-  .header-controls {
-    flex-direction: column;
-    align-items: stretch;
+  .p2p-chat-modal-wrapper {
+    max-width: 95% !important;
   }
-  
-  .posts-grid {
-    grid-template-columns: 1fr;
-  }
+}
 
-  .community-header {
-    padding: 1.5rem;
-  }
+/* Expert Badges & Reputation */
+.user-name-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
 
-  .header-top h1 {
-    font-size: 1.75rem;
-  }
+.expert-badge {
+  font-size: 1.2rem;
+  cursor: help;
+}
+
+.expert-badge-mini {
+  font-size: 1rem;
+  cursor: help;
+}
+
+.comment-user-info {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.reputation-text {
+  font-size: 0.75rem;
+  color: #64748b;
+  background: #f1f5f9;
+  padding: 2px 6px;
+  border-radius: 99px;
+  font-weight: 600;
+}
+
+.theme-dark .reputation-text {
+  background: #334155;
+  color: #94a3b8;
+}
+
+.comment-votes {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.vote-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.theme-dark .vote-btn {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.vote-btn:hover {
+  background: #f1f5f9;
+}
+
+.vote-btn.active.up {
+  color: #22c55e;
+  border-color: #22c55e;
+  background: #f0fdf4;
+}
+
+.vote-btn.active.down {
+  color: #ef4444;
+  border-color: #ef4444;
+  background: #fef2f2;
 }

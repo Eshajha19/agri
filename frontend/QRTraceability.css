@@ -1,3 +1,4 @@
+
 .qr-farm-container {
   padding: 2rem;
   color: var(--text-color);
@@ -316,4 +317,5 @@
   .qr-farm-grid {
     grid-template-columns: 1fr;
   }
+}
 }

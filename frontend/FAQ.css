@@ -428,12 +428,10 @@
   .faq-page {
     padding: 20px 15px 60px;
   }
-  
   .faq-header {
     margin-bottom: 40px;
     padding: 0 10px;
   }
-  
   .faq-icon-wrap {
     width: 64px;
     height: 64px;
@@ -465,4 +463,5 @@
     grid-template-columns: 1fr;
     gap: 15px;
   }
+}
 }
