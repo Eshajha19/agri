@@ -1330,6 +1330,35 @@ html body {
   box-shadow: 2px 5px 15px rgba(0, 0, 0, 0.3);
 }
 
+
+.theme-light {
+  --bg: #ffffff;
+  --text: #1a1a1a;
+  --card: #f3f4f6;
+  --accent: #16a34a;
+}
+
+.theme-dark {
+  --bg: #0f172a;
+  --text: #e5e7eb;
+  --card: #1e293b;
+  --accent: #38bdf8;
+}
+
+.theme-comfort {
+  --bg: #fdf6e3;
+  --text: #3b2f2f;
+  --card: #f5e6c8;
+  --accent: #d97706;
+}
+
+/* GLOBAL USAGE */
+body {
+  background: var(--bg);
+  color: var(--text);
+  transition: all 0.3s ease;
+}
+
 .whatsapp-float .tooltip {
   visibility: hidden;
   width: 120px;
@@ -1729,4 +1758,13 @@ html body {
     background: rgba(255, 255, 255, 0.1);
     border-color: rgba(255, 255, 255, 0.2);
   }
+}
+
+.eye-comfort body {
+  background: #f6f1e6;
+  color: #2a2a2a;
+}
+
+.eye-comfort .navbar {
+  background: #efe6d3;
 }

@@ -172,14 +172,28 @@ function App() {
     }
   });
 
+  const [eyeComfort, setEyeComfort] = useState(() => {
+  return localStorage.getItem("eyeComfort") === "true";
+});
+
   useEffect(() => {
     document.documentElement.classList.toggle("theme-dark", isDarkTheme);
     localStorage.setItem("theme", isDarkTheme ? "dark" : "light");
   }, [isDarkTheme]);
 
+  useEffect(() => {
+  document.documentElement.classList.toggle("eye-comfort", eyeComfort);
+  localStorage.setItem("eyeComfort", eyeComfort);
+}, [eyeComfort]);
+
+
   const handleThemeToggle = () => {
     setIsDarkTheme(!isDarkTheme);
   };
+
+  const toggleEyeComfort = () => {
+  setEyeComfort((prev) => !prev);
+};
 
   useEffect(() => {
     const lang = getInitialLanguage();
@@ -314,6 +328,14 @@ function App() {
           <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Toggle Theme">
             {isDarkTheme ? "☀️" : "🌙"}
           </button>
+
+          <button
+  onClick={toggleEyeComfort}
+  className="eye-toggle"
+  aria-label="Eye Comfort Mode"
+>
+  {eyeComfort ? "🌙 Warm" : "👁️ Comfort"}
+</button>
 
           <button onClick={() => setShowMoreMenu(!showMoreMenu)} className="more-menu-toggle" aria-label="More Options">
             <FaBars />
