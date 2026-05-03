@@ -85,8 +85,10 @@ export const useWeatherManagement = () => {
     weatherError,
     setWeatherError,
     weatherLoading,
+    setWeatherLoading,
     loadWeather,
     notificationPermission,
+    setNotificationPermission,
     requestNotificationPermission,
     resetWeatherStore,
   };

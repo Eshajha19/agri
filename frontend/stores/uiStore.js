@@ -12,17 +12,8 @@ const LANGUAGE_OPTIONS = [
   { value: 'kn', label: '🇮🇳 ಕನ್ನಡ' },
   { value: 'ml', label: '🇮🇳 മലയാളം' },
   { value: 'or', label: '🇮🇳 ଓଡ଼ିଆ' },
-  { value: 'as', label: '🇮🇳 অসমীয়া' },
+  { value: 'as', label: '🇮🇳 অসमीय' },
 ];
-
-const getInitialLanguage = () => {
-  try {
-    const stored = localStorage.getItem('preferredLanguage');
-    return LANGUAGE_OPTIONS.some((l) => l.value === stored) ? stored : 'en';
-  } catch {
-    return 'en';
-  }
-};
 
 const getInitialTheme = () => {
   try {
@@ -56,12 +47,8 @@ export const useUiStore = create((set) => ({
     set({ isAccessibilityMode: enabled });
   },
 
-  // Language state
-  preferredLang: getInitialLanguage(),
-  setPreferredLang: (lang) => {
-    localStorage.setItem('preferredLanguage', lang);
-    set({ preferredLang: lang });
-  },
+  // Language options (for reference - actual language change is handled by i18n)
+  languageOptions: LANGUAGE_OPTIONS,
 
   // Navigation sidebar
   isNavOpen: false,
