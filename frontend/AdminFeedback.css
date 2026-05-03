@@ -1,0 +1,339 @@
+.admin-fb-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 40px 24px;
+}
+
+.admin-fb-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 32px;
+}
+
+.admin-fb-header h1 {
+  font-size: 28px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 4px;
+}
+
+.admin-fb-header p {
+  color: #64748b;
+  margin: 0;
+  font-size: 15px;
+}
+
+.refresh-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  color: #475569;
+  transition: all 0.2s;
+}
+
+.refresh-btn:hover { background: #e2e8f0; }
+
+/* Stats Row */
+.admin-stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.admin-stat-card {
+  background: white;
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+  border: 1px solid #f1f5f9;
+}
+
+.admin-stat-icon { flex-shrink: 0; }
+.admin-stat-icon.green { color: #10b981; }
+.admin-stat-icon.yellow { color: #f59e0b; }
+.admin-stat-icon.purple { color: #8b5cf6; }
+.admin-stat-icon.blue { color: #3b82f6; }
+
+.admin-stat-value {
+  font-size: 26px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1;
+}
+
+.admin-stat-label {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 4px;
+}
+
+/* Rating Distribution */
+.rating-distribution {
+  background: white;
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 24px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+  border: 1px solid #f1f5f9;
+}
+
+.rating-distribution h3 {
+  margin: 0 0 16px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.rating-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.rbar-label {
+  width: 40px;
+  font-size: 13px;
+  color: #475569;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.rbar-track {
+  flex: 1;
+  height: 8px;
+  background: #f1f5f9;
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.rbar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981, #34d399);
+  border-radius: 99px;
+  transition: width 0.5s ease;
+}
+
+.rbar-count {
+  width: 28px;
+  text-align: right;
+  font-size: 13px;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+/* Controls */
+.admin-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.filter-chip {
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.filter-chip:hover { border-color: #10b981; color: #10b981; }
+
+.filter-chip.active {
+  background: #10b981;
+  border-color: #10b981;
+  color: white;
+  font-weight: 600;
+}
+
+.sort-select {
+  padding: 8px 14px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 14px;
+  color: #475569;
+  background: white;
+  outline: none;
+  cursor: pointer;
+}
+
+.sort-select:focus { border-color: #10b981; }
+
+/* Loading / Empty */
+.admin-loading,
+.admin-empty {
+  text-align: center;
+  padding: 60px;
+  color: #94a3b8;
+}
+
+.admin-empty svg { margin: 0 auto 16px; opacity: 0.4; }
+
+/* Feedback Cards Grid */
+.feedback-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 20px;
+}
+
+.fb-admin-card {
+  background: white;
+  border-radius: 18px;
+  padding: 22px;
+  border: 1px solid #f1f5f9;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.05);
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.fb-admin-card:hover {
+  box-shadow: 0 6px 24px rgba(0,0,0,0.09);
+  transform: translateY(-2px);
+}
+
+.fb-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.fb-user-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.fb-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #10b981, #3b82f6);
+  color: white;
+  font-weight: 700;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.fb-user-name {
+  font-weight: 700;
+  color: #0f172a;
+  font-size: 15px;
+}
+
+.fb-user-meta {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.fb-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.cat-tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  background: #f0fdf4;
+  color: #059669;
+  border-radius: 20px;
+}
+
+.del-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+}
+
+.del-btn:hover { color: #ef4444; background: #fee2e2; }
+
+.fb-stars {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.fb-rating-text {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f59e0b;
+  margin-left: 6px;
+}
+
+.fb-message {
+  color: #374151;
+  font-size: 14px;
+  line-height: 1.6;
+  font-style: italic;
+  margin: 0;
+  border-left: 3px solid #10b981;
+  padding-left: 12px;
+}
+
+.fb-date {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+/* Dark mode */
+.theme-dark .admin-fb-page { color: #e2e8f0; }
+.theme-dark .admin-fb-header h1 { color: #f1f5f9; }
+.theme-dark .admin-stat-card,
+.theme-dark .rating-distribution,
+.theme-dark .fb-admin-card {
+  background: rgba(30,41,59,0.8);
+  border-color: rgba(255,255,255,0.08);
+}
+.theme-dark .admin-stat-value,
+.theme-dark .fb-user-name { color: #f1f5f9; }
+
+@media (max-width: 900px) {
+  .admin-stats-row { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 600px) {
+  .admin-stats-row { grid-template-columns: 1fr 1fr; }
+  .feedback-cards-grid { grid-template-columns: 1fr; }
+  .admin-fb-header { flex-direction: column; gap: 12px; }
+}
