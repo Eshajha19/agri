@@ -90,3 +90,41 @@
 .crop-card button:hover {
   background: #1b5e20;
 }
+
+.crop-search input {
+  width: 100%;
+  padding: 10px;
+  border-radius: 10px;
+  margin-bottom: 15px;
+}
+
+.crop-card {
+  transition: 0.3s;
+}
+
+.crop-card:hover {
+  transform: translateY(-6px);
+}
+
+.crop-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.crop-popup {
+  background: white;
+  padding: 25px;
+  border-radius: 16px;
+  width: 320px;
+}
+
+.tips {
+  margin-top: 10px;
+  background: #ecfdf5;
+  padding: 10px;
+  border-radius: 10px;
+}
