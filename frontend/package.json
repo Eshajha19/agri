@@ -16,6 +16,8 @@
     "firebase": "^12.12.1",
     "i18next": "^26.0.8",
     "idb": "^8.0.3",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.7",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.542.0",
     "react": "^19.1.1",

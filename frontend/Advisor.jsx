@@ -25,8 +25,10 @@ import {
   Map,
   FlaskConical,
   Layers,
+  ShoppingCart,
   Book,
 } from "lucide-react";
+import FarmDiary from "./FarmDiary";
 import { useAdvisorStore } from "./stores/advisorStore";
 import { useYieldPrediction } from "./hooks/useYieldPrediction";
 import CropDiseaseDetection from "./CropDiseaseDetection";
@@ -65,6 +67,8 @@ export default function Advisor() {
     setShowPestManagement,
     showAgriMarketplace,
     setShowAgriMarketplace,
+    showFarmDiary,
+    setShowFarmDiary,
   } = useAdvisorStore();
 
   const {
@@ -327,9 +331,17 @@ export default function Advisor() {
             </div>
             <h3><span className="notranslate">Share Feedback</span></h3>
              <p>Help us improve <span className="notranslate" translate="no">Fasal Saathi</span> with your valuable suggestions.</p>
+          </div>
+
+          <div className="card reveal" onClick={() => setShowFarmDiary(true)}>
+            <div className="icon">
+              <Book size={32} strokeWidth={2} />
             </div>
-         </div>
-       </div>
+            <h3><span className="notranslate">Digital Farm Diary</span></h3>
+            <p>Log daily farming activities, set task reminders, and export records as PDF reports.</p>
+          </div>
+        </div>
+      </div>
           {showWeather && (
         <div className="weather-overlay" onClick={() => setShowWeather(false)}>
           <div className="weather-popup" onClick={(e)=>{e.stopPropagation()}}>
@@ -739,6 +751,16 @@ export default function Advisor() {
             >
               Close
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* AgriMarketplace Modal removed duplication */}
+
+      {showFarmDiary && (
+        <div className="weather-overlay" onClick={() => setShowFarmDiary(false)} style={{ zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+            <FarmDiary onClose={() => setShowFarmDiary(false)} />
           </div>
         </div>
       )}

@@ -1,15 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { Link } from "react-router-dom";
-
 import {
-  FaSeedling,
-  FaSun,
   FaBrain,
-  FaHandHoldingWater,
   FaChartLine,
-  FaPhoneAlt,
-  FaQuoteLeft,
-  FaFlask,
+  FaHandHoldingWater,
   FaLeaf,
   FaLock,
   FaGlobe,
@@ -21,7 +15,12 @@ import {
   FaBug,
   FaArrowRight,
   FaBook,
-  FaShieldAlt
+  FaShieldAlt,
+  FaSun,
+  FaFlask,
+  FaPhoneAlt,
+  FaQuoteLeft,
+  FaSeedling
 } from "react-icons/fa";
 import WeatherAlertBar from "./weather/WeatherAlertBar";
 import WeatherQuickWidget from "./weather/WeatherQuickWidget";
@@ -134,99 +133,17 @@ const testimonials = [
   { name: "Suresh Patel", location: "Gujarat", text: "Best AI farming assistant. Simple to use even for elderly farmers." },
 ];
 
-// ─── Pre-generated stable bird data (avoids Math.random() on every render) ───
-const BIRD_DATA = Array.from({ length: 7 }, (_, i) => ({
-  id: i,
-  width: 28 + (i * 3) % 12,
-  height: 14 + (i * 2) % 8,
-  className: `bird bird-${i + 1}`,
-}));
-
-// ─── Cloud component at module scope (never remounts during stats animation) ──
-const Cloud = ({ className = "" }) => (
-  <svg
-    className={className}
-    width="260"
-    height="140"
-    viewBox="0 0 260 140"
-    fill="none"
-    xmlns="http://www.w3.org/2000/svg"
-  >
-    <defs>
-      <radialGradient id="cloudBlue" cx="50%" cy="50%" r="50%">
-        <stop offset="0%" stopColor="#e0f2ff" stopOpacity="0.98" />
-        <stop offset="100%" stopColor="#bfdbfe" stopOpacity="0.85" />
-      </radialGradient>
-      <radialGradient id="cloudWhite" cx="50%" cy="50%" r="50%">
-        <stop offset="0%" stopColor="#f8fafc" stopOpacity="0.97" />
-        <stop offset="100%" stopColor="#e2e8f0" stopOpacity="0.80" />
-      </radialGradient>
-      <filter id="cloudBlur">
-        <feGaussianBlur stdDeviation="2" />
-      </filter>
-    </defs>
-    <ellipse cx="130" cy="90" rx="110" ry="42" fill="var(--cloud-fill, url(#cloudBlue))" />
-    <ellipse cx="90" cy="72" rx="62" ry="44" fill="var(--cloud-fill, url(#cloudBlue))" />
-    <ellipse cx="160" cy="68" rx="54" ry="40" fill="var(--cloud-fill, url(#cloudBlue))" />
-    <ellipse cx="120" cy="58" rx="46" ry="36" fill="var(--cloud-fill, url(#cloudBlue))" />
-    <ellipse cx="130" cy="90" rx="108" ry="40" fill="none" stroke="var(--cloud-outline, #b6e0ff)" strokeWidth="1.5" strokeOpacity="0.4" />
-  </svg>
-);
-
-// ─── Birds component at module scope ─────────────────────────────────────────
-const Birds = () => (
-  <div className="birds-anim-wrap" aria-hidden="true">
-    {BIRD_DATA.map(({ id, width, height, className }) => (
-      <svg
-        key={id}
-        className={className}
-        width={width}
-        height={height}
-        viewBox="0 0 28 14"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <path
-          d="M1 7 Q7 1 14 7 Q21 1 27 7"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          fill="none"
-        />
-      </svg>
-    ))}
-  </div>
-);
-
-// ─── Home component ───────────────────────────────────────────────────────────
 export default function Home({ user }) {
-  const [statValues, setStatValues] = useState(stats.map(() => 1));
+  const [statValues, setStatValues] = React.useState([0, 0, 0, 0]);
 
-  // Scroll to top on reload
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const navigationEntry = performance.getEntriesByType("navigation")?.[0];
-    if (navigationEntry?.type === "reload") {
-      window.scrollTo(0, 0);
-    }
-  }, []);
-
-  // Animate stats counters
-  useEffect(() => {
-    const duration = 1400;
-    const startTime = performance.now();
-    let rafId = 0;
-
-    const animateStats = (currentTime) => {
-      const progress = Math.min((currentTime - startTime) / duration, 1);
-      setStatValues(stats.map((stat) => Math.max(1, Math.floor(stat.target * progress))));
-      if (progress < 1) {
-        rafId = requestAnimationFrame(animateStats);
-      }
-    };
-
-    rafId = requestAnimationFrame(animateStats);
-    return () => cancelAnimationFrame(rafId);
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      setStatValues(prev => prev.map((val, idx) => {
+        const target = stats[idx].target;
+        return val < target ? Math.min(val + Math.max(1, Math.ceil(target / 20)), target) : target;
+      }));
+    }, 50);
+    return () => clearInterval(interval);
   }, []);
 
   return (
@@ -523,3 +440,19 @@ export default function Home({ user }) {
     </div>
   );
 }
+
+const Cloud = ({ className }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: '100px', height: '100px', opacity: 0.8 }}>
+    <path d="M17.5 19a4.5 4.5 0 0 0 2.9-7.7A7 7 0 0 0 7 9a5.2 5.2 0 0 0-4 8.5" />
+    <path d="M7 19h10.5" />
+  </svg>
+);
+
+const Birds = () => (
+  <div className="birds-anim-wrap" aria-hidden="true" style={{ position: 'absolute', top: '10%', left: '0', width: '100%', height: '100%', pointerEvents: 'none' }}>
+    <svg className="bird bird-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '30px', height: '30px', position: 'absolute', left: '20%', animation: 'fly 10s linear infinite' }}>
+      <path d="M2 12s3-3 6-3 4 3 4 3" />
+      <path d="M12 12s3-3 6-3 4 3 4 3" />
+    </svg>
+  </div>
+);
