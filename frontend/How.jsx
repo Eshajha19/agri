@@ -1,3 +1,7 @@
+import React from "react";
+import "./How.css";
+
+export default function How() {
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import "./How.css";
@@ -74,6 +78,23 @@ export default function How() {
         </p>
       </div>
 
+      <div className="steps">
+        {steps.map((step, index) => (
+          <div
+            key={index}
+            className="step-card fade-up"
+            data-step={index + 1}
+          >
+            <div className="step-number">0{index + 1}</div>
+
+            <div className="step-icon">{step.icon}</div>
+
+            <div className="step-content">
+              <h3>{step.title}</h3>
+              <p>{step.desc}</p>
+            </div>
+          </div>
+        ))}
       <div className="steps-container">
         <div className="steps">
           {steps.map((step, index) => (

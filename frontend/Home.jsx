@@ -252,6 +252,12 @@ export default function Home({ user }) {
         </div>
         <div className="features-grid">
           {features.map((feature, index) => (
+            <div key={index} className="feature-card">
+              <div className="feature-category">{feature.category}</div>
+              <div className="feature-icon">{feature.icon}</div>
+              <h3>{feature.title}</h3>
+              <p>{feature.desc}</p>
+            </div>
             <Link to={feature.link || "/"} key={index} className="feature-card-link">
               <div className="feature-card">
                 <div className="feature-category">{feature.category}</div>

@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./Advisor.css";
 import WeatherCard from "./weather/WeatherCard";
@@ -39,6 +39,8 @@ import PestManagement from "./PestManagement";
 
 export default function Advisor() {
   const navigate = useNavigate();
+  const WEATHER_API_KEY = import.meta.env.VITE_OPENWEATHER_API_KEY;
+  const WEATHER_CACHE_KEY = "advisorWeatherCache";
   const {
     farmers,
     setFarmers,
@@ -93,6 +95,14 @@ export default function Advisor() {
     closeYieldPopup,
   } = useYieldPrediction();
 
+  const [weatherStatus, setWeatherStatus] = useState("idle");
+  const [weatherError, setWeatherError] = useState("");
+  const [weatherData, setWeatherData] = useState(null);
+  const [weatherLocation, setWeatherLocation] = useState("");
+  const [weatherLastUpdated, setWeatherLastUpdated] = useState(null);
+  const [locationQuery, setLocationQuery] = useState("");
+  const [coords, setCoords] = useState(null);
+
    /* Animate stats on mount */
    useEffect(() => {
      const interval = setInterval(() => {
@@ -103,6 +113,188 @@ export default function Advisor() {
      }, 50);
      return () => clearInterval(interval);
    }, [setFarmers, setCrops, setLanguages]);
+
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem(WEATHER_CACHE_KEY);
+      if (!cached) return;
+      const parsed = JSON.parse(cached);
+      if (!parsed?.timestamp || !parsed?.data) return;
+      const ageMinutes = (Date.now() - parsed.timestamp) / 60000;
+      if (ageMinutes <= 30) {
+        setWeatherData(parsed.data);
+        setWeatherLocation(parsed.location || "");
+        setWeatherLastUpdated(parsed.timestamp);
+        setWeatherStatus("ready");
+      }
+    } catch {
+      localStorage.removeItem(WEATHER_CACHE_KEY);
+    }
+  }, []);
+
+  const advisories = useMemo(() => {
+    if (!weatherData?.daily?.length) return [];
+    const daily = weatherData.daily.slice(0, 7);
+    const advisoriesList = [];
+
+    const heatDays = daily.filter((day) => day?.temp?.max >= 38);
+    if (heatDays.length >= 2) {
+      advisoriesList.push({
+        type: "heat",
+        title: "Heatwave risk",
+        message: "Plan irrigation during early hours and protect seedlings with shade nets.",
+      });
+    }
+
+    const frostDays = daily.filter((day) => day?.temp?.min <= 4);
+    if (frostDays.length > 0) {
+      advisoriesList.push({
+        type: "frost",
+        title: "Frost risk",
+        message: "Cover sensitive crops at night and avoid late evening irrigation.",
+      });
+    }
+
+    const heavyRainDays = daily.filter((day) =>
+      day?.pop >= 0.7 && ["Rain", "Thunderstorm"].includes(day?.weather?.[0]?.main)
+    );
+    if (heavyRainDays.length > 0) {
+      advisoriesList.push({
+        type: "rain",
+        title: "Heavy rain alert",
+        message: "Delay fertilizer application and ensure proper field drainage.",
+      });
+    }
+
+    const dryStretch = daily.filter((day) => day?.pop <= 0.2).length >= 3;
+    if (dryStretch) {
+      advisoriesList.push({
+        type: "dry",
+        title: "Dry spell likely",
+        message: "Consider light irrigation cycles and mulch to retain soil moisture.",
+      });
+    }
+
+    return advisoriesList;
+  }, [weatherData]);
+
+  const fetchWeather = async ({ latitude, longitude, label }) => {
+    if (!WEATHER_API_KEY) {
+      setWeatherStatus("error");
+      setWeatherError("Weather API key is missing. Add VITE_OPENWEATHER_API_KEY to your env.");
+      return;
+    }
+
+    setWeatherStatus("loading");
+    setWeatherError("");
+    const controller = new AbortController();
+    const { signal } = controller;
+
+    try {
+      const url = new URL("https://api.openweathermap.org/data/2.5/onecall");
+      url.searchParams.set("lat", latitude);
+      url.searchParams.set("lon", longitude);
+      url.searchParams.set("exclude", "minutely,hourly,alerts");
+      url.searchParams.set("units", "metric");
+      url.searchParams.set("appid", WEATHER_API_KEY);
+
+      const response = await fetch(url.toString(), { signal });
+      if (!response.ok) {
+        throw new Error(`Weather API error (${response.status})`);
+      }
+
+      const data = await response.json();
+      const timestamp = Date.now();
+      setWeatherData(data);
+      setWeatherLocation(label || weatherLocation);
+      setWeatherLastUpdated(timestamp);
+      setWeatherStatus("ready");
+
+      localStorage.setItem(
+        WEATHER_CACHE_KEY,
+        JSON.stringify({
+          timestamp,
+          data,
+          location: label || weatherLocation,
+        })
+      );
+    } catch (error) {
+      if (error?.name === "AbortError") return;
+      setWeatherStatus("error");
+      setWeatherError(error?.message || "Failed to load weather data.");
+    }
+  };
+
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      setWeatherStatus("error");
+      setWeatherError("Geolocation is not supported in this browser.");
+      return;
+    }
+
+    setWeatherStatus("loading");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        setCoords({ latitude, longitude });
+        fetchWeather({
+          latitude,
+          longitude,
+          label: "Current location",
+        });
+      },
+      () => {
+        setWeatherStatus("error");
+        setWeatherError("Unable to access your location. Please search manually.");
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  const handleLocationSearch = async (event) => {
+    event.preventDefault();
+    if (!locationQuery.trim()) return;
+    if (!WEATHER_API_KEY) {
+      setWeatherStatus("error");
+      setWeatherError("Weather API key is missing. Add VITE_OPENWEATHER_API_KEY to your env.");
+      return;
+    }
+
+    setWeatherStatus("loading");
+    setWeatherError("");
+    try {
+      const geoUrl = new URL("https://api.openweathermap.org/geo/1.0/direct");
+      geoUrl.searchParams.set("q", locationQuery);
+      geoUrl.searchParams.set("limit", "1");
+      geoUrl.searchParams.set("appid", WEATHER_API_KEY);
+
+      const response = await fetch(geoUrl.toString());
+      if (!response.ok) {
+        throw new Error(`Location lookup failed (${response.status})`);
+      }
+
+      const results = await response.json();
+      if (!results?.length) {
+        throw new Error("Location not found. Try a nearby city or district.");
+      }
+
+      const match = results[0];
+      const label = [match.name, match.state, match.country].filter(Boolean).join(", ");
+      setCoords({ latitude: match.lat, longitude: match.lon });
+      fetchWeather({ latitude: match.lat, longitude: match.lon, label });
+    } catch (error) {
+      setWeatherStatus("error");
+      setWeatherError(error?.message || "Failed to search location.");
+    }
+  };
+
+  const formatTemp = (value) => `${Math.round(value)}°C`;
+  const formatDay = (timestamp) =>
+    new Date(timestamp * 1000).toLocaleDateString(undefined, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    });
 
   return (
     <section className="advisor">
@@ -364,6 +556,192 @@ export default function Advisor() {
             <div className="icon">
               <Book size={32} strokeWidth={2} />
             </div>
+         </div>
+
+          <div
+            className="weather-dashboard"
+            style={{
+              marginTop: "36px",
+              padding: "24px",
+              borderRadius: "18px",
+              background: "linear-gradient(135deg, rgba(255,255,255,0.96), rgba(239,253,245,0.98))",
+              boxShadow: "0 18px 45px rgba(15, 23, 42, 0.08)",
+            }}
+          >
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px" }}>
+              <h2 style={{ margin: 0 }}>🌦️ Live Weather & Advisories</h2>
+              {weatherLastUpdated && (
+                <LastUpdated timestamp={weatherLastUpdated} />
+              )}
+            </div>
+
+            <p style={{ marginTop: "8px", color: "#0f172a" }}>
+              Get real-time conditions, 7-day forecasts, and actionable crop guidance directly in the advisor view.
+            </p>
+
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "12px",
+                marginTop: "16px",
+              }}
+            >
+              <button
+                className="action-btn"
+                type="button"
+                onClick={handleUseMyLocation}
+              >
+                Use My Location
+              </button>
+              <form
+                onSubmit={handleLocationSearch}
+                style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}
+              >
+                <input
+                  type="text"
+                  value={locationQuery}
+                  onChange={(event) => setLocationQuery(event.target.value)}
+                  placeholder="Search by city or district"
+                  style={{
+                    minWidth: "240px",
+                    padding: "10px 12px",
+                    borderRadius: "10px",
+                    border: "1px solid #cbd5f5",
+                  }}
+                />
+                <button className="action-btn secondary" type="submit">
+                  Search
+                </button>
+              </form>
+              <button
+                className="action-btn secondary"
+                type="button"
+                onClick={() => {
+                  if (coords) {
+                    fetchWeather({
+                      latitude: coords.latitude,
+                      longitude: coords.longitude,
+                      label: weatherLocation,
+                    });
+                  }
+                }}
+              >
+                Refresh
+              </button>
+            </div>
+
+            {weatherLocation && (
+              <p style={{ marginTop: "12px" }}>
+                <strong>Location:</strong> {weatherLocation}
+              </p>
+            )}
+
+            {weatherStatus === "loading" && (
+              <p style={{ marginTop: "12px" }}>Loading weather data...</p>
+            )}
+
+            {weatherStatus === "error" && (
+              <div
+                style={{
+                  marginTop: "12px",
+                  padding: "12px",
+                  borderRadius: "10px",
+                  background: "#fef2f2",
+                  color: "#b91c1c",
+                }}
+              >
+                {weatherError}
+              </div>
+            )}
+
+            {weatherStatus === "ready" && weatherData?.current && (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: "16px",
+                  marginTop: "16px",
+                }}
+              >
+                <div
+                  style={{
+                    padding: "16px",
+                    borderRadius: "14px",
+                    background: "white",
+                    boxShadow: "0 12px 24px rgba(15, 23, 42, 0.08)",
+                  }}
+                >
+                  <h3 style={{ marginTop: 0 }}>Now</h3>
+                  <p style={{ fontSize: "28px", margin: "8px 0" }}>
+                    {formatTemp(weatherData.current.temp)}
+                  </p>
+                  <p style={{ margin: 0 }}>
+                    {weatherData.current.weather?.[0]?.description}
+                  </p>
+                  <p style={{ margin: "8px 0 0" }}>
+                    Humidity: {weatherData.current.humidity}%
+                  </p>
+                  <p style={{ margin: 0 }}>
+                    Wind: {Math.round(weatherData.current.wind_speed)} m/s
+                  </p>
+                </div>
+
+                <div
+                  style={{
+                    padding: "16px",
+                    borderRadius: "14px",
+                    background: "white",
+                    boxShadow: "0 12px 24px rgba(15, 23, 42, 0.08)",
+                  }}
+                >
+                  <h3 style={{ marginTop: 0 }}>Alerts</h3>
+                  {advisories.length === 0 ? (
+                    <p style={{ margin: 0 }}>No severe alerts expected this week.</p>
+                  ) : (
+                    advisories.map((item) => (
+                      <p key={item.title} style={{ margin: "8px 0" }}>
+                        <strong>{item.title}:</strong> {item.message}
+                      </p>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
+            {weatherStatus === "ready" && weatherData?.daily?.length > 0 && (
+              <div
+                style={{
+                  marginTop: "18px",
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+                  gap: "12px",
+                }}
+              >
+                {weatherData.daily.slice(0, 7).map((day) => (
+                  <div
+                    key={day.dt}
+                    style={{
+                      background: "white",
+                      borderRadius: "14px",
+                      padding: "12px",
+                      textAlign: "center",
+                      boxShadow: "0 10px 20px rgba(15, 23, 42, 0.06)",
+                    }}
+                  >
+                    <p style={{ margin: "0 0 6px" }}>{formatDay(day.dt)}</p>
+                    <p style={{ margin: "0 0 6px", fontSize: "18px" }}>
+                      {formatTemp(day.temp.max)} / {formatTemp(day.temp.min)}
+                    </p>
+                    <p style={{ margin: 0, fontSize: "12px", color: "#475569" }}>
+                      {day.weather?.[0]?.main} · {Math.round(day.pop * 100)}% rain
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+       </div>
             <h3><span className="notranslate">Digital Farm Diary</span></h3>
             <p>Log daily farming activities, set task reminders, and export records as PDF reports.</p>
           </div>
