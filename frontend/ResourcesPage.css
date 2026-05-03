@@ -1,0 +1,127 @@
+.resources-page {
+  padding: 20px;
+  font-family: "Poppins", sans-serif;
+}
+
+.resources-hero {
+  text-align: center;
+  padding: 50px 20px;
+  background: linear-gradient(135deg, #e8f5e9, #f1f8e9);
+  border-radius: 16px;
+}
+
+.resources-hero h1 {
+  font-size: 2.8rem;
+  color: #1b5e20;
+}
+
+.resources-hero p {
+  color: #555;
+  margin-bottom: 20px;
+}
+
+.search-box {
+  padding: 10px 15px;
+  width: 300px;
+  max-width: 90%;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  outline: none;
+}
+
+/* FILTER */
+.filter-bar {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin: 20px 0;
+  flex-wrap: wrap;
+}
+
+.filter-bar button {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 20px;
+  cursor: pointer;
+  background: #eee;
+  transition: 0.3s;
+}
+
+.filter-bar button.active,
+.filter-bar button:hover {
+  background: #2e7d32;
+  color: white;
+}
+
+/* GRID */
+.resources-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 20px;
+  padding: 20px;
+}
+
+.resource-card {
+  background: #fff;
+  padding: 20px;
+  border-radius: 16px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  transition: 0.3s ease;
+}
+
+.resource-card:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.15);
+}
+
+.card-type {
+  font-size: 12px;
+  color: #2e7d32;
+  font-weight: bold;
+  margin-bottom: 8px;
+}
+
+.resource-card h3 {
+  color: #1b5e20;
+  margin-bottom: 8px;
+}
+
+.resource-card p {
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.tags {
+  margin: 10px 0;
+}
+
+.tags span {
+  display: inline-block;
+  background: #e8f5e9;
+  color: #2e7d32;
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  border-radius: 12px;
+  margin-right: 5px;
+}
+
+.resource-card button {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border: none;
+  background: #2e7d32;
+  color: white;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+.resource-card button:hover {
+  background: #1b5e20;
+}
+
+
+.no-results {
+  text-align: center;
+  color: #888;
+}

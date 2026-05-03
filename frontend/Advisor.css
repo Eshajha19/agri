@@ -11,7 +11,7 @@
 }
 
 .sunlight .advisor {
-  background: #fff !important;
+  background: #fff;
 }
 
 .floating-icons span {
@@ -20,21 +20,25 @@
   opacity: 0.2;
   animation: float 12s infinite ease-in-out;
 }
+
 .floating-icons span:nth-child(1) {
   top: 20%;
   left: 10%;
   animation-delay: 0s;
 }
+
 .floating-icons span:nth-child(2) {
   top: 60%;
   left: 80%;
   animation-delay: 3s;
 }
+
 .floating-icons span:nth-child(3) {
   top: 80%;
   left: 30%;
   animation-delay: 6s;
 }
+
 .floating-icons span:nth-child(4) {
   top: 40%;
   left: 60%;
@@ -50,6 +54,13 @@
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
 }
 
+.theme-dark .advisor-hero {
+  background: radial-gradient(circle at 25% 10%, rgba(34, 197, 94, 0.18), transparent 50%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.5);
+}
+
 .advisor-hero h1 {
   font-size: 1.8rem;
   font-weight: 700;
@@ -58,10 +69,18 @@
   line-height: 1.2;
 }
 
+.theme-dark .advisor-hero h1 {
+  color: var(--text-primary);
+}
+
 .advisor-hero p {
   font-size: 1rem;
   color: #4b5563;
   margin-bottom: 20px;
+}
+
+.theme-dark .advisor-hero p {
+  color: var(--text-secondary);
 }
 
 .highlight {
@@ -109,10 +128,32 @@
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
 }
 
+.theme-dark .stat {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+}
+
 .stat h2 {
   font-size: 2rem;
   color: #22c55e;
   margin-bottom: 4px;
+}
+
+.stat .stat-number {
+  display: inline-block;
+  min-width: 90px;
+  text-align: right;
+}
+
+.stat .stat-plus {
+  font-size: 1.2rem;
+  color: #6b7280;
+  font-weight: 400;
+  margin-left: 4px;
+}
+
+.theme-dark .stat .stat-plus {
+  color: #9ca3af;
 }
 
 .stat p {
@@ -131,6 +172,10 @@
   color: #111827;
 }
 
+.theme-dark .advisor-highlights h2 {
+  color: var(--text-primary);
+}
+
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -147,6 +192,15 @@
   cursor: pointer;
   opacity: 1;
   transform: translateY(0);
+}
+
+.theme-dark .card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+}
+
+.theme-dark .card h3 {
+  color: var(--text-primary);
 }
 
 .card:hover {
@@ -173,17 +227,17 @@
 }
 
 .card p {
-  font-size: 1.1rem;
+  font-size: 0.95rem;
   color: var(--text-secondary);
   line-height: 1.5;
 }
 
 .sunlight .card {
-  border: 4px solid #000 !important;
-  background: #fff !important;
+  border: 4px solid #000;
+  background: #fff;
 }
 
-
+/* Weather overlay */
 .weather-overlay {
   position: fixed;
   top: 0;
@@ -198,6 +252,10 @@
   backdrop-filter: blur(4px);
 }
 
+.theme-dark .weather-overlay {
+  background: rgba(0, 0, 0, 0.7);
+}
+
 .weather-popup {
   position: relative;
   background: white;
@@ -208,6 +266,206 @@
   max-height: 85vh;
   overflow-y: auto;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.chatbot-popup {
+  position: relative;
+  background: white;
+  border-radius: 16px;
+  padding: 0;
+  max-width: 520px;
+  width: 90%;
+  max-height: 90vh;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.soil-analysis-popup {
+  position: relative;
+  background: white;
+  border-radius: 16px;
+  padding: 0;
+  max-width: 1100px;
+  width: 95%;
+  max-height: 95vh;
+  overflow-y: auto;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.theme-dark .weather-popup,
+.theme-dark .chatbot-popup,
+.theme-dark .soil-analysis-popup {
+  background: var(--card-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.profit-popup {
+  max-width: 700px;
+}
+
+.farming-map-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  backdrop-filter: blur(4px);
+}
+
+.theme-dark .farming-map-overlay {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.farming-map-popup {
+  position: relative;
+  background: white;
+  border-radius: 16px;
+  padding: 24px;
+  width: 90%;
+  max-width: 900px;
+  height: 85vh;
+  max-height: 85vh;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+}
+
+.farming-map-popup>div:first-child {
+  flex: 1;
+  min-height: 0;
+}
+
+.theme-dark .farming-map-popup {
+  background: var(--card-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.farming-map-popup .close-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: #f3f4f6;
+  border: none;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  z-index: 10;
+}
+
+.farming-map-popup .close-btn:hover {
+  background: #f87171;
+  color: white;
+}
+
+/* AgriMarketplace Modal */
+.agri-modal-wrapper {
+  position: relative;
+  width: 95%;
+  max-width: 1200px;
+  max-height: 90vh;
+  padding: 20px;
+}
+
+.agri-modal-wrapper .close-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 100;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0;
+}
+
+.agri-modal-wrapper .close-btn:hover {
+  background: rgba(239, 68, 68, 0.9);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+/* Ensure AgriMarketplace container displays correctly */
+.agri-modal-wrapper .marketplace-container {
+  background: var(--card-bg) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-color) !important;
+}
+
+.theme-dark .agri-modal-wrapper .close-modal:hover {
+  background: rgba(239, 68, 68, 0.85) !important;
+  border-color: rgba(239, 68, 68, 0.5) !important;
+  color: #fff !important;
+}
+
+/* AgriMarketplace Cards */
+.agri-modal-wrapper .equipment-card {
+  background: rgba(255, 255, 255, 0.07) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+.agri-modal-wrapper .equipment-card .card-header h3 {
+  color: var(--text-primary) !important;
+}
+
+.agri-modal-wrapper .equipment-card .owner {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.agri-modal-wrapper .equipment-card .detail-item {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+
+.agri-modal-wrapper .equipment-card .price {
+  color: #4ade80 !important;
+}
+
+.agri-modal-wrapper .equipment-card.unavailable {
+  opacity: 0.6 !important;
+}
+
+/* Modal styling for Marketplace */
+.agri-modal-wrapper .close-btn {
+  position: absolute !important;
+  top: 10px !important;
+  right: 10px !important;
+  background: rgba(0, 0, 0, 0.7) !important;
+  color: white !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  width: 40px !important;
+  height: 40px !important;
+  border-radius: 50% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  z-index: 10 !important;
+  font-size: 1.2rem !important;
+  line-height: 1 !important;
+  padding: 0 !important;
+}
+
+.agri-modal-wrapper .close-btn:hover {
+  background: rgba(239, 68, 68, 0.9) !important;
+  border-color: rgba(239, 68, 68, 0.5) !important;
 }
 
 .carousel {
@@ -228,10 +486,12 @@
 }
 
 @keyframes float {
+
   0%,
   100% {
     transform: translateY(0) rotate(0deg);
   }
+
   50% {
     transform: translateY(-30px) rotate(15deg);
   }
@@ -242,6 +502,7 @@
     opacity: 0;
     transform: translateY(20px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -252,17 +513,26 @@
   0% {
     left: -100%;
   }
+
   50% {
     left: 100%;
   }
+
   100% {
     left: 100%;
   }
 }
 
 @keyframes slideUp {
-  from { transform: translateY(40px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
+  from {
+    transform: translateY(40px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 .modal {
@@ -286,6 +556,12 @@
   width: 90%;
   text-align: center;
   position: relative;
+}
+
+.theme-dark .modal-content {
+  background: var(--card-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
 }
 
 .yield-popup .close-btn,
@@ -314,10 +590,16 @@
   width: 90%;
   text-align: center;
   color: #333;
-  box-shadow: 0 10px 40px rgba(0,0,0,0.25);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
   animation: slideUp 0.4s ease-in-out;
   max-height: 85vh;
   overflow-y: auto;
+}
+
+.theme-dark .yield-popup {
+  background: var(--card-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
 }
 
 .yield-popup h2 {
@@ -384,6 +666,104 @@
   background: #f0fdf4;
   border-radius: 12px;
   border: 2px solid #22c55e;
+}
+
+.fertilizer-popup-shell {
+  max-width: 760px;
+}
+
+.fertilizer-popup .fertilizer-summary {
+  margin-top: 18px;
+}
+
+.fertilizer-popup .fertilizer-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0 20px;
+  justify-content: center;
+}
+
+.fertilizer-popup .fertilizer-chip {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #ecfdf5;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.theme-dark .fertilizer-popup .fertilizer-chip {
+  background: rgba(34, 197, 94, 0.14);
+  color: #bbf7d0;
+  border-color: rgba(34, 197, 94, 0.35);
+}
+
+.fertilizer-popup .fertilizer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 14px;
+  margin: 18px 0;
+  text-align: left;
+}
+
+.fertilizer-popup .fertilizer-card {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.theme-dark .fertilizer-popup .fertilizer-card {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.fertilizer-popup .fertilizer-card h4 {
+  margin: 0 0 8px;
+  color: #16a34a;
+}
+
+.fertilizer-popup .fertilizer-dose {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: #111827;
+}
+
+.theme-dark .fertilizer-popup .fertilizer-dose {
+  color: var(--text-primary);
+}
+
+.fertilizer-popup .fertilizer-card p,
+.fertilizer-popup .fertilizer-card small {
+  display: block;
+  line-height: 1.45;
+}
+
+.fertilizer-popup .fertilizer-note {
+  text-align: left;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  margin: 12px 0;
+}
+
+.theme-dark .fertilizer-popup .fertilizer-note {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.fertilizer-popup .fertilizer-note strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #16a34a;
+}
+
+.fertilizer-popup .fertilizer-actions {
+  margin-top: 18px;
 }
 
 .yield-popup .close-btn {
@@ -536,9 +916,9 @@
   }
 
   .card {
-    opacity: 1 !important;
-    transform: translateY(0) !important;
-    animation: none !important;
+    opacity: 1;
+    transform: translateY(0);
+    animation: none;
   }
 
   .carousel {
@@ -663,150 +1043,3 @@
     min-width: 320px;
   }
 }
-
-.advisor {
-  padding: 40px;
-  min-height: 100vh;
-  background: linear-gradient(135deg, #e6f4ea, #ffffff);
-}
-
-.advisor-hero {
-  text-align: center;
-}
-
-.hero-actions button {
-  margin: 8px;
-  padding: 10px 16px;
-  border-radius: 10px;
-  border: none;
-  background: green;
-  color: white;
-}
-
-.summary {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px,1fr));
-  gap: 15px;
-  margin: 20px 0;
-}
-
-.summary div {
-  background: white;
-  padding: 15px;
-  border-radius: 12px;
-}
-
-.cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px,1fr));
-  gap: 20px;
-}
-
-.card {
-  background: white;
-  padding: 20px;
-  border-radius: 16px;
-  cursor: pointer;
-  transition: 0.3s;
-}
-
-.card:hover {
-  transform: translateY(-6px);
-}
-
-.disabled {
-  opacity: 0.5;
-  pointer-events: none;
-}
-
-.modal {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
-.popup {
-  background: white;
-  padding: 30px;
-  border-radius: 16px;
-}
-
-.error {
-  color: red;
-}
-
-.advisor {
-  padding: 40px;
-  background: linear-gradient(135deg, #e6f4ea, #ffffff);
-  min-height: 100vh;
-}
-
-.advisor-hero {
-  text-align: center;
-}
-
-.hero-actions button {
-  margin: 10px;
-  padding: 10px 18px;
-  border-radius: 10px;
-  border: none;
-  background: #16a34a;
-  color: white;
-  cursor: pointer;
-}
-
-.summary {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  margin: 30px 0;
-  gap: 15px;
-}
-
-.summary div {
-  background: white;
-  padding: 15px;
-  border-radius: 12px;
-}
-
-.cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 20px;
-}
-
-.card {
-  background: white;
-  padding: 20px;
-  border-radius: 16px;
-  cursor: pointer;
-  transition: 0.3s;
-}
-
-.card:hover {
-  transform: translateY(-8px);
-}
-
-.disabled {
-  opacity: 0.5;
-  pointer-events: none;
-}
-
-.modal {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
-.popup {
-  background: white;
-  padding: 30px;
-  border-radius: 16px;
-}
-
-
