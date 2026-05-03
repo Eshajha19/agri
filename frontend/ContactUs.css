@@ -774,3 +774,64 @@
   .stat-bar-item { padding: 8px 16px; border-right: none; border-bottom: 1px solid rgba(255,255,255,0.1); }
   .faq-header { flex-direction: column; }
 }
+
+
+.contact-form-card {
+  max-width: 500px;
+  margin: auto;
+  padding: 20px;
+}
+
+.floating {
+  position: relative;
+  margin-bottom: 20px;
+}
+
+.floating input,
+.floating textarea {
+  width: 100%;
+  padding: 12px;
+}
+
+.floating label {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  transition: 0.2s;
+}
+
+.floating input:focus + label,
+.floating textarea:focus + label,
+.floating input:not(:placeholder-shown) + label,
+.floating textarea:not(:placeholder-shown) + label {
+  top: -8px;
+  font-size: 12px;
+  color: green;
+}
+
+.topic-chips button {
+  margin: 5px;
+  padding: 8px 12px;
+}
+
+.topic-chips .active {
+  background: green;
+  color: white;
+}
+
+.progress {
+  height: 6px;
+  background: #eee;
+  margin: 10px 0;
+}
+
+.progress div {
+  height: 100%;
+  background: green;
+}
+
+button {
+  width: 100%;
+  padding: 12px;
+  cursor: pointer;
+}
