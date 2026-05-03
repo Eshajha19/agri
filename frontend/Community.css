@@ -491,3 +491,15 @@
     font-size: 1.75rem;
   }
 }
+
+.skeleton-card {
+  height: 150px;
+  background: linear-gradient(90deg, #eee, #f5f5f5, #eee);
+  animation: shimmer 1.5s infinite;
+  border-radius: 12px;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: 200px 0; }
+}
