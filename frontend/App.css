@@ -193,10 +193,11 @@ body,
    display: flex;
    gap: 12px;
    align-items: center;
-   flex: 1;
-   justify-content: center;
+   position: absolute;
+   left: 50%;
+   transform: translateX(-50%);
    flex-wrap: nowrap;
-   margin: 0 20px;
+   margin: 0;
  }
 
  .nav-center a {

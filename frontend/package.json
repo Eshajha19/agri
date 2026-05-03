@@ -11,13 +11,18 @@
   },
   "dependencies": {
     "@floating-ui/react": "^0.27.19",
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.6.1",
     "axios": "^1.15.2",
     "date-fns": "^4.1.0",
     "firebase": "^12.12.1",
     "i18next": "^26.0.8",
     "idb": "^8.0.3",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.7",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.542.0",
+    "qrcode.react": "^4.2.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-hot-toast": "^2.6.0",
@@ -28,6 +33,7 @@
     "react-router-dom": "^7.8.2",
     "react-toastify": "^11.0.5",
     "recharts": "^3.8.1",
+    "three": "^0.184.0",
     "zustand": "^5.0.12"
   },
   "devDependencies": {

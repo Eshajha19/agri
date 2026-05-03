@@ -1,0 +1,160 @@
+.farm-planner-container {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  height: 80vh;
+  background: #fff;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+}
+
+.planner-sidebar {
+  padding: 1.5rem;
+  background: #f8fafc;
+  border-right: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.sidebar-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: #2e7d32;
+  font-size: 1.3rem;
+  margin-bottom: 0.2rem;
+}
+
+.sidebar-header p {
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.tool-section label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  margin-bottom: 1rem;
+}
+
+.tool-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.8rem;
+}
+
+.tool-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1rem 0.5rem;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tool-btn span {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.tool-btn.active {
+  border-color: #2e7d32;
+  background: #f0fdf4;
+  color: #2e7d32;
+}
+
+.tool-btn.active span {
+  color: #2e7d32;
+}
+
+.action-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  margin-top: auto;
+}
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 0.8rem;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+}
+
+.action-btn.delete {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+.action-btn.delete:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.action-btn.save {
+  background: #2e7d32;
+  color: white;
+}
+
+.planner-info {
+  display: flex;
+  gap: 0.6rem;
+  padding: 1rem;
+  background: #f1f5f9;
+  border-radius: 8px;
+}
+
+.planner-info p {
+  font-size: 0.75rem;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.planner-viewport {
+  position: relative;
+  background: #f1f5f9;
+}
+
+.viewport-overlay {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  pointer-events: none;
+}
+
+.stats-badge {
+  background: rgba(255, 255, 255, 0.9);
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #2e7d32;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+@media (max-width: 768px) {
+  .farm-planner-container {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+  .planner-sidebar {
+    height: 300px;
+  }
+  .planner-viewport {
+    height: 400px;
+  }
+}

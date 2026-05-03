@@ -5,16 +5,18 @@ import { useTranslation } from "react-i18next";
 
 import { ToastContainer } from "react-toastify";
 import { useFloating, flip, shift, offset, autoUpdate } from "@floating-ui/react";
-  import {
+import {
   FaHome,
   FaComments,
+  FaGlobe,
   FaInfoCircle,
   FaLeaf,
-  FaBars,
+  FaSeedling,
+  FaTachometerAlt,
   FaTimes,
+  FaBars,
   FaCalculator,
   FaMap,
-  FaTachometerAlt,
   FaChevronDown,
   FaChevronUp,
   FaWhatsapp,
@@ -23,28 +25,29 @@ import { useFloating, flip, shift, offset, autoUpdate } from "@floating-ui/react
   FaShieldAlt,
 } from "react-icons/fa";
 
-import Advisor from "./Advisor";
-import Home from "./Home";
-import Resources from "./Resources";
-import CropGuide from "./CropGuide";
-import How from "./How";
-import Dashboard from "./Dashboard";
-import Auth from "./Auth";
-import ProfileSetup from "./ProfileSetup";
-import LanguageDropdown from "./LanguageDropdown";
-import useNotifications from "./Notifications";
-import Schemes from "./GovernmentSchemes";
-import Feedback from "./Feedback";
 import AdminFeedback from "./AdminFeedback";
+import Advisor from "./Advisor";
+import Auth from "./Auth";
 import Calendar from "./FarmingCalendar";
+import Contributors from "./Contributors";
+import CropGuide from "./CropGuide";
+import CropProfitCalculator from "./CropProfitCalculator";
+import Dashboard from "./Dashboard";
+import Feedback from "./Feedback";
+import FarmingMap from "./FarmingMap";
+import Schemes from "./GovernmentSchemes";
+import How from "./How";
+import Home from "./Home";
 import MarketPrices from "./MarketPrices";
 import Loader from "./Loader";
-import FarmingMap from "./FarmingMap";
-import CropProfitCalculator from "./CropProfitCalculator";
 import Community from "./Community";
 import ContactUs from "./ContactUs";
 import AboutUs from "./AboutUs";
-import Contributors from "./Contributors";
+import LanguageDropdown from "./LanguageDropdown";
+import useNotifications from "./Notifications";
+import ProfileSetup from "./ProfileSetup";
+import QRTraceability from "./QRTraceability";
+import Resources from "./Resources";
 import SeasonalCropPlanner from "./SeasonalCropPlanner";
 import SoilGuide from "./SoilGuide";
 import CropDiseaseAwareness from "./CropDiseaseAwareness";
@@ -293,126 +296,171 @@ function App() {
               <span className="notranslate">Guide</span>
             </Link>
           </li>
+
+
           <li>
             <Link
-              to="/resources"
+              to="/crop-planner"
               onClick={() => setIsOpen(false)}
-              aria-label="Access farming resources and materials"
+              className="planner-nav-link"
+              aria-label="Plan your seasonal crops"
             >
-              <span className="notranslate">Resources</span>
+              <span className="notranslate">Planner</span>
             </Link>
-           </li>
-           <li>
-             <Link
-               to="/about"
-               onClick={() => setIsOpen(false)}
-               aria-label="Learn about our mission and team"
-             >
-               <span className="notranslate">About</span>
-             </Link>
-           </li>
-           <li>
-             <Link
-               to="/contact"
-               onClick={() => setIsOpen(false)}
-               aria-label="Get in touch with us"
-             >
-               <span className="notranslate">Contact</span>
-             </Link>
-           </li>
-<li className="mobile-only-language">
-             <div className="language-selector-section">
-               <label className="language-label">Language:</label>
-               <LanguageDropdown 
-                 options={LANGUAGE_OPTIONS}
-                 value={settings.language}
-                 onChange={(lang) => {
-                   setSettings({ ...settings, language: lang });
-                   i18n.changeLanguage(lang);
-                   localStorage.setItem("preferredLanguage", lang);
-                   if (navigator.onLine && window.google && window.google.translate) {
-                     try {
-                       let select = document.querySelector('.goog-te-combo');
-                       if (!select) {
-                         const gtEl = document.getElementById('google_translate_element');
-                         if (gtEl) select = gtEl.querySelector('select');
-                       }
-                       if (select) {
-                         select.value = lang;
-                         select.dispatchEvent(new Event('change', { bubbles: true }));
-                       }
-                       if (lang !== 'en') {
-                         const cookieValue = '/en/' + lang;
-                         const expires = new Date();
-                         expires.setFullYear(expires.getFullYear() + 1);
-                         document.cookie = 'googtrans=' + cookieValue + '; path=/; expires=' + expires.toUTCString();
-                       } else {
-                         document.cookie = 'googtrans=; path=/; max-age=0';
-                       }
-                     } catch (e) { console.error('GT sync error:', e); }
-                   }
-                 }}
-               />
-             </div>
-           </li>
-         </ul>
-  
-               <div className="nav-right">
-                 <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Toggle Theme">
-                   {isDarkTheme ? "☀️" : "🌙"}
-                 </button>
+          </li>
 
-               <button 
-                 onClick={(e) => { e.stopPropagation(); setShowMoreMenu(!showMoreMenu); }} 
-                 className={`more-menu-toggle ${showMoreMenu ? 'active' : ''}`} 
-                 aria-label="More Options"
-               >
-                 <span className="notranslate">More</span>
-                 <FaChevronDown className="chevron" />
-               </button>
+          <li>
+            <Link
+              to="/dashboard"
+              onClick={() => setIsOpen(false)}
+              aria-label="Go to Farmer Dashboard"
+            >
+              <FaTachometerAlt aria-hidden="true" /> <span className="notranslate">Dashboard</span>
+            </Link>
+          </li>
+          <li>
+            <Link
+              to="/about"
+              onClick={() => setIsOpen(false)}
+              aria-label="Learn about our mission and team"
+            >
+              <span className="notranslate">About</span>
+            </Link>
+          </li>
+          <li>
+            <Link
+              to="/contact"
+              onClick={() => setIsOpen(false)}
+              aria-label="Get in touch with us"
+            >
+              <span className="notranslate">Contact</span>
+            </Link>
+          </li>
+          <li className="mobile-only-language">
+            <div className="language-selector-section">
+              <label className="language-label">Language:</label>
+              <LanguageDropdown 
+                options={LANGUAGE_OPTIONS}
+                value={settings.language}
+                onChange={(lang) => {
+                  setSettings({ ...settings, language: lang });
+                  i18n.changeLanguage(lang);
+                  localStorage.setItem("preferredLanguage", lang);
+                  if (navigator.onLine && window.google && window.google.translate) {
+                    try {
+                      let select = document.querySelector('.goog-te-combo');
+                      if (!select) {
+                        const gtEl = document.getElementById('google_translate_element');
+                        if (gtEl) select = gtEl.querySelector('select');
+                      }
+                      if (select) {
+                        select.value = lang;
+                        select.dispatchEvent(new Event('change', { bubbles: true }));
+                      }
+                      if (lang !== 'en') {
+                        const cookieValue = '/en/' + lang;
+                        const expires = new Date();
+                        expires.setFullYear(expires.getFullYear() + 1);
+                        document.cookie = 'googtrans=' + cookieValue + '; path=/; expires=' + expires.toUTCString();
+                      } else {
+                        document.cookie = 'googtrans=; path=/; max-age=0';
+                      }
+                    } catch (e) { console.error('GT sync error:', e); }
+                  }
+                }}
+              />
+            </div>
+          </li>
+        </ul>
 
-               {showMoreMenu && (
-                 <div className="more-dropdown" onClick={(e) => e.stopPropagation()} role="menu">
-                   <div className="dropdown-links">
-                     {/* Language Selector in hamburger menu */}
-                     <div className="language-selector-section">
-                       <label className="language-label">Language:</label>
-                       <LanguageDropdown 
-                         options={LANGUAGE_OPTIONS}
-                         value={settings.language}
-                         onChange={(lang) => {
-                           setSettings({ ...settings, language: lang });
-                           i18n.changeLanguage(lang);
-                           localStorage.setItem("preferredLanguage", lang);
-                           if (navigator.onLine && window.google && window.google.translate) {
-                             try {
-                               let select = document.querySelector('.goog-te-combo');
-                               if (!select) {
-                                 const gtEl = document.getElementById('google_translate_element');
-                                 if (gtEl) select = gtEl.querySelector('select');
-                               }
-                               if (select) {
-                                 select.value = lang;
-                                 select.dispatchEvent(new Event('change', { bubbles: true }));
-                               }
-                               if (lang !== 'en') {
-                                 const cookieValue = '/en/' + lang;
-                                 const expires = new Date();
-                                 expires.setFullYear(expires.getFullYear() + 1);
-                                 document.cookie = 'googtrans=' + cookieValue + '; path=/; expires=' + expires.toUTCString();
-                               } else {
-                                 document.cookie = 'googtrans=; path=/; max-age=0';
-                               }
-                             } catch (e) { console.error('GT sync error:', e); }
-                           }
-                         }}
-                       />
-                     </div>
+        <div className="nav-right">
+          <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Toggle Theme">
+            {isDarkTheme ? "☀️" : "🌙"}
+          </button>
+
+          <button 
+            onClick={(e) => { e.stopPropagation(); setShowMoreMenu(!showMoreMenu); }} 
+            className={`more-menu-toggle ${showMoreMenu ? 'active' : ''}`} 
+            aria-label="More Options"
+          >
+            <span className="notranslate">More</span>
+            <FaChevronDown className="chevron" />
+          </button>
+
+          {showMoreMenu && (
+            <div className="more-dropdown" onClick={(e) => e.stopPropagation()} role="menu">
+              <div className="dropdown-links">
+                {/* Language Selector in hamburger menu */}
+                <div className="language-selector-section">
+                  <label className="language-label">Language:</label>
+                  <LanguageDropdown 
+                    options={LANGUAGE_OPTIONS}
+                    value={settings.language}
+                    onChange={(lang) => {
+                      setSettings({ ...settings, language: lang });
+                      i18n.changeLanguage(lang);
+                      localStorage.setItem("preferredLanguage", lang);
+                      if (navigator.onLine && window.google && window.google.translate) {
+                        try {
+                          let select = document.querySelector('.goog-te-combo');
+                          if (!select) {
+                            const gtEl = document.getElementById('google_translate_element');
+                            if (gtEl) select = gtEl.querySelector('select');
+                          }
+                          if (select) {
+                            select.value = lang;
+                            select.dispatchEvent(new Event('change', { bubbles: true }));
+                          }
+                          if (lang !== 'en') {
+                            const cookieValue = '/en/' + lang;
+                            const expires = new Date();
+                            expires.setFullYear(expires.getFullYear() + 1);
+                            document.cookie = 'googtrans=' + cookieValue + '; path=/; expires=' + expires.toUTCString();
+                          } else {
+                            document.cookie = 'googtrans=; path=/; max-age=0';
+                          }
+                        } catch (e) { console.error('GT sync error:', e); }
+                      }
+                    }}
+                  />
+                </div>
                     {/* 
                       Internal App Links:
                       Using Dashboard and Community links within the dropdown.
                       We ensure these are also focusable and labeled correctly.
                     */}
+                     <Link
+                       to="/resources"
+                       onClick={() => setShowMoreMenu(false)}
+                       role="menuitem"
+                       aria-label="Access farming resources and materials"
+                     >
+                       <FaInfoCircle aria-hidden="true" /> <span className="notranslate">Resources</span>
+                     </Link>
+                     <Link
+                       to="/disease-awareness"
+                       onClick={() => setShowMoreMenu(false)}
+                       role="menuitem"
+                       aria-label="Learn about crop diseases and remedies"
+                     >
+                       <FaLeaf aria-hidden="true" /> <span className="notranslate">Awareness</span>
+                     </Link>
+                     <Link
+                       to="/about"
+                       onClick={() => setShowMoreMenu(false)}
+                       role="menuitem"
+                       aria-label="Learn about our mission and team"
+                     >
+                       <FaInfoCircle aria-hidden="true" /> <span className="notranslate">About Us</span>
+                     </Link>
+                     <Link
+                       to="/contact"
+                       onClick={() => setShowMoreMenu(false)}
+                       role="menuitem"
+                       aria-label="Get in touch with us"
+                     >
+                       <FaInfoCircle aria-hidden="true" /> <span className="notranslate">Contact</span>
+                     </Link>
                      <Link
                        to="/dashboard"
                        onClick={() => setShowMoreMenu(false)}
@@ -551,6 +599,7 @@ function App() {
           <Route path="/calendar" element={<Calendar />} />
           <Route path="/share-feedback" element={<Feedback />} />
           <Route path="/admin/feedback" element={<AdminFeedback />} />
+          <Route path="/trace/:id" element={<QRTraceability />} />
           <Route path="/market-prices" element={<MarketPrices />} />
           <Route path="/farming-map" element={<FarmingMap />} />
           <Route path="/profit-calculator" element={<CropProfitCalculator />} />
@@ -560,12 +609,12 @@ function App() {
           <Route path="/crop-planner" element={<SeasonalCropPlanner />} />
           <Route path="/soil-guide" element={<SoilGuide />} />
           <Route path="/disease-awareness" element={<CropDiseaseAwareness />} />
+          <Route path="/faq" element={<FAQ />} />
           <Route path="/helpline" element={<Helpline />} />
            <Route path="/glossary" element={<Glossary />} />
            <Route path="/risk-index" element={<RiskIndex />} />
             <Route path="/blog" element={<Blog />} />
            <Route path="/blog/:id" element={<BlogDetail />} />
-           <Route path="/faq" element={<FAQ />} />
           <Route path="/privacy-policy" element={<PrivacyPolicy />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="*" element={<NotFound />} />
