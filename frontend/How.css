@@ -66,6 +66,9 @@
 }
 
 .sunlight .howitworks-header h1 {
+  -webkit-text-fill-color: initial !important;
+  color: #000 !important;
+  background: none !important;
   -webkit-text-fill-color: initial;
   color: #000;
   background: none;
@@ -90,6 +93,7 @@
   grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
   gap: 28px;
   position: relative;
+  z-index: 2;
 }
 
 .step-card {
@@ -192,6 +196,18 @@
   font-size: 1.1rem;
   color: var(--text-secondary);
   line-height: 1.6;
+}
+
+.sunlight .step-card {
+  background: #fff !important;
+  border: 4px solid #000 !important;
+  color: #000 !important;
+}
+
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
   flex-grow: 1;
 }
 
@@ -408,6 +424,9 @@
 }
 
 @keyframes float {
+  0%, 100% {
+    transform: translate(0, 0);
+  }
   0%,
   100% {
     transform: translate(0, 0);
@@ -419,6 +438,9 @@
 }
 
 @keyframes floatReverse {
+  0%, 100% {
+    transform: translate(0, 0);
+  }
   0%,
   100% {
     transform: translate(0, 0);
