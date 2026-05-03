@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import './AgriLMS.css';
 import { Play, CheckCircle, Award, BookOpen, Clock, Download, ChevronRight } from 'lucide-react';
 import jsPDF from 'jspdf';
+import { Play, CheckCircle, Award, BookOpen, Clock, Download, ChevronRight, MessageCircle } from 'lucide-react';
+import jsPDF from 'jspdf';
+import SoilChatbot from './SoilChatbot';
 
 const COURSES = [
   {
@@ -44,6 +47,7 @@ export default function AgriLMS() {
     const saved = localStorage.getItem('agriLmsProgress');
     return saved ? JSON.parse(saved) : {};
   });
+  const [showAdvisor, setShowAdvisor] = useState(false);
 
   useEffect(() => {
     localStorage.setItem('agriLmsProgress', JSON.stringify(progress));
@@ -102,6 +106,10 @@ export default function AgriLMS() {
 
   if (activeCourse) {
     return (
+  let content;
+
+  if (activeCourse) {
+    content = (
       <div className="lms-content active-course">
         <div className="lms-header active-header">
           <button className="back-btn" onClick={() => { setActiveCourse(null); setActiveLesson(null); }}>
@@ -239,5 +247,71 @@ export default function AgriLMS() {
         ))}
       </div>
     </div>
+  );
+}
+  } else {
+    content = (
+      <div className="lms-container">
+        <div className="lms-header">
+          <h1><BookOpen size={28} /> Agri-LMS Learning Portal</h1>
+          <p>Empowering the next generation of farmers through digital education.</p>
+        </div>
+
+        <div className="course-categories">
+          {COURSES.map(course => (
+            <div key={course.id} className="course-card">
+              <div className="course-badge">{course.category}</div>
+              <h3>{course.title}</h3>
+              <div className="course-meta">
+                <span><Clock size={14} /> {course.duration}</span>
+                <span><Play size={14} /> {course.lessons.length} Lessons</span>
+              </div>
+              
+              <div className="progress-bar-container">
+                <div 
+                  className="progress-bar-fill" 
+                  style={{ width: `${getCourseProgress(course)}%` }}
+                ></div>
+              </div>
+              <div className="progress-text">
+                {getCourseProgress(course)}% Completed
+                {getCourseProgress(course) === 100 && <CheckCircle size={14} style={{ color: '#4caf50', marginLeft: '8px' }} />}
+              </div>
+
+              {getCourseProgress(course) === 100 ? (
+                <div className="card-actions">
+                  <button className="start-course-btn" onClick={() => setActiveCourse(course)}>
+                    Review Course
+                  </button>
+                  <button className="cert-btn-small" onClick={(e) => { e.stopPropagation(); generateCertificate(course); }}>
+                    <Award size={16} /> Get Certificate
+                  </button>
+                </div>
+              ) : (
+                <button className="start-course-btn" onClick={() => setActiveCourse(course)}>
+                  {getCourseProgress(course) > 0 ? 'Continue Learning' : 'Start Course'}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {content}
+      <button className="advisor-fab" onClick={() => setShowAdvisor(true)} aria-label="Open AI Advisor">
+        <MessageCircle size={24} />
+      </button>
+      {showAdvisor && (
+        <div className="advisor-overlay" onClick={() => setShowAdvisor(false)}>
+          <div className="advisor-modal" onClick={e => e.stopPropagation()}>
+            <SoilChatbot onClose={() => setShowAdvisor(false)} />
+          </div>
+        </div>
+      )}
+    </>
   );
 }

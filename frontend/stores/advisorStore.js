@@ -83,4 +83,59 @@ export const useAdvisorStore = create((set) => ({
       showFarmPlanner3D: false,
       showFarmDiary: false,
     }),
+   showAgriMarketplace: false,
+   setShowAgriMarketplace: (show) => set({ showAgriMarketplace: show }),
+
+   showQRTraceability: false,
+   setShowQRTraceability: (show) => set({ showQRTraceability: show }),
+
+   showFarmPlanner3D: false,
+   setShowFarmPlanner3D: (show) => set({ showFarmPlanner3D: show }),
+
+   showFarmDiary: false,
+   setShowFarmDiary: (show) => set({ showFarmDiary: show }),
+
+   showAgriLMS: false,
+   setShowAgriLMS: (show) => set({ showAgriLMS: show }),
+
+   showForecast: false,
+   setShowForecast: (show) => set({ showForecast: show }),
+
+   // New modals for advisor cards
+   showCropRotation: false,
+   setShowCropRotation: (show) => set({ showCropRotation: show }),
+
+   showP2PChat: false,
+   setShowP2PChat: (show) => set({ showP2PChat: show }),
+
+   showSmartCropRecommendation: false,
+   setShowSmartCropRecommendation: (show) => set({ showSmartCropRecommendation: show }),
+
+   // Reset all modals to closed
+   resetAdvisorStore: () =>
+     set({
+       farmers: 0,
+       crops: 0,
+       languages: 0,
+       showWeather: false,
+       showSoilChatbot: false,
+       showSoilAnalysis: false,
+       showSoilGuide: false,
+       showIrrigation: false,
+       showProfitCalculator: false,
+       showFertilizerPopup: false,
+       showFarmingMap: false,
+       showCropDiseaseDetection: false,
+       showPestManagement: false,
+       showComingSoon: false,
+       showAgriMarketplace: false,
+       showQRTraceability: false,
+       showFarmPlanner3D: false,
+       showFarmDiary: false,
+       showAgriLMS: false,
+       showForecast: false,
+       showCropRotation: false,
+       showP2PChat: false,
+       showSmartCropRecommendation: false,
+     }),
 }));

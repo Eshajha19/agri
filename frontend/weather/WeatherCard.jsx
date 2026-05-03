@@ -129,8 +129,18 @@ export default function WeatherCard({
   const units = snapshot?.units || {};
   const locationLabel = snapshot?.location?.name || "Set your farm location";
 
+  // In embedded mode, hide controls and panels - just show summary
+  const isCompact = embedded;
+
   return (
-    <div className={`weather-card ${embedded ? "weather-card--embedded" : ""}`}>
+    <div
+      className={`weather-card ${embedded ? "weather-card--embedded" : ""}`}
+      onClick={(e) => {
+        if (e.target.closest('button, input, select, textarea, a')) {
+          e.stopPropagation();
+        }
+      }}
+    >
 
       {/* CLOSE */}
       {!embedded && onClose && (
@@ -138,17 +148,29 @@ export default function WeatherCard({
       )}
 
       {/* HEADER */}
-      <div className="weather-card__header">
-        <span className="weather-card__eyebrow">🌾 Real-time farm intelligence</span>
-        <h2>{title}</h2>
-        <p className="subtitle">{subtitle}</p>
-        {snapshot?.fetchedAt && (
-          <LastUpdated timestamp={snapshot.fetchedAt} />
-        )}
-      </div>
+      {isCompact ? (
+        <div className="weather-card__compact-header">
+          <span className="weather-card__compact-location">
+            <FaMapMarkerAlt /> {locationLabel}
+          </span>
+          {snapshot?.fetchedAt && (
+            <LastUpdated timestamp={snapshot.fetchedAt} />
+          )}
+        </div>
+      ) : (
+        <div className="weather-card__header">
+          <span className="weather-card__eyebrow">🌾 Real-time farm intelligence</span>
+          <h2>{title}</h2>
+          <p className="subtitle">{subtitle}</p>
+          {snapshot?.fetchedAt && (
+            <LastUpdated timestamp={snapshot.fetchedAt} />
+          )}
+        </div>
+      )}
 
-      {/* CONTROLS */}
-      <div className="weather-card__controls">
+      {/* CONTROLS - Hidden in compact mode */}
+      {!isCompact && (
+        <div className="weather-card__controls">
 
         <div className="input-group">
           <input
@@ -187,10 +209,11 @@ export default function WeatherCard({
               </option>
             ))}
           </select>
-        </div>
-      </div>
+         </div>
+       </div>
+       )}
 
-      {weatherError && <p className="error">{weatherError}</p>}
+       {weatherError && <p className="error">{weatherError}</p>}
 
       {/* MAIN DATA */}
       {snapshot ? (
@@ -228,7 +251,7 @@ export default function WeatherCard({
             </div>
           </div>
 
-          {/* FORECAST */}
+           {/* FORECAST */}
           <div className="forecast-strip">
             {snapshot.daily && snapshot.daily.weather_code && snapshot.daily.weather_code.length > 0 ? (
               snapshot.daily.weather_code.slice(0, 5).map((_, i) => {
@@ -247,8 +270,9 @@ export default function WeatherCard({
             ) : null}
           </div>
 
-          {/* PANELS */}
-          <div className="weather-panels">
+          {/* PANELS - Hidden in compact mode */}
+          {!isCompact && (
+            <div className="weather-panels">
 
             {/* ALERTS */}
             <section className="weather-panel">
@@ -284,9 +308,10 @@ export default function WeatherCard({
                   <p>{tip}</p>
                 </div>
               ))}
-            </section>
+             </section>
 
-          </div>
+            </div>
+          )}
         </>
       ) : (
         <div className="weather-empty-state">
