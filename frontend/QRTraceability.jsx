@@ -4,6 +4,13 @@ import { QRCodeSVG } from 'qrcode.react';
 import { QrCode, Sprout, MapPin, Calendar, CheckCircle, ShieldCheck, ArrowRight, Share2, Download } from 'lucide-react';
 import './QRTraceability.css';
 
+import React, { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
+import { QRCodeSVG } from 'qrcode.react';
+import { QrCode, Sprout, MapPin, Calendar, CheckCircle, ShieldCheck, ArrowRight, Share2, Download, MessageCircle } from 'lucide-react';
+import './QRTraceability.css';
+import SoilChatbot from './SoilChatbot';
+
 const MOCK_BATCHES = [
   {
     id: 'BATCH-2026-001',
@@ -42,6 +49,7 @@ export default function QRTraceability() {
   });
   const [selectedBatch, setSelectedBatch] = useState(null);
   const [viewMode, setViewMode] = useState('list'); // 'list', 'details', 'viewer'
+  const [showAdvisor, setShowAdvisor] = useState(false);
 
   useEffect(() => {
     if (routeId) {
@@ -145,6 +153,18 @@ export default function QRTraceability() {
             </div>
           </div>
         </div>
+
+        {/* Advisor Button and Modal */}
+        <button className="advisor-fab" onClick={() => setShowAdvisor(true)} aria-label="Open AI Advisor">
+          <MessageCircle size={24} />
+        </button>
+        {showAdvisor && (
+          <div className="advisor-overlay" onClick={() => setShowAdvisor(false)}>
+            <div className="advisor-modal" onClick={e => e.stopPropagation()}>
+              <SoilChatbot onClose={() => setShowAdvisor(false)} />
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -232,4 +252,5 @@ export default function QRTraceability() {
       )}
     </div>
   );
+}
 }

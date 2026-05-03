@@ -158,3 +158,86 @@
     height: 400px;
   }
 }
+   .planner-viewport {
+     height: 400px;
+   }
+ }
+
+/* AI Advisor Floating Button */
+.advisor-fab {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2ecc71, #27ae60);
+  color: white;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 15px rgba(46, 204, 113, 0.4);
+  z-index: 1000;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.advisor-fab:hover {
+  transform: scale(1.1);
+  box-shadow: 0 6px 20px rgba(46, 204, 113, 0.6);
+}
+
+.advisor-fab:active {
+  transform: scale(0.95);
+}
+
+/* Advisor Modal Overlay */
+.advisor-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  backdrop-filter: blur(4px);
+}
+
+.theme-dark .advisor-overlay {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+/* Advisor Modal Container */
+.advisor-modal {
+  position: relative;
+  background: white;
+  border-radius: 16px;
+  padding: 0;
+  max-width: 520px;
+  width: 90%;
+  max-height: 90vh;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.theme-dark .advisor-modal {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+}
+
+@media (max-width: 600px) {
+  .advisor-fab {
+    width: 50px;
+    height: 50px;
+    bottom: 16px;
+    right: 16px;
+  }
+  .advisor-fab svg {
+    width: 20px;
+    height: 20px;
+  }
+}
