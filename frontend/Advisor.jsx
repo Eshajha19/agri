@@ -11,6 +11,9 @@ import FarmingMap from "./FarmingMap";
 import FertilizerRecommendation from "./FertilizerRecommendation";
 import LastUpdated from "./LastUpdated";
 import AgriMarketplace from "./AgriMarketplace";
+import AgriLMS from "./AgriLMS";
+import QRTraceability from "./QRTraceability";
+import FarmPlanner3D from "./FarmPlanner3D";
 import {
   Sun,
   Droplets,
@@ -25,8 +28,10 @@ import {
   Map,
   FlaskConical,
   Layers,
+  ShoppingCart,
   Book,
 } from "lucide-react";
+import FarmDiary from "./FarmDiary";
 import { useAdvisorStore } from "./stores/advisorStore";
 import { useYieldPrediction } from "./hooks/useYieldPrediction";
 import CropDiseaseDetection from "./CropDiseaseDetection";
@@ -65,6 +70,14 @@ export default function Advisor() {
     setShowPestManagement,
     showAgriMarketplace,
     setShowAgriMarketplace,
+    showAgriLMS,
+    setShowAgriLMS,
+    showQRTraceability,
+    setShowQRTraceability,
+    showFarmPlanner3D,
+    setShowFarmPlanner3D,
+    showFarmDiary,
+    setShowFarmDiary,
   } = useAdvisorStore();
 
   const {
@@ -296,6 +309,24 @@ export default function Advisor() {
             <p>Rent or list farm equipment locally. Save costs and earn extra.</p>
           </div>
 
+          <div className="card reveal" onClick={() => setShowAgriLMS(true)}>
+            <div className="icon">🎓</div>
+            <h3><span className="notranslate">Agri-LMS Academy</span></h3>
+            <p>Access video tutorials on modern farming and earn completion certificates.</p>
+          </div>
+
+          <div className="card reveal" onClick={() => setShowQRTraceability(true)}>
+            <div className="icon">🔍</div>
+            <h3><span className="notranslate">QR-Farm Traceability</span></h3>
+            <p>Generate QR codes for your produce. Let customers trace their food from farm to table.</p>
+          </div>
+
+          <div className="card reveal" onClick={() => setShowFarmPlanner3D(true)}>
+            <div className="icon">🗺️</div>
+            <h3><span className="notranslate">3D Farm Planner</span></h3>
+            <p>Design your farm layout in interactive 3D. Optimize land usage and irrigation.</p>
+          </div>
+
           <div className="card reveal" onClick={() => setShowProfitCalculator(true)}>
             <div className="icon">💰</div>
             <h3><span className="notranslate">Profit Calculator</span></h3>
@@ -327,9 +358,17 @@ export default function Advisor() {
             </div>
             <h3><span className="notranslate">Share Feedback</span></h3>
              <p>Help us improve <span className="notranslate" translate="no">Fasal Saathi</span> with your valuable suggestions.</p>
+          </div>
+
+          <div className="card reveal" onClick={() => setShowFarmDiary(true)}>
+            <div className="icon">
+              <Book size={32} strokeWidth={2} />
             </div>
-         </div>
-       </div>
+            <h3><span className="notranslate">Digital Farm Diary</span></h3>
+            <p>Log daily farming activities, set task reminders, and export records as PDF reports.</p>
+          </div>
+        </div>
+      </div>
           {showWeather && (
         <div className="weather-overlay" onClick={() => setShowWeather(false)}>
           <div className="weather-popup" onClick={(e)=>{e.stopPropagation()}}>
@@ -728,6 +767,34 @@ export default function Advisor() {
         </div>
       )}
 
+      {showAgriLMS && (
+        <div className="weather-overlay" onClick={() => setShowAgriLMS(false)}>
+          <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
+            <button className="close-btn agri-close-btn" onClick={() => setShowAgriLMS(false)}>✕</button>
+            <AgriLMS />
+          </div>
+        </div>
+      )}
+
+      {showQRTraceability && (
+        <div className="weather-overlay" onClick={() => setShowQRTraceability(false)}>
+          <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
+            <button className="close-btn agri-close-btn" onClick={() => setShowQRTraceability(false)}>✕</button>
+            <QRTraceability />
+          </div>
+        </div>
+      )}
+
+      {showFarmPlanner3D && (
+        <div className="weather-overlay" onClick={() => setShowFarmPlanner3D(false)}>
+          <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
+            <button className="close-btn agri-close-btn" onClick={() => setShowFarmPlanner3D(false)}>✕</button>
+            <FarmPlanner3D />
+            <AgriLMS onClose={() => setShowAgriLMS(false)} />
+          </div>
+        </div>
+      )}
+
       {showComingSoon && (
         <div className="weather-overlay" onClick={()=>{setShowComingSoon(false)}}>
           <div className="weather-popup coming-soon" onClick={(e)=>e.stopPropagation()}>
@@ -739,6 +806,16 @@ export default function Advisor() {
             >
               Close
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* AgriMarketplace Modal removed duplication */}
+
+      {showFarmDiary && (
+        <div className="weather-overlay" onClick={() => setShowFarmDiary(false)} style={{ zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+            <FarmDiary onClose={() => setShowFarmDiary(false)} />
           </div>
         </div>
       )}
