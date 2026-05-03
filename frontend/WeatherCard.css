@@ -224,3 +224,30 @@
     font-size: 15px;
   }
 }
+
+.weather-card {
+  border-radius: 16px;
+  padding: 20px;
+  transition: 0.3s;
+  background: linear-gradient(135deg, #e0f2fe, #f0fdf4);
+}
+
+.weather-card.sunny {
+  background: linear-gradient(135deg, #fef9c3, #fde68a);
+}
+
+.weather-card.rainy {
+  background: linear-gradient(135deg, #bfdbfe, #93c5fd);
+}
+
+.weather-card.cloudy {
+  background: linear-gradient(135deg, #e5e7eb, #d1d5db);
+}
+
+.advice {
+  margin-top: 15px;
+  padding: 10px;
+  border-radius: 10px;
+  background: #ecfdf5;
+  font-size: 14px;
+}

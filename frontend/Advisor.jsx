@@ -98,19 +98,26 @@ export default function Advisor() {
       </div>
 
       <div className="advisor-stats">
-        <div className="stat">
-          <h2>{farmers}+</h2>
-          <p>Farmers Connected</p>
-        </div>
-        <div className="stat">
-          <h2>{crops}+</h2>
-          <p>Crops Analyzed</p>
-        </div>
-        <div className="stat">
-          <h2>{languages}+</h2>
-          <p>Languages Available</p>
-        </div>
-      </div>
+  <div className="stat">
+    <h2>{farmers}+</h2>
+    <p>Farmers Connected</p>
+  </div>
+
+  <div className="stat">
+    <h2>{crops}+</h2>
+    <p>Crops Analyzed</p>
+  </div>
+
+  <div className="stat">
+    <h2>{languages}+</h2>
+    <p>Languages</p>
+  </div>
+
+  <div className="stat highlight-stat">
+    <h2>🤖</h2>
+    <p>{getInsight()}</p>
+  </div>
+</div>
 
       <br />
       <br />

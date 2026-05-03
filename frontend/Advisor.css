@@ -183,6 +183,7 @@
   background: #fff !important;
 }
 
+
 .weather-overlay {
   position: fixed;
   top: 0;
@@ -614,6 +615,33 @@
   }
 }
 
+.top-controls {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+}
+
+.notification {
+  background: #16a34a;
+  color: white;
+  padding: 5px 10px;
+  border-radius: 10px;
+}
+
+.highlight-stat {
+  background: #ecfdf5;
+  border: 2px solid #16a34a;
+}
+
+.history {
+  margin-top: 10px;
+  font-size: 14px;
+}
+
+.crop-results li {
+  margin-bottom: 10px;
+}
+
 @media (min-width: 1200px) {
   .advisor {
     padding: 80px 40px;
@@ -635,3 +663,150 @@
     min-width: 320px;
   }
 }
+
+.advisor {
+  padding: 40px;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #e6f4ea, #ffffff);
+}
+
+.advisor-hero {
+  text-align: center;
+}
+
+.hero-actions button {
+  margin: 8px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: none;
+  background: green;
+  color: white;
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px,1fr));
+  gap: 15px;
+  margin: 20px 0;
+}
+
+.summary div {
+  background: white;
+  padding: 15px;
+  border-radius: 12px;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px,1fr));
+  gap: 20px;
+}
+
+.card {
+  background: white;
+  padding: 20px;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+.card:hover {
+  transform: translateY(-6px);
+}
+
+.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.popup {
+  background: white;
+  padding: 30px;
+  border-radius: 16px;
+}
+
+.error {
+  color: red;
+}
+
+.advisor {
+  padding: 40px;
+  background: linear-gradient(135deg, #e6f4ea, #ffffff);
+  min-height: 100vh;
+}
+
+.advisor-hero {
+  text-align: center;
+}
+
+.hero-actions button {
+  margin: 10px;
+  padding: 10px 18px;
+  border-radius: 10px;
+  border: none;
+  background: #16a34a;
+  color: white;
+  cursor: pointer;
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  margin: 30px 0;
+  gap: 15px;
+}
+
+.summary div {
+  background: white;
+  padding: 15px;
+  border-radius: 12px;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px;
+}
+
+.card {
+  background: white;
+  padding: 20px;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+.card:hover {
+  transform: translateY(-8px);
+}
+
+.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.popup {
+  background: white;
+  padding: 30px;
+  border-radius: 16px;
+}
+
+
