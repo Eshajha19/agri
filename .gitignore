@@ -31,6 +31,8 @@ dist-ssr
 # Python
 __pycache__/
 .python-version
+dev-dist/
+dist/
 whatsapp_subscribers.json
 
 # Frontend build output
