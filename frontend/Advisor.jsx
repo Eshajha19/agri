@@ -22,6 +22,7 @@ import SeedVerifier from "./SeedVerifier";
 
 import CropRotation from "./CropRotation";
 import P2PChat from "./P2PChat";
+import GeoAlertMesh from "./GeoAlertMesh";
 import SmartCropRecommendation from "./SmartCropRecommendation";
 import {
   Sun,
@@ -44,7 +45,8 @@ import {
   Award,
   Star,
   ThumbsUp,
-  X
+  X,
+  AlertTriangle
 } from "lucide-react";
 import { FaSync } from "react-icons/fa";
 import { useAdvisorStore } from "./stores/advisorStore";
@@ -112,6 +114,8 @@ export default function Advisor() {
     setShowSmartCropRecommendation,
     showSeedVerifier,
     setShowSeedVerifier,
+    showGeoAlerts,
+    setShowGeoAlerts,
   } = useAdvisorStore();
 
   const { liteMode } = usePerformanceStore();
@@ -708,6 +712,14 @@ export default function Advisor() {
             <div className="mini-badge-info">
               {currentReputation} pts · {currentReputation >= 500 ? "🥇" : currentReputation >= 200 ? "🥈" : currentReputation >= 50 ? "🥉" : "🌱"}
             </div>
+          </div>
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowGeoAlerts(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowGeoAlerts(true); }} aria-label="Geo-Hashed Disaster Mesh: View nearby alerts">
+            <div className="icon" aria-hidden="true" style={{background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444'}}>
+              <AlertTriangle size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Disaster Mesh Alerts</span></h3>
+            <p>Report and receive highly localized (5km radius) real-time disaster alerts.</p>
           </div>
 
           <div className="card reveal bank-report-card" role="button" tabIndex={0} onClick={() => setShowBankReport(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowBankReport(true); }} aria-label="Bank Reports: Export financial data">
@@ -1344,6 +1356,12 @@ export default function Advisor() {
               onClose={() => setShowP2PChat(false)} 
             />
           </div>
+        </div>
+      )}
+
+      {showGeoAlerts && (
+        <div className="weather-overlay" onClick={() => setShowGeoAlerts(false)}>
+          <GeoAlertMesh onClose={() => setShowGeoAlerts(false)} />
         </div>
       )}
 

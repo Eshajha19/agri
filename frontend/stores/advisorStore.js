@@ -81,6 +81,9 @@ export const useAdvisorStore = create((set) => ({
    showSeedVerifier: false,
    setShowSeedVerifier: (show) => set({ showSeedVerifier: show }),
 
+   showGeoAlerts: false,
+   setShowGeoAlerts: (show) => set({ showGeoAlerts: show }),
+
    // Reset all modals to closed
    resetAdvisorStore: () =>
      set({
@@ -110,5 +113,6 @@ export const useAdvisorStore = create((set) => ({
        showP2PChat: false,
        showSmartCropRecommendation: false,
        showSeedVerifier: false,
+       showGeoAlerts: false,
      }),
 }));
