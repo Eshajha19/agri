@@ -21,12 +21,11 @@ const P2PChat = ({ recipient, onClose }) => {
   const messagesEndRef = useRef(null);
   const currentUser = auth?.currentUser;
 
-  // Derive a "Shared Secret" for E2EE based on user IDs
-  // In a real app, this would be a DH exchange result
-  const sharedSecret = [currentUser?.uid, recipient.userId].sort().join("_");
-
   const hasValidRecipient = recipient && recipient.userId;
   const effectiveRecipient = hasValidRecipient ? recipient : { userId: "default", userName: "Chat" };
+  
+  // Derive a "Shared Secret" for E2EE based on user IDs
+  const sharedSecret = [currentUser?.uid, effectiveRecipient.userId].sort().join("_");
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -134,12 +133,8 @@ const P2PChat = ({ recipient, onClose }) => {
       <div className="p2p-chat-header">
         <div className="recipient-info">
           <div className="user-avatar">
-            {recipient.userName ? recipient.userName[0].toUpperCase() : "U"}
-            {isRecipientVerified && <ShieldCheck className="verified-badge" size={14} />}
-          </div>
-          <div>
-            <h3>{recipient.userName}</h3>
             {effectiveRecipient.userName ? effectiveRecipient.userName[0].toUpperCase() : "U"}
+            {isRecipientVerified && <ShieldCheck className="verified-badge" size={14} />}
           </div>
           <div>
             <h3>{effectiveRecipient.userName}</h3>
@@ -165,7 +160,7 @@ const P2PChat = ({ recipient, onClose }) => {
             <div className="message-content">
               <p>{msg.content}</p>
               <span className="message-time">
-                {msg.createdAt?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                {msg.createdAt?.toDate ? msg.createdAt.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Recently"}
               </span>
             </div>
           </div>
