@@ -62,7 +62,7 @@ import SeedVerifier from "./SeedVerifier";
 import { SkipLink } from "./NavigationManager";
 
 // Libs
-import { auth, db, isFirebaseConfigured, doc, onSnapshot } from "./lib/firebase";
+import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc } from "./lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 
 // CSS
@@ -151,6 +151,38 @@ function App() {
     });
     return () => unsubscribeAuth();
   }, []);
+
+  // E2EE Key Generation Sync
+  useEffect(() => {
+    if (!user || !isFirebaseConfigured()) return;
+
+    const ensurePublicKey = async () => {
+      try {
+        let privateJwk = localStorage.getItem(`ecdh_private_${user.uid}`);
+        let publicJwk = localStorage.getItem(`ecdh_public_${user.uid}`);
+        
+        // Generate globally if it doesn't exist
+        if (!privateJwk || !publicJwk) {
+          const { cryptoService } = await import("./utils/cryptoService");
+          const keyPair = await cryptoService.generateECDHKeyPair();
+          privateJwk = await cryptoService.exportKey(keyPair.privateKey);
+          publicJwk = await cryptoService.exportKey(keyPair.publicKey);
+          localStorage.setItem(`ecdh_private_${user.uid}`, JSON.stringify(privateJwk));
+          localStorage.setItem(`ecdh_public_${user.uid}`, JSON.stringify(publicJwk));
+        } else {
+          publicJwk = JSON.parse(publicJwk);
+        }
+
+        // Publish to Firebase so others can find it instantly when you log in
+        const pubKeyRef = doc(db, "public_keys", user.uid);
+        await setDoc(pubKeyRef, { jwk: publicJwk }, { merge: true });
+      } catch (error) {
+        console.error("Failed to generate/publish ECDH keys globally:", error);
+      }
+    };
+
+    ensurePublicKey();
+  }, [user]);
 
   // Theme Sync
   const [isDarkTheme, setIsDarkTheme] = useState(() => {
