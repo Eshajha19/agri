@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import CryptoJS from "crypto-js";
-import { Send, Lock, ShieldCheck, X, User } from "lucide-react";
+import { Send, Lock, ShieldCheck, X, KeyRound } from "lucide-react";
 import { db, auth } from "./lib/firebase";
 import { 
   collection, 
@@ -9,32 +8,122 @@ import {
   where, 
   orderBy, 
   onSnapshot, 
-  Timestamp 
+  Timestamp,
+  doc,
+  setDoc,
+  getDoc
 } from "firebase/firestore";
 import { isFirebaseConfigured } from "./lib/firebase";
+import { cryptoService } from "./utils/cryptoService";
 import "./P2PChat.css";
 
 const P2PChat = ({ recipient, onClose }) => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
   const [isRecipientVerified, setIsRecipientVerified] = useState(true); // Mock verification
+  const [sharedKey, setSharedKey] = useState(null);
+  const [keyStatus, setKeyStatus] = useState("initializing"); // initializing, ready, waiting
+  
   const messagesEndRef = useRef(null);
   const currentUser = auth?.currentUser;
 
   const hasValidRecipient = recipient && recipient.userId;
   const effectiveRecipient = hasValidRecipient ? recipient : { userId: "default", userName: "Chat" };
-  
-  // Derive a "Shared Secret" for E2EE based on user IDs
-  const sharedSecret = [currentUser?.uid, effectiveRecipient.userId].sort().join("_");
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
+  // 1. Initialize Cryptographic Keys
   useEffect(() => {
-    if (!currentUser || !effectiveRecipient.userId) return;
+    let isMounted = true;
+
+    const initCrypto = async () => {
+      if (!currentUser) {
+        if (isMounted) setKeyStatus("auth_required");
+        console.warn("P2PChat: No currentUser found.");
+        return;
+      }
+      if (!effectiveRecipient.userId) {
+        console.warn("P2PChat: No recipient userId.");
+        return;
+      }
+      
+      try {
+        if (isMounted) setKeyStatus("generating_keys");
+        // A. Load or generate our ECDH key pair
+        let privateJwk = localStorage.getItem(`ecdh_private_${currentUser.uid}`);
+        let publicJwk = localStorage.getItem(`ecdh_public_${currentUser.uid}`);
+        let privateKey;
+        
+        if (!privateJwk || !publicJwk) {
+          const keyPair = await cryptoService.generateECDHKeyPair();
+          privateJwk = await cryptoService.exportKey(keyPair.privateKey);
+          publicJwk = await cryptoService.exportKey(keyPair.publicKey);
+          localStorage.setItem(`ecdh_private_${currentUser.uid}`, JSON.stringify(privateJwk));
+          localStorage.setItem(`ecdh_public_${currentUser.uid}`, JSON.stringify(publicJwk));
+          privateKey = keyPair.privateKey;
+        } else {
+          privateKey = await cryptoService.importPrivateKey(JSON.parse(privateJwk));
+          publicJwk = JSON.parse(publicJwk);
+        }
+
+        if (isMounted) setKeyStatus("publishing_key");
+        // B. Publish our public key to Firestore for peers to find
+        if (isFirebaseConfigured()) {
+          const pubKeyRef = doc(db, "public_keys", currentUser.uid);
+          await setDoc(pubKeyRef, { jwk: publicJwk }, { merge: true });
+        } else {
+           // Local test fallback for public key
+           localStorage.setItem(`remote_ecdh_public_${currentUser.uid}`, JSON.stringify(publicJwk));
+        }
+
+        if (isMounted) setKeyStatus("fetching_peer_key");
+        // C. Retrieve the recipient's public key
+        let recipientPubKeyJwk = null;
+        if (effectiveRecipient.userId === "default" || effectiveRecipient.userId === "advisor") {
+          // Mock behavior for the 'default' or 'advisor' testing chat:
+          // Treat it as a "Note to Self" by using our own public key!
+          recipientPubKeyJwk = publicJwk;
+        } else if (isFirebaseConfigured()) {
+          const recipientRef = doc(db, "public_keys", effectiveRecipient.userId);
+          const recipientSnap = await getDoc(recipientRef);
+          if (recipientSnap.exists()) {
+            recipientPubKeyJwk = recipientSnap.data().jwk;
+          }
+        } else {
+          const localRec = localStorage.getItem(`remote_ecdh_public_${effectiveRecipient.userId}`);
+          if (localRec) recipientPubKeyJwk = JSON.parse(localRec);
+        }
+
+        // D. Derive the shared symmetric key
+        if (recipientPubKeyJwk) {
+          const recipientPublicKey = await cryptoService.importPublicKey(recipientPubKeyJwk);
+          const derivedKey = await cryptoService.deriveSharedSecret(privateKey, recipientPublicKey);
+          if (isMounted) {
+            setSharedKey(derivedKey);
+            setKeyStatus("ready");
+          }
+        } else {
+          if (isMounted) setKeyStatus("waiting");
+          console.warn("Recipient has not published a public key yet.");
+        }
+      } catch (error) {
+        console.error("Crypto init failed:", error);
+        if (isMounted) setKeyStatus("error");
+      }
+    };
+
+    initCrypto();
+    return () => { isMounted = false; };
+  }, [currentUser, effectiveRecipient.userId]);
+
+  // 2. Load Messages (Only when sharedKey is ready)
+  useEffect(() => {
+    if (!currentUser || !effectiveRecipient.userId || !sharedKey) return;
 
     const chatId = [currentUser.uid, effectiveRecipient.userId].sort().join("-");
+    let isMounted = true;
 
     if (isFirebaseConfigured()) {
       const q = query(
@@ -43,89 +132,106 @@ const P2PChat = ({ recipient, onClose }) => {
         orderBy("createdAt", "asc")
       );
 
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        const docs = snapshot.docs.map(doc => {
+      const unsubscribe = onSnapshot(q, async (snapshot) => {
+        const decryptedDocs = await Promise.all(snapshot.docs.map(async (doc) => {
           const data = doc.data();
           try {
-            const bytes = CryptoJS.AES.decrypt(data.encryptedContent, sharedSecret);
-            const decryptedText = bytes.toString(CryptoJS.enc.Utf8);
-            return {
-              id: doc.id,
-              ...data,
-              content: decryptedText || "[Decryption Failed]"
-            };
+            if (data.encryptedContent && data.encryptedContent.iv) {
+              const decryptedText = await cryptoService.decryptMessage(data.encryptedContent, sharedKey);
+              return { id: doc.id, ...data, content: decryptedText };
+            } else {
+              return { id: doc.id, ...data, content: "[Legacy Insecure Format]" };
+            }
           } catch (e) {
-            return { id: doc.id, ...data, content: "[Encrypted Message]" };
+            return { id: doc.id, ...data, content: "[Decryption Failed]" };
           }
-        });
-        setMessages(docs);
-        setTimeout(scrollToBottom, 100);
+        }));
+        
+        if (isMounted) {
+          setMessages(decryptedDocs);
+          setTimeout(scrollToBottom, 100);
+        }
       });
 
-      return () => unsubscribe();
+      return () => {
+        isMounted = false;
+        unsubscribe();
+      };
     } else {
       // Local Fallback Mode for Testing
-      const loadLocalMessages = () => {
+      const loadLocalMessages = async () => {
         const localData = localStorage.getItem(`p2p_chat_${chatId}`);
         if (localData) {
           const parsedData = JSON.parse(localData);
-          const decryptedMessages = parsedData.map(msg => {
+          const decryptedMessages = await Promise.all(parsedData.map(async (msg) => {
             try {
-              const bytes = CryptoJS.AES.decrypt(msg.encryptedContent, sharedSecret);
-              const decryptedText = bytes.toString(CryptoJS.enc.Utf8);
-              return { ...msg, content: decryptedText || "[Decryption Failed]" };
+              if (msg.encryptedContent && msg.encryptedContent.iv) {
+                const decryptedText = await cryptoService.decryptMessage(msg.encryptedContent, sharedKey);
+                return { ...msg, content: decryptedText };
+              } else {
+                return { ...msg, content: "[Legacy Format]" };
+              }
             } catch (e) {
-              return { ...msg, content: "[Encrypted Message]" };
+              return { ...msg, content: "[Decryption Failed]" };
             }
-          });
-          setMessages(decryptedMessages);
-          setTimeout(scrollToBottom, 100);
+          }));
+          if (isMounted) {
+            setMessages(decryptedMessages);
+            setTimeout(scrollToBottom, 100);
+          }
         }
       };
 
       loadLocalMessages();
-      // Poll for local changes (simulating real-time)
       const interval = setInterval(loadLocalMessages, 2000);
-      return () => clearInterval(interval);
+      return () => {
+        isMounted = false;
+        clearInterval(interval);
+      };
     }
-  }, [effectiveRecipient.userId, currentUser, sharedSecret]);
+  }, [sharedKey, currentUser, effectiveRecipient.userId]);
 
+  // 3. Send Message
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (!newMessage.trim() || !currentUser) return;
+    if (!newMessage.trim() || !currentUser || !sharedKey) return;
 
     const chatId = [currentUser.uid, effectiveRecipient.userId].sort().join("-");
-    const encrypted = CryptoJS.AES.encrypt(newMessage, sharedSecret).toString();
+    const messageText = newMessage;
+    setNewMessage(""); // Clear early for UX
 
-    if (isFirebaseConfigured()) {
-      try {
+    try {
+      const encrypted = await cryptoService.encryptMessage(messageText, sharedKey);
+
+      if (isFirebaseConfigured()) {
         await addDoc(collection(db, "direct_messages"), {
           chatId,
           senderId: currentUser.uid,
-          senderName: currentUser.displayName || currentUser.email.split('@')[0],
+          senderName: currentUser.displayName || currentUser.email?.split('@')[0] || "User",
           recipientId: effectiveRecipient.userId,
-          encryptedContent: encrypted,
+          encryptedContent: encrypted, // Stores { ciphertext, iv }
           createdAt: Timestamp.now()
         });
-      } catch (err) {
-        console.error("Error sending message:", err);
+      } else {
+        // Local Mode
+        const localKey = `p2p_chat_${chatId}`;
+        const existing = JSON.parse(localStorage.getItem(localKey) || "[]");
+        const newMsg = {
+          id: Date.now(),
+          senderId: currentUser.uid,
+          senderName: "You",
+          encryptedContent: encrypted,
+          createdAt: { toDate: () => new Date() }
+        };
+        localStorage.setItem(localKey, JSON.stringify([...existing, newMsg]));
+        setMessages(prev => [...prev, { ...newMsg, content: messageText }]);
+        setTimeout(scrollToBottom, 100);
       }
-    } else {
-      // Local Mode: Save to localStorage
-      const localKey = `p2p_chat_${chatId}`;
-      const existing = JSON.parse(localStorage.getItem(localKey) || "[]");
-      const newMsg = {
-        id: Date.now(),
-        senderId: currentUser.uid,
-        senderName: "You",
-        encryptedContent: encrypted,
-        createdAt: { toDate: () => new Date() } // Mock firebase timestamp
-      };
-      localStorage.setItem(localKey, JSON.stringify([...existing, newMsg]));
-      setMessages(prev => [...prev, { ...newMsg, content: newMessage }]);
-      setTimeout(scrollToBottom, 100);
+    } catch (err) {
+      console.error("Encryption/Send failed:", err);
+      // Revert input on failure
+      setNewMessage(messageText);
     }
-    setNewMessage("");
   };
 
   return (
@@ -139,7 +245,13 @@ const P2PChat = ({ recipient, onClose }) => {
           <div>
             <h3>{effectiveRecipient.userName}</h3>
             <span className="security-status">
-              <Lock size={12} /> End-to-End Encrypted
+              {keyStatus === "ready" ? (
+                <><Lock size={12} /> True End-to-End Encrypted</>
+              ) : keyStatus === "waiting" ? (
+                <><KeyRound size={12} /> Waiting for peer key...</>
+              ) : (
+                <><KeyRound size={12} /> Securing connection...</>
+              )}
             </span>
           </div>
         </div>
@@ -149,7 +261,7 @@ const P2PChat = ({ recipient, onClose }) => {
       <div className="p2p-chat-messages">
         <div className="encryption-notice">
           <Lock size={16} />
-          <p>Messages are end-to-end encrypted. No one outside of this chat, not even Fasal Saathi, can read them.</p>
+          <p>Messages are end-to-end encrypted using ECDH and AES-GCM. No one outside of this chat can read them.</p>
         </div>
         
         {messages.map((msg) => (
@@ -171,12 +283,17 @@ const P2PChat = ({ recipient, onClose }) => {
       <form className="p2p-chat-input" onSubmit={handleSendMessage}>
         <input 
           type="text" 
-          placeholder="Type an encrypted message..." 
+          placeholder={
+            keyStatus === "auth_required" ? "Please log in to chat securely." :
+            keyStatus === "ready" ? "Type a secure message..." : 
+            `Securing: ${keyStatus.replace("_", " ")}...`
+          } 
           value={newMessage}
           onChange={(e) => setNewMessage(e.target.value)}
+          disabled={!sharedKey}
           required
         />
-        <button type="submit" className="send-msg-btn" aria-label="Send Message">
+        <button type="submit" className="send-msg-btn" aria-label="Send Message" disabled={!sharedKey}>
           <Send className="send-icon-svg" size={40} />
         </button>
       </form>
