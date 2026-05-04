@@ -546,14 +546,17 @@
 }
 
 .stat-number {
-  font-size: 32px;
+  font-size: 36px;
   font-weight: 800;
-  color: var(--primary);
+  color: #02702b !important;
 }
 
 .stat-label {
-  font-size: 16px;
-  color: var(--gray-500);
+  font-size: 18px;
+  /* This color provides decent contrast on both light and dark backgrounds */
+  color: #02702b !important; 
+  font-weight: 600; /* Bolding the text helps readability significantly */
+  text-shadow: 0px 0px 1px rgba(0,0,0,0.1); /* Adds a tiny bit of depth */
 }
 
 .hero-visual {
