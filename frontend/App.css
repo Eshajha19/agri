@@ -5,6 +5,28 @@
   box-sizing: border-box;
 }
 
+/* Lite Mode Performance Engine */
+.lite-mode * {
+  animation: none !important;
+  transition: none !important;
+  transition-duration: 0s !important;
+  backdrop-filter: none !important;
+  text-shadow: none !important;
+}
+
+.lite-mode {
+  --navbar-height: 70px; /* Ensure consistency */
+}
+
+.lite-mode .navbar,
+.lite-mode .card,
+.lite-mode .modal,
+.lite-mode .glass-effect {
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
+  backdrop-filter: none !important;
+  background: var(--card-bg, #fff) !important;
+}
+
 html.goog-translate {
   padding-top: 0 !important;
 }
@@ -1729,4 +1751,95 @@ html body {
     background: rgba(255, 255, 255, 0.1);
     border-color: rgba(255, 255, 255, 0.2);
   }
+}
+
+/* Adaptive Lite Mode Styles */
+.performance-toggle-section {
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 8px;
+}
+
+.lite-mode-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: white;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.lite-mode-toggle:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.lite-mode-toggle.active {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: #10b981;
+}
+
+.toggle-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.zap-icon {
+  color: #fbbf24;
+}
+
+.lite-mode-toggle.active .zap-icon {
+  color: #10b981;
+  filter: drop-shadow(0 0 5px rgba(16, 185, 129, 0.5));
+}
+
+.toggle-switch {
+  width: 36px;
+  height: 20px;
+  background: #4b5563;
+  border-radius: 20px;
+  position: relative;
+  transition: background 0.2s;
+}
+
+.lite-mode-toggle.active .toggle-switch {
+  background: #10b981;
+}
+
+.switch-handle {
+  width: 16px;
+  height: 16px;
+  background: white;
+  border-radius: 50%;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: left 0.2s;
+}
+
+.lite-mode-toggle.active .switch-handle {
+  left: 18px;
+}
+
+/* Advisor Card Optimizations in Lite Mode */
+.lite-mode .card {
+  box-shadow: none !important;
+  border: 1px solid var(--border-color, #e2e8f0) !important;
+  transform: none !important;
+}
+
+.lite-mode .card:hover {
+  border-color: var(--brand-primary, #2e7d32) !important;
+}
+
+.lite-mode .card .icon {
+  background: var(--bg-secondary, #f1f5f9) !important;
+  animation: none !important;
 }

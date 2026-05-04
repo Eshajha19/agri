@@ -16,7 +16,9 @@ import {
   FaInfoCircle,
   FaBook,
   FaShieldAlt,
+  FaBolt,
 } from "react-icons/fa";
+import { usePerformanceStore } from "./stores/performanceStore";
 
 // Components
 import AdminFeedback from "./AdminFeedback";
@@ -56,10 +58,11 @@ import NotFound from "./NotFound";
 import PrivacyPolicy from "./PrivacyPolicy";
 import Terms from "./Terms";
 import SoilAnalysis from "./SoilAnalysis";
+import SeedVerifier from "./SeedVerifier";
 import { SkipLink } from "./NavigationManager";
 
 // Libs
-import { auth, db, isFirebaseConfigured, doc, onSnapshot } from "./lib/firebase";
+import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc } from "./lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 
 // CSS
@@ -101,6 +104,12 @@ function App() {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  
+  const { liteMode, setLiteMode, detectAndSetLiteMode } = usePerformanceStore();
+
+  useEffect(() => {
+    detectAndSetLiteMode();
+  }, []);
 
   const { i18n } = useTranslation();
   const location = useLocation();
@@ -142,6 +151,38 @@ function App() {
     });
     return () => unsubscribeAuth();
   }, []);
+
+  // E2EE Key Generation Sync
+  useEffect(() => {
+    if (!user || !isFirebaseConfigured()) return;
+
+    const ensurePublicKey = async () => {
+      try {
+        let privateJwk = localStorage.getItem(`ecdh_private_${user.uid}`);
+        let publicJwk = localStorage.getItem(`ecdh_public_${user.uid}`);
+        
+        // Generate globally if it doesn't exist
+        if (!privateJwk || !publicJwk) {
+          const { cryptoService } = await import("./utils/cryptoService");
+          const keyPair = await cryptoService.generateECDHKeyPair();
+          privateJwk = await cryptoService.exportKey(keyPair.privateKey);
+          publicJwk = await cryptoService.exportKey(keyPair.publicKey);
+          localStorage.setItem(`ecdh_private_${user.uid}`, JSON.stringify(privateJwk));
+          localStorage.setItem(`ecdh_public_${user.uid}`, JSON.stringify(publicJwk));
+        } else {
+          publicJwk = JSON.parse(publicJwk);
+        }
+
+        // Publish to Firebase so others can find it instantly when you log in
+        const pubKeyRef = doc(db, "public_keys", user.uid);
+        await setDoc(pubKeyRef, { jwk: publicJwk }, { merge: true });
+      } catch (error) {
+        console.error("Failed to generate/publish ECDH keys globally:", error);
+      }
+    };
+
+    ensurePublicKey();
+  }, [user]);
 
   // Theme Sync
   const [isDarkTheme, setIsDarkTheme] = useState(() => {
@@ -212,7 +253,7 @@ function App() {
   useNotifications();
 
   return (
-    <div className={`app ${isDarkTheme ? "theme-dark" : ""}`}>
+    <div className={`app ${isDarkTheme ? "theme-dark" : ""} ${liteMode ? "lite-mode" : ""}`}>
       <SkipLink />
       
       {loading && <Loader fullPage={true} message={<span className="notranslate">Initializing Fasal Saathi...</span>} />}
@@ -267,6 +308,21 @@ function App() {
                       localStorage.setItem("preferredLanguage", lang);
                     }}
                   />
+                </div>
+                <div className="performance-toggle-section">
+                  <button 
+                    className={`lite-mode-toggle ${liteMode ? 'active' : ''}`}
+                    onClick={() => setLiteMode(!liteMode)}
+                    role="menuitem"
+                  >
+                    <div className="toggle-info">
+                      <FaBolt className="zap-icon" />
+                      <span>Lite Mode {liteMode ? "ON" : "OFF"}</span>
+                    </div>
+                    <div className="toggle-switch">
+                      <div className="switch-handle" />
+                    </div>
+                  </button>
                 </div>
                 <Link to="/dashboard" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaTachometerAlt /> Dashboard</Link>
                 <Link to="/community" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaComments /> Community</Link>
@@ -370,6 +426,7 @@ function App() {
           <Route path="/glossary" element={<Glossary />} />
           <Route path="/risk-index" element={<RiskIndex />} />
           <Route path="/crop-rotation" element={<CropRotation />} />
+          <Route path="/seed-verifier" element={<SeedVerifier />} />
           <Route path="/blog" element={<Blog />} />
           <Route path="/blog/:id" element={<BlogDetail />} />
           <Route path="*" element={<NotFound />} />

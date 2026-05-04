@@ -18,9 +18,11 @@ import FarmPlanner3D from "./FarmPlanner3D";
 import FarmDiary from "./FarmDiary";
 import CropDiseaseDetection from "./CropDiseaseDetection";
 import PestManagement from "./PestManagement";
+import SeedVerifier from "./SeedVerifier";
 
 import CropRotation from "./CropRotation";
 import P2PChat from "./P2PChat";
+import GeoAlertMesh from "./GeoAlertMesh";
 import SmartCropRecommendation from "./SmartCropRecommendation";
 import {
   Sun,
@@ -39,19 +41,20 @@ import {
   ShoppingCart,
   Book,
   CloudSun,
+  QrCode,
+  Award,
+  Star,
+  ThumbsUp,
+  X,
+  AlertTriangle
 } from "lucide-react";
 import { FaSync } from "react-icons/fa";
 import { useAdvisorStore } from "./stores/advisorStore";
+import { usePerformanceStore } from "./stores/performanceStore";
 import { useYieldPrediction } from "./hooks/useYieldPrediction";
 import { auth, db } from "./lib/firebase";
 import { generateBankPDF, generateCSV } from "./utils/exportService";
 import { doc, onSnapshot } from "firebase/firestore";
-import { 
-  Award, 
-  Star, 
-  ThumbsUp,
-  X
-} from "lucide-react";
 
 export default function Advisor() {
   const navigate = useNavigate();
@@ -109,7 +112,13 @@ export default function Advisor() {
     setShowP2PChat,
     showSmartCropRecommendation,
     setShowSmartCropRecommendation,
+    showSeedVerifier,
+    setShowSeedVerifier,
+    showGeoAlerts,
+    setShowGeoAlerts,
   } = useAdvisorStore();
+
+  const { liteMode } = usePerformanceStore();
 
   const {
     yieldForm,
@@ -603,6 +612,21 @@ export default function Advisor() {
             <p>Generate QR codes for your produce. Let customers trace their food from farm to table.</p>
           </div>
 
+          <div 
+            className="card reveal" 
+            role="button" 
+            tabIndex={0} 
+            onClick={() => setShowSeedVerifier(true)} 
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSeedVerifier(true); }} 
+            aria-label="Vision-Lite: Seed Authenticity Verifier"
+          >
+            <div className="icon" aria-hidden="true">
+              <QrCode size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Vision-Lite: Seed Verifier</span></h3>
+            <p>Scan seed packets to verify authenticity and prevent counterfeit usage.</p>
+          </div>
+
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFarmPlanner3D(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFarmPlanner3D(true); }} aria-label="3D Farm Planner: Interactive design">
             <div className="icon" aria-hidden="true">🗺️</div>
             <h3><span className="notranslate">3D Farm Planner</span></h3>
@@ -688,6 +712,14 @@ export default function Advisor() {
             <div className="mini-badge-info">
               {currentReputation} pts · {currentReputation >= 500 ? "🥇" : currentReputation >= 200 ? "🥈" : currentReputation >= 50 ? "🥉" : "🌱"}
             </div>
+          </div>
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowGeoAlerts(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowGeoAlerts(true); }} aria-label="Geo-Hashed Disaster Mesh: View nearby alerts">
+            <div className="icon" aria-hidden="true" style={{background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444'}}>
+              <AlertTriangle size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Disaster Mesh Alerts</span></h3>
+            <p>Report and receive highly localized (5km radius) real-time disaster alerts.</p>
           </div>
 
           <div className="card reveal bank-report-card" role="button" tabIndex={0} onClick={() => setShowBankReport(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowBankReport(true); }} aria-label="Bank Reports: Export financial data">
@@ -1327,6 +1359,12 @@ export default function Advisor() {
         </div>
       )}
 
+      {showGeoAlerts && (
+        <div className="weather-overlay" onClick={() => setShowGeoAlerts(false)}>
+          <GeoAlertMesh onClose={() => setShowGeoAlerts(false)} />
+        </div>
+      )}
+
       {showSmartCropRecommendation && (
         <div className="weather-overlay" onClick={() => setShowSmartCropRecommendation(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
@@ -1337,6 +1375,14 @@ export default function Advisor() {
             >
               Close
             </button>
+          </div>
+        </div>
+      )}
+
+      {showSeedVerifier && (
+        <div className="weather-overlay" onClick={() => setShowSeedVerifier(false)}>
+          <div className="weather-popup" style={{ width: '90%', maxWidth: '450px', padding: 0, overflowY: 'auto', maxHeight: '90vh' }} onClick={(e) => e.stopPropagation()}>
+            <SeedVerifier onClose={() => setShowSeedVerifier(false)} />
           </div>
         </div>
       )}
