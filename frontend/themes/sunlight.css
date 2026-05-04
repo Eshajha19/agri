@@ -1,15 +1,16 @@
 /* Sunlight / High Contrast Theme */
 /* This theme provides accessibility for users who need high contrast and larger text */
-:root.sunlight {
+html.sunlight,
+body.sunlight {
   /* Override all color variables */
   --bg-primary: #ffffff;
-  --text-primary: #000000;
-  --text-secondary: #000000;
+  --text-primary: #111111;
+  --text-secondary: #1a1a1a;
   --brand-primary: #000000;
   --brand-hover: #1e293b;
   --accent-color: #000000;
   --card-bg: #ffffff;
-  --border-color: #000000;
+  --border-color: #111111;
   --chat-window-bg: #ffffff;
   --chat-bot-bg: #f5f5f5;
   --focus-ring: rgba(0, 0, 0, 0.5);

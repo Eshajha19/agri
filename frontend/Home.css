@@ -171,7 +171,6 @@
   will-change: transform;
   opacity: 0.92;
   filter: drop-shadow(0 2px 6px #0001);
-  color: #2d3748;
 }
 /* Birds now move up and down as they fly */
 /* Birds now move up/down and fade in/out smoothly */
@@ -282,6 +281,7 @@
   20% { margin-top: 7px; }
   60% { margin-top: -7px; }
   100% { margin-top: 0; }
+/* removed stray closing brace */
 }
 
 /* Cloud Animation Styles */
@@ -359,6 +359,7 @@
   50% { transform: translateY(6px); }
   80% { transform: translateY(-6px); }
   100% { transform: translateY(0); }
+/* removed stray closing brace */
 }
 
 /* Adjust hero section when translation toolbar is present */
