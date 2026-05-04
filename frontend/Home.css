@@ -1431,3 +1431,60 @@
     grid-template-columns: 1fr;
   }
 }
+
+.insights-section, .ai-insights {
+  padding: 60px 20px;
+}
+
+.chart-box {
+  background: #fff;
+  padding: 20px;
+  border-radius: 16px;
+}
+
+.insight-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px;
+}
+
+.insight-card {
+  background: #f0fdf4;
+  padding: 20px;
+  border-radius: 12px;
+}
+
+.feature-filters {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.feature-filters button {
+  padding: 8px 14px;
+  border-radius: 20px;
+  border: none;
+  background: #e5e7eb;
+  cursor: pointer;
+}
+
+.scroll-top {
+  position: fixed;
+  bottom: 90px;
+  right: 20px;
+  padding: 10px;
+  border-radius: 50%;
+  background: #16a34a;
+  color: white;
+}
+
+.sticky-cta {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: #16a34a;
+  color: white;
+  padding: 12px 18px;
+  border-radius: 50px;
+}
