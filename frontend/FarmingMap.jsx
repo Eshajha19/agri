@@ -438,4 +438,271 @@ export default function FarmingMap() {
       )}
     </div>
   );
+}import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+
+import {
+  FaCloud,
+  FaLeaf,
+  FaExclamationTriangle,
+  FaTimes,
+  FaLocationArrow
+} from "react-icons/fa";
+
+import "./FarmingMap.css";
+
+/* ---------------- ICONS (memoized singletons) ---------------- */
+
+const weatherIcon = L.divIcon({
+  html: "🌤️",
+  className: "weather-marker",
+  iconSize: [30, 30]
+});
+
+const cropIcon = L.divIcon({
+  html: "🌾",
+  className: "crop-marker",
+  iconSize: [30, 30]
+});
+
+const userIcon = L.divIcon({
+  html: "📍",
+  className: "user-marker",
+  iconSize: [32, 32]
+});
+
+const alertIcon = L.divIcon({
+  html: "⚠️",
+  className: "alert-marker",
+  iconSize: [30, 30]
+});
+
+/* ---------------- COMPONENT ---------------- */
+
+export default function FarmingMap() {
+  const mapRef = useRef(null);
+
+  // Layer groups (🔥 best practice)
+  const weatherLayer = useRef(L.layerGroup());
+  const cropLayer = useRef(L.layerGroup());
+  const alertLayer = useRef(L.layerGroup());
+  const userMarkerRef = useRef(null);
+
+  const [userLocation, setUserLocation] = useState(null);
+  const [selected, setSelected] = useState(null);
+
+  const [layers, setLayers] = useState({
+    weather: true,
+    crop: true,
+    alert: true,
+    lite: false
+  });
+
+  /* ---------------- MAP INIT ---------------- */
+
+  useEffect(() => {
+    if (mapRef.current) return;
+
+    const map = L.map("map", {
+      zoomControl: false
+    }).setView([20.5937, 78.9629], 5);
+
+    mapRef.current = map;
+
+    L.control.zoom({ position: "bottomright" }).addTo(map);
+
+    L.tileLayer(
+      "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      { attribution: "© OpenStreetMap" }
+    ).addTo(map);
+
+    // attach layers once
+    weatherLayer.current.addTo(map);
+    cropLayer.current.addTo(map);
+    alertLayer.current.addTo(map);
+  }, []);
+
+  /* ---------------- GEOLOCATION ---------------- */
+
+  useEffect(() => {
+    navigator.geolocation?.getCurrentPosition(
+      (pos) => {
+        const loc = [pos.coords.latitude, pos.coords.longitude];
+        setUserLocation(loc);
+
+        if (mapRef.current) {
+          mapRef.current.setView(loc, 12);
+        }
+      },
+      () => {
+        setUserLocation([20.5937, 78.9629]);
+      }
+    );
+  }, []);
+
+  /* ---------------- USER MARKER ---------------- */
+
+  useEffect(() => {
+    if (!userLocation || !mapRef.current) return;
+
+    if (userMarkerRef.current) {
+      userMarkerRef.current.remove();
+    }
+
+    userMarkerRef.current = L.marker(userLocation, {
+      icon: userIcon
+    }).addTo(mapRef.current);
+  }, [userLocation]);
+
+  /* ---------------- DATA GENERATION ---------------- */
+
+  const weatherPoints = useMemo(() => {
+    if (!userLocation) return [];
+    return [
+      {
+        id: "w1",
+        lat: userLocation[0] + 0.02,
+        lng: userLocation[1] + 0.02,
+        temp: 28
+      }
+    ];
+  }, [userLocation]);
+
+  const cropPoints = useMemo(() => {
+    if (!userLocation) return [];
+    return [
+      {
+        id: "c1",
+        lat: userLocation[0] - 0.02,
+        lng: userLocation[1] - 0.02,
+        crop: "Paddy"
+      }
+    ];
+  }, [userLocation]);
+
+  const alertPoints = useMemo(() => {
+    if (!userLocation) return [];
+    return [
+      {
+        id: "a1",
+        lat: userLocation[0] + 0.03,
+        lng: userLocation[1] + 0.03,
+        msg: "Heavy Rain Alert"
+      }
+    ];
+  }, [userLocation]);
+
+  /* ---------------- LAYER CONTROL ---------------- */
+
+  const rebuildLayer = useCallback((layerRef, points, icon, popupFn) => {
+    layerRef.current.clearLayers();
+
+    points.forEach((p) => {
+      const marker = L.marker([p.lat, p.lng], { icon });
+
+      marker.bindPopup(popupFn(p));
+
+      marker.on("click", () => setSelected(p));
+
+      layerRef.current.addLayer(marker);
+    });
+  }, []);
+
+  /* ---------------- UPDATE LAYERS ---------------- */
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    if (layers.weather) {
+      rebuildLayer(
+        weatherLayer,
+        weatherPoints,
+        weatherIcon,
+        (p) => `🌡️ Temp: ${p.temp}°C`
+      );
+    } else {
+      weatherLayer.current.clearLayers();
+    }
+
+    if (layers.crop) {
+      rebuildLayer(
+        cropLayer,
+        cropPoints,
+        cropIcon,
+        (p) => `🌾 Crop: ${p.crop}`
+      );
+    } else {
+      cropLayer.current.clearLayers();
+    }
+
+    if (layers.alert) {
+      rebuildLayer(
+        alertLayer,
+        alertPoints,
+        alertIcon,
+        (p) => `⚠️ ${p.msg}`
+      );
+    } else {
+      alertLayer.current.clearLayers();
+    }
+  }, [layers, weatherPoints, cropPoints, alertPoints, rebuildLayer]);
+
+  /* ---------------- UI ---------------- */
+
+  return (
+    <div className="map-wrapper">
+
+      <div className="controls">
+        <button onClick={() => mapRef.current?.setView(userLocation, 12)}>
+          <FaLocationArrow /> Locate
+        </button>
+
+        <label>
+          <input
+            type="checkbox"
+            checked={layers.weather}
+            onChange={(e) =>
+              setLayers((p) => ({ ...p, weather: e.target.checked }))
+            }
+          />
+          <FaCloud /> Weather
+        </label>
+
+        <label>
+          <input
+            type="checkbox"
+            checked={layers.crop}
+            onChange={(e) =>
+              setLayers((p) => ({ ...p, crop: e.target.checked }))
+            }
+          />
+          <FaLeaf /> Crops
+        </label>
+
+        <label>
+          <input
+            type="checkbox"
+            checked={layers.alert}
+            onChange={(e) =>
+              setLayers((p) => ({ ...p, alert: e.target.checked }))
+            }
+          />
+          ⚠️ Alerts
+        </label>
+      </div>
+
+      <div id="map" className="map-container" />
+
+      {selected && (
+        <div className="info-panel">
+          <button onClick={() => setSelected(null)}>
+            <FaTimes />
+          </button>
+          <pre>{JSON.stringify(selected, null, 2)}</pre>
+        </div>
+      )}
+
+    </div>
+  );
 }

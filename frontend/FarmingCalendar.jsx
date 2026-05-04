@@ -1,151 +1,162 @@
-import React, { useState, useEffect } from "react";
-import { 
-  format, 
-  addMonths, 
-  subMonths, 
-  startOfMonth, 
-  endOfMonth, 
-  startOfWeek, 
-  endOfWeek, 
-  isSameMonth, 
-  isSameDay, 
-  addDays, 
+import React, { useState, useEffect, useMemo } from "react";
+import {
+  format,
+  addMonths,
+  subMonths,
+  startOfMonth,
+  endOfMonth,
+  startOfWeek,
+  endOfWeek,
+  isSameMonth,
+  isSameDay,
+  addDays,
   isToday,
   parseISO
 } from "date-fns";
-import { 
-  Calendar as CalendarIcon, 
-  Plus, 
-  Clock, 
-  Droplets, 
-  Sprout, 
+
+import {
+  Calendar as CalendarIcon,
+  Plus,
+  Clock,
+  Droplets,
+  Sprout,
   Trash2,
   CheckCircle2,
   AlertCircle
 } from "lucide-react";
+
 import { auth, db, isFirebaseConfigured } from "./lib/firebase";
-import { collection, query, where, onSnapshot, addDoc, deleteDoc, doc, updateDoc } from "firebase/firestore";
+import {
+  collection,
+  query,
+  where,
+  onSnapshot,
+  addDoc,
+  deleteDoc,
+  doc,
+  updateDoc
+} from "firebase/firestore";
+
 import "./FarmingCalendar.css";
 import Loader from "./Loader";
+
+/* ---------------- CONFIG ---------------- */
 
 const ACTIVITY_TYPES = [
   { id: "sowing", label: "Sowing", icon: <Sprout size={16} />, color: "#10b981" },
   { id: "irrigation", label: "Irrigation", icon: <Droplets size={16} />, color: "#3b82f6" },
   { id: "fertilizer", label: "Fertilizer", icon: <AlertCircle size={16} />, color: "#f59e0b" },
   { id: "harvest", label: "Harvest", icon: <CheckCircle2 size={16} />, color: "#8b5cf6" },
-  { id: "other", label: "Other", icon: <CalendarIcon size={16} />, color: "#6b7280" },
+  { id: "other", label: "Other", icon: <CalendarIcon size={16} />, color: "#6b7280" }
 ];
 
+const getToday = () => new Date();
+
+/* ---------------- COMPONENT ---------------- */
+
 const FarmingCalendar = () => {
-  const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [currentMonth, setCurrentMonth] = useState(getToday());
+  const [selectedDate, setSelectedDate] = useState(getToday());
   const [activities, setActivities] = useState([]);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [loading, setLoading] = useState(true);
+
   const [newActivity, setNewActivity] = useState({
     title: "",
     type: "sowing",
     time: "09:00",
     description: ""
   });
-  const [loading, setLoading] = useState(true);
 
-  // Fetch activities from Firestore
+  /* ---------------- FIREBASE ---------------- */
+
   useEffect(() => {
-    if (!isFirebaseConfigured()) {
-      setLoading(false);
-      return;
-    }
+    if (!isFirebaseConfigured()) return setLoading(false);
+
     const user = auth?.currentUser;
-    if (!user) {
-      setLoading(false);
-      return;
-    }
+    if (!user) return setLoading(false);
 
     const q = query(collection(db, "activities"), where("userId", "==", user.uid));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const docs = snapshot.docs.map(snap => ({
-        id: snap.id,
-        ...snap.data()
+
+    const unsub = onSnapshot(q, (snap) => {
+      const data = snap.docs.map(d => ({
+        id: d.id,
+        ...d.data(),
+        parsedDate: parseISO(d.data().date) // 🔥 parse once only
       }));
-      setActivities(docs);
+      setActivities(data);
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => unsub();
   }, []);
 
-  const renderHeader = () => {
-    return (
-      <div className="calendar-header">
-        <div className="header-info">
-          <h2>{format(currentMonth, "MMMM yyyy")}</h2>
-          <p>Plan your agricultural activities</p>
-        </div>
-        <div className="header-nav">
-          <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="nav-btn">
-            &#8249;
-          </button>
-          <button onClick={() => setCurrentMonth(new Date())} className="today-btn">Today</button>
-          <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="nav-btn">
-            &#8250;
-          </button>
-        </div>
-      </div>
-    );
-  };
+  /* ---------------- OPTIMIZED GROUPING ---------------- */
 
-  const renderDays = () => {
-    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    return (
-      <div className="calendar-days">
-        {days.map((day, i) => (
-          <div key={i} className="day-name">{day}</div>
-        ))}
-      </div>
-    );
-  };
+  const activitiesByDay = useMemo(() => {
+    const map = new Map();
 
-  const renderCells = () => {
+    activities.forEach(act => {
+      const key = format(act.parsedDate, "yyyy-MM-dd");
+
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(act);
+    });
+
+    return map;
+  }, [activities]);
+
+  /* ---------------- CALENDAR GRID ---------------- */
+
+  const calendarCells = useMemo(() => {
     const monthStart = startOfMonth(currentMonth);
     const monthEnd = endOfMonth(monthStart);
     const startDate = startOfWeek(monthStart);
     const endDate = endOfWeek(monthEnd);
 
-    const dateFormat = "d";
     const rows = [];
     let days = [];
     let day = startDate;
-    let formattedDate = "";
 
     while (day <= endDate) {
       for (let i = 0; i < 7; i++) {
-        formattedDate = format(day, dateFormat);
+        const key = format(day, "yyyy-MM-dd");
+        const dayActivities = activitiesByDay.get(key) || [];
+
         const cloneDay = day;
-        const dayActivities = activities.filter(act => isSameDay(parseISO(act.date), cloneDay));
 
         days.push(
           <div
-            className={`calendar-cell ${!isSameMonth(day, monthStart) ? "disabled" : ""} 
+            key={key}
+            className={`calendar-cell 
+              ${!isSameMonth(day, monthStart) ? "disabled" : ""} 
               ${isSameDay(day, selectedDate) ? "selected" : ""} 
               ${isToday(day) ? "today" : ""}`}
-            key={day.toString()}
             onClick={() => setSelectedDate(cloneDay)}
           >
-            <span className="cell-number">{formattedDate}</span>
+            <span className="cell-number">{format(day, "d")}</span>
+
             <div className="cell-indicators">
-              {dayActivities.slice(0, 3).map((act, index) => (
-                <div 
-                  key={index} 
-                  className="activity-dot" 
-                  style={{ backgroundColor: ACTIVITY_TYPES.find(t => t.id === act.type)?.color }}
-                />
-              ))}
-              {dayActivities.length > 3 && <span className="more-count">+{dayActivities.length - 3}</span>}
+              {dayActivities.slice(0, 3).map((act) => {
+                const type = ACTIVITY_TYPES.find(t => t.id === act.type);
+                return (
+                  <div
+                    key={act.id}
+                    className="activity-dot"
+                    style={{ backgroundColor: type?.color }}
+                  />
+                );
+              })}
+              {dayActivities.length > 3 && (
+                <span className="more-count">+{dayActivities.length - 3}</span>
+              )}
             </div>
           </div>
         );
+
         day = addDays(day, 1);
       }
+
       rows.push(
         <div className="calendar-row" key={day.toString()}>
           {days}
@@ -153,164 +164,134 @@ const FarmingCalendar = () => {
       );
       days = [];
     }
-    return <div className="calendar-body">{rows}</div>;
-  };
+
+    return rows;
+  }, [currentMonth, selectedDate, activitiesByDay]);
+
+  /* ---------------- SELECTED DAY ---------------- */
+
+  const selectedDayActivities = useMemo(() => {
+    const key = format(selectedDate, "yyyy-MM-dd");
+    return activitiesByDay.get(key) || [];
+  }, [selectedDate, activitiesByDay]);
+
+  /* ---------------- FIREBASE ACTIONS ---------------- */
 
   const handleAddActivity = async (e) => {
     e.preventDefault();
-    if (!isFirebaseConfigured()) return;
     const user = auth?.currentUser;
     if (!user) return;
 
-    try {
-      await addDoc(collection(db, "activities"), {
-        userId: user.uid,
-        title: newActivity.title,
-        type: newActivity.type,
-        time: newActivity.time,
-        description: newActivity.description,
-        date: selectedDate.toISOString(),
-        completed: false,
-        createdAt: new Date().toISOString()
-      });
-      setNewActivity({ title: "", type: "Sprout", time: "09:00", description: "" });
-      setShowAddModal(false);
-    } catch (err) {
-      console.error("Error adding activity:", err);
-    }
+    await addDoc(collection(db, "activities"), {
+      userId: user.uid,
+      ...newActivity,
+      date: selectedDate.toISOString(),
+      completed: false,
+      createdAt: new Date().toISOString()
+    });
+
+    setNewActivity({
+      title: "",
+      type: "sowing",
+      time: "09:00",
+      description: ""
+    });
+
+    setShowAddModal(false);
   };
 
-  const handleDeleteActivity = async (id) => {
-    if (!db) return;
-    try {
-      await deleteDoc(doc(db, "activities", id));
-    } catch (err) {
-      console.error("Error deleting activity:", err);
-    }
+  const handleDelete = async (id) => {
+    await deleteDoc(doc(db, "activities", id));
   };
 
-  const toggleComplete = async (activity) => {
-    if (!db) return;
-    try {
-      await updateDoc(doc(db, "activities", activity.id), {
-        completed: !activity.completed
-      });
-    } catch (err) {
-      console.error("Error toggling activity:", err);
-    }
+  const toggleComplete = async (act) => {
+    await updateDoc(doc(db, "activities", act.id), {
+      completed: !act.completed
+    });
   };
 
-  const selectedDayActivities = activities.filter(act => isSameDay(parseISO(act.date), selectedDate));
+  /* ---------------- UI ---------------- */
+
+  if (loading) return <Loader message="Loading schedule..." />;
 
   return (
     <div className="farming-calendar-container">
-      {loading ? (
-        <Loader message="Loading your farming schedule..." />
-      ) : (
-        <>
-          <div className="calendar-main-glass">
-            <div className="calendar-col">
-              {renderHeader()}
-              {renderDays()}
-              {renderCells()}
-            </div>
-            
-            <div className="details-col">
-              <div className="details-header">
-                <h3>{format(selectedDate, "do MMMM, yyyy")}</h3>
-                <button className="add-activity-btn" onClick={() => setShowAddModal(true)}>
-                  <Plus size={18} /> Add Activity
+
+      {/* HEADER */}
+      <div className="calendar-header">
+        <h2>{format(currentMonth, "MMMM yyyy")}</h2>
+
+        <div className="header-nav">
+          <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>‹</button>
+          <button onClick={() => setCurrentMonth(getToday())}>Today</button>
+          <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>›</button>
+        </div>
+      </div>
+
+      {/* GRID */}
+      <div className="calendar-body">{calendarCells}</div>
+
+      {/* DETAILS */}
+      <div className="details-col">
+        <h3>{format(selectedDate, "do MMMM yyyy")}</h3>
+
+        {selectedDayActivities.length === 0 ? (
+          <p>No activities</p>
+        ) : (
+          selectedDayActivities.map(act => {
+            const type = ACTIVITY_TYPES.find(t => t.id === act.type);
+
+            return (
+              <div key={act.id} className="activity-item">
+                <span onClick={() => toggleComplete(act)}>
+                  {act.completed ? "✔" : "○"}
+                </span>
+
+                <div>
+                  <b>{act.title}</b>
+                  <p>{type?.label} • {act.time}</p>
+                </div>
+
+                <button onClick={() => handleDelete(act.id)}>
+                  <Trash2 size={16} />
                 </button>
               </div>
+            );
+          })
+        )}
 
-              <div className="activities-list">
-                {selectedDayActivities.length === 0 ? (
-                  <div className="no-activities">
-                    <CalendarIcon size={48} className="empty-icon" />
-                    <p>No activities planned for this day.</p>
-                  </div>
-                ) : (
-                  selectedDayActivities.map((act) => (
-                    <div key={act.id} className={`activity-item ${act.completed ? 'completed' : ''}`}>
-                      <div className="activity-status" onClick={() => toggleComplete(act)}>
-                        {act.completed ? <CheckCircle2 size={20} className="done" /> : <div className="pending-circle" />}
-                      </div>
-                      <div className="activity-info">
-                        <div className="activity-type-badge" style={{ backgroundColor: ACTIVITY_TYPES.find(t => t.id === act.type)?.color + '20', color: ACTIVITY_TYPES.find(t => t.id === act.type)?.color }}>
-                          {ACTIVITY_TYPES.find(t => t.id === act.type)?.icon}
-                          {ACTIVITY_TYPES.find(t => t.id === act.type)?.label}
-                        </div>
-                        <h4>{act.title}</h4>
-                        <div className="activity-metadata">
-                          <span><Clock size={14} /> {act.time}</span>
-                          {act.description && <p>{act.description}</p>}
-                        </div>
-                      </div>
-                      <button className="delete-btn" onClick={() => handleDeleteActivity(act.id)}>
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
+        <button onClick={() => setShowAddModal(true)}>
+          <Plus /> Add
+        </button>
+      </div>
 
-          {showAddModal && (
-            <div className="modal-overlay">
-              <div className="modal-card">
-                <h3>Add New Activity</h3>
-                <form onSubmit={handleAddActivity}>
-                  <div className="form-group">
-                    <label>Activity Title</label>
-                    <input 
-                      type="text" 
-                      placeholder="e.g. Rice Sowing" 
-                      value={newActivity.title}
-                      onChange={(e) => setNewActivity({...newActivity, title: e.target.value})}
-                      required
-                    />
-                  </div>
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label>Type</label>
-                      <select 
-                        value={newActivity.type}
-                        onChange={(e) => setNewActivity({...newActivity, type: e.target.value})}
-                      >
-                        {ACTIVITY_TYPES.map(t => (
-                          <option key={t.id} value={t.id}>{t.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="form-group">
-                      <label>Time</label>
-                      <input 
-                        type="time" 
-                        value={newActivity.time}
-                        onChange={(e) => setNewActivity({...newActivity, time: e.target.value})}
-                      />
-                    </div>
-                  </div>
-                  <div className="form-group">
-                    <label>Description (Optional)</label>
-                    <textarea 
-                      rows="3" 
-                      placeholder="Details about the task..."
-                      value={newActivity.description}
-                      onChange={(e) => setNewActivity({...newActivity, description: e.target.value})}
-                    ></textarea>
-                  </div>
-                  <div className="modal-actions">
-                    <button type="button" onClick={() => setShowAddModal(false)} className="cancel-btn">Cancel</button>
-                    <button type="submit" className="submit-btn">Save Activity</button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          )}
-        </>
+      {/* ADD MODAL */}
+      {showAddModal && (
+        <div className="modal-overlay">
+          <form className="modal-card" onSubmit={handleAddActivity}>
+            <input
+              placeholder="Title"
+              value={newActivity.title}
+              onChange={(e) =>
+                setNewActivity({ ...newActivity, title: e.target.value })
+              }
+              required
+            />
 
+            <select
+              value={newActivity.type}
+              onChange={(e) =>
+                setNewActivity({ ...newActivity, type: e.target.value })
+              }
+            >
+              {ACTIVITY_TYPES.map(t => (
+                <option key={t.id} value={t.id}>{t.label}</option>
+              ))}
+            </select>
+
+            <button type="submit">Save</button>
+          </form>
+        </div>
       )}
     </div>
   );
