@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   MessageSquare,
   ThumbsUp,
@@ -7,12 +7,15 @@ import {
   Search,
   MapPin,
   Clock,
-  Tag,
   Send,
-  X
+  X,
+  ShieldCheck,
+  MessageCircle
 } from "lucide-react";
 
+import P2PChat from "./P2PChat";
 import { auth, db, isFirebaseConfigured } from "./lib/firebase";
+
 import {
   collection,
   addDoc,
@@ -25,6 +28,7 @@ import {
   arrayRemove,
   where,
   Timestamp,
+  getDocs,
   increment,
   limit,
   startAfter
@@ -32,6 +36,8 @@ import {
 
 import Loader from "./Loader";
 import "./Community.css";
+
+/* ================= CONFIG ================= */
 
 const CATEGORIES = [
   { id: "all", label: "All Topics", color: "#64748b" },
@@ -42,128 +48,129 @@ const CATEGORIES = [
   { id: "success", label: "Success Stories", color: "#8b5cf6" },
 ];
 
-const getAvatarColor = (name = "U") => {
+/* ================= HELPERS ================= */
+
+const avatarColor = (name = "U") => {
   const colors = ["#f87171", "#60a5fa", "#34d399", "#fbbf24"];
   return colors[name.charCodeAt(0) % colors.length];
 };
 
 const timeAgo = (date) => {
-  if (!date) return "Recent";
-  const seconds = Math.floor((new Date() - date) / 1000);
+  if (!date) return "Just now";
+  const diff = Math.floor((Date.now() - date) / 1000);
 
-  const intervals = {
+  const units = {
     year: 31536000,
     month: 2592000,
     day: 86400,
     hour: 3600,
-    minute: 60,
+    minute: 60
   };
 
-  for (let key in intervals) {
-    const value = Math.floor(seconds / intervals[key]);
-    if (value >= 1) return `${value} ${key}${value > 1 ? "s" : ""} ago`;
+  for (let u in units) {
+    const v = Math.floor(diff / units[u]);
+    if (v > 0) return `${v} ${u}${v > 1 ? "s" : ""} ago`;
   }
   return "Just now";
 };
 
+/* ================= MAIN COMPONENT ================= */
+
 const Community = () => {
+
   const [posts, setPosts] = useState([]);
   const [lastDoc, setLastDoc] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const [searchQuery, setSearchQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState("all");
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("all");
 
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showCommentsModal, setShowCommentsModal] = useState(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [activePost, setActivePost] = useState(null);
+  const [comments, setComments] = useState([]);
+  const [commentText, setCommentText] = useState("");
 
-  const [newPost, setNewPost] = useState({ content: "", category: "general" });
-  const [newComment, setNewComment] = useState("");
+  const [chatUser, setChatUser] = useState(null);
 
-  const [postComments, setPostComments] = useState([]);
-  const [commentsLoading, setCommentsLoading] = useState(false);
+  const unsubComments = useRef(null);
 
-  const currentUser = isFirebaseConfigured() ? auth?.currentUser : null;
+  const currentUser = auth?.currentUser;
 
-  // 🔥 FETCH POSTS (REAL-TIME + PAGINATION)
+  /* ================= POSTS REALTIME ================= */
+
   useEffect(() => {
-    if (!isFirebaseConfigured()) {
-      setLoading(false);
-      return;
-    }
+    if (!isFirebaseConfigured()) return;
 
-    let q = query(
+    setLoading(true);
+
+    let qRef = query(
       collection(db, "posts"),
       orderBy("createdAt", "desc"),
       limit(10)
     );
 
-    if (activeCategory !== "all") {
-      q = query(
+    if (category !== "all") {
+      qRef = query(
         collection(db, "posts"),
-        where("category", "==", activeCategory),
+        where("category", "==", category),
         orderBy("createdAt", "desc"),
         limit(10)
       );
     }
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const docs = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-
-      setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
-      setPosts(docs);
+    const unsub = onSnapshot(qRef, (snap) => {
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setPosts(data);
+      setLastDoc(snap.docs[snap.docs.length - 1]);
       setLoading(false);
     });
 
-    return () => unsubscribe();
-  }, [activeCategory]);
+    return () => unsub();
+  }, [category]);
 
-  // 🔥 LOAD MORE
+  /* ================= LOAD MORE ================= */
+
   const loadMore = async () => {
     if (!lastDoc) return;
 
-    let q = query(
+    const qRef = query(
       collection(db, "posts"),
       orderBy("createdAt", "desc"),
       startAfter(lastDoc),
       limit(5)
     );
 
-    const snapshot = await onSnapshot(q, () => {});
-    const docs = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
+    const snap = await getDocs(qRef);
 
-    setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
-    setPosts((prev) => [...prev, ...docs]);
+    const more = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    setPosts(prev => [...prev, ...more]);
+    setLastDoc(snap.docs[snap.docs.length - 1]);
   };
 
-  // 🔥 CREATE POST
+  /* ================= CREATE POST ================= */
+
   const handleCreatePost = async (e) => {
     e.preventDefault();
-    if (!currentUser || !newPost.content.trim()) return;
+    if (!currentUser) return;
+
+    const content = e.target.content.value;
 
     await addDoc(collection(db, "posts"), {
       userId: currentUser.uid,
-      userName:
-        currentUser.displayName || currentUser.email.split("@")[0],
-      content: newPost.content,
-      category: newPost.category,
-      region: "India",
+      userName: currentUser.displayName || "Farmer",
+      content,
+      category,
       likes: [],
       commentsCount: 0,
-      createdAt: Timestamp.now(),
+      createdAt: Timestamp.now()
     });
 
-    setNewPost({ content: "", category: "general" });
-    setShowCreateModal(false);
+    setShowCreate(false);
   };
 
-  // 🔥 LIKE POST
+  /* ================= LIKE POST ================= */
+
   const handleLikePost = async (post) => {
     if (!currentUser) return;
 
@@ -173,97 +180,100 @@ const Community = () => {
     await updateDoc(ref, {
       likes: liked
         ? arrayRemove(currentUser.uid)
-        : arrayUnion(currentUser.uid),
+        : arrayUnion(currentUser.uid)
     });
   };
 
-  // 🔥 REAL-TIME COMMENTS
-  const openComments = (post) => {
-    setShowCommentsModal(post);
-    setCommentsLoading(true);
+  /* ================= COMMENTS ================= */
 
-    const q = query(
+  const openComments = (post) => {
+    setActivePost(post);
+
+    if (unsubComments.current) unsubComments.current();
+
+    const qRef = query(
       collection(db, "comments"),
       where("postId", "==", post.id),
       orderBy("createdAt", "asc")
     );
 
-    return onSnapshot(q, (snapshot) => {
-      const docs = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setPostComments(docs);
-      setCommentsLoading(false);
+    unsubComments.current = onSnapshot(qRef, (snap) => {
+      setComments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
   };
 
-  // 🔥 ADD COMMENT
+  /* ================= ADD COMMENT ================= */
+
   const handleAddComment = async (e) => {
     e.preventDefault();
-    if (!currentUser || !newComment.trim()) return;
+    if (!currentUser || !commentText.trim()) return;
 
     await addDoc(collection(db, "comments"), {
-      postId: showCommentsModal.id,
+      postId: activePost.id,
       userId: currentUser.uid,
-      userName:
-        currentUser.displayName || currentUser.email.split("@")[0],
-      text: newComment,
-      createdAt: Timestamp.now(),
+      userName: currentUser.displayName || "Farmer",
+      text: commentText,
+      upvotes: [],
+      downvotes: [],
+      createdAt: Timestamp.now()
     });
 
-    await updateDoc(doc(db, "posts", showCommentsModal.id), {
-      commentsCount: increment(1),
+    await updateDoc(doc(db, "posts", activePost.id), {
+      commentsCount: increment(1)
     });
 
-    setNewComment("");
+    setCommentText("");
   };
 
-  // 🔥 SEARCH OPTIMIZATION
+  /* ================= FILTER POSTS ================= */
+
   const filteredPosts = useMemo(() => {
-    return posts.filter((p) =>
-      p.content.toLowerCase().includes(searchQuery.toLowerCase())
+    return posts.filter(p =>
+      p.content.toLowerCase().includes(search.toLowerCase())
     );
-  }, [posts, searchQuery]);
+  }, [posts, search]);
+
+  /* ================= UI ================= */
 
   return (
     <div className="community-container">
+
+      {/* HEADER */}
       <header className="community-header">
-        <h1><MessageSquare /> Farmer Community</h1>
+        <h2>🌾 Farmer Community</h2>
 
         <div className="search-bar">
           <Search />
           <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
             placeholder="Search discussions..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
 
-        <button onClick={() => setShowCreateModal(true)}>
-          <Plus /> Create
+        <button onClick={() => setShowCreate(true)}>
+          <Plus /> Post
         </button>
       </header>
 
+      {/* POSTS */}
       <main>
         {loading ? (
-          <Loader message="Loading..." />
-        ) : filteredPosts.map((post) => (
+          <Loader message="Loading community..." />
+        ) : filteredPosts.map(post => (
           <div key={post.id} className="post-card">
-            <div className="user-info">
+
+            <div className="post-header">
               <div
                 className="avatar"
-                style={{ background: getAvatarColor(post.userName) }}
+                style={{ background: avatarColor(post.userName) }}
               >
-                {post.userName[0]}
+                {post.userName?.[0]}
               </div>
 
               <div>
-                <h3>{post.userName}</h3>
-                <span>
-                  <Clock />{" "}
-                  {timeAgo(post.createdAt?.toDate())}
-                </span>
+                <h4>{post.userName}</h4>
+                <span>{timeAgo(post.createdAt?.toDate())}</span>
               </div>
             </div>
 
@@ -277,50 +287,73 @@ const Community = () => {
               <button onClick={() => openComments(post)}>
                 <MessageSquare /> {post.commentsCount || 0}
               </button>
+
+              <button onClick={() => setChatUser(post.userId)}>
+                <MessageCircle />
+              </button>
+
+              <button>
+                <Share2 />
+              </button>
             </div>
           </div>
         ))}
 
-        <button onClick={loadMore}>Load More</button>
+        {posts.length > 5 && (
+          <button onClick={loadMore} className="load-more">
+            Load More
+          </button>
+        )}
       </main>
 
-      {/* CREATE MODAL */}
-      {showCreateModal && (
+      {/* CREATE POST */}
+      {showCreate && (
         <div className="modal">
           <form onSubmit={handleCreatePost}>
-            <textarea
-              value={newPost.content}
-              onChange={(e) =>
-                setNewPost({ ...newPost, content: e.target.value })
-              }
-            />
+            <textarea name="content" placeholder="Share something..." />
             <button type="submit">Post</button>
           </form>
         </div>
       )}
 
-      {/* COMMENTS MODAL */}
-      {showCommentsModal && (
+      {/* COMMENTS */}
+      {activePost && (
         <div className="modal">
-          <h3>Comments</h3>
+          <div className="modal-box">
 
-          {commentsLoading ? (
-            <Loader />
-          ) : postComments.map((c) => (
-            <p key={c.id}>
-              <strong>{c.userName}</strong>: {c.text}
-            </p>
-          ))}
+            <h3>Comments</h3>
 
-          <form onSubmit={handleAddComment}>
-            <input
-              value={newComment}
-              onChange={(e) => setNewComment(e.target.value)}
-            />
-            <button type="submit"><Send /></button>
-          </form>
+            {comments.map(c => (
+              <p key={c.id}>
+                <b>{c.userName}</b>: {c.text}
+              </p>
+            ))}
+
+            <form onSubmit={handleAddComment}>
+              <input
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+                placeholder="Write a comment..."
+              />
+              <button type="submit"><Send /></button>
+            </form>
+
+            <button onClick={() => setActivePost(null)}>
+              <X />
+            </button>
+
+          </div>
         </div>
       )}
+
+      {/* CHAT */}
+      {chatUser && (
+        <P2PChat
+          recipient={{ userId: chatUser }}
+          onClose={() => setChatUser(null)}
+        />
+      )}
+
     </div>
   );
 };
