@@ -391,3 +391,73 @@
   .fb-row { grid-template-columns: 1fr; }
   .feedback-form-panel { padding: 28px 20px; }
 }
+
+.info-testimonial {
+  margin-top: 20px;
+  padding: 16px 18px;
+  background: rgba(255, 255, 255, 0.08);
+  border-left: 4px solid #22c55e; /* subtle green accent */
+  border-radius: 10px;
+  backdrop-filter: blur(6px);
+}
+.info-testimonial p {
+  font-size: 15px;
+  line-height: 1.6;
+  color: #f1f5f9;
+  font-style: italic;
+  margin-bottom: 10px;
+}
+.info-testimonial span {
+  display: block;
+  font-size: 13px;
+  color: #cbd5e1;
+  font-weight: 500;
+  text-align: right;
+}
+.info-testimonial p::before {
+  content: "“";
+  font-size: 22px;
+  color: #22c55e;
+  margin-right: 4px;
+}
+
+.info-testimonial {
+  margin-top: 20px;
+  padding: 16px 18px;
+  background: rgba(255, 255, 255, 0.08);
+  border-left: 4px solid #22c55e;
+  border-radius: 10px;
+  backdrop-filter: blur(6px);
+  transition: transform 0.2s ease;
+}
+
+.info-testimonial:hover {
+  transform: translateY(-2px);
+}
+
+/* Quote text */
+.testimonial-text {
+  font-size: 15px;
+  line-height: 1.6;
+  color: #f1f5f9;
+  font-style: italic;
+  margin-bottom: 10px;
+  position: relative;
+}
+
+/* Add quotation mark */
+.testimonial-text::before {
+  content: "“";
+  font-size: 22px;
+  color: #22c55e;
+  margin-right: 6px;
+}
+
+/* Author */
+.testimonial-author {
+  display: block;
+  font-size: 13px;
+  color: #cbd5e1;
+  font-weight: 500;
+  text-align: right;
+}

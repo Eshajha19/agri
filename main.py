@@ -326,6 +326,36 @@ def get_signing_keys():
     except Exception as e:
         print(f"KMS Error: Failed to fetch secret {secret_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve signing key from secure vault")
+# --- Cryptographic Reports ---
+
+KEYS_DIR = "keys"
+PRIVATE_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.key")
+PUBLIC_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.pub")
+
+def get_signing_keys():
+    if not os.path.exists(KEYS_DIR):
+        os.makedirs(KEYS_DIR)
+    
+    if os.path.exists(PRIVATE_KEY_PATH):
+        with open(PRIVATE_KEY_PATH, "rb") as f:
+            return serialization.load_pem_private_key(f.read(), password=None)
+    
+    private_key = ed25519.Ed25519PrivateKey.generate()
+    with open(PRIVATE_KEY_PATH, "wb") as f:
+        f.write(private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        ))
+    
+    public_key = private_key.public_key()
+    with open(PUBLIC_KEY_PATH, "wb") as f:
+        f.write(public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        ))
+    
+    return private_key
 
 @app.post("/api/reports/generate")
 async def generate_signed_report(data: ReportRequest):
