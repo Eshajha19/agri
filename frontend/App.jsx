@@ -344,6 +344,9 @@ function App() {
                   </button>
                 </div>
                 <Link to="/dashboard" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaTachometerAlt /> Dashboard</Link>
+                {userData?.role === "admin" && (
+                  <Link to="/admin/feedback" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Feedback Admin</Link>
+                )}
                 <Link to="/community" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaComments /> Community</Link>
                 <Link to="/disease-awareness" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaLeaf /> Awareness</Link>
                 <Link to="/risk-index" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Risk Index</Link>
@@ -370,6 +373,7 @@ function App() {
                       <p>{user.email}</p>
                     </div>
                     <div className="scorecard-body">
+                      <div className="score-item"><label>Role</label><span className="role-badge">{userData?.role?.toUpperCase() || "FARMER"}</span></div>
                       <div className="score-item"><label>Primary Crop</label><span>{userData?.cropType || "N/A"}</span></div>
                       <div className="score-item"><label>Location</label><span>{userData?.address || "N/A"}</span></div>
                       <div className="score-item">
@@ -415,7 +419,7 @@ function App() {
       <main id="main-content" tabIndex="-1" style={{ outline: 'none' }}>
         <Routes>
           <Route path="/" element={<Home user={user} />} />
-          <Route path="/advisor" element={<Advisor />} />
+          <Route path="/advisor" element={<Advisor userData={userData} />} />
           <Route path="/how-it-works" element={<How />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/crop-guide" element={<CropGuide />} />
