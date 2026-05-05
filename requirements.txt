@@ -17,5 +17,6 @@ cryptography
 twilio
 google-cloud-secret-manager
 slowapi
+firebase-admin
 
 

@@ -18,6 +18,13 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
+<<<<<<< HEAD
+# Firebase Admin SDK
+import firebase_admin
+from firebase_admin import credentials, auth as firebase_auth, firestore
+
+=======
+>>>>>>> upstream
 # ML Ops Imports
 from ml.registry import ModelRegistry
 from ml.adapters.xgboost_adapter import XGBoostAdapter
@@ -47,6 +54,45 @@ app = FastAPI()
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Initialize Firebase Admin
+if not firebase_admin._apps:
+    try:
+        # If running in a cloud environment (GCP), it uses default credentials
+        # For local, you might need: cred = credentials.Certificate('path/to/serviceAccountKey.json')
+        firebase_admin.initialize_app()
+        db_firestore = firestore.client()
+        print("Firebase Admin: Successfully initialized")
+    except Exception as e:
+        print(f"Firebase Admin Warning: Could not initialize (expected in local dev): {e}")
+        db_firestore = None
+
+async def verify_role(request: Request, required_roles: list = None):
+    """
+    Dependency to verify user role from Firestore.
+    Expects 'Authorization: Bearer <ID_TOKEN>' header.
+    """
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
+    
+    id_token = auth_header.split("Bearer ")[1]
+    try:
+        decoded_token = firebase_auth.verify_id_token(id_token)
+        uid = decoded_token["uid"]
+        
+        if db_firestore:
+            user_doc = db_firestore.collection("users").document(uid).get()
+            if user_doc.exists:
+                user_role = user_doc.to_dict().get("role", "farmer")
+                if required_roles and user_role not in required_roles:
+                    raise HTTPException(status_code=403, detail=f"Access denied: {user_role} role not authorized")
+                return {"uid": uid, "role": user_role}
+        
+        # Local development fallback if no Firestore
+        return {"uid": uid, "role": "admin"}
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Token verification failed: {str(e)}")
 
 app.add_middleware(
     CORSMiddleware,
@@ -374,6 +420,12 @@ def get_signing_keys():
 @app.post("/api/reports/generate")
 @limiter.limit("3/minute")
 async def generate_signed_report(data: ReportRequest, request: Request):
+<<<<<<< HEAD
+    # RBAC: Only Experts or Admins can generate signed reports
+    await verify_role(request, required_roles=["expert", "admin"])
+    
+=======
+>>>>>>> upstream
     try:
         private_key = get_signing_keys()
         
