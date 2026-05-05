@@ -5,12 +5,16 @@ import {
   signInWithPopup,
   GoogleAuthProvider,
   sendEmailVerification,
-  signOut
+  signOut,
+  signInAnonymously,
+  linkWithCredential,
+  EmailAuthProvider
 } from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
+import { doc, setDoc, getDoc } from "firebase/firestore";
 import { useNavigate, useLocation } from "react-router-dom";
-import { FaGoogle, FaEnvelope, FaLock, FaUser, FaArrowRight, FaLeaf } from "react-icons/fa";
+import { FaGoogle, FaEnvelope, FaLock, FaUser, FaArrowRight, FaLeaf, FaUserSecret } from "react-icons/fa";
 import { auth, db, isFirebaseConfigured } from "./lib/firebase";
+import { migrateUserData } from "./lib/migration";
 import "./Auth.css";
 
 const Auth = () => {
@@ -44,6 +48,20 @@ const Auth = () => {
     );
   }
 
+  const handleGuestLogin = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      await signInAnonymously(auth);
+      navigate(from, { replace: true });
+    } catch (err) {
+      console.error("Guest login error:", err);
+      setError("Failed to start guest session.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleAuth = async (e) => {
     e.preventDefault();
     setError("");
@@ -53,6 +71,9 @@ const Auth = () => {
     try {
       if (isLogin) {
         // Login Logic
+        const anonymousUser = auth.currentUser?.isAnonymous ? auth.currentUser : null;
+        const anonymousUid = anonymousUser?.uid;
+
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
 
@@ -63,16 +84,46 @@ const Auth = () => {
           return;
         }
 
+        // If there was a guest session, migrate data to the logged-in account
+        if (anonymousUid && user.uid !== anonymousUid) {
+          try {
+            await migrateUserData(anonymousUid, user.uid);
+            setMessage("Guest data successfully merged with your account!");
+          } catch (migrateErr) {
+            console.error("Migration error:", migrateErr);
+            // Non-fatal, user is logged in
+          }
+        }
+
         navigate(from, { replace: true });
       } else {
         // Sign Up Logic
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        const user = userCredential.user;
+        const anonymousUser = auth.currentUser?.isAnonymous ? auth.currentUser : null;
+        
+        let user;
+        if (anonymousUser) {
+          // Link anonymous account to email/password
+          const credential = EmailAuthProvider.credential(email, password);
+          try {
+            const linkedCredential = await linkWithCredential(anonymousUser, credential);
+            user = linkedCredential.user;
+          } catch (linkErr) {
+            if (linkErr.code === "auth/email-already-in-use") {
+              setError("Email already in use. Please login instead to merge your guest data.");
+              setLoading(false);
+              return;
+            }
+            throw linkErr;
+          }
+        } else {
+          const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+          user = userCredential.user;
+        }
 
         // Send verification email
         await sendEmailVerification(user);
 
-        // Store user info in Firestore
+        // Store/Update user info in Firestore
         await setDoc(doc(db, "users", user.uid), {
           uid: user.uid,
           displayName: displayName,
@@ -80,8 +131,9 @@ const Auth = () => {
           phoneNumber: phoneNumber,
           createdAt: new Date().toISOString(),
           verified: false,
-          reputation: 0
-        });
+          reputation: 0,
+          profileCompleted: false
+        }, { merge: true });
 
         setMessage("Account created! Please check your email for verification link.");
         setIsLogin(true); // Switch to login after signup
@@ -244,6 +296,11 @@ const Auth = () => {
                 className="google-icon"
               /> 
               Continue with Google
+            </button>
+
+            <button onClick={handleGuestLogin} className="guest-btn" disabled={loading}>
+              <FaUserSecret className="guest-icon" />
+              Continue as Guest
             </button>
           </>
         )}

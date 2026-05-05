@@ -557,6 +557,28 @@
   color: var(--text-primary, #0f172a);
   margin: 0 0 4px;
 }
+
+.cf-success-animation {
+  font-size: 3rem;
+  color: #10b981;
+  animation: pop 0.4s ease;
+}
+
+@keyframes pop {
+  0% { transform: scale(0.5); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+input, textarea {
+  font-size: 16px; /* prevents zoom on mobile */
+}
+
+.cf-group input:focus + label,
+.cf-group input:not(:placeholder-shown) + label {
+  transform: translateY(-18px);
+  font-size: 0.75rem;
+}
+
 .contact-social-card p {
   font-size: 13px;
   color: var(--text-secondary, #64748b);

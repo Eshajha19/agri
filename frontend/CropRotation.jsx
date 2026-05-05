@@ -227,6 +227,6 @@ export default function CropRotation() {
           </div>
         </div>
       </div>
-     </div>
-   );
- }
+    </div>
+  );
+}
