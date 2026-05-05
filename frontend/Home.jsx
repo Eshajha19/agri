@@ -184,17 +184,11 @@ const Birds = () => (
         xmlns="http://www.w3.org/2000/svg"
       >
         <path
-          d="M2 7 C5 2 9 2 14 7 C19 2 23 2 26 7"
-          stroke="#2d3748"
-          strokeWidth="3"
+          d="M1 7 Q7 1 14 7 Q21 1 27 7"
+          stroke="currentColor"
+          strokeWidth="2"
           strokeLinecap="round"
           fill="none"
-        />
-        <path
-          d="M8 5 L10 3"
-          stroke="#2d3748"
-          strokeWidth="2.5"
-          strokeLinecap="round"
         />
       </svg>
     ))}
