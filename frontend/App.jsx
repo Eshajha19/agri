@@ -18,6 +18,7 @@ import {
   FaShieldAlt,
   FaBolt,
   FaUserSecret,
+  FaFileInvoiceDollar,
 } from "react-icons/fa";
 import { usePerformanceStore } from "./stores/performanceStore";
 
