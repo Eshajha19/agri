@@ -1,488 +1,26 @@
 # main.py
-from datetime import datetime
-from fastapi import FastAPI, HTTPException, Request, Query
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-import joblib
-import pandas as pd
-import numpy as np
-from alert_rules import generate_alerts
-
-app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-class PredictRequest(BaseModel):
-    # FIX: Add max_length to prevent OOM exceptions
-    # A malicious user can send a 5GB string in the Crop field, causing an Out of Memory (OOM) exception on the server.
-    Crop: str = Field(..., max_length=50)
-    CropCoveredArea: float = Field(..., gt=0)
-    CHeight: int = Field(..., ge=0)
-    CNext: str = Field(..., max_length=50)
-    CLast: str = Field(..., max_length=50)
-    CTransp: str = Field(..., max_length=50)
-    IrriType: str = Field(..., max_length=50)
-    IrriSource: str = Field(..., max_length=50)
-    IrriCount: int = Field(..., ge=1)
-    WaterCov: int = Field(..., ge=0, le=100)
-    # FIX: Add max_length to prevent OOM exceptions
-    # A malicious user can send a 5GB string in the Season field, causing an Out of Memory (OOM) exception on the server.
-    Season: str = Field(..., max_length=50)
-
-class PredictResponse(BaseModel):
-    predicted_ExpYield: float
-
-# Load model
-try:
-    model = joblib.load("yield_model.joblib")
-    print("Model loaded successfully")
-except Exception as e:
-    print(f"Error loading model: {e}")
-    model = None
-
-# Store notifications
-@app.get("/api/notifications")
-def get_notifications(
-    crop: str = Query(default=None),
-    irrigation_count: int = Query(default=None, ge=0),
-    water_coverage: int = Query(default=None, ge=0, le=100),
-    season: str = Query(default=None)
-):
-    """
-    Generate dynamic farm advisory alerts.
-    
-    Query params (all optional):
-    - crop: rice / wheat / maize
-    - irrigation_count: number of irrigations done
-    - water_coverage: 0-100 (% of field covered)
-    - season: kharif / rabi / zaid (auto-detected if not passed)
-    """
-    alerts = generate_alerts(
-        crop=crop,
-        irrigation_count=irrigation_count,
-        water_coverage=water_coverage,
-        season=season
-    )
-    return {"success": True, "data": alerts}
-
-@app.get("/")
-def root():
-    return {"message": "Fasal Saathi Yield Prediction API", "status": "running"}
-
-@app.get("/predict")
-def predict_get():
-    return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
-
-@app.post("/predict", response_model=PredictResponse)
-def predict_yield(data: PredictRequest):
-    if model is None:
-        raise HTTPException(status_code=500, detail="Model not loaded")
-    
-    try:
-        # Use Pydantic's dict() method to convert request data to a dictionary, avoiding manual mapping
-        input_data = data.model_dump() if hasattr(data, 'model_dump') else data.dict()
-        df = pd.DataFrame([input_data])
-        
-        dummy_cols = ['Crop', 'CNext', 'CLast', 'CTransp', 'IrriType', 'IrriSource', 'Season']
-        df = pd.get_dummies(df, columns=dummy_cols, drop_first=True)
-        
-        feature_cols = list(model.get_booster().feature_names)
-        for col in feature_cols:
-            if col not in df.columns:
-                df[col] = 0
-        df = df[feature_cols]
-        
-        predicted_yield = model.predict(df)[0]
-        return {"predicted_ExpYield": float(predicted_yield)}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.post("/api/log-error")
-async def log_error(request: Request):
-    """
-    Receive error reports from the frontend for monitoring and debugging.
-    """
-    try:
-        error_data = await request.json()
-        print(f"[Error Log] {error_data.get('message', 'Unknown error')} | Context: {error_data.get('context', 'N/A')}")
-        return {"success": True, "message": "Error logged"}
-    except Exception:
-        return {"success": False, "message": "Invalid error data"}
-from fastapi import FastAPI, HTTPException, Request, Form, Query
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-import joblib
-import pandas as pd
-import numpy as np
-from datetime import datetime
-import json
 import os
-from whatsapp_service import send_whatsapp_message, format_alert_message
-from alert_rules import generate_alerts
-
-app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-class PredictRequest(BaseModel):
-    Crop: str = Field(..., max_length=50)
-    CropCoveredArea: float = Field(..., gt=0)
-    CHeight: int = Field(..., ge=0)
-    CNext: str = Field(..., max_length=50)
-    CLast: str = Field(..., max_length=50)
-    CTransp: str = Field(..., max_length=50)
-    IrriType: str = Field(..., max_length=50)
-    IrriSource: str = Field(..., max_length=50)
-    IrriCount: int = Field(..., ge=1)
-    WaterCov: int = Field(..., ge=0, le=100)
-    Season: str = Field(..., max_length=50)
-
-class PredictResponse(BaseModel):
-    predicted_ExpYield: float
-
-class WhatsAppSubscribeRequest(BaseModel):
-    phone_number: str
-    user_id: str
-    name: str
-
-class AlertTriggerRequest(BaseModel):
-    alert_type: str  # 'weather', 'pest', 'advisory'
-    message: str
-
-# Load model
-try:
-    model = joblib.load("yield_model.joblib")
-    print("Model loaded successfully")
-except Exception as e:
-    print(f"Error loading model: {e}")
-    model = None
-
-# Local storage for WhatsApp subscribers
-SUBSCRIBERS_FILE = "whatsapp_subscribers.json"
-
-def load_subscribers():
-    if os.path.exists(SUBSCRIBERS_FILE):
-        with open(SUBSCRIBERS_FILE, "r") as f:
-            return json.load(f)
-    return {}
-
-def save_subscribers(subscribers):
-    with open(SUBSCRIBERS_FILE, "w") as f:
-        json.dump(subscribers, f)
-
-# Store static notifications (initial sample)
-static_notifications = [
-    {
-        "id": 1,
-        "type": "weather",
-        "message": "🌧️ Heavy rainfall expected in your region today.",
-        "time": datetime.now().isoformat()
-    }
-]
-
-@app.get("/")
-def root():
-    return {"message": "Fasal Saathi API", "status": "running"}
-
-@app.get("/predict")
-def predict_get():
-    return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
-
-@app.post("/predict", response_model=PredictResponse)
-def predict_yield(data: PredictRequest):
-    if model is None:
-        raise HTTPException(status_code=500, detail="Model not loaded")
-    
-    try:
-        input_data = data.model_dump() if hasattr(data, 'model_dump') else data.dict()
-        df = pd.DataFrame([input_data])
-        
-        dummy_cols = ['Crop', 'CNext', 'CLast', 'CTransp', 'IrriType', 'IrriSource', 'Season']
-        df = pd.get_dummies(df, columns=dummy_cols, drop_first=True)
-        
-        feature_cols = list(model.get_booster().feature_names)
-        for col in feature_cols:
-            if col not in df.columns:
-                df[col] = 0
-        df = df[feature_cols]
-        
-        predicted_yield = model.predict(df)[0]
-        return {"predicted_ExpYield": float(predicted_yield)}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.get("/api/notifications")
-def get_notifications(
-    crop: str = Query(default=None),
-    irrigation_count: int = Query(default=None, ge=0),
-    water_coverage: int = Query(default=None, ge=0, le=100),
-    season: str = Query(default=None)
-):
-    """Generate dynamic farm advisory alerts + static ones."""
-    dynamic_alerts = generate_alerts(
-        crop=crop,
-        irrigation_count=irrigation_count,
-        water_coverage=water_coverage,
-        season=season
-    )
-    return {"success": True, "data": static_notifications + dynamic_alerts}
-
-@app.post("/api/whatsapp/subscribe")
-async def subscribe_whatsapp(data: WhatsAppSubscribeRequest):
-    subscribers = load_subscribers()
-    subscribers[data.user_id] = {
-        "phone_number": data.phone_number,
-        "name": data.name,
-        "subscribed_at": datetime.now().isoformat()
-    }
-    save_subscribers(subscribers)
-    
-    welcome_msg = f"Namaste {data.name}! 🙏\n\nWelcome to *Fasal Saathi WhatsApp Alerts*. You will now receive real-time updates directly here."
-    send_whatsapp_message(data.phone_number, welcome_msg)
-    
-    return {"success": True, "message": "Successfully subscribed"}
-
-@app.post("/api/whatsapp/trigger-alert")
-async def trigger_whatsapp_alert(data: AlertTriggerRequest):
-    subscribers = load_subscribers()
-    results = []
-    formatted_msg = format_alert_message(data.alert_type, data.message)
-    
-    for user_id, info in subscribers.items():
-        res = send_whatsapp_message(info["phone_number"], formatted_msg)
-        results.append({"user_id": user_id, "success": res["success"]})
-    
-    static_notifications.append({
-        "id": len(static_notifications) + 1,
-        "type": data.alert_type,
-        "message": data.message,
-        "time": datetime.now().isoformat()
-    })
-    
-    return {"success": True, "results": results}
-
-@app.post("/api/whatsapp/webhook")
-async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
-    incoming_msg = Body.lower().strip()
-    sender_number = From.replace("whatsapp:", "")
-    
-    if "weather" in incoming_msg:
-        response = "🌡️ *Weather Update*\n\n28°C, Clear skies. No rain expected."
-    elif "pest" in incoming_msg:
-        response = "🐛 *Pest Assistant*\n\nPlease use the Pest Management tool in-app for diagnosis."
-    elif "hi" in incoming_msg or "hello" in incoming_msg:
-        response = "🙏 *Namaste!*\n\nI am your AI Farming Assistant. Try 'Weather' or 'Pest'."
-    else:
-        response = f"Received: '{Body}'. Try 'Weather' or 'Pest' 🌱"
-
-    send_whatsapp_message(sender_number, response)
-    return {"status": "success"}
-
-@app.post("/api/log-error")
-async def log_error(request: Request):
-    try:
-        error_data = await request.json()
-        print(f"[Error Log] {error_data.get('message', 'Unknown error')}")
-        return {"success": True}
-    except Exception:
-        return {"success": False}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
-from fastapi import FastAPI, HTTPException, Request, Form, Query
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+import io
+import json
 import joblib
+import hashlib
 import pandas as pd
 import numpy as np
 from datetime import datetime
-import json
-import os
-from whatsapp_service import send_whatsapp_message, format_alert_message
+from typing import Optional, Dict, Any
+
+from fastapi import FastAPI, HTTPException, Request, Form, Query, Response
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+
+# ML Ops Imports
+from ml.registry import ModelRegistry
+from ml.adapters.xgboost_adapter import XGBoostAdapter
+from ml.router import ModelRouter
+
+# Other internal modules
 from alert_rules import generate_alerts
-
-app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-class PredictRequest(BaseModel):
-    Crop: str = Field(..., max_length=50)
-    CropCoveredArea: float = Field(..., gt=0)
-    CHeight: int = Field(..., ge=0)
-    CNext: str = Field(..., max_length=50)
-    CLast: str = Field(..., max_length=50)
-    CTransp: str = Field(..., max_length=50)
-    IrriType: str = Field(..., max_length=50)
-    IrriSource: str = Field(..., max_length=50)
-    IrriCount: int = Field(..., ge=1)
-    WaterCov: int = Field(..., ge=0, le=100)
-    Season: str = Field(..., max_length=50)
-
-class PredictResponse(BaseModel):
-    predicted_ExpYield: float
-
-class WhatsAppSubscribeRequest(BaseModel):
-    phone_number: str
-    user_id: str
-    name: str
-
-class AlertTriggerRequest(BaseModel):
-    alert_type: str  # 'weather', 'pest', 'advisory'
-    message: str
-
-# Load model
-try:
-    model = joblib.load("yield_model.joblib")
-    print("Model loaded successfully")
-except Exception as e:
-    print(f"Error loading model: {e}")
-    model = None
-
-# Local storage for WhatsApp subscribers
-SUBSCRIBERS_FILE = "whatsapp_subscribers.json"
-
-def load_subscribers():
-    if os.path.exists(SUBSCRIBERS_FILE):
-        with open(SUBSCRIBERS_FILE, "r") as f:
-            return json.load(f)
-    return {}
-
-def save_subscribers(subscribers):
-    with open(SUBSCRIBERS_FILE, "w") as f:
-        json.dump(subscribers, f)
-
-# Store static notifications (initial sample)
-static_notifications = [
-    {
-        "id": 1,
-        "type": "weather",
-        "message": "🌧️ Heavy rainfall expected in your region today.",
-        "time": datetime.now().isoformat()
-    }
-]
-
-@app.get("/")
-def root():
-    return {"message": "Fasal Saathi API", "status": "running"}
-
-@app.get("/predict")
-def predict_get():
-    return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
-
-@app.post("/predict", response_model=PredictResponse)
-def predict_yield(data: PredictRequest):
-    if model is None:
-        raise HTTPException(status_code=500, detail="Model not loaded")
-    
-    try:
-        input_data = data.model_dump() if hasattr(data, 'model_dump') else data.dict()
-        df = pd.DataFrame([input_data])
-        
-        dummy_cols = ['Crop', 'CNext', 'CLast', 'CTransp', 'IrriType', 'IrriSource', 'Season']
-        df = pd.get_dummies(df, columns=dummy_cols, drop_first=True)
-        
-        feature_cols = list(model.get_booster().feature_names)
-        for col in feature_cols:
-            if col not in df.columns:
-                df[col] = 0
-        df = df[feature_cols]
-        
-        predicted_yield = model.predict(df)[0]
-        return {"predicted_ExpYield": float(predicted_yield)}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.get("/api/notifications")
-def get_notifications(
-    crop: str = Query(default=None),
-    irrigation_count: int = Query(default=None, ge=0),
-    water_coverage: int = Query(default=None, ge=0, le=100),
-    season: str = Query(default=None)
-):
-    """Generate dynamic farm advisory alerts + static ones."""
-    dynamic_alerts = generate_alerts(
-        crop=crop,
-        irrigation_count=irrigation_count,
-        water_coverage=water_coverage,
-        season=season
-    )
-    return {"success": True, "data": static_notifications + dynamic_alerts}
-
-@app.post("/api/whatsapp/subscribe")
-async def subscribe_whatsapp(data: WhatsAppSubscribeRequest):
-    subscribers = load_subscribers()
-    subscribers[data.user_id] = {
-        "phone_number": data.phone_number,
-        "name": data.name,
-        "subscribed_at": datetime.now().isoformat()
-    }
-    save_subscribers(subscribers)
-    
-    welcome_msg = f"Namaste {data.name}! 🙏\n\nWelcome to *Fasal Saathi WhatsApp Alerts*. You will now receive real-time updates directly here."
-    send_whatsapp_message(data.phone_number, welcome_msg)
-    
-    return {"success": True, "message": "Successfully subscribed"}
-
-@app.post("/api/whatsapp/trigger-alert")
-async def trigger_whatsapp_alert(data: AlertTriggerRequest):
-    subscribers = load_subscribers()
-    results = []
-    formatted_msg = format_alert_message(data.alert_type, data.message)
-    
-    for user_id, info in subscribers.items():
-        res = send_whatsapp_message(info["phone_number"], formatted_msg)
-        results.append({"user_id": user_id, "success": res["success"]})
-    
-    static_notifications.append({
-        "id": len(static_notifications) + 1,
-        "type": data.alert_type,
-        "message": data.message,
-        "time": datetime.now().isoformat()
-    })
-    
-    return {"success": True, "results": results}
-
-@app.post("/api/whatsapp/webhook")
-async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
-    incoming_msg = Body.lower().strip()
-    sender_number = From.replace("whatsapp:", "")
-    
-    if "weather" in incoming_msg:
-        response = "🌡️ *Weather Update*\n\n28°C, Clear skies. No rain expected."
-    elif "pest" in incoming_msg:
-        response = "🐛 *Pest Assistant*\n\nPlease use the Pest Management tool in-app for diagnosis."
-    elif "hi" in incoming_msg or "hello" in incoming_msg:
-        response = "🙏 *Namaste!*\n\nI am your AI Farming Assistant. Try 'Weather' or 'Pest'."
-    else:
-        response = f"Received: '{Body}'. Try 'Weather' or 'Pest' 🌱"
-
-    send_whatsapp_message(sender_number, response)
-    return {"status": "success"}
-
-@app.post("/api/log-error")
-async def log_error(request: Request):
-    try:
-        error_data = await request.json()
-        print(f"[Error Log] {error_data.get('message', 'Unknown error')}")
-        return {"success": True}
-    except Exception:
-        return {"success": False}
+from whatsapp_service import send_whatsapp_message, format_alert_message
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -490,37 +28,45 @@ from reportlab.lib import colors
 from reportlab.lib.units import inch
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
-import io
-import hashlib
 
-# --- Cryptographic Key Management ---
-KEYS_DIR = "keys"
-PRIVATE_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.key")
-PUBLIC_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.pub")
+app = FastAPI()
 
-if not os.path.exists(KEYS_DIR):
-    os.makedirs(KEYS_DIR)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-def get_signing_keys():
-    if os.path.exists(PRIVATE_KEY_PATH):
-        with open(PRIVATE_KEY_PATH, "rb") as f:
-            private_key = serialization.load_pem_private_key(f.read(), password=None)
-    else:
-        private_key = ed25519.Ed25519PrivateKey.generate()
-        with open(PRIVATE_KEY_PATH, "wb") as f:
-            f.write(private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.NoEncryption()
-            ))
-        
-        public_key = private_key.public_key()
-        with open(PUBLIC_KEY_PATH, "wb") as f:
-            f.write(public_key.public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo
-            ))
-    return private_key
+# --- Models ---
+
+class PredictRequest(BaseModel):
+    Crop: str = Field(..., max_length=50)
+    CropCoveredArea: float = Field(..., gt=0)
+    CHeight: int = Field(..., ge=0)
+    CNext: str = Field(..., max_length=50)
+    CLast: str = Field(..., max_length=50)
+    CTransp: str = Field(..., max_length=50)
+    IrriType: str = Field(..., max_length=50)
+    IrriSource: str = Field(..., max_length=50)
+    IrriCount: int = Field(..., ge=1)
+    WaterCov: int = Field(..., ge=0, le=100)
+    Season: str = Field(..., max_length=50)
+
+class PredictResponse(BaseModel):
+    predicted_ExpYield: float
+
+class WhatsAppSubscribeRequest(BaseModel):
+    phone_number: str
+    user_id: str
+    name: str
+
+class YieldInput(BaseModel):
+    data: list[float]
+
+class AlertTriggerRequest(BaseModel):
+    alert_type: str  # 'weather', 'pest', 'advisory'
+    message: str
 
 class ReportRequest(BaseModel):
     name: str = Field(..., max_length=100)
@@ -528,6 +74,237 @@ class ReportRequest(BaseModel):
     area: str = Field(..., max_length=50)
     profit: str = Field(..., max_length=50)
     season: str = Field(..., max_length=50)
+
+# --- ML Pipeline Initialization ---
+router = ModelRouter(default_model="xgboost")
+
+def init_ml_pipeline():
+    try:
+        # Register XGBoost Adapter
+        xgb_adapter = XGBoostAdapter()
+        model_path = "yield_model.joblib"
+        if os.path.exists(model_path):
+            xgb_adapter.load(model_path)
+            ModelRegistry.register("xgboost", xgb_adapter)
+            print("ML Pipeline: Registered XGBoost model.")
+        else:
+            print(f"ML Pipeline Warning: {model_path} not found.")
+            
+        # You can register other models here (e.g., LSTM) as they become available
+        # ModelRegistry.register("lstm", LSTMAdapter("lstm_model.h5"))
+        
+    except Exception as e:
+        print(f"ML Pipeline Error: {e}")
+
+init_ml_pipeline()
+
+# Load model directly for backward compatibility or simple use cases if needed
+try:
+    model = joblib.load("yield_model.joblib")
+    model_lag = joblib.load("sklearn_yield_model.pkl")
+    print("Models loaded successfully")
+except Exception as e:
+    print(f"Error loading models: {e}")
+    model = None
+    model_lag = None
+
+# --- Static Notifications Storage ---
+static_notifications = [
+    {
+        "id": 1,
+        "type": "weather",
+        "message": "🌧️ Heavy rainfall expected in your region today.",
+        "time": datetime.now().isoformat()
+    }
+]
+
+# --- Routes ---
+
+@app.get("/")
+def root():
+    return {"message": "Fasal Saathi API", "status": "running"}
+
+@app.get("/predict")
+def predict_get():
+    return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
+
+@app.post("/predict", response_model=PredictResponse)
+def predict_yield(data: PredictRequest, request: Request):
+    """
+    Standardized prediction endpoint using ML Router for dynamic model selection.
+    """
+    try:
+        input_data = data.model_dump() if hasattr(data, 'model_dump') else data.dict()
+        
+        context = {
+            "location": request.headers.get("X-User-Location", "Unknown"),
+            "crop": data.Crop
+        }
+        
+        predicted_yield = router.predict(input_data, context)
+        return {"predicted_ExpYield": float(predicted_yield)}
+    except Exception as e:
+        print(f"Prediction Error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/predict-yield-lag")
+async def predict_yield_lag(payload: YieldInput):
+    if model_lag is None:
+        raise HTTPException(status_code=500, detail="Model not loaded")
+    try:
+        data = payload.data
+        if len(data) != 5:
+            raise ValueError("Exactly 5 values are required")
+        data = np.array(data).reshape(1, -1)
+        prediction = model_lag.predict(data)
+        return {
+            "prediction": round(float(prediction[0]), 2),
+            "model": "RandomForest Time Series (Lag Features)"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal Server Error") from e
+
+@app.post("/predict-yield-trend")
+async def predict_yield_trend(payload: YieldInput):
+    if model_lag is None:
+        raise HTTPException(status_code=500, detail="Model not loaded")
+    try:
+        data = payload.data
+        if len(data) != 5:
+            raise ValueError("Exactly 5 values are required")
+        temp = data[::-1]  # reverse once
+        trend = []
+        for _ in range(5):
+            features = temp[:5]
+            pred = model_lag.predict([features])[0]
+            pred_value = round(float(pred), 2)
+            trend.append(pred_value)
+            temp = [pred_value] + temp
+        return {
+            "trend": trend,
+            "prediction": trend[-1],
+            "model": "RandomForest Trend Forecast (Lag Features)"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal Server Error") from e
+
+@app.get("/api/notifications")
+def get_notifications(
+    crop: str = Query(default=None),
+    irrigation_count: int = Query(default=None, ge=0),
+    water_coverage: int = Query(default=None, ge=0, le=100),
+    season: str = Query(default=None)
+):
+    """Generate dynamic farm advisory alerts + static ones."""
+    dynamic_alerts = generate_alerts(
+        crop=crop,
+        irrigation_count=irrigation_count,
+        water_coverage=water_coverage,
+        season=season
+    )
+    return {"success": True, "data": static_notifications + dynamic_alerts}
+
+# --- WhatsApp Service Endpoints ---
+
+SUBSCRIBERS_FILE = "whatsapp_subscribers.json"
+
+def load_subscribers():
+    if os.path.exists(SUBSCRIBERS_FILE):
+        try:
+            with open(SUBSCRIBERS_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def save_subscribers(subscribers):
+    with open(SUBSCRIBERS_FILE, "w") as f:
+        json.dump(subscribers, f)
+
+@app.post("/api/whatsapp/subscribe")
+async def subscribe_whatsapp(data: WhatsAppSubscribeRequest):
+    subscribers = load_subscribers()
+    user_id = data.user_id if data.user_id else str(datetime.now().timestamp())
+    subscribers[user_id] = {
+        "phone_number": data.phone_number,
+        "name": data.name,
+        "subscribed_at": datetime.now().isoformat()
+    }
+    save_subscribers(subscribers)
+    
+    welcome_msg = f"Namaste {data.name}! 🙏\n\nWelcome to *Fasal Saathi WhatsApp Alerts*. You will now receive real-time updates directly here."
+    send_whatsapp_message(data.phone_number, welcome_msg)
+    return {"success": True, "message": "Successfully subscribed"}
+
+@app.post("/api/whatsapp/trigger-alert")
+async def trigger_whatsapp_alert(data: AlertTriggerRequest):
+    subscribers = load_subscribers()
+    results = []
+    formatted_msg = format_alert_message(data.alert_type, data.message)
+    
+    for user_id, info in subscribers.items():
+        res = send_whatsapp_message(info["phone_number"], formatted_msg)
+        results.append({"user_id": user_id, "success": res.get("success", False)})
+    
+    static_notifications.append({
+        "id": len(static_notifications) + 1,
+        "type": data.alert_type,
+        "message": data.message,
+        "time": datetime.now().isoformat()
+    })
+    
+    return {"success": True, "results": results}
+
+@app.post("/api/whatsapp/webhook")
+async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
+    incoming_msg = Body.lower().strip()
+    sender_number = From.replace("whatsapp:", "")
+    
+    responses = {
+        "weather": "🌡️ *Weather Update*\n\n28°C, Clear skies. No rain expected.",
+        "pest": "🐛 *Pest Assistant*\n\nPlease use the Pest Management tool in-app for diagnosis.",
+        "hi": "🙏 *Namaste!*\n\nI am your AI Farming Assistant. Try 'Weather' or 'Pest'.",
+        "hello": "🙏 *Namaste!*\n\nI am your AI Farming Assistant. Try 'Weather' or 'Pest'."
+    }
+    
+    response = next((v for k, v in responses.items() if k in incoming_msg), f"Received: '{Body}'. Try 'Weather' or 'Pest' 🌱")
+    send_whatsapp_message(sender_number, response)
+    return {"status": "success"}
+
+# --- Cryptographic Reports ---
+
+KEYS_DIR = "keys"
+PRIVATE_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.key")
+PUBLIC_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.pub")
+
+def get_signing_keys():
+    if not os.path.exists(KEYS_DIR):
+        os.makedirs(KEYS_DIR)
+    
+    if os.path.exists(PRIVATE_KEY_PATH):
+        with open(PRIVATE_KEY_PATH, "rb") as f:
+            return serialization.load_pem_private_key(f.read(), password=None)
+    
+    private_key = ed25519.Ed25519PrivateKey.generate()
+    with open(PRIVATE_KEY_PATH, "wb") as f:
+        f.write(private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        ))
+    
+    public_key = private_key.public_key()
+    with open(PUBLIC_KEY_PATH, "wb") as f:
+        f.write(public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        ))
+    
+    return private_key
 
 @app.post("/api/reports/generate")
 async def generate_signed_report(data: ReportRequest):
@@ -604,7 +381,6 @@ async def generate_signed_report(data: ReportRequest):
         pdf_content = buffer.getvalue()
         buffer.close()
 
-        from fastapi.responses import Response
         return Response(
             content=pdf_content,
             media_type="application/pdf",
@@ -612,10 +388,18 @@ async def generate_signed_report(data: ReportRequest):
                 "Content-Disposition": f"attachment; filename=FasalSaathi_Report_{sig_id}.pdf"
             }
         )
-
     except Exception as e:
         print(f"Error generating report: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/log-error")
+async def log_error(request: Request):
+    try:
+        error_data = await request.json()
+        print(f"[Error Log] {error_data.get('message', 'Unknown error')}")
+        return {"success": True}
+    except Exception:
+        return {"success": False}
 
 if __name__ == "__main__":
     import uvicorn
