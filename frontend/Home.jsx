@@ -17,7 +17,8 @@ import {
   FaFlask,
   FaPhoneAlt,
   FaQuoteLeft,
-  FaSeedling
+  FaSeedling,
+  FaChevronUp
 } from "react-icons/fa";
 import WeatherAlertBar from "./weather/WeatherAlertBar";
 import WeatherQuickWidget from "./weather/WeatherQuickWidget";

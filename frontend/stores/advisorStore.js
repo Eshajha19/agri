@@ -71,9 +71,6 @@ export const useAdvisorStore = create((set) => ({
 
    showBankReport: false,
    setShowBankReport: (show) => set({ showBankReport: show }),
-   // New modals for advisor cards
-   showCropRotation: false,
-   setShowCropRotation: (show) => set({ showCropRotation: show }),
 
    showP2PChat: false,
    setShowP2PChat: (show) => set({ showP2PChat: show }),
@@ -83,6 +80,9 @@ export const useAdvisorStore = create((set) => ({
 
    showSeedVerifier: false,
    setShowSeedVerifier: (show) => set({ showSeedVerifier: show }),
+
+   showGeoAlerts: false,
+   setShowGeoAlerts: (show) => set({ showGeoAlerts: show }),
 
    // Reset all modals to closed
    resetAdvisorStore: () =>
@@ -110,9 +110,9 @@ export const useAdvisorStore = create((set) => ({
        showExpertStatus: false,
        showBankReport: false,
        showCropRotation: false,
-       showCropRotation: false,
        showP2PChat: false,
        showSmartCropRecommendation: false,
        showSeedVerifier: false,
+       showGeoAlerts: false,
      }),
 }));

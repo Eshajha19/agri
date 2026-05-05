@@ -16,7 +16,11 @@ import {
   FaInfoCircle,
   FaBook,
   FaShieldAlt,
+  FaBolt,
+  FaUserSecret,
+  FaFileInvoiceDollar,
 } from "react-icons/fa";
+import { usePerformanceStore } from "./stores/performanceStore";
 
 // Components
 import AdminFeedback from "./AdminFeedback";
@@ -60,7 +64,7 @@ import SeedVerifier from "./SeedVerifier";
 import { SkipLink } from "./NavigationManager";
 
 // Libs
-import { auth, db, isFirebaseConfigured, doc, onSnapshot } from "./lib/firebase";
+import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc } from "./lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 
 // CSS
@@ -90,6 +94,18 @@ const getInitialLanguage = () => {
   }
 };
 
+const GuestBanner = ({ onSignUp }) => (
+  <div className="guest-banner">
+    <div className="guest-banner-content">
+      <FaUserSecret className="banner-icon" />
+      <span>
+        <strong>Guest Session Active:</strong> Explore the platform freely! 
+        <Link to="/auth" className="banner-link"> Sign Up</Link> to save your progress permanently.
+      </span>
+    </div>
+  </div>
+);
+
 function App() {
   const scorecardRef = useRef(null);
   const [settings, setSettings] = useState({ language: getInitialLanguage() });
@@ -102,6 +118,12 @@ function App() {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  
+  const { liteMode, setLiteMode, detectAndSetLiteMode } = usePerformanceStore();
+
+  useEffect(() => {
+    detectAndSetLiteMode();
+  }, []);
 
   const { i18n } = useTranslation();
   const location = useLocation();
@@ -123,6 +145,10 @@ function App() {
               const data = userDoc.data();
               setUserData(data);
               setProfileCompleted(data.profileCompleted === true);
+            } else if (currentUser.isAnonymous) {
+              // Guest user might not have a profile doc yet
+              setUserData({ displayName: "Guest Farmer", isAnonymous: true });
+              setProfileCompleted(true);
             } else {
               setUserData(null);
               setProfileCompleted(false);
@@ -143,6 +169,38 @@ function App() {
     });
     return () => unsubscribeAuth();
   }, []);
+
+  // E2EE Key Generation Sync
+  useEffect(() => {
+    if (!user || !isFirebaseConfigured()) return;
+
+    const ensurePublicKey = async () => {
+      try {
+        let privateJwk = localStorage.getItem(`ecdh_private_${user.uid}`);
+        let publicJwk = localStorage.getItem(`ecdh_public_${user.uid}`);
+        
+        // Generate globally if it doesn't exist
+        if (!privateJwk || !publicJwk) {
+          const { cryptoService } = await import("./utils/cryptoService");
+          const keyPair = await cryptoService.generateECDHKeyPair();
+          privateJwk = await cryptoService.exportKey(keyPair.privateKey);
+          publicJwk = await cryptoService.exportKey(keyPair.publicKey);
+          localStorage.setItem(`ecdh_private_${user.uid}`, JSON.stringify(privateJwk));
+          localStorage.setItem(`ecdh_public_${user.uid}`, JSON.stringify(publicJwk));
+        } else {
+          publicJwk = JSON.parse(publicJwk);
+        }
+
+        // Publish to Firebase so others can find it instantly when you log in
+        const pubKeyRef = doc(db, "public_keys", user.uid);
+        await setDoc(pubKeyRef, { jwk: publicJwk }, { merge: true });
+      } catch (error) {
+        console.error("Failed to generate/publish ECDH keys globally:", error);
+      }
+    };
+
+    ensurePublicKey();
+  }, [user]);
 
   // Theme Sync
   const [isDarkTheme, setIsDarkTheme] = useState(() => {
@@ -213,8 +271,9 @@ function App() {
   useNotifications();
 
   return (
-    <div className={`app ${isDarkTheme ? "theme-dark" : ""}`}>
+    <div className={`app ${isDarkTheme ? "theme-dark" : ""} ${liteMode ? "lite-mode" : ""}`}>
       <SkipLink />
+      {user?.isAnonymous && <GuestBanner />}
       
       {loading && <Loader fullPage={true} message={<span className="notranslate">Initializing Fasal Saathi...</span>} />}
       
@@ -269,6 +328,21 @@ function App() {
                     }}
                   />
                 </div>
+                <div className="performance-toggle-section">
+                  <button 
+                    className={`lite-mode-toggle ${liteMode ? 'active' : ''}`}
+                    onClick={() => setLiteMode(!liteMode)}
+                    role="menuitem"
+                  >
+                    <div className="toggle-info">
+                      <FaBolt className="zap-icon" />
+                      <span>Lite Mode {liteMode ? "ON" : "OFF"}</span>
+                    </div>
+                    <div className="toggle-switch">
+                      <div className="switch-handle" />
+                    </div>
+                  </button>
+                </div>
                 <Link to="/dashboard" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaTachometerAlt /> Dashboard</Link>
                 <Link to="/community" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaComments /> Community</Link>
                 <Link to="/disease-awareness" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaLeaf /> Awareness</Link>
@@ -322,7 +396,7 @@ function App() {
         </button>
       </nav>
 
-      {!loading && user && !user.emailVerified && location.pathname !== "/login" && (
+      {!loading && user && !user.isAnonymous && !user.emailVerified && location.pathname !== "/login" && (
         <div className="verification-overlay">
           <div className="verification-card">
             <div className="verify-icon">✉️</div>

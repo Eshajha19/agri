@@ -13,6 +13,7 @@ import FertilizerRecommendation from "./FertilizerRecommendation";
 import LastUpdated from "./LastUpdated";
 import AgriMarketplace from "./AgriMarketplace";
 import AgriLMS from "./AgriLMS";
+import BankReports from "./BankReports";
 import QRTraceability from "./QRTraceability";
 import FarmPlanner3D from "./FarmPlanner3D";
 import FarmDiary from "./FarmDiary";
@@ -22,6 +23,7 @@ import SeedVerifier from "./SeedVerifier";
 
 import CropRotation from "./CropRotation";
 import P2PChat from "./P2PChat";
+import GeoAlertMesh from "./GeoAlertMesh";
 import SmartCropRecommendation from "./SmartCropRecommendation";
 import {
   Sun,
@@ -41,13 +43,15 @@ import {
   Book,
   CloudSun,
   QrCode,
-  Award, 
-  Star, 
+  Award,
+  Star,
   ThumbsUp,
-  X
+  X,
+  AlertTriangle
 } from "lucide-react";
 import { FaSync } from "react-icons/fa";
 import { useAdvisorStore } from "./stores/advisorStore";
+import { usePerformanceStore } from "./stores/performanceStore";
 import { useYieldPrediction } from "./hooks/useYieldPrediction";
 import { auth, db } from "./lib/firebase";
 import { generateBankPDF, generateCSV } from "./utils/exportService";
@@ -111,7 +115,11 @@ export default function Advisor() {
     setShowSmartCropRecommendation,
     showSeedVerifier,
     setShowSeedVerifier,
+    showGeoAlerts,
+    setShowGeoAlerts,
   } = useAdvisorStore();
+
+  const { liteMode } = usePerformanceStore();
 
   const {
     yieldForm,
@@ -707,6 +715,14 @@ export default function Advisor() {
             </div>
           </div>
 
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowGeoAlerts(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowGeoAlerts(true); }} aria-label="Geo-Hashed Disaster Mesh: View nearby alerts">
+            <div className="icon" aria-hidden="true" style={{background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444'}}>
+              <AlertTriangle size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Disaster Mesh Alerts</span></h3>
+            <p>Report and receive highly localized (5km radius) real-time disaster alerts.</p>
+          </div>
+
           <div className="card reveal bank-report-card" role="button" tabIndex={0} onClick={() => setShowBankReport(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowBankReport(true); }} aria-label="Bank Reports: Export financial data">
             <div className="icon" aria-hidden="true">
               <Landmark size={32} strokeWidth={2} />
@@ -1071,6 +1087,17 @@ export default function Advisor() {
               </button>
             </div>
 
+            <div className="certified-report-section" style={{ marginTop: '2rem', borderTop: '2px dashed #e2e8f0', paddingTop: '2rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '1rem', color: '#2e7d32' }}>
+                <Award size={24} />
+                <h3 style={{ margin: 0 }}>Certified Digital Signature Report</h3>
+              </div>
+              <p style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '1.5rem' }}>
+                Generate a cryptographically signed, tamper-proof report for official bank applications.
+              </p>
+              <BankReports userData={userProfile} />
+            </div>
+
             <p className="report-disclaimer">
               * Reports are generated using your latest soil analysis, profit calculations, and risk index data.
             </p>
@@ -1341,6 +1368,12 @@ export default function Advisor() {
               onClose={() => setShowP2PChat(false)} 
             />
           </div>
+        </div>
+      )}
+
+      {showGeoAlerts && (
+        <div className="weather-overlay" onClick={() => setShowGeoAlerts(false)}>
+          <GeoAlertMesh onClose={() => setShowGeoAlerts(false)} />
         </div>
       )}
 
