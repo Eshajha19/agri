@@ -20,6 +20,7 @@ import FarmDiary from "./FarmDiary";
 import CropDiseaseDetection from "./CropDiseaseDetection";
 import PestManagement from "./PestManagement";
 import SeedVerifier from "./SeedVerifier";
+import ClimateSimulator from "./ClimateSimulator";
 
 import CropRotation from "./CropRotation";
 import P2PChat from "./P2PChat";
@@ -47,7 +48,8 @@ import {
   Star,
   ThumbsUp,
   X,
-  AlertTriangle
+  AlertTriangle,
+  TrendingDown
 } from "lucide-react";
 import { FaSync } from "react-icons/fa";
 import { useAdvisorStore } from "./stores/advisorStore";
@@ -117,6 +119,8 @@ export default function Advisor({ userData }) {
     setShowSeedVerifier,
     showGeoAlerts,
     setShowGeoAlerts,
+    showClimateSimulator,
+    setShowClimateSimulator,
   } = useAdvisorStore();
 
   const { liteMode } = usePerformanceStore();
@@ -738,6 +742,21 @@ export default function Advisor({ userData }) {
               <p>Generate professional PDF/CSV reports for bank loans and financial records.</p>
             </div>
           )}
+
+          <div 
+            className="card reveal" 
+            role="button" 
+            tabIndex={0} 
+            onClick={() => setShowClimateSimulator(true)} 
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowClimateSimulator(true); }} 
+            aria-label="Climate Risk Simulator: Scenario analysis"
+          >
+            <div className="icon" aria-hidden="true">
+              <TrendingDown size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Climate Risk Simulator</span></h3>
+            <p>Evaluate crop performance under different long-term climate scenarios.</p>
+          </div>
         </div>
 
         <div
@@ -1409,6 +1428,11 @@ export default function Advisor({ userData }) {
 
       <br />
       <br />
+      <ClimateSimulator 
+        isOpen={showClimateSimulator} 
+        onClose={() => setShowClimateSimulator(false)} 
+        userData={userData}
+      />
     </section>
   );
 }
