@@ -22,64 +22,84 @@ const MOCK_FALLBACK = [
   { id: 12, commodity: "Mustard", state: "Rajasthan", district: "Alwar", mandi: "Alwar", minPrice: 5200, maxPrice: 5800, modalPrice: 5550, arrivalDate: "2026-04-21" },
 ];
 
+;;;;;;
 export const fetchMarketPrices = async (filters = {}) => {
   try {
     const url = `${BASE_URL}/${RESOURCE_ID}?api-key=${API_KEY}&format=json&limit=100`;
+
     const response = await fetch(url);
-    const data = await response.json();
-    
-    if (data && data.records && data.records.length > 0) {
-      let records = data.records.map((r, index) => ({
-        id: index,
-        commodity: r.commodity,
-        state: r.state,
-        district: r.district,
-        mandi: r.market,
-        minPrice: parseInt(r.min_price) || 0,
-        maxPrice: parseInt(r.max_price) || 0,
-        modalPrice: parseInt(r.modal_price) || 0,
-        arrivalDate: r.arrival_date
-      }));
 
-      // Apply filters
-      if (filters.state && filters.state !== "All") {
-        records = records.filter(item => item.state === filters.state);
-      }
-      if (filters.commodity && filters.commodity !== "All") {
-        records = records.filter(item => item.commodity === filters.commodity);
-      }
-      if (filters.search) {
-        const s = filters.search.toLowerCase();
-        records = records.filter(item => 
-          item.commodity.toLowerCase().includes(s) || 
-          item.mandi.toLowerCase().includes(s) || 
-          item.district.toLowerCase().includes(s)
-        );
-      }
-
-      // Only return if we actually have filtered records from the API
-      if (records.length > 0) return records;
+    // Check HTTP status
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status}`);
     }
+
+    // Parse JSON safely
+    const data = await response.json();
+
+    // Validate structure
+    if (!data || !Array.isArray(data.records)) {
+      throw new Error("Invalid API response structure");
+    }
+
+    // Map records
+    let records = data.records.map((r, index) => ({
+      id: `${r.state}-${r.market}-${r.arrival_date}-${index}`, //stable id
+      commodity: r.commodity,
+      state: r.state,
+      district: r.district,
+      mandi: r.market,
+      minPrice: parseInt(r.min_price) || 0,
+      maxPrice: parseInt(r.max_price) || 0,
+      modalPrice: parseInt(r.modal_price) || 0,
+      arrivalDate: r.arrival_date
+    }));
+
+    // Apply filters (same as before)
+    if (filters.state && filters.state !== "All") {
+      records = records.filter(item => item.state === filters.state);
+    }
+
+    if (filters.commodity && filters.commodity !== "All") {
+      records = records.filter(item => item.commodity === filters.commodity);
+    }
+
+    if (filters.search) {
+      const s = filters.search.toLowerCase();
+      records = records.filter(item =>
+        item.commodity.toLowerCase().includes(s) ||
+        item.mandi.toLowerCase().includes(s) ||
+        item.district.toLowerCase().includes(s)
+      );
+    }
+
+    //Handle empty API result properly
+    return records; // even if empty → valid case
+
   } catch (error) {
-    console.error("Error fetching real market data, falling back to mock:", error);
+    console.error("API failed, using fallback data:", error);
   }
 
-  // Fallback to mock data with filtering
+  // Fallback (unchanged logic)
   let filtered = [...MOCK_FALLBACK];
+
   if (filters.state && filters.state !== "All") {
     filtered = filtered.filter(item => item.state === filters.state);
   }
+
   if (filters.commodity && filters.commodity !== "All") {
     filtered = filtered.filter(item => item.commodity === filters.commodity);
   }
+
   if (filters.search) {
     const s = filters.search.toLowerCase();
-    filtered = filtered.filter(item => 
-      item.commodity.toLowerCase().includes(s) || 
-      item.mandi.toLowerCase().includes(s) || 
+    filtered = filtered.filter(item =>
+      item.commodity.toLowerCase().includes(s) ||
+      item.mandi.toLowerCase().includes(s) ||
       item.district.toLowerCase().includes(s)
     );
   }
+
   return filtered;
 };
 

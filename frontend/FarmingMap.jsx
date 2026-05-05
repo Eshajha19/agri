@@ -149,7 +149,7 @@ export default function FarmingMap() {
             map.current.setView([20.5937, 78.9629], 5);
           }
         }
-      );
+);
     } else {
       setMapError('Geolocation not supported');
       setUserLocation([20.5937, 78.9629]);
@@ -437,5 +437,5 @@ export default function FarmingMap() {
         </div>
       )}
     </div>
-  );
+);
 }
