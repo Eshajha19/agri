@@ -29,6 +29,13 @@ from reportlab.lib.units import inch
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
 
+# KMS Support
+try:
+    from google.cloud import secretmanager
+    HAS_GCP_KMS = True
+except ImportError:
+    HAS_GCP_KMS = False
+
 app = FastAPI()
 
 app.add_middleware(
@@ -275,36 +282,50 @@ async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
     send_whatsapp_message(sender_number, response)
     return {"status": "success"}
 
-# --- Cryptographic Reports ---
+# --- Cryptographic Reports (KMS Managed) ---
 
-KEYS_DIR = "keys"
-PRIVATE_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.key")
-PUBLIC_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.pub")
+_cached_private_key = None
 
 def get_signing_keys():
-    if not os.path.exists(KEYS_DIR):
-        os.makedirs(KEYS_DIR)
+    """
+    Retrieves the private key from Google Secret Manager with local caching.
+    """
+    global _cached_private_key
     
-    if os.path.exists(PRIVATE_KEY_PATH):
-        with open(PRIVATE_KEY_PATH, "rb") as f:
-            return serialization.load_pem_private_key(f.read(), password=None)
+    if _cached_private_key:
+        return _cached_private_key
+
+    project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+    secret_id = os.getenv("REPORT_SIGNING_SECRET_NAME", "report-signing-key")
     
-    private_key = ed25519.Ed25519PrivateKey.generate()
-    with open(PRIVATE_KEY_PATH, "wb") as f:
-        f.write(private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption()
-        ))
-    
-    public_key = private_key.public_key()
-    with open(PUBLIC_KEY_PATH, "wb") as f:
-        f.write(public_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        ))
-    
-    return private_key
+    if not project_id:
+        # Fallback for local development if allowed, but production should fail
+        if os.getenv("ENV") == "production":
+            raise HTTPException(status_code=500, detail="KMS Configuration missing in production")
+        
+        # Local development fallback (matches previous behavior but warns)
+        print("KMS Warning: GOOGLE_CLOUD_PROJECT not set. Falling back to temporary local key.")
+        _cached_private_key = ed25519.Ed25519PrivateKey.generate()
+        return _cached_private_key
+
+    if not HAS_GCP_KMS:
+        raise HTTPException(status_code=500, detail="Google Cloud Secret Manager library not installed")
+
+    try:
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
+        response = client.access_secret_version(request={"name": name})
+        payload = response.payload.data.decode("UTF-8")
+        
+        _cached_private_key = serialization.load_pem_private_key(
+            payload.encode(),
+            password=None
+        )
+        print(f"KMS: Successfully fetched signing key from Secret Manager ({secret_id})")
+        return _cached_private_key
+    except Exception as e:
+        print(f"KMS Error: Failed to fetch secret {secret_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve signing key from secure vault")
 
 @app.post("/api/reports/generate")
 async def generate_signed_report(data: ReportRequest):
