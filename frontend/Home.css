@@ -1551,3 +1551,18 @@
   flex-wrap: wrap;
   gap: 10px;
 }
+.footer-section a {
+  position: relative;
+}
+
+.footer-section a::before {
+  content: "";
+  position: absolute;
+  left: -10px;
+  opacity: 0;
+  transition: 0.2s;
+}
+
+.footer-section a:hover::before {
+  opacity: 1;
+}
