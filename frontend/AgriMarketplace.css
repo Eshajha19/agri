@@ -4,9 +4,6 @@
   max-height: 85vh;
   overflow-y: auto;
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
   background: var(--card-bg);
   border: 1px solid var(--border-color);
 }
@@ -414,10 +411,6 @@
 .marketplace-container::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.1);
   border-radius: 10px;
-}
-
-.marketplace-container::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
 }
 
 @media (max-width: 768px) {
