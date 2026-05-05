@@ -18,10 +18,13 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
+<<<<<<< HEAD
 # Firebase Admin SDK
 import firebase_admin
 from firebase_admin import credentials, auth as firebase_auth, firestore
 
+=======
+>>>>>>> upstream
 # ML Ops Imports
 from ml.registry import ModelRegistry
 from ml.adapters.xgboost_adapter import XGBoostAdapter
@@ -417,9 +420,12 @@ def get_signing_keys():
 @app.post("/api/reports/generate")
 @limiter.limit("3/minute")
 async def generate_signed_report(data: ReportRequest, request: Request):
+<<<<<<< HEAD
     # RBAC: Only Experts or Admins can generate signed reports
     await verify_role(request, required_roles=["expert", "admin"])
     
+=======
+>>>>>>> upstream
     try:
         private_key = get_signing_keys()
         
