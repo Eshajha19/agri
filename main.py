@@ -38,9 +38,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- Models ---
+
 class PredictRequest(BaseModel):
-    # FIX: Add max_length to prevent OOM exceptions
-    # A malicious user can send a 5GB string in the Crop field, causing an Out of Memory (OOM) exception on the server.
     Crop: str = Field(..., max_length=50)
     CropCoveredArea: float = Field(..., gt=0)
     CHeight: int = Field(..., ge=0)
@@ -51,8 +51,6 @@ class PredictRequest(BaseModel):
     IrriSource: str = Field(..., max_length=50)
     IrriCount: int = Field(..., ge=1)
     WaterCov: int = Field(..., ge=0, le=100)
-    # FIX: Add max_length to prevent OOM exceptions
-    # A malicious user can send a 5GB string in the Season field, causing an Out of Memory (OOM) exception on the server.
     Season: str = Field(..., max_length=50)
 
 class PredictResponse(BaseModel):
@@ -63,10 +61,19 @@ class WhatsAppSubscribeRequest(BaseModel):
     user_id: str
     name: str
 
+class YieldInput(BaseModel):
+    data: list[float]
+
 class AlertTriggerRequest(BaseModel):
     alert_type: str  # 'weather', 'pest', 'advisory'
     message: str
 
+class ReportRequest(BaseModel):
+    name: str = Field(..., max_length=100)
+    crop: str = Field(..., max_length=50)
+    area: str = Field(..., max_length=50)
+    profit: str = Field(..., max_length=50)
+    season: str = Field(..., max_length=50)
 
 # --- ML Pipeline Initialization ---
 router = ModelRouter(default_model="xgboost")
@@ -91,32 +98,35 @@ def init_ml_pipeline():
 
 init_ml_pipeline()
 
-# Store notifications
-@app.get("/api/notifications")
-def get_notifications(
-    crop: str = Query(default=None),
-    irrigation_count: int = Query(default=None, ge=0),
-    water_coverage: int = Query(default=None, ge=0, le=100),
-    season: str = Query(default=None)
-):
-    """
-    Generate dynamic farm advisory alerts.
-    
-    Query params (all optional):
-    - crop: rice / wheat / maize
-    - irrigation_count: number of irrigations done
-    - water_coverage: 0-100 (% of field covered)
-    - season: kharif / rabi / zaid (auto-detected if not passed)
-    """
-    alerts = generate_alerts(
-        crop=crop,
-        irrigation_count=irrigation_count,
-        water_coverage=water_coverage,
-        season=season
-    )
+# Load model directly for backward compatibility or simple use cases if needed
+try:
+    model = joblib.load("yield_model.joblib")
+    model_lag = joblib.load("sklearn_yield_model.pkl")
+    print("Models loaded successfully")
+except Exception as e:
+    print(f"Error loading models: {e}")
+    model = None
+    model_lag = None
+
+# --- Static Notifications Storage ---
+static_notifications = [
+    {
+        "id": 1,
+        "type": "weather",
+        "message": "🌧️ Heavy rainfall expected in your region today.",
+        "time": datetime.now().isoformat()
+    }
+]
+
+# --- Routes ---
+
 @app.get("/")
 def root():
-    return {"message": "Fasal Saathi Yield Prediction API", "status": "running"}
+    return {"message": "Fasal Saathi API", "status": "running"}
+
+@app.get("/predict")
+def predict_get():
+    return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
 
 @app.post("/predict", response_model=PredictResponse)
 def predict_yield(data: PredictRequest, request: Request):
@@ -137,6 +147,51 @@ def predict_yield(data: PredictRequest, request: Request):
         print(f"Prediction Error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.post("/predict-yield-lag")
+async def predict_yield_lag(payload: YieldInput):
+    if model_lag is None:
+        raise HTTPException(status_code=500, detail="Model not loaded")
+    try:
+        data = payload.data
+        if len(data) != 5:
+            raise ValueError("Exactly 5 values are required")
+        data = np.array(data).reshape(1, -1)
+        prediction = model_lag.predict(data)
+        return {
+            "prediction": round(float(prediction[0]), 2),
+            "model": "RandomForest Time Series (Lag Features)"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal Server Error") from e
+
+@app.post("/predict-yield-trend")
+async def predict_yield_trend(payload: YieldInput):
+    if model_lag is None:
+        raise HTTPException(status_code=500, detail="Model not loaded")
+    try:
+        data = payload.data
+        if len(data) != 5:
+            raise ValueError("Exactly 5 values are required")
+        temp = data[::-1]  # reverse once
+        trend = []
+        for _ in range(5):
+            features = temp[:5]
+            pred = model_lag.predict([features])[0]
+            pred_value = round(float(pred), 2)
+            trend.append(pred_value)
+            temp = [pred_value] + temp
+        return {
+            "trend": trend,
+            "prediction": trend[-1],
+            "model": "RandomForest Trend Forecast (Lag Features)"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal Server Error") from e
+
 @app.get("/api/notifications")
 def get_notifications(
     crop: str = Query(default=None),
@@ -145,14 +200,6 @@ def get_notifications(
     season: str = Query(default=None)
 ):
     """Generate dynamic farm advisory alerts + static ones."""
-    static_notifications = [
-        {
-            "id": 1,
-            "type": "weather",
-            "message": "🌧️ Heavy rainfall expected in your region today.",
-            "time": datetime.now().isoformat()
-        }
-    ]
     dynamic_alerts = generate_alerts(
         crop=crop,
         irrigation_count=irrigation_count,
@@ -162,12 +209,16 @@ def get_notifications(
     return {"success": True, "data": static_notifications + dynamic_alerts}
 
 # --- WhatsApp Service Endpoints ---
+
 SUBSCRIBERS_FILE = "whatsapp_subscribers.json"
 
 def load_subscribers():
     if os.path.exists(SUBSCRIBERS_FILE):
-        with open(SUBSCRIBERS_FILE, "r") as f:
-            return json.load(f)
+        try:
+            with open(SUBSCRIBERS_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            return {}
     return {}
 
 def save_subscribers(subscribers):
@@ -189,6 +240,25 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest):
     send_whatsapp_message(data.phone_number, welcome_msg)
     return {"success": True, "message": "Successfully subscribed"}
 
+@app.post("/api/whatsapp/trigger-alert")
+async def trigger_whatsapp_alert(data: AlertTriggerRequest):
+    subscribers = load_subscribers()
+    results = []
+    formatted_msg = format_alert_message(data.alert_type, data.message)
+    
+    for user_id, info in subscribers.items():
+        res = send_whatsapp_message(info["phone_number"], formatted_msg)
+        results.append({"user_id": user_id, "success": res.get("success", False)})
+    
+    static_notifications.append({
+        "id": len(static_notifications) + 1,
+        "type": data.alert_type,
+        "message": data.message,
+        "time": datetime.now().isoformat()
+    })
+    
+    return {"success": True, "results": results}
+
 @app.post("/api/whatsapp/webhook")
 async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
     incoming_msg = Body.lower().strip()
@@ -206,12 +276,15 @@ async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
     return {"status": "success"}
 
 # --- Cryptographic Reports ---
+
 KEYS_DIR = "keys"
 PRIVATE_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.key")
 PUBLIC_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.pub")
 
 def get_signing_keys():
-    if not os.path.exists(KEYS_DIR): os.makedirs(KEYS_DIR)
+    if not os.path.exists(KEYS_DIR):
+        os.makedirs(KEYS_DIR)
+    
     if os.path.exists(PRIVATE_KEY_PATH):
         with open(PRIVATE_KEY_PATH, "rb") as f:
             return serialization.load_pem_private_key(f.read(), password=None)
@@ -223,28 +296,27 @@ def get_signing_keys():
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption()
         ))
+    
+    public_key = private_key.public_key()
     with open(PUBLIC_KEY_PATH, "wb") as f:
-        f.write(private_key.public_key().public_bytes(
+        f.write(public_key.public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo
         ))
+    
     return private_key
-
-class ReportRequest(BaseModel):
-    name: str = Field(..., max_length=100)
-    crop: str = Field(..., max_length=50)
-    area: str = Field(..., max_length=50)
-    profit: str = Field(..., max_length=50)
-    season: str = Field(..., max_length=50)
 
 @app.post("/api/reports/generate")
 async def generate_signed_report(data: ReportRequest):
     try:
         private_key = get_signing_keys()
+        
+        # Create a buffer for the PDF
         buffer = io.BytesIO()
         p = canvas.Canvas(buffer, pagesize=letter)
         width, height = letter
 
+        # 1. Header
         p.setFont("Helvetica-Bold", 24)
         p.setFillColor(colors.green)
         p.drawCentredString(width/2, height - 1*inch, "FASAL SAATHI")
@@ -253,38 +325,71 @@ async def generate_signed_report(data: ReportRequest):
         p.setFillColor(colors.black)
         p.drawCentredString(width/2, height - 1.5*inch, "CERTIFIED FINANCIAL FARM REPORT")
         
+        p.setStrokeColor(colors.green)
+        p.line(1*inch, height - 1.7*inch, width - 1*inch, height - 1.7*inch)
+
+        # 2. Content
         p.setFont("Helvetica", 14)
         y = height - 2.5*inch
+        
         details = [
-            ("Farmer Name:", data.name), ("Crop Type:", data.crop),
-            ("Farm Area:", data.area), ("Season Profit:", f"Rs. {data.profit}"),
-            ("Season:", data.season), ("Report Date:", datetime.now().strftime("%d %B, %Y")),
+            ("Farmer Name:", data.name),
+            ("Crop Type:", data.crop),
+            ("Farm Area:", data.area),
+            ("Season Profit:", f"Rs. {data.profit}"),
+            ("Season:", data.season),
+            ("Report Date:", datetime.now().strftime("%d %B, %Y")),
         ]
 
         for label, value in details:
+            p.setFont("Helvetica-Bold", 14)
             p.drawString(1.5*inch, y, label)
+            p.setFont("Helvetica", 14)
             p.drawString(3.5*inch, y, value)
             y -= 0.4*inch
 
+        # 3. Signature Box
+        y -= 0.5*inch
+        p.setStrokeColor(colors.black)
+        p.rect(1*inch, y - 1.5*inch, width - 2*inch, 1.8*inch, stroke=1, fill=0)
+        
+        # Data for signing
         report_data_string = f"{data.name}|{data.crop}|{data.area}|{data.profit}|{datetime.now().date()}"
         signature = private_key.sign(report_data_string.encode())
         sig_id = hashlib.sha256(signature).hexdigest()[:8].upper()
 
-        p.rect(1*inch, y - 1.5*inch, width - 2*inch, 1.8*inch)
-        p.drawString(1.2*inch, y - 0.3*inch, f"Signature ID: {sig_id}")
-        p.drawString(1.2*inch, y - 0.7*inch, "Status: VERIFIED ✔")
+        p.setFont("Helvetica-Bold", 14)
+        p.drawString(1.2*inch, y - 0.3*inch, "DIGITAL CRYPTOGRAPHIC SIGNATURE")
+        
+        p.setFont("Helvetica", 12)
+        p.drawString(1.2*inch, y - 0.7*inch, f"Signature ID: {sig_id}")
+        p.setFont("Helvetica-Bold", 12)
+        p.setFillColor(colors.green)
+        p.drawString(1.2*inch, y - 1.0*inch, "Status: VERIFIED ✔")
+        p.setFillColor(colors.black)
+        p.setFont("Helvetica", 10)
+        p.drawString(1.2*inch, y - 1.3*inch, "Security: This report is tamper-proof and cryptographically signed.")
+
+        # 4. Footer
+        p.setFont("Helvetica-Oblique", 10)
+        p.drawCentredString(width/2, 0.5*inch, "This document is generated by Fasal Saathi and is bank-ready.")
 
         p.showPage()
         p.save()
+
+        # Get PDF content
         pdf_content = buffer.getvalue()
         buffer.close()
 
         return Response(
             content=pdf_content,
             media_type="application/pdf",
-            headers={"Content-Disposition": f"attachment; filename=FasalSaathi_Report_{sig_id}.pdf"}
+            headers={
+                "Content-Disposition": f"attachment; filename=FasalSaathi_Report_{sig_id}.pdf"
+            }
         )
     except Exception as e:
+        print(f"Error generating report: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/log-error")

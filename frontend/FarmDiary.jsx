@@ -149,6 +149,8 @@ export default function FarmDiary({ onClose }) {
       // Table Data
       const tableColumn = ["Date", "Activity", "Status", "Notes", "Cost (₹)", "Reminder"];
 
+      const tableRows = [];
+
       entries.forEach(entry => {
         const entryData = [
           entry.date,
@@ -160,7 +162,6 @@ export default function FarmDiary({ onClose }) {
         ];
         tableRows.push(entryData);
       });
-
       autoTable(doc, {
         head: [tableColumn],
         body: tableRows,
@@ -359,5 +360,4 @@ export default function FarmDiary({ onClose }) {
       )}
     </div>
   );
-  
 }
