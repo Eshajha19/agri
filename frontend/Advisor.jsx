@@ -13,6 +13,7 @@ import FertilizerRecommendation from "./FertilizerRecommendation";
 import LastUpdated from "./LastUpdated";
 import AgriMarketplace from "./AgriMarketplace";
 import AgriLMS from "./AgriLMS";
+import BankReports from "./BankReports";
 import QRTraceability from "./QRTraceability";
 import FarmPlanner3D from "./FarmPlanner3D";
 import FarmDiary from "./FarmDiary";
@@ -1084,6 +1085,17 @@ export default function Advisor() {
                   <span>Spreadsheet format</span>
                 </div>
               </button>
+            </div>
+
+            <div className="certified-report-section" style={{ marginTop: '2rem', borderTop: '2px dashed #e2e8f0', paddingTop: '2rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '1rem', color: '#2e7d32' }}>
+                <Award size={24} />
+                <h3 style={{ margin: 0 }}>Certified Digital Signature Report</h3>
+              </div>
+              <p style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '1.5rem' }}>
+                Generate a cryptographically signed, tamper-proof report for official bank applications.
+              </p>
+              <BankReports userData={userProfile} />
             </div>
 
             <p className="report-disclaimer">

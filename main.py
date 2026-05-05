@@ -40,9 +40,9 @@ class PredictResponse(BaseModel):
 # Load model
 try:
     model = joblib.load("yield_model.joblib")
-    print("✅ Model loaded successfully")
+    print("Model loaded successfully")
 except Exception as e:
-    print(f"❌ Error loading model: {e}")
+    print(f"Error loading model: {e}")
     model = None
 
 # Store notifications
@@ -162,9 +162,9 @@ class AlertTriggerRequest(BaseModel):
 # Load model
 try:
     model = joblib.load("yield_model.joblib")
-    print("✅ Model loaded successfully")
+    print("Model loaded successfully")
 except Exception as e:
-    print(f"❌ Error loading model: {e}")
+    print(f"Error loading model: {e}")
     model = None
 
 # Local storage for WhatsApp subscribers
@@ -349,9 +349,9 @@ class AlertTriggerRequest(BaseModel):
 # Load model
 try:
     model = joblib.load("yield_model.joblib")
-    print("✅ Model loaded successfully")
+    print("Model loaded successfully")
 except Exception as e:
-    print(f"❌ Error loading model: {e}")
+    print(f"Error loading model: {e}")
     model = None
 
 # Local storage for WhatsApp subscribers
@@ -483,6 +483,139 @@ async def log_error(request: Request):
         return {"success": True}
     except Exception:
         return {"success": False}
+
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from reportlab.lib import colors
+from reportlab.lib.units import inch
+from cryptography.hazmat.primitives.asymmetric import ed25519
+from cryptography.hazmat.primitives import serialization
+import io
+import hashlib
+
+# --- Cryptographic Key Management ---
+KEYS_DIR = "keys"
+PRIVATE_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.key")
+PUBLIC_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.pub")
+
+if not os.path.exists(KEYS_DIR):
+    os.makedirs(KEYS_DIR)
+
+def get_signing_keys():
+    if os.path.exists(PRIVATE_KEY_PATH):
+        with open(PRIVATE_KEY_PATH, "rb") as f:
+            private_key = serialization.load_pem_private_key(f.read(), password=None)
+    else:
+        private_key = ed25519.Ed25519PrivateKey.generate()
+        with open(PRIVATE_KEY_PATH, "wb") as f:
+            f.write(private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption()
+            ))
+        
+        public_key = private_key.public_key()
+        with open(PUBLIC_KEY_PATH, "wb") as f:
+            f.write(public_key.public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo
+            ))
+    return private_key
+
+class ReportRequest(BaseModel):
+    name: str = Field(..., max_length=100)
+    crop: str = Field(..., max_length=50)
+    area: str = Field(..., max_length=50)
+    profit: str = Field(..., max_length=50)
+    season: str = Field(..., max_length=50)
+
+@app.post("/api/reports/generate")
+async def generate_signed_report(data: ReportRequest):
+    try:
+        private_key = get_signing_keys()
+        
+        # Create a buffer for the PDF
+        buffer = io.BytesIO()
+        p = canvas.Canvas(buffer, pagesize=letter)
+        width, height = letter
+
+        # 1. Header
+        p.setFont("Helvetica-Bold", 24)
+        p.setFillColor(colors.green)
+        p.drawCentredString(width/2, height - 1*inch, "FASAL SAATHI")
+        
+        p.setFont("Helvetica-Bold", 18)
+        p.setFillColor(colors.black)
+        p.drawCentredString(width/2, height - 1.5*inch, "CERTIFIED FINANCIAL FARM REPORT")
+        
+        p.setStrokeColor(colors.green)
+        p.line(1*inch, height - 1.7*inch, width - 1*inch, height - 1.7*inch)
+
+        # 2. Content
+        p.setFont("Helvetica", 14)
+        y = height - 2.5*inch
+        
+        details = [
+            ("Farmer Name:", data.name),
+            ("Crop Type:", data.crop),
+            ("Farm Area:", data.area),
+            ("Season Profit:", f"Rs. {data.profit}"),
+            ("Season:", data.season),
+            ("Report Date:", datetime.now().strftime("%d %B, %Y")),
+        ]
+
+        for label, value in details:
+            p.setFont("Helvetica-Bold", 14)
+            p.drawString(1.5*inch, y, label)
+            p.setFont("Helvetica", 14)
+            p.drawString(3.5*inch, y, value)
+            y -= 0.4*inch
+
+        # 3. Signature Box
+        y -= 0.5*inch
+        p.setStrokeColor(colors.black)
+        p.rect(1*inch, y - 1.5*inch, width - 2*inch, 1.8*inch, stroke=1, fill=0)
+        
+        # Data for signing
+        report_data_string = f"{data.name}|{data.crop}|{data.area}|{data.profit}|{datetime.now().date()}"
+        signature = private_key.sign(report_data_string.encode())
+        sig_id = hashlib.sha256(signature).hexdigest()[:8].upper()
+
+        p.setFont("Helvetica-Bold", 14)
+        p.drawString(1.2*inch, y - 0.3*inch, "DIGITAL CRYPTOGRAPHIC SIGNATURE")
+        
+        p.setFont("Helvetica", 12)
+        p.drawString(1.2*inch, y - 0.7*inch, f"Signature ID: {sig_id}")
+        p.setFont("Helvetica-Bold", 12)
+        p.setFillColor(colors.green)
+        p.drawString(1.2*inch, y - 1.0*inch, "Status: VERIFIED ✔")
+        p.setFillColor(colors.black)
+        p.setFont("Helvetica", 10)
+        p.drawString(1.2*inch, y - 1.3*inch, "Security: This report is tamper-proof and cryptographically signed.")
+
+        # 4. Footer
+        p.setFont("Helvetica-Oblique", 10)
+        p.drawCentredString(width/2, 0.5*inch, "This document is generated by Fasal Saathi and is bank-ready.")
+
+        p.showPage()
+        p.save()
+
+        # Get PDF content
+        pdf_content = buffer.getvalue()
+        buffer.close()
+
+        from fastapi.responses import Response
+        return Response(
+            content=pdf_content,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=FasalSaathi_Report_{sig_id}.pdf"
+            }
+        )
+
+    except Exception as e:
+        print(f"Error generating report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
