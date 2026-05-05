@@ -13,6 +13,11 @@ from fastapi import FastAPI, HTTPException, Request, Form, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+# Rate Limiting
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
 # ML Ops Imports
 from ml.registry import ModelRegistry
 from ml.adapters.xgboost_adapter import XGBoostAdapter
@@ -37,6 +42,11 @@ except ImportError:
     HAS_GCP_KMS = False
 
 app = FastAPI()
+
+# Initialize Limiter
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
@@ -136,6 +146,7 @@ def predict_get():
     return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
 
 @app.post("/predict", response_model=PredictResponse)
+@limiter.limit("5/minute")
 def predict_yield(data: PredictRequest, request: Request):
     """
     Standardized prediction endpoint using ML Router for dynamic model selection.
@@ -155,7 +166,8 @@ def predict_yield(data: PredictRequest, request: Request):
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/predict-yield-lag")
-async def predict_yield_lag(payload: YieldInput):
+@limiter.limit("5/minute")
+async def predict_yield_lag(payload: YieldInput, request: Request):
     if model_lag is None:
         raise HTTPException(status_code=500, detail="Model not loaded")
     try:
@@ -174,7 +186,8 @@ async def predict_yield_lag(payload: YieldInput):
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
 @app.post("/predict-yield-trend")
-async def predict_yield_trend(payload: YieldInput):
+@limiter.limit("5/minute")
+async def predict_yield_trend(payload: YieldInput, request: Request):
     if model_lag is None:
         raise HTTPException(status_code=500, detail="Model not loaded")
     try:
@@ -233,7 +246,8 @@ def save_subscribers(subscribers):
         json.dump(subscribers, f)
 
 @app.post("/api/whatsapp/subscribe")
-async def subscribe_whatsapp(data: WhatsAppSubscribeRequest):
+@limiter.limit("2/minute")
+async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     subscribers = load_subscribers()
     user_id = data.user_id if data.user_id else str(datetime.now().timestamp())
     subscribers[user_id] = {
@@ -358,7 +372,8 @@ def get_signing_keys():
     return private_key
 
 @app.post("/api/reports/generate")
-async def generate_signed_report(data: ReportRequest):
+@limiter.limit("3/minute")
+async def generate_signed_report(data: ReportRequest, request: Request):
     try:
         private_key = get_signing_keys()
         
