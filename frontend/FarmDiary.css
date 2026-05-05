@@ -327,6 +327,19 @@ textarea.diary-input {
   opacity: 0.5;
 }
 
+/* Activity badge icon alignment */
+.entry-type-badge .svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* For lucide-react icons inside badges */
+.entry-type-badge svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
 .empty-state h3 {
   font-size: 1.25rem;
   color: #374151;
