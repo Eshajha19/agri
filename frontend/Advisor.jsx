@@ -22,6 +22,8 @@ import PestManagement from "./PestManagement";
 import SeedVerifier from "./SeedVerifier";
 import ClimateSimulator from "./ClimateSimulator";
 import RAGAdvisor from "./RAGAdvisor";
+import GreenPractices from "./GreenPractices";
+import { Leaf } from "lucide-react";
 
 import CropRotation from "./CropRotation";
 import P2PChat from "./P2PChat";
@@ -125,6 +127,8 @@ export default function Advisor({ userData }) {
     setShowClimateSimulator,
     showRAGAdvisor,
     setShowRAGAdvisor,
+    showGreenPractices,
+    setShowGreenPractices,
   } = useAdvisorStore();
 
   const { liteMode } = usePerformanceStore();
@@ -780,6 +784,23 @@ export default function Advisor({ userData }) {
             </div>
             <h3><span className="notranslate">AI Research Advisor</span></h3>
             <p>Get research-backed agricultural advice with verified citations from ICAR, FAO, and more.</p>
+          </div>
+
+          <div 
+            className="card reveal" 
+            style={{ border: '2px solid #10b981', background: 'rgba(16, 185, 129, 0.02)' }}
+            role="button" 
+            tabIndex={0} 
+            onClick={() => setShowGreenPractices(true)} 
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowGreenPractices(true); }} 
+            aria-label="Green Practices: Track carbon credits"
+          >
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>
+              <Leaf size={32} strokeWidth={2} />
+            </div>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#10b981', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>EARN</div>
+            <h3><span className="notranslate">Green Practices & Carbon</span></h3>
+            <p>Track eco-friendly practices, calculate carbon impact, and monetize sustainability.</p>
           </div>
         </div>
 
@@ -1463,6 +1484,17 @@ export default function Advisor({ userData }) {
         isOpen={showRAGAdvisor}
         onClose={() => setShowRAGAdvisor(false)}
       />
+
+      {showGreenPractices && (
+        <div className="weather-overlay" onClick={() => setShowGreenPractices(false)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+            <GreenPractices 
+              userProfile={userProfile} 
+              onClose={() => setShowGreenPractices(false)} 
+            />
+          </div>
+        </div>
+      )}
     </section>
   );
 }
