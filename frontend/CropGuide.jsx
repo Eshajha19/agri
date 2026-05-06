@@ -1,8 +1,9 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import "./CropGuide.css";
 
-const cropsData = [
+// 📦 DATA
+const CROPS = [
   {
     id: 1,
     name: "Rice",
@@ -65,105 +66,111 @@ const cropsData = [
   },
 ];
 
+const FILTERS = ["All", "Kharif", "Rabi", "Year-round"];
+
 export default function CropGuide() {
-  const [filter, setFilter] = useState("All");
-  const [search, setSearch] = useState("");
-  const [selectedCrop, setSelectedCrop] = useState(null);
+  const [selectedSeason, setSelectedSeason] = useState("All");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeCrop, setActiveCrop] = useState(null);
 
-  // FILTER + SEARCH
-  const filteredCrops = cropsData.filter((crop) => {
-    const matchesFilter =
-      filter === "All" || crop.season === filter;
+  // 🔍 FILTER + SEARCH (memoized for performance)
+  const filteredCrops = useMemo(() => {
+    return CROPS.filter((crop) => {
+      const matchesSeason =
+        selectedSeason === "All" || crop.season === selectedSeason;
 
-    const matchesSearch = crop.name
-      .toLowerCase()
-      .includes(search.toLowerCase());
+      const matchesSearch = crop.name
+        .toLowerCase()
+        .includes(searchQuery.toLowerCase());
 
-    return matchesFilter && matchesSearch;
-  });
+      return matchesSeason && matchesSearch;
+    });
+  }, [selectedSeason, searchQuery]);
 
   return (
     <div className="crop-page">
 
-      {/* HEADER */}
-      <div className="crop-hero">
+      {/* 🌾 HERO */}
+      <header className="crop-hero">
         <h1>🌾 Crop Guide</h1>
-        <p>Find the best crops based on season & soil</p>
-      </div>
+        <p>Explore crops based on season, soil & water needs</p>
+      </header>
 
-      {/* SEARCH */}
+      {/* 🔍 SEARCH */}
       <div className="crop-search">
         <input
           type="text"
-          placeholder="Search crop..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search crops..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
         />
       </div>
-        {/* HEADER */}
-        <div className="crop-hero">
-          <h1>🌾 <span className="notranslate">Crop Guide</span></h1>
-          <p>Explore crops based on season and soil type</p>
-        </div>
 
-      {/* FILTER */}
+      {/* 🧭 FILTERS */}
       <div className="crop-filter">
-        {["All", "Kharif", "Rabi", "Year-round"].map((item) => (
+        {FILTERS.map((season) => (
           <button
-            key={item}
-            className={filter === item ? "active" : ""}
-            onClick={() => setFilter(item)}
+            key={season}
+            className={selectedSeason === season ? "active" : ""}
+            onClick={() => setSelectedSeason(season)}
           >
-            {item}
+            {season}
           </button>
         ))}
       </div>
 
-      {/* GRID */}
+      {/* 🌱 GRID */}
       <div className="crop-grid">
-        {filteredCrops.map((crop) => (
-          <div key={crop.id} className="crop-card">
-            <div className="crop-icon">🌱</div>
+        {filteredCrops.length > 0 ? (
+          filteredCrops.map((crop) => (
+            <div key={crop.id} className="crop-card">
+              <div className="crop-icon">🌱</div>
 
-            <h2>{crop.name}</h2>
+              <h2>{crop.name}</h2>
 
-            <div className="crop-info">
-              <p><strong>Season:</strong> {crop.season}</p>
-              <p><strong>Soil:</strong> {crop.soil}</p>
-              <p><strong>Water:</strong> {crop.water}</p>
+              <div className="crop-info">
+                <p><strong>Season:</strong> {crop.season}</p>
+                <p><strong>Soil:</strong> {crop.soil}</p>
+                <p><strong>Water:</strong> {crop.water}</p>
+              </div>
+
+              <button onClick={() => setActiveCrop(crop)}>
+                View Details
+              </button>
             </div>
-
-            <button onClick={() => setSelectedCrop(crop)}>
-              View Details
-            </button>
-          </div>
-        ))}
+          ))
+        ) : (
+          <p className="no-results">No crops found 🌾</p>
+        )}
       </div>
 
-      {/* MODAL */}
-      {selectedCrop && (
-        <div className="crop-modal">
-          <div className="crop-popup">
-
+      {/* 📋 MODAL */}
+      {activeCrop && (
+        <div className="crop-modal" onClick={() => setActiveCrop(null)}>
+          <div
+            className="crop-popup"
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
               className="close-btn"
-              onClick={() => setSelectedCrop(null)}
+              onClick={() => setActiveCrop(null)}
             >
               ✖
             </button>
 
-            <h2>🌾 {selectedCrop.name}</h2>
+            <h2>🌾 {activeCrop.name}</h2>
 
-            <p><strong>Season:</strong> {selectedCrop.season}</p>
-            <p><strong>Soil:</strong> {selectedCrop.soil}</p>
-            <p><strong>Water Requirement:</strong> {selectedCrop.water}</p>
-            <p><strong>Duration:</strong> {selectedCrop.duration}</p>
-            <p><strong>Expected Yield:</strong> {selectedCrop.yield}</p>
-
-            <div className="tips">
-              💡 {selectedCrop.tips}
+            <div className="modal-info">
+              <p><strong>Season:</strong> {activeCrop.season}</p>
+              <p><strong>Soil:</strong> {activeCrop.soil}</p>
+              <p><strong>Water:</strong> {activeCrop.water}</p>
+              <p><strong>Duration:</strong> {activeCrop.duration}</p>
+              <p><strong>Yield:</strong> {activeCrop.yield}</p>
             </div>
 
+            <div className="tips">
+              💡 {activeCrop.tips}
+            </div>
           </div>
         </div>
       )}
