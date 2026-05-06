@@ -392,7 +392,91 @@
   .feedback-form-panel { padding: 28px 20px; }
 }
 
-.testimonial-user img {
-  background: #f3f4f6;
-  padding: 2px;
+.fb-submit-btn {
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.fb-submit-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+}
+
+.fb-submit-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.fb-submit-btn.loading {
+  opacity: 0.8;
+  pointer-events: none;
+}
+.fb-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid white;
+  border-top: 2px solid transparent;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 6px;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.fb-error {
+  background: #fee2e2;
+  color: #991b1b;
+  padding: 10px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  border: 1px solid #fecaca;
+  font-size: 14px;
+}
+
+.fb-form input,
+.fb-form textarea,
+.fb-form select {
+  transition: all 0.2s ease;
+  border: 1px solid #e5e7eb;
+}
+
+.fb-form input:focus,
+.fb-form textarea:focus,
+.fb-form select:focus {
+  outline: none;
+  border-color: #22c55e;
+  box-shadow: 0 0 0 2px rgba(34,197,94,0.2);
+}
+
+.star-btn {
+  transition: transform 0.15s ease;
+}
+
+.star-btn:hover {
+  transform: scale(1.15);
+}
+
+.star-btn:active {
+  transform: scale(0.9);
+}
+
+.bounce {
+  animation: bounceIn 0.6s ease;
+}
+
+@keyframes bounceIn {
+  0% { transform: scale(0.5); opacity: 0; }
+  60% { transform: scale(1.2); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.char-count {
+  font-size: 12px;
+  color: #6b7280;
+  text-align: right;
+  margin-top: 4px;
 }
