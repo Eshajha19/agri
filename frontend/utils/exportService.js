@@ -135,3 +135,87 @@ export const generateCSV = (data) => {
   link.click();
   document.body.removeChild(link);
 };
+
+/**
+ * Generates a Sustainability & Carbon Credit Report.
+ * @param {Object} data - Practice logs and metrics.
+ */
+export const generateSustainabilityPDF = (data) => {
+  const { farmerName, practices, totalScore, carbonCredits, date } = data;
+  
+  const doc = new jsPDF();
+  const primaryColor = [16, 185, 129]; // #10b981 (Green)
+
+  // Header
+  doc.setFillColor(...primaryColor);
+  doc.rect(0, 0, 210, 40, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(24);
+  doc.setFont("helvetica", "bold");
+  doc.text("Green Practices & Carbon Report", 20, 25);
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "normal");
+  doc.text(`Generated on: ${date}`, 160, 25);
+
+  // Farmer Information
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(14);
+  doc.setFont("helvetica", "bold");
+  doc.text("Farmer Profile", 20, 55);
+  doc.line(20, 57, 190, 57);
+
+  const profileInfo = [
+    ["Farmer Name:", farmerName],
+    ["Sustainability Score:", `${totalScore}/100`],
+    ["Estimated Carbon Credits:", `${carbonCredits.toFixed(2)} mtCO2e`],
+    ["Report Date:", date]
+  ];
+
+  autoTable(doc, {
+    startY: 62,
+    body: profileInfo,
+    theme: "striped",
+    styles: { fontSize: 10, cellPadding: 3 },
+    columnStyles: { 0: { fontStyle: "bold", width: 50 } }
+  });
+
+  // Recorded Practices
+  doc.setFontSize(14);
+  doc.setFont("helvetica", "bold");
+  doc.text("Recorded Sustainable Practices", 20, doc.lastAutoTable.finalY + 15);
+  doc.line(20, doc.lastAutoTable.finalY + 17, 190, doc.lastAutoTable.finalY + 17);
+
+  const practiceTable = practices.map(p => [
+    p.practice,
+    p.status ? "Implemented" : "Not Implemented",
+    `${p.impact} pts`
+  ]);
+
+  autoTable(doc, {
+    startY: doc.lastAutoTable.finalY + 22,
+    head: [["Practice", "Status", "Impact Score"]],
+    body: practiceTable,
+    theme: "grid",
+    headStyles: { fillColor: primaryColor },
+    styles: { fontSize: 11, cellPadding: 5 }
+  });
+
+  // Monetization Section
+  doc.setFontSize(14);
+  doc.setFont("helvetica", "bold");
+  doc.text("Monetization Potential", 20, doc.lastAutoTable.finalY + 15);
+  doc.line(20, doc.lastAutoTable.finalY + 17, 190, doc.lastAutoTable.finalY + 17);
+  
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "normal");
+  doc.text(`Based on your current score of ${totalScore}, you are eligible for verification in the voluntary carbon market.`, 20, doc.lastAutoTable.finalY + 25);
+  doc.text(`Estimated market value of credits: INR ${(carbonCredits * 1200).toLocaleString()} (approx.)`, 20, doc.lastAutoTable.finalY + 32);
+
+  // Footer
+  const pageHeight = doc.internal.pageSize.height;
+  doc.setFontSize(8);
+  doc.text("This sustainability report is verified by Fasal Saathi Carbon Tracking System.", 20, pageHeight - 20);
+  doc.text("It follows international standards for climate-smart agriculture documentation.", 20, pageHeight - 15);
+
+  doc.save(`FasalSaathi_SustainabilityReport_${farmerName.replace(/\s+/g, '_')}.pdf`);
+};
