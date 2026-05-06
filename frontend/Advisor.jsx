@@ -22,6 +22,7 @@ import PestManagement from "./PestManagement";
 import CropRotation from "./CropRotation";
 import P2PChat from "./P2PChat";
 import SmartCropRecommendation from "./SmartCropRecommendation";
+import PersonalizedRecommendations from "./PersonalizedRecommendations";
 import {
   Sun,
   Droplets,
@@ -390,6 +391,11 @@ export default function Advisor() {
           <p><span className="notranslate">Languages Available</span></p>
         </div>
       </div>
+
+      <PersonalizedRecommendations
+  userProfile={userProfile}
+  weatherData={weatherData}
+/>
 
       <br />
       <br />
@@ -772,7 +778,7 @@ export default function Advisor() {
               Refresh
             </button>
           </div>
-
+          
           {weatherLocation && (
             <p style={{ marginTop: "12px" }}>
               <strong>Location:</strong> {weatherLocation}
@@ -884,6 +890,8 @@ export default function Advisor() {
           )}
         </div>
       </div>
+
+      
 
       {/* Modals */}
       {showWeather && (
