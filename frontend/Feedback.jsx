@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { collection, addDoc } from "firebase/firestore";
 import { db, auth, isFirebaseConfigured } from "./lib/firebase";
 import {
@@ -27,6 +27,30 @@ const CATEGORY_OPTIONS = [
   { value: "other", label: "📌 Other" },
 ];
 
+// ✅ Testimonials Data
+const TESTIMONIALS = [
+  {
+    text: "This app doubled my yield last season. My feedback on soil analysis was implemented!",
+    author: "Ramesh Kumar",
+    location: "Maharashtra",
+  },
+  {
+    text: "Accurate weather alerts helped me save my crops during unexpected rain.",
+    author: "Sunita Devi",
+    location: "Bihar",
+  },
+  {
+    text: "The pest detection feature is a game changer. Very easy to use!",
+    author: "Arjun Patel",
+    location: "Gujarat",
+  },
+  {
+    text: "I suggested adding crop-specific tips and they actually added it!",
+    author: "Mahesh Yadav",
+    location: "Uttar Pradesh",
+  },
+];
+
 export default function Feedback() {
   const [form, setForm] = useState({
     name: "",
@@ -36,10 +60,23 @@ export default function Feedback() {
     message: "",
     rating: 0,
   });
+
   const [hoverRating, setHoverRating] = useState(0);
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
+
+  // ✅ Testimonial state
+  const [testimonialIndex, setTestimonialIndex] = useState(0);
+
+  // ✅ Auto-rotate testimonials
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTestimonialIndex((prev) => (prev + 1) % TESTIMONIALS.length);
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   const handleChange = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -53,6 +90,7 @@ export default function Feedback() {
       setError("Please enter your feedback message.");
       return;
     }
+
     if (form.rating === 0) {
       setError("Please select a rating.");
       return;
@@ -66,6 +104,7 @@ export default function Feedback() {
     setLoading(true);
     try {
       const user = auth?.currentUser;
+
       await addDoc(collection(db, "feedback"), {
         userId: user?.uid || "anonymous",
         userEmail: user?.email || "anonymous",
@@ -77,6 +116,7 @@ export default function Feedback() {
         rating: form.rating,
         createdAt: new Date().toISOString(),
       });
+
       setSubmitted(true);
     } catch (err) {
       console.error("Feedback submit error:", err);
@@ -87,7 +127,14 @@ export default function Feedback() {
   };
 
   const handleReset = () => {
-    setForm({ name: "", cropType: "", location: "", category: "general", message: "", rating: 0 });
+    setForm({
+      name: "",
+      cropType: "",
+      location: "",
+      category: "general",
+      message: "",
+      rating: 0,
+    });
     setSubmitted(false);
     setError("");
   };
@@ -99,8 +146,17 @@ export default function Feedback() {
           <div className="success-icon-ring">
             <CheckCircle2 size={64} className="success-icon" />
           </div>
+
           <h2>Thank You! 🙏</h2>
-           <p>Your feedback has been submitted successfully. We'll use it to make <span className="notranslate" translate="no">Fasal Saathi</span> even better for farmers like you.</p>
+
+          <p>
+            Your feedback has been submitted successfully. We'll use it to make{" "}
+            <span className="notranslate" translate="no">
+              Fasal Saathi
+            </span>{" "}
+            even better for farmers like you.
+          </p>
+
           <div className="submitted-rating">
             {[1, 2, 3, 4, 5].map((s) => (
               <Star
@@ -111,6 +167,7 @@ export default function Feedback() {
               />
             ))}
           </div>
+
           <button className="fb-btn-primary" onClick={handleReset}>
             Submit Another Feedback
           </button>
@@ -122,14 +179,22 @@ export default function Feedback() {
   return (
     <div className="feedback-page">
       <div className="feedback-wrapper">
+
         {/* Left Panel */}
         <div className="feedback-info-panel">
           <div className="info-badge">🌾 Farmer Feedback</div>
+
           <h1>Help Us Grow Better</h1>
-            <p>
-              Your opinion directly shapes the future of <span className="notranslate" translate="no">Fasal Saathi</span>. Share your
-              experience, suggest features, or report issues — every word matters.
-            </p>
+
+          <p>
+            Your opinion directly shapes the future of{" "}
+            <span className="notranslate" translate="no">
+              Fasal Saathi
+            </span>
+            . Share your experience, suggest features, or report issues — every
+            word matters.
+          </p>
+
           <div className="info-stats">
             {[
               { icon: "⭐", label: "Average Rating", value: "4.8/5" },
@@ -145,11 +210,29 @@ export default function Feedback() {
               </div>
             ))}
           </div>
+
+          {/* ✅ Improved Testimonials */}
           <div className="info-testimonial">
-            <p>"This app doubled my yield last season. My feedback on soil analysis was implemented!"</p>
-            <span>— Ramesh Kumar, Maharashtra</span>
+            <p className="testimonial-text">
+              {TESTIMONIALS[testimonialIndex].text}
+            </p>
+
+            <span className="testimonial-author">
+              — {TESTIMONIALS[testimonialIndex].author},{" "}
+              {TESTIMONIALS[testimonialIndex].location}
+            </span>
+
+            <div className="testimonial-dots">
+              {TESTIMONIALS.map((_, i) => (
+                <span
+                  key={i}
+                  className={`dot ${i === testimonialIndex ? "active" : ""}`}
+                  onClick={() => setTestimonialIndex(i)}
+                />
+              ))}
+            </div>
           </div>
-        </div>
+        </div> 
 
         {/* Right Panel - Form */}
         <div className="feedback-form-panel">
