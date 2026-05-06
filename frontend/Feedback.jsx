@@ -96,7 +96,7 @@ export default function Feedback() {
     return (
       <div className="feedback-page">
         <div className="feedback-success-card">
-          <div className="success-icon-ring">
+        <CheckCircle2 size={64} className="success-icon bounce" />
             <CheckCircle2 size={64} className="success-icon" />
           </div>
           <h2>Thank You! 🙏</h2>
@@ -252,13 +252,22 @@ export default function Feedback() {
               </select>
             </div>
 
-            <button type="submit" className="fb-submit-btn" disabled={loading}>
-              {loading ? (
-                <><span className="fb-spinner"></span> Submitting...</>
-              ) : (
-                <><Send size={18} /> Submit Feedback</>
-              )}
-            </button>
+            <button
+  type="submit"
+  className={`fb-submit-btn ${loading ? "loading" : ""}`}
+  disabled={loading}
+>
+  {loading ? (
+    <>
+      <span className="fb-spinner"></span>
+      Submitting...
+    </>
+  ) : (
+    <>
+      <Send size={18} /> Submit Feedback
+    </>
+  )}
+</button>
           </form>
         </div>
       </div>
