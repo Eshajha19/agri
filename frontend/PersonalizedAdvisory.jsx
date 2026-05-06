@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
-import "./PersonalizedRecommendations.css";
-import { generateRecommendations, getSeason } from "../utils/recommendationEngine";
+import "./PersonalizedAdvisory.css";
+import { generateRecommendations } from "./utils/recommendationEngine";
 
 export default function PersonalizedRecommendations({ userProfile, weatherData }) {
 

@@ -325,22 +325,29 @@ export default function Home({ user }) {
     </div>
   </div>
 
-  {/* DEMO VIDEO */}
-  <div className="demo-video-wrapper">
-    <div className="demo-video-wrapper">
-  <video 
-    controls 
-    autoPlay 
-    muted 
-    loop 
-    playsInline
-    style={{ width: "100%", borderRadius: "12px" }}
-  >
-    <source src="/demo.mp4" type="video/mp4" />
-    Your browser does not support the video tag.
-  </video>
-</div>
-  </div>
+   {/* DEMO VIDEO */}
+   <div className="demo-video-wrapper">
+     <div className="demo-video-container">
+       <div className="demo-video-overlay">
+         <div className="demo-play-badge">
+           <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+             <path d="M8 5v14l11-7z"/>
+           </svg>
+           <span>Watch Demo</span>
+         </div>
+       </div>
+       <video 
+         controls 
+         muted 
+         loop 
+         playsInline
+         poster="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='630' viewBox='0 0 1200 630'%3E%3Crect fill='%23064e3b' width='1200' height='630'/%3E%3Crect fill='%2310b981' x='200' y='150' width='800' height='330' rx='20'/%3E%3Ccircle fill='%23fff' cx='600' cy='315' r='60' opacity='0.9'/%3E%3Cpath fill='%23064e3b' d='M575 280l50 35-50 35V280z'/%3E%3Ctext fill='%23fff' font-family='Arial' font-size='48' font-weight='bold' x='600' y='480' text-anchor='middle'%3EFasal Saathi Demo%3C/text%3E%3Ctext fill='%23a7f3d0' font-family='Arial' font-size='24' x='600' y='520' text-anchor='middle'%3EAI-Powered Farming Assistant%3C/text%3E%3C/svg%3E"
+       >
+         <source src="/demo.mp4" type="video/mp4" />
+         Your browser does not support the video tag.
+       </video>
+     </div>
+   </div>
 
   {/* CTA */}
   <div style={{ textAlign: "center", marginTop: "20px" }}>
