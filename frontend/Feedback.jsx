@@ -195,6 +195,14 @@ export default function Feedback() {
             word matters.
           </p>
 
+          {/* Farmer Showcase */}
+          <div className="farmer-showcase">
+            <div className="farmer-images">
+              <img src="/farmer1.png" alt="Farmer 1" className="farmer-img img-1" />
+              <img src="/farmer2.png" alt="Farmer 2" className="farmer-img img-2" />
+            </div>
+          </div>
+
           <div className="info-stats">
             {[
               { icon: "⭐", label: "Average Rating", value: "4.8/5" },

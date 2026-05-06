@@ -29,6 +29,7 @@ import CropRotation from "./CropRotation";
 import P2PChat from "./P2PChat";
 import GeoAlertMesh from "./GeoAlertMesh";
 import SmartCropRecommendation from "./SmartCropRecommendation";
+import PersonalizedAdvisory from "./PersonalizedAdvisory";
 import {
   Sun,
   Droplets,
@@ -411,6 +412,11 @@ export default function Advisor({ userData }) {
           <p><span className="notranslate">Languages Available</span></p>
         </div>
       </div>
+
+      <PersonalizedAdvisory
+        userProfile={userProfile}
+        weatherData={weatherData}
+      />
 
       <br />
       <br />
@@ -871,7 +877,7 @@ export default function Advisor({ userData }) {
               Refresh
             </button>
           </div>
-
+          
           {weatherLocation && (
             <p style={{ marginTop: "12px" }}>
               <strong>Location:</strong> {weatherLocation}
@@ -983,6 +989,8 @@ export default function Advisor({ userData }) {
           )}
         </div>
       </div>
+
+      
 
       {/* Modals */}
       {showWeather && (
