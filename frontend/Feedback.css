@@ -391,3 +391,8 @@
   .fb-row { grid-template-columns: 1fr; }
   .feedback-form-panel { padding: 28px 20px; }
 }
+
+.testimonial-user img {
+  background: #f3f4f6;
+  padding: 2px;
+}
