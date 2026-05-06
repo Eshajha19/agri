@@ -27,7 +27,7 @@ import CropRotation from "./CropRotation";
 import P2PChat from "./P2PChat";
 import GeoAlertMesh from "./GeoAlertMesh";
 import SmartCropRecommendation from "./SmartCropRecommendation";
-import PersonalizedRecommendations from "./PersonalizedRecommendations";
+import PersonalizedAdvisory from "./PersonalizedAdvisory";
 import {
   Sun,
   Droplets,
@@ -409,10 +409,10 @@ export default function Advisor({ userData }) {
         </div>
       </div>
 
-      <PersonalizedRecommendations
-  userProfile={userProfile}
-  weatherData={weatherData}
-/>
+      <PersonalizedAdvisory
+        userProfile={userProfile}
+        weatherData={weatherData}
+      />
 
       <br />
       <br />
