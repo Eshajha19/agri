@@ -391,3 +391,140 @@
   .fb-row { grid-template-columns: 1fr; }
   .feedback-form-panel { padding: 28px 20px; }
 }
+
+
+.trust-badges {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  color: #374151;
+}
+
+.trust-badges div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f9fafb;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+}
+.live-indicator {
+  margin-top: 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #dc2626;
+  background: #fef2f2;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #fecaca;
+  display: inline-block;
+}
+
+.privacy-note {
+  font-size: 12px;
+  color: #6b7280;
+  margin: 10px 0 6px;
+  text-align: center;
+}
+.credibility-note {
+  margin-top: 16px;
+  font-size: 13px;
+  color: #065f46;
+  background: #ecfdf5;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #a7f3d0;
+  text-align: center;
+  font-weight: 500;
+}
+
+.info-testimonial {
+  margin-top: 20px;
+  padding: 14px;
+  background: #f8fafc;
+  border-left: 4px solid #22c55e;
+  border-radius: 10px;
+  font-style: italic;
+  color: #1f2937;
+}
+
+.info-testimonial span {
+  display: block;
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #4b5563;
+}
+
+.info-stats {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.info-stat-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.stat-label {
+  font-size: 13px;
+  color: #6b7280;
+}
+.fb-submit-btn {
+  margin-top: 14px;
+  width: 100%;
+  padding: 12px;
+  border-radius: 10px;
+  border: none;
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.fb-submit-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(34, 197, 94, 0.25);
+}
+
+.fb-submit-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.feedback-info-panel {
+  background: linear-gradient(135deg, #f0fdf4, #ecfdf5);
+  padding: 24px;
+  border-radius: 16px;
+  border: 1px solid #d1fae5;
+}
+
+.feedback-form-panel {
+  background: white;
+  padding: 24px;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+}
+
+.feedback-info-panel,
+.feedback-form-panel {
+  transition: all 0.25s ease;
+}
+
+.feedback-info-panel:hover,
+.feedback-form-panel:hover {
+  transform: translateY(-2px);
+}
