@@ -31,19 +31,18 @@ const CATEGORY_OPTIONS = [
   { value: "other", label: "📌 Other" },
 ];
 
-// ✅ FRONTEND IMAGE TESTIMONIALS
 const TESTIMONIALS = [
   {
     text: "Soil alerts helped reduce irrigation cost by 20%",
     name: "Ramesh Patil",
     crop: "Rice Farmer",
-    img: "/images/farmer1.jpg",
+    img: "/images/farmer1.png",
   },
   {
     text: "Weather alerts saved my crop from heavy rain",
     name: "Suresh Yadav",
     crop: "Wheat Farmer",
-    img: "/images/farmer2.jpg",
+    img: "/images/farmer2.png",
   },
 ];
 
@@ -117,7 +116,6 @@ export default function Feedback() {
 
   const weeklyEstimate = Math.min(totalFeedbacks, 25);
 
-  // ✅ SUCCESS SCREEN
   if (submitted) {
     return (
       <div className="feedback-page">
@@ -152,13 +150,13 @@ export default function Feedback() {
         {/* LEFT PANEL */}
         <div className="feedback-info-panel">
 
-          <img src="/images/farm-hero.jpg" alt="Farm" className="hero-image" />
+          <img src="/images/farm-hero.png" alt="Farm" className="hero-image" />
 
           <h1>Help Us Grow Better 🌾</h1>
 
           <p>Your feedback improves Fasal Saathi for farmers.</p>
 
-          {/* ✅ DYNAMIC STATS */}
+          {/*  DYNAMIC STATS */}
           <div className="info-stats">
             <div className="info-stat-item">
               ⭐ {loading ? "..." : `${avgRating}/5`}
@@ -178,7 +176,7 @@ export default function Feedback() {
             🔴 {loading ? "..." : weeklyEstimate}+ farmers shared feedback
           </div>
 
-          {/* ✅ TESTIMONIALS */}
+          {/* TESTIMONIALS */}
           {TESTIMONIALS.map((t, i) => (
             <div key={i} className="info-testimonial">
               <p>"{t.text}"</p>
@@ -193,7 +191,7 @@ export default function Feedback() {
             </div>
           ))}
 
-          {/* ✅ TRUST BADGES */}
+          {/* TRUST BADGES */}
           <div className="trust-badges">
             <div><ShieldCheck size={14}/> Your data is secure</div>
             <div>📊 Used only for improving service</div>
