@@ -128,3 +128,168 @@
   padding: 10px;
   border-radius: 10px;
 }
+
+/* 🌾 PAGE */
+.crop-page {
+  padding: 20px;
+  font-family: "Inter", sans-serif;
+  background: #f8fafc;
+  min-height: 100vh;
+}
+
+/* 🌿 HERO */
+.crop-hero {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.crop-hero h1 {
+  font-size: 2rem;
+  font-weight: 700;
+}
+
+.crop-hero p {
+  color: #64748b;
+}
+
+/* 🔍 SEARCH */
+.crop-search {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 15px;
+}
+
+.crop-search input {
+  width: 300px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  outline: none;
+  transition: 0.3s;
+}
+
+.crop-search input:focus {
+  border-color: #22c55e;
+}
+
+/* 🧭 FILTER */
+.crop-filter {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.crop-filter button {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 20px;
+  background: #e2e8f0;
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+.crop-filter button.active {
+  background: #22c55e;
+  color: white;
+}
+
+/* 🌱 GRID */
+.crop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 15px;
+}
+
+/* 🌿 CARD */
+.crop-card {
+  background: white;
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+  transition: 0.3s;
+  text-align: center;
+}
+
+.crop-card:hover {
+  transform: translateY(-5px);
+}
+
+/* ICON */
+.crop-icon {
+  font-size: 30px;
+  margin-bottom: 8px;
+}
+
+/* INFO */
+.crop-info p {
+  font-size: 14px;
+  margin: 4px 0;
+}
+
+/* BUTTON */
+.crop-card button {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border: none;
+  background: #22c55e;
+  color: white;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+/* 🚫 EMPTY STATE */
+.no-results {
+  text-align: center;
+  color: #94a3b8;
+}
+
+/* 📋 MODAL */
+.crop-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* POPUP */
+.crop-popup {
+  background: white;
+  padding: 20px;
+  border-radius: 16px;
+  width: 300px;
+  position: relative;
+  animation: fadeIn 0.3s ease;
+}
+
+.close-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+/* TIPS */
+.tips {
+  margin-top: 10px;
+  background: #ecfdf5;
+  padding: 10px;
+  border-radius: 10px;
+  font-size: 14px;
+}
+
+/* ANIMATION */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
