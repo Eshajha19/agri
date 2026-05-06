@@ -21,6 +21,7 @@ import CropDiseaseDetection from "./CropDiseaseDetection";
 import PestManagement from "./PestManagement";
 import SeedVerifier from "./SeedVerifier";
 import ClimateSimulator from "./ClimateSimulator";
+import RAGAdvisor from "./RAGAdvisor";
 
 import CropRotation from "./CropRotation";
 import P2PChat from "./P2PChat";
@@ -121,6 +122,8 @@ export default function Advisor({ userData }) {
     setShowGeoAlerts,
     showClimateSimulator,
     setShowClimateSimulator,
+    showRAGAdvisor,
+    setShowRAGAdvisor,
   } = useAdvisorStore();
 
   const { liteMode } = usePerformanceStore();
@@ -756,6 +759,21 @@ export default function Advisor({ userData }) {
             </div>
             <h3><span className="notranslate">Climate Risk Simulator</span></h3>
             <p>Evaluate crop performance under different long-term climate scenarios.</p>
+          </div>
+
+          <div 
+            className="card reveal" 
+            role="button" 
+            tabIndex={0} 
+            onClick={() => setShowRAGAdvisor(true)} 
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowRAGAdvisor(true); }} 
+            aria-label="AI Research Advisor: Citation-backed answers"
+          >
+            <div className="icon" aria-hidden="true">
+              <Book size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">AI Research Advisor</span></h3>
+            <p>Get research-backed agricultural advice with verified citations from ICAR, FAO, and more.</p>
           </div>
         </div>
 
@@ -1432,6 +1450,10 @@ export default function Advisor({ userData }) {
         isOpen={showClimateSimulator} 
         onClose={() => setShowClimateSimulator(false)} 
         userData={userData}
+      />
+      <RAGAdvisor
+        isOpen={showRAGAdvisor}
+        onClose={() => setShowRAGAdvisor(false)}
       />
     </section>
   );
