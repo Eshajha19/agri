@@ -171,31 +171,66 @@ function App() {
   }, []);
 
   // E2EE Key Generation Sync
+  //
+  // Private keys are stored as non-extractable CryptoKey objects in IndexedDB.
+  // Raw key material never touches JavaScript memory or localStorage, so an
+  // XSS attacker cannot exfiltrate the private key.
+  // Only the public key (safe to share) is published to Firebase.
   useEffect(() => {
     if (!user || !isFirebaseConfigured()) return;
 
     const ensurePublicKey = async () => {
       try {
-        let privateJwk = localStorage.getItem(`ecdh_private_${user.uid}`);
-        let publicJwk = localStorage.getItem(`ecdh_public_${user.uid}`);
-        
-        // Generate globally if it doesn't exist
-        if (!privateJwk || !publicJwk) {
-          const { cryptoService } = await import("./utils/cryptoService");
-          const keyPair = await cryptoService.generateECDHKeyPair();
-          privateJwk = await cryptoService.exportKey(keyPair.privateKey);
-          publicJwk = await cryptoService.exportKey(keyPair.publicKey);
-          localStorage.setItem(`ecdh_private_${user.uid}`, JSON.stringify(privateJwk));
-          localStorage.setItem(`ecdh_public_${user.uid}`, JSON.stringify(publicJwk));
+        const { cryptoService } = await import("./utils/cryptoService");
+
+        let privateKey = await cryptoService.loadPrivateKey(user.uid);
+        let publicJwk = null;
+
+        if (!privateKey) {
+          // ── Migrate any key previously stored in localStorage ──────────────
+          const legacyPrivateJwk = localStorage.getItem(`ecdh_private_${user.uid}`);
+          const legacyPublicJwk  = localStorage.getItem(`ecdh_public_${user.uid}`);
+
+          if (legacyPrivateJwk && legacyPublicJwk) {
+            // Re-import the old key as non-extractable and move it to IndexedDB
+            privateKey = await cryptoService.importPrivateKey(JSON.parse(legacyPrivateJwk));
+            await cryptoService.savePrivateKey(user.uid, privateKey);
+            publicJwk = JSON.parse(legacyPublicJwk);
+
+            // Remove the plaintext key material from localStorage
+            localStorage.removeItem(`ecdh_private_${user.uid}`);
+            localStorage.removeItem(`ecdh_public_${user.uid}`);
+          } else {
+            // ── Fresh key generation ─────────────────────────────────────────
+            const keyPair = await cryptoService.generateECDHKeyPair();
+            // Save the non-extractable private key to IndexedDB only
+            await cryptoService.savePrivateKey(user.uid, keyPair.privateKey);
+            // Export only the public key (safe to share)
+            publicJwk = await cryptoService.exportKey(keyPair.publicKey);
+          }
         } else {
-          publicJwk = JSON.parse(publicJwk);
+          // Key already in IndexedDB — fetch the public JWK from Firebase
+          // (we don't store it locally; Firebase is the source of truth)
+          const pubKeyRef = doc(db, "public_keys", user.uid);
+          const { getDoc } = await import("firebase/firestore");
+          const snap = await getDoc(pubKeyRef);
+          if (snap.exists()) {
+            publicJwk = snap.data().jwk;
+          } else {
+            // Public key missing from Firebase (e.g. cleared) — regenerate pair
+            const keyPair = await cryptoService.generateECDHKeyPair();
+            await cryptoService.savePrivateKey(user.uid, keyPair.privateKey);
+            publicJwk = await cryptoService.exportKey(keyPair.publicKey);
+          }
         }
 
-        // Publish to Firebase so others can find it instantly when you log in
-        const pubKeyRef = doc(db, "public_keys", user.uid);
-        await setDoc(pubKeyRef, { jwk: publicJwk }, { merge: true });
+        // Publish the public key to Firebase so peers can encrypt messages to us
+        if (publicJwk) {
+          const pubKeyRef = doc(db, "public_keys", user.uid);
+          await setDoc(pubKeyRef, { jwk: publicJwk }, { merge: true });
+        }
       } catch (error) {
-        console.error("Failed to generate/publish ECDH keys globally:", error);
+        console.error("Failed to generate/publish ECDH keys:", error);
       }
     };
 
