@@ -206,6 +206,44 @@
   background-color: #334155;
 }
 
+.guest-btn {
+  width: 100%;
+  background-color: transparent;
+  border: 1.5px solid #2e7d32;
+  color: #2e7d32;
+  padding: 10px 24px;
+  border-radius: 4px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: all .2s;
+  font-size: 14px;
+  margin-top: 12px;
+}
+
+.guest-btn:hover {
+  background-color: rgba(46, 125, 50, 0.05);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(46, 125, 50, 0.1);
+}
+
+.theme-dark .guest-btn {
+  border-color: #4ade80;
+  color: #4ade80;
+}
+
+.theme-dark .guest-btn:hover {
+  background-color: rgba(74, 222, 128, 0.05);
+  box-shadow: 0 2px 8px rgba(74, 222, 128, 0.1);
+}
+
+.guest-icon {
+  font-size: 1.1rem;
+}
+
 .auth-toggle {
   text-align: center;
   margin-top: 1.5rem;

@@ -16,7 +16,11 @@ import {
   FaInfoCircle,
   FaBook,
   FaShieldAlt,
+  FaBolt,
+  FaUserSecret,
+  FaFileInvoiceDollar,
 } from "react-icons/fa";
+import { usePerformanceStore } from "./stores/performanceStore";
 
 // Components
 import AdminFeedback from "./AdminFeedback";
@@ -56,10 +60,11 @@ import NotFound from "./NotFound";
 import PrivacyPolicy from "./PrivacyPolicy";
 import Terms from "./Terms";
 import SoilAnalysis from "./SoilAnalysis";
+import SeedVerifier from "./SeedVerifier";
 import { SkipLink } from "./NavigationManager";
 
 // Libs
-import { auth, db, isFirebaseConfigured, doc, onSnapshot } from "./lib/firebase";
+import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc } from "./lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 
 // CSS
@@ -89,6 +94,18 @@ const getInitialLanguage = () => {
   }
 };
 
+const GuestBanner = ({ onSignUp }) => (
+  <div className="guest-banner">
+    <div className="guest-banner-content">
+      <FaUserSecret className="banner-icon" />
+      <span>
+        <strong>Guest Session Active:</strong> Explore the platform freely! 
+        <Link to="/auth" className="banner-link"> Sign Up</Link> to save your progress permanently.
+      </span>
+    </div>
+  </div>
+);
+
 function App() {
   const scorecardRef = useRef(null);
   const [settings, setSettings] = useState({ language: getInitialLanguage() });
@@ -101,6 +118,12 @@ function App() {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  
+  const { liteMode, setLiteMode, detectAndSetLiteMode } = usePerformanceStore();
+
+  useEffect(() => {
+    detectAndSetLiteMode();
+  }, []);
 
   const { i18n } = useTranslation();
   const location = useLocation();
@@ -122,6 +145,10 @@ function App() {
               const data = userDoc.data();
               setUserData(data);
               setProfileCompleted(data.profileCompleted === true);
+            } else if (currentUser.isAnonymous) {
+              // Guest user might not have a profile doc yet
+              setUserData({ displayName: "Guest Farmer", isAnonymous: true });
+              setProfileCompleted(true);
             } else {
               setUserData(null);
               setProfileCompleted(false);
@@ -142,6 +169,38 @@ function App() {
     });
     return () => unsubscribeAuth();
   }, []);
+
+  // E2EE Key Generation Sync
+  useEffect(() => {
+    if (!user || !isFirebaseConfigured()) return;
+
+    const ensurePublicKey = async () => {
+      try {
+        let privateJwk = localStorage.getItem(`ecdh_private_${user.uid}`);
+        let publicJwk = localStorage.getItem(`ecdh_public_${user.uid}`);
+        
+        // Generate globally if it doesn't exist
+        if (!privateJwk || !publicJwk) {
+          const { cryptoService } = await import("./utils/cryptoService");
+          const keyPair = await cryptoService.generateECDHKeyPair();
+          privateJwk = await cryptoService.exportKey(keyPair.privateKey);
+          publicJwk = await cryptoService.exportKey(keyPair.publicKey);
+          localStorage.setItem(`ecdh_private_${user.uid}`, JSON.stringify(privateJwk));
+          localStorage.setItem(`ecdh_public_${user.uid}`, JSON.stringify(publicJwk));
+        } else {
+          publicJwk = JSON.parse(publicJwk);
+        }
+
+        // Publish to Firebase so others can find it instantly when you log in
+        const pubKeyRef = doc(db, "public_keys", user.uid);
+        await setDoc(pubKeyRef, { jwk: publicJwk }, { merge: true });
+      } catch (error) {
+        console.error("Failed to generate/publish ECDH keys globally:", error);
+      }
+    };
+
+    ensurePublicKey();
+  }, [user]);
 
   // Theme Sync
   const [isDarkTheme, setIsDarkTheme] = useState(() => {
@@ -212,8 +271,9 @@ function App() {
   useNotifications();
 
   return (
-    <div className={`app ${isDarkTheme ? "theme-dark" : ""}`}>
+    <div className={`app ${isDarkTheme ? "theme-dark" : ""} ${liteMode ? "lite-mode" : ""}`}>
       <SkipLink />
+      {user?.isAnonymous && <GuestBanner />}
       
       {loading && <Loader fullPage={true} message={<span className="notranslate">Initializing Fasal Saathi...</span>} />}
       
@@ -268,7 +328,25 @@ function App() {
                     }}
                   />
                 </div>
+                <div className="performance-toggle-section">
+                  <button 
+                    className={`lite-mode-toggle ${liteMode ? 'active' : ''}`}
+                    onClick={() => setLiteMode(!liteMode)}
+                    role="menuitem"
+                  >
+                    <div className="toggle-info">
+                      <FaBolt className="zap-icon" />
+                      <span>Lite Mode {liteMode ? "ON" : "OFF"}</span>
+                    </div>
+                    <div className="toggle-switch">
+                      <div className="switch-handle" />
+                    </div>
+                  </button>
+                </div>
                 <Link to="/dashboard" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaTachometerAlt /> Dashboard</Link>
+                {userData?.role === "admin" && (
+                  <Link to="/admin/feedback" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Feedback Admin</Link>
+                )}
                 <Link to="/community" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaComments /> Community</Link>
                 <Link to="/disease-awareness" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaLeaf /> Awareness</Link>
                 <Link to="/risk-index" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Risk Index</Link>
@@ -295,6 +373,7 @@ function App() {
                       <p>{user.email}</p>
                     </div>
                     <div className="scorecard-body">
+                      <div className="score-item"><label>Role</label><span className="role-badge">{userData?.role?.toUpperCase() || "FARMER"}</span></div>
                       <div className="score-item"><label>Primary Crop</label><span>{userData?.cropType || "N/A"}</span></div>
                       <div className="score-item"><label>Location</label><span>{userData?.address || "N/A"}</span></div>
                       <div className="score-item">
@@ -321,7 +400,7 @@ function App() {
         </button>
       </nav>
 
-      {!loading && user && !user.emailVerified && location.pathname !== "/login" && (
+      {!loading && user && !user.isAnonymous && !user.emailVerified && location.pathname !== "/login" && (
         <div className="verification-overlay">
           <div className="verification-card">
             <div className="verify-icon">✉️</div>
@@ -340,7 +419,7 @@ function App() {
       <main id="main-content" tabIndex="-1" style={{ outline: 'none' }}>
         <Routes>
           <Route path="/" element={<Home user={user} />} />
-          <Route path="/advisor" element={<Advisor />} />
+          <Route path="/advisor" element={<Advisor userData={userData} />} />
           <Route path="/how-it-works" element={<How />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/crop-guide" element={<CropGuide />} />
@@ -370,6 +449,7 @@ function App() {
           <Route path="/glossary" element={<Glossary />} />
           <Route path="/risk-index" element={<RiskIndex />} />
           <Route path="/crop-rotation" element={<CropRotation />} />
+          <Route path="/seed-verifier" element={<SeedVerifier />} />
           <Route path="/blog" element={<Blog />} />
           <Route path="/blog/:id" element={<BlogDetail />} />
           <Route path="*" element={<NotFound />} />
