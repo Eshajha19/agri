@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { IndianRupee, TrendingUp, AlertCircle, Plus, Trash2, Trophy } from "lucide-react";
+import { calculateSingleCropProfit, compareProfits } from "./utils/profitCalculator";
 import "./CropProfitCalculator.css";
 
 export default function CropProfitCalculator() {
@@ -107,46 +108,15 @@ export default function CropProfitCalculator() {
     }
 
     if (isCompareMode) {
-      const resultsArray = compareData.map((crop) => {
-        const cost = parseFloat(crop.farmingCost);
-        const yield_ = parseFloat(crop.expectedYield);
-        const price = parseFloat(crop.marketPrice);
-        const revenue = yield_ * price;
-        const profit = revenue - cost;
-        const profitPercentage = ((profit / cost) * 100).toFixed(2);
-        
-        return {
-          id: crop.id,
-          name: crop.cropName,
-          cost,
-          yield: yield_,
-          price,
-          revenue,
-          profit,
-          profitPercentage,
-        };
-      });
-
-      const maxProfit = Math.max(...resultsArray.map((r) => r.profit));
-      const bestCropIds = resultsArray.filter(r => r.profit === maxProfit && r.profit > 0).map(r => r.id);
-      
-      setCompareResults({ data: resultsArray, bestCropIds });
+      const results = compareProfits(compareData);
+      setCompareResults(results);
     } else {
       const cost = parseFloat(formData.farmingCost);
       const yield_ = parseFloat(formData.expectedYield);
       const price = parseFloat(formData.marketPrice);
 
-      const revenue = yield_ * price;
-      const profit = revenue - cost;
-
-      setResults({
-        cost,
-        yield: yield_,
-        price,
-        revenue,
-        profit,
-        profitPercentage: ((profit / cost) * 100).toFixed(2),
-      });
+      const result = calculateSingleCropProfit(cost, yield_, price);
+      setResults(result);
     }
 
     setHasCalculated(true);
@@ -222,7 +192,8 @@ export default function CropProfitCalculator() {
                     <div className="input-wrapper">
                       <span className="currency-prefix">₹</span>
                       <input
-                        type="number"
+                        type="text"
+                        inputMode="decimal"
                         id="farmingCost"
                         name="farmingCost"
                         placeholder="Enter total farming cost"
@@ -249,7 +220,8 @@ export default function CropProfitCalculator() {
                     </label>
                     <div className="input-wrapper">
                       <input
-                        type="number"
+                        type="text"
+                        inputMode="decimal"
                         id="expectedYield"
                         name="expectedYield"
                         placeholder="Enter expected yield"
@@ -278,7 +250,8 @@ export default function CropProfitCalculator() {
                     <div className="input-wrapper">
                       <span className="currency-prefix">₹</span>
                       <input
-                        type="number"
+                        type="text"
+                        inputMode="decimal"
                         id="marketPrice"
                         name="marketPrice"
                         placeholder="Enter market price per quintal"
@@ -325,7 +298,8 @@ export default function CropProfitCalculator() {
                         <div className="form-group">
                           <label>Cost (₹)</label>
                           <input
-                            type="number"
+                            type="text"
+                            inputMode="decimal"
                             name="farmingCost"
                             placeholder="Total Cost"
                             value={crop.farmingCost}
@@ -337,7 +311,8 @@ export default function CropProfitCalculator() {
                         <div className="form-group">
                           <label>Yield (q)</label>
                           <input
-                            type="number"
+                            type="text"
+                            inputMode="decimal"
                             name="expectedYield"
                             placeholder="Yield"
                             value={crop.expectedYield}
@@ -349,7 +324,8 @@ export default function CropProfitCalculator() {
                         <div className="form-group">
                           <label>Price (₹/q)</label>
                           <input
-                            type="number"
+                            type="text"
+                            inputMode="decimal"
                             name="marketPrice"
                             placeholder="Market Price"
                             value={crop.marketPrice}

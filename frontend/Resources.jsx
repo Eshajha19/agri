@@ -121,7 +121,6 @@ export default function ResourcesPage() {
                 ))}
               </div>
 
-              <button className="explore-btn">Explore →</button>
               {item.link ? (
                 <Link to={item.link}>
                   <button className="explore-btn">Explore →</button>
