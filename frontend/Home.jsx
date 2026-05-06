@@ -1,5 +1,5 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 import {
   FaBrain,
   FaChartLine,
@@ -215,6 +215,9 @@ export default function Home({ user }) {
     return () => clearInterval(interval);
   }, []);
 
+
+  const navClass = ({ isActive }) =>
+  isActive ? "footer-link active" : "footer-link";
   return (
     <div className="home">
       <WeatherAlertBar />
@@ -450,30 +453,73 @@ export default function Home({ user }) {
               </div>
             </div>
             <div className="footer-section">
-              <h4>Quick Links</h4>
-              <Link to="/" aria-label="Go to Home Page"><span className="notranslate">Home</span></Link>
-              <Link to="/advisor" aria-label="Consult the AI Advisor"><span className="notranslate">Advisor</span></Link>
-              <Link to="/how-it-works" aria-label="How Fasal Saathi helps you"><span className="notranslate">How It Works</span></Link>
-              <Link to="/schemes" aria-label="View Government Schemes for farmers"><span className="notranslate">Govt Schemes</span></Link>
-              <Link to="/dashboard" aria-label="Go to your farming dashboard"><span className="notranslate">Dashboard</span></Link>
-              <Link to="/calendar" aria-label="View your farming activity calendar"><span className="notranslate">Activity Calendar</span></Link>
-              <Link to="/market-prices" aria-label="Check latest market prices for crops"><span className="notranslate">Market Prices</span></Link>
-              <Link to="/community" aria-label="Join the community discussion"><span className="notranslate">Community</span></Link>
-              <Link to="/share-feedback" aria-label="Share your thoughts with us"><span className="notranslate">Share Feedback</span></Link>
-            </div>
+  <h4>Quick Links</h4>
+
+  <NavLink to="/" className={navClass} aria-label="Go to Home Page">
+    <span className="notranslate">Home</span>
+  </NavLink>
+
+  <NavLink to="/advisor" className={navClass} aria-label="Consult the AI Advisor">
+    <span className="notranslate">Advisor</span>
+  </NavLink>
+
+  <NavLink to="/how-it-works" className={navClass} aria-label="How Fasal Saathi helps you">
+    <span className="notranslate">How It Works</span>
+  </NavLink>
+
+  <NavLink to="/schemes" className={navClass} aria-label="View Government Schemes for farmers">
+    <span className="notranslate">Govt Schemes</span>
+  </NavLink>
+
+  <NavLink to="/dashboard" className={navClass} aria-label="Go to your farming dashboard">
+    <span className="notranslate">Dashboard</span>
+  </NavLink>
+
+  <NavLink to="/calendar" className={navClass} aria-label="View your farming activity calendar">
+    <span className="notranslate">Activity Calendar</span>
+  </NavLink>
+
+  <NavLink to="/market-prices" className={navClass} aria-label="Check latest market prices for crops">
+    <span className="notranslate">Market Prices</span>
+  </NavLink>
+
+  <NavLink to="/community" className={navClass} aria-label="Join the community discussion">
+    <span className="notranslate">Community</span>
+  </NavLink>
+
+  <NavLink to="/share-feedback" className={navClass} aria-label="Share your thoughts with us">
+    <span className="notranslate">Share Feedback</span>
+  </NavLink>
+</div>
             <div className="footer-section">
               <h4>Resources</h4>
-              <Link to="/crop-guide" aria-label="View the Crop Guide"><span className="notranslate">Crop Guide</span></Link>
-              <Link to="/weather" aria-label="Check weather updates"><span className="notranslate">Weather Updates</span></Link>
-              <Link to="/soil-analysis" aria-label="Get soil analysis insights"><span className="notranslate">Soil Analysis</span></Link>
-              <Link to="/faq" aria-label="Frequently Asked Questions"><span className="notranslate">FAQs</span></Link>
+              <NavLink to="/crop-guide" className={navClass} aria-label="View the Crop Guide">
+                <span className="notranslate">Crop Guide</span>
+              </NavLink>
+              <NavLink to="/weather" className={navClass} aria-label="Check weather updates">
+                <span className="notranslate">Weather Updates</span>
+              </NavLink>
+              <NavLink to="/soil-analysis" className={navClass} aria-label="Get soil analysis insights">
+                <span className="notranslate">Soil Analysis</span>
+              </NavLink>
+              <NavLink to="/faq" className={navClass} aria-label="Frequently Asked Questions">
+                <span className="notranslate">FAQs</span>
+              </NavLink>
             </div>
             <div className="footer-section">
               <h4>Company</h4>
-              <Link to="/about" aria-label="Learn about Fasal Saathi"><span className="notranslate">About Us</span></Link>
-              <Link to="/contact" aria-label="Contact our support team"><span className="notranslate">Contact</span></Link>
-              <Link to="/privacy-policy" aria-label="Read our Privacy Policy"><span className="notranslate">Privacy Policy</span></Link>
-              <Link to="/terms" aria-label="Read our Terms of Service"><span className="notranslate">Terms of Service</span></Link>
+              <NavLink to="/about" className={navClass} aria-label="Learn about Fasal Saathi">
+                <span className="notranslate">About Us</span>
+              </NavLink>
+              <NavLink to="/contact" className={navClass} aria-label="Contact our support team">
+                <span className="notranslate">Contact</span>
+              </NavLink>
+              <NavLink to="/privacy-policy" className={navClass} aria-label="Read our Privacy Policy">
+                <span className="notranslate">Privacy Policy</span>
+              </NavLink>
+              <NavLink to="/terms" className={navClass} aria-label="Read our Terms of Service">
+                <span className="notranslate">Terms of Service</span>
+              </NavLink>
             </div>
           </div>
           <div className="footer-bottom">
