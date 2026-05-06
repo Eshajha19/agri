@@ -87,6 +87,9 @@ export const useAdvisorStore = create((set) => ({
    showClimateSimulator: false,
    setShowClimateSimulator: (show) => set({ showClimateSimulator: show }),
 
+   showRAGAdvisor: false,
+   setShowRAGAdvisor: (show) => set({ showRAGAdvisor: show }),
+
    // Reset all modals to closed
    resetAdvisorStore: () =>
      set({
@@ -118,5 +121,6 @@ export const useAdvisorStore = create((set) => ({
        showSeedVerifier: false,
        showGeoAlerts: false,
        showClimateSimulator: false,
+       showRAGAdvisor: false,
      }),
 }));
