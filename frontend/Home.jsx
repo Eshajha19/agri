@@ -294,6 +294,62 @@ export default function Home({ user }) {
         </div>
       </section>
 
+<section className="how-demo-section">
+  <div className="section-header">
+    <h2>How to Use Fasal Saathi</h2>
+    <p>Follow these simple steps to get AI-powered farming advice</p>
+  </div>
+
+  {/* STEP FLOW */}
+  <div className="how-demo-steps">
+    <div className="demo-step">
+      <div className="step-icon">🌱</div>
+      <h3>1. Choose Your Crop</h3>
+      <p>Select your crop type and farming details</p>
+    </div>
+
+    <div className="step-arrow">→</div>
+
+    <div className="demo-step">
+      <div className="step-icon">🌦️</div>
+      <h3>2. Check Weather</h3>
+      <p>View real-time weather insights for your farm</p>
+    </div>
+
+    <div className="step-arrow">→</div>
+
+    <div className="demo-step">
+      <div className="step-icon">🤖</div>
+      <h3>3. Get AI Recommendations</h3>
+      <p>Receive smart suggestions for irrigation, yield & more</p>
+    </div>
+  </div>
+
+  {/* DEMO VIDEO */}
+  <div className="demo-video-wrapper">
+    <div className="demo-video-wrapper">
+  <video 
+    controls 
+    autoPlay 
+    muted 
+    loop 
+    playsInline
+    style={{ width: "100%", borderRadius: "12px" }}
+  >
+    <source src="/demo.mp4" type="video/mp4" />
+    Your browser does not support the video tag.
+  </video>
+</div>
+  </div>
+
+  {/* CTA */}
+  <div style={{ textAlign: "center", marginTop: "20px" }}>
+    <Link to="/advisor" className="btn-primary">
+      Try It Now
+    </Link>
+  </div>
+</section>
+
       <section className="features-section">
         <div className="section-header">
           <h2>Powerful Features for Modern Farming</h2>
@@ -301,19 +357,23 @@ export default function Home({ user }) {
         </div>
         <div className="features-grid">
           {features.map((feature, index) => (
-            <Link to={feature.link || "/"} key={index} className="feature-card-link">
-              <div className="feature-card">
-                <div className="feature-category">{feature.category}</div>
-                <div className="feature-icon">{feature.icon}</div>
-                <h3>{feature.title}</h3>
-                <p>{feature.desc}</p>
-                <div className="feature-card-footer">
-                  <span>Learn more</span>
-                  <FaArrowRight size={16} />
-                </div>
-              </div>
-            </Link>
-          ))}
+            <Link
+    to={feature.link || "/"}
+    key={index}
+    className="feature-card-link"
+  >
+    <div className="feature-card">
+      <div className="feature-category">{feature.category}</div>
+      <div className="feature-icon">{feature.icon}</div>
+      <h3>{feature.title}</h3>
+      <p>{feature.desc}</p>
+      <div className="feature-card-footer">
+        <span>Learn more</span>
+        <FaArrowRight size={16} />
+      </div>
+    </div>
+  </Link>
+))} 
         </div>
       </section>
 
