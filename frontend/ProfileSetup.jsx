@@ -23,6 +23,7 @@ const LANGUAGE_OPTIONS = [
 const ProfileSetup = ({ user, profileCompleted }) => {
   const [name, setName] = useState("");
   const [language, setLanguage] = useState("en");
+  const [role, setRole] = useState("farmer");
   const [cropType, setCropType] = useState("");
   const [location, setLocation] = useState(null);
   const [address, setAddress] = useState("");
@@ -131,6 +132,7 @@ const ProfileSetup = ({ user, profileCompleted }) => {
         await setDoc(doc(db, "users", currentUser.uid), {
           displayName: name,
           language: language,
+          role: role,
           cropType: cropType,
           location: location,
           address: address,
@@ -194,6 +196,21 @@ const ProfileSetup = ({ user, profileCompleted }) => {
                 onChange={(e) => setName(e.target.value)}
                 required
               />
+            </div>
+          </div>
+
+          <div className="setup-group">
+            <label><FaUser /> I am a...</label>
+            <div className="setup-input-wrapper">
+              <span className="setup-icon">👤</span>
+              <select
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+              >
+                <option value="farmer">🚜 Farmer</option>
+                <option value="expert">🎓 Agri-Expert</option>
+                <option value="vendor">🏪 Marketplace Vendor</option>
+              </select>
             </div>
           </div>
 

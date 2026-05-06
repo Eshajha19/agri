@@ -152,37 +152,74 @@
   position: relative;
   display: flex;
   align-items: center;
+  border: 2px solid #d1d5db;
+  border-radius: 8px;
+  background: #f9fafb;
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+.theme-dark .input-wrapper {
+  background: #111827;
+  border-color: #374151;
+}
+
+.input-wrapper:focus-within {
+  border-color: #2d5a27;
+  box-shadow: 0 0 0 3px rgba(45, 90, 39, 0.1);
+  background: white;
+}
+
+.theme-dark .input-wrapper:focus-within {
+  border-color: #4ade80;
+  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.1);
+  background: #0f172a;
 }
 
 .input-wrapper input {
   width: 100%;
-  padding: 12px 12px 12px 45px;
-  border: 2px solid #d1d5db;
-  border-radius: 8px;
+  padding: 12px 12px 12px 8px; /* Reduced padding since prefix is now static */
+  border: none !important;
   font-size: 1rem;
   font-family: 'Poppins', sans-serif;
-  background: #f9fafb;
-  transition: all 0.3s ease;
-  color: #1f2937;
+  background: transparent !important;
+  color: #1f2937 !important;
+  outline: none !important;
+  box-shadow: none !important;
+  flex: 1;
 }
 
 .theme-dark .input-wrapper input {
-  background: #111827;
-  border-color: #374151;
-  color: #e5e7eb;
+  color: #e5e7eb !important;
 }
 
-.input-wrapper input:focus {
-  outline: none;
-  border-color: #2d5a27;
-  box-shadow: 0 0 0 3px rgba(45, 90, 39, 0.1);
-  background: white;
+.input-wrapper input.input-error {
+  /* Error background applied via JS logic if needed, but wrapper is better */
 }
 
 .theme-dark .input-wrapper input:focus {
   border-color: #4ade80;
   box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.1);
   background: #0f172a;
+}
+
+/* Fix for browser autofill turning inputs white */
+.input-wrapper input:-webkit-autofill,
+.input-wrapper input:-webkit-autofill:hover, 
+.input-wrapper input:-webkit-autofill:focus, 
+.input-wrapper input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 30px #f9fafb inset !important;
+  -webkit-text-fill-color: #1f2937 !important;
+  transition: background-color 5000s ease-in-out 0s;
+  border-radius: 0 !important;
+}
+
+.theme-dark .input-wrapper input:-webkit-autofill,
+.theme-dark .input-wrapper input:-webkit-autofill:hover, 
+.theme-dark .input-wrapper input:-webkit-autofill:focus, 
+.theme-dark .input-wrapper input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 30px #111827 inset !important;
+  -webkit-text-fill-color: #e5e7eb !important;
 }
 
 .input-wrapper input.input-error {
@@ -200,11 +237,11 @@
 
 /* CURRENCY PREFIX/SUFFIX */
 .currency-prefix {
-  position: absolute;
-  left: 12px;
   font-weight: 600;
   color: #2d5a27;
   font-size: 1.1rem;
+  padding-left: 14px;
+  flex-shrink: 0;
 }
 
 .theme-dark .currency-prefix {
@@ -212,11 +249,11 @@
 }
 
 .unit-suffix {
-  position: absolute;
-  right: 12px;
   font-weight: 500;
   color: #6b7280;
   font-size: 0.9rem;
+  padding-right: 14px;
+  flex-shrink: 0;
 }
 
 .theme-dark .unit-suffix {

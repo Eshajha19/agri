@@ -13,14 +13,19 @@ import FertilizerRecommendation from "./FertilizerRecommendation";
 import LastUpdated from "./LastUpdated";
 import AgriMarketplace from "./AgriMarketplace";
 import AgriLMS from "./AgriLMS";
+import BankReports from "./BankReports";
 import QRTraceability from "./QRTraceability";
 import FarmPlanner3D from "./FarmPlanner3D";
 import FarmDiary from "./FarmDiary";
 import CropDiseaseDetection from "./CropDiseaseDetection";
 import PestManagement from "./PestManagement";
+import SeedVerifier from "./SeedVerifier";
+import ClimateSimulator from "./ClimateSimulator";
+import RAGAdvisor from "./RAGAdvisor";
 
 import CropRotation from "./CropRotation";
 import P2PChat from "./P2PChat";
+import GeoAlertMesh from "./GeoAlertMesh";
 import SmartCropRecommendation from "./SmartCropRecommendation";
 import {
   Sun,
@@ -39,21 +44,23 @@ import {
   ShoppingCart,
   Book,
   CloudSun,
+  QrCode,
+  Award,
+  Star,
+  ThumbsUp,
+  X,
+  AlertTriangle,
+  TrendingDown
 } from "lucide-react";
 import { FaSync } from "react-icons/fa";
 import { useAdvisorStore } from "./stores/advisorStore";
+import { usePerformanceStore } from "./stores/performanceStore";
 import { useYieldPrediction } from "./hooks/useYieldPrediction";
 import { auth, db } from "./lib/firebase";
 import { generateBankPDF, generateCSV } from "./utils/exportService";
 import { doc, onSnapshot } from "firebase/firestore";
-import { 
-  Award, 
-  Star, 
-  ThumbsUp,
-  X
-} from "lucide-react";
 
-export default function Advisor() {
+export default function Advisor({ userData }) {
   const navigate = useNavigate();
   const WEATHER_API_KEY = import.meta.env.VITE_OPENWEATHER_API_KEY;
   const WEATHER_CACHE_KEY = "advisorWeatherCache";
@@ -109,7 +116,17 @@ export default function Advisor() {
     setShowP2PChat,
     showSmartCropRecommendation,
     setShowSmartCropRecommendation,
+    showSeedVerifier,
+    setShowSeedVerifier,
+    showGeoAlerts,
+    setShowGeoAlerts,
+    showClimateSimulator,
+    setShowClimateSimulator,
+    showRAGAdvisor,
+    setShowRAGAdvisor,
   } = useAdvisorStore();
+
+  const { liteMode } = usePerformanceStore();
 
   const {
     yieldForm,
@@ -585,11 +602,13 @@ export default function Advisor() {
             <p>Direct subsidies, insurance, and financial benefits for farmers.</p>
           </div>
 
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowAgriMarketplace(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowAgriMarketplace(true); }} aria-label="Agri Marketplace: Equipment rental">
-            <div className="icon" aria-hidden="true">🚜</div>
-            <h3><span className="notranslate">Agri Marketplace</span></h3>
-            <p>Rent or list farm equipment locally. Save costs and earn extra.</p>
-          </div>
+          {(userData?.role === "vendor" || userData?.role === "admin") && (
+            <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowAgriMarketplace(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowAgriMarketplace(true); }} aria-label="Agri Marketplace: Equipment rental">
+              <div className="icon" aria-hidden="true">🚜</div>
+              <h3><span className="notranslate">Agri Marketplace</span></h3>
+              <p>Rent or list farm equipment locally. Save costs and earn extra.</p>
+            </div>
+          )}
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowAgriLMS(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowAgriLMS(true); }} aria-label="Agri-LMS Academy: Online courses">
             <div className="icon" aria-hidden="true">🎓</div>
@@ -602,6 +621,23 @@ export default function Advisor() {
             <h3><span className="notranslate">QR-Farm Traceability</span></h3>
             <p>Generate QR codes for your produce. Let customers trace their food from farm to table.</p>
           </div>
+
+          {(userData?.role === "vendor" || userData?.role === "admin") && (
+            <div 
+              className="card reveal" 
+              role="button" 
+              tabIndex={0} 
+              onClick={() => setShowSeedVerifier(true)} 
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSeedVerifier(true); }} 
+              aria-label="Vision-Lite: Seed Authenticity Verifier"
+            >
+              <div className="icon" aria-hidden="true">
+                <QrCode size={32} strokeWidth={2} />
+              </div>
+              <h3><span className="notranslate">Vision-Lite: Seed Verifier</span></h3>
+              <p>Scan seed packets to verify authenticity and prevent counterfeit usage.</p>
+            </div>
+          )}
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFarmPlanner3D(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFarmPlanner3D(true); }} aria-label="3D Farm Planner: Interactive design">
             <div className="icon" aria-hidden="true">🗺️</div>
@@ -679,23 +715,65 @@ export default function Advisor() {
             <p>Get AI-powered crop suggestions based on your soil and climate.</p>
           </div>
 
-          <div className="card reveal expert-card" role="button" tabIndex={0} onClick={() => setShowExpertStatus(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowExpertStatus(true); }} aria-label="Expert Reputation: View badges">
-            <div className="icon" aria-hidden="true">
-              <Award size={32} strokeWidth={2} />
+          {(userData?.role === "expert" || userData?.role === "admin") && (
+            <div className="card reveal expert-card" role="button" tabIndex={0} onClick={() => setShowExpertStatus(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowExpertStatus(true); }} aria-label="Expert Reputation: View badges">
+              <div className="icon" aria-hidden="true">
+                <Award size={32} strokeWidth={2} />
+              </div>
+              <h3><span className="notranslate">Expert Reputation</span></h3>
+              <p>Track your community points and earn expert badges for your contributions.</p>
+              <div className="mini-badge-info">
+                {currentReputation} pts · {currentReputation >= 500 ? "🥇" : currentReputation >= 200 ? "🥈" : currentReputation >= 50 ? "🥉" : "🌱"}
+              </div>
             </div>
-            <h3><span className="notranslate">Expert Reputation</span></h3>
-            <p>Track your community points and earn expert badges for your contributions.</p>
-            <div className="mini-badge-info">
-              {currentReputation} pts · {currentReputation >= 500 ? "🥇" : currentReputation >= 200 ? "🥈" : currentReputation >= 50 ? "🥉" : "🌱"}
+          )}
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowGeoAlerts(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowGeoAlerts(true); }} aria-label="Geo-Hashed Disaster Mesh: View nearby alerts">
+            <div className="icon" aria-hidden="true" style={{background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444'}}>
+              <AlertTriangle size={32} strokeWidth={2} />
             </div>
+            <h3><span className="notranslate">Disaster Mesh Alerts</span></h3>
+            <p>Report and receive highly localized (5km radius) real-time disaster alerts.</p>
           </div>
 
-          <div className="card reveal bank-report-card" role="button" tabIndex={0} onClick={() => setShowBankReport(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowBankReport(true); }} aria-label="Bank Reports: Export financial data">
-            <div className="icon" aria-hidden="true">
-              <Landmark size={32} strokeWidth={2} />
+          {(userData?.role === "expert" || userData?.role === "admin") && (
+            <div className="card reveal bank-report-card" role="button" tabIndex={0} onClick={() => setShowBankReport(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowBankReport(true); }} aria-label="Bank Reports: Export financial data">
+              <div className="icon" aria-hidden="true">
+                <Landmark size={32} strokeWidth={2} />
+              </div>
+              <h3><span className="notranslate">Bank Reports & Export</span></h3>
+              <p>Generate professional PDF/CSV reports for bank loans and financial records.</p>
             </div>
-            <h3><span className="notranslate">Bank Reports & Export</span></h3>
-            <p>Generate professional PDF/CSV reports for bank loans and financial records.</p>
+          )}
+
+          <div 
+            className="card reveal" 
+            role="button" 
+            tabIndex={0} 
+            onClick={() => setShowClimateSimulator(true)} 
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowClimateSimulator(true); }} 
+            aria-label="Climate Risk Simulator: Scenario analysis"
+          >
+            <div className="icon" aria-hidden="true">
+              <TrendingDown size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Climate Risk Simulator</span></h3>
+            <p>Evaluate crop performance under different long-term climate scenarios.</p>
+          </div>
+
+          <div 
+            className="card reveal" 
+            role="button" 
+            tabIndex={0} 
+            onClick={() => setShowRAGAdvisor(true)} 
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowRAGAdvisor(true); }} 
+            aria-label="AI Research Advisor: Citation-backed answers"
+          >
+            <div className="icon" aria-hidden="true">
+              <Book size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">AI Research Advisor</span></h3>
+            <p>Get research-backed agricultural advice with verified citations from ICAR, FAO, and more.</p>
           </div>
         </div>
 
@@ -1054,6 +1132,17 @@ export default function Advisor() {
               </button>
             </div>
 
+            <div className="certified-report-section" style={{ marginTop: '2rem', borderTop: '2px dashed #e2e8f0', paddingTop: '2rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '1rem', color: '#2e7d32' }}>
+                <Award size={24} />
+                <h3 style={{ margin: 0 }}>Certified Digital Signature Report</h3>
+              </div>
+              <p style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '1.5rem' }}>
+                Generate a cryptographically signed, tamper-proof report for official bank applications.
+              </p>
+              <BankReports userData={userProfile} />
+            </div>
+
             <p className="report-disclaimer">
               * Reports are generated using your latest soil analysis, profit calculations, and risk index data.
             </p>
@@ -1327,6 +1416,12 @@ export default function Advisor() {
         </div>
       )}
 
+      {showGeoAlerts && (
+        <div className="weather-overlay" onClick={() => setShowGeoAlerts(false)}>
+          <GeoAlertMesh onClose={() => setShowGeoAlerts(false)} />
+        </div>
+      )}
+
       {showSmartCropRecommendation && (
         <div className="weather-overlay" onClick={() => setShowSmartCropRecommendation(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
@@ -1341,8 +1436,25 @@ export default function Advisor() {
         </div>
       )}
 
+      {showSeedVerifier && (
+        <div className="weather-overlay" onClick={() => setShowSeedVerifier(false)}>
+          <div className="weather-popup" style={{ width: '90%', maxWidth: '450px', padding: 0, overflowY: 'auto', maxHeight: '90vh' }} onClick={(e) => e.stopPropagation()}>
+            <SeedVerifier onClose={() => setShowSeedVerifier(false)} />
+          </div>
+        </div>
+      )}
+
       <br />
       <br />
+      <ClimateSimulator 
+        isOpen={showClimateSimulator} 
+        onClose={() => setShowClimateSimulator(false)} 
+        userData={userData}
+      />
+      <RAGAdvisor
+        isOpen={showRAGAdvisor}
+        onClose={() => setShowRAGAdvisor(false)}
+      />
     </section>
   );
 }

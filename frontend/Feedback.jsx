@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { collection, addDoc } from "firebase/firestore";
 import { db, auth, isFirebaseConfigured } from "./lib/firebase";
 import useFeedbackStats from "./hooks/useFeedbackStats";
@@ -45,6 +45,26 @@ const TESTIMONIALS = [
     crop: "Wheat Farmer",
     img: "/images/farmer2.png",
   },
+  {
+    text: "This app doubled my yield last season. My feedback on soil analysis was implemented!",
+    author: "Ramesh Kumar",
+    location: "Maharashtra",
+  },
+  {
+    text: "Accurate weather alerts helped me save my crops during unexpected rain.",
+    author: "Sunita Devi",
+    location: "Bihar",
+  },
+  {
+    text: "The pest detection feature is a game changer. Very easy to use!",
+    author: "Arjun Patel",
+    location: "Gujarat",
+  },
+  {
+    text: "I suggested adding crop-specific tips and they actually added it!",
+    author: "Mahesh Yadav",
+    location: "Uttar Pradesh",
+  },
 ];
 
 export default function Feedback() {
@@ -64,6 +84,18 @@ export default function Feedback() {
   const [loadingSubmit, setLoadingSubmit] = useState(false);
   const [error, setError] = useState("");
 
+  // ✅ Testimonial state
+  const [testimonialIndex, setTestimonialIndex] = useState(0);
+
+  // ✅ Auto-rotate testimonials
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTestimonialIndex((prev) => (prev + 1) % TESTIMONIALS.length);
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   const handleChange = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
@@ -72,8 +104,15 @@ export default function Feedback() {
     e.preventDefault();
     setError("");
 
-    if (!form.message.trim()) return setError("Enter feedback.");
-    if (form.rating === 0) return setError("Select rating.");
+    if (!form.message.trim()) {
+      setError("Please enter your feedback message.");
+      return;
+    }
+
+    if (form.rating === 0) {
+      setError("Please select a rating.");
+      return;
+    }
 
     if (!isFirebaseConfigured()) {
       return setError("Firebase not configured.");
@@ -122,13 +161,18 @@ export default function Feedback() {
     return (
       <div className="feedback-page">
         <div className="feedback-success-card">
-          <CheckCircle2 size={60} className="success-icon" />
+          <div className="success-icon-ring">
+            <CheckCircle2 size={64} className="success-icon" />
+          </div>
 
-          <h2>Thank You 🙏</h2>
+          <h2>Thank You! 🙏</h2>
 
           <p>
-            Your feedback is received. Our team reviews it within
-            <strong> 48 hours</strong>.
+            Your feedback has been submitted successfully. We'll use it to make{" "}
+            <span className="notranslate" translate="no">
+              Fasal Saathi
+            </span>{" "}
+            even better for farmers like you.
           </p>
 
           <div className="submitted-rating">
@@ -137,8 +181,8 @@ export default function Feedback() {
             ))}
           </div>
 
-          <button onClick={handleReset} className="fb-btn-primary">
-            Submit Again
+          <button className="fb-btn-primary" onClick={handleReset}>
+            Submit Another Feedback
           </button>
         </div>
       </div>
@@ -200,11 +244,28 @@ export default function Feedback() {
             <div>🚫 No spam</div>
           </div>
 
-          <div className="credibility-note">
-            Built with farmer feedback across India 🌾
-          </div>
+          {/* ✅ Improved Testimonials */}
+          <div className="info-testimonial">
+            <p className="testimonial-text">
+              {TESTIMONIALS[testimonialIndex].text}
+            </p>
 
-        </div>
+            <span className="testimonial-author">
+              — {TESTIMONIALS[testimonialIndex].author},{" "}
+              {TESTIMONIALS[testimonialIndex].location}
+            </span>
+
+            <div className="testimonial-dots">
+              {TESTIMONIALS.map((_, i) => (
+                <span
+                  key={i}
+                  className={`dot ${i === testimonialIndex ? "active" : ""}`}
+                  onClick={() => setTestimonialIndex(i)}
+                />
+              ))}
+            </div>
+          </div>
+        </div> 
 
         {/* RIGHT PANEL */}
         <div className="feedback-form-panel">
