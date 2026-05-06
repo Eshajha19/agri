@@ -1435,3 +1435,138 @@
     grid-template-columns: 1fr;
   }
 }
+
+.hero-bg-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.55),
+    rgba(0, 0, 0, 0.65)
+  );
+  z-index: 1;
+}
+
+.hero-content {
+  position: relative;
+  z-index: 2;
+}
+
+.hero-title {
+  color: #ffffff;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+
+.hero-subtitle {
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.highlight {
+  color: #22c55e; /* keep your green */
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+}
+
+.btn-primary {
+  background: #22c55e;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+
+.btn-secondary {
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  color: #ffffff;
+  backdrop-filter: blur(6px);
+}
+
+.hero-section {
+  background-color: #0f172a; /* fallback dark base */
+}
+
+.footer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 40px; /* increase spacing */
+}
+
+.footer-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.footer-section h4 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #ffffff;
+}
+
+.footer-section a {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.75);
+  transition: all 0.2s ease;
+}
+
+.footer-section a:hover {
+  color: #22c55e;
+  transform: translateX(3px);
+}
+
+.footer-section {
+  padding-right: 10px;
+}
+
+@media (min-width: 768px) {
+  .footer-section:not(:last-child) {
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    padding-right: 20px;
+  }
+}
+
+.footer-section:nth-child(2) {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px 16px;
+}
+
+.footer-section:nth-child(2) h4 {
+  grid-column: span 2;
+}
+
+.footer-description {
+  color: rgba(255, 255, 255, 0.7);
+  line-height: 1.6;
+  max-width: 260px;
+}
+
+.home-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin-top: 60px;
+  padding-top: 40px;
+}
+
+.footer-bottom {
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.footer-section a {
+  position: relative;
+}
+
+.footer-section a::before {
+  content: "";
+  position: absolute;
+  left: -10px;
+  opacity: 0;
+  transition: 0.2s;
+}
+
+.footer-section a:hover::before {
+  opacity: 1;
+}
