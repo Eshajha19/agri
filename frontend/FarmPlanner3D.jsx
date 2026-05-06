@@ -2,9 +2,8 @@ import React, { useState, useRef, Suspense } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Grid, Plane, Box, Sphere, Cylinder, PerspectiveCamera, ContactShadows, Environment, Text } from '@react-three/drei';
 import * as THREE from 'three';
-import { Save, Trash2, Box as BoxIcon, TreePine, Droplets, Home, Grid as GridIcon, Info, Download, MessageCircle } from 'lucide-react';
+import { Save, Trash2, Box as BoxIcon, TreePine, Droplets, Home, Grid as GridIcon, Info, Download } from 'lucide-react';
 import './FarmPlanner3D.css';
-import SoilChatbot from './SoilChatbot';
 
 const OBJECT_TYPES = {
   CROP: { name: 'Crop Plot', color: '#4caf50', geometry: 'box', scale: [1, 0.2, 1] },
@@ -91,7 +90,6 @@ export default function FarmPlanner3D() {
   const [selectedId, setSelectedId] = useState(null);
   const [activeTool, setActiveTool] = useState('CROP');
   const [gridSize, setGridSize] = useState(10);
-  const [showAdvisor, setShowAdvisor] = useState(false);
 
   const addItem = (e) => {
     // Basic Raycasting projection for placement (simplified)
