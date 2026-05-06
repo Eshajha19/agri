@@ -24,10 +24,6 @@
   --p-size: 1.15rem;
   /* ~20.7px */
   /* Slightly larger than standard for better readability */
-
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
 }
 
 /* Dark theme overrides (applied via <html class="theme-dark">) */

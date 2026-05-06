@@ -16,6 +16,10 @@ dist-ssr
 .env*
 *.local
 .vercel
+keys/
+frontend/test_ecdh.cjs
+test_ml_pipeline.py
+
 
 # Editor directories and files
 .vscode/*
