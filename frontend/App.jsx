@@ -246,7 +246,7 @@ function App() {
       {/* APP ROUTES */}
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/advisor" element={<Advisor />} />
+        <Route path="/advisor" element={<Advisor userData={userData} />} />
         <Route path="/how-it-works" element={<How />} />
         <Route path="/crop-guide" element={<CropGuide />} />
         <Route path="/resources" element={<Resources />} />

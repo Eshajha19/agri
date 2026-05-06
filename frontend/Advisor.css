@@ -441,29 +441,7 @@
   border: 2px solid #22c55e;
 }
 
-.yield-popup .close-btn {
-  position: relative;
-  background: #22c55e;
-  color: white;
-  border: none;
-  padding: 14px 32px;
-  border-radius: 8px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-}
 
-.yield-popup .close-btn:hover {
-  background: #16a34a;
-  transform: translateY(-1px);
-}
-
-.yield-popup .close-btn:disabled {
-  background: #9ca3af;
-  cursor: not-allowed;
-  transform: none;
-}
 
 .yield-popup .action-btn {
   position: relative;

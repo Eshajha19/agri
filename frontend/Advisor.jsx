@@ -1,7 +1,12 @@
 import React, { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import "./Advisor.css";
 import WeatherCard from "./weather/WeatherCard";
 import SoilChatbot from "./SoilChatbot";
+import GreenPractices from "./GreenPractices";
+import { Leaf } from "lucide-react";
+
+
 import {
   Sun,
   Droplets,
@@ -13,7 +18,10 @@ import {
 import { useAdvisorStore } from "./stores/advisorStore";
 import { useYieldPrediction } from "./hooks/useYieldPrediction";
 
-export default function Advisor() {
+export default function Advisor({ userData }) {
+  const navigate = useNavigate();
+  const userProfile = userData;
+  const currentReputation = userData?.reputation || 0;
   const {
     farmers,
     setCarmers,
@@ -27,6 +35,48 @@ export default function Advisor() {
     setShowSoilChatbot,
     showComingSoon,
     setShowComingSoon,
+    showIrrigation,
+    setShowIrrigation,
+    showProfitCalculator,
+    setShowProfitCalculator,
+    showFarmingMap,
+    setShowFarmingMap,
+    showCropDiseaseDetection,
+    setShowCropDiseaseDetection,
+    showPestManagement,
+    setShowPestManagement,
+    showAgriMarketplace,
+    setShowAgriMarketplace,
+    showAgriLMS,
+    setShowAgriLMS,
+    showQRTraceability,
+    setShowQRTraceability,
+    showFarmPlanner3D,
+    setShowFarmPlanner3D,
+    showFarmDiary,
+    setShowFarmDiary,
+    showCropRotation,
+    setShowCropRotation,
+    showForecast,
+    setShowForecast,
+    showExpertStatus,
+    setShowExpertStatus,
+    showBankReport,
+    setShowBankReport,
+    showP2PChat,
+    setShowP2PChat,
+    showSmartCropRecommendation,
+    setShowSmartCropRecommendation,
+    showSeedVerifier,
+    setShowSeedVerifier,
+    showGeoAlerts,
+    setShowGeoAlerts,
+    showClimateSimulator,
+    setShowClimateSimulator,
+    showRAGAdvisor,
+    setShowRAGAdvisor,
+    showGreenPractices,
+    setShowGreenPractices,
   } = useAdvisorStore();
 
   const {
@@ -183,6 +233,217 @@ export default function Advisor() {
             <h3>Yield Prediction</h3>
             <p>AI predicts crop yield based on soil & weather data.</p>
           </div>
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/schemes")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/schemes"); }} aria-label="Govt Schemes: Financial support">
+            <div className="icon" aria-hidden="true">
+              <Landmark size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Govt Schemes</span></h3>
+            <p>Direct subsidies, insurance, and financial benefits for farmers.</p>
+          </div>
+
+          {(userData?.role === "vendor" || userData?.role === "admin") && (
+            <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowAgriMarketplace(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowAgriMarketplace(true); }} aria-label="Agri Marketplace: Equipment rental">
+              <div className="icon" aria-hidden="true">🚜</div>
+              <h3><span className="notranslate">Agri Marketplace</span></h3>
+              <p>Rent or list farm equipment locally. Save costs and earn extra.</p>
+            </div>
+          )}
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowAgriLMS(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowAgriLMS(true); }} aria-label="Agri-LMS Academy: Online courses">
+            <div className="icon" aria-hidden="true">🎓</div>
+            <h3><span className="notranslate">Agri-LMS Academy</span></h3>
+            <p>Access video tutorials on modern farming and earn completion certificates.</p>
+          </div>
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowQRTraceability(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowQRTraceability(true); }} aria-label="QR-Farm Traceability: Trace your produce">
+            <div className="icon" aria-hidden="true">🔍</div>
+            <h3><span className="notranslate">QR-Farm Traceability</span></h3>
+            <p>Generate QR codes for your produce. Let customers trace their food from farm to table.</p>
+          </div>
+
+          {(userData?.role === "vendor" || userData?.role === "admin") && (
+            <div 
+              className="card reveal" 
+              role="button" 
+              tabIndex={0} 
+              onClick={() => setShowSeedVerifier(true)} 
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSeedVerifier(true); }} 
+              aria-label="Vision-Lite: Seed Authenticity Verifier"
+            >
+              <div className="icon" aria-hidden="true">
+                <QrCode size={32} strokeWidth={2} />
+              </div>
+              <h3><span className="notranslate">Vision-Lite: Seed Verifier</span></h3>
+              <p>Scan seed packets to verify authenticity and prevent counterfeit usage.</p>
+            </div>
+          )}
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFarmPlanner3D(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFarmPlanner3D(true); }} aria-label="3D Farm Planner: Interactive design">
+            <div className="icon" aria-hidden="true">🗺️</div>
+            <h3><span className="notranslate">3D Farm Planner</span></h3>
+            <p>Design your farm layout in interactive 3D. Optimize land usage and irrigation.</p>
+          </div>
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowProfitCalculator(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowProfitCalculator(true); }} aria-label="Profit Calculator: ROI analysis">
+            <div className="icon" aria-hidden="true">💰</div>
+            <h3><span className="notranslate">Profit Calculator</span></h3>
+            <p>Calculate your crop profits and ROI before planting.</p>
+          </div>
+
+          <div
+            className="card reveal"
+            style={{ cursor: "pointer" }}
+            role="button"
+            tabIndex={0}
+            onClick={() => setShowFarmingMap(true)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFarmingMap(true); }}
+            aria-label="Farming Map: Interactive farm viewer"
+          >
+            <div className="icon" aria-hidden="true">
+              <Map size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Farming Map</span></h3>
+            <p>View your fields, weather data, and crop locations on an interactive map.</p>
+          </div>
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/calendar")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/calendar"); }} aria-label="Activity Calendar: Task reminders">
+            <div className="icon" aria-hidden="true">
+              <Calendar size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Activity Calendar</span></h3>
+            <p>Schedule sowing, watering, and harvesting with reminders.</p>
+          </div>
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/share-feedback")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/share-feedback"); }} aria-label="Share Feedback: Help us improve">
+            <div className="icon" aria-hidden="true">
+              <MessageSquare size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Share Feedback</span></h3>
+            <p>Help us improve <span className="notranslate" translate="no">Fasal Saathi</span> with your valuable suggestions.</p>
+          </div>
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFarmDiary(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFarmDiary(true); }} aria-label="Digital Farm Diary: Log activity">
+            <div className="icon" aria-hidden="true">
+              <Book size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Digital Farm Diary</span></h3>
+            <p>Log daily farming activities, set task reminders, and export records as PDF reports.</p>
+          </div>
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowCropRotation(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowCropRotation(true); }} aria-label="Crop Rotation: Soil health optimization">
+            <div className="icon" aria-hidden="true">
+              <Layers size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Crop Rotation</span></h3>
+            <p>Optimize your soil health with intelligent crop rotation planning.</p>
+          </div>
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowP2PChat(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowP2PChat(true); }} aria-label="P2P Farmer Chat: Connect with others">
+            <div className="icon" aria-hidden="true">
+              <MessageSquare size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">P2P Farmer Chat</span></h3>
+            <p>Connect directly with fellow farmers for real-time advice and support.</p>
+          </div>
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowSmartCropRecommendation(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSmartCropRecommendation(true); }} aria-label="Smart Crop Recommendation: AI-powered suggestions">
+            <div className="icon" aria-hidden="true">
+              <Sprout size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Smart Crop Recommendation</span></h3>
+            <p>Get AI-powered crop suggestions based on your soil and climate.</p>
+          </div>
+
+          {(userData?.role === "expert" || userData?.role === "admin") && (
+            <div className="card reveal expert-card" role="button" tabIndex={0} onClick={() => setShowExpertStatus(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowExpertStatus(true); }} aria-label="Expert Reputation: View badges">
+              <div className="icon" aria-hidden="true">
+                <Award size={32} strokeWidth={2} />
+              </div>
+              <h3><span className="notranslate">Expert Reputation</span></h3>
+              <p>Track your community points and earn expert badges for your contributions.</p>
+              <div className="mini-badge-info">
+                {currentReputation} pts · {currentReputation >= 500 ? "🥇" : currentReputation >= 200 ? "🥈" : currentReputation >= 50 ? "🥉" : "🌱"}
+              </div>
+            </div>
+          )}
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowGeoAlerts(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowGeoAlerts(true); }} aria-label="Geo-Hashed Disaster Mesh: View nearby alerts">
+            <div className="icon" aria-hidden="true" style={{background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444'}}>
+              <AlertTriangle size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Disaster Mesh Alerts</span></h3>
+            <p>Report and receive highly localized (5km radius) real-time disaster alerts.</p>
+          </div>
+
+          {(userData?.role === "expert" || userData?.role === "admin") && (
+            <div className="card reveal bank-report-card" role="button" tabIndex={0} onClick={() => setShowBankReport(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowBankReport(true); }} aria-label="Bank Reports: Export financial data">
+              <div className="icon" aria-hidden="true">
+                <Landmark size={32} strokeWidth={2} />
+              </div>
+              <h3><span className="notranslate">Bank Reports & Export</span></h3>
+              <p>Generate professional PDF/CSV reports for bank loans and financial records.</p>
+            </div>
+          )}
+
+          <div 
+            className="card reveal" 
+            role="button" 
+            tabIndex={0} 
+            onClick={() => setShowClimateSimulator(true)} 
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowClimateSimulator(true); }} 
+            aria-label="Climate Risk Simulator: Scenario analysis"
+          >
+            <div className="icon" aria-hidden="true">
+              <TrendingDown size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Climate Risk Simulator</span></h3>
+            <p>Evaluate crop performance under different long-term climate scenarios.</p>
+          </div>
+
+          <div 
+            className="card reveal" 
+            role="button" 
+            tabIndex={0} 
+            onClick={() => setShowRAGAdvisor(true)} 
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowRAGAdvisor(true); }} 
+            aria-label="AI Research Advisor: Citation-backed answers"
+          >
+            <div className="icon" aria-hidden="true">
+              <Book size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">AI Research Advisor</span></h3>
+            <p>Get research-backed agricultural advice with verified citations from ICAR, FAO, and more.</p>
+          </div>
+
+          <div 
+            className="card reveal" 
+            style={{ border: '2px solid #10b981', background: 'rgba(16, 185, 129, 0.02)' }}
+            role="button" 
+            tabIndex={0} 
+            onClick={() => setShowGreenPractices(true)} 
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowGreenPractices(true); }} 
+            aria-label="Green Practices: Track carbon credits"
+          >
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>
+              <Leaf size={32} strokeWidth={2} />
+            </div>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#10b981', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>EARN</div>
+            <h3><span className="notranslate">Green Practices & Carbon</span></h3>
+            <p>Track eco-friendly practices, calculate carbon impact, and monetize sustainability.</p>
+          </div>
+        </div>
+
+        <div
+          className="weather-dashboard"
+          style={{
+            marginTop: "36px",
+            borderRadius: "18px",
+            background: "linear-gradient(135deg, rgba(255,255,255,0.96), rgba(239,253,245,0.98))",
+            boxShadow: "0 18px 45px rgba(15, 23, 42, 0.08)",
+          }}
+        >
+          <WeatherCard embedded={true} />
         </div>
       </div>
           {showWeather && (
@@ -424,6 +685,18 @@ export default function Advisor() {
 
       <br />
       <br />
+
+
+      {showGreenPractices && (
+        <div className="weather-overlay" onClick={() => setShowGreenPractices(false)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+            <GreenPractices 
+              userProfile={userProfile} 
+              onClose={() => setShowGreenPractices(false)} 
+            />
+          </div>
+        </div>
+      )}
     </section>
   );
 }
