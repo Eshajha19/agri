@@ -15,8 +15,12 @@ from pydantic import BaseModel, Field
 
 class SimulationRequest(BaseModel):
     crop_type: str
-    temp_delta: float = Field(..., ge=-5, le=5)  # +/- 5 degrees
-    rain_delta: float = Field(..., ge=-100, le=100) # +/- 100%
+    temp_delta: float = Field(..., ge=-5, le=5)
+    rain_delta: float = Field(..., ge=-100, le=100)
+
+class RAGQuery(BaseModel):
+    query: str = Field(..., min_length=3, max_length=500)
+    top_k: int = Field(default=3, ge=1, le=5)
 
 # Rate Limiting
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -517,6 +521,26 @@ async def log_error(request: Request):
         return {"success": True}
     except Exception:
         return {"success": False}
+
+# --- RAG Advisor ---
+try:
+    from rag.generator import generate_response as rag_generate
+    HAS_RAG = True
+except Exception as rag_e:
+    print(f"RAG Warning: {rag_e}")
+    HAS_RAG = False
+
+@app.post("/api/rag/query")
+@limiter.limit("10/minute")
+async def rag_query(request: Request, body: RAGQuery):
+    """RAG-based AI advisor with research-backed citations."""
+    if not HAS_RAG:
+        raise HTTPException(status_code=503, detail="RAG pipeline not available")
+    try:
+        result = rag_generate(body.query, top_k=body.top_k)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/simulate-climate")
 @limiter.limit("5/minute")
