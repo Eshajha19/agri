@@ -13,18 +13,20 @@ from fastapi import FastAPI, HTTPException, Request, Form, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+class SimulationRequest(BaseModel):
+    crop_type: str
+    temp_delta: float = Field(..., ge=-5, le=5)  # +/- 5 degrees
+    rain_delta: float = Field(..., ge=-100, le=100) # +/- 100%
+
 # Rate Limiting
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-<<<<<<< HEAD
 # Firebase Admin SDK
 import firebase_admin
 from firebase_admin import credentials, auth as firebase_auth, firestore
 
-=======
->>>>>>> upstream
 # ML Ops Imports
 from ml.registry import ModelRegistry
 from ml.adapters.xgboost_adapter import XGBoostAdapter
@@ -420,12 +422,9 @@ def get_signing_keys():
 @app.post("/api/reports/generate")
 @limiter.limit("3/minute")
 async def generate_signed_report(data: ReportRequest, request: Request):
-<<<<<<< HEAD
     # RBAC: Only Experts or Admins can generate signed reports
     await verify_role(request, required_roles=["expert", "admin"])
     
-=======
->>>>>>> upstream
     try:
         private_key = get_signing_keys()
         
@@ -518,6 +517,50 @@ async def log_error(request: Request):
         return {"success": True}
     except Exception:
         return {"success": False}
+
+@app.post("/api/simulate-climate")
+@limiter.limit("5/minute")
+async def simulate_climate(request: Request, data: SimulationRequest):
+    """
+    Simulates the impact of climate anomalies on yield and profit.
+    Based on standard agricultural sensitivity coefficients.
+    """
+    # Sensitivity coefficients (heuristic values)
+    sensitivities = {
+        "rice": {"temp": -0.05, "rain": 0.02}, # -5% yield per degree temp rise
+        "wheat": {"temp": -0.06, "rain": 0.03},
+        "cotton": {"temp": -0.03, "rain": 0.01},
+        "maize": {"temp": -0.07, "rain": 0.04},
+        "sugarcane": {"temp": -0.02, "rain": 0.05},
+        "soybean": {"temp": -0.04, "rain": 0.03},
+        "potato": {"temp": -0.05, "rain": 0.04},
+        "default": {"temp": -0.04, "rain": 0.02}
+    }
+    
+    crop = data.crop_type.lower()
+    coeff = sensitivities.get(crop, sensitivities["default"])
+    
+    # Calculate yield impact
+    # temp_delta is absolute change, rain_delta is percentage change
+    yield_impact_temp = data.temp_delta * coeff["temp"]
+    yield_impact_rain = (data.rain_delta / 100.0) * coeff["rain"]
+    
+    total_yield_impact = yield_impact_temp + yield_impact_rain
+    
+    # Heuristic for profit impact (usually amplified by fixed costs)
+    profit_impact = total_yield_impact * 1.5 
+    
+    # Suitability Score (0-100)
+    suitability = max(0, min(100, 85 + (total_yield_impact * 100)))
+    
+    return {
+        "crop_type": data.crop_type,
+        "yield_impact_pct": round(total_yield_impact * 100, 2),
+        "profit_impact_pct": round(profit_impact * 100, 2),
+        "suitability_score": round(suitability, 1),
+        "risk_level": "High" if total_yield_impact < -0.15 else "Medium" if total_yield_impact < -0.05 else "Low",
+        "recommendation": "Switch to heat-tolerant varieties" if data.temp_delta > 2 else "Ensure adequate irrigation" if data.rain_delta < -20 else "Conditions remain viable"
+    }
 
 if __name__ == "__main__":
     import uvicorn
