@@ -1,5 +1,8 @@
-import React, { useState } from 'react';
-import { Droplets, Info, ThermometerSun, Leaf, Activity, ChevronRight, X, MapPin } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import {
+  Droplets, Info, ThermometerSun, Leaf,
+  Activity, ChevronRight, MapPin
+} from 'lucide-react';
 import './IrrigationGuidance.css';
 
 export default function IrrigationGuidance({ onClose }) {
@@ -11,112 +14,183 @@ export default function IrrigationGuidance({ onClose }) {
     soilPH: 7.0,
     rainfall: 0,
     areaSize: 1,
+    growthStage: 'Vegetative',
   });
 
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
+  const [tips, setTips] = useState([]);
 
-  const calculateIrrigation = () => {
-    setLoading(true);
-    
-    // Simulate API delay
-    setTimeout(() => {
-      // Mock ML Logic
-      const baseWater = 4000; // liters per acre
-      let cropFactor = 1;
-      let soilFactor = 1;
+  // Load saved data
+  useEffect(() => {
+    const saved = localStorage.getItem("irrigationData");
+    if (saved) setFormData(JSON.parse(saved));
+  }, []);
 
-      switch(formData.cropType) {
-        case 'Rice': cropFactor = 1.8; break;
-        case 'Sugarcane': cropFactor = 1.5; break;
-        case 'Wheat': cropFactor = 1.0; break;
-        case 'Maize': cropFactor = 0.8; break;
-        case 'Cotton': cropFactor = 0.7; break;
-        default: cropFactor = 1;
+  // Save data
+  useEffect(() => {
+    localStorage.setItem("irrigationData", JSON.stringify(formData));
+  }, [formData]);
+
+  // OPTIONAL: Auto-fetch weather (replace API key)
+  useEffect(() => {
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      try {
+        const { latitude, longitude } = pos.coords;
+
+        // Replace with real API
+        const res = await fetch(
+          `https://api.openweathermap.org/data/2.5/weather?lat=${latitude}&lon=${longitude}&units=metric&appid=YOUR_API_KEY`
+        );
+        const data = await res.json();
+
+        setFormData(prev => ({
+          ...prev,
+          temperature: data.main?.temp || prev.temperature,
+          humidity: data.main?.humidity || prev.humidity,
+          rainfall: data.rain?.['1h'] || 0
+        }));
+      } catch (err) {
+        console.log("Weather fetch failed");
       }
-
-      switch(formData.soilType) {
-        case 'Sandy': soilFactor = 1.3; break; // Retains less water
-        case 'Loamy': soilFactor = 1.0; break;
-        case 'Clay': soilFactor = 0.8; break; // Retains more water
-        default: soilFactor = 1;
-      }
-
-      const tempFactor = formData.temperature > 35 ? 1.2 : formData.temperature < 20 ? 0.8 : 1.0;
-      const rainReduction = formData.rainfall > 0 ? (formData.rainfall * 100) : 0; 
-
-      let totalWaterReq = (baseWater * cropFactor * soilFactor * tempFactor * formData.areaSize) - rainReduction;
-      if (totalWaterReq < 0) totalWaterReq = 0;
-
-      let days = 3; // base
-
-      // Modify days based on soil
-      if (formData.soilType === 'Sandy') days -= 1;
-      if (formData.soilType === 'Clay') days += 2;
-
-      // Modify days based on temp
-      if (formData.temperature > 35) days -= 1;
-      if (formData.temperature < 20) days += 1;
-
-      // Modify days based on crop water needs
-      if (cropFactor > 1.2) days -= 1; // thirsty crop
-      if (cropFactor < 0.9) days += 1;
-
-      // Handle rain
-      if (formData.rainfall > 40) days += 4;
-      else if (formData.rainfall > 15) days += 2;
-      else if (formData.rainfall > 5) days += 1;
-
-      // Boundaries
-      if (days < 1) days = 1;
-
-      let schedule = '';
-      if (totalWaterReq === 0) {
-        schedule = "Not needed currently";
-      } else if (days === 1) {
-        schedule = "Every day";
-      } else {
-        schedule = `Every ${days} days`;
-      }
-
-      setResult({
-        waterNeeded: Math.round(totalWaterReq),
-        schedule,
-        efficiencyTip: formData.soilType === 'Sandy' 
-          ? "Consider drip irrigation as sandy soils drain water fast." 
-          : "Avoid overwatering to prevent root rot in clay-heavy soil."
-      });
-      setLoading(false);
-    }, 1500);
-  };
+    });
+  }, []);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  const calculateIrrigation = () => {
+    setLoading(true);
+
+    setTimeout(() => {
+      const baseWater = 4000;
+
+      let cropFactor = {
+        Rice: 1.8,
+        Sugarcane: 1.5,
+        Wheat: 1.0,
+        Maize: 0.8,
+        Cotton: 0.7
+      }[formData.cropType] || 1;
+
+      let soilFactor = {
+        Sandy: 1.3,
+        Loamy: 1.0,
+        Clay: 0.8
+      }[formData.soilType] || 1;
+
+      const stageFactor = {
+        Seedling: 0.7,
+        Vegetative: 1.0,
+        Flowering: 1.3,
+        Harvest: 0.8
+      }[formData.growthStage] || 1;
+
+      const tempFactor =
+        formData.temperature > 35 ? 1.2 :
+        formData.temperature < 20 ? 0.8 : 1;
+
+      const humidityFactor =
+        formData.humidity > 70 ? 0.85 :
+        formData.humidity < 30 ? 1.15 : 1;
+
+      const phFactor =
+        formData.soilPH < 6 ? 1.1 :
+        formData.soilPH > 8 ? 1.05 : 1;
+
+      const rainReduction = formData.rainfall * 100;
+
+      let totalWaterReq =
+        baseWater *
+        cropFactor *
+        soilFactor *
+        stageFactor *
+        tempFactor *
+        humidityFactor *
+        phFactor *
+        formData.areaSize -
+        rainReduction;
+
+      if (totalWaterReq < 0) totalWaterReq = 0;
+
+      // Schedule logic
+      let days = 3;
+
+      if (soilFactor > 1) days -= 1;
+      if (soilFactor < 1) days += 2;
+
+      if (formData.temperature > 35) days -= 1;
+      if (formData.temperature < 20) days += 1;
+
+      if (cropFactor > 1.2) days -= 1;
+      if (cropFactor < 0.9) days += 1;
+
+      if (formData.rainfall > 40) days += 4;
+      else if (formData.rainfall > 15) days += 2;
+      else if (formData.rainfall > 5) days += 1;
+
+      if (days < 1) days = 1;
+
+      let schedule =
+        totalWaterReq === 0
+          ? "Not needed currently"
+          : days === 1
+          ? "Every day"
+          : `Every ${days} days`;
+
+      // SMART TIPS
+      let smartTips = [];
+
+      if (formData.soilType === 'Sandy') {
+        smartTips.push("Use drip irrigation to reduce water loss in sandy soil.");
+      }
+
+      if (formData.temperature > 35) {
+        smartTips.push("Irrigate early morning or evening to reduce evaporation.");
+      }
+
+      if (formData.rainfall > 20) {
+        smartTips.push("Recent rainfall reduces immediate irrigation needs.");
+      }
+
+      if (formData.growthStage === 'Flowering') {
+        smartTips.push("Ensure consistent watering during flowering stage.");
+      }
+
+      if (smartTips.length === 0) {
+        smartTips.push("Maintain regular soil moisture without overwatering.");
+      }
+
+      setTips(smartTips);
+
+      setResult({
+        waterNeeded: Math.round(totalWaterReq),
+        schedule,
+      });
+
+      setLoading(false);
+    }, 1200);
+  };
+
   return (
     <div className="irri-container fade-in">
       <button className="irri-close-btn" onClick={onClose}>✕</button>
+
       <div className="irri-header">
-        <div className="irri-header-icon">
-          <Droplets size={36} color="#0ea5e9" />
-        </div>
+        <Droplets size={36} color="#0ea5e9" />
         <h2>Smart Irrigation Planner</h2>
-        <p>AI-driven recommendations to optimize watering and reduce wastage.</p>
+        <p>AI-driven water optimization system for modern farming</p>
       </div>
 
       <div className="irri-content">
         {!result ? (
           <form className="irri-form" onSubmit={(e) => { e.preventDefault(); calculateIrrigation(); }}>
+
             <div className="form-grid">
+
               <div className="form-group">
-                <label>
-                  <Leaf size={16}/> Crop Type 
-                  <span className="tooltip-container">
-                    <Info className="tooltip-icon" size={14} />
-                    <span className="tooltip-text">Select the type of crop you are currently growing.</span>
-                  </span>
-                </label>
+                <label><Leaf size={16}/> Crop Type</label>
                 <select name="cropType" value={formData.cropType} onChange={handleChange}>
                   <option>Wheat</option>
                   <option>Rice</option>
@@ -127,13 +201,7 @@ export default function IrrigationGuidance({ onClose }) {
               </div>
 
               <div className="form-group">
-                <label>
-                  <MapPin size={16}/> Soil Type 
-                  <span className="tooltip-container">
-                    <Info className="tooltip-icon" size={14} />
-                    <span className="tooltip-text">Select the primary soil type present in your farm area.</span>
-                  </span>
-                </label>
+                <label><MapPin size={16}/> Soil Type</label>
                 <select name="soilType" value={formData.soilType} onChange={handleChange}>
                   <option>Loamy</option>
                   <option>Sandy</option>
@@ -142,95 +210,76 @@ export default function IrrigationGuidance({ onClose }) {
               </div>
 
               <div className="form-group">
-                <label>
-                  <ThermometerSun size={16}/> Avg Temperature (°C)
-                  <span className="tooltip-container">
-                    <Info className="tooltip-icon" size={14} />
-                    <span className="tooltip-text">Average daily temperature in your region. Affects crop water evaporation.</span>
-                  </span>
-                </label>
-                <input type="number" name="temperature" value={formData.temperature} onChange={handleChange} />
+                <label><Activity size={16}/> Growth Stage</label>
+                <select name="growthStage" value={formData.growthStage} onChange={handleChange}>
+                  <option>Seedling</option>
+                  <option>Vegetative</option>
+                  <option>Flowering</option>
+                  <option>Harvest</option>
+                </select>
               </div>
 
               <div className="form-group">
-                <label>
-                  <Droplets size={16}/> Humidity (%)
-                  <span className="tooltip-container">
-                    <Info className="tooltip-icon" size={14} />
-                    <span className="tooltip-text">Amount of moisture in the air. High humidity reduces crop water requirements.</span>
-                  </span>
-                </label>
-                <input type="number" name="humidity" value={formData.humidity} onChange={handleChange} />
+                <label><ThermometerSun size={16}/> Temperature</label>
+                <input type="number" name="temperature" value={formData.temperature} onChange={handleChange}/>
               </div>
 
               <div className="form-group">
-                <label>
-                  <Activity size={16}/> Soil pH (0–14)
-                  <span className="tooltip-container">
-                    <Info className="tooltip-icon" size={14} />
-                    <span className="tooltip-text">Indicates acidity or alkalinity of soil. Value between 0 and 14.</span>
-                  </span>
-                </label>
-                <input type="number" name="soilPH" value={formData.soilPH} step="0.1" onChange={handleChange} />
+                <label><Droplets size={16}/> Humidity</label>
+                <input type="number" name="humidity" value={formData.humidity} onChange={handleChange}/>
               </div>
 
               <div className="form-group">
-                <label>
-                  <Droplets size={16}/> Recent Rainfall (mm)
-                  <span className="tooltip-container">
-                    <Info className="tooltip-icon" size={14} />
-                    <span className="tooltip-text">Amount of rain received over the last 7 days. Modifies irrigation calculations.</span>
-                  </span>
-                </label>
-                <input type="number" name="rainfall" value={formData.rainfall} onChange={handleChange} />
+                <label><Activity size={16}/> Soil pH</label>
+                <input type="number" step="0.1" name="soilPH" value={formData.soilPH} onChange={handleChange}/>
+              </div>
+
+              <div className="form-group">
+                <label><Droplets size={16}/> Rainfall</label>
+                <input type="number" name="rainfall" value={formData.rainfall} onChange={handleChange}/>
               </div>
 
               <div className="form-group full-width">
-                <label>
-                  <Activity size={16}/> Farm Area (Acres)
-                  <span className="tooltip-container">
-                    <Info className="tooltip-icon" size={14} />
-                    <span className="tooltip-text">Total size of the land to be irrigated.</span>
-                  </span>
-                </label>
-                <input type="number" name="areaSize" value={formData.areaSize} step="0.1" onChange={handleChange} />
+                <label>Farm Area (Acres)</label>
+                <input type="number" step="0.1" name="areaSize" value={formData.areaSize} onChange={handleChange}/>
               </div>
+
             </div>
 
             <button type="submit" className="irri-btn-primary" disabled={loading}>
-              {loading ? (
-                <span className="irri-loader"></span>
-              ) : (
-                <>Calculate Needs <ChevronRight size={18} /></>
-              )}
+              {loading ? "Analyzing..." : <>Calculate <ChevronRight size={18}/></>}
             </button>
+
           </form>
         ) : (
-          <div className="irri-result-cards slide-up">
+          <div className="irri-result-cards">
+
             <div className="result-card primary-result">
-              <Droplets size={40} className="result-icon blue" />
+              <Droplets size={40} />
               <h3>{result.waterNeeded} L</h3>
-              <p>Estimated Water Quantity</p>
-              <small>For {formData.areaSize} acres of {formData.cropType}</small>
+              <p>Water Requirement</p>
             </div>
-            
+
             <div className="result-card">
-              <Activity size={32} className="result-icon green" />
+              <Activity size={30} />
               <h3>{result.schedule}</h3>
-              <p>Recommended Schedule</p>
+              <p>Irrigation Schedule</p>
             </div>
 
             <div className="result-card tip-card full-width">
-              <Info size={24} className="result-icon yellow" />
-              <div className="tip-content">
-                <h4>Pro Tip for Less Wastage</h4>
-                <p>{result.efficiencyTip}</p>
+              <Info size={24} />
+              <div>
+                <h4>Smart Farming Tips</h4>
+                <ul>
+                  {tips.map((t, i) => <li key={i}>{t}</li>)}
+                </ul>
               </div>
             </div>
 
             <button className="irri-btn-secondary" onClick={() => setResult(null)}>
               Recalculate
             </button>
+
           </div>
         )}
       </div>

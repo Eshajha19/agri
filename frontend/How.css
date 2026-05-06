@@ -211,7 +211,6 @@
     opacity: 1;
     transform: translateY(0);
   }
-  flex-grow: 1;
 }
 
 .step-expanded {
