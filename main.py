@@ -35,10 +35,12 @@ from firebase_admin import credentials, auth as firebase_auth, firestore
 from ml.registry import ModelRegistry
 from ml.adapters.xgboost_adapter import XGBoostAdapter
 from ml.router import ModelRouter
+from ml.preprocessing import UnknownCategoryError, MissingFeatureError
 
 # Other internal modules
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
+from whatsapp_store import subscriber_store
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -263,18 +265,44 @@ def predict_get():
 @limiter.limit("5/minute")
 def predict_yield(data: PredictRequest, request: Request):
     """
-    Standardized prediction endpoint using ML Router for dynamic model selection.
+    Standardised prediction endpoint using ML Router for dynamic model selection.
+
+    Returns HTTP 422 when the input contains an unknown categorical value or a
+    missing required feature, so callers receive an actionable error message
+    rather than a silently corrupted prediction.
     """
     try:
-        input_data = data.model_dump() if hasattr(data, 'model_dump') else data.dict()
-        
+        input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
+
         context = {
             "location": request.headers.get("X-User-Location", "Unknown"),
-            "crop": data.Crop
+            "crop": data.Crop,
         }
-        
+
         predicted_yield = router.predict(input_data, context)
         return {"predicted_ExpYield": float(predicted_yield)}
+
+    except UnknownCategoryError as e:
+        # The submitted categorical value was not in the training vocabulary.
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "unknown_category",
+                "field": e.column,
+                "value": str(e.value),
+                "message": str(e),
+            },
+        )
+    except MissingFeatureError as e:
+        # Required feature columns are absent after encoding.
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "missing_features",
+                "missing": e.missing_columns,
+                "message": str(e),
+            },
+        )
     except Exception as e:
         print(f"Prediction Error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -343,55 +371,58 @@ def get_notifications(
     return {"success": True, "data": static_notifications + dynamic_alerts}
 
 # --- WhatsApp Service Endpoints ---
-
-SUBSCRIBERS_FILE = "whatsapp_subscribers.json"
-
-def load_subscribers():
-    if os.path.exists(SUBSCRIBERS_FILE):
-        try:
-            with open(SUBSCRIBERS_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
-
-def save_subscribers(subscribers):
-    with open(SUBSCRIBERS_FILE, "w") as f:
-        json.dump(subscribers, f)
+#
+# Subscriber persistence is handled by whatsapp_store.SubscriberStore, which
+# provides thread-safe, crash-safe read-modify-write operations via a
+# threading.Lock and atomic file replacement (write-to-tmp then os.replace).
+# The old load_subscribers / save_subscribers helpers have been removed because
+# they had no locking and used open(..., "w") directly, which could corrupt the
+# file on a concurrent write or a mid-write crash.
 
 @app.post("/api/whatsapp/subscribe")
 @limiter.limit("2/minute")
 async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
-    subscribers = load_subscribers()
     user_id = data.user_id if data.user_id else str(datetime.now().timestamp())
-    subscribers[user_id] = {
+    subscriber = {
         "phone_number": data.phone_number,
         "name": data.name,
-        "subscribed_at": datetime.now().isoformat()
+        "subscribed_at": datetime.now().isoformat(),
     }
-    save_subscribers(subscribers)
-    
-    welcome_msg = f"Namaste {data.name}! 🙏\n\nWelcome to *Fasal Saathi WhatsApp Alerts*. You will now receive real-time updates directly here."
+    try:
+        subscriber_store.upsert(user_id, subscriber)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save subscription. Please try again.",
+        ) from exc
+
+    welcome_msg = (
+        f"Namaste {data.name}! 🙏\n\n"
+        "Welcome to *Fasal Saathi WhatsApp Alerts*. "
+        "You will now receive real-time updates directly here."
+    )
     send_whatsapp_message(data.phone_number, welcome_msg)
     return {"success": True, "message": "Successfully subscribed"}
 
 @app.post("/api/whatsapp/trigger-alert")
 async def trigger_whatsapp_alert(data: AlertTriggerRequest):
-    subscribers = load_subscribers()
+    # get_all() acquires the lock and returns a stable snapshot, so this read
+    # cannot race with a concurrent subscription write.
+    subscribers = subscriber_store.get_all()
     results = []
     formatted_msg = format_alert_message(data.alert_type, data.message)
-    
+
     for user_id, info in subscribers.items():
         res = send_whatsapp_message(info["phone_number"], formatted_msg)
         results.append({"user_id": user_id, "success": res.get("success", False)})
-    
+
     static_notifications.append({
         "id": len(static_notifications) + 1,
         "type": data.alert_type,
         "message": data.message,
-        "time": datetime.now().isoformat()
+        "time": datetime.now().isoformat(),
     })
-    
+
     return {"success": True, "results": results}
 
 @app.post("/api/whatsapp/webhook")
