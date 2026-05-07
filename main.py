@@ -366,79 +366,109 @@ async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
     send_whatsapp_message(sender_number, response)
     return {"status": "success"}
 
-# --- Cryptographic Reports (KMS Managed) ---
+# --- Cryptographic Reports ---
+#
+# Key resolution priority (highest → lowest):
+#   1. In-process cache          – avoids repeated I/O on every request
+#   2. GCP Secret Manager        – production path; key never touches disk
+#   3. Local persistent PEM file – dev/staging fallback; blocked in production
+#   4. Fresh generation          – last resort for local dev only
+#
+# When ENV=production the function raises HTTP 500 at steps 2, 3, and 4
+# rather than falling through to a weaker path, so a plaintext disk key
+# can never silently be used in production.
 
 _cached_private_key = None
 KEYS_DIR = "keys"
 PRIVATE_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.key")
 PUBLIC_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.pub")
 
+IS_PRODUCTION = os.getenv("ENV", "").lower() == "production"
+
+
 def get_signing_keys():
     """
-    Retrieves the private key for report signing.
-    Prioritizes: 1. Local Cache, 2. Google Secret Manager (KMS), 3. Local Persistent File, 4. Fresh Generation.
+    Return the Ed25519 private key used to sign financial reports.
+
+    Resolution order:
+      1. In-process cache (fastest path after first call)
+      2. GCP Secret Manager (production-grade; key never written to disk)
+      3. Local PEM file    (dev/staging only; raises in production)
+      4. Fresh generation  (dev/staging only; raises in production)
     """
     global _cached_private_key
-    
-    if _cached_private_key:
+
+    # 1. In-process cache
+    if _cached_private_key is not None:
         return _cached_private_key
 
-    # 1. Try Google Secret Manager (KMS) if configured
+    # 2. GCP Secret Manager
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
     secret_id = os.getenv("REPORT_SIGNING_SECRET_NAME", "report-signing-key")
-    
-    if project_id and HAS_GCP_KMS:
-        try:
-            client = secretmanager.SecretManagerServiceClient()
-            name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
-            response = client.access_secret_version(request={"name": name})
-            payload = response.payload.data.decode("UTF-8")
-            
-            _cached_private_key = serialization.load_pem_private_key(
-                payload.encode(),
-                password=None
-            )
-            print(f"KMS: Successfully fetched signing key from Secret Manager ({secret_id})")
-            return _cached_private_key
-        except Exception as e:
-            print(f"KMS Warning: Failed to fetch secret {secret_id}: {e}. Falling back to local methods.")
 
-    # 2. Try Local Persistent File
+    if project_id:
+        if not HAS_GCP_KMS:
+            if IS_PRODUCTION:
+                raise HTTPException(
+                    status_code=500,
+                    detail="google-cloud-secret-manager is not installed but is required in production"
+                )
+            print("KMS Warning: google-cloud-secret-manager not installed; skipping GCP path.")
+        else:
+            try:
+                client = secretmanager.SecretManagerServiceClient()
+                name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
+                response = client.access_secret_version(request={"name": name})
+                payload = response.payload.data.decode("UTF-8")
+                _cached_private_key = serialization.load_pem_private_key(
+                    payload.encode(), password=None
+                )
+                print(f"KMS: Loaded signing key from Secret Manager (secret: {secret_id})")
+                return _cached_private_key
+            except Exception as e:
+                if IS_PRODUCTION:
+                    print(f"KMS Error: {e}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Failed to retrieve signing key from Secret Manager"
+                    )
+                print(f"KMS Warning: Could not reach Secret Manager ({e}); falling back to local key.")
+    elif IS_PRODUCTION:
+        raise HTTPException(
+            status_code=500,
+            detail="GOOGLE_CLOUD_PROJECT is not set; cannot retrieve signing key in production"
+        )
+
+    # 3. Local persistent PEM file (dev/staging only)
     if os.path.exists(PRIVATE_KEY_PATH):
         try:
             with open(PRIVATE_KEY_PATH, "rb") as f:
                 _cached_private_key = serialization.load_pem_private_key(f.read(), password=None)
-                print(f"Key Management: Loaded existing key from {PRIVATE_KEY_PATH}")
-                return _cached_private_key
+            print(f"Key Management: Loaded existing local key from {PRIVATE_KEY_PATH}")
+            return _cached_private_key
         except Exception as e:
-            print(f"Key Management Warning: Failed to load local key file: {e}")
+            print(f"Key Management Warning: Could not load local key file ({e}); generating a new one.")
 
-    # 3. Fresh Generation (and save if possible)
-    print("Key Management: Generating fresh signing key.")
+    # 4. Fresh generation (dev/staging only)
+    print("Key Management: Generating a fresh signing key for local development.")
     private_key = ed25519.Ed25519PrivateKey.generate()
-    
+
     try:
-        if not os.path.exists(KEYS_DIR):
-            os.makedirs(KEYS_DIR)
-        
-        # Save private key
+        os.makedirs(KEYS_DIR, exist_ok=True)
         with open(PRIVATE_KEY_PATH, "wb") as f:
             f.write(private_key.private_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PrivateFormat.PKCS8,
                 encryption_algorithm=serialization.NoEncryption()
             ))
-        
-        # Save public key for verification purposes
-        public_key = private_key.public_key()
         with open(PUBLIC_KEY_PATH, "wb") as f:
-            f.write(public_key.public_bytes(
+            f.write(private_key.public_key().public_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo
             ))
-        print(f"Key Management: Successfully saved new key to {KEYS_DIR}/")
+        print(f"Key Management: Saved new key pair to {KEYS_DIR}/")
     except Exception as e:
-        print(f"Key Management Warning: Could not persist generated key: {e}")
+        print(f"Key Management Warning: Could not persist generated key ({e}); key is in-memory only.")
 
     _cached_private_key = private_key
     return private_key
