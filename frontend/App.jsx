@@ -87,12 +87,8 @@ const LANGUAGE_OPTIONS = [
 ];
 
 const getInitialLanguage = () => {
-  try {
-    const stored = localStorage.getItem("preferredLanguage");
-    return LANGUAGE_OPTIONS.some((l) => l.value === stored) ? stored : "en";
-  } catch {
-    return "en";
-  }
+  // Always default to English when the user enters the site
+  return "en";
 };
 
 /**

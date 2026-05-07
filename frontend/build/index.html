@@ -1,255 +1,172 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Fasal Saathi" />
-    <meta name="theme-color" content="#4caf50" />
-    <meta name="msapplication-TileColor" content="#4caf50" />
-    <meta name="msapplication-TileImage" content="/tractor.png" />
-    <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="apple-touch-icon" href="/tractor.png" />
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌿</text></svg>" />
-    <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon" />
-    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
-
-    <script>
-      (function () {
-        try {
-          var stored = localStorage.getItem("theme");
-          var theme =
-            stored === "light" || stored === "dark"
-              ? stored
-              : window.matchMedia &&
-                window.matchMedia("(prefers-color-scheme: dark)").matches
-                ? "dark"
-                : "light";
-          if (theme === "dark") document.documentElement.classList.add("theme-dark");
-        } catch (e) {
-          // Ignore (private mode / blocked storage)
-        }
-      })();
-    </script>
+    <link rel="icon" type="image/svg+xml" href="/tractor.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Fasal Saathi - Your AI-powered Farming Assistant. Get crop predictions, weather updates, and expert farming advice." />
+    <title>Fasal Saathi - AI-Powered Farming Assistant</title>
+    
+    <!-- Critical Preconnects -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
     <style>
+      /* Critical Loading Styles */
+      :root {
+        --bg-color: #0b1220;
+        --accent-color: #4caf50;
+      }
+      body {
+        margin: 0;
+        background-color: var(--bg-color);
+        color: white;
+        font-family: 'Poppins', sans-serif;
+      }
       .preloader {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background-color: var(--bg-color);
         display: flex;
         flex-direction: column;
-        align-items: center;
         justify-content: center;
-        height: 100vh;
-        background: #fff;
-        color: #166534;
-        font-family: system-ui, -apple-system, sans-serif;
-      }
-      .theme-dark .preloader {
-        background: #0f172a;
-        color: #22c55e;
+        align-items: center;
+        z-index: 99999;
+        transition: opacity 0.5s ease-out;
       }
       .preloader-spinner {
         width: 60px;
         height: 60px;
-        border: 4px solid rgba(22, 101, 52, 0.2);
-        border-top-color: #166534;
+        border: 4px solid rgba(76, 175, 80, 0.1);
+        border-top: 4px solid var(--accent-color);
         border-radius: 50%;
         animation: spin 1s linear infinite;
-        margin-bottom: 1rem;
+        margin-bottom: 20px;
       }
-      .theme-dark .preloader-spinner {
-        border-top-color: #22c55e;
+      .preloader p {
+        font-size: 1.2rem;
+        font-weight: 500;
+        letter-spacing: 1px;
+        margin: 0;
       }
       @keyframes spin {
         to { transform: rotate(360deg); }
       }
-
-      /* Hide Google Translate banner and floating UI elements only */
-      iframe.goog-te-banner-frame,
-      div.goog-te-gadget,
-      div.goog-te-gadget-simple,
-      div#goog-gt-tt,
-      iframe.goog-te-balloon-frame,
-      div.goog-tooltip,
-      .goog-text-highlight,
-      .skiptranslate,
-      iframe.goog-te-menu-frame,
-      .VIpgJd-ZVi9od-ORHb-OEVgZj,
-      .goog-te-menu-frame.skiptranslate,
-      .goog-te-menu-frame {
-        display: none !important;
-        visibility: hidden !important;
-        height: 0 !important;
-        width: 0 !important;
-        max-height: 0 !important;
-        max-width: 0 !important;
-        opacity: 0 !important;
-        position: absolute !important;
-        left: -9999px !important;
-        top: -9999px !important;
-        pointer-events: none !important;
-        overflow: hidden !important;
+      
+      /* Google Translate Widget Override */
+      #google_translate_element {
+        display: none;
       }
-
-      /* Ensure no body offset from GT */
-      html.goog-translate body,
-      body.goog-translate {
-        margin-top: 0 !important;
-        padding-top: 0 !important;
+      .goog-te-banner-frame {
+        display: none !important;
+      }
+      body {
         top: 0 !important;
-        transform: none !important;
       }
-
-      /* Hide any GT tooltips/dialogs that appear as direct children of body */
-      body > div[role="dialog"]:has(> .goog-te-),
-      body > div[aria-live="polite"]:has(> .goog-te-) {
+      .goog-tooltip {
         display: none !important;
+      }
+      .goog-tooltip:hover {
+        display: none !important;
+      }
+      .goog-text-highlight {
+        background-color: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+      }
+      
+      /* Accessibility and Theme helpers */
+      .notranslate {
+        unicode-bidi: isolate;
       }
     </style>
+    
+    <script>
+      // Navigation height calculation for CSS variables
+      (function() {
+        function updateNavbarHeight() {
+          const vh = window.innerHeight * 0.01;
+          document.documentElement.style.setProperty('--vh', `${vh}px`);
+        }
+        window.addEventListener('resize', updateNavbarHeight);
+        updateNavbarHeight();
+      })();
+      
+      // FORCED LANGUAGE CONTROL
+      (function() {
+        try {
+          // Clear any existing Google Translate cookies to ensure a fresh start
+          const domains = [window.location.hostname, '.' + window.location.hostname];
+          const paths = ['/', ''];
+          
+          domains.forEach(domain => {
+            paths.forEach(path => {
+              document.cookie = 'googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=' + path + '; domain=' + domain + ';';
+              document.cookie = 'googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=' + path + ';';
+            });
+          });
 
-    <title translate="no">Fasal Saathi</title>
-    <script type="module" crossorigin src="/assets/index-CcQOkNcG.js"></script>
-    <link rel="modulepreload" crossorigin href="/assets/vendor-Ca6qNXL1.js">
-    <link rel="modulepreload" crossorigin href="/assets/firebase-DzQnuN7k.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-bhaxOGqv.css">
+          // Check for user preference
+          const storedLang = localStorage.getItem('preferredLanguage') || 'en';
+          
+          // Only set translation if it's NOT English
+          if (storedLang !== 'en') {
+            document.cookie = `googtrans=/en/${storedLang}; path=/;`;
+            document.cookie = `googtrans=/en/${storedLang}; path=/; domain=${window.location.hostname};`;
+          }
+        } catch (e) {
+          console.warn('Language init failed:', e);
+        }
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-G5f3rGbo.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/vendor-TvM4-1Tb.js">
+    <link rel="modulepreload" crossorigin href="/assets/firebase-_lfFgmhc.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-C6AGbFwT.css">
   <link rel="manifest" href="/manifest.webmanifest"></head>
-  <body style="margin-top: 0 !important; padding-top: 0 !important; transform: none !important;">
+  <body>
     <div id="root">
       <div class="preloader">
         <div class="preloader-spinner"></div>
          <p>Loading <span class="notranslate">Fasal Saathi</span>...</p>
       </div>
     </div>
-    <script>
-      // Set CSS variable for navbar height to properly position the weather alert bar
-      (function() {
-        function updateNavbarHeight() {
-          const navbar = document.querySelector('.navbar');
-          if (navbar) {
-            const height = navbar.offsetHeight;
-            document.documentElement.style.setProperty('--navbar-height', height + 'px');
+    
+    <!-- Google Translate Element (Hidden) -->
+    <div id="google_translate_element"></div>
+    
+    <script type="text/javascript">
+      function googleTranslateElementInit() {
+        new google.translate.TranslateElement({
+          pageLanguage: 'en',
+          includedLanguages: 'hi,mr,bn,ta,te,gu,pa,kn,ml,or,as,en',
+          layout: google.translate.TranslateElement.InlineLayout.SIMPLE,
+          autoDisplay: false
+        }, 'google_translate_element');
+        
+        // Final fallback to ensure English if needed
+        setTimeout(() => {
+          const storedLang = localStorage.getItem('preferredLanguage') || 'en';
+          if (storedLang === 'en') {
+            const combo = document.querySelector('.goog-te-combo');
+            if (combo && combo.value !== 'en' && combo.value !== '') {
+              combo.value = 'en';
+              combo.dispatchEvent(new Event('change'));
+            }
           }
-        }
-        // Set initial value before layout to prevent FOUC
-        document.documentElement.style.setProperty('--navbar-height', '68px');
-        if (document.readyState === 'loading') {
-          document.addEventListener('DOMContentLoaded', updateNavbarHeight);
-        } else {
-          updateNavbarHeight();
-        }
-        window.addEventListener('resize', updateNavbarHeight);
-      })();
-      
-      // Set Google Translate cookie based on stored language before widget loads
-      (function() {
-        try {
-          const storedLang = localStorage.getItem('preferredLanguage');
-          console.log('[GT Init]STORED LANG:', storedLang);
-          
-          // Clear any existing cookie first
-          document.cookie = 'googtrans=; path=/; max-age=0';
-          
-          if (storedLang && storedLang !== 'en') {
-            const rawCookieValue = '/en/' + storedLang;
-            const expires = new Date();
-            expires.setFullYear(expires.getFullYear() + 10);
-            document.cookie = 'googtrans=' + rawCookieValue + '; path=/; expires=' + expires.toUTCString();
-            console.log('[GT Init]SET COOKIE:', rawCookieValue);
-          } else {
-            console.log('[GT Init]English or no stored lang, cookie cleared');
-          }
-          
-          // Debug: list all cookies
-          console.log('[GT Init]Cookies:', document.cookie);
-        } catch (e) {
-          console.error('[GT Init]Error:', e);
-        }
-      })();
+        }, 1000);
+      }
     </script>
     
-     <div id="google_translate_element" style="position: absolute; top: -9999px; left: -9999px; width: 1px; height: 1px; overflow: hidden;"></div>
-     <script type="text/javascript">
-       // Global reference of GT widget select
-       let gtSelect = null;
-       let gtInitialized = false;
-       
-       function applyStoredLanguage() {
-         try {
-           const stored = localStorage.getItem('preferredLanguage');
-           console.log('[GT Apply] Stored language:', stored);
-           
-           if (!stored || stored === 'en') {
-             console.log('[GT Apply] No translation needed');
-             return;
-           }
-           
-           let select = document.querySelector('.goog-te-combo');
-           if (!select) {
-             const gtEl = document.getElementById('google_translate_element');
-             if (gtEl) select = gtEl.querySelector('select');
-           }
-           
-           if (select) {
-             console.log('[GT Apply] Found select, current value:', select.value);
-             if (select.value !== stored) {
-               select.value = stored;
-               const event = new Event('change', { bubbles: true });
-               select.dispatchEvent(event);
-               console.log('[GT Apply] Set select to:', stored);
-             }
-           } else {
-             console.log('[GT Apply] Select not found yet');
-           }
-         } catch (e) {
-           console.error('[GT Apply] Error:', e);
-         }
-       }
-       
-       function googleTranslateElementInit() {
-         new google.translate.TranslateElement({
-           pageLanguage: 'en',
-           includedLanguages: 'en,hi,mr,bn,ta,te,gu,pa,kn,ml,or,as',
-           autoDisplay: false,
-         }, 'google_translate_element');
-         
-         gtInitialized = true;
-         
-         // Multiple attempts with different strategies
-         const attempts = [200, 500, 800, 1200, 2000, 3000];
-         attempts.forEach((delay, i) => {
-           setTimeout(() => {
-             applyStoredLanguage();
-             // Also try forcing by setting cookie + re-dispatching
-             if (i >= 2) {
-               const select = document.querySelector('.goog-te-combo');
-               if (select) {
-                 // Trigger another change to force re-translation
-                 const stored = localStorage.getItem('preferredLanguage');
-                 if (stored && stored !== 'en') {
-                   select.value = stored;
-                   select.dispatchEvent(new Event('change', { bubbles: true }));
-                 }
-               }
-             }
-           }, delay);
-         });
-         
-         // Use MutationObserver to catch when GT injects content
-         const observer = new MutationObserver((mutations) => {
-           const select = document.querySelector('.goog-te-combo');
-           if (select && select.options?.length > 1) {
-             applyStoredLanguage();
-             observer.disconnect();
-           }
-         });
-         observer.observe(document.body, { childList: true, subtree: true });
-         setTimeout(() => observer.disconnect(), 5000);
-       }
-     </script>
     <script
       type="text/javascript"
       src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"
       defer
-    ></script>
+    ></script>
+    
   </body>
 </html>

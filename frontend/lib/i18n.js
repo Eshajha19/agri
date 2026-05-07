@@ -16,12 +16,7 @@ import orTranslations from '../locales/or/translation.json';
 import asTranslations from '../locales/as/translation.json';
 
 const getInitialLanguage = () => {
-  try {
-    const stored = localStorage.getItem('preferredLanguage');
-    return stored || 'en';
-  } catch {
-    return 'en';
-  }
+  return 'en';
 };
 
 i18n
