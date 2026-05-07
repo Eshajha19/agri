@@ -35,6 +35,7 @@ from firebase_admin import credentials, auth as firebase_auth, firestore
 from ml.registry import ModelRegistry
 from ml.adapters.xgboost_adapter import XGBoostAdapter
 from ml.router import ModelRouter
+from ml.preprocessing import UnknownCategoryError, MissingFeatureError
 
 # Other internal modules
 from alert_rules import generate_alerts
@@ -237,18 +238,44 @@ def predict_get():
 @limiter.limit("5/minute")
 def predict_yield(data: PredictRequest, request: Request):
     """
-    Standardized prediction endpoint using ML Router for dynamic model selection.
+    Standardised prediction endpoint using ML Router for dynamic model selection.
+
+    Returns HTTP 422 when the input contains an unknown categorical value or a
+    missing required feature, so callers receive an actionable error message
+    rather than a silently corrupted prediction.
     """
     try:
-        input_data = data.model_dump() if hasattr(data, 'model_dump') else data.dict()
-        
+        input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
+
         context = {
             "location": request.headers.get("X-User-Location", "Unknown"),
-            "crop": data.Crop
+            "crop": data.Crop,
         }
-        
+
         predicted_yield = router.predict(input_data, context)
         return {"predicted_ExpYield": float(predicted_yield)}
+
+    except UnknownCategoryError as e:
+        # The submitted categorical value was not in the training vocabulary.
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "unknown_category",
+                "field": e.column,
+                "value": str(e.value),
+                "message": str(e),
+            },
+        )
+    except MissingFeatureError as e:
+        # Required feature columns are absent after encoding.
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "missing_features",
+                "missing": e.missing_columns,
+                "message": str(e),
+            },
+        )
     except Exception as e:
         print(f"Prediction Error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
