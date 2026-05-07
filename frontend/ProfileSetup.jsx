@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { auth, db, doc, getDoc, updateDoc, isFirebaseConfigured } from "./lib/firebase";
+import { auth, db, isFirebaseConfigured } from "./lib/firebase";
+import { doc, setDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import { FaUser, FaGlobe, FaMapMarkerAlt, FaSeedling, FaArrowRight } from "react-icons/fa";
 import "./ProfileSetup.css";
@@ -10,7 +11,7 @@ const LANGUAGE_OPTIONS = [
   { value: "mr", label: "🇮🇳 मराठी" },
   { value: "bn", label: "🇮🇳 বাংলা" },
   { value: "ta", label: "🇮🇳 தமிழ்" },
-  { value: "te", label: "🇮🇳 তেলুগు" },
+  { value: "te", label: "🇮🇳 తెలుగు" },
   { value: "gu", label: "🇮🇳 ગુજરાતી" },
   { value: "pa", label: "🇮🇳 ਪੰਜਾਬੀ" },
   { value: "kn", label: "🇮🇳 ಕನ್ನಡ" },
@@ -19,51 +20,64 @@ const LANGUAGE_OPTIONS = [
   { value: "as", label: "🇮🇳 অসমীয়া" },
 ];
 
-const ProfileSetup = () => {
+const ProfileSetup = ({ user, profileCompleted }) => {
   const [name, setName] = useState("");
   const [language, setLanguage] = useState("en");
+  const [role, setRole] = useState("farmer");
   const [cropType, setCropType] = useState("");
   const [location, setLocation] = useState(null);
   const [address, setAddress] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [whatsappAlerts, setWhatsappAlerts] = useState(false);
   const [loading, setLoading] = useState(false);
   const [locLoading, setLocLoading] = useState(false);
   const [error, setError] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!isFirebaseConfigured()) {
-      navigate("/auth");
+    // If auth state is resolved and user is not logged in, go to login
+    if (user === null && !loading) {
+      navigate("/login");
       return;
     }
-    requestLocation();
     
-    const checkExistingData = async () => {
-      if (auth?.currentUser) {
-        try {
-          const { doc, getDoc } = await import("firebase/firestore");
-          const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
-          if (userDoc.exists() && userDoc.data().profileCompleted) {
-            navigate("/");
-          }
-        } catch (err) {
-          console.error(err);
-        }
-      }
-    };
-    checkExistingData();
+    // If profile is already completed, go home
+    if (user && profileCompleted) {
+      navigate("/");
+    }
+  }, [user, profileCompleted, navigate]);
+
+  useEffect(() => {
+    if (!isFirebaseConfigured()) {
+      navigate("/login");
+      return;
+    }
+    
+    // If profile is already completed, go home
+    if (user && profileCompleted) {
+      navigate("/");
+    } else if (!user && !localStorage.getItem("isLoggingIn")) {
+      navigate("/login");
+    }
+  }, [user, profileCompleted, navigate]);
+
+  useEffect(() => {
+    requestLocation();
   }, []);
 
   const requestLocation = () => {
     if ("geolocation" in navigator) {
       setLocLoading(true);
+      setError("");
       navigator.geolocation.getCurrentPosition(
         async (position) => {
-          const { latitude, longitude } = position.coords;
-          setLocation({ lat: latitude, lng: longitude });
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+          setLocation({ lat, lng });
 
           try {
             const response = await fetch(
-              `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
+              `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`
             );
             const data = await response.json();
             
@@ -103,27 +117,57 @@ const ProfileSetup = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setError("");
+
     if (!name || !cropType) {
       setError("Please fill in all details.");
       return;
     }
+
     setLoading(true);
     try {
-      const user = auth?.currentUser;
-      if (user) {
-        const { doc, setDoc } = await import("firebase/firestore");
-        await setDoc(doc(db, "users", user.uid), {
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        // Save profile to Firestore
+        await setDoc(doc(db, "users", currentUser.uid), {
           displayName: name,
           language: language,
+          role: role,
           cropType: cropType,
           location: location,
           address: address,
+          phoneNumber: phoneNumber,
+          whatsappAlerts: whatsappAlerts,
           profileCompleted: true,
+          reputation: 0,
+          badges: [],
+          updatedAt: new Date().toISOString()
         }, { merge: true });
+
+        // If WhatsApp alerts are enabled, subscribe via backend
+        if (whatsappAlerts && phoneNumber) {
+          try {
+            await fetch("http://localhost:8000/api/whatsapp/subscribe", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                phone_number: phoneNumber,
+                user_id: currentUser.uid,
+                name: name
+              })
+            });
+          } catch (whatsappErr) {
+            console.error("WhatsApp subscription error:", whatsappErr);
+          }
+        }
+        
         navigate("/");
+      } else {
+        navigate("/login");
       }
     } catch (err) {
-      setError(err.message || "Failed to save profile");
+      console.error("Save profile error:", err);
+      setError("Failed to save profile. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -133,41 +177,50 @@ const ProfileSetup = () => {
     <div className="setup-container">
       <div className="setup-card">
         <div className="setup-header">
-          <div className="setup-logo">🌱</div>
-          <h1>Welcome to Fasal Saathi</h1>
-          <p>Help us serve you better</p>
+          <FaSeedling className="setup-logo-icon" />
+          <h1>Complete Your Profile</h1>
+            <p>Help us personalize your <span className="notranslate" translate="no">Fasal Saathi</span> experience</p>
         </div>
 
         {error && <div className="setup-error">{error}</div>}
 
         <form onSubmit={handleSubmit} className="setup-form">
           <div className="setup-group">
-            <label>
-              <FaUser /> Your Name
-            </label>
-            <div className="setup-input">
+            <label><FaUser /> Farmer Name</label>
+            <div className="setup-input-wrapper">
               <FaUser className="setup-icon" />
               <input
                 type="text"
+                placeholder="Enter your full name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Enter your full name"
-                className="setup-input"
                 required
               />
             </div>
           </div>
 
           <div className="setup-group">
-            <label>
-              <FaGlobe /> Preferred Language
-            </label>
-            <div className="setup-input">
+            <label><FaUser /> I am a...</label>
+            <div className="setup-input-wrapper">
+              <span className="setup-icon">👤</span>
+              <select
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+              >
+                <option value="farmer">🚜 Farmer</option>
+                <option value="expert">🎓 Agri-Expert</option>
+                <option value="vendor">🏪 Marketplace Vendor</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="setup-group">
+            <label><FaGlobe /> Preferred Language</label>
+            <div className="setup-input-wrapper">
               <FaGlobe className="setup-icon" />
               <select
                 value={language}
                 onChange={(e) => setLanguage(e.target.value)}
-                className="setup-input"
               >
                 {LANGUAGE_OPTIONS.map((lang) => (
                   <option key={lang.value} value={lang.value}>
@@ -179,15 +232,12 @@ const ProfileSetup = () => {
           </div>
 
           <div className="setup-group">
-            <label>
-              <FaSeedling /> Primary Crop You Grow
-            </label>
-            <div className="setup-input">
+            <label><FaSeedling /> Primary Crop Type</label>
+            <div className="setup-input-wrapper">
               <FaSeedling className="setup-icon" />
               <select
                 value={cropType}
                 onChange={(e) => setCropType(e.target.value)}
-                className="setup-input"
                 required
               >
                 <option value="">Select your primary crop</option>
@@ -206,46 +256,60 @@ const ProfileSetup = () => {
               </select>
             </div>
           </div>
+          
+          <div className="setup-group">
+            <label><FaMapMarkerAlt /> Phone Number (for WhatsApp Alerts)</label>
+            <div className="setup-input-wrapper">
+              <span className="setup-icon" style={{ fontSize: '1.2rem' }}>📱</span>
+              <input
+                type="tel"
+                placeholder="e.g. +91 98765 43210"
+                value={phoneNumber}
+                onChange={(e) => setPhoneNumber(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="setup-group checkbox-group">
+            <label className="checkbox-container">
+              <input
+                type="checkbox"
+                checked={whatsappAlerts}
+                onChange={(e) => setWhatsappAlerts(e.target.checked)}
+              />
+              <span className="checkmark"></span>
+              Receive real-time weather & pest alerts on WhatsApp
+            </label>
+          </div>
 
           <div className="setup-group">
-            <label>
-              <FaMapMarkerAlt /> Your Location
-            </label>
+            <label><FaMapMarkerAlt /> Farm Location</label>
             <div className={`loc-box ${address ? 'success' : locLoading ? 'pending' : ''}`}>
               {locLoading ? (
                 <>
-                  <span>📍 Getting your location...</span>
-                  <span className="loading-spinner"></span>
+                  <span className="loc-status">📍 Getting your location...</span>
+                  <div className="small-spinner"></div>
                 </>
               ) : address ? (
                 <>
-                  <span>✅ {address}</span>
+                  <span className="loc-status">✅ {address}</span>
                   <button type="button" onClick={requestLocation} className="loc-btn">
                     Update
                   </button>
                 </>
               ) : (
                 <>
-                  <span>Click to get your location</span>
+                  <span className="loc-status">Click to get your location</span>
                   <button type="button" onClick={requestLocation} className="loc-btn">
                     Get Location
                   </button>
                 </>
               )}
             </div>
-            <input
-              type="hidden"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-            />
-            <input
-              type="hidden"
-              value={location ? JSON.stringify(location) : ""}
-            />
           </div>
 
           <button type="submit" className="setup-submit" disabled={loading}>
-            {loading ? "Saving..." : "Complete Setup"}
+            {loading ? "Saving..." : "Start Journey"}
             {!loading && <FaArrowRight />}
           </button>
         </form>

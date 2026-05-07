@@ -1,0 +1,32 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check roles
+    function hasRole(role) {
+      return request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+
+    // User profiles: Users can read their own profile, Admins can read all
+    match /users/{userId} {
+      allow read: if request.auth != null && (request.auth.uid == userId || hasRole('admin'));
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Feedback: Only Admins can read, anyone logged in can create
+    match /feedback/{feedbackId} {
+      allow read: if hasRole('admin');
+      allow create: if request.auth != null;
+    }
+
+    // Reports: Only Experts and Admins can create/read
+    match /reports/{reportId} {
+      allow read, write: if hasRole('expert') || hasRole('admin');
+    }
+    
+    // Marketplace: Only Vendors and Admins can write
+    match /marketplace/{itemId} {
+      allow read: if true;
+      allow write: if hasRole('vendor') || hasRole('admin');
+    }
+  }
+}

@@ -12,17 +12,8 @@ const LANGUAGE_OPTIONS = [
   { value: 'kn', label: '🇮🇳 ಕನ್ನಡ' },
   { value: 'ml', label: '🇮🇳 മലയാളം' },
   { value: 'or', label: '🇮🇳 ଓଡ଼ିଆ' },
-  { value: 'as', label: '🇮🇳 অসমীয়া' },
+  { value: 'as', label: '🇮🇳 অসमीय' },
 ];
-
-const getInitialLanguage = () => {
-  try {
-    const stored = localStorage.getItem('preferredLanguage');
-    return LANGUAGE_OPTIONS.some((l) => l.value === stored) ? stored : 'en';
-  } catch {
-    return 'en';
-  }
-};
 
 const getInitialTheme = () => {
   try {
@@ -32,21 +23,32 @@ const getInitialTheme = () => {
   }
 };
 
+const getInitialAccessibilityMode = () => {
+  try {
+    return localStorage.getItem('accessibilityMode') === 'sunlight';
+  } catch {
+    return false;
+  }
+};
+
 export const useUiStore = create((set) => ({
   // Theme state
   theme: getInitialTheme(),
   setTheme: (theme) => {
-    document.documentElement.classList.toggle('theme-dark', theme === 'dark');
     localStorage.setItem('theme', theme);
     set({ theme });
   },
 
-  // Language state
-  preferredLang: getInitialLanguage(),
-  setPreferredLang: (lang) => {
-    localStorage.setItem('preferredLanguage', lang);
-    set({ preferredLang: lang });
+  // Accessibility / Sunlight mode state
+  isAccessibilityMode: getInitialAccessibilityMode(),
+  setAccessibilityMode: (enabled) => {
+    document.documentElement.classList.toggle('sunlight', enabled);
+    localStorage.setItem('accessibilityMode', enabled ? 'sunlight' : 'light');
+    set({ isAccessibilityMode: enabled });
   },
+
+  // Language options (for reference - actual language change is handled by i18n)
+  languageOptions: LANGUAGE_OPTIONS,
 
   // Navigation sidebar
   isNavOpen: false,
@@ -61,4 +63,24 @@ export const useUiStore = create((set) => ({
   },
   inputName: '',
   setInputName: (name) => set({ inputName: name }),
+
+  // Global API loading state
+  apiPendingRequests: 0,
+  isApiLoading: false,
+  incrementApiPendingRequests: () =>
+    set((state) => {
+      const nextPending = state.apiPendingRequests + 1;
+      return {
+        apiPendingRequests: nextPending,
+        isApiLoading: nextPending > 0,
+      };
+    }),
+  decrementApiPendingRequests: () =>
+    set((state) => {
+      const nextPending = Math.max(0, state.apiPendingRequests - 1);
+      return {
+        apiPendingRequests: nextPending,
+        isApiLoading: nextPending > 0,
+      };
+    }),
 }));

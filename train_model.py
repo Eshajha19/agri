@@ -6,6 +6,11 @@ import joblib
 import numpy as np
 
 df = pd.read_csv("Train.csv")
+# Convert SDate to datetime
+df['SDate'] = pd.to_datetime(df['SDate'], errors='coerce')
+df = df.dropna(subset=['SDate'])
+df = df.sort_values('SDate')
+print(df[['SDate', 'ExpYield']].head())
 
 X = df.drop(columns=["FarmID", "category", "State", "District", "Sub-District", "SDate", "HDate", "ExpYield", "geometry"])
 y = df["ExpYield"]

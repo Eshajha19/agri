@@ -1,6 +1,7 @@
 import { create } from 'zustand';
+import { predictYield } from '../services/yieldApi';
 
-export const useYieldStore = create((set) => ({
+export const useYieldStore = create((set, get) => ({
   // Yield form state
   yieldForm: {
     Crop: 'Paddy',
@@ -27,7 +28,8 @@ export const useYieldStore = create((set) => ({
 
   // Prediction results
   yieldPrediction: null,
-  setYieldPrediction: (prediction) => set({ yieldPrediction: prediction }),
+  yieldLastUpdated: null,
+  setYieldPrediction: (prediction) => set({ yieldPrediction: prediction, yieldLastUpdated: Date.now() }),
 
   // Error handling
   yieldError: null,
@@ -45,19 +47,14 @@ export const useYieldStore = create((set) => ({
   fetchYield: async function () {
     set({ yieldLoading: true, yieldError: null });
     try {
-      const response = await fetch('/predict', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(this.yieldForm),
-      });
-      if (!response.ok) {
-        throw new Error(`Server error: ${response.status}`);
-      }
-      const data = await response.json();
-      set({ yieldPrediction: data.predicted_ExpYield, showYieldPopup: true });
+      const data = await predictYield(get().yieldForm);
+      set({ yieldPrediction: data.predicted_ExpYield, yieldLastUpdated: Date.now(), showYieldPopup: true });
     } catch (error) {
-      console.error('Error fetching yield:', error);
-      set({ yieldError: error.message || 'Failed to get prediction' });
+      const message =
+        error?.response?.data?.detail ||
+        error.message ||
+        'Failed to get prediction';
+      set({ yieldError: message });
     } finally {
       set({ yieldLoading: false });
     }
@@ -80,6 +77,7 @@ export const useYieldStore = create((set) => ({
         Season: 'Rabi',
       },
       yieldPrediction: null,
+      yieldLastUpdated: null,
       yieldError: null,
       showYieldPopup: false,
     }),

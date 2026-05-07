@@ -1,6 +1,6 @@
 import { initializeApp, getApps } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore, doc, onSnapshot, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { getFirestore, doc, onSnapshot, getDoc, setDoc, updateDoc, enableIndexedDbPersistence } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
@@ -11,7 +11,8 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID || "",
 };
 
-const isConfigured = !!firebaseConfig.apiKey && firebaseConfig.apiKey.length > 10;
+const isConfigured = !!(firebaseConfig.apiKey && firebaseConfig.apiKey.length > 10 &&
+  firebaseConfig.projectId && firebaseConfig.authDomain);
 
 let app = null;
 let auth = null;
@@ -25,7 +26,26 @@ if (isConfigured) {
   }
   auth = getAuth(app);
   db = getFirestore(app);
-  console.log("Firebase initialized with config:", { 
+  
+  // Enable offline persistence for Firestore
+  try {
+    enableIndexedDbPersistence(db, {
+      synchronizeTabs: true,
+      forceOwnership: false
+    }).catch((err) => {
+      if (err.code === 'failed-precondition') {
+        console.warn('Offline persistence failed: Multiple tabs open');
+      } else if (err.code === 'unimplemented') {
+        console.warn('Offline persistence not supported in this browser');
+      } else {
+        console.error('Offline persistence error:', err);
+      }
+    });
+  } catch (err) {
+    console.error('Failed to enable offline persistence:', err);
+  }
+  
+  console.log("Firebase initialized with offline persistence", { 
     projectId: firebaseConfig.projectId, 
     authDomain: firebaseConfig.authDomain 
   });
