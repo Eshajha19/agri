@@ -5,12 +5,16 @@ import {
   signInWithPopup,
   GoogleAuthProvider,
   sendEmailVerification,
-  signOut
+  signOut,
+  signInAnonymously,
+  linkWithCredential,
+  EmailAuthProvider
 } from "firebase/auth";
-import { auth, db } from "./lib/firebase";
-import { doc, setDoc } from "firebase/firestore";
-import { useNavigate } from "react-router-dom";
-import { FaGoogle, FaEnvelope, FaLock, FaUser, FaArrowRight, FaLeaf } from "react-icons/fa";
+import { doc, setDoc, getDoc } from "firebase/firestore";
+import { useNavigate, useLocation } from "react-router-dom";
+import { FaGoogle, FaEnvelope, FaLock, FaUser, FaArrowRight, FaLeaf, FaUserSecret } from "react-icons/fa";
+import { auth, db, isFirebaseConfigured } from "./lib/firebase";
+import { migrateUserData } from "./lib/migration";
 import "./Auth.css";
 
 const Auth = () => {
@@ -18,10 +22,45 @@ const Auth = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const from = location.state?.from?.pathname || "/";
+
+  if (!isFirebaseConfigured()) {
+    return (
+      <div className="auth-container">
+        <div className="auth-card">
+            <div className="auth-logo">
+              <FaLeaf className="leaf-icon" />
+              <h1 className="notranslate" translate="no">Fasal Saathi</h1>
+            </div>
+          <p className="auth-subtitle">Firebase credentials not configured</p>
+          <div className="auth-message">
+            <p>Please configure Firebase credentials in your .env file to enable authentication.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const handleGuestLogin = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      await signInAnonymously(auth);
+      navigate(from, { replace: true });
+    } catch (err) {
+      console.error("Guest login error:", err);
+      setError("Failed to start guest session.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleAuth = async (e) => {
     e.preventDefault();
@@ -32,6 +71,9 @@ const Auth = () => {
     try {
       if (isLogin) {
         // Login Logic
+        const anonymousUser = auth.currentUser?.isAnonymous ? auth.currentUser : null;
+        const anonymousUid = anonymousUser?.uid;
+
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
 
@@ -42,23 +84,56 @@ const Auth = () => {
           return;
         }
 
-        navigate("/");
+        // If there was a guest session, migrate data to the logged-in account
+        if (anonymousUid && user.uid !== anonymousUid) {
+          try {
+            await migrateUserData(anonymousUid, user.uid);
+            setMessage("Guest data successfully merged with your account!");
+          } catch (migrateErr) {
+            console.error("Migration error:", migrateErr);
+            // Non-fatal, user is logged in
+          }
+        }
+
+        navigate(from, { replace: true });
       } else {
         // Sign Up Logic
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        const user = userCredential.user;
+        const anonymousUser = auth.currentUser?.isAnonymous ? auth.currentUser : null;
+        
+        let user;
+        if (anonymousUser) {
+          // Link anonymous account to email/password
+          const credential = EmailAuthProvider.credential(email, password);
+          try {
+            const linkedCredential = await linkWithCredential(anonymousUser, credential);
+            user = linkedCredential.user;
+          } catch (linkErr) {
+            if (linkErr.code === "auth/email-already-in-use") {
+              setError("Email already in use. Please login instead to merge your guest data.");
+              setLoading(false);
+              return;
+            }
+            throw linkErr;
+          }
+        } else {
+          const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+          user = userCredential.user;
+        }
 
         // Send verification email
         await sendEmailVerification(user);
 
-        // Store user info in Firestore
+        // Store/Update user info in Firestore
         await setDoc(doc(db, "users", user.uid), {
           uid: user.uid,
           displayName: displayName,
           email: email,
+          phoneNumber: phoneNumber,
           createdAt: new Date().toISOString(),
-          verified: false
-        });
+          verified: false,
+          reputation: 0,
+          profileCompleted: false
+        }, { merge: true });
 
         setMessage("Account created! Please check your email for verification link.");
         setIsLogin(true); // Switch to login after signup
@@ -81,6 +156,9 @@ const Auth = () => {
 
   const handleGoogleLogin = async () => {
     const provider = new GoogleAuthProvider();
+    // Add custom parameters if needed
+    provider.setCustomParameters({ prompt: 'select_account' });
+    
     setLoading(true);
     setError("");
     try {
@@ -88,18 +166,39 @@ const Auth = () => {
       const user = result.user;
 
       // Create/Update user in Firestore
-      await setDoc(doc(db, "users", user.uid), {
-        uid: user.uid,
-        displayName: user.displayName,
-        email: user.email,
-        photoURL: user.photoURL,
-        lastLogin: new Date().toISOString()
-      }, { merge: true });
+      // We wrap this in a try-catch to differentiate between Auth and Firestore failures
+      try {
+        await setDoc(doc(db, "users", user.uid), {
+          uid: user.uid,
+          displayName: user.displayName,
+          email: user.email,
+          photoURL: user.photoURL,
+          lastLogin: new Date().toISOString(),
+          profileCompleted: true, // Google users often don't need the full setup
+          reputation: 0
+        }, { merge: true });
+      } catch (fsErr) {
+        console.error("Firestore sync error:", fsErr);
+        // We continue even if Firestore fails, as the user is authenticated
+      }
 
-      navigate("/");
+      navigate(from, { replace: true });
     } catch (err) {
-      console.error(err);
-      setError("Failed to sign in with Google.");
+      console.error("Google Auth Error:", err);
+      
+      if (err.code === "auth/popup-closed-by-user") {
+        setError(""); // Don't show error if user closed the popup
+      } else if (err.code === "auth/cancelled-by-user") {
+        setError("");
+      } else if (err.code === "auth/operation-not-allowed") {
+        setError("Google sign-in is not enabled in Firebase Console.");
+      } else if (err.code === "auth/popup-blocked") {
+        setError("Sign-in popup was blocked by your browser. Please allow popups for this site.");
+      } else if (err.code === "auth/internal-error") {
+        setError("Internal authentication error. Please try again later.");
+      } else {
+        setError(err.message || "Failed to sign in with Google.");
+      }
     } finally {
       setLoading(false);
     }
@@ -111,9 +210,11 @@ const Auth = () => {
         <div className="auth-header">
           <div className="auth-logo">
             <FaLeaf />
-            <span>Fasal Saathi</span>
+            <span className="notranslate" translate="no">Fasal Saathi</span>
           </div>
-          <h1>{isLogin ? "Welcome Back" : "Join Fasal Saathi"}</h1>
+          <h1>{isLogin ? "Welcome Back" : (
+            <>Join <span className="notranslate" translate="no">Fasal Saathi</span></>
+          )}</h1>
           <p>{isLogin ? "Continue your farming journey" : "Start your smart farming journey today"}</p>
         </div>
 
@@ -149,6 +250,21 @@ const Auth = () => {
               />
             </div>
           </div>
+          {!isLogin && (
+            <div className="input-group">
+              <label>Phone Number</label>
+              <div className="input-wrapper">
+                <span className="input-icon" style={{ fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>📱</span>
+                <input
+                  type="tel"
+                  placeholder="+91 98765 43210"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  required={!isLogin}
+                />
+              </div>
+            </div>
+          )}
           <div className="input-group">
             <label>Password</label>
             <div className="input-wrapper">
@@ -180,6 +296,11 @@ const Auth = () => {
                 className="google-icon"
               /> 
               Continue with Google
+            </button>
+
+            <button onClick={handleGuestLogin} className="guest-btn" disabled={loading}>
+              <FaUserSecret className="guest-icon" />
+              Continue as Guest
             </button>
           </>
         )}

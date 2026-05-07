@@ -1,0 +1,85 @@
+{
+  "nav": {
+    "home": "Home",
+    "advisor": "Advisor",
+    "howItWorks": "How It Works",
+    "cropGuide": "Crop Guide",
+    "dashboard": "Dashboard",
+    "contributors": "Contributors",
+    "getStarted": "Get Started"
+  },
+  "hero": {
+    "title": "Welcome to Fasal Saathi",
+    "subtitle": "Your AI-powered agricultural companion",
+    "cta": "Get Started"
+  },
+  "home": {
+    "welcome": "Welcome to Fasal Saathi",
+    "farmingAssistant": "Your AI-powered farming assistant"
+  },
+  "advisor": {
+    "title": "Advisor",
+    "description": "Get expert advice on crop management, weather, and farming practices"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "description": "Monitor your farm and track important metrics"
+  },
+  "cropGuide": {
+    "title": "Crop Guide",
+    "description": "Learn about different crops and their requirements"
+  },
+  "profitCalculator": {
+    "title": "Profit Calculator",
+    "description": "Calculate your farming profits"
+  },
+  "farmingMap": {
+    "title": "Farming Map",
+    "description": "View your farm on an interactive map"
+  },
+  "schemes": {
+    "title": "Government Schemes",
+    "description": "Explore government schemes for farmers"
+  },
+  "resources": {
+    "title": "Resources",
+    "description": "Access helpful farming resources"
+  },
+  "marketPrices": {
+    "title": "Market Prices",
+    "description": "Check current market prices for crops"
+  },
+  "contributors": {
+    "title": "Contributors",
+    "description": "Meet our team"
+  },
+  "login": {
+    "title": "Login",
+    "email": "Email",
+    "password": "Password",
+    "loginButton": "Login",
+    "signUp": "Sign Up",
+    "noAccount": "Don't have an account?",
+    "haveAccount": "Already have an account?"
+  },
+  "profileSetup": {
+    "title": "Complete Your Profile",
+    "subtitle": "Help us personalize your Fasal Saathi experience",
+    "name": "Farmer Name",
+    "language": "Preferred Language",
+    "cropType": "Crop Type",
+    "location": "Location",
+    "submit": "Save Profile",
+    "required": "Please fill in all details."
+  },
+  "common": {
+    "loading": "Loading...",
+    "error": "Error",
+    "success": "Success",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "close": "Close"
+  }
+}

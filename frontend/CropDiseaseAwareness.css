@@ -1,0 +1,178 @@
+.disease-awareness-container {
+  padding: 40px 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+  min-height: 80vh;
+}
+
+.disease-header {
+  text-align: center;
+  margin-bottom: 50px;
+}
+
+.disease-header h1 {
+  font-size: 2.5rem;
+  color: var(--primary-color, #22c55e);
+  margin-bottom: 10px;
+}
+
+.disease-header p {
+  font-size: 1.1rem;
+  color: #64748b;
+}
+
+.disease-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 30px;
+}
+
+.disease-card {
+  background: #ffffff;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e2e8f0;
+}
+
+.disease-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 20px 35px rgba(0, 0, 0, 0.1);
+}
+
+.disease-image-placeholder {
+  height: 200px;
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 4rem;
+}
+
+.disease-content {
+  padding: 24px;
+  flex-grow: 1;
+}
+
+.disease-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: #1e293b;
+}
+
+.crop-tag {
+  display: inline-block;
+  padding: 4px 12px;
+  background: #f1f5f9;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 20px;
+}
+
+.disease-section {
+  margin-bottom: 15px;
+}
+
+.disease-section h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.disease-section h4 svg {
+  color: var(--primary-color, #22c55e);
+}
+
+.disease-section p {
+  font-size: 0.95rem;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.disease-footer {
+  padding: 20px 24px;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+}
+
+.remedy-badge {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  background: #ecfdf5;
+  border-radius: 12px;
+  border-left: 4px solid #10b981;
+}
+
+.remedy-badge p {
+  font-size: 0.9rem;
+  color: #065f46;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.remedy-badge strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+/* Dark Mode Support */
+.theme-dark .disease-card {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.theme-dark .disease-title {
+  color: #f1f5f9;
+}
+
+.theme-dark .disease-header p {
+  color: #94a3b8;
+}
+
+.theme-dark .crop-tag {
+  background: #334155;
+  color: #cbd5e1;
+}
+
+.theme-dark .disease-section h4 {
+  color: #e2e8f0;
+}
+
+.theme-dark .disease-section p {
+  color: #94a3b8;
+}
+
+.theme-dark .disease-footer {
+  background: #0f172a;
+  border-color: #334155;
+}
+
+.theme-dark .remedy-badge {
+  background: #064e3b;
+  border-left-color: #10b981;
+}
+
+.theme-dark .remedy-badge p {
+  color: #d1fae5;
+}
+
+@media (max-width: 768px) {
+  .disease-header h1 {
+    font-size: 2rem;
+  }
+  .disease-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,92 +1,179 @@
-import React, { useState } from "react";
+"use client";
+import React, { useState, useMemo } from "react";
 import "./CropGuide.css";
 
-const cropsData = [
+// 📦 DATA
+const CROPS = [
   {
     id: 1,
     name: "Rice",
     season: "Kharif",
-    soil: "Clayey / Loamy Soil",
+    soil: "Clayey / Loamy",
+    water: "High",
+    duration: "120-150 days",
+    yield: "20-30 quintals/acre",
+    tips: "Requires standing water and high humidity",
   },
   {
     id: 2,
     name: "Wheat",
     season: "Rabi",
-    soil: "Well-drained Loamy Soil",
+    soil: "Well-drained Loamy",
+    water: "Medium",
+    duration: "110-130 days",
+    yield: "15-25 quintals/acre",
+    tips: "Needs cool climate during growth",
   },
   {
     id: 3,
     name: "Maize",
     season: "Kharif",
-    soil: "Alluvial Soil",
+    soil: "Alluvial",
+    water: "Medium",
+    duration: "90-110 days",
+    yield: "18-28 quintals/acre",
+    tips: "Avoid waterlogging",
   },
   {
     id: 4,
     name: "Sugarcane",
     season: "Year-round",
-    soil: "Deep Loamy Soil",
+    soil: "Deep Loamy",
+    water: "High",
+    duration: "10-12 months",
+    yield: "300-400 quintals/acre",
+    tips: "Requires consistent irrigation",
   },
   {
     id: 5,
     name: "Cotton",
     season: "Kharif",
     soil: "Black Soil",
+    water: "Medium",
+    duration: "150-180 days",
+    yield: "10-20 quintals/acre",
+    tips: "Needs warm climate",
   },
   {
     id: 6,
     name: "Mustard",
     season: "Rabi",
-    soil: "Sandy Loam Soil",
+    soil: "Sandy Loam",
+    water: "Low",
+    duration: "90-110 days",
+    yield: "8-15 quintals/acre",
+    tips: "Good for low rainfall areas",
   },
 ];
 
-export default function CropGuide() {
-  const [filter, setFilter] = useState("All");
+const FILTERS = ["All", "Kharif", "Rabi", "Year-round"];
 
-  const filteredCrops = cropsData.filter((crop) => {
-    if (filter === "All") return true;
-    return crop.season === filter;
-  });
+export default function CropGuide() {
+  const [selectedSeason, setSelectedSeason] = useState("All");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeCrop, setActiveCrop] = useState(null);
+
+  // 🔍 FILTER + SEARCH (memoized for performance)
+  const filteredCrops = useMemo(() => {
+    return CROPS.filter((crop) => {
+      const matchesSeason =
+        selectedSeason === "All" || crop.season === selectedSeason;
+
+      const matchesSearch = crop.name
+        .toLowerCase()
+        .includes(searchQuery.toLowerCase());
+
+      return matchesSeason && matchesSearch;
+    });
+  }, [selectedSeason, searchQuery]);
 
   return (
     <div className="crop-page">
 
-      {/* HEADER */}
-      <div className="crop-hero">
+      {/* 🌾 HERO */}
+      <header className="crop-hero">
         <h1>🌾 Crop Guide</h1>
-        <p>Explore crops based on season and soil type</p>
+        <p>Explore crops based on season, soil & water needs</p>
+      </header>
+
+      {/* 🔍 SEARCH */}
+      <div className="crop-search">
+        <input
+          type="text"
+          placeholder="Search crops..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
       </div>
 
-      {/* FILTER */}
+      {/* 🧭 FILTERS */}
       <div className="crop-filter">
-        {["All", "Kharif", "Rabi", "Year-round"].map((item) => (
+        {FILTERS.map((season) => (
           <button
-            key={item}
-            className={filter === item ? "active" : ""}
-            onClick={() => setFilter(item)}
+            key={season}
+            className={selectedSeason === season ? "active" : ""}
+            onClick={() => setSelectedSeason(season)}
           >
-            {item}
+            {season}
           </button>
         ))}
       </div>
 
-      {/* GRID */}
+      {/* 🌱 GRID */}
       <div className="crop-grid">
-        {filteredCrops.map((crop) => (
-          <div key={crop.id} className="crop-card">
-            <div className="crop-icon">🌱</div>
+        {filteredCrops.length > 0 ? (
+          filteredCrops.map((crop) => (
+            <div key={crop.id} className="crop-card">
+              <div className="crop-icon">🌱</div>
 
-            <h2>{crop.name}</h2>
+              <h2>{crop.name}</h2>
 
-            <div className="crop-info">
-              <p><strong>Season:</strong> {crop.season}</p>
-              <p><strong>Soil:</strong> {crop.soil}</p>
+              <div className="crop-info">
+                <p><strong>Season:</strong> {crop.season}</p>
+                <p><strong>Soil:</strong> {crop.soil}</p>
+                <p><strong>Water:</strong> {crop.water}</p>
+              </div>
+
+              <button onClick={() => setActiveCrop(crop)}>
+                View Details
+              </button>
+            </div>
+          ))
+        ) : (
+          <p className="no-results">No crops found 🌾</p>
+        )}
+      </div>
+
+      {/* 📋 MODAL */}
+      {activeCrop && (
+        <div className="crop-modal" onClick={() => setActiveCrop(null)}>
+          <div
+            className="crop-popup"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              className="close-btn"
+              onClick={() => setActiveCrop(null)}
+            >
+              ✖
+            </button>
+
+            <h2>🌾 {activeCrop.name}</h2>
+
+            <div className="modal-info">
+              <p><strong>Season:</strong> {activeCrop.season}</p>
+              <p><strong>Soil:</strong> {activeCrop.soil}</p>
+              <p><strong>Water:</strong> {activeCrop.water}</p>
+              <p><strong>Duration:</strong> {activeCrop.duration}</p>
+              <p><strong>Yield:</strong> {activeCrop.yield}</p>
             </div>
 
-            <button>View Details</button>
+            <div className="tips">
+              💡 {activeCrop.tips}
+            </div>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
