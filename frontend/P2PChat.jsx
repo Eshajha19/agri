@@ -52,30 +52,60 @@ const P2PChat = ({ recipient, onClose }) => {
       try {
         if (isMounted) setKeyStatus("generating_keys");
         // A. Load or generate our ECDH key pair
-        let privateJwk = localStorage.getItem(`ecdh_private_${currentUser.uid}`);
-        let publicJwk = localStorage.getItem(`ecdh_public_${currentUser.uid}`);
-        let privateKey;
-        
-        if (!privateJwk || !publicJwk) {
-          const keyPair = await cryptoService.generateECDHKeyPair();
-          privateJwk = await cryptoService.exportKey(keyPair.privateKey);
-          publicJwk = await cryptoService.exportKey(keyPair.publicKey);
-          localStorage.setItem(`ecdh_private_${currentUser.uid}`, JSON.stringify(privateJwk));
-          localStorage.setItem(`ecdh_public_${currentUser.uid}`, JSON.stringify(publicJwk));
-          privateKey = keyPair.privateKey;
+        // Private key is stored as a non-extractable CryptoKey in IndexedDB —
+        // its raw bytes are never accessible to JavaScript.
+        let privateKey = await cryptoService.loadPrivateKey(currentUser.uid);
+        let publicJwk = null;
+
+        if (!privateKey) {
+          // Check for a legacy key in localStorage and migrate it
+          const legacyPrivateJwk = localStorage.getItem(`ecdh_private_${currentUser.uid}`);
+          const legacyPublicJwk  = localStorage.getItem(`ecdh_public_${currentUser.uid}`);
+
+          if (legacyPrivateJwk && legacyPublicJwk) {
+            // Re-import as non-extractable and persist to IndexedDB
+            privateKey = await cryptoService.importPrivateKey(JSON.parse(legacyPrivateJwk));
+            await cryptoService.savePrivateKey(currentUser.uid, privateKey);
+            publicJwk = JSON.parse(legacyPublicJwk);
+            // Remove plaintext key material from localStorage
+            localStorage.removeItem(`ecdh_private_${currentUser.uid}`);
+            localStorage.removeItem(`ecdh_public_${currentUser.uid}`);
+          } else {
+            // Generate a fresh key pair
+            const keyPair = await cryptoService.generateECDHKeyPair();
+            await cryptoService.savePrivateKey(currentUser.uid, keyPair.privateKey);
+            privateKey = keyPair.privateKey;
+            publicJwk = await cryptoService.exportKey(keyPair.publicKey);
+          }
         } else {
-          privateKey = await cryptoService.importPrivateKey(JSON.parse(privateJwk));
-          publicJwk = JSON.parse(publicJwk);
+          // Private key already in IndexedDB — retrieve public JWK from Firebase
+          if (isFirebaseConfigured()) {
+            const pubKeyRef = doc(db, "public_keys", currentUser.uid);
+            const snap = await getDoc(pubKeyRef);
+            if (snap.exists()) {
+              publicJwk = snap.data().jwk;
+            } else {
+              // Public key missing — regenerate pair
+              const keyPair = await cryptoService.generateECDHKeyPair();
+              await cryptoService.savePrivateKey(currentUser.uid, keyPair.privateKey);
+              privateKey = keyPair.privateKey;
+              publicJwk = await cryptoService.exportKey(keyPair.publicKey);
+            }
+          }
         }
 
         if (isMounted) setKeyStatus("publishing_key");
         // B. Publish our public key to Firestore for peers to find
         if (isFirebaseConfigured()) {
-          const pubKeyRef = doc(db, "public_keys", currentUser.uid);
-          await setDoc(pubKeyRef, { jwk: publicJwk }, { merge: true });
+          if (publicJwk) {
+            const pubKeyRef = doc(db, "public_keys", currentUser.uid);
+            await setDoc(pubKeyRef, { jwk: publicJwk }, { merge: true });
+          }
         } else {
-           // Local test fallback for public key
-           localStorage.setItem(`remote_ecdh_public_${currentUser.uid}`, JSON.stringify(publicJwk));
+          // Local test fallback — public key only (never the private key)
+          if (publicJwk) {
+            localStorage.setItem(`remote_ecdh_public_${currentUser.uid}`, JSON.stringify(publicJwk));
+          }
         }
 
         if (isMounted) setKeyStatus("fetching_peer_key");
