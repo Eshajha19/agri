@@ -64,16 +64,26 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Initialize Firebase Admin
+import logging as _logging
+_firebase_logger = _logging.getLogger(__name__)
+
+# Explicitly set to None before the try block so db_firestore is always
+# defined at module level, even if an exception is raised mid-init.
+db_firestore = None
+
 if not firebase_admin._apps:
     try:
-        # If running in a cloud environment (GCP), it uses default credentials
-        # For local, you might need: cred = credentials.Certificate('path/to/serviceAccountKey.json')
+        # In a GCP environment this picks up Application Default Credentials
+        # automatically.  For local dev set GOOGLE_APPLICATION_CREDENTIALS to
+        # the path of a service-account key file.
         firebase_admin.initialize_app()
         db_firestore = firestore.client()
-        print("Firebase Admin: Successfully initialized")
+        _firebase_logger.info("Firebase Admin: successfully initialized")
     except Exception as e:
-        print(f"Firebase Admin Warning: Could not initialize (expected in local dev): {e}")
-        db_firestore = None
+        _firebase_logger.warning(
+            "Firebase Admin: could not initialize — role-gated endpoints will "
+            "return 503 until Firestore is reachable. Reason: %s", e
+        )
 
 async def verify_role(request: Request, required_roles: list = None):
     """
@@ -89,9 +99,13 @@ async def verify_role(request: Request, required_roles: list = None):
     if not auth_header or not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
 
-    id_token = auth_header.split("Bearer ")[1]
+    # Use a slice instead of split()[1] to avoid IndexError when the header
+    # is exactly "Bearer " with no token following it.
+    id_token = auth_header[7:].strip()
+    if not id_token:
+        raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
 
-    # Verify the token signature with Firebase — raises on invalid/expired tokens
+    # Verify the token signature with Firebase — raises on invalid/expired tokens.
     try:
         decoded_token = firebase_auth.verify_id_token(id_token)
     except Exception:
@@ -108,7 +122,19 @@ async def verify_role(request: Request, required_roles: list = None):
             detail="Authorization service temporarily unavailable"
         )
 
-    user_doc = db_firestore.collection("users").document(uid).get()
+    # Wrap the Firestore fetch so a transient network error (timeout, reset)
+    # returns the same clean 503 as a missing db_firestore, rather than an
+    # unhandled exception that leaks internal details as a raw 500.
+    try:
+        user_doc = db_firestore.collection("users").document(uid).get()
+    except Exception as e:
+        _firebase_logger.error(
+            "Firestore fetch failed for uid=%s during role check: %s", uid, e
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Authorization service temporarily unavailable"
+        )
 
     if not user_doc.exists:
         raise HTTPException(status_code=403, detail="User profile not found")

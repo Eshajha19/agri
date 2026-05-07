@@ -70,7 +70,7 @@ const CROP_ADVICE = {
 };
 
 const DEFAULT_CROP = "paddy";
-const CACHE_KEY = "agriWeatherSnapshot";
+const CACHE_KEY = "agri:weatherSnapshot";
 const LOCATION_SOURCES = new Set(["gps", "ip", "search", "coords", "manual"]);
 export const WEATHER_SNAPSHOT_EVENT = "agri:weather-updated";
 
