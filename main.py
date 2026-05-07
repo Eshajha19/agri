@@ -15,8 +15,12 @@ from pydantic import BaseModel, Field
 
 class SimulationRequest(BaseModel):
     crop_type: str
-    temp_delta: float = Field(..., ge=-5, le=5)  # +/- 5 degrees
-    rain_delta: float = Field(..., ge=-100, le=100) # +/- 100%
+    temp_delta: float = Field(..., ge=-5, le=5)
+    rain_delta: float = Field(..., ge=-100, le=100)
+
+class RAGQuery(BaseModel):
+    query: str = Field(..., min_length=3, max_length=500)
+    top_k: int = Field(default=3, ge=1, le=5)
 
 # Rate Limiting
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -96,11 +100,29 @@ async def verify_role(request: Request, required_roles: list = None):
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Token verification failed: {str(e)}")
 
+# --- Secure CORS Configuration ---
+frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+trusted_origins = [
+    "http://localhost:5173",     # Local development
+    "http://127.0.0.1:5173",     # Local development alternative
+    "https://yourfrontend.com",  # Production domain placeholder
+]
+
+# Add any custom frontend URLs from environment
+if frontend_url and frontend_url not in trusted_origins:
+    trusted_origins.append(frontend_url)
+
+# Support comma-separated list of additional origins
+extra_origins = os.getenv("ADDITIONAL_ALLOWED_ORIGINS")
+if extra_origins:
+    trusted_origins.extend([origin.strip() for origin in extra_origins.split(",")])
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=trusted_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
 )
 
 # --- Models ---
@@ -356,6 +378,9 @@ async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
 # Manager is unavailable, so a plaintext key can never silently be used.
 
 _cached_private_key = None
+KEYS_DIR = "keys"
+PRIVATE_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.key")
+PUBLIC_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.pub")
 
 KEYS_DIR = "keys"
 PRIVATE_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.key")
@@ -453,6 +478,7 @@ def get_signing_keys():
 
     _cached_private_key = private_key
     return private_key
+
 
 @app.post("/api/reports/generate")
 @limiter.limit("3/minute")
@@ -552,6 +578,26 @@ async def log_error(request: Request):
         return {"success": True}
     except Exception:
         return {"success": False}
+
+# --- RAG Advisor ---
+try:
+    from rag.generator import generate_response as rag_generate
+    HAS_RAG = True
+except Exception as rag_e:
+    print(f"RAG Warning: {rag_e}")
+    HAS_RAG = False
+
+@app.post("/api/rag/query")
+@limiter.limit("10/minute")
+async def rag_query(request: Request, body: RAGQuery):
+    """RAG-based AI advisor with research-backed citations."""
+    if not HAS_RAG:
+        raise HTTPException(status_code=503, detail="RAG pipeline not available")
+    try:
+        result = rag_generate(body.query, top_k=body.top_k)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/simulate-climate")
 @limiter.limit("5/minute")
