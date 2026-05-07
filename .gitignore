@@ -7,10 +7,26 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+<<<<<<< HEAD
 node_modules
 dist
 dist-ssr
 *.local
+=======
+# Dependencies
+node_modules
+dist
+dist-ssr
+
+# Environment / Secrets
+.env*
+*.local
+.vercel
+keys/
+frontend/test_ecdh.cjs
+test_ml_pipeline.py
+
+>>>>>>> upstream/main
 
 # Editor directories and files
 .vscode/*
@@ -23,6 +39,7 @@ dist-ssr
 *.sln
 *.sw?
 
+<<<<<<< HEAD
 .vercel
 .env
 
@@ -30,3 +47,17 @@ dist-ssr
 __pycache__/
 .python-version
 frontend/build/
+=======
+# Python
+__pycache__/
+.python-version
+dev-dist/
+dist/
+whatsapp_subscribers.json
+
+# Frontend build output
+dev-dist/
+dist/
+frontend/build/
+frontend/dist/
+>>>>>>> upstream/main
