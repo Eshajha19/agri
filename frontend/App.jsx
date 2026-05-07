@@ -99,7 +99,7 @@ const GuestBanner = ({ onSignUp }) => (
     <div className="guest-banner-content">
       <FaUserSecret className="banner-icon" />
       <span>
-        <strong>Guest Session Active:</strong> Explore the platform freely! 
+        <strong>Guest Session Active:</strong> Explore the platform freely!
         <Link to="/auth" className="banner-link"> Sign Up</Link> to save your progress permanently.
       </span>
     </div>
@@ -118,11 +118,10 @@ function App() {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [showScrollTop, setShowScrollTop] = useState(false);
-  
+
   const { liteMode, setLiteMode, detectAndSetLiteMode } = usePerformanceStore();
 
   useEffect(() => {
-    detectAndSetLiteMode();
   }, []);
 
   const { i18n } = useTranslation();
@@ -134,7 +133,13 @@ function App() {
       setLoading(false);
       return;
     }
+
+    const safetyTimer = setTimeout(() => {
+      setLoading(false);
+    }, 5000);
+
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+      clearTimeout(safetyTimer);
       setUser(currentUser);
       if (currentUser) {
         localStorage.setItem("userId", currentUser.uid);
@@ -167,70 +172,35 @@ function App() {
         setLoading(false);
       }
     });
-    return () => unsubscribeAuth();
+    return () => { clearTimeout(safetyTimer); unsubscribeAuth(); };
   }, []);
 
   // E2EE Key Generation Sync
-  //
-  // Private keys are stored as non-extractable CryptoKey objects in IndexedDB.
-  // Raw key material never touches JavaScript memory or localStorage, so an
-  // XSS attacker cannot exfiltrate the private key.
-  // Only the public key (safe to share) is published to Firebase.
   useEffect(() => {
     if (!user || !isFirebaseConfigured()) return;
 
     const ensurePublicKey = async () => {
       try {
-        const { cryptoService } = await import("./utils/cryptoService");
+        let privateJwk = localStorage.getItem(`ecdh_private_${user.uid}`);
+        let publicJwk = localStorage.getItem(`ecdh_public_${user.uid}`);
 
-        let privateKey = await cryptoService.loadPrivateKey(user.uid);
-        let publicJwk = null;
-
-        if (!privateKey) {
-          // ── Migrate any key previously stored in localStorage ──────────────
-          const legacyPrivateJwk = localStorage.getItem(`ecdh_private_${user.uid}`);
-          const legacyPublicJwk  = localStorage.getItem(`ecdh_public_${user.uid}`);
-
-          if (legacyPrivateJwk && legacyPublicJwk) {
-            // Re-import the old key as non-extractable and move it to IndexedDB
-            privateKey = await cryptoService.importPrivateKey(JSON.parse(legacyPrivateJwk));
-            await cryptoService.savePrivateKey(user.uid, privateKey);
-            publicJwk = JSON.parse(legacyPublicJwk);
-
-            // Remove the plaintext key material from localStorage
-            localStorage.removeItem(`ecdh_private_${user.uid}`);
-            localStorage.removeItem(`ecdh_public_${user.uid}`);
-          } else {
-            // ── Fresh key generation ─────────────────────────────────────────
-            const keyPair = await cryptoService.generateECDHKeyPair();
-            // Save the non-extractable private key to IndexedDB only
-            await cryptoService.savePrivateKey(user.uid, keyPair.privateKey);
-            // Export only the public key (safe to share)
-            publicJwk = await cryptoService.exportKey(keyPair.publicKey);
-          }
+        // Generate globally if it doesn't exist
+        if (!privateJwk || !publicJwk) {
+          const { cryptoService } = await import("./utils/cryptoService");
+          const keyPair = await cryptoService.generateECDHKeyPair();
+          privateJwk = await cryptoService.exportKey(keyPair.privateKey);
+          publicJwk = await cryptoService.exportKey(keyPair.publicKey);
+          localStorage.setItem(`ecdh_private_${user.uid}`, JSON.stringify(privateJwk));
+          localStorage.setItem(`ecdh_public_${user.uid}`, JSON.stringify(publicJwk));
         } else {
-          // Key already in IndexedDB — fetch the public JWK from Firebase
-          // (we don't store it locally; Firebase is the source of truth)
-          const pubKeyRef = doc(db, "public_keys", user.uid);
-          const { getDoc } = await import("firebase/firestore");
-          const snap = await getDoc(pubKeyRef);
-          if (snap.exists()) {
-            publicJwk = snap.data().jwk;
-          } else {
-            // Public key missing from Firebase (e.g. cleared) — regenerate pair
-            const keyPair = await cryptoService.generateECDHKeyPair();
-            await cryptoService.savePrivateKey(user.uid, keyPair.privateKey);
-            publicJwk = await cryptoService.exportKey(keyPair.publicKey);
-          }
+          publicJwk = JSON.parse(publicJwk);
         }
 
-        // Publish the public key to Firebase so peers can encrypt messages to us
-        if (publicJwk) {
-          const pubKeyRef = doc(db, "public_keys", user.uid);
-          await setDoc(pubKeyRef, { jwk: publicJwk }, { merge: true });
-        }
+        // Publish to Firebase so others can find it instantly when you log in
+        const pubKeyRef = doc(db, "public_keys", user.uid);
+        await setDoc(pubKeyRef, { jwk: publicJwk }, { merge: true });
       } catch (error) {
-        console.error("Failed to generate/publish ECDH keys:", error);
+        console.error("Failed to generate/publish ECDH keys globally:", error);
       }
     };
 
@@ -309,9 +279,9 @@ function App() {
     <div className={`app ${isDarkTheme ? "theme-dark" : ""} ${liteMode ? "lite-mode" : ""}`}>
       <SkipLink />
       {user?.isAnonymous && <GuestBanner />}
-      
+
       {loading && <Loader fullPage={true} message={<span className="notranslate">Initializing Fasal Saathi...</span>} />}
-      
+
       {isOffline && (
         <div className="offline-banner" role="alert">
           You are currently offline. Running in offline mode using local data.
@@ -339,9 +309,9 @@ function App() {
             {isDarkTheme ? "☀️" : "🌙"}
           </button>
 
-          <button 
-            onClick={(e) => { e.stopPropagation(); setShowMoreMenu(!showMoreMenu); }} 
-            className={`more-menu-toggle ${showMoreMenu ? 'active' : ''}`} 
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowMoreMenu(!showMoreMenu); }}
+            className={`more-menu-toggle ${showMoreMenu ? 'active' : ''}`}
             aria-label="More Options"
           >
             <span className="notranslate">More</span>
@@ -353,7 +323,7 @@ function App() {
               <div className="dropdown-links">
                 <div className="language-selector-section">
                   <label className="language-label">Language:</label>
-                  <LanguageDropdown 
+                  <LanguageDropdown
                     options={LANGUAGE_OPTIONS}
                     value={settings.language}
                     onChange={(lang) => {
@@ -364,7 +334,7 @@ function App() {
                   />
                 </div>
                 <div className="performance-toggle-section">
-                  <button 
+                  <button
                     className={`lite-mode-toggle ${liteMode ? 'active' : ''}`}
                     onClick={() => setLiteMode(!liteMode)}
                     role="menuitem"
@@ -496,10 +466,10 @@ function App() {
         <FaComments size={28} aria-hidden="true" />
       </Link>
 
-      <a 
-        href="https://wa.me/14155238886?text=I%20want%20to%20start%20the%20conversation" 
-        target="_blank" 
-        rel="noopener noreferrer" 
+      <a
+        href="https://wa.me/14155238886?text=I%20want%20to%20start%20the%20conversation"
+        target="_blank"
+        rel="noopener noreferrer"
         className="whatsapp-float"
         title="Chat with WhatsApp Bot"
       >

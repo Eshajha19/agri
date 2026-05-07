@@ -1,6 +1,16 @@
 /**
  * Secure E2EE Cryptography Service using Web Crypto API
  * Implements Elliptic Curve Diffie-Hellman (ECDH) and AES-GCM encryption
+<<<<<<< HEAD
+ */
+
+export const cryptoService = {
+  // Generate a new ECDH P-256 key pair
+  async generateECDHKeyPair() {
+    return await window.crypto.subtle.generateKey(
+      { name: "ECDH", namedCurve: "P-256" },
+      true, // extractable (so we can save to localStorage)
+=======
  *
  * Private keys are stored in IndexedDB as non-extractable CryptoKey objects.
  * This means the raw key material can never be read by JavaScript — not by
@@ -62,19 +72,27 @@ export const cryptoService = {
     return await window.crypto.subtle.generateKey(
       { name: "ECDH", namedCurve: "P-256" },
       false, // private key is non-extractable
+>>>>>>> upstream/main
       ["deriveKey"]
     );
   },
 
+<<<<<<< HEAD
+  // Export a key to JWK format for storage or transmission
+=======
   /**
    * Export a PUBLIC key to JWK format for transmission to Firebase.
    * Never call this with a private key — it will throw because the private
    * key is non-extractable.
    */
+>>>>>>> upstream/main
   async exportKey(key) {
     return await window.crypto.subtle.exportKey("jwk", key);
   },
 
+<<<<<<< HEAD
+  // Import a public ECDH key from a remote peer
+=======
   // ---------------------------------------------------------------------------
   // IndexedDB persistence for the non-extractable private key
   // ---------------------------------------------------------------------------
@@ -101,6 +119,7 @@ export const cryptoService = {
   // ---------------------------------------------------------------------------
 
   // Import a public ECDH key from a remote peer (JWK → CryptoKey)
+>>>>>>> upstream/main
   async importPublicKey(jwk) {
     return await window.crypto.subtle.importKey(
       "jwk",
@@ -111,25 +130,36 @@ export const cryptoService = {
     );
   },
 
+<<<<<<< HEAD
+  // Import our own private key from local storage
+=======
   /**
    * Import our own private key from a JWK.
    * Only used for migrating keys that were previously stored in localStorage.
    * After migration the key is re-saved as non-extractable via savePrivateKey.
    */
+>>>>>>> upstream/main
   async importPrivateKey(jwk) {
     return await window.crypto.subtle.importKey(
       "jwk",
       jwk,
       { name: "ECDH", namedCurve: "P-256" },
+<<<<<<< HEAD
+      true,
+=======
       false, // import as non-extractable too
+>>>>>>> upstream/main
       ["deriveKey"]
     );
   },
 
+<<<<<<< HEAD
+=======
   // ---------------------------------------------------------------------------
   // Encryption / decryption
   // ---------------------------------------------------------------------------
 
+>>>>>>> upstream/main
   // Derive an AES-GCM shared symmetric key using our private key and their public key
   async deriveSharedSecret(privateKey, publicKey) {
     return await window.crypto.subtle.deriveKey(
@@ -153,9 +183,19 @@ export const cryptoService = {
       encodedText
     );
 
+<<<<<<< HEAD
+    // Encode to base64 for easy transport/storage
+    const ciphertextBase64 = this.bufferToBase64(ciphertextBuffer);
+    const ivBase64 = this.bufferToBase64(iv);
+
+    return {
+      ciphertext: ciphertextBase64,
+      iv: ivBase64
+=======
     return {
       ciphertext: this.bufferToBase64(ciphertextBuffer),
       iv: this.bufferToBase64(iv),
+>>>>>>> upstream/main
     };
   },
 
@@ -178,10 +218,14 @@ export const cryptoService = {
     }
   },
 
+<<<<<<< HEAD
+  // Helpers
+=======
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
 
+>>>>>>> upstream/main
   bufferToBase64(buffer) {
     let binary = "";
     const bytes = new Uint8Array(buffer);
@@ -198,5 +242,9 @@ export const cryptoService = {
       bytes[i] = binary.charCodeAt(i);
     }
     return bytes.buffer;
+<<<<<<< HEAD
+  }
+=======
   },
+>>>>>>> upstream/main
 };

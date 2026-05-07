@@ -1,9 +1,12 @@
 .crop-page {
   padding: 20px;
   font-family: "Poppins", sans-serif;
+<<<<<<< HEAD
+=======
   font-family: "Poppins", sans-serif;
   color: #1f2937;
   line-height: 1.6;
+>>>>>>> upstream/main
 }
 
 /* HERO */
@@ -155,6 +158,8 @@
   color: #64748b;
 }
 
+<<<<<<< HEAD
+=======
 /* =========================
    GLOBAL TYPOGRAPHY SYSTEM
 ========================= */
@@ -441,6 +446,7 @@
     font-size: 0.95rem;
   }
 }
+>>>>>>> upstream/main
 /* 🔍 SEARCH */
 .crop-search {
   display: flex;

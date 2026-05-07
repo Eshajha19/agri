@@ -52,6 +52,22 @@ const P2PChat = ({ recipient, onClose }) => {
       try {
         if (isMounted) setKeyStatus("generating_keys");
         // A. Load or generate our ECDH key pair
+<<<<<<< HEAD
+        let privateJwk = localStorage.getItem(`ecdh_private_${currentUser.uid}`);
+        let publicJwk = localStorage.getItem(`ecdh_public_${currentUser.uid}`);
+        let privateKey;
+        
+        if (!privateJwk || !publicJwk) {
+          const keyPair = await cryptoService.generateECDHKeyPair();
+          privateJwk = await cryptoService.exportKey(keyPair.privateKey);
+          publicJwk = await cryptoService.exportKey(keyPair.publicKey);
+          localStorage.setItem(`ecdh_private_${currentUser.uid}`, JSON.stringify(privateJwk));
+          localStorage.setItem(`ecdh_public_${currentUser.uid}`, JSON.stringify(publicJwk));
+          privateKey = keyPair.privateKey;
+        } else {
+          privateKey = await cryptoService.importPrivateKey(JSON.parse(privateJwk));
+          publicJwk = JSON.parse(publicJwk);
+=======
         // Private key is stored as a non-extractable CryptoKey in IndexedDB —
         // its raw bytes are never accessible to JavaScript.
         let privateKey = await cryptoService.loadPrivateKey(currentUser.uid);
@@ -92,11 +108,19 @@ const P2PChat = ({ recipient, onClose }) => {
               publicJwk = await cryptoService.exportKey(keyPair.publicKey);
             }
           }
+>>>>>>> upstream/main
         }
 
         if (isMounted) setKeyStatus("publishing_key");
         // B. Publish our public key to Firestore for peers to find
         if (isFirebaseConfigured()) {
+<<<<<<< HEAD
+          const pubKeyRef = doc(db, "public_keys", currentUser.uid);
+          await setDoc(pubKeyRef, { jwk: publicJwk }, { merge: true });
+        } else {
+           // Local test fallback for public key
+           localStorage.setItem(`remote_ecdh_public_${currentUser.uid}`, JSON.stringify(publicJwk));
+=======
           if (publicJwk) {
             const pubKeyRef = doc(db, "public_keys", currentUser.uid);
             await setDoc(pubKeyRef, { jwk: publicJwk }, { merge: true });
@@ -106,6 +130,7 @@ const P2PChat = ({ recipient, onClose }) => {
           if (publicJwk) {
             localStorage.setItem(`remote_ecdh_public_${currentUser.uid}`, JSON.stringify(publicJwk));
           }
+>>>>>>> upstream/main
         }
 
         if (isMounted) setKeyStatus("fetching_peer_key");
