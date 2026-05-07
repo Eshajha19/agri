@@ -57,7 +57,6 @@ Add steps to reproduce
 Include screenshots (if possible)
 
 ## 🏷️ Issue Rules
-
 ## Before starting work:
 Comment "assign me" on the issue
 Wait for assignment before starting work
