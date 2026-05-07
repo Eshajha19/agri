@@ -3,7 +3,6 @@ import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import { useFloating, flip, shift, offset, autoUpdate } from "@floating-ui/react";
 import {
   FaComments,
   FaLeaf,
@@ -94,7 +93,7 @@ const getInitialLanguage = () => {
   }
 };
 
-const GuestBanner = ({ onSignUp }) => (
+const GuestBanner = () => (
   <div className="guest-banner">
     <div className="guest-banner-content">
       <FaUserSecret className="banner-icon" />
@@ -122,7 +121,8 @@ function App() {
   const { liteMode, setLiteMode, detectAndSetLiteMode } = usePerformanceStore();
 
   useEffect(() => {
-  }, []);
+    detectAndSetLiteMode();
+  }, [detectAndSetLiteMode]);
 
   const { i18n } = useTranslation();
   const location = useLocation();

@@ -3,21 +3,13 @@
 
 :root {
   --primary: #2d5a27;
-<<<<<<< HEAD
-=======
   --primary-rgb: 45, 90, 39;
->>>>>>> upstream/main
   --primary-light: #4a7c44;
   --primary-dark: #1a3a16;
   --secondary: #f59e0b;
   --secondary-light: #fbbf24;
   --accent: #10b981;
   --dark: #1f2937;
-<<<<<<< HEAD
-  --light: #f9fafb;
-  --white: #ffffff;
-  --gray-100: #f3f4f6;
-=======
   --dark-rgb: 31, 41, 55;
   --light: #f9fafb;
   --light-rgb: 249, 250, 251;
@@ -25,7 +17,6 @@
   --white-rgb: 255, 255, 255;
   --gray-100: #f3f4f6;
   --gray-100-rgb: 243, 244, 246;
->>>>>>> upstream/main
   --gray-200: #e5e7eb;
   --gray-300: #d1d5db;
   --gray-500: #6b7280;
@@ -33,13 +24,6 @@
   --shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
   --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.15);
   --gradient: linear-gradient(135deg, #2d5a27 0%, #4a7c44 100%);
-<<<<<<< HEAD
-
-  /* Cloud SVG theme variables (light mode) */
-  --cloud-fill: url(#cloudBlue);
-  --cloud-outline: #b6e0ff;
-=======
->>>>>>> upstream/main
 }
 
 /* Dark theme overrides (applied via <html class="theme-dark">) */
@@ -52,12 +36,6 @@
   --accent: #10b981;
 
   --dark: #e5e7eb;
-<<<<<<< HEAD
-  --light: #0b1220;
-  --white: #0f172a;
-
-  --gray-100: #111827;
-=======
   --dark-rgb: 229, 231, 235;
   --light: #0b1220;
   --light-rgb: 11, 18, 32;
@@ -66,7 +44,6 @@
 
   --gray-100: #111827;
   --gray-100-rgb: 17, 24, 39;
->>>>>>> upstream/main
   --gray-200: rgba(255, 255, 255, 0.12);
   --gray-300: rgba(255, 255, 255, 0.18);
   --gray-500: #a1a1aa;
@@ -557,8 +534,6 @@
   color: var(--white);
 }
 
-<<<<<<< HEAD
-=======
 .btn-secondary:hover {
   background: var(--primary);
   color: var(--white);
@@ -577,7 +552,6 @@
   color: var(--white);
 }
 
->>>>>>> upstream/main
 .hero-stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -662,12 +636,8 @@
 
 .floating-card.card-4 {
   bottom: 5%;
-<<<<<<< HEAD
-  right: 12%;
-=======
   left: 50%;
   transform: translateX(-50%);
->>>>>>> upstream/main
   animation-delay: 1.5s;
 }
 
@@ -907,19 +877,12 @@
   gap: 32px;
   max-width: 1400px;
   margin: 0 auto;
-<<<<<<< HEAD
-=======
   justify-items: center;
->>>>>>> upstream/main
 }
 
 @media (min-width: 1024px) {
   .features-grid {
-<<<<<<< HEAD
-    grid-template-columns: repeat(4, 1fr);
-=======
     grid-template-columns: repeat(3, 1fr);
->>>>>>> upstream/main
   }
 }
 
@@ -1849,13 +1812,10 @@
     padding: 12px 24px;
     font-size: 16px;
   }
-<<<<<<< HEAD
-=======
 }
 
 /* =========================================
    FEATURES SECTION
-========================================= */
 
 .features-section {
   position: relative;
@@ -2569,5 +2529,4 @@
   .feature-card {
     padding: 24px;
   }
->>>>>>> upstream/main
 }

@@ -1,12 +1,9 @@
 .crop-page {
   padding: 20px;
   font-family: "Poppins", sans-serif;
-<<<<<<< HEAD
-=======
   font-family: "Poppins", sans-serif;
   color: #1f2937;
   line-height: 1.6;
->>>>>>> upstream/main
 }
 
 /* HERO */
@@ -158,11 +155,8 @@
   color: #64748b;
 }
 
-<<<<<<< HEAD
-=======
 /* =========================
    GLOBAL TYPOGRAPHY SYSTEM
-========================= */
 
 .crop-page {
   font-family: "Poppins", sans-serif;
@@ -172,7 +166,6 @@
 
 /* =========================
    HERO SECTION
-========================= */
 
 .crop-hero {
   text-align: center;
@@ -199,7 +192,6 @@
 
 /* =========================
    SEARCH BAR
-========================= */
 
 .crop-search {
   display: flex;
@@ -228,7 +220,6 @@
 
 /* =========================
    FILTER BUTTONS
-========================= */
 
 .crop-filter {
   display: flex;
@@ -256,7 +247,6 @@
 
 /* =========================
    GRID LAYOUT
-========================= */
 
 .crop-grid {
   display: grid;
@@ -267,7 +257,6 @@
 
 /* =========================
    CROP CARD
-========================= */
 
 .crop-card {
   padding: 2rem;
@@ -291,7 +280,6 @@
 
 /* =========================
    CARD INFO TYPOGRAPHY
-========================= */
 
 .crop-info {
   display: flex;
@@ -314,7 +302,6 @@
 
 /* =========================
    BUTTON TYPOGRAPHY
-========================= */
 
 .crop-card button {
   margin-top: 1.8rem;
@@ -330,7 +317,6 @@
 
 /* =========================
    EMPTY STATE
-========================= */
 
 .no-results {
   text-align: center;
@@ -342,7 +328,6 @@
 
 /* =========================
    MODAL TYPOGRAPHY
-========================= */
 
 .crop-modal {
   padding: 1rem;
@@ -366,7 +351,6 @@
 
 /* =========================
    MODAL INFO
-========================= */
 
 .modal-info {
   display: flex;
@@ -388,7 +372,6 @@
 
 /* =========================
    TIPS SECTION
-========================= */
 
 .tips {
   margin-top: 2rem;
@@ -402,7 +385,6 @@
 
 /* =========================
    CLOSE BUTTON
-========================= */
 
 .close-btn {
   position: absolute;
@@ -417,7 +399,6 @@
 
 /* =========================
    RESPONSIVE TYPOGRAPHY
-========================= */
 
 @media (max-width: 768px) {
 
@@ -446,7 +427,6 @@
     font-size: 0.95rem;
   }
 }
->>>>>>> upstream/main
 /* 🔍 SEARCH */
 .crop-search {
   display: flex;

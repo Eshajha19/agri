@@ -58,21 +58,6 @@ export default function Contributors() {
 
        {/* STATS SECTION */}
        <div className="contributors-stats">
-<<<<<<< HEAD
-         <div className="stat-card">
-           <h3>{contributors.length}</h3>
-           <p>Contributors</p>
-         </div>
-         <div className="stat-card">
-           <h3>🚀</h3>
-           <p>Active Development</p>
-         </div>
-         <div className="stat-card">
-           <h3>💚</h3>
-           <p>Open Source</p>
-         </div>
-       </div>
-=======
 
   <div className="stat-card">
     <div className="stat-icon">👥</div>
@@ -96,7 +81,6 @@ export default function Contributors() {
   </div>
 
 </div>
->>>>>>> upstream/main
 
       {/* CTA SECTION */}
       <div className="contribute-cta">

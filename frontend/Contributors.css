@@ -225,8 +225,6 @@
   50% { box-shadow: 0 4px 20px rgba(255, 183, 0, 0.4); }
 }
 
-<<<<<<< HEAD
-=======
 
 .contributors-stats {
   display: grid;
@@ -320,7 +318,6 @@
     grid-template-columns: 1fr;
   }
 }
->>>>>>> upstream/main
 .founder-badge {
   position: absolute;
   top: 15px;

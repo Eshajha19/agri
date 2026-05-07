@@ -110,7 +110,7 @@ export default function FarmingMap() {
       L.control.zoom({ position: 'bottomright' }).addTo(m);
       map.current = m;
       addTileLayer(m, 'satellite');
-    } catch (err) {
+    } catch {
       setMapError('Failed to initialise map. Please refresh.');
     }
 
@@ -127,7 +127,9 @@ export default function FarmingMap() {
     try {
       const l = L.tileLayer(TILE_URLS[style], { attribution: TILE_ATTR[style], maxZoom: 19 }).addTo(m);
       tileLayers.current[style] = l;
-    } catch {}
+    } catch {
+      // Ignore tile layer errors; they're non-critical
+    }
   }
 
   useEffect(() => {
@@ -338,8 +340,6 @@ export default function FarmingMap() {
   }
 
   const locateMe = () => { if (userLocation && map.current) map.current.setView(userLocation, 14); };
-
-  const fmtBytes = (b) => b < 1024 * 1024 ? `${(b / 1024).toFixed(0)} KB` : `${(b / (1024 * 1024)).toFixed(1)} MB`;
 
   // ────────────────────────────────────────────────────────────────────────
   return (
