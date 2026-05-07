@@ -1,6 +1,9 @@
 .crop-page {
   padding: 20px;
   font-family: "Poppins", sans-serif;
+  font-family: "Poppins", sans-serif;
+  color: #1f2937;
+  line-height: 1.6;
 }
 
 /* HERO */
@@ -152,6 +155,292 @@
   color: #64748b;
 }
 
+/* =========================
+   GLOBAL TYPOGRAPHY SYSTEM
+========================= */
+
+.crop-page {
+  font-family: "Poppins", sans-serif;
+  color: #1f2937;
+  line-height: 1.6;
+}
+
+/* =========================
+   HERO SECTION
+========================= */
+
+.crop-hero {
+  text-align: center;
+  padding: 4rem 1.5rem 2.5rem;
+}
+
+.crop-hero h1 {
+  font-size: clamp(2.5rem, 6vw, 4.5rem);
+  font-weight: 700;
+  letter-spacing: -1px;
+  margin-bottom: 1rem;
+  line-height: 1.1;
+  color: #111827;
+}
+
+.crop-hero p {
+  font-size: 1.1rem;
+  font-weight: 400;
+  max-width: 650px;
+  margin: 0 auto;
+  color: #6b7280;
+  line-height: 1.8;
+}
+
+/* =========================
+   SEARCH BAR
+========================= */
+
+.crop-search {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 2rem;
+  padding: 0 1rem;
+}
+
+.crop-search input {
+  width: 100%;
+  max-width: 520px;
+  padding: 1rem 1.2rem;
+  border-radius: 14px;
+  border: 1px solid #d1d5db;
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.5;
+  color: #111827;
+}
+
+.crop-search input::placeholder {
+  color: #9ca3af;
+  font-weight: 400;
+  font-size: 0.95rem;
+}
+
+/* =========================
+   FILTER BUTTONS
+========================= */
+
+.crop-filter {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  margin-bottom: 3rem;
+  padding: 0 1rem;
+}
+
+.crop-filter button {
+  padding: 0.8rem 1.4rem;
+  border-radius: 999px;
+  border: none;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.crop-filter button.active {
+  transform: scale(1.03);
+}
+
+/* =========================
+   GRID LAYOUT
+========================= */
+
+.crop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 2rem;
+  padding: 0 1.5rem 4rem;
+}
+
+/* =========================
+   CROP CARD
+========================= */
+
+.crop-card {
+  padding: 2rem;
+  border-radius: 22px;
+  background: #ffffff;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.06);
+}
+
+.crop-icon {
+  font-size: 2rem;
+  margin-bottom: 1.2rem;
+}
+
+.crop-card h2 {
+  font-size: 1.7rem;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 1.4rem;
+  line-height: 1.2;
+}
+
+/* =========================
+   CARD INFO TYPOGRAPHY
+========================= */
+
+.crop-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.crop-info p {
+  margin: 0;
+  font-size: 0.98rem;
+  color: #4b5563;
+  line-height: 1.7;
+}
+
+.crop-info strong {
+  font-weight: 600;
+  color: #111827;
+  margin-right: 0.3rem;
+}
+
+/* =========================
+   BUTTON TYPOGRAPHY
+========================= */
+
+.crop-card button {
+  margin-top: 1.8rem;
+  width: 100%;
+  padding: 0.95rem;
+  border: none;
+  border-radius: 14px;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+}
+
+/* =========================
+   EMPTY STATE
+========================= */
+
+.no-results {
+  text-align: center;
+  font-size: 1.2rem;
+  font-weight: 500;
+  color: #6b7280;
+  padding: 3rem 0;
+}
+
+/* =========================
+   MODAL TYPOGRAPHY
+========================= */
+
+.crop-modal {
+  padding: 1rem;
+}
+
+.crop-popup {
+  max-width: 550px;
+  padding: 2.5rem;
+  border-radius: 24px;
+  background: white;
+  position: relative;
+}
+
+.crop-popup h2 {
+  font-size: 2rem;
+  font-weight: 700;
+  margin-bottom: 2rem;
+  line-height: 1.2;
+  color: #111827;
+}
+
+/* =========================
+   MODAL INFO
+========================= */
+
+.modal-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.modal-info p {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.8;
+  color: #4b5563;
+}
+
+.modal-info strong {
+  color: #111827;
+  font-weight: 600;
+}
+
+/* =========================
+   TIPS SECTION
+========================= */
+
+.tips {
+  margin-top: 2rem;
+  padding: 1.2rem;
+  border-radius: 14px;
+  font-size: 0.98rem;
+  font-weight: 500;
+  line-height: 1.8;
+  color: #374151;
+}
+
+/* =========================
+   CLOSE BUTTON
+========================= */
+
+.close-btn {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  border: none;
+  background: transparent;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* =========================
+   RESPONSIVE TYPOGRAPHY
+========================= */
+
+@media (max-width: 768px) {
+
+  .crop-hero {
+    padding-top: 3rem;
+  }
+
+  .crop-card {
+    padding: 1.5rem;
+  }
+
+  .crop-card h2 {
+    font-size: 1.45rem;
+  }
+
+  .crop-popup {
+    padding: 2rem 1.5rem;
+  }
+
+  .crop-popup h2 {
+    font-size: 1.7rem;
+  }
+
+  .modal-info p,
+  .crop-info p {
+    font-size: 0.95rem;
+  }
+}
 /* 🔍 SEARCH */
 .crop-search {
   display: flex;

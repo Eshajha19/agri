@@ -1820,6 +1820,8 @@
   position: relative;
   padding: 120px 7%;
   overflow: hidden;
+  background:
+    linear-gradient(180deg, #020817 0%, #06152d 100%);
   background: var(--white);
 }
 
@@ -1891,6 +1893,9 @@
   gap: 10px;
   padding: 12px 20px;
   border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.10);
+  color: #d1fae5;
   background: rgba(var(--primary-rgb), 0.1);
   border: 1px solid rgba(var(--primary-rgb), 0.2);
   color: var(--primary);
@@ -2171,12 +2176,14 @@
   font-size: clamp(3rem, 5vw, 5rem);
   line-height: 1.08;
   font-weight: 900;
+  color: white;
   color: var(--dark);
   letter-spacing: -2px;
   margin-bottom: 28px;
 }
 
 .features-title span {
+  background: linear-gradient(90deg, #22c55e, #38bdf8);
   background: var(--gradient);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -2191,6 +2198,7 @@
 .features-subtitle {
   font-size: 1.1rem;
   line-height: 1.9;
+  color: rgba(255,255,255,0.72);
   color: rgba(var(--dark-rgb), 0.7);
   margin-bottom: 40px;
 }
@@ -2412,6 +2420,86 @@
   .features-btn {
     margin: auto;
   }
+}
+
+.section-header h2 {
+  font-size: clamp(2rem, 4vw, 3.2rem);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -1px;
+  color: #111827;
+}
+.hero-subtitle {
+  max-width: 620px;
+  font-size: 1.1rem;
+  line-height: 1.9;
+  color: #d1d5db;
+  font-weight: 400;
+}
+.feature-content h3 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  line-height: 1.4;
+  margin-bottom: 0.7rem;
+}
+
+.feature-content p {
+  font-size: 0.96rem;
+  line-height: 1.8;
+  color: #6b7280;
+}
+
+.stat-number {
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-weight: 800;
+  line-height: 1;
+  color: #ffffff;
+}
+
+.stat-label {
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: 0.4px;
+  color: #cbd5e1;
+  margin-top: 0.5rem;
+}
+
+.testimonial-text {
+  font-size: 1rem;
+  line-height: 1.9;
+  color: #374151;
+  margin: 1rem 0 1.5rem;
+}
+
+.footer-section h4 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+}
+
+.footer-section a {
+  font-size: 0.95rem;
+  line-height: 2;
+  color: #cbd5e1;
+}
+
+.footer-description {
+  line-height: 1.8;
+  font-size: 0.95rem;
+}
+
+.feature-category {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.cta-section h2 {
+  font-size: clamp(2.2rem, 5vw, 4rem);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -1px;
 }
 
 @media (max-width: 768px) {
