@@ -358,105 +358,31 @@ export default function Home({ user }) {
 </section>
 
       <section className="features-section">
-  <div className="features-bg">
-    <div className="features-grid-pattern"></div>
-    <div className="features-gradient-orb orb-1"></div>
-    <div className="features-gradient-orb orb-2"></div>
-  </div>
-
-  <div className="features-container">
-
-    {/* LEFT SIDE */}
-    <div className="features-content">
-      <div className="features-badge">
-        <FaSeedling />
-        Smart Farming Ecosystem
-      </div>
-
-      <h2 className="features-title">
-        Powerful Features <br />
-        for <span>Modern Farming</span>
-      </h2>
-
-      <p className="features-subtitle">
-        AI-powered agriculture tools designed to help farmers
-        increase productivity, reduce risks, monitor crops,
-        and make smarter farming decisions every day.
-      </p>
-
-      <div className="features-highlights">
-        <div className="highlight-item">
-          <FaChartLine />
-          <span>AI Yield Prediction</span>
+        <div className="section-header">
+          <h2>Powerful Features for Modern Farming</h2>
+          <p>Everything you need to succeed in agriculture</p>
         </div>
-
-        <div className="highlight-item">
-          <FaSun />
-          <span>Weather Intelligence</span>
-        </div>
-
-        <div className="highlight-item">
-          <FaShieldAlt />
-          <span>Risk Monitoring</span>
-        </div>
-
-        <div className="highlight-item">
-          <FaHandHoldingWater />
-          <span>Smart Irrigation</span>
-        </div>
-      </div>
-
-      <Link to="/advisor" className="features-btn">
-        Explore Platform
-        <FaArrowRight />
-      </Link>
-    </div>
-
-    {/* RIGHT SIDE */}
-    <div className="features-showcase">
-      <div className="features-grid">
-
-        {features.map((feature, index) => (
-          <Link
-            to={feature.link || "/"}
-            key={index}
-            className="feature-card-link"
-          >
-            <div className="feature-card">
-
-              <div className="feature-top">
-                <div className="feature-icon">
-                  {feature.icon}
-                </div>
-
-                <div className="feature-category">
-                  {feature.category}
-                </div>
-              </div>
-
-              <div className="feature-content">
-                <h3>{feature.title}</h3>
-                <p>{feature.desc}</p>
-              </div>
-
-              <div className="feature-footer">
-                <span>Learn More</span>
-
-                <div className="feature-arrow">
-                  <FaArrowRight />
-                </div>
-              </div>
-
-              <div className="feature-glow"></div>
-
-            </div>
-          </Link>
-        ))}
-
+        <div className="features-grid">
+          {features.map((feature, index) => (
+            <Link
+    to={feature.link || "/"}
+    key={index}
+    className="feature-card-link"
+  >
+    <div className="feature-card">
+      <div className="feature-category">{feature.category}</div>
+      <div className="feature-icon">{feature.icon}</div>
+      <h3>{feature.title}</h3>
+      <p>{feature.desc}</p>
+      <div className="feature-card-footer">
+        <span>Learn more</span>
+        <FaArrowRight size={16} />
       </div>
     </div>
-  </div>
-</section>
+  </Link>
+))} 
+        </div>
+      </section>
 
       <section className="contributors-home-section">
         <div className="section-header">
