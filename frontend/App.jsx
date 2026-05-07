@@ -61,6 +61,7 @@ import PrivacyPolicy from "./PrivacyPolicy";
 import Terms from "./Terms";
 import SoilAnalysis from "./SoilAnalysis";
 import SeedVerifier from "./SeedVerifier";
+import Footer from "./components/Footer";
 import { SkipLink } from "./NavigationManager";
 
 // Libs
@@ -514,6 +515,7 @@ function App() {
       )}
 
       <ToastContainer position="bottom-right" />
+      <Footer />
     </div>
   );
 }
