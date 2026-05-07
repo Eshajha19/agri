@@ -19,7 +19,6 @@ import {
   FaBolt,
   FaUserSecret,
   FaFileInvoiceDollar,
-  FaHome,
 } from "react-icons/fa";
 import { usePerformanceStore } from "./stores/performanceStore";
 
@@ -70,44 +69,29 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 
 // CSS
 import "./App.css";
+import "./themes/sunlight.css";
 
 const LANGUAGE_OPTIONS = [
-  { value: "en", label: "🌍 English", englishName: "english" },
-  { value: "hi", label: "🇮🇳 हिंदी", englishName: "hindi" },
-  { value: "mr", label: "🇮🇳 मराठी", englishName: "marathi" },
-  { value: "bn", label: "🇮🇳 বাংলা", englishName: "bengali" },
-  { value: "ta", label: "🇮🇳 தமிழ்", englishName: "tamil" },
-  { value: "te", label: "🇮🇳 తెలుగు", englishName: "telugu" },
-  { value: "gu", label: "🇮🇳 ગુજરાતી", englishName: "gujarati" },
-  { value: "pa", label: "🇮🇳 ਪੰਜਾਬੀ", englishName: "punjabi" },
-  { value: "kn", label: "🇮🇳 ಕನ್ನಡ", englishName: "kannada" },
-  { value: "ml", label: "🇮🇳 മലയാളം", englishName: "malayalam" },
-  { value: "or", label: "🇮🇳 ଓଡ଼ିଆ", englishName: "odia" },
-  { value: "as", label: "🇮🇳 অসমীয়া", englishName: "assamese" },
+  { value: "en", label: "English" },
+  { value: "hi", label: "हिन्दी" },
+  { value: "bn", label: "বাংলা" },
+  { value: "te", label: "తెలుగు" },
+  { value: "ta", label: "தமிழ்" },
+  { value: "mr", label: "मराठी" },
+  { value: "gu", label: "ગુજરાતી" },
+  { value: "kn", label: "ಕನ್ನಡ" },
+  { value: "ml", label: "മലയാളം" },
+  { value: "pa", label: "ਪੰਜਾਬੀ" },
+  { value: "or", label: "ଓଡ଼ିଆ" },
+  { value: "as", label: "অসমীয়া" },
 ];
 
 const getInitialLanguage = () => {
-  // Always default to English when the user enters the site
-  return "en";
-};
-
-/**
- * Helper to apply Google Translate selection to the hidden widget
- */
-const applyGoogleTranslate = (langCode) => {
   try {
-    const select = document.querySelector(".goog-te-combo");
-    if (select) {
-      if (select.value !== langCode) {
-        select.value = langCode;
-        select.dispatchEvent(new Event("change", { bubbles: true }));
-      }
-      return true;
-    }
-  } catch (e) {
-    console.error("GT Apply Error:", e);
+    return localStorage.getItem("preferredLanguage") || "en";
+  } catch {
+    return "en";
   }
-  return false;
 };
 
 const GuestBanner = ({ onSignUp }) => (
@@ -115,7 +99,7 @@ const GuestBanner = ({ onSignUp }) => (
     <div className="guest-banner-content">
       <FaUserSecret className="banner-icon" />
       <span>
-        <strong>Guest Session Active:</strong> Explore the platform freely! 
+        <strong>Guest Session Active:</strong> Explore the platform freely!
         <Link to="/auth" className="banner-link"> Sign Up</Link> to save your progress permanently.
       </span>
     </div>
@@ -124,9 +108,8 @@ const GuestBanner = ({ onSignUp }) => (
 
 function App() {
   const scorecardRef = useRef(null);
-  const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
+  const [settings, setSettings] = useState({ language: getInitialLanguage() });
   const [isOpen, setIsOpen] = useState(false);
-  const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "light");
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [profileCompleted, setProfileCompleted] = useState(true);
@@ -135,42 +118,22 @@ function App() {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [showScrollTop, setShowScrollTop] = useState(false);
-  
+
   const { liteMode, setLiteMode, detectAndSetLiteMode } = usePerformanceStore();
 
   useEffect(() => {
-    detectAndSetLiteMode();
-  }, [detectAndSetLiteMode]);
+  }, []);
 
   const { i18n } = useTranslation();
   const location = useLocation();
 
-  useNotifications();
-
-  /* ---------------- THEME SYSTEM ---------------- */
-  useEffect(() => {
-    document.documentElement.classList.toggle("theme-dark", theme === "dark");
-    localStorage.setItem("theme", theme);
-  }, [theme]);
-
-  /* ---------------- LANGUAGE AUTO-TRANS ---------------- */
-  useEffect(() => {
-    if (applyGoogleTranslate(preferredLang)) return;
-    const id = setInterval(() => {
-      if (applyGoogleTranslate(preferredLang)) clearInterval(id);
-    }, 300);
-    return () => clearInterval(id);
-  }, [preferredLang]);
-
-  /* ---------------- AUTH & FIRESTORE SYNC ---------------- */
+  // Auth & Profile Sync
   useEffect(() => {
     if (!isFirebaseConfigured()) {
       setLoading(false);
       return;
     }
 
-    // Safety timeout — if Firebase auth never responds (revoked key, network issue),
-    // force loading=false so the app doesn't hang forever on the spinner.
     const safetyTimer = setTimeout(() => {
       setLoading(false);
     }, 5000);
@@ -179,23 +142,29 @@ function App() {
       clearTimeout(safetyTimer);
       setUser(currentUser);
       if (currentUser) {
-        const unsubscribeDoc = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
-          if (userDoc.exists()) {
-            const data = userDoc.data();
-            setUserData(data);
-            setProfileCompleted(data.profileCompleted === true);
-          } else if (currentUser.isAnonymous) {
-            setUserData({ displayName: "Guest Farmer", isAnonymous: true });
-            setProfileCompleted(true);
-          } else {
-            setUserData(null);
-            setProfileCompleted(false);
+        localStorage.setItem("userId", currentUser.uid);
+        const unsubscribeDoc = onSnapshot(
+          doc(db, "users", currentUser.uid),
+          (userDoc) => {
+            if (userDoc.exists()) {
+              const data = userDoc.data();
+              setUserData(data);
+              setProfileCompleted(data.profileCompleted === true);
+            } else if (currentUser.isAnonymous) {
+              // Guest user might not have a profile doc yet
+              setUserData({ displayName: "Guest Farmer", isAnonymous: true });
+              setProfileCompleted(true);
+            } else {
+              setUserData(null);
+              setProfileCompleted(false);
+            }
+            setLoading(false);
+          },
+          (error) => {
+            console.error("Firestore sync error:", error);
+            setLoading(false);
           }
-          setLoading(false);
-        }, (error) => {
-          console.error("Firestore sync error:", error);
-          setLoading(false);
-        });
+        );
         return () => unsubscribeDoc();
       } else {
         setUserData(null);
@@ -214,7 +183,8 @@ function App() {
       try {
         let privateJwk = localStorage.getItem(`ecdh_private_${user.uid}`);
         let publicJwk = localStorage.getItem(`ecdh_public_${user.uid}`);
-        
+
+        // Generate globally if it doesn't exist
         if (!privateJwk || !publicJwk) {
           const { cryptoService } = await import("./utils/cryptoService");
           const keyPair = await cryptoService.generateECDHKeyPair();
@@ -226,6 +196,7 @@ function App() {
           publicJwk = JSON.parse(publicJwk);
         }
 
+        // Publish to Firebase so others can find it instantly when you log in
         const pubKeyRef = doc(db, "public_keys", user.uid);
         await setDoc(pubKeyRef, { jwk: publicJwk }, { merge: true });
       } catch (error) {
@@ -235,6 +206,20 @@ function App() {
 
     ensurePublicKey();
   }, [user]);
+
+  // Theme Sync
+  const [isDarkTheme, setIsDarkTheme] = useState(() => {
+    try {
+      return (localStorage.getItem("theme") || "light") === "dark";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("theme-dark", isDarkTheme);
+    localStorage.setItem("theme", isDarkTheme ? "dark" : "light");
+  }, [isDarkTheme]);
 
   // Online/Offline detection
   useEffect(() => {
@@ -257,6 +242,12 @@ function App() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  // Language init
+  useEffect(() => {
+    const lang = getInitialLanguage();
+    i18n.changeLanguage(lang);
+  }, [i18n]);
+
   // Click outside scorecard
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -269,21 +260,23 @@ function App() {
   }, []);
 
   const handleNavToggle = () => setIsOpen(!isOpen);
-  const handleThemeToggle = () => {
-    setTheme((t) => (t === "dark" ? "light" : "dark"));
-  };
+  const handleThemeToggle = () => setIsDarkTheme(!isDarkTheme);
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      window.location.href = "/";
+      setUser(null);
+      setUserData(null);
+      setProfileCompleted(true);
     } catch (error) {
-      console.error("Sign out error:", error);
+      console.error("Logout error:", error);
     }
   };
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: "smooth" });
 
+  useNotifications();
+
   return (
-    <div className={`app ${theme === "dark" ? "theme-dark" : ""} ${liteMode ? "lite-mode" : ""}`}>
+    <div className={`app ${isDarkTheme ? "theme-dark" : ""} ${liteMode ? "lite-mode" : ""}`}>
       <SkipLink />
       {user?.isAnonymous && <GuestBanner />}
 
@@ -297,21 +290,23 @@ function App() {
 
       <nav className={`navbar ${isOpen ? "menu-open" : ""}`} role="navigation" aria-label="Main Navigation">
         <div className="nav-left">
-          <FaLeaf className="icon" />
-          <Link to="/" className="brand">Fasal Saathi</Link>
+          <Link to="/" className="brand" aria-label="Fasal Saathi Home">
+            <FaLeaf className="brand-icon" />
+            <span className="notranslate" translate="no">Fasal Saathi</span>
+          </Link>
         </div>
 
         <ul className={`nav-center ${isOpen ? "active" : ""}`}>
-          <li><Link to="/" onClick={() => setIsOpen(false)}><FaHome /> Home</Link></li>
-          <li><Link to="/advisor" onClick={() => setIsOpen(false)}><FaComments /> Chat</Link></li>
-          <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}><FaInfoCircle /> How It Works</Link></li>
-          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}><FaLeaf className="icon" /> Crop Guide</Link></li>
+          <li><Link to="/" onClick={() => setIsOpen(false)}>Home</Link></li>
+          <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}>Works</Link></li>
+          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}>Guide</Link></li>
           <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
+          <li><Link to="/crop-planner" onClick={() => setIsOpen(false)}>Planner</Link></li>
         </ul>
 
         <div className="nav-right">
           <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Toggle Theme">
-            {theme === "dark" ? "☀️" : "🌙"}
+            {isDarkTheme ? "☀️" : "🌙"}
           </button>
 
           <button
@@ -330,9 +325,9 @@ function App() {
                   <label className="language-label">Language:</label>
                   <LanguageDropdown
                     options={LANGUAGE_OPTIONS}
-                    value={preferredLang}
+                    value={settings.language}
                     onChange={(lang) => {
-                      setPreferredLang(lang);
+                      setSettings({ ...settings, language: lang });
                       i18n.changeLanguage(lang);
                       localStorage.setItem("preferredLanguage", lang);
                     }}
@@ -371,28 +366,25 @@ function App() {
             {!loading && user ? (
               <div className="user-profile-trigger" onClick={() => { setShowScorecard(!showScorecard); setShowMoreMenu(false); }}>
                 <div className="profile-main">
-                  <span className="profile-name">👋 {userData?.displayName || user.email?.split('@')[0]}</span>
+                  <span className="profile-name">{userData?.displayName || user.email?.split('@')?.[0] || "Farmer"}</span>
                   <FaChevronDown className={`chevron ${showScorecard ? 'open' : ''}`} />
                 </div>
 
-                {showScorecard && userData && (
+                {showScorecard && (
                   <div className="profile-scorecard" onClick={(e) => e.stopPropagation()}>
                     <div className="scorecard-header">
-                      <div className="scorecard-avatar">{userData.displayName?.[0] || 'F'}</div>
-                      <h3>{userData.displayName}</h3>
-                      <p>{userData.email || user.email}</p>
+                      <div className="scorecard-avatar">{userData?.displayName?.[0] || 'F'}</div>
+                      <h3>{userData?.displayName || "Farmer"}</h3>
+                      <p>{user.email}</p>
                     </div>
                     <div className="scorecard-body">
-                      {[
-                        { label: "🌾 Primary Crop", value: userData.cropType || "N/A" },
-                        { label: "🌐 Language", value: LANGUAGE_OPTIONS.find(l => l.value === (userData.language || preferredLang))?.label || preferredLang },
-                        { label: "📍 Location", value: userData.address || "Fetching..." }
-                      ].map((item, i) => (
-                        <div key={i} className="score-item">
-                          <label>{item.label}</label>
-                          <span>{item.value}</span>
-                        </div>
-                      ))}
+                      <div className="score-item"><label>Role</label><span className="role-badge">{userData?.role?.toUpperCase() || "FARMER"}</span></div>
+                      <div className="score-item"><label>Primary Crop</label><span>{userData?.cropType || "N/A"}</span></div>
+                      <div className="score-item"><label>Location</label><span>{userData?.address || "N/A"}</span></div>
+                      <div className="score-item">
+                        <label>Language</label>
+                        <span>{LANGUAGE_OPTIONS.find(l => l.value === (userData?.language || settings.language))?.label || "English"}</span>
+                      </div>
                     </div>
                     <div className="scorecard-footer">
                       <button onClick={handleLogout} className="btn-logout-alt">Sign Out</button>
@@ -400,40 +392,33 @@ function App() {
                   </div>
                 )}
               </div>
-            ) : (
-              <Link to="/login" className="btn-get-started">Get Started</Link>
+            ) : !loading && (
+              <Link to="/login" className="btn-get-started" aria-label="Get Started">
+                <span className="notranslate">Get Started</span>
+              </Link>
             )}
           </div>
         </div>
 
-        <button className="hamburger" onClick={() => setIsOpen(!isOpen)} aria-label="Toggle Menu">
+        <button className="hamburger" onClick={handleNavToggle} aria-label="Toggle Menu">
           {isOpen ? <FaTimes /> : <FaBars />}
         </button>
       </nav>
 
-      {/* VERIFICATION GUARD */}
-      {!loading && user && !user.isAnonymous && !user.emailVerified && !showScorecard && location.pathname !== "/login" && (
+      {!loading && user && !user.isAnonymous && !user.emailVerified && location.pathname !== "/login" && (
         <div className="verification-overlay">
           <div className="verification-card">
             <div className="verify-icon">✉️</div>
             <h2>Verify Your Email</h2>
             <p>We've sent a link to <b>{user.email}</b>.<br /> Please verify your email to unlock all features.</p>
-            <button 
-              onClick={() => {
-                auth.currentUser.reload().then(() => window.location.reload());
-              }} 
-              className="btn-refresh"
-            >
-              I've Verified My Email
-            </button>
+            <button onClick={() => window.location.reload()} className="btn-refresh">I've Verified My Email</button>
             <button onClick={handleLogout} className="btn-logout-simple">Sign Out</button>
           </div>
         </div>
       )}
 
-      {/* PROFILE COMPLETION GUARD */}
-      {!loading && user && (user.isAnonymous || user.emailVerified) && !profileCompleted && location.pathname !== "/profile-setup" && (
-        <Navigate to="/profile-setup" />
+      {!loading && user && user.emailVerified && !profileCompleted && location.pathname !== "/profile-setup" && (
+        <Navigate to="/profile-setup" replace />
       )}
 
       <main id="main-content" tabIndex="-1" style={{ outline: 'none' }}>
