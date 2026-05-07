@@ -1,0 +1,40 @@
+name: Prevent Unauthorized Issue Closing
+
+on:
+  issues:
+    types: [closed]
+
+permissions:
+  issues: write
+
+jobs:
+  reopen-if-needed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const allowedUsers = ["Eshajha19"]; // ✅ only you can close
+
+            const issue = context.payload.issue;
+            const closedBy = context.payload.sender.login;
+
+            if (!allowedUsers.includes(closedBy)) {
+              // 🔁 Reopen issue
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: "open"
+              });
+
+              // 💬 Notify user
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `❌ This issue cannot be closed by contributors.
+
+Only maintainers are allowed to close issues.`
+              });
+            }
