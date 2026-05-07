@@ -3,6 +3,7 @@ name: Auto Thank You
 on:
   issues:
     types: [opened]
+
   pull_request_target:
     types: [opened]
 
@@ -17,24 +18,54 @@ jobs:
     steps:
       - name: Comment on Issue
         if: github.event_name == 'issues'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v7
         with:
           script: |
+            const message = `
+            🙏 Thank you for raising this issue and helping improve the project!
+
+            We truly appreciate the time and effort you took to report this.
+
+            Our team will carefully review the issue and work on it as soon as possible.
+
+            Please make sure the issue includes:
+            ✅ Clear description of the problem
+            ✅ Steps to reproduce (if applicable)
+            ✅ Screenshots or logs for better understanding
+
+            Your support and contributions help make this project better for everyone.
+            `;
+
             await github.rest.issues.createComment({
-              issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: "🙏 Thanks for raising this issue! The team will look into it shortly."
+              issue_number: context.issue.number,
+              body: message
             });
 
       - name: Comment on PR
         if: github.event_name == 'pull_request_target'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v7
         with:
           script: |
+            const message = `
+            🎉 Thank you for opening this Pull Request!
+
+            We appreciate your contribution and effort toward improving this project.
+
+            A maintainer will review your PR soon.
+
+            Please ensure:
+            ✅ Code follows project guidelines
+            ✅ Changes are properly tested
+            ✅ No sensitive data or API keys are exposed
+
+            Thank you for contributing to the community.
+            `;
+
             await github.rest.issues.createComment({
-              issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: "🎉 Thanks for opening this PR! A maintainer will review it soon."
+              issue_number: context.issue.number,
+              body: message
             });
