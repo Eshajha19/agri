@@ -100,11 +100,29 @@ async def verify_role(request: Request, required_roles: list = None):
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Token verification failed: {str(e)}")
 
+# --- Secure CORS Configuration ---
+frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+trusted_origins = [
+    "http://localhost:5173",     # Local development
+    "http://127.0.0.1:5173",     # Local development alternative
+    "https://yourfrontend.com",  # Production domain placeholder
+]
+
+# Add any custom frontend URLs from environment
+if frontend_url and frontend_url not in trusted_origins:
+    trusted_origins.append(frontend_url)
+
+# Support comma-separated list of additional origins
+extra_origins = os.getenv("ADDITIONAL_ALLOWED_ORIGINS")
+if extra_origins:
+    trusted_origins.extend([origin.strip() for origin in extra_origins.split(",")])
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=trusted_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
 )
 
 # --- Models ---
@@ -351,77 +369,80 @@ async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
 # --- Cryptographic Reports (KMS Managed) ---
 
 _cached_private_key = None
+KEYS_DIR = "keys"
+PRIVATE_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.key")
+PUBLIC_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.pub")
 
 def get_signing_keys():
     """
-    Retrieves the private key from Google Secret Manager with local caching.
+    Retrieves the private key for report signing.
+    Prioritizes: 1. Local Cache, 2. Google Secret Manager (KMS), 3. Local Persistent File, 4. Fresh Generation.
     """
     global _cached_private_key
     
     if _cached_private_key:
         return _cached_private_key
 
+    # 1. Try Google Secret Manager (KMS) if configured
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
     secret_id = os.getenv("REPORT_SIGNING_SECRET_NAME", "report-signing-key")
     
-    if not project_id:
-        # Fallback for local development if allowed, but production should fail
-        if os.getenv("ENV") == "production":
-            raise HTTPException(status_code=500, detail="KMS Configuration missing in production")
-        
-        # Local development fallback (matches previous behavior but warns)
-        print("KMS Warning: GOOGLE_CLOUD_PROJECT not set. Falling back to temporary local key.")
-        _cached_private_key = ed25519.Ed25519PrivateKey.generate()
-        return _cached_private_key
+    if project_id and HAS_GCP_KMS:
+        try:
+            client = secretmanager.SecretManagerServiceClient()
+            name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
+            response = client.access_secret_version(request={"name": name})
+            payload = response.payload.data.decode("UTF-8")
+            
+            _cached_private_key = serialization.load_pem_private_key(
+                payload.encode(),
+                password=None
+            )
+            print(f"KMS: Successfully fetched signing key from Secret Manager ({secret_id})")
+            return _cached_private_key
+        except Exception as e:
+            print(f"KMS Warning: Failed to fetch secret {secret_id}: {e}. Falling back to local methods.")
 
-    if not HAS_GCP_KMS:
-        raise HTTPException(status_code=500, detail="Google Cloud Secret Manager library not installed")
-
-    try:
-        client = secretmanager.SecretManagerServiceClient()
-        name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
-        response = client.access_secret_version(request={"name": name})
-        payload = response.payload.data.decode("UTF-8")
-        
-        _cached_private_key = serialization.load_pem_private_key(
-            payload.encode(),
-            password=None
-        )
-        print(f"KMS: Successfully fetched signing key from Secret Manager ({secret_id})")
-        return _cached_private_key
-    except Exception as e:
-        print(f"KMS Error: Failed to fetch secret {secret_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve signing key from secure vault")
-# --- Cryptographic Reports ---
-
-KEYS_DIR = "keys"
-PRIVATE_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.key")
-PUBLIC_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.pub")
-
-def get_signing_keys():
-    if not os.path.exists(KEYS_DIR):
-        os.makedirs(KEYS_DIR)
-    
+    # 2. Try Local Persistent File
     if os.path.exists(PRIVATE_KEY_PATH):
-        with open(PRIVATE_KEY_PATH, "rb") as f:
-            return serialization.load_pem_private_key(f.read(), password=None)
-    
+        try:
+            with open(PRIVATE_KEY_PATH, "rb") as f:
+                _cached_private_key = serialization.load_pem_private_key(f.read(), password=None)
+                print(f"Key Management: Loaded existing key from {PRIVATE_KEY_PATH}")
+                return _cached_private_key
+        except Exception as e:
+            print(f"Key Management Warning: Failed to load local key file: {e}")
+
+    # 3. Fresh Generation (and save if possible)
+    print("Key Management: Generating fresh signing key.")
     private_key = ed25519.Ed25519PrivateKey.generate()
-    with open(PRIVATE_KEY_PATH, "wb") as f:
-        f.write(private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption()
-        ))
     
-    public_key = private_key.public_key()
-    with open(PUBLIC_KEY_PATH, "wb") as f:
-        f.write(public_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        ))
-    
+    try:
+        if not os.path.exists(KEYS_DIR):
+            os.makedirs(KEYS_DIR)
+        
+        # Save private key
+        with open(PRIVATE_KEY_PATH, "wb") as f:
+            f.write(private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption()
+            ))
+        
+        # Save public key for verification purposes
+        public_key = private_key.public_key()
+        with open(PUBLIC_KEY_PATH, "wb") as f:
+            f.write(public_key.public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo
+            ))
+        print(f"Key Management: Successfully saved new key to {KEYS_DIR}/")
+    except Exception as e:
+        print(f"Key Management Warning: Could not persist generated key: {e}")
+
+    _cached_private_key = private_key
     return private_key
+
 
 @app.post("/api/reports/generate")
 @limiter.limit("3/minute")
