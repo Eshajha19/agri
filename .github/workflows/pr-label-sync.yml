@@ -1,7 +1,7 @@
 name: Sync PR Labels from Linked Issues
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, edited, synchronize]
 
 permissions:
@@ -18,26 +18,42 @@ jobs:
         with:
           script: |
             const pr = context.payload.pull_request;
-            const body = pr.body || "";
+
+            if (!pr?.number) {
+              console.log("No PR number found.");
+              return;
+            }
 
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
-            // ✅ Match BOTH:
-            // 1. Fixes/Closes/Resolves #123
-            // 2. Any #123
-            const strictMatches = [...body.matchAll(/(fixes|closes|resolves)\s+#(\d+)/gi)].map(m => parseInt(m[2]));
-            const looseMatches = [...body.matchAll(/#(\d+)/g)].map(m => parseInt(m[1]));
+            // Fresh PR body
+            const { data: prDataFresh } = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: pr.number
+            });
 
-            // Merge + remove duplicates
-            const issueNumbers = [...new Set([...strictMatches, ...looseMatches])];
+            const body = prDataFresh.body || "";
+
+            // Matching
+            const strictMatches = [...body.matchAll(/(fixes|closes|resolves)\s*:?\s+#(\d+)/gi)]
+              .map(m => Number(m[2]));
+
+            const looseMatches = [...body.matchAll(/(?:^|\s)#(\d+)\b/g)]
+              .map(m => Number(m[1]));
+
+            const issueNumbers = [...new Set(
+              [...strictMatches, ...looseMatches]
+                .filter(n => Number.isInteger(n) && n !== pr.number)
+            )];
 
             if (issueNumbers.length === 0) {
               console.log("No linked issues found.");
               return;
             }
 
-            // 📥 Get PR existing labels
+            // PR labels
             const { data: prData } = await github.rest.issues.get({
               owner,
               repo,
@@ -48,32 +64,37 @@ jobs:
 
             let labelsToAdd = [];
 
-            for (const issue_number of issueNumbers) {
-              try {
-                const { data: issue } = await github.rest.issues.get({
-                  owner,
-                  repo,
-                  issue_number
-                });
+            // Parallel fetch
+            const issueResults = await Promise.allSettled(
+              issueNumbers.map(issue_number =>
+                github.rest.issues.get({ owner, repo, issue_number })
+              )
+            );
 
-                const issueLabels = issue.labels.map(l => l.name);
+            for (let i = 0; i < issueResults.length; i++) {
+              const result = issueResults[i];
+              const issue_number = issueNumbers[i];
 
-                labelsToAdd.push(...issueLabels);
-
-              } catch (err) {
-                console.log(`Issue #${issue_number} not found or error.`);
+              if (result.status === "fulfilled") {
+                // Skip PRs (only use real issues)
+                if (!result.value.data.pull_request) {
+                  const issueLabels = result.value.data.labels.map(l => l.name);
+                  labelsToAdd.push(...issueLabels);
+                }
+              } else {
+                console.log(`Issue #${issue_number} error: ${result.reason.message}`);
               }
             }
 
-            // Remove duplicates + already existing labels
-            labelsToAdd = [...new Set(labelsToAdd)].filter(l => !existingLabels.includes(l));
+            // Deduplicate + filter
+            labelsToAdd = [...new Set(labelsToAdd)]
+              .filter(l => l && !existingLabels.includes(l));
 
             if (labelsToAdd.length === 0) {
               console.log("No new labels to add.");
               return;
             }
 
-            // 🏷️ Apply labels
             await github.rest.issues.addLabels({
               owner,
               repo,
@@ -81,4 +102,4 @@ jobs:
               labels: labelsToAdd
             });
 
-            console.log("Labels added:", labelsToAdd);
+            console.log(`Added ${labelsToAdd.length} labels:`, labelsToAdd);
