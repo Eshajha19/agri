@@ -32,16 +32,20 @@ const removePreloader = () => {
   }
 };
 
+import { ThemeProvider } from './ThemeContext.jsx'
+
 const rootElement = document.getElementById("root");
 if (rootElement) {
   const root = createRoot(rootElement);
   root.render(
     <StrictMode>
       <BrowserRouter>
-        <NavigationManager />
-        <ErrorBoundary>
-          <App />
-        </ErrorBoundary>
+        <ThemeProvider>
+          <NavigationManager />
+          <ErrorBoundary>
+            <App />
+          </ErrorBoundary>
+        </ThemeProvider>
       </BrowserRouter>
     </StrictMode>
   );

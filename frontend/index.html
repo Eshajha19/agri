@@ -111,7 +111,7 @@
           });
 
           // Check for user preference
-          const storedLang = localStorage.getItem('preferredLanguage') || 'en';
+          const storedLang = localStorage.getItem('agri:preferredLanguage') || 'en';
           
           // Only set translation if it's NOT English
           if (storedLang !== 'en') {
@@ -146,7 +146,7 @@
         
         // Final fallback to ensure English if needed
         setTimeout(() => {
-          const storedLang = localStorage.getItem('preferredLanguage') || 'en';
+          const storedLang = localStorage.getItem('agri:preferredLanguage') || 'en';
           if (storedLang === 'en') {
             const combo = document.querySelector('.goog-te-combo');
             if (combo && combo.value !== 'en' && combo.value !== '') {
