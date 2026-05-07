@@ -40,6 +40,7 @@ from ml.preprocessing import UnknownCategoryError, MissingFeatureError
 # Other internal modules
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
+from whatsapp_store import subscriber_store
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -344,55 +345,58 @@ def get_notifications(
     return {"success": True, "data": static_notifications + dynamic_alerts}
 
 # --- WhatsApp Service Endpoints ---
-
-SUBSCRIBERS_FILE = "whatsapp_subscribers.json"
-
-def load_subscribers():
-    if os.path.exists(SUBSCRIBERS_FILE):
-        try:
-            with open(SUBSCRIBERS_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
-
-def save_subscribers(subscribers):
-    with open(SUBSCRIBERS_FILE, "w") as f:
-        json.dump(subscribers, f)
+#
+# Subscriber persistence is handled by whatsapp_store.SubscriberStore, which
+# provides thread-safe, crash-safe read-modify-write operations via a
+# threading.Lock and atomic file replacement (write-to-tmp then os.replace).
+# The old load_subscribers / save_subscribers helpers have been removed because
+# they had no locking and used open(..., "w") directly, which could corrupt the
+# file on a concurrent write or a mid-write crash.
 
 @app.post("/api/whatsapp/subscribe")
 @limiter.limit("2/minute")
 async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
-    subscribers = load_subscribers()
     user_id = data.user_id if data.user_id else str(datetime.now().timestamp())
-    subscribers[user_id] = {
+    subscriber = {
         "phone_number": data.phone_number,
         "name": data.name,
-        "subscribed_at": datetime.now().isoformat()
+        "subscribed_at": datetime.now().isoformat(),
     }
-    save_subscribers(subscribers)
-    
-    welcome_msg = f"Namaste {data.name}! 🙏\n\nWelcome to *Fasal Saathi WhatsApp Alerts*. You will now receive real-time updates directly here."
+    try:
+        subscriber_store.upsert(user_id, subscriber)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save subscription. Please try again.",
+        ) from exc
+
+    welcome_msg = (
+        f"Namaste {data.name}! 🙏\n\n"
+        "Welcome to *Fasal Saathi WhatsApp Alerts*. "
+        "You will now receive real-time updates directly here."
+    )
     send_whatsapp_message(data.phone_number, welcome_msg)
     return {"success": True, "message": "Successfully subscribed"}
 
 @app.post("/api/whatsapp/trigger-alert")
 async def trigger_whatsapp_alert(data: AlertTriggerRequest):
-    subscribers = load_subscribers()
+    # get_all() acquires the lock and returns a stable snapshot, so this read
+    # cannot race with a concurrent subscription write.
+    subscribers = subscriber_store.get_all()
     results = []
     formatted_msg = format_alert_message(data.alert_type, data.message)
-    
+
     for user_id, info in subscribers.items():
         res = send_whatsapp_message(info["phone_number"], formatted_msg)
         results.append({"user_id": user_id, "success": res.get("success", False)})
-    
+
     static_notifications.append({
         "id": len(static_notifications) + 1,
         "type": data.alert_type,
         "message": data.message,
-        "time": datetime.now().isoformat()
+        "time": datetime.now().isoformat(),
     })
-    
+
     return {"success": True, "results": results}
 
 @app.post("/api/whatsapp/webhook")
