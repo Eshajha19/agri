@@ -75,30 +75,48 @@ if not firebase_admin._apps:
 
 async def verify_role(request: Request, required_roles: list = None):
     """
-    Dependency to verify user role from Firestore.
+    Verify the Firebase ID token and check the caller's role against Firestore.
     Expects 'Authorization: Bearer <ID_TOKEN>' header.
+
+    Fail-closed design:
+    - If Firestore is unavailable the request is rejected with 503.
+    - If the user document does not exist the request is rejected with 403.
+    - The function never grants a role that was not explicitly stored in Firestore.
     """
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
-    
+
     id_token = auth_header.split("Bearer ")[1]
+
+    # Verify the token signature with Firebase — raises on invalid/expired tokens
     try:
         decoded_token = firebase_auth.verify_id_token(id_token)
-        uid = decoded_token["uid"]
-        
-        if db_firestore:
-            user_doc = db_firestore.collection("users").document(uid).get()
-            if user_doc.exists:
-                user_role = user_doc.to_dict().get("role", "farmer")
-                if required_roles and user_role not in required_roles:
-                    raise HTTPException(status_code=403, detail=f"Access denied: {user_role} role not authorized")
-                return {"uid": uid, "role": user_role}
-        
-        # Local development fallback if no Firestore
-        return {"uid": uid, "role": "admin"}
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Token verification failed: {str(e)}")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Authentication failed")
+
+    uid = decoded_token["uid"]
+
+    # Firestore must be available to resolve the caller's role.
+    # Failing open (granting admin when Firestore is down) is a security bug,
+    # so we reject the request instead.
+    if not db_firestore:
+        raise HTTPException(
+            status_code=503,
+            detail="Authorization service temporarily unavailable"
+        )
+
+    user_doc = db_firestore.collection("users").document(uid).get()
+
+    if not user_doc.exists:
+        raise HTTPException(status_code=403, detail="User profile not found")
+
+    user_role = user_doc.to_dict().get("role", "farmer")
+
+    if required_roles and user_role not in required_roles:
+        raise HTTPException(status_code=403, detail="Access denied: insufficient permissions")
+
+    return {"uid": uid, "role": user_role}
 
 # --- Secure CORS Configuration ---
 frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
