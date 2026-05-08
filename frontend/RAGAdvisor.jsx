@@ -82,7 +82,7 @@ const RAGAdvisor = ({ isOpen, onClose }) => {
     setMessages((prev) => [...prev, { role: "user", text }]);
     setLoading(true);
     try {
-      const res = await fetch("http://localhost:8000/api/rag/query", {
+      const res = await fetch("/api/rag/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: text, top_k: 3 }),
