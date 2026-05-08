@@ -12,7 +12,7 @@ export const usePerformanceStore = create(
       detectAndSetLiteMode: () => {
         try {
           // Skip if user has already manually set a preference
-          const storedRaw = localStorage.getItem('performance-storage');
+          const storedRaw = localStorage.getItem('agri:performance-storage');
           if (storedRaw) {
             const stored = JSON.parse(storedRaw);
             if (stored && stored.state && stored.state.autoDetected === false) return;
@@ -47,7 +47,7 @@ export const usePerformanceStore = create(
       }
     }),
     {
-      name: 'performance-storage',
+      name: 'agri:performance-storage',
     }
   )
 );
