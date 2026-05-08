@@ -375,7 +375,7 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
         data = payload.data
         if len(data) != 5:
             raise ValueError("Exactly 5 values are required")
-        temp = data[::-1]  # reverse once
+        temp = list(data)
         trend = []
         for _ in range(5):
             features = temp[:5]
