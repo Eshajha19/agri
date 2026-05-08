@@ -561,6 +561,293 @@
   background: none;
   cursor: pointer;
 }
+.theme-btn {
+  margin-top: 1rem;
+  padding: 0.7rem 1rem;
+  border: none;
+  border-radius: 10px;
+  background: var(--primary);
+  color: white;
+  cursor: pointer;
+}
+
+/*DARK THEME VARIABLES*/
+
+:root {
+  --bg: #f5f7fb;
+  --surface: #ffffff;
+  --surface-2: #f0f3f8;
+
+  --text: #1f2937;
+  --text-light: #6b7280;
+
+  --primary: #2e7d32;
+  --primary-hover: #256628;
+
+  --border: #dbe3ea;
+
+  --shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+}
+
+body.dark {
+  --bg: #111827;
+  --surface: #1f2937;
+  --surface-2: #263244;
+
+  --text: #f3f4f6;
+  --text-light: #cbd5e1;
+
+  --primary: #4caf50;
+  --primary-hover: #43a047;
+
+  --border: #374151;
+
+  --shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+}
+
+.crop-page {
+  min-height: 100vh;
+  padding: 2rem;
+  background: var(--bg);
+  color: var(--text);
+  transition: all 0.3s ease;
+}
+.crop-hero {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.crop-hero h1 {
+  font-size: 2.8rem;
+  margin-bottom: 0.5rem;
+  color: var(--text);
+}
+
+.crop-hero p {
+  color: var(--text-light);
+  font-size: 1rem;
+}
+
+.crop-search {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 1.5rem;
+}
+
+.crop-search input {
+  width: 100%;
+  max-width: 420px;
+  padding: 0.9rem 1rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+
+  background: var(--surface);
+  color: var(--text);
+
+  outline: none;
+  transition: 0.3s;
+}
+
+.crop-search input::placeholder {
+  color: var(--text-light);
+}
+
+.crop-search input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px rgba(76, 175, 80, 0.15);
+}
+
+.crop-filter {
+  display: flex;
+  justify-content: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  margin-bottom: 2rem;
+}
+
+.crop-filter button {
+  padding: 0.7rem 1.2rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+
+  background: var(--surface);
+  color: var(--text);
+
+  cursor: pointer;
+  transition: 0.3s ease;
+}
+
+.crop-filter button:hover {
+  background: var(--surface-2);
+}
+
+.crop-filter button.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+.crop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.5rem;
+}
+
+.crop-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+
+  padding: 1.5rem;
+  box-shadow: var(--shadow);
+
+  transition: 0.3s ease;
+}
+
+.crop-card:hover {
+  transform: translateY(-5px);
+}
+
+.crop-icon {
+  font-size: 2rem;
+  margin-bottom: 1rem;
+}
+
+.crop-card h2 {
+  margin-bottom: 1rem;
+  color: var(--text);
+}
+
+.crop-info p {
+  margin-bottom: 0.5rem;
+  color: var(--text-light);
+}
+
+.crop-info strong {
+  color: var(--text);
+}
+
+.crop-card button {
+  margin-top: 1rem;
+  width: 100%;
+
+  padding: 0.8rem;
+  border: none;
+  border-radius: 12px;
+
+  background: var(--primary);
+  color: white;
+
+  cursor: pointer;
+  font-weight: 600;
+
+  transition: 0.3s ease;
+}
+
+.crop-card button:hover {
+  background: var(--primary-hover);
+}
+
+.crop-modal {
+  position: fixed;
+  inset: 0;
+
+  background: rgba(0, 0, 0, 0.55);
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 1rem;
+  z-index: 1000;
+}
+
+.crop-popup {
+  position: relative;
+
+  width: 100%;
+  max-width: 500px;
+
+  background: var(--surface);
+  color: var(--text);
+
+  border-radius: 20px;
+  padding: 2rem;
+
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+
+  animation: popup 0.25s ease;
+}
+
+@keyframes popup {
+  from {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.modal-info p {
+  margin-bottom: 0.8rem;
+  color: var(--text-light);
+}
+
+.modal-info strong {
+  color: var(--text);
+}
+
+.tips {
+  margin-top: 1rem;
+
+  padding: 1rem;
+  border-radius: 12px;
+
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.close-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+
+  border: none;
+  background: transparent;
+
+  font-size: 1.1rem;
+  cursor: pointer;
+
+  color: var(--text-light);
+}
+
+.no-results {
+  text-align: center;
+  color: var(--text-light);
+  grid-column: 1 / -1;
+}
+
+/* =========================
+   📱 RESPONSIVE
+========================= */
+
+@media (max-width: 768px) {
+  .crop-page {
+    padding: 1rem;
+  }
+
+  .crop-hero h1 {
+    font-size: 2rem;
+  }
+
+  .crop-popup {
+    padding: 1.4rem;
+  }
+}
+
 
 /* TIPS */
 .tips {

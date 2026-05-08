@@ -1,5 +1,6 @@
 "use client";
-import React, { useState, useMemo } from "react";
+
+import React, { useState, useMemo, useEffect } from "react";
 import "./CropGuide.css";
 
 // 📦 DATA
@@ -73,7 +74,23 @@ export default function CropGuide() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCrop, setActiveCrop] = useState(null);
 
-  // 🔍 FILTER + SEARCH (memoized for performance)
+  // 🌙 DARK MODE STATE
+  const [darkMode, setDarkMode] = useState(true);
+
+  // 🌍 APPLY THEME
+  useEffect(() => {
+    if (darkMode) {
+      document.body.classList.add("dark");
+    } else {
+      document.body.classList.remove("dark");
+    }
+
+    return () => {
+      document.body.classList.remove("dark");
+    };
+  }, [darkMode]);
+
+  // 🔍 FILTER + SEARCH
   const filteredCrops = useMemo(() => {
     return CROPS.filter((crop) => {
       const matchesSeason =
@@ -93,7 +110,18 @@ export default function CropGuide() {
       {/* 🌾 HERO */}
       <header className="crop-hero">
         <h1>🌾 Crop Guide</h1>
-        <p>Explore crops based on season, soil & water needs</p>
+
+        <p>
+          Explore crops based on season, soil & water needs
+        </p>
+
+        {/* 🌙 THEME TOGGLE */}
+        <button
+          className="theme-btn"
+          onClick={() => setDarkMode(!darkMode)}
+        >
+          {darkMode ? "☀ Light Mode" : "🌙 Dark Mode"}
+        </button>
       </header>
 
       {/* 🔍 SEARCH */}
@@ -124,33 +152,51 @@ export default function CropGuide() {
         {filteredCrops.length > 0 ? (
           filteredCrops.map((crop) => (
             <div key={crop.id} className="crop-card">
+              
               <div className="crop-icon">🌱</div>
 
               <h2>{crop.name}</h2>
 
               <div className="crop-info">
-                <p><strong>Season:</strong> {crop.season}</p>
-                <p><strong>Soil:</strong> {crop.soil}</p>
-                <p><strong>Water:</strong> {crop.water}</p>
+                <p>
+                  <strong>Season:</strong> {crop.season}
+                </p>
+
+                <p>
+                  <strong>Soil:</strong> {crop.soil}
+                </p>
+
+                <p>
+                  <strong>Water:</strong> {crop.water}
+                </p>
               </div>
 
-              <button onClick={() => setActiveCrop(crop)}>
+              <button
+                onClick={() => setActiveCrop(crop)}
+              >
                 View Details
               </button>
             </div>
           ))
         ) : (
-          <p className="no-results">No crops found 🌾</p>
+          <p className="no-results">
+            No crops found 🌾
+          </p>
         )}
       </div>
 
       {/* 📋 MODAL */}
       {activeCrop && (
-        <div className="crop-modal" onClick={() => setActiveCrop(null)}>
+        <div
+          className="crop-modal"
+          onClick={() => setActiveCrop(null)}
+        >
           <div
             className="crop-popup"
             onClick={(e) => e.stopPropagation()}
           >
+
+            {/* ❌ CLOSE */}
             <button
               className="close-btn"
               onClick={() => setActiveCrop(null)}
@@ -161,11 +207,25 @@ export default function CropGuide() {
             <h2>🌾 {activeCrop.name}</h2>
 
             <div className="modal-info">
-              <p><strong>Season:</strong> {activeCrop.season}</p>
-              <p><strong>Soil:</strong> {activeCrop.soil}</p>
-              <p><strong>Water:</strong> {activeCrop.water}</p>
-              <p><strong>Duration:</strong> {activeCrop.duration}</p>
-              <p><strong>Yield:</strong> {activeCrop.yield}</p>
+              <p>
+                <strong>Season:</strong> {activeCrop.season}
+              </p>
+
+              <p>
+                <strong>Soil:</strong> {activeCrop.soil}
+              </p>
+
+              <p>
+                <strong>Water:</strong> {activeCrop.water}
+              </p>
+
+              <p>
+                <strong>Duration:</strong> {activeCrop.duration}
+              </p>
+
+              <p>
+                <strong>Yield:</strong> {activeCrop.yield}
+              </p>
             </div>
 
             <div className="tips">
