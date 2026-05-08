@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import "./ResourcesPage.css";
 
+
 const resourcesData = [
   {
     id: 1,
