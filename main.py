@@ -247,6 +247,9 @@ class ReportRequest(BaseModel):
     profit: str = Field(..., max_length=50)
     season: str = Field(..., max_length=50)
 
+class SeedVerifyRequest(BaseModel):
+    code: str = Field(..., min_length=4, max_length=100)
+
 # --- ML Pipeline Initialization ---
 router = ModelRouter(default_model="xgboost")
 
@@ -787,6 +790,31 @@ async def simulate_climate(request: Request, data: SimulationRequest):
         "risk_level": "High" if total_yield_impact < -0.15 else "Medium" if total_yield_impact < -0.05 else "Low",
         "recommendation": "Switch to heat-tolerant varieties" if data.temp_delta > 2 else "Ensure adequate irrigation" if data.rain_delta < -20 else "Conditions remain viable"
     }
+
+@app.post("/api/seeds/verify")
+@limiter.limit("10/minute")
+async def verify_seed(data: SeedVerifyRequest):
+    """
+    Verifies seed authenticity against a trusted batch registry.
+    This replaces the unsafe client-side string matching.
+    """
+    # Mock registry for demonstration
+    # In production, this would query a Firestore collection or SQL database
+    registry = {
+        "FS-AUTH-2026-X1": {"status": "authentic", "crop": "Rice", "batch": "2026-X1"},
+        "FS-AUTH-2026-W2": {"status": "authentic", "crop": "Wheat", "batch": "2026-W2"},
+        "FS-INVALID-999": {"status": "invalid", "reason": "Blacklisted - Reported Counterfeit"},
+        "TEST-EXPIRED-123": {"status": "invalid", "reason": "Expired - Shelf life exceeded"},
+    }
+    
+    code = data.code.upper().strip()
+    result = registry.get(code)
+    
+    if result:
+        return {"success": True, "code": code, **result}
+    
+    # If not found in registry
+    return {"success": True, "code": code, "status": "not_found"}
 
 if __name__ == "__main__":
     import uvicorn
