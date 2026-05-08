@@ -2,6 +2,8 @@
 import os
 import io
 import json
+import logging
+import re
 import joblib
 import hashlib
 import pandas as pd
@@ -17,6 +19,25 @@ class SimulationRequest(BaseModel):
     crop_type: str
     temp_delta: float = Field(..., ge=-5, le=5)
     rain_delta: float = Field(..., ge=-100, le=100)
+
+class ClientErrorReport(BaseModel):
+    """
+    Typed, bounded schema for frontend error reports sent to /api/log-error.
+
+    Fields are intentionally narrow:
+    - message  : the human-readable error description (capped at 500 chars)
+    - source   : optional filename / module where the error originated
+    - stack    : optional stack trace (capped to prevent log flooding)
+    - level    : severity hint from the client; defaults to "error"
+
+    All string fields are stripped of ANSI escape sequences and ASCII
+    control characters before being written to the log, so a crafted
+    payload cannot inject terminal control codes or forge log lines.
+    """
+    message: str = Field(..., min_length=1, max_length=500)
+    source: Optional[str] = Field(default=None, max_length=200)
+    stack: Optional[str] = Field(default=None, max_length=2000)
+    level: str = Field(default="error", max_length=20)
 
 class RAGQuery(BaseModel):
     query: str = Field(..., min_length=3, max_length=500)
@@ -57,6 +78,24 @@ except ImportError:
     HAS_GCP_KMS = False
 
 app = FastAPI()
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
 
 # Initialize Limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -640,13 +679,50 @@ async def generate_signed_report(data: ReportRequest, request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/log-error")
-async def log_error(request: Request):
-    try:
-        error_data = await request.json()
-        print(f"[Error Log] {error_data.get('message', 'Unknown error')}")
-        return {"success": True}
-    except Exception:
-        return {"success": False}
+@limiter.limit("10/minute")
+async def log_error(request: Request, body: ClientErrorReport):
+    """
+    Receives structured error reports from the frontend.
+
+    Hardening applied vs the original implementation:
+
+    1. Rate-limited (10/minute per IP) — the original had no limiter at all,
+       allowing unlimited flooding that could exhaust server memory and CPU.
+
+    2. Typed, bounded Pydantic schema (ClientErrorReport) — the original used
+       raw request.json() with no size limit; a single request could send an
+       arbitrarily large payload.
+
+    3. ANSI / control-character sanitisation — the original printed the message
+       verbatim, allowing an attacker to inject terminal escape sequences that
+       corrupt log files or exploit log viewers.  _sanitise_log_field() strips
+       all ASCII control characters (including ESC) before the value reaches
+       the log.
+
+    4. structured logging via logging module — the original used print(), which
+       is lost in production log aggregators that capture the logging module
+       but not stdout.
+    """
+    level = _sanitise_log_field(body.level).lower()
+    message = _sanitise_log_field(body.message)
+    source = _sanitise_log_field(body.source) if body.source else "unknown"
+    stack = _sanitise_log_field(body.stack) if body.stack else ""
+
+    log_fn = {
+        "error": logger.error,
+        "warn": logger.warning,
+        "warning": logger.warning,
+        "info": logger.info,
+    }.get(level, logger.error)
+
+    log_fn(
+        "[ClientError] level=%s source=%s message=%s%s",
+        level,
+        source,
+        message,
+        f" stack={stack}" if stack else "",
+    )
+    return {"success": True}
 
 # --- RAG Advisor ---
 try:

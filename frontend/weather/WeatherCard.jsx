@@ -20,7 +20,7 @@ import {
 import { useWeatherManagement } from "../hooks/useWeatherManagement";
 import LastUpdated from "../LastUpdated";
 
-const SENT_NOTIFICATION_KEY = "agriWeatherNotificationSignature";
+const SENT_NOTIFICATION_KEY = "agri:weatherNotificationSignature";
 
 /* 🌦️ Weather Icon Helper */
 const getWeatherIcon = (summary = "") => {

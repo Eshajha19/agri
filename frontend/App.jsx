@@ -62,7 +62,9 @@ import PrivacyPolicy from "./PrivacyPolicy";
 import Terms from "./Terms";
 import SoilAnalysis from "./SoilAnalysis";
 import SeedVerifier from "./SeedVerifier";
+import Footer from "./components/Footer";
 import { SkipLink } from "./NavigationManager";
+import { useTheme } from "./ThemeContext";
 
 // Libs
 import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc } from "./lib/firebase";
@@ -126,7 +128,7 @@ function App() {
   const scorecardRef = useRef(null);
   const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
   const [isOpen, setIsOpen] = useState(false);
-  const [theme, setTheme] = useState(() => localStorage.getItem("agri:theme") || "light");
+  const { theme, toggleTheme } = useTheme();
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [profileCompleted, setProfileCompleted] = useState(true);
@@ -147,11 +149,7 @@ function App() {
 
   useNotifications();
 
-  /* ---------------- THEME SYSTEM ---------------- */
-  useEffect(() => {
-    document.documentElement.classList.toggle("theme-dark", theme === "dark");
-    localStorage.setItem("agri:theme", theme);
-  }, [theme]);
+  /* ---------------- THEME SYSTEM (Moved to ThemeProvider) ---------------- */
 
   /* ---------------- LANGUAGE AUTO-TRANS ---------------- */
   useEffect(() => {
@@ -269,9 +267,7 @@ function App() {
   }, []);
 
   const handleNavToggle = () => setIsOpen(!isOpen);
-  const handleThemeToggle = () => {
-    setTheme((t) => (t === "dark" ? "light" : "dark"));
-  };
+  const handleThemeToggle = toggleTheme;
   const handleLogout = async () => {
     try {
       await signOut(auth);
@@ -499,6 +495,7 @@ function App() {
       )}
 
       <ToastContainer position="bottom-right" />
+      <Footer />
     </div>
   );
 }
