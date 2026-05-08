@@ -76,9 +76,9 @@ export const getSoilTypeSuggestions = () => {
  */
 export const getSeasonOptions = () => {
   return [
-    { value: 'kharif', label: '🌾 Kharif (Jun-Oct)' },
-    { value: 'rabi', label: '🌾 Rabi (Oct-Mar)' },
-    { value: 'summer', label: '☀️ Summer (Mar-Jun)' },
+    { value: 'kharif', label: 'Kharif (Jun-Oct)' },
+    { value: 'rabi', label: 'Rabi (Oct-Mar)' },
+    { value: 'summer', label: 'Summer (Mar-Jun)' },
   ];
 };
 

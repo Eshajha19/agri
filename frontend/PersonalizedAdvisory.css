@@ -97,3 +97,18 @@
 .rec-icon {
   font-size: 28px;
 }
+
+/* Dark Mode Support */
+.theme-dark .personalized-section {
+  background: linear-gradient(135deg, #064e3b, #0f172a);
+  color: var(--text-primary);
+}
+
+.theme-dark .recommendation-card {
+  background: #1e293b;
+  box-shadow: 0 10px 20px rgba(0,0,0,0.4);
+}
+
+.theme-dark .recommendation-card p {
+  color: var(--text-secondary);
+}

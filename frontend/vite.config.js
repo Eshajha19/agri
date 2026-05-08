@@ -32,6 +32,7 @@ const codespaceDevPlugin = () => ({
 });
 
 export default defineConfig(() => ({
+  publicDir: 'Public',
   plugins: [
     spaFallbackPlugin(),
     codespaceDevPlugin(),
@@ -58,19 +59,19 @@ export default defineConfig(() => ({
         categories: ['productivity', 'utilities', 'education'],
         icons: [
           {
-            src: '/tractor.png',
+            src: '/pwa-192x192.png',
             sizes: '192x192',
             type: 'image/png'
           },
           {
-            src: '/tractor.png',
+            src: '/pwa-512x512.png',
             sizes: '512x512',
             type: 'image/png'
           }
         ]
       },
       workbox: {
-         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,json,webmanifest}'],
+         globPatterns: process.env.NODE_ENV === 'production' ? ['**/*.{js,css,html,ico,png,svg,json}'] : [],
          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
           runtimeCaching: [
             // API endpoints for offline data and search

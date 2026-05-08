@@ -1,570 +1,327 @@
 .crop-page {
   padding: 20px;
-  font-family: "Poppins", sans-serif;
-  font-family: "Poppins", sans-serif;
-  color: #1f2937;
-  line-height: 1.6;
-}
-
-/* HERO */
-.crop-hero {
-  text-align: center;
-  padding: 50px 20px;
-  background: linear-gradient(135deg, #e8f5e9, #f1f8e9);
-  border-radius: 16px;
-}
-
-.crop-hero h1 {
-  font-size: 2.8rem;
-  color: #1b5e20;
-}
-
-/* FILTER */
-.crop-filter {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  margin: 20px 0;
-  flex-wrap: wrap;
-}
-
-.crop-filter button {
-  padding: 8px 14px;
-  border: none;
-  border-radius: 20px;
-  background: #eee;
-  cursor: pointer;
-  transition: 0.3s;
-}
-
-.crop-filter button.active,
-.crop-filter button:hover {
-  background: #2e7d32;
-  color: white;
-}
-
-/* GRID */
-.crop-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 20px;
-  padding: 20px;
-}
-
-/* CARD */
-.crop-card {
-  background: #fff;
-  padding: 20px;
-  border-radius: 16px;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.08);
-  transition: 0.3s;
-  text-align: center;
-}
-
-.crop-card:hover {
-  transform: translateY(-8px);
-  box-shadow: 0 12px 24px rgba(0,0,0,0.15);
-}
-
-.crop-icon {
-  font-size: 2rem;
-  margin-bottom: 10px;
-}
-
-.crop-card h2 {
-  color: #1b5e20;
-}
-
-.crop-info {
-  margin: 10px 0;
-  color: #555;
-  font-size: 0.9rem;
-}
-
-.crop-card button {
-  padding: 8px 12px;
-  border: none;
-  background: #2e7d32;
-  color: white;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.crop-card button:hover {
-  background: #1b5e20;
-}
-
-.crop-search input {
-  width: 100%;
-  padding: 10px;
-  border-radius: 10px;
-  margin-bottom: 15px;
-}
-
-.crop-card {
-  transition: 0.3s;
-}
-
-.crop-card:hover {
-  transform: translateY(-6px);
-}
-
-.crop-modal {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
-.crop-popup {
-  background: white;
-  padding: 25px;
-  border-radius: 16px;
-  width: 320px;
-}
-
-.tips {
-  margin-top: 10px;
-  background: #ecfdf5;
-  padding: 10px;
-  border-radius: 10px;
-}
-
-/* 🌾 PAGE */
-.crop-page {
-  padding: 20px;
   font-family: "Inter", sans-serif;
   background: #f8fafc;
   min-height: 100vh;
 }
 
-/* 🌿 HERO */
+/* HERO */
 .crop-hero {
   text-align: center;
-  margin-bottom: 20px;
-}
-
-.crop-hero h1 {
-  font-size: 2rem;
-  font-weight: 700;
-}
-
-.crop-hero p {
-  color: #64748b;
-}
-
-/* =========================
-   GLOBAL TYPOGRAPHY SYSTEM
-
-.crop-page {
-  font-family: "Poppins", sans-serif;
-  color: #1f2937;
-  line-height: 1.6;
-}
-
-/* =========================
-   HERO SECTION
-
-.crop-hero {
-  text-align: center;
-  padding: 4rem 1.5rem 2.5rem;
-}
-
-.crop-hero h1 {
-  font-size: clamp(2.5rem, 6vw, 4.5rem);
-  font-weight: 700;
-  letter-spacing: -1px;
-  margin-bottom: 1rem;
-  line-height: 1.1;
-  color: #111827;
-}
-
-.crop-hero p {
-  font-size: 1.1rem;
-  font-weight: 400;
-  max-width: 650px;
-  margin: 0 auto;
-  color: #6b7280;
-  line-height: 1.8;
-}
-
-/* =========================
-   SEARCH BAR
-
-.crop-search {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 2rem;
-  padding: 0 1rem;
-}
-
-.crop-search input {
-  width: 100%;
-  max-width: 520px;
-  padding: 1rem 1.2rem;
-  border-radius: 14px;
-  border: 1px solid #d1d5db;
-  font-size: 1rem;
-  font-weight: 500;
-  line-height: 1.5;
-  color: #111827;
-}
-
-.crop-search input::placeholder {
-  color: #9ca3af;
-  font-weight: 400;
-  font-size: 0.95rem;
-}
-
-/* =========================
-   FILTER BUTTONS
-
-.crop-filter {
-  display: flex;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 0.9rem;
-  margin-bottom: 3rem;
-  padding: 0 1rem;
-}
-
-.crop-filter button {
-  padding: 0.8rem 1.4rem;
-  border-radius: 999px;
-  border: none;
-  font-size: 0.95rem;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.crop-filter button.active {
-  transform: scale(1.03);
-}
-
-/* =========================
-   GRID LAYOUT
-
-.crop-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 2rem;
-  padding: 0 1.5rem 4rem;
-}
-
-/* =========================
-   CROP CARD
-
-.crop-card {
-  padding: 2rem;
-  border-radius: 22px;
-  background: #ffffff;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.06);
-}
-
-.crop-icon {
-  font-size: 2rem;
-  margin-bottom: 1.2rem;
-}
-
-.crop-card h2 {
-  font-size: 1.7rem;
-  font-weight: 700;
-  color: #111827;
-  margin-bottom: 1.4rem;
-  line-height: 1.2;
-}
-
-/* =========================
-   CARD INFO TYPOGRAPHY
-
-.crop-info {
-  display: flex;
-  flex-direction: column;
-  gap: 0.9rem;
-}
-
-.crop-info p {
-  margin: 0;
-  font-size: 0.98rem;
-  color: #4b5563;
-  line-height: 1.7;
-}
-
-.crop-info strong {
-  font-weight: 600;
-  color: #111827;
-  margin-right: 0.3rem;
-}
-
-/* =========================
-   BUTTON TYPOGRAPHY
-
-.crop-card button {
-  margin-top: 1.8rem;
-  width: 100%;
-  padding: 0.95rem;
-  border: none;
-  border-radius: 14px;
-  font-size: 1rem;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-  cursor: pointer;
-}
-
-/* =========================
-   EMPTY STATE
-
-.no-results {
-  text-align: center;
-  font-size: 1.2rem;
-  font-weight: 500;
-  color: #6b7280;
-  padding: 3rem 0;
-}
-
-/* =========================
-   MODAL TYPOGRAPHY
-
-.crop-modal {
-  padding: 1rem;
-}
-
-.crop-popup {
-  max-width: 550px;
-  padding: 2.5rem;
+  margin-bottom: 30px;
+  padding: 60px 20px;
+  background: linear-gradient(135deg, #f0fdf4, #dcfce7);
   border-radius: 24px;
-  background: white;
-  position: relative;
 }
 
-.crop-popup h2 {
-  font-size: 2rem;
-  font-weight: 700;
-  margin-bottom: 2rem;
-  line-height: 1.2;
-  color: #111827;
-}
-
-/* =========================
-   MODAL INFO
-
-.modal-info {
+.crop-hero h1 {
+  font-size: 3rem;
+  font-weight: 800;
+  color: #166534;
+  margin-bottom: 10px;
   display: flex;
-  flex-direction: column;
-  gap: 1rem;
+  align-items: center;
+  justify-content: center;
+  gap: 15px;
 }
 
-.modal-info p {
-  margin: 0;
-  font-size: 1rem;
-  line-height: 1.8;
-  color: #4b5563;
-}
-
-.modal-info strong {
-  color: #111827;
-  font-weight: 600;
-}
-
-/* =========================
-   TIPS SECTION
-
-.tips {
-  margin-top: 2rem;
-  padding: 1.2rem;
-  border-radius: 14px;
-  font-size: 0.98rem;
-  font-weight: 500;
-  line-height: 1.8;
-  color: #374151;
-}
-
-/* =========================
-   CLOSE BUTTON
-
-.close-btn {
-  position: absolute;
-  top: 1rem;
-  right: 1rem;
-  border: none;
-  background: transparent;
+.crop-hero p {
+  color: #475569;
   font-size: 1.1rem;
-  font-weight: 600;
-  cursor: pointer;
 }
 
-/* =========================
-   RESPONSIVE TYPOGRAPHY
-
-@media (max-width: 768px) {
-
-  .crop-hero {
-    padding-top: 3rem;
-  }
-
-  .crop-card {
-    padding: 1.5rem;
-  }
-
-  .crop-card h2 {
-    font-size: 1.45rem;
-  }
-
-  .crop-popup {
-    padding: 2rem 1.5rem;
-  }
-
-  .crop-popup h2 {
-    font-size: 1.7rem;
-  }
-
-  .modal-info p,
-  .crop-info p {
-    font-size: 0.95rem;
-  }
-}
-/* 🔍 SEARCH */
+/* SEARCH */
 .crop-search {
   display: flex;
   justify-content: center;
-  margin-bottom: 15px;
+  margin-bottom: 25px;
 }
 
 .crop-search input {
-  width: 300px;
-  padding: 10px 14px;
-  border-radius: 10px;
-  border: 1px solid #e2e8f0;
+  width: 100%;
+  max-width: 500px;
+  padding: 14px 20px;
+  border-radius: 12px;
+  border: 2px solid #e2e8f0;
   outline: none;
-  transition: 0.3s;
+  transition: all 0.3s ease;
+  font-size: 1rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
 }
 
 .crop-search input:focus {
   border-color: #22c55e;
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.1);
 }
 
-/* 🧭 FILTER */
+/* FILTERS */
 .crop-filter {
   display: flex;
   justify-content: center;
-  gap: 10px;
-  margin-bottom: 20px;
+  gap: 12px;
+  margin-bottom: 40px;
+  flex-wrap: wrap;
 }
 
 .crop-filter button {
-  padding: 8px 14px;
+  padding: 10px 20px;
   border: none;
-  border-radius: 20px;
-  background: #e2e8f0;
+  border-radius: 30px;
+  background: #fff;
+  color: #64748b;
+  font-weight: 600;
   cursor: pointer;
-  transition: 0.3s;
+  transition: all 0.3s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.crop-filter button:hover {
+  background: #f1f5f9;
 }
 
 .crop-filter button.active {
   background: #22c55e;
   color: white;
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.25);
 }
 
-/* 🌱 GRID */
+/* GRID */
 .crop-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 15px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 24px;
 }
 
-/* 🌿 CARD */
+/* CARD */
 .crop-card {
   background: white;
-  border-radius: 14px;
-  padding: 16px;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.06);
-  transition: 0.3s;
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #f1f5f9;
 }
 
 .crop-card:hover {
-  transform: translateY(-5px);
+  transform: translateY(-8px);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  border-color: #dcfce7;
 }
 
-/* ICON */
 .crop-icon {
-  font-size: 30px;
-  margin-bottom: 8px;
+  width: 56px;
+  height: 56px;
+  background: #f0fdf4;
+  color: #22c55e;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 20px;
+  font-size: 24px;
 }
 
-/* INFO */
+.crop-card h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 15px;
+}
+
+.crop-info {
+  margin-bottom: 20px;
+  flex: 1;
+}
+
 .crop-info p {
-  font-size: 14px;
-  margin: 4px 0;
+  font-size: 0.95rem;
+  color: #64748b;
+  margin: 8px 0;
+  display: flex;
+  justify-content: space-between;
 }
 
-/* BUTTON */
+.crop-info p strong {
+  color: #1e293b;
+  font-weight: 600;
+}
+
 .crop-card button {
-  margin-top: 10px;
-  padding: 8px 12px;
-  border: none;
+  width: 100%;
+  padding: 12px;
   background: #22c55e;
   color: white;
-  border-radius: 8px;
+  border: none;
+  border-radius: 12px;
+  font-weight: 700;
   cursor: pointer;
+  transition: all 0.3s ease;
 }
 
-/* 🚫 EMPTY STATE */
-.no-results {
-  text-align: center;
-  color: #94a3b8;
+.crop-card button:hover {
+  background: #16a34a;
+  transform: scale(1.02);
 }
 
-/* 📋 MODAL */
+/* MODAL */
 .crop-modal {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.5);
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(4px);
   display: flex;
   justify-content: center;
   align-items: center;
+  z-index: 2000;
+  padding: 20px;
 }
 
-/* POPUP */
 .crop-popup {
   background: white;
-  padding: 20px;
-  border-radius: 16px;
-  width: 300px;
+  padding: 32px;
+  border-radius: 24px;
+  width: 100%;
+  max-width: 400px;
   position: relative;
-  animation: fadeIn 0.3s ease;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  animation: modalIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.9) translateY(20px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 .close-btn {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  top: 20px;
+  right: 20px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #f1f5f9;
   border: none;
-  background: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
   cursor: pointer;
+  transition: all 0.2s ease;
 }
 
-/* TIPS */
+.close-btn:hover {
+  background: #fee2e2;
+  color: #ef4444;
+  transform: rotate(90deg);
+}
+
+.crop-popup h2 {
+  font-size: 2rem;
+  font-weight: 800;
+  color: #1e293b;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.modal-info {
+  margin-bottom: 24px;
+  background: #f8fafc;
+  padding: 20px;
+  border-radius: 16px;
+}
+
+.modal-info p {
+  font-size: 1rem;
+  color: #334155; /* HIGH CONTRAST */
+  margin: 12px 0;
+  display: flex;
+  justify-content: space-between;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 8px;
+}
+
+.modal-info p:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.modal-info p strong {
+  color: #22c55e;
+  font-weight: 700;
+}
+
 .tips {
-  margin-top: 10px;
-  background: #ecfdf5;
-  padding: 10px;
-  border-radius: 10px;
-  font-size: 14px;
+  background: #f0fdf4;
+  color: #166534;
+  padding: 16px;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  display: flex;
+  gap: 12px;
+  border: 1px solid #dcfce7;
 }
 
-/* ANIMATION */
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: scale(0.95);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+/* NO RESULTS */
+.no-results {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 60px;
+  background: white;
+  border-radius: 24px;
+  color: #64748b;
+  font-size: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+}
+
+/* DARK MODE SUPPORT */
+.theme-dark .crop-page {
+  background: #0f172a;
+}
+
+.theme-dark .crop-hero {
+  background: linear-gradient(135deg, #064e3b, #065f46);
+}
+
+.theme-dark .crop-hero h1 { color: #4ade80; }
+.theme-dark .crop-hero p { color: #94a3b8; }
+
+.theme-dark .crop-card,
+.theme-dark .crop-popup,
+.theme-dark .no-results {
+  background: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+.theme-dark .crop-card h2,
+.theme-dark .crop-popup h2 {
+  color: #f8fafc;
+}
+
+.theme-dark .crop-info p strong,
+.theme-dark .modal-info p {
+  color: #cbd5e1;
+}
+
+.theme-dark .modal-info {
+  background: #0f172a;
+}
+
+.theme-dark .crop-filter button {
+  background: #1e293b;
+  color: #94a3b8;
+}
+
+.theme-dark .crop-filter button.active {
+  background: #22c55e;
+  color: white;
 }

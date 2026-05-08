@@ -5,34 +5,7 @@
   box-sizing: border-box;
 }
 
-/* Lite Mode Performance Engine */
-.lite-mode * {
-  animation: none !important;
-  transition: none !important;
-  transition-duration: 0s !important;
-  backdrop-filter: none !important;
-  text-shadow: none !important;
-}
 
-.lite-mode {
-  --navbar-height: 70px; /* Ensure consistency */
-}
-
-/* Lite Mode Performance Engine */
-.lite-mode .card,
-.lite-mode .modal,
-.lite-mode .glass-effect {
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
-  backdrop-filter: none !important;
-  background: var(--card-bg, #fff) !important;
-}
-
-/* seperating the navbar from rest */
-.lite-mode .navbar {
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
-  backdrop-filter: none !important;
-  background: var(--brand-primary, #2e7d32) !important;
-}
 
 /* Guest Banner */
 .guest-banner {
@@ -155,18 +128,39 @@ body,
 
 :root {
   --primary: #2e7d32;
-  --primary-light: #66bb6a;
-  --bg-light: #ffffff;
-  --bg-dark: #121212;
+  --primary-light: #4caf50;
+  --primary-dark: #1b5e20;
+  --accent: #10b981;
+  --bg-light: #f9fafb;
+  --bg-dark: #0f172a;
+  --card-bg: #ffffff;
+  --text-primary: #1f2937;
+  --text-secondary: #4b5563;
+  --border-color: #e5e7eb;
+  --navbar-height: 70px;
+}
+
+.theme-dark {
+  --primary: #4caf50;
+  --primary-light: #81c784;
+  --primary-dark: #2e7d32;
+  --bg-light: #0f172a;
+  --bg-dark: #070c16;
+  --card-bg: #1e293b;
+  --text-primary: #f3f4f6;
+  --text-secondary: #d1d5db;
+  --border-color: #334155;
 }
 
 .app {
   height: 100%;
   width: 100%;
   font-family: "Poppins", sans-serif;
-  padding-top: var(--navbar-height, 80px);
-  padding-top: max(var(--navbar-height, 80px), calc(constant(safe-area-inset-top) + var(--navbar-height, 80px)));
-  padding-top: max(var(--navbar-height, 80px), calc(env(safe-area-inset-top) + var(--navbar-height, 80px)));
+  color: var(--text-primary);
+  background-color: var(--bg-light);
+  padding-top: var(--navbar-height, 70px);
+  padding-top: max(var(--navbar-height, 70px), calc(constant(safe-area-inset-top) + var(--navbar-height, 70px)));
+  padding-top: max(var(--navbar-height, 70px), calc(env(safe-area-inset-top) + var(--navbar-height, 70px)));
   padding-bottom: 0;
   padding-bottom: constant(safe-area-inset-bottom);
   padding-bottom: env(safe-area-inset-bottom);
@@ -177,6 +171,7 @@ body,
   padding-right: constant(safe-area-inset-right);
   padding-right: env(safe-area-inset-right);
   box-sizing: border-box;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 
@@ -1035,6 +1030,10 @@ html body {
 .verification-card h2 {
   color: #2e7d32;
   margin-bottom: 1rem;
+}
+
+.theme-dark .verification-card h2 {
+  color: #4ade80;
 }
 
 .verification-card p {

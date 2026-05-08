@@ -1,106 +1,24 @@
 /**
  * Secure E2EE Cryptography Service using Web Crypto API
  * Implements Elliptic Curve Diffie-Hellman (ECDH) and AES-GCM encryption
- *
- * Private keys are stored in IndexedDB as non-extractable CryptoKey objects.
- * This means the raw key material can never be read by JavaScript — not by
- * this code, not by third-party scripts, and not by an XSS attacker.
  */
 
-// ---------------------------------------------------------------------------
-// IndexedDB key store
-// ---------------------------------------------------------------------------
-
-const IDB_NAME = "fasal_e2ee";
-const IDB_STORE = "keys";
-const IDB_VERSION = 1;
-
-function openKeyStore() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(IDB_NAME, IDB_VERSION);
-    req.onupgradeneeded = (e) => {
-      e.target.result.createObjectStore(IDB_STORE);
-    };
-    req.onsuccess = (e) => resolve(e.target.result);
-    req.onerror = (e) => reject(e.target.error);
-  });
-}
-
-async function idbGet(key) {
-  const db = await openKeyStore();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(IDB_STORE, "readonly");
-    const req = tx.objectStore(IDB_STORE).get(key);
-    req.onsuccess = (e) => resolve(e.target.result ?? null);
-    req.onerror = (e) => reject(e.target.error);
-  });
-}
-
-async function idbSet(key, value) {
-  const db = await openKeyStore();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(IDB_STORE, "readwrite");
-    const req = tx.objectStore(IDB_STORE).put(value, key);
-    req.onsuccess = () => resolve();
-    req.onerror = (e) => reject(e.target.error);
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Crypto service
-// ---------------------------------------------------------------------------
-
 export const cryptoService = {
-  /**
-   * Generate a new ECDH P-256 key pair.
-   *
-   * The private key is intentionally NON-EXTRACTABLE — its raw bytes can
-   * never be read by JavaScript. It is stored directly as a CryptoKey object
-   * in IndexedDB. The public key remains extractable so it can be shared.
-   */
+  // Generate a new ECDH P-256 key pair
   async generateECDHKeyPair() {
     return await window.crypto.subtle.generateKey(
       { name: "ECDH", namedCurve: "P-256" },
-      false, // private key is non-extractable
+      true, // extractable (so we can save to localStorage)
       ["deriveKey"]
     );
   },
 
-  /**
-   * Export a PUBLIC key to JWK format for transmission to Firebase.
-   * Never call this with a private key — it will throw because the private
-   * key is non-extractable.
-   */
+  // Export a key to JWK format for storage or transmission
   async exportKey(key) {
     return await window.crypto.subtle.exportKey("jwk", key);
   },
 
-  // ---------------------------------------------------------------------------
-  // IndexedDB persistence for the non-extractable private key
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Persist the private CryptoKey for a user in IndexedDB.
-   * The browser stores the opaque key handle; the raw bytes never leave the
-   * Web Crypto subsystem.
-   */
-  async savePrivateKey(uid, privateKey) {
-    await idbSet(`ecdh_private_${uid}`, privateKey);
-  },
-
-  /**
-   * Load the private CryptoKey for a user from IndexedDB.
-   * Returns null if no key exists yet.
-   */
-  async loadPrivateKey(uid) {
-    return await idbGet(`ecdh_private_${uid}`);
-  },
-
-  // ---------------------------------------------------------------------------
-  // Import helpers
-  // ---------------------------------------------------------------------------
-
-  // Import a public ECDH key from a remote peer (JWK → CryptoKey)
+  // Import a public ECDH key from a remote peer
   async importPublicKey(jwk) {
     return await window.crypto.subtle.importKey(
       "jwk",
@@ -111,24 +29,16 @@ export const cryptoService = {
     );
   },
 
-  /**
-   * Import our own private key from a JWK.
-   * Only used for migrating keys that were previously stored in localStorage.
-   * After migration the key is re-saved as non-extractable via savePrivateKey.
-   */
+  // Import our own private key from local storage
   async importPrivateKey(jwk) {
     return await window.crypto.subtle.importKey(
       "jwk",
       jwk,
       { name: "ECDH", namedCurve: "P-256" },
-      false, // import as non-extractable too
+      true,
       ["deriveKey"]
     );
   },
-
-  // ---------------------------------------------------------------------------
-  // Encryption / decryption
-  // ---------------------------------------------------------------------------
 
   // Derive an AES-GCM shared symmetric key using our private key and their public key
   async deriveSharedSecret(privateKey, publicKey) {
@@ -153,9 +63,13 @@ export const cryptoService = {
       encodedText
     );
 
+    // Encode to base64 for easy transport/storage
+    const ciphertextBase64 = this.bufferToBase64(ciphertextBuffer);
+    const ivBase64 = this.bufferToBase64(iv);
+
     return {
-      ciphertext: this.bufferToBase64(ciphertextBuffer),
-      iv: this.bufferToBase64(iv),
+      ciphertext: ciphertextBase64,
+      iv: ivBase64
     };
   },
 
@@ -178,10 +92,7 @@ export const cryptoService = {
     }
   },
 
-  // ---------------------------------------------------------------------------
   // Helpers
-  // ---------------------------------------------------------------------------
-
   bufferToBase64(buffer) {
     let binary = "";
     const bytes = new Uint8Array(buffer);
@@ -198,5 +109,5 @@ export const cryptoService = {
       bytes[i] = binary.charCodeAt(i);
     }
     return bytes.buffer;
-  },
+  }
 };

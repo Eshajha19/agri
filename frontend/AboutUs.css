@@ -108,7 +108,7 @@
 }
 .about-hero p {
   font-size: 17px;
-  color: #64748b;
+  color: var(--text-secondary);
   max-width: 580px;
   line-height: 1.75;
   margin: 0;
@@ -231,7 +231,7 @@
   margin-bottom: 12px;
 }
 .about-section-header h2 { font-size: clamp(28px, 4vw, 40px); font-weight: 900; color: #0f172a; margin: 0 0 10px; }
-.about-section-header p { font-size: 16px; color: #64748b; margin: 0 auto; max-width: 500px; }
+.about-section-header p { font-size: 16px; color: var(--text-secondary); margin: 0 auto; max-width: 500px; }
 
 /* Mission & Vision */
 .about-mv-grid {
@@ -272,7 +272,7 @@
 .about-mv-card.mission .about-mv-icon { background: linear-gradient(135deg, #10b981, #059669); }
 .about-mv-card.vision .about-mv-icon  { background: linear-gradient(135deg, #6366f1, #4f46e5); }
 .about-mv-card h2 { font-size: 22px; font-weight: 900; color: #0f172a; margin: 0; }
-.about-mv-card p  { font-size: 15px; color: #64748b; line-height: 1.8; margin: 0; }
+.about-mv-card p  { font-size: 15px; color: var(--text-secondary); line-height: 1.8; margin: 0; }
 
 /* Intro */
 .about-intro {
@@ -615,6 +615,14 @@
 .theme-dark .visual-bar-row { background: rgba(255,255,255,0.06); }
 .theme-dark .team-socials a { border-color: rgba(255,255,255,0.1); color: #94a3b8; }
 .theme-dark .about-features-section { background: rgba(255,255,255,0.02); border-color: rgba(255,255,255,0.07); }
+
+.theme-dark .about-hero-body,
+.theme-dark .about-hero p,
+.theme-dark .about-section-header p,
+.theme-dark .about-mv-card p,
+.theme-dark .about-value-card p,
+.theme-dark .about-feature-card p,
+.theme-dark .timeline-card p { color: var(--text-secondary); }
 
 /* Responsive */
 @media (max-width: 900px) {

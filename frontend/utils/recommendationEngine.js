@@ -12,7 +12,7 @@ export const generateRecommendations = ({ weatherData, cropType, season }) => {
   if (heavyRain) {
     tips.push({
       type: "warning",
-      icon: "🌧️",
+      icon: "rain",
       title: "Heavy Rain Alert",
       text: "Avoid fertilizer spraying and ensure drainage.",
     });
@@ -21,7 +21,7 @@ export const generateRecommendations = ({ weatherData, cropType, season }) => {
   if (highTemp) {
     tips.push({
       type: "heat",
-      icon: "☀️",
+      icon: "sun",
       title: "Heat Stress Risk",
       text: "Irrigate early morning and use mulching.",
     });
@@ -30,7 +30,7 @@ export const generateRecommendations = ({ weatherData, cropType, season }) => {
   if (coldTemp) {
     tips.push({
       type: "frost",
-      icon: "❄️",
+      icon: "frost",
       title: "Frost Warning",
       text: "Cover crops overnight to prevent damage.",
     });
@@ -40,7 +40,7 @@ export const generateRecommendations = ({ weatherData, cropType, season }) => {
   if (cropType === "Paddy") {
     tips.push({
       type: "crop",
-      icon: "🌾",
+      icon: "grain",
       title: "Paddy Care",
       text: "Maintain 2–5 cm standing water.",
     });
@@ -49,7 +49,7 @@ export const generateRecommendations = ({ weatherData, cropType, season }) => {
   if (cropType === "Wheat") {
     tips.push({
       type: "crop",
-      icon: "🌱",
+      icon: "seedling",
       title: "Wheat Care",
       text: "Monitor rust disease and irrigate at tillering stage.",
     });
@@ -59,7 +59,7 @@ export const generateRecommendations = ({ weatherData, cropType, season }) => {
   if (season === "Kharif") {
     tips.push({
       type: "season",
-      icon: "🌧️",
+      icon: "rain",
       title: "Kharif Strategy",
       text: "Ensure proper drainage and weed control.",
     });
@@ -68,7 +68,7 @@ export const generateRecommendations = ({ weatherData, cropType, season }) => {
   if (season === "Rabi") {
     tips.push({
       type: "season",
-      icon: "❄️",
+      icon: "frost",
       title: "Rabi Strategy",
       text: "Focus on irrigation and frost protection.",
     });

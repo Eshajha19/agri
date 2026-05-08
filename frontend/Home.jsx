@@ -18,7 +18,9 @@ import {
   FaPhoneAlt,
   FaQuoteLeft,
   FaSeedling,
-  FaChevronUp
+  FaChevronUp,
+  FaChevronRight,
+  FaCloudSun
 } from "react-icons/fa";
 import WeatherAlertBar from "./weather/WeatherAlertBar";
 import WeatherQuickWidget from "./weather/WeatherQuickWidget";
@@ -303,51 +305,55 @@ export default function Home({ user }) {
   {/* STEP FLOW */}
   <div className="how-demo-steps">
     <div className="demo-step">
-      <div className="step-icon">🌱</div>
+      <div className="step-icon"><FaSeedling /></div>
       <h3>1. Choose Your Crop</h3>
       <p>Select your crop type and farming details</p>
     </div>
 
-    <div className="step-arrow">→</div>
+    <div className="step-arrow"><FaChevronRight /></div>
 
     <div className="demo-step">
-      <div className="step-icon">🌦️</div>
+      <div className="step-icon"><FaCloudSun /></div>
       <h3>2. Check Weather</h3>
       <p>View real-time weather insights for your farm</p>
     </div>
 
-    <div className="step-arrow">→</div>
+    <div className="step-arrow"><FaChevronRight /></div>
 
     <div className="demo-step">
-      <div className="step-icon">🤖</div>
+      <div className="step-icon"><FaBrain /></div>
       <h3>3. Get AI Recommendations</h3>
       <p>Receive smart suggestions for irrigation, yield & more</p>
     </div>
   </div>
 
-   {/* DEMO VIDEO */}
-   <div className="demo-video-wrapper">
-     <div className="demo-video-container">
-       <div className="demo-video-overlay">
-         <div className="demo-play-badge">
-           <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-             <path d="M8 5v14l11-7z"/>
-           </svg>
-           <span>Watch Demo</span>
-         </div>
-       </div>
-       <video 
-         controls 
-         muted 
-         loop 
-         playsInline
-         poster="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='630' viewBox='0 0 1200 630'%3E%3Crect fill='%23064e3b' width='1200' height='630'/%3E%3Crect fill='%2310b981' x='200' y='150' width='800' height='330' rx='20'/%3E%3Ccircle fill='%23fff' cx='600' cy='315' r='60' opacity='0.9'/%3E%3Cpath fill='%23064e3b' d='M575 280l50 35-50 35V280z'/%3E%3Ctext fill='%23fff' font-family='Arial' font-size='48' font-weight='bold' x='600' y='480' text-anchor='middle'%3EFasal Saathi Demo%3C/text%3E%3Ctext fill='%23a7f3d0' font-family='Arial' font-size='24' x='600' y='520' text-anchor='middle'%3EAI-Powered Farming Assistant%3C/text%3E%3C/svg%3E"
-       >
-         <source src="/demo.mp4" type="video/mp4" />
-         Your browser does not support the video tag.
-       </video>
-     </div>
-   </div>
+    {/* DEMO VIDEO */}
+    <div className="demo-video-wrapper">
+      <div className="demo-video-container">
+        <div className="demo-video-overlay" id="videoOverlay">
+          <div className="demo-play-badge">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M8 5v14l11-7z"/>
+            </svg>
+            <span>Watch Demo</span>
+          </div>
+        </div>
+        <video 
+          controls 
+          muted 
+          loop 
+          playsInline
+          onPlay={() => {
+            document.getElementById('videoOverlay').style.opacity = '0';
+            document.getElementById('videoOverlay').style.pointerEvents = 'none';
+          }}
+          poster="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='630' viewBox='0 0 1200 630'%3E%3Crect fill='%23064e3b' width='1200' height='630'/%3E%3Crect fill='%2310b981' x='200' y='150' width='800' height='330' rx='20'/%3E%3Ctext fill='%23fff' font-family='Arial' font-size='48' font-weight='bold' x='600' y='315' text-anchor='middle'%3EFasal Saathi Demo%3C/text%3E%3Ctext fill='%23a7f3d0' font-family='Arial' font-size='24' x='600' y='355' text-anchor='middle'%3EAI-Powered Farming Assistant%3C/text%3E%3C/svg%3E"
+        >
+          <source src="/demo.mp4" type="video/mp4" />
+          Your browser does not support the video tag.
+        </video>
+      </div>
+    </div>
 
   {/* CTA */}
   <div style={{ textAlign: "center", marginTop: "20px" }}>
@@ -386,7 +392,7 @@ export default function Home({ user }) {
 
       <section className="contributors-home-section">
         <div className="section-header">
-          <h2>🌟 Our Contributors</h2>
+          <h2><FaUsers className="header-icon-inline" /> Our Contributors</h2>
           <p className="subtitle">Meet the amazing people behind <span className="notranslate">Fasal Saathi</span></p>
         </div>
         <div className="contributors-home-card">
@@ -403,11 +409,11 @@ export default function Home({ user }) {
                   <span className="stat-label">Contributors</span>
                 </div>
                 <div className="stat">
-                  <span className="stat-number">💚</span>
+                  <span className="stat-number"><FaSeedling style={{ color: '#22c55e' }} /></span>
                   <span className="stat-label">Open Source</span>
                 </div>
                 <div className="stat">
-                  <span className="stat-number">🌍</span>
+                  <span className="stat-number"><FaGlobe style={{ color: '#3b82f6' }} /></span>
                   <span className="stat-label">Global Community</span>
                 </div>
               </div>
@@ -492,6 +498,62 @@ export default function Home({ user }) {
           Start Free Consultation
         </Link>
       </section>
+
+      <footer className="home-footer">
+        <div className="footer-content">
+          <div className="footer-grid">
+            <div className="footer-section">
+              <div className="footer-brand">
+                <FaSeedling className="footer-logo" />
+                <span className="notranslate">Fasal Saathi</span>
+              </div>
+              <p className="footer-description">
+                AI-powered agricultural advisor helping farmers with crop planning,
+                weather insights, irrigation, and yield optimization.
+              </p>
+              <div className="footer-contact">
+                <FaPhoneAlt />
+                <span>+91 98765 43210</span>
+              </div>
+            </div>
+            <div className="footer-section">
+              <h4>Quick Links</h4>
+              <Link to="/" aria-label="Go to Home Page"><span className="notranslate">Home</span></Link>
+              <Link to="/advisor" aria-label="Consult the AI Advisor"><span className="notranslate">Advisor</span></Link>
+              <Link to="/how-it-works" aria-label="How Fasal Saathi helps you"><span className="notranslate">How It Works</span></Link>
+              <Link to="/schemes" aria-label="View Government Schemes for farmers"><span className="notranslate">Govt Schemes</span></Link>
+              <Link to="/dashboard" aria-label="Go to your farming dashboard"><span className="notranslate">Dashboard</span></Link>
+              <Link to="/calendar" aria-label="View your farming activity calendar"><span className="notranslate">Activity Calendar</span></Link>
+              <Link to="/market-prices" aria-label="Check latest market prices for crops"><span className="notranslate">Market Prices</span></Link>
+              <Link to="/community" aria-label="Join the community discussion"><span className="notranslate">Community</span></Link>
+              <Link to="/share-feedback" aria-label="Share your thoughts with us"><span className="notranslate">Share Feedback</span></Link>
+            </div>
+            <div className="footer-section">
+              <h4>Resources</h4>
+              <Link to="/crop-guide" aria-label="View the Crop Guide"><span className="notranslate">Crop Guide</span></Link>
+              <Link to="/weather" aria-label="Check weather updates"><span className="notranslate">Weather Updates</span></Link>
+              <Link to="/soil-analysis" aria-label="Get soil analysis insights"><span className="notranslate">Soil Analysis</span></Link>
+              <Link to="/faq" aria-label="Frequently Asked Questions"><span className="notranslate">FAQs</span></Link>
+            </div>
+            <div className="footer-section">
+              <h4>Company</h4>
+              <Link to="/about" aria-label="Learn about Fasal Saathi"><span className="notranslate">About Us</span></Link>
+              <Link to="/contact" aria-label="Contact our support team"><span className="notranslate">Contact</span></Link>
+              <Link to="/privacy-policy" aria-label="Read our Privacy Policy"><span className="notranslate">Privacy Policy</span></Link>
+              <Link to="/terms" aria-label="Read our Terms of Service"><span className="notranslate">Terms of Service</span></Link>
+            </div>
+          </div>
+          <div className="footer-bottom">
+            <div className="footer-socials">
+              <FaGlobe />
+              <span>Available Across India</span>
+            </div>
+            <p className="footer-copyright">
+              © 2026 <span className="notranslate" translate="no">Fasal Saathi</span>. All rights reserved. MIT Licensed.
+            </p>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

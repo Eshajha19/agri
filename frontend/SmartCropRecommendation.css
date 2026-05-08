@@ -731,3 +731,100 @@
     font-size: 11px;
   }
 }
+
+/* Dark Mode Support */
+.theme-dark .smart-crop-recommendation {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  color: var(--text-primary);
+}
+
+.theme-dark .input-section {
+  background: #1e293b;
+  border-color: #2ecc71;
+  color: var(--text-primary);
+}
+
+.theme-dark .form-group label {
+  color: var(--text-primary);
+}
+
+.theme-dark .form-input,
+.theme-dark .dropdown-btn {
+  background: #0f172a;
+  border-color: #334155;
+  color: var(--text-primary);
+}
+
+.theme-dark .form-input:focus,
+.theme-dark .dropdown-btn:hover {
+  background: #1e293b;
+  border-color: #2ecc71;
+}
+
+.theme-dark .dropdown-menu {
+  background: #1e293b;
+  border-color: #2ecc71;
+}
+
+.theme-dark .dropdown-item {
+  background: #1e293b;
+  color: var(--text-primary);
+}
+
+.theme-dark .dropdown-item:hover {
+  background: #2d3748;
+}
+
+.theme-dark .weather-info {
+  background: linear-gradient(135deg, #1e293b 0%, #1a202c 100%);
+  border-color: #9c27b0;
+}
+
+.theme-dark .weather-card {
+  background: #0f172a;
+  border-color: #334155;
+}
+
+.theme-dark .weather-card span {
+  color: var(--text-primary);
+}
+
+.theme-dark .crop-card {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.theme-dark .crop-card:hover {
+  border-color: #2ecc71;
+}
+
+.theme-dark .crop-info h4 {
+  color: var(--text-primary);
+}
+
+.theme-dark .crop-info p {
+  color: var(--text-secondary);
+}
+
+.theme-dark .crop-card.active {
+  background: linear-gradient(135deg, #166534 0%, #14532d 100%);
+  border-color: #2ecc71;
+}
+
+.theme-dark .btn-secondary {
+  background: #334155;
+  color: #f1f5f9;
+}
+
+.theme-dark .btn-secondary:hover {
+  background: #475569;
+}
+
+.theme-dark .tips {
+  background: rgba(46, 204, 113, 0.1);
+  border-color: #2ecc71;
+}
+
+.theme-dark .tips ul {
+  color: var(--text-secondary);
+}

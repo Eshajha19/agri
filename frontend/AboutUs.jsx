@@ -6,6 +6,10 @@ import {
   FaShieldAlt, FaRocket, FaGlobe,
   FaGithub, FaLinkedin, FaTwitter, FaArrowRight,
   FaCrown,
+  FaLightbulb,
+  FaRobot,
+  FaTractor,
+  FaUserAlt
 } from "react-icons/fa";
 import "./AboutUs.css";
 
@@ -26,11 +30,11 @@ const FEATURES = [
 ];
 
 const TIMELINE = [
-  { year: "2022", title: "Idea Born", desc: <><span className="notranslate" translate="no">Fasal Saathi</span> started as a college project to solve real problems faced by Indian farmers.</>, emoji: "💡" },
-  { year: "2023", title: "First Prototype", desc: "Launched MVP with crop recommendations and basic weather alerts for 3 states.", emoji: "🚀" },
-  { year: "2024", title: "Multi-language Launch", desc: "Expanded to 12 Indian languages and onboarded 10,000+ farmers.", emoji: "🌍" },
-  { year: "2025", title: "AI Integration", desc: "Integrated machine learning models for yield prediction and soil analysis.", emoji: "🤖" },
-  { year: "2026", title: "Growing Strong", desc: "50,000+ farmers, community features, and expanding to more regions.", emoji: "🌱" },
+  { year: "2022", title: "Idea Born", desc: <><span className="notranslate" translate="no">Fasal Saathi</span> started as a college project to solve real problems faced by Indian farmers.</>, icon: <FaLightbulb /> },
+  { year: "2023", title: "First Prototype", desc: "Launched MVP with crop recommendations and basic weather alerts for 3 states.", icon: <FaRocket /> },
+  { year: "2024", title: "Multi-language Launch", desc: "Expanded to 12 Indian languages and onboarded 10,000+ farmers.", icon: <FaGlobe /> },
+  { year: "2025", title: "AI Integration", desc: "Integrated machine learning models for yield prediction and soil analysis.", icon: <FaRobot /> },
+  { year: "2026", title: "Growing Strong", desc: "50,000+ farmers, community features, and expanding to more regions.", icon: <FaSeedling /> },
 ];
 
 const TEAM = [
@@ -143,14 +147,14 @@ export default function AboutUs() {
             </div>
             <div className="visual-bars">
               {[
-                { label: "🌾 Wheat", w: 80 },
-                { label: "🌽 Maize", w: 65 },
-                { label: "🍅 Tomato", w: 90 },
-                { label: "🌿 Spinach", w: 55 },
-                { label: "🥔 Potato", w: 75 },
+                { label: "Wheat", w: 80, icon: <FaLeaf /> },
+                { label: "Maize", w: 65, icon: <FaSeedling /> },
+                { label: "Tomato", w: 90, icon: <FaLeaf /> },
+                { label: "Spinach", w: 55, icon: <FaLeaf /> },
+                { label: "Potato", w: 75, icon: <FaSeedling /> },
               ].map((item, i) => (
                 <div key={i} className="visual-bar-labeled">
-                  <span className="visual-bar-label">{item.label}</span>
+                  <span className="visual-bar-label"><span className="inline-icon">{item.icon}</span> {item.label}</span>
                   <div className="visual-bar-row">
                     <div className="visual-bar" style={{ width: `${item.w}%`, animationDelay: `${i * 0.15}s` }} />
                   </div>
@@ -159,9 +163,9 @@ export default function AboutUs() {
               ))}
             </div>
             <div className="visual-footer">
-              <span className="visual-tag">🚜 Tractor Ready</span>
-              <span className="visual-tag">💧 Irrigated</span>
-              <span className="visual-tag">�️ Good Weather</span>
+              <span className="visual-tag"><FaTractor /> Tractor Ready</span>
+              <span className="visual-tag"><FaHandHoldingWater /> Irrigated</span>
+              <span className="visual-tag"><FaSun /> Good Weather</span>
             </div>
           </div>
         </div>
@@ -214,7 +218,7 @@ export default function AboutUs() {
           <div className="timeline-line" />
           {TIMELINE.map((t, i) => (
             <div className={`about-timeline-item ${i % 2 === 0 ? "left" : "right"}`} key={i}>
-              <div className="timeline-dot">{t.emoji}</div>
+              <div className="timeline-dot">{t.icon}</div>
               <div className="timeline-card">
                 <span className="timeline-year">{t.year}</span>
                 <h3>{t.title}</h3>
@@ -258,7 +262,7 @@ export default function AboutUs() {
       <section className="about-cta">
         <div className="about-cta-inner">
           <div className="about-cta-farm-row">
-            <span>🌾</span><span>🚜</span><span>🐄</span><span>🌽</span><span>👩‍🌾</span>
+            <FaLeaf /> <FaTractor /> <FaSeedling /> <FaUserAlt />
           </div>
           <FaLeaf className="about-cta-icon" />
           <h2>Ready to Farm Smarter?</h2>

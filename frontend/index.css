@@ -199,3 +199,19 @@ button:hover {
   font-weight: 800;
   text-decoration: none;
 }
+
+/* Icon Utilities */
+.header-icon-inline {
+  margin-right: 12px;
+  vertical-align: middle;
+  color: var(--brand-primary);
+}
+
+.inline-icon {
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+.theme-dark .header-icon-inline {
+  color: var(--brand-primary);
+}

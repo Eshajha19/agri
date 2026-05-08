@@ -1,4 +1,4 @@
-/* 🌿 Chatbot Container */
+/* Chatbot Container */
 .soil-chatbot {
   width: 100%;
   max-width: 480px;
@@ -18,7 +18,7 @@
   border: 1px solid var(--border-color);
 }
 
-/* 🌿 Header */
+/* Header */
 .chat-header {
   display: flex;
   justify-content: space-between;
@@ -48,7 +48,7 @@
   opacity: 0.9;
 }
 
-/* 🌿 Chat Window */
+/* Chat Window */
 .chat-window {
   flex: 1;
   padding: 18px;
@@ -61,7 +61,7 @@
   scroll-behavior: smooth;
 }
 
-/* 🌿 Messages */
+/* Messages */
 .chat-message {
   padding: 12px 16px;
   border-radius: 18px;
@@ -91,7 +91,7 @@
   box-shadow: 0 3px 6px rgba(0, 0, 0, 0.08);
 }
 
-/* 🌿 Input Section */
+/* Input Section */
 .chat-input {
   display: flex;
   gap: 10px;
@@ -117,13 +117,13 @@
   box-shadow: 0 0 6px rgba(46, 204, 113, 0.4);
 }
 
-/* 🌿 File Upload */
+/* File Upload */
 .chat-input input[type="file"] {
   display: none;
 }
 
 
-/* 🌿 Send Button */
+/* Send Button */
 .chat-input button {
   background: linear-gradient(135deg, #27ae60, #219150);
   border: none;
@@ -209,7 +209,7 @@
   cursor: pointer;
 }
 
-/* 🌿 Animations */
+/* Animations */
 @keyframes fadeInUp {
   from {
     opacity: 0;

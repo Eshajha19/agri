@@ -1,4 +1,14 @@
 import { useState, useEffect } from "react";
+import { 
+  Sprout, 
+  Search, 
+  AlertTriangle, 
+  Bug, 
+  FlaskConical, 
+  ShieldCheck, 
+  RefreshCcw,
+  X
+} from "lucide-react";
 
 export default function CropDiseaseDetection({ onClose }) {
   const [image, setImage] = useState(null);
@@ -25,12 +35,12 @@ export default function CropDiseaseDetection({ onClose }) {
 
     // ✅ File validation
     if (!file.type.startsWith("image/")) {
-      setError("⚠️ Please upload a valid image file.");
+      setError("Please upload a valid image file.");
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      setError("⚠️ Image size should be less than 5MB.");
+      setError("Image size should be less than 5MB.");
       return;
     }
 
@@ -50,7 +60,7 @@ export default function CropDiseaseDetection({ onClose }) {
 
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
     if (!apiKey) {
-      setError("⚠️ API key not configured.");
+      setError("API key not configured.");
       setLoading(false);
       return;
     }
@@ -124,7 +134,7 @@ export default function CropDiseaseDetection({ onClose }) {
 
     } catch (err) {
       console.error(err);
-      setError(err.message || "❌ Detection failed. Try again.");
+      setError(err.message || "Detection failed. Try again.");
     } finally {
       setLoading(false);
     }
@@ -147,12 +157,12 @@ export default function CropDiseaseDetection({ onClose }) {
         onClick={onClose}
         aria-label="Close"
       >
-        ✕
+        <X size={18} />
       </button>
 
       {/* Header */}
-      <h2 style={{ color: "#16a34a", marginBottom: "20px", fontSize: "24px", paddingRight: "40px" }}>
-        🌿 Crop Disease Detection
+      <h2 style={{ color: "#16a34a", marginBottom: "20px", fontSize: "24px", paddingRight: "40px", display: "flex", alignItems: "center" }}>
+        <Sprout className="header-icon-inline" /> Crop Disease Detection
       </h2>
 
       {/* Upload */}
@@ -191,10 +201,15 @@ export default function CropDiseaseDetection({ onClose }) {
           borderRadius: "8px", 
           fontSize: "16px", 
           cursor: !image || loading ? "not-allowed" : "pointer",
-          opacity: !image || loading ? 0.7 : 1
+          opacity: !image || loading ? 0.7 : 1,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "8px"
         }}
       >
-        {loading ? "⏳ Analyzing image..." : "🔍 Detect Disease"}
+        {loading ? <RefreshCcw className="animate-spin" size={18} /> : <Search size={18} />}
+        {loading ? "Analyzing image..." : "Detect Disease"}
       </button>
 
       {/* Error */}
@@ -213,8 +228,8 @@ export default function CropDiseaseDetection({ onClose }) {
           borderRadius: "12px", 
           border: "1px solid #bbf7d0" 
         }}>
-          <p style={{ fontSize: "18px", fontWeight: "bold", color: "#111" }}>
-            🦠 Disease: 
+          <p style={{ fontSize: "18px", fontWeight: "bold", color: "#111", display: "flex", alignItems: "center", gap: "8px" }}>
+            <Bug size={18} /> Disease: 
             <span style={{ 
               color: result.disease === "Healthy" ? "#16a34a" : "#dc2626",
               marginLeft: "6px"
@@ -223,16 +238,16 @@ export default function CropDiseaseDetection({ onClose }) {
             </span>
           </p>
 
-          <p style={{ color: "#555", marginTop: "8px" }}>
-            📊 Confidence: <strong>{result.confidence}</strong>
+          <p style={{ color: "#555", marginTop: "8px", display: "flex", alignItems: "center", gap: "8px" }}>
+            <Search size={16} /> Confidence: <strong>{result.confidence}</strong>
           </p>
 
-          <p style={{ color: "#555", marginTop: "8px" }}>
-            💊 Treatment: {result.treatment}
+          <p style={{ color: "#555", marginTop: "8px", display: "flex", alignItems: "center", gap: "8px" }}>
+            <FlaskConical size={16} /> Treatment: {result.treatment}
           </p>
 
-          <p style={{ color: "#555", marginTop: "8px" }}>
-            🛡️ Prevention: {result.prevention}
+          <p style={{ color: "#555", marginTop: "8px", display: "flex", alignItems: "center", gap: "8px" }}>
+            <ShieldCheck size={16} /> Prevention: {result.prevention}
           </p>
         </div>
       )}

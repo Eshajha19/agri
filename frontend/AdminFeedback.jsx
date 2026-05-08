@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { collection, getDocs, deleteDoc, doc, query, orderBy } from "firebase/firestore";
 import { db, auth } from "./lib/firebase";
-import { Star, Trash2, RefreshCw, MessageSquare, TrendingUp, Users, Award, ShieldAlert } from "lucide-react";
+import { Star, Trash2, RefreshCw, MessageSquare, TrendingUp, Users, Award, ShieldAlert, Sparkles, Bug, Palette, Target, Pin, ClipboardList, MapPin, Sprout } from "lucide-react";
 import "./AdminFeedback.css";
 import Loader from "./Loader";
 
@@ -10,12 +10,21 @@ import Loader from "./Loader";
 const ADMIN_EMAILS = ["tushar.18246@gmail.com"];
 
 const CATEGORY_LABELS = {
-  general: "💬 General",
-  feature: "✨ Feature Request",
-  bug: "🐛 Bug Report",
-  ui: "🎨 UI/UX",
-  accuracy: "🎯 AI Accuracy",
-  other: "📌 Other",
+  general: "General",
+  feature: "Feature Request",
+  bug: "Bug Report",
+  ui: "UI/UX",
+  accuracy: "AI Accuracy",
+  other: "Other",
+};
+
+const CATEGORY_ICONS = {
+  general: <MessageSquare size={14} />,
+  feature: <Sparkles size={14} />,
+  bug: <Bug size={14} />,
+  ui: <Palette size={14} />,
+  accuracy: <Target size={14} />,
+  other: <Pin size={14} />,
 };
 
 export default function AdminFeedback() {
@@ -125,7 +134,7 @@ export default function AdminFeedback() {
     <div className="admin-fb-page">
       <div className="admin-fb-header">
         <div>
-          <h1>📋 Feedback Dashboard</h1>
+          <h1><ClipboardList className="header-icon-inline" /> Feedback Dashboard</h1>
            <p>All submissions from <span className="notranslate" translate="no">Fasal Saathi</span> users</p>
         </div>
         <button className="refresh-btn" onClick={fetchFeedbacks} disabled={loading}>
@@ -178,7 +187,7 @@ export default function AdminFeedback() {
         <h3>Rating Distribution</h3>
         {ratingCounts.map(({ star, count }) => (
           <div key={star} className="rating-bar-row">
-            <span className="rbar-label">{star} ⭐</span>
+            <span className="rbar-label">{star} <Star size={12} fill="#f59e0b" stroke="#f59e0b" style={{ verticalAlign: 'middle' }} /></span>
             <div className="rbar-track">
               <div
                 className="rbar-fill"
@@ -199,6 +208,7 @@ export default function AdminFeedback() {
               className={`filter-chip ${filter === cat ? "active" : ""}`}
               onClick={() => setFilter(cat)}
             >
+              {cat !== "all" && <span className="chip-icon">{CATEGORY_ICONS[cat]}</span>}
               {cat === "all" ? "All" : CATEGORY_LABELS[cat]}
             </button>
           ))}
@@ -226,13 +236,16 @@ export default function AdminFeedback() {
                   <div>
                     <div className="fb-user-name">{fb.name || "Anonymous"}</div>
                     <div className="fb-user-meta">
-                      {fb.cropType && <span>🌾 {fb.cropType}</span>}
-                      {fb.location && <span>📍 {fb.location}</span>}
+                      {fb.cropType && <span><Sprout size={12} /> {fb.cropType}</span>}
+                      {fb.location && <span><MapPin size={12} /> {fb.location}</span>}
                     </div>
                   </div>
                 </div>
                 <div className="fb-card-actions">
-                  <span className="cat-tag">{CATEGORY_LABELS[fb.category] || fb.category}</span>
+                  <span className="cat-tag">
+                    {CATEGORY_ICONS[fb.category]}
+                    {CATEGORY_LABELS[fb.category] || fb.category}
+                  </span>
                   <button className="del-btn" onClick={() => handleDelete(fb.id)}>
                     <Trash2 size={14} />
                   </button>

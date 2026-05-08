@@ -49,7 +49,7 @@ const NavigationManager = () => {
         // Shift focus to the heading
          primaryHeading.focus();
          
-         if (import.meta.env.DEV) {
+         if (process.env.NODE_ENV !== 'production') {
            console.log(`[A11y] Focus shifted to: ${primaryHeading.innerText}`);
          }
       } else {

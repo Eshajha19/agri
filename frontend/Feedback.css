@@ -131,7 +131,17 @@
   padding: 14px 16px;
 }
 
-.stat-emoji { font-size: 22px; }
+.stat-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  color: #f59e0b;
+  flex-shrink: 0;
+}
 
 .stat-value {
   font-size: 18px;

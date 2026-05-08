@@ -1,15 +1,30 @@
 import React, { useState } from "react";
 import "./AgriMarketplace.css";
-import { Search, MapPin, Plus, Calendar, Clock, Phone, Info, X } from "lucide-react";
-
-
+import { 
+  Search, 
+  MapPin, 
+  Plus, 
+  Calendar, 
+  Clock, 
+  Phone, 
+  Info, 
+  X, 
+  Tractor, 
+  Wheat, 
+  Plane, 
+  Settings, 
+  Sprout, 
+  Star,
+  AlertTriangle,
+  Speaker
+} from "lucide-react";
 
 const TYPE_ICONS = {
-  Tractor:   "🚜",
-  Harvester: "🌾",
-  Drone:     "🚁",
-  Tillage:   "⚙️",
-  Sowing:    "🌱",
+  Tractor:   <Tractor />,
+  Harvester: <Wheat />,
+  Drone:     <Plane />,
+  Tillage:   <Settings />,
+  Sowing:    <Sprout />,
 };
 
 const INITIAL_EQUIPMENT = [
@@ -94,7 +109,7 @@ export default function AgriMarketplace({ onClose }) {
     <div className="marketplace-container">
       <div className="marketplace-header">
         <div className="header-top">
-          <h1>🚜 P2P Agri-Equipment Marketplace</h1>
+          <h1><Tractor className="header-icon-inline" /> P2P Agri-Equipment Marketplace</h1>
           <button className="list-btn" onClick={() => setShowListModal(true)}>
             <Plus size={20} /> List Equipment
           </button>
@@ -127,14 +142,14 @@ export default function AgriMarketplace({ onClose }) {
           filteredEquipment.map(item => (
             <div key={item.id} className={`equipment-card ${!item.available ? 'unavailable' : ''}`}>
               <div className="card-icon-header">
-                <span className="type-icon">{TYPE_ICONS[item.type] || "🔧"}</span>
+                <span className="type-icon">{TYPE_ICONS[item.type] || <Settings />}</span>
                 <div className="badge">{item.type}</div>
                 {!item.available && <div className="unavailable-tag">Currently Rented</div>}
               </div>
               <div className="card-content">
                 <div className="card-header">
                   <h3>{item.name}</h3>
-                  <div className="rating">⭐ {item.rating}</div>
+                  <div className="rating"><Star size={14} fill="currentColor" /> {item.rating}</div>
                 </div>
                 <p className="owner">Owner: {item.owner}</p>
                 <div className="details">
@@ -167,7 +182,7 @@ export default function AgriMarketplace({ onClose }) {
         <div className="modal-overlay" onClick={() => setShowListModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <button className="close-modal" onClick={() => setShowListModal(false)}><X size={24} /></button>
-            <h2>📢 List Your Equipment</h2>
+            <h2><Speaker className="header-icon-inline" /> List Your Equipment</h2>
             <form onSubmit={handleListEquipment}>
               <div className="form-group">
                 <label>Equipment Name</label>
@@ -235,9 +250,9 @@ export default function AgriMarketplace({ onClose }) {
         <div className="modal-overlay" onClick={() => setShowBookingModal(null)}>
           <div className="modal-content booking-modal" onClick={(e) => e.stopPropagation()}>
             <button className="close-modal" onClick={() => setShowBookingModal(null)}><X size={24} /></button>
-            <h2>📅 Schedule Booking</h2>
+            <h2><Calendar className="header-icon-inline" /> Schedule Booking</h2>
             <div className="item-info">
-              <span className="item-info-icon">{TYPE_ICONS[equipment.find(e => e.id === showBookingModal).type] || "🔧"}</span>
+              <span className="item-info-icon">{TYPE_ICONS[equipment.find(e => e.id === showBookingModal).type] || <Settings />}</span>
               <div>
                 <h3>{equipment.find(e => e.id === showBookingModal).name}</h3>
                 <p>₹{equipment.find(e => e.id === showBookingModal).price}/{equipment.find(e => e.id === showBookingModal).priceUnit}</p>
@@ -255,7 +270,7 @@ export default function AgriMarketplace({ onClose }) {
                 />
                 {bookingError && !bookingTime && !bookingDuration && (
                   <div style={{ color: '#f87171', fontSize: '0.82rem', marginTop: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                    ⚠️ {bookingError}
+                    <AlertTriangle size={14} /> {bookingError}
                   </div>
                 )}
               </div>
@@ -269,7 +284,7 @@ export default function AgriMarketplace({ onClose }) {
                   />
                   {bookingDate && bookingError && !bookingDuration && (
                     <div style={{ color: '#f87171', fontSize: '0.82rem', marginTop: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                      ⚠️ {bookingError}
+                      <AlertTriangle size={14} /> {bookingError}
                     </div>
                   )}
                 </div>
@@ -284,7 +299,7 @@ export default function AgriMarketplace({ onClose }) {
                   />
                   {bookingDate && bookingTime && bookingError && (
                     <div style={{ color: '#f87171', fontSize: '0.82rem', marginTop: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                      ⚠️ {bookingError}
+                    <AlertTriangle size={14} /> {bookingError}
                     </div>
                   )}
                 </div>

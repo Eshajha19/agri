@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
+import { FaBook, FaLightbulb, FaRocket, FaSeedling, FaSearch, FaArrowRight } from "react-icons/fa";
 import "./ResourcesPage.css";
 
 const resourcesData = [
@@ -73,7 +74,7 @@ export default function ResourcesPage() {
       
       {/* HERO */}
       <div className="resources-hero">
-        <h1>Knowledge Hub 🌱</h1>
+        <h1>Knowledge Hub <FaSeedling /></h1>
         <p>Explore farming tips, guides, and agriculture insights</p>
 
         <input
@@ -123,16 +124,16 @@ export default function ResourcesPage() {
 
               {item.link ? (
                 <Link to={item.link}>
-                  <button className="explore-btn">Explore →</button>
+                  <button className="explore-btn">Explore <FaArrowRight /></button>
                 </Link>
               ) : (
-                <button className="explore-btn">Explore →</button>
+                <button className="explore-btn">Explore <FaArrowRight /></button>
               )}
             </div>
           ))
         ) : (
           <div className="no-results">
-            <p>No resources found 😕</p>
+            <p>No resources found</p>
             <button onClick={() => { setSearch(""); setFilter("All"); }}>
               Reset Filters
             </button>
@@ -151,7 +152,7 @@ export default function ResourcesPage() {
 
       {/* ABOUT SECTION */}
       <div className="about-section">
-        <h2>About Knowledge Hub 🌾</h2>
+        <h2>About Knowledge Hub <FaSeedling /></h2>
         <p>
           This platform is designed to help farmers, students, and agriculture 
           enthusiasts access reliable knowledge in one place. From seasonal 
@@ -161,17 +162,17 @@ export default function ResourcesPage() {
 
         <div className="about-features">
           <div>
-            <h4>🌱 Practical Tips</h4>
+            <h4><FaSeedling /> Practical Tips</h4>
             <p>Real-world farming advice you can apply instantly.</p>
           </div>
 
           <div>
-            <h4>📘 Guides</h4>
+            <h4><FaBook /> Guides</h4>
             <p>Step-by-step resources for beginners and experts.</p>
           </div>
 
           <div>
-            <h4>🚀 Modern Tech</h4>
+            <h4><FaRocket /> Modern Tech</h4>
             <p>Stay updated with AI, smart farming, and innovations.</p>
           </div>
         </div>

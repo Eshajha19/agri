@@ -118,10 +118,10 @@ export default function ContactUs() {
                 <div className="cf-success-ring">
                   <FaCheckCircle className="cf-success-icon" />
                 </div>
-                <h2>Message Sent! 🌱</h2>
+                <h2>Message Sent! <FaLeaf className="inline-icon" /></h2>
                 <p>Thanks for reaching out. Our team will get back to you within <strong>24 hours</strong>.</p>
                 <div className="cf-success-detail">
-                  <span>📧 Confirmation sent to <strong>{form.email || "your email"}</strong></span>
+                  <span><FaEnvelope className="inline-icon" /> Confirmation sent to <strong>{form.email || "your email"}</strong></span>
                 </div>
                 <button className="cf-submit-btn" onClick={handleReset}>Send Another Message</button>
               </div>

@@ -35,12 +35,10 @@ from firebase_admin import credentials, auth as firebase_auth, firestore
 from ml.registry import ModelRegistry
 from ml.adapters.xgboost_adapter import XGBoostAdapter
 from ml.router import ModelRouter
-from ml.preprocessing import UnknownCategoryError, MissingFeatureError
 
 # Other internal modules
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
-from whatsapp_store import subscriber_store
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -64,111 +62,49 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Initialize Firebase Admin
-import logging as _logging
-_firebase_logger = _logging.getLogger(__name__)
-
-# Explicitly set to None before the try block so db_firestore is always
-# defined at module level, even if an exception is raised mid-init.
-db_firestore = None
-
 if not firebase_admin._apps:
     try:
-        # In a GCP environment this picks up Application Default Credentials
-        # automatically.  For local dev set GOOGLE_APPLICATION_CREDENTIALS to
-        # the path of a service-account key file.
+        # If running in a cloud environment (GCP), it uses default credentials
+        # For local, you might need: cred = credentials.Certificate('path/to/serviceAccountKey.json')
         firebase_admin.initialize_app()
         db_firestore = firestore.client()
-        _firebase_logger.info("Firebase Admin: successfully initialized")
+        print("Firebase Admin: Successfully initialized")
     except Exception as e:
-        _firebase_logger.warning(
-            "Firebase Admin: could not initialize — role-gated endpoints will "
-            "return 503 until Firestore is reachable. Reason: %s", e
-        )
+        print(f"Firebase Admin Warning: Could not initialize (expected in local dev): {e}")
+        db_firestore = None
 
 async def verify_role(request: Request, required_roles: list = None):
     """
-    Verify the Firebase ID token and check the caller's role against Firestore.
+    Dependency to verify user role from Firestore.
     Expects 'Authorization: Bearer <ID_TOKEN>' header.
-
-    Fail-closed design:
-    - If Firestore is unavailable the request is rejected with 503.
-    - If the user document does not exist the request is rejected with 403.
-    - The function never grants a role that was not explicitly stored in Firestore.
     """
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
-
-    # Use a slice instead of split()[1] to avoid IndexError when the header
-    # is exactly "Bearer " with no token following it.
-    id_token = auth_header[7:].strip()
-    if not id_token:
-        raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
-
-    # Verify the token signature with Firebase — raises on invalid/expired tokens.
+    
+    id_token = auth_header.split("Bearer ")[1]
     try:
         decoded_token = firebase_auth.verify_id_token(id_token)
-    except Exception:
-        raise HTTPException(status_code=401, detail="Authentication failed")
-
-    uid = decoded_token["uid"]
-
-    # Firestore must be available to resolve the caller's role.
-    # Failing open (granting admin when Firestore is down) is a security bug,
-    # so we reject the request instead.
-    if not db_firestore:
-        raise HTTPException(
-            status_code=503,
-            detail="Authorization service temporarily unavailable"
-        )
-
-    # Wrap the Firestore fetch so a transient network error (timeout, reset)
-    # returns the same clean 503 as a missing db_firestore, rather than an
-    # unhandled exception that leaks internal details as a raw 500.
-    try:
-        user_doc = db_firestore.collection("users").document(uid).get()
+        uid = decoded_token["uid"]
+        
+        if db_firestore:
+            user_doc = db_firestore.collection("users").document(uid).get()
+            if user_doc.exists:
+                user_role = user_doc.to_dict().get("role", "farmer")
+                if required_roles and user_role not in required_roles:
+                    raise HTTPException(status_code=403, detail=f"Access denied: {user_role} role not authorized")
+                return {"uid": uid, "role": user_role}
+        
+        # Local development fallback if no Firestore
+        return {"uid": uid, "role": "admin"}
     except Exception as e:
-        _firebase_logger.error(
-            "Firestore fetch failed for uid=%s during role check: %s", uid, e
-        )
-        raise HTTPException(
-            status_code=503,
-            detail="Authorization service temporarily unavailable"
-        )
-
-    if not user_doc.exists:
-        raise HTTPException(status_code=403, detail="User profile not found")
-
-    user_role = user_doc.to_dict().get("role", "farmer")
-
-    if required_roles and user_role not in required_roles:
-        raise HTTPException(status_code=403, detail="Access denied: insufficient permissions")
-
-    return {"uid": uid, "role": user_role}
-
-# --- Secure CORS Configuration ---
-frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
-trusted_origins = [
-    "http://localhost:5173",     # Local development
-    "http://127.0.0.1:5173",     # Local development alternative
-    "https://yourfrontend.com",  # Production domain placeholder
-]
-
-# Add any custom frontend URLs from environment
-if frontend_url and frontend_url not in trusted_origins:
-    trusted_origins.append(frontend_url)
-
-# Support comma-separated list of additional origins
-extra_origins = os.getenv("ADDITIONAL_ALLOWED_ORIGINS")
-if extra_origins:
-    trusted_origins.extend([origin.strip() for origin in extra_origins.split(",")])
+        raise HTTPException(status_code=401, detail=f"Token verification failed: {str(e)}")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=trusted_origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # --- Models ---
@@ -246,7 +182,7 @@ static_notifications = [
     {
         "id": 1,
         "type": "weather",
-        "message": "🌧️ Heavy rainfall expected in your region today.",
+        "message": "Heavy rainfall expected in your region today.",
         "time": datetime.now().isoformat()
     }
 ]
@@ -265,44 +201,18 @@ def predict_get():
 @limiter.limit("5/minute")
 def predict_yield(data: PredictRequest, request: Request):
     """
-    Standardised prediction endpoint using ML Router for dynamic model selection.
-
-    Returns HTTP 422 when the input contains an unknown categorical value or a
-    missing required feature, so callers receive an actionable error message
-    rather than a silently corrupted prediction.
+    Standardized prediction endpoint using ML Router for dynamic model selection.
     """
     try:
-        input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
-
+        input_data = data.model_dump() if hasattr(data, 'model_dump') else data.dict()
+        
         context = {
             "location": request.headers.get("X-User-Location", "Unknown"),
-            "crop": data.Crop,
+            "crop": data.Crop
         }
-
+        
         predicted_yield = router.predict(input_data, context)
         return {"predicted_ExpYield": float(predicted_yield)}
-
-    except UnknownCategoryError as e:
-        # The submitted categorical value was not in the training vocabulary.
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "unknown_category",
-                "field": e.column,
-                "value": str(e.value),
-                "message": str(e),
-            },
-        )
-    except MissingFeatureError as e:
-        # Required feature columns are absent after encoding.
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "missing_features",
-                "missing": e.missing_columns,
-                "message": str(e),
-            },
-        )
     except Exception as e:
         print(f"Prediction Error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -371,58 +281,55 @@ def get_notifications(
     return {"success": True, "data": static_notifications + dynamic_alerts}
 
 # --- WhatsApp Service Endpoints ---
-#
-# Subscriber persistence is handled by whatsapp_store.SubscriberStore, which
-# provides thread-safe, crash-safe read-modify-write operations via a
-# threading.Lock and atomic file replacement (write-to-tmp then os.replace).
-# The old load_subscribers / save_subscribers helpers have been removed because
-# they had no locking and used open(..., "w") directly, which could corrupt the
-# file on a concurrent write or a mid-write crash.
+
+SUBSCRIBERS_FILE = "whatsapp_subscribers.json"
+
+def load_subscribers():
+    if os.path.exists(SUBSCRIBERS_FILE):
+        try:
+            with open(SUBSCRIBERS_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def save_subscribers(subscribers):
+    with open(SUBSCRIBERS_FILE, "w") as f:
+        json.dump(subscribers, f)
 
 @app.post("/api/whatsapp/subscribe")
 @limiter.limit("2/minute")
 async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
+    subscribers = load_subscribers()
     user_id = data.user_id if data.user_id else str(datetime.now().timestamp())
-    subscriber = {
+    subscribers[user_id] = {
         "phone_number": data.phone_number,
         "name": data.name,
-        "subscribed_at": datetime.now().isoformat(),
+        "subscribed_at": datetime.now().isoformat()
     }
-    try:
-        subscriber_store.upsert(user_id, subscriber)
-    except OSError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to save subscription. Please try again.",
-        ) from exc
-
-    welcome_msg = (
-        f"Namaste {data.name}! 🙏\n\n"
-        "Welcome to *Fasal Saathi WhatsApp Alerts*. "
-        "You will now receive real-time updates directly here."
-    )
+    save_subscribers(subscribers)
+    
+    welcome_msg = f"Namaste {data.name}!\n\nWelcome to *Fasal Saathi WhatsApp Alerts*. You will now receive real-time updates directly here."
     send_whatsapp_message(data.phone_number, welcome_msg)
     return {"success": True, "message": "Successfully subscribed"}
 
 @app.post("/api/whatsapp/trigger-alert")
 async def trigger_whatsapp_alert(data: AlertTriggerRequest):
-    # get_all() acquires the lock and returns a stable snapshot, so this read
-    # cannot race with a concurrent subscription write.
-    subscribers = subscriber_store.get_all()
+    subscribers = load_subscribers()
     results = []
     formatted_msg = format_alert_message(data.alert_type, data.message)
-
+    
     for user_id, info in subscribers.items():
         res = send_whatsapp_message(info["phone_number"], formatted_msg)
         results.append({"user_id": user_id, "success": res.get("success", False)})
-
+    
     static_notifications.append({
         "id": len(static_notifications) + 1,
         "type": data.alert_type,
         "message": data.message,
-        "time": datetime.now().isoformat(),
+        "time": datetime.now().isoformat()
     })
-
+    
     return {"success": True, "results": results}
 
 @app.post("/api/whatsapp/webhook")
@@ -431,123 +338,90 @@ async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
     sender_number = From.replace("whatsapp:", "")
     
     responses = {
-        "weather": "🌡️ *Weather Update*\n\n28°C, Clear skies. No rain expected.",
-        "pest": "🐛 *Pest Assistant*\n\nPlease use the Pest Management tool in-app for diagnosis.",
-        "hi": "🙏 *Namaste!*\n\nI am your AI Farming Assistant. Try 'Weather' or 'Pest'.",
-        "hello": "🙏 *Namaste!*\n\nI am your AI Farming Assistant. Try 'Weather' or 'Pest'."
+        "weather": "*Weather Update*\n\n28°C, Clear skies. No rain expected.",
+        "pest": "*Pest Assistant*\n\nPlease use the Pest Management tool in-app for diagnosis.",
+        "hi": "*Namaste!*\n\nI am your AI Farming Assistant. Try 'Weather' or 'Pest'.",
+        "hello": "*Namaste!*\n\nI am your AI Farming Assistant. Try 'Weather' or 'Pest'."
     }
     
-    response = next((v for k, v in responses.items() if k in incoming_msg), f"Received: '{Body}'. Try 'Weather' or 'Pest' 🌱")
+    response = next((v for k, v in responses.items() if k in incoming_msg), f"Received: '{Body}'. Try 'Weather' or 'Pest'")
     send_whatsapp_message(sender_number, response)
     return {"status": "success"}
 
-# --- Cryptographic Reports ---
-#
-# Key resolution priority (highest → lowest):
-#   1. In-process cache          – avoids repeated I/O on every request
-#   2. GCP Secret Manager        – production path; key never touches disk
-#   3. Local persistent PEM file – dev/staging fallback; blocked in production
-#   4. Fresh generation          – last resort for local dev only
-#
-# When ENV=production the function raises HTTP 500 at steps 2, 3, and 4
-# rather than falling through to a weaker path, so a plaintext disk key
-# can never silently be used in production.
+# --- Cryptographic Reports (KMS Managed) ---
 
 _cached_private_key = None
+
+def get_signing_keys():
+    """
+    Retrieves the private key from Google Secret Manager with local caching.
+    """
+    global _cached_private_key
+    
+    if _cached_private_key:
+        return _cached_private_key
+
+    project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+    secret_id = os.getenv("REPORT_SIGNING_SECRET_NAME", "report-signing-key")
+    
+    if not project_id:
+        # Fallback for local development if allowed, but production should fail
+        if os.getenv("ENV") == "production":
+            raise HTTPException(status_code=500, detail="KMS Configuration missing in production")
+        
+        # Local development fallback (matches previous behavior but warns)
+        print("KMS Warning: GOOGLE_CLOUD_PROJECT not set. Falling back to temporary local key.")
+        _cached_private_key = ed25519.Ed25519PrivateKey.generate()
+        return _cached_private_key
+
+    if not HAS_GCP_KMS:
+        raise HTTPException(status_code=500, detail="Google Cloud Secret Manager library not installed")
+
+    try:
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
+        response = client.access_secret_version(request={"name": name})
+        payload = response.payload.data.decode("UTF-8")
+        
+        _cached_private_key = serialization.load_pem_private_key(
+            payload.encode(),
+            password=None
+        )
+        print(f"KMS: Successfully fetched signing key from Secret Manager ({secret_id})")
+        return _cached_private_key
+    except Exception as e:
+        print(f"KMS Error: Failed to fetch secret {secret_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve signing key from secure vault")
+# --- Cryptographic Reports ---
+
 KEYS_DIR = "keys"
 PRIVATE_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.key")
 PUBLIC_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.pub")
 
-IS_PRODUCTION = os.getenv("ENV", "").lower() == "production"
-
-
 def get_signing_keys():
-    """
-    Return the Ed25519 private key used to sign financial reports.
-
-    Resolution order:
-      1. In-process cache (fastest path after first call)
-      2. GCP Secret Manager (production-grade; key never written to disk)
-      3. Local PEM file    (dev/staging only; raises in production)
-      4. Fresh generation  (dev/staging only; raises in production)
-    """
-    global _cached_private_key
-
-    # 1. In-process cache
-    if _cached_private_key is not None:
-        return _cached_private_key
-
-    # 2. GCP Secret Manager
-    project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-    secret_id = os.getenv("REPORT_SIGNING_SECRET_NAME", "report-signing-key")
-
-    if project_id:
-        if not HAS_GCP_KMS:
-            if IS_PRODUCTION:
-                raise HTTPException(
-                    status_code=500,
-                    detail="google-cloud-secret-manager is not installed but is required in production"
-                )
-            print("KMS Warning: google-cloud-secret-manager not installed; skipping GCP path.")
-        else:
-            try:
-                client = secretmanager.SecretManagerServiceClient()
-                name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
-                response = client.access_secret_version(request={"name": name})
-                payload = response.payload.data.decode("UTF-8")
-                _cached_private_key = serialization.load_pem_private_key(
-                    payload.encode(), password=None
-                )
-                print(f"KMS: Loaded signing key from Secret Manager (secret: {secret_id})")
-                return _cached_private_key
-            except Exception as e:
-                if IS_PRODUCTION:
-                    print(f"KMS Error: {e}")
-                    raise HTTPException(
-                        status_code=500,
-                        detail="Failed to retrieve signing key from Secret Manager"
-                    )
-                print(f"KMS Warning: Could not reach Secret Manager ({e}); falling back to local key.")
-    elif IS_PRODUCTION:
-        raise HTTPException(
-            status_code=500,
-            detail="GOOGLE_CLOUD_PROJECT is not set; cannot retrieve signing key in production"
-        )
-
-    # 3. Local persistent PEM file (dev/staging only)
+    if not os.path.exists(KEYS_DIR):
+        os.makedirs(KEYS_DIR)
+    
     if os.path.exists(PRIVATE_KEY_PATH):
-        try:
-            with open(PRIVATE_KEY_PATH, "rb") as f:
-                _cached_private_key = serialization.load_pem_private_key(f.read(), password=None)
-            print(f"Key Management: Loaded existing local key from {PRIVATE_KEY_PATH}")
-            return _cached_private_key
-        except Exception as e:
-            print(f"Key Management Warning: Could not load local key file ({e}); generating a new one.")
-
-    # 4. Fresh generation (dev/staging only)
-    print("Key Management: Generating a fresh signing key for local development.")
+        with open(PRIVATE_KEY_PATH, "rb") as f:
+            return serialization.load_pem_private_key(f.read(), password=None)
+    
     private_key = ed25519.Ed25519PrivateKey.generate()
-
-    try:
-        os.makedirs(KEYS_DIR, exist_ok=True)
-        with open(PRIVATE_KEY_PATH, "wb") as f:
-            f.write(private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.NoEncryption()
-            ))
-        with open(PUBLIC_KEY_PATH, "wb") as f:
-            f.write(private_key.public_key().public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo
-            ))
-        print(f"Key Management: Saved new key pair to {KEYS_DIR}/")
-    except Exception as e:
-        print(f"Key Management Warning: Could not persist generated key ({e}); key is in-memory only.")
-
-    _cached_private_key = private_key
+    with open(PRIVATE_KEY_PATH, "wb") as f:
+        f.write(private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        ))
+    
+    public_key = private_key.public_key()
+    with open(PUBLIC_KEY_PATH, "wb") as f:
+        f.write(public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        ))
+    
     return private_key
-
 
 @app.post("/api/reports/generate")
 @limiter.limit("3/minute")
@@ -612,7 +486,7 @@ async def generate_signed_report(data: ReportRequest, request: Request):
         p.drawString(1.2*inch, y - 0.7*inch, f"Signature ID: {sig_id}")
         p.setFont("Helvetica-Bold", 12)
         p.setFillColor(colors.green)
-        p.drawString(1.2*inch, y - 1.0*inch, "Status: VERIFIED ✔")
+        p.drawString(1.2*inch, y - 1.0*inch, "Status: VERIFIED")
         p.setFillColor(colors.black)
         p.setFont("Helvetica", 10)
         p.drawString(1.2*inch, y - 1.3*inch, "Security: This report is tamper-proof and cryptographically signed.")

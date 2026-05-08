@@ -1,18 +1,18 @@
-# 🌱 Fasal Saathi
+# Fasal Saathi
 
 ![NSoC 2026](https://img.shields.io/badge/NSoC-2026-blue)
 
-🚀 **This project is a part of Nexus Spring of Code (NSoC) 2026**
+**This project is a part of Nexus Spring of Code (NSoC) 2026**
 
 ---
 
-## 📘 Nexus Spring of Code 2026
+## Nexus Spring of Code 2026
 
 This repository is officially participating in **Nexus Spring of Code 2026 (NSoC'26)**.
 
 We welcome contributors from the NSoC program to collaborate and improve this project.
 
-### 🧑‍💻 For Contributors
+### For Contributors
 
 * Pick an issue labeled with `level1`, `level2`, or `level3` or raise an issue 
 * Ask to be assigned before starting work
@@ -21,16 +21,16 @@ We welcome contributors from the NSoC program to collaborate and improve this pr
 
 ---
 
-## 📌 Contribution Rules (NSoC Specific)
+## Contribution Rules (NSoC Specific)
 
-* ✅ PR must include **NSoC'26** tag
-* ✅ Issue must be assigned before PR
-* ❌ PR without assignment will be closed
-* ❌ Inactive contributors (7 days) may be unassigned
+* PR must include **NSoC'26** tag
+* Issue must be assigned before PR
+* PR without assignment will be closed
+* Inactive contributors (7 days) may be unassigned
 
 ---
 
-## 🏷️ Issue Labels
+## Issue Labels
 
 * `level1` — Beginner (level 1)
 * `level2` — Intermediate (level 2)
@@ -38,7 +38,7 @@ We welcome contributors from the NSoC program to collaborate and improve this pr
 
 ---
 
-## ⚠️ Note
+## Note
 
 This project follows all rules and guidelines defined under the **Nexus Spring of Code 2026** program.
 
@@ -46,295 +46,136 @@ Any misuse, spam, or low-quality contributions will not be accepted.
 
 ---
 
-# 🌾 Fasal Saathi
+# Fasal Saathi
 
 Fasal Saathi is a smart agriculture assistance platform built with React (frontend), Python (backend) and Firebase (database/auth). The app delivers crop recommendations, weather-based alerts, soil health analysis, and fertilizer guidance to help farmers make informed decisions.
 
 ---
 
-## 🚀 Features
+## Features
 
-- 🌱 Crop recommendation based on soil profile and regional climate
-- ☁️ Real-time weather updates and custom farming alerts
-- 🧪 Soil health analysis & nutrient suggestions
-- 🌾 Fertilizer and pesticide guidance
-- 📊 Responsive and user-friendly dashboard (React)
-- 🔐 Authentication & user profiles (Firebase)
-- 🌐 Multi-language support (planned / optional)
+- Crop recommendation based on soil profile and regional climate
+- Real-time weather updates and custom farming alerts
+- Soil health analysis & nutrient suggestions
+- Fertilizer and pesticide guidance
+- Responsive and user-friendly dashboard (React)
+- Authentication & user profiles (Firebase)
+- Multi-language support
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
-- Frontend: React.js (Create React App / Vite)
-- Backend: Python ( FastAPI)
+- Frontend: React.js (Vite)
+- Backend: Python (FastAPI)
 - Database: Firebase (Firestore / Realtime DB)
 - Auth: Firebase Authentication
-- External APIs: Weather API (e.g., OpenWeatherMap), Soil/Agro data APIs
-- Deployment: Vercel  (frontend), Render (backend- in process)
+- External APIs: OpenWeatherMap, Google Gemini API
+- Deployment: Vercel (frontend), Render (backend)
 
 ---
 
-## 📁 Project structure
-<<<<<<< HEAD
-
-=======
+## Project structure
 ```tree
->>>>>>> upstream/main
-Fasal-Saathi/
-├── backend/
-│ ├── app.py # Flask/FastAPI app entry
-│ ├── requirements.txt
-│ ├── services/
-│ │ ├── weather.py # Weather API wrapper
-│ │ └── soil.py # Soil analysis logic / wrapper
-│ └── utils/
-│ └── ml_models.py # Optional: model for crop recommendation
-│
-├── frontend/ # React application
-│ ├── package.json
-│ ├── public/
-│ │ └── index.html
-│ └── src/
-│ ├── App.jsx
-│ ├── index.jsx
-│ ├── api/
-│ │ └── apiClient.js # communicates with backend
-│ ├── components/
-│ │ ├── Dashboard/
-│ │ ├── CropRecommender/
-│ │ └── Auth/
-│ ├── pages/
-│ └── assets/
-│
-├── firebase/ # firebase rules / config (optional)
-│ └── firestore.rules
-│
-├── scripts/
-│ └── deploy.sh
-│
-├── .env.example
-├── README.md
-└── LICENSE
-<<<<<<< HEAD
-
-=======
+agri/
+├── main.py              # FastAPI backend entry
+├── alert_rules.py       # Logic for generating alerts
+├── requirements.txt     # Python dependencies
+├── .env                 # Environment variables
+├── frontend/            # React application
+│   ├── App.jsx          # Root component & routing
+│   ├── Dashboard.jsx    # Main user dashboard
+│   ├── Advisor.jsx      # AI Advisor feature
+│   ├── index.html       # Entry point
+│   ├── package.json     # Node.js dependencies
+│   └── vite.config.js   # Vite configuration
+├── firebase/            # Firebase rules/config
+│   └── firestore.rules
+└── README.md
 ```
->>>>>>> upstream/main
 
 ---
 
-## ⚙️ Installation & Local setup
+## Installation & Local setup
 
-> Requirements: Node.js (v16+), npm/yarn, Python 3.9+, pip, Firebase CLI (optional).
+### Prerequisites
+- **Node.js**: v18.0 or higher
+- **Python**: v3.10 or higher
+- **Firebase**: Project credentials
 
-<<<<<<< HEAD
-### 1) Clone repository
+### 1. Clone the repository
 ```bash
-git clone https://github.com/your-username/fasal-saathi.git
-cd fasal-saathi
+git clone https://github.com/KGFCH2/agri.git
+cd agri
+```
 
-2) Frontend (React)
+### 2. Backend Setup (FastAPI)
+```bash
+# Create and activate a virtual environment
+python -m venv venv
+# Windows:
+venv\Scripts\activate
+# Linux/macOS:
+source venv/bin/activate
+
+# Install required packages
+pip install -r requirements.txt
+
+# Run the backend server
+python main.py
+```
+*API: `http://localhost:8000`*
+
+### 3. Frontend Setup (Vite + React)
+```bash
 cd frontend
+
 # Install dependencies
 npm install
-# Start dev server
-npm start
-# Build for production
-npm run build
 
-3) Backend (Python — Flask example)
-cd ../backend
-# Create virtual env (optional)
-python -m venv venv
-source venv/bin/activate      # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-# Run app
-export FLASK_APP=app.py
-export FLASK_ENV=development
-# Set environment variables (see .env.example)
-flask run
+# Start development server
+npm run dev
+```
+*App: `http://localhost:5173`*
 
+### 4. Environment Configuration
+Create a `.env` file in the root directory:
+```env
+# Backend Keys
+WEATHER_API_KEY=your_openweather_key
+GEMINI_API_KEY=your_google_gemini_key
 
-# 4) Firebase
-
-Create a Firebase project.
-
-Enable Firestore (or Realtime DB) and Firebase Auth (Email/Phone).
-
-Add Firebase config to frontend env (see .env.example).
-
-(Optional) Deploy security rules found in firebase/.
-
-🔐 Environment variables (.env.example)
-# Backend
-=======
-## Clone repository
-
-```bash
-git clone https://github.com/your-username/fasal-saathi.git
-cd fasal-saathi
+# Frontend Keys (Vite prefixed)
+VITE_FIREBASE_API_KEY=xxx
+VITE_FIREBASE_AUTH_DOMAIN=xxx
+VITE_FIREBASE_PROJECT_ID=xxx
 ```
 
-## Frontend (React)
+## API Endpoints
 
-```bash
-cd frontend
-```
+- `GET /api/weather` — Weather updates + forecast
+- `POST /api/soil/analyze` — Soil nutrient analysis
+- `POST /api/crop/recommend` — Crop recommendations
 
-### 1. Install dependencies
+---
 
-```bash
-npm install
-```
+## Testing
 
-### 2. Start dev server
+- Frontend: `npm test`
+- Backend: `pytest`
 
-```bash
-npm start
-```
+---
 
-### 3. Build for production
-
-```bash
-npm run build
-```
-
-## Backend (Python — Flask example)
-
-```bash
-cd ../backend
-```
-
-### 1. Create virtual env (optional)
-
-```bash
-python -m venv venv
-source venv/bin/activate      # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-### 2. Run app
-
-```bash
-export FLASK_APP=app.py
-export FLASK_ENV=development
-```
-
-### 3. Set environment variables (see .env.example)
-
-```bash
-flask run
-```
-
-
-## Firebase
-
-- Create a Firebase project.
-
-- Enable Firestore (or Realtime DB) and Firebase Auth (Email/Phone).
-
-- Add Firebase config to frontend env (see .env.example).
-
-- (Optional) Deploy security rules found in firebase/.
-
-🔐 Environment variables (.env.example)
-
-## Backend
-
-```
->>>>>>> upstream/main
-WEATHER_API_KEY=your_weather_api_key
-SOIL_API_KEY=your_soil_api_key
-FIREBASE_ADMIN_CRED=/path/to/serviceAccountKey.json
-BACKEND_PORT=5000
-<<<<<<< HEAD
-
-# Frontend
-=======
-```
-
-## Frontend
-
-```
->>>>>>> upstream/main
-REACT_APP_FIREBASE_API_KEY=xxxxxxxxxxxx
-REACT_APP_FIREBASE_AUTH_DOMAIN=your-app.firebaseapp.com
-REACT_APP_FIREBASE_PROJECT_ID=your-app
-REACT_APP_BACKEND_URL=http://localhost:5000
-<<<<<<< HEAD
-
-🧩 API Endpoints (examples)
-
-Backend (Flask)
-
-GET /api/weather?lat={lat}&lon={lon} — returns current weather + forecast
-
-POST /api/soil/analyze — send soil params (pH, NPK) to get recommendations
-
-POST /api/crop/recommend — returns recommended crops for given soil & climate
-
-(Document exact request/response schemas in docs/ or OpenAPI spec.)
-
-🧪 Testing
-
-Frontend: use React Testing Library / Jest
-
-Backend: pytest / unittest
-
-Add CI with GitHub Actions for linting + tests + deploy
-
-🎯 Objective
+## Objective
 
 Provide farmers with a lightweight, region-aware digital assistant that reduces risk, improves yields, and encourages sustainable decisions through actionable insights.
 
-🔮 Future scope & ideas
+---
 
-On-device offline support / PWA for low-connectivity regions
-
-Integrate satellite / remote sensing for crop stress detection
-
-SMS / WhatsApp alerts for farmers without smartphones
-
-Integrate local market price data for crop sale recommendations
-
-Train ML models using local farm historical data for precision recommendations
-=======
-```
-
-# ☆ API Endpoints (examples)
-
-Backend (Flask)
-
-- GET /api/weather?lat={lat}&lon={lon} — returns current weather + forecast
-
-- POST /api/soil/analyze — send soil params (pH, NPK) to get recommendations
-
-- POST /api/crop/recommend — returns recommended crops for given soil & climate
-
-(Document exact request/response schemas in docs/ or OpenAPI spec.)
-
-# ☆ Testing
-
-- Frontend: use React Testing Library / Jest
-
-- Backend: pytest / unittest
-
-- Add CI with GitHub Actions for linting + tests + deploy
-
-# ☆ Objective
-
-Provide farmers with a lightweight, region-aware digital assistant that reduces risk, improves yields, and encourages sustainable decisions through actionable insights.
-
-# ☆ Future scope & ideas
+## Future Scope
 
 - On-device offline support / PWA for low-connectivity regions
-
-- Integrate satellite / remote sensing for crop stress detection
-
+- Satellite remote sensing for crop stress detection
 - SMS / WhatsApp alerts for farmers without smartphones
-
-- Integrate local market price data for crop sale recommendations
-
-- Train ML models using local farm historical data for precision recommendations
->>>>>>> upstream/main
+- Local market price data integration
+- ML models trained on local historical data

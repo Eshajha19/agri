@@ -1,8 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
 export default function useNotifications() {
+  const shownIds = useRef(new Set());
 
   const fetchNotifications = async () => {
     try {
@@ -11,10 +12,16 @@ export default function useNotifications() {
 
       if (data.success) {
         data.data.forEach((notif) => {
-          toast.info(notif.message, {
-            position: "top-right",
-            autoClose: 4000,
-          });
+          // Use a combination of ID and type to create a unique key since IDs might overlap between static and dynamic
+          const uniqueKey = `${notif.type}-${notif.id}-${notif.message}`;
+          
+          if (!shownIds.current.has(uniqueKey)) {
+            toast.info(notif.message, {
+              position: "top-right",
+              autoClose: 4000,
+            });
+            shownIds.current.add(uniqueKey);
+          }
         });
       }
     } catch (err) {
@@ -30,4 +37,4 @@ export default function useNotifications() {
 
     return () => clearInterval(interval);
   }, []);
-}
+}

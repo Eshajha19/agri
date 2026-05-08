@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { collection, addDoc } from "firebase/firestore";
 import { db, auth, isFirebaseConfigured } from "./lib/firebase";
+import { FaUser, FaMapMarkerAlt, FaSeedling, FaUserGraduate } from "react-icons/fa";
 import {
   Star,
   Send,
@@ -9,6 +10,12 @@ import {
   User,
   MessageSquare,
   CheckCircle2,
+  Sparkles,
+  Bug,
+  Palette,
+  Target,
+  Pin,
+  Rocket
 } from "lucide-react";
 import "./Feedback.css";
 
@@ -19,12 +26,12 @@ const CROP_OPTIONS = [
 ];
 
 const CATEGORY_OPTIONS = [
-  { value: "general", label: "💬 General Feedback" },
-  { value: "feature", label: "✨ Feature Request" },
-  { value: "bug", label: "🐛 Report a Bug" },
-  { value: "ui", label: "🎨 UI/UX Improvement" },
-  { value: "accuracy", label: "🎯 AI Accuracy" },
-  { value: "other", label: "📌 Other" },
+  { value: "general", label: "General Feedback" },
+  { value: "feature", label: "Feature Request" },
+  { value: "bug", label: "Report a Bug" },
+  { value: "ui", label: "UI/UX Improvement" },
+  { value: "accuracy", label: "AI Accuracy" },
+  { value: "other", label: "Other" },
 ];
 
 // ✅ Testimonials Data
@@ -147,7 +154,7 @@ export default function Feedback() {
             <CheckCircle2 size={64} className="success-icon" />
           </div>
 
-          <h2>Thank You! 🙏</h2>
+          <h2>Thank You!</h2>
 
           <p>
             Your feedback has been submitted successfully. We'll use it to make{" "}
@@ -182,7 +189,7 @@ export default function Feedback() {
 
         {/* Left Panel */}
         <div className="feedback-info-panel">
-          <div className="info-badge">🌾 Farmer Feedback</div>
+          <div className="info-badge"><Sprout size={14} /> Farmer Feedback</div>
 
           <h1>Help Us Grow Better</h1>
 
@@ -205,12 +212,12 @@ export default function Feedback() {
 
           <div className="info-stats">
             {[
-              { icon: "⭐", label: "Average Rating", value: "4.8/5" },
-              { icon: "💬", label: "Feedbacks Received", value: "2,400+" },
-              { icon: "🚀", label: "Features Added from Feedback", value: "18+" },
+              { icon: <Star size={20} />, label: "Average Rating", value: "4.8/5" },
+              { icon: <MessageSquare size={20} />, label: "Feedbacks Received", value: "2,400+" },
+              { icon: <Rocket size={20} />, label: "Features Added", value: "18+" },
             ].map((stat, i) => (
               <div key={i} className="info-stat-item">
-                <span className="stat-emoji">{stat.icon}</span>
+                <span className="stat-icon-wrap">{stat.icon}</span>
                 <div>
                   <div className="stat-value">{stat.value}</div>
                   <div className="stat-label">{stat.label}</div>
@@ -311,7 +318,7 @@ export default function Feedback() {
             {/* Optional Fields */}
             <div className="fb-row">
               <div className="fb-group">
-                <label><User size={15} /> Your Name (Optional)</label>
+                <label><FaUser size={15} /> Your Name (Optional)</label>
                 <input
                   type="text"
                   placeholder="e.g. Ramesh Kumar"
@@ -320,7 +327,7 @@ export default function Feedback() {
                 />
               </div>
               <div className="fb-group">
-                <label><MapPin size={15} /> Location (Optional)</label>
+                <label><FaMapMarkerAlt size={15} /> Location (Optional)</label>
                 <input
                   type="text"
                   placeholder="e.g. Nashik, Maharashtra"
@@ -331,7 +338,7 @@ export default function Feedback() {
             </div>
 
             <div className="fb-group">
-              <label><Sprout size={15} /> Primary Crop (Optional)</label>
+              <label><FaSeedling size={15} /> Primary Crop (Optional)</label>
               <select
                 value={form.cropType}
                 onChange={(e) => handleChange("cropType", e.target.value)}

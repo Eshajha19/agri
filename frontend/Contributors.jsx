@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { FaGithub, FaLinkedin, FaTwitter, FaCrown, FaCode, FaStar } from "react-icons/fa";
+import { FaGithub, FaLinkedin, FaTwitter, FaCrown, FaCode, FaStar, FaHeart, FaRocket, FaUserAlt } from "react-icons/fa";
 import "./Contributors.css";
 
 export default function Contributors() {
@@ -49,7 +49,7 @@ export default function Contributors() {
     <div className="contributors-page">
       {/* HERO SECTION */}
       <div className="contributors-hero">
-        <h1>🌟 Meet Our Contributors</h1>
+        <h1><FaStar className="header-icon-inline" /> Meet Our Contributors</h1>
         <p>
           <span className="notranslate" translate="no">Fasal Saathi</span> is built by a passionate community of developers,
           designers, and farmers dedicated to revolutionizing agriculture
@@ -58,29 +58,19 @@ export default function Contributors() {
 
        {/* STATS SECTION */}
        <div className="contributors-stats">
-
-  <div className="stat-card">
-    <div className="stat-icon">👥</div>
-    <h3>{contributors.length}</h3>
-    <p>Contributors</p>
-    <span className="stat-subtext">Active developers</span>
-  </div>
-
-  <div className="stat-card">
-    <div className="stat-icon">🚀</div>
-    <h3>Active</h3>
-    <p>Development</p>
-    <span className="stat-subtext">Continuous updates</span>
-  </div>
-
-  <div className="stat-card">
-    <div className="stat-icon">💚</div>
-    <h3>Open</h3>
-    <p>Source Project</p>
-    <span className="stat-subtext">Community driven</span>
-  </div>
-
-</div>
+         <div className="stat-card">
+           <h3>{contributors.length}</h3>
+           <p>Contributors</p>
+         </div>
+         <div className="stat-card">
+           <h3><FaRocket style={{ color: '#3b82f6' }} /></h3>
+           <p>Active Development</p>
+         </div>
+         <div className="stat-card">
+           <h3><FaHeart style={{ color: '#22c55e' }} /></h3>
+           <p>Open Source</p>
+         </div>
+       </div>
 
       {/* CTA SECTION */}
       <div className="contribute-cta">
@@ -208,7 +198,7 @@ export default function Contributors() {
 
       {/* FOOTER CTA */}
       <div className="contributors-footer">
-        <h2>Made with 💚 by farmers and developers</h2>
+        <h2>Made with <FaHeart style={{ color: '#22c55e', verticalAlign: 'middle' }} /> by farmers and developers</h2>
         <p>
           <span className="notranslate" translate="no">Fasal Saathi</span> is an open-source project dedicated to empowering
           farmers with AI-driven insights

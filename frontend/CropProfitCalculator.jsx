@@ -424,12 +424,12 @@ export default function CropProfitCalculator() {
                   <div className={`recommendation ${results.profit >= 0 ? "positive-recommendation" : "negative-recommendation"}`}>
                     {results.profit >= 0 ? (
                       <>
-                        <h3>✅ This is a Profitable Crop Choice!</h3>
+                        <h3><CheckCircle size={20} className="inline-icon" /> This is a Profitable Crop Choice!</h3>
                         <p>With a profit of ₹{results.profit.toFixed(2)}, this crop can generate a good return on your investment. This represents a {results.profitPercentage}% return on your farming cost.</p>
                       </>
                     ) : (
                       <>
-                        <h3>⚠️ This Crop May Result in Loss</h3>
+                        <h3><AlertCircle size={20} className="inline-icon" /> This Crop May Result in Loss</h3>
                         <p>With a potential loss of ₹{Math.abs(results.profit).toFixed(2)}, you may want to reconsider this crop choice or look for ways to increase yield or reduce farming costs.</p>
                       </>
                     )}

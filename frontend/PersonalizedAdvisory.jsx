@@ -1,6 +1,22 @@
 import React, { useMemo } from "react";
+import { 
+  FaBullseye,
+  FaCloudRain,
+  FaSun,
+  FaSnowflake,
+  FaSeedling,
+  FaLeaf
+} from "react-icons/fa";
 import "./PersonalizedAdvisory.css";
 import { generateRecommendations } from "./utils/recommendationEngine";
+
+const REC_ICONS = {
+  rain: <FaCloudRain />,
+  sun: <FaSun />,
+  frost: <FaSnowflake />,
+  grain: <FaSeedling />,
+  seedling: <FaLeaf />
+};
 
 export default function PersonalizedRecommendations({ userProfile, weatherData }) {
 
@@ -16,7 +32,7 @@ export default function PersonalizedRecommendations({ userProfile, weatherData }
 
   return (
     <div className="personalized-section">
-      <h2>🎯 Personalized Recommendations</h2>
+      <h2><FaBullseye /> Personalized Recommendations</h2>
 
       {!userProfile ? (
         <p>Complete your profile to get recommendations.</p>
@@ -27,14 +43,14 @@ export default function PersonalizedRecommendations({ userProfile, weatherData }
           {recommendations.map((rec, index) => (
             <div key={index} className={`recommendation-card ${rec.type}`}>
               
-              <div className="rec-icon">{rec.icon}</div>
+              <div className="rec-icon">{REC_ICONS[rec.icon]}</div>
 
               {/* Optional: show type as title */}
               <h3 style={{ textTransform: "capitalize" }}>
                 {rec.type}
               </h3>
 
-              {/* ✅ Correct field from engine */}
+              {/* Correct field from engine */}
               <p>{rec.text}</p>
 
             </div>

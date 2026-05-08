@@ -1,5 +1,5 @@
-"use client";
 import React, { useState, useMemo } from "react";
+import { Leaf, Search, Filter, Info, MapPin, Calendar, Clock, TrendingUp, BookOpen, AlertCircle, CheckCircle, Navigation, X } from "lucide-react";
 import "./CropGuide.css";
 
 // 📦 DATA
@@ -92,7 +92,7 @@ export default function CropGuide() {
 
       {/* 🌾 HERO */}
       <header className="crop-hero">
-        <h1>🌾 Crop Guide</h1>
+        <h1><Leaf size={32} /> Crop Guide</h1>
         <p>Explore crops based on season, soil & water needs</p>
       </header>
 
@@ -124,7 +124,7 @@ export default function CropGuide() {
         {filteredCrops.length > 0 ? (
           filteredCrops.map((crop) => (
             <div key={crop.id} className="crop-card">
-              <div className="crop-icon">🌱</div>
+              <div className="crop-icon"><Leaf /></div>
 
               <h2>{crop.name}</h2>
 
@@ -140,7 +140,7 @@ export default function CropGuide() {
             </div>
           ))
         ) : (
-          <p className="no-results">No crops found 🌾</p>
+          <p className="no-results">No crops found <Leaf size={16} className="inline-icon" /></p>
         )}
       </div>
 
@@ -155,10 +155,10 @@ export default function CropGuide() {
               className="close-btn"
               onClick={() => setActiveCrop(null)}
             >
-              ✖
+              <X />
             </button>
 
-            <h2>🌾 {activeCrop.name}</h2>
+            <h2><Leaf className="inline-icon" /> {activeCrop.name}</h2>
 
             <div className="modal-info">
               <p><strong>Season:</strong> {activeCrop.season}</p>
@@ -169,7 +169,7 @@ export default function CropGuide() {
             </div>
 
             <div className="tips">
-              💡 {activeCrop.tips}
+              <BookOpen size={16} className="inline-icon" /> {activeCrop.tips}
             </div>
           </div>
         </div>

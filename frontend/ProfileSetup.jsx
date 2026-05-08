@@ -2,22 +2,22 @@ import React, { useState, useEffect } from "react";
 import { auth, db, isFirebaseConfigured } from "./lib/firebase";
 import { doc, setDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
-import { FaUser, FaGlobe, FaMapMarkerAlt, FaSeedling, FaArrowRight } from "react-icons/fa";
+import { FaUser, FaGlobe, FaMapMarkerAlt, FaSeedling, FaArrowRight, FaUserGraduate, FaStore, FaTractor, FaMobileAlt, FaCheckCircle } from "react-icons/fa";
 import "./ProfileSetup.css";
 
 const LANGUAGE_OPTIONS = [
-  { value: "en", label: "🌍 English" },
-  { value: "hi", label: "🇮🇳 हिंदी" },
-  { value: "mr", label: "🇮🇳 मराठी" },
-  { value: "bn", label: "🇮🇳 বাংলা" },
-  { value: "ta", label: "🇮🇳 தமிழ்" },
-  { value: "te", label: "🇮🇳 తెలుగు" },
-  { value: "gu", label: "🇮🇳 ગુજરાતી" },
-  { value: "pa", label: "🇮🇳 ਪੰਜਾਬੀ" },
-  { value: "kn", label: "🇮🇳 ಕನ್ನಡ" },
-  { value: "ml", label: "🇮🇳 മലയാളം" },
-  { value: "or", label: "🇮🇳 ଓଡ଼ିଆ" },
-  { value: "as", label: "🇮🇳 অসমীয়া" },
+  { value: "en", label: "English" },
+  { value: "hi", label: "हिंदी" },
+  { value: "mr", label: "मराठी" },
+  { value: "bn", label: "বাংলা" },
+  { value: "ta", label: "தமிழ்" },
+  { value: "te", label: "తెలుగు" },
+  { value: "gu", label: "ગુજરાતી" },
+  { value: "pa", label: "ਪੰਜਾਬੀ" },
+  { value: "kn", label: "ಕನ್ನಡ" },
+  { value: "ml", label: "മലയാളം" },
+  { value: "or", label: "ଓଡ଼ିଆ" },
+  { value: "as", label: "অসমীয়া" },
 ];
 
 const ProfileSetup = ({ user, profileCompleted }) => {
@@ -202,14 +202,14 @@ const ProfileSetup = ({ user, profileCompleted }) => {
           <div className="setup-group">
             <label><FaUser /> I am a...</label>
             <div className="setup-input-wrapper">
-              <span className="setup-icon">👤</span>
+              <FaUserGraduate className="setup-icon" />
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
               >
-                <option value="farmer">🚜 Farmer</option>
-                <option value="expert">🎓 Agri-Expert</option>
-                <option value="vendor">🏪 Marketplace Vendor</option>
+                <option value="farmer">Farmer</option>
+                <option value="expert">Agri-Expert</option>
+                <option value="vendor">Marketplace Vendor</option>
               </select>
             </div>
           </div>
@@ -241,18 +241,18 @@ const ProfileSetup = ({ user, profileCompleted }) => {
                 required
               >
                 <option value="">Select your primary crop</option>
-                <option value="rice">🌾 Rice</option>
-                <option value="wheat">🌾 Wheat</option>
-                <option value="cotton">🌿 Cotton</option>
-                <option value="sugarcane">🎋 Sugarcane</option>
-                <option value="maize">🌽 Maize</option>
-                <option value="soybean">🫘 Soybean</option>
-                <option value="potato">🥔 Potato</option>
-                <option value="onion">🧅 Onion</option>
-                <option value="tomato">🍅 Tomato</option>
-                <option value="vegetables">🥬 Vegetables</option>
-                <option value="fruits">🍎 Fruits</option>
-                <option value="other">🌱 Other</option>
+                <option value="rice">Rice</option>
+                <option value="wheat">Wheat</option>
+                <option value="cotton">Cotton</option>
+                <option value="sugarcane">Sugarcane</option>
+                <option value="maize">Maize</option>
+                <option value="soybean">Soybean</option>
+                <option value="potato">Potato</option>
+                <option value="onion">Onion</option>
+                <option value="tomato">Tomato</option>
+                <option value="vegetables">Vegetables</option>
+                <option value="fruits">Fruits</option>
+                <option value="other">Other</option>
               </select>
             </div>
           </div>
@@ -260,7 +260,7 @@ const ProfileSetup = ({ user, profileCompleted }) => {
           <div className="setup-group">
             <label><FaMapMarkerAlt /> Phone Number (for WhatsApp Alerts)</label>
             <div className="setup-input-wrapper">
-              <span className="setup-icon" style={{ fontSize: '1.2rem' }}>📱</span>
+              <FaMobileAlt className="setup-icon" />
               <input
                 type="tel"
                 placeholder="e.g. +91 98765 43210"
@@ -287,12 +287,12 @@ const ProfileSetup = ({ user, profileCompleted }) => {
             <div className={`loc-box ${address ? 'success' : locLoading ? 'pending' : ''}`}>
               {locLoading ? (
                 <>
-                  <span className="loc-status">📍 Getting your location...</span>
+                  <span className="loc-status"><FaMapMarkerAlt /> Getting your location...</span>
                   <div className="small-spinner"></div>
                 </>
               ) : address ? (
                 <>
-                  <span className="loc-status">✅ {address}</span>
+                  <span className="loc-status"><FaCheckCircle /> {address}</span>
                   <button type="button" onClick={requestLocation} className="loc-btn">
                     Update
                   </button>

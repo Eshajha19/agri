@@ -14,9 +14,9 @@ import {
 } from "./weatherService";
 import "./WeatherQuickWidget.css";
 
-const WEATHER_CACHE_KEY = "agri:weatherSnapshot";
-const LEGACY_WIDGET_DISMISS_KEY = "agri:weatherWidgetDismissed";
-const ALERT_BAR_SHOWN_KEY = "agri:alertBarActive";
+const WEATHER_CACHE_KEY = "agriWeatherSnapshot";
+const LEGACY_WIDGET_DISMISS_KEY = "agriWeatherWidgetDismissed";
+const ALERT_BAR_SHOWN_KEY = "agriAlertBarActive";
 
 export default function WeatherQuickWidget() {
   const [snapshot, setSnapshot] = useState(() => getStoredWeatherSnapshot());
@@ -158,7 +158,7 @@ export default function WeatherQuickWidget() {
         </>
       ) : (
         <p className="weather-quick-widget__placeholder emphasized">
-          📍 Enable location to see real-time weather updates
+          <FaMapMarkerAlt /> Enable location to see real-time weather updates
         </p>
       )}
 

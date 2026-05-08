@@ -12,7 +12,7 @@ import {
 } from "firebase/auth";
 import { doc, setDoc, getDoc } from "firebase/firestore";
 import { useNavigate, useLocation } from "react-router-dom";
-import { FaGoogle, FaEnvelope, FaLock, FaUser, FaArrowRight, FaLeaf, FaUserSecret } from "react-icons/fa";
+import { FaGoogle, FaEnvelope, FaLock, FaUser, FaArrowRight, FaLeaf, FaUserSecret, FaMobileAlt } from "react-icons/fa";
 import { auth, db, isFirebaseConfigured } from "./lib/firebase";
 import { migrateUserData } from "./lib/migration";
 import "./Auth.css";
@@ -254,7 +254,7 @@ const Auth = () => {
             <div className="input-group">
               <label>Phone Number</label>
               <div className="input-wrapper">
-                <span className="input-icon" style={{ fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>📱</span>
+                <FaMobileAlt className="input-icon" />
                 <input
                   type="tel"
                   placeholder="+91 98765 43210"

@@ -47,7 +47,7 @@ function MessageBubble({ msg }) {
       <div className="msg-answer">{msg.text}</div>
       {msg.citations?.length > 0 && (
         <div className="citations-section">
-          <p className="citations-label">📚 Research Sources</p>
+          <p className="citations-label"><BookOpen size={16} /> Research Sources</p>
           {msg.citations.map((c) => <CitationCard key={c.index} citation={c} />)}
         </div>
       )}
@@ -99,7 +99,7 @@ const RAGAdvisor = ({ isOpen, onClose }) => {
         ...prev,
         {
           role: "assistant",
-          text: "⚠️ The research backend is currently offline. Please ensure the Fasal Saathi API server is running on port 8000 to get citation-backed responses.",
+          text: "The research backend is currently offline. Please ensure the Fasal Saathi API server is running on port 8000 to get citation-backed responses.",
           citations: [],
         },
       ]);

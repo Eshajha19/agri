@@ -16,6 +16,13 @@
   font-weight: 800;
   color: #0f172a;
   margin: 0 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.header-icon-inline {
+  color: #10b981;
 }
 
 .admin-fb-header p {
@@ -64,6 +71,18 @@
 .admin-stat-icon.yellow { color: #f59e0b; }
 .admin-stat-icon.purple { color: #8b5cf6; }
 .admin-stat-icon.blue { color: #3b82f6; }
+
+.admin-stat-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  color: #f59e0b;
+  flex-shrink: 0;
+}
 
 .admin-stat-value {
   font-size: 26px;
@@ -159,6 +178,15 @@
   color: #475569;
   cursor: pointer;
   transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chip-icon {
+  display: flex;
+  align-items: center;
+  color: inherit;
 }
 
 .filter-chip:hover { border-color: #10b981; color: #10b981; }
@@ -272,6 +300,9 @@
   background: #f0fdf4;
   color: #059669;
   border-radius: 20px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .del-btn {

@@ -14,7 +14,9 @@ import {
   Send,
   X,
   ShieldCheck,
-  MessageCircle
+  MessageCircle,
+  Trophy,
+  Medal,
 } from "lucide-react";
 import P2PChat from "./P2PChat";
 import { auth, db, isFirebaseConfigured } from "./lib/firebase";
@@ -286,9 +288,9 @@ const Community = () => {
   };
 
   const getBadgeIcon = (reputation) => {
-    if (reputation >= 500) return "🥇";
-    if (reputation >= 200) return "🥈";
-    if (reputation >= 50) return "🥉";
+    if (reputation >= 500) return <Trophy size={16} style={{ color: '#ffd700' }} />;
+    if (reputation >= 200) return <Medal size={16} style={{ color: '#c0c0c0' }} />;
+    if (reputation >= 50) return <Medal size={16} style={{ color: '#cd7f32' }} />;
     return null;
   };
 

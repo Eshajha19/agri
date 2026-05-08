@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Leaf, FlaskConical, Sprout, AlertCircle, RotateCcw, BarChart3, Wheat, Droplets } from "lucide-react";
+import { Leaf, FlaskConical, Sprout, AlertCircle, RotateCcw, BarChart3, Wheat, Droplets, CheckCircle } from "lucide-react";
+import { FaSeedling, FaCloud, FaLeaf, FaSun, FaTree, FaAppleAlt } from "react-icons/fa";
 import "./SoilAnalysis.css";
 
 const NUTRIENT_RANGES = {
@@ -8,19 +9,35 @@ const NUTRIENT_RANGES = {
   potassium: { veryLow: 70, low: 110, medium: 280, high: 420, unit: "kg/ha", label: "Potassium (K)" },
 };
 
+const CROP_ICONS = {
+  rice: <FaSeedling />,
+  wheat: <Wheat size={16} />,
+  maize: <FaSeedling />,
+  sugarcane: <FaLeaf />,
+  cotton: <FaCloud />,
+  soybean: <FaSeedling />,
+  groundnut: <FaSeedling />,
+  pulses: <FaLeaf />,
+  millets: <FaSeedling />,
+  mustard: <FaSun />,
+  potato: <FaTree />,
+  tomato: <FaAppleAlt />,
+  default: <Leaf size={16} />
+};
+
 const CROP_DATABASE = [
-  { name: "Rice", icon: "🌾", nitrogen: "high", phosphorus: "medium", potassium: "medium" },
-  { name: "Wheat", icon: "🌿", nitrogen: "high", phosphorus: "medium", potassium: "low" },
-  { name: "Maize", icon: "🌽", nitrogen: "high", phosphorus: "high", potassium: "medium" },
-  { name: "Sugarcane", icon: "🎋", nitrogen: "high", phosphorus: "medium", potassium: "high" },
-  { name: "Cotton", icon: "☁️", nitrogen: "medium", phosphorus: "medium", potassium: "high" },
-  { name: "Soybean", icon: "🫘", nitrogen: "low", phosphorus: "high", potassium: "medium" },
-  { name: "Groundnut", icon: "🥜", nitrogen: "low", phosphorus: "medium", potassium: "medium" },
-  { name: "Pulses", icon: "🫛", nitrogen: "low", phosphorus: "medium", potassium: "low" },
-  { name: "Millets", icon: "🌱", nitrogen: "low", phosphorus: "low", potassium: "low" },
-  { name: "Mustard", icon: "🌼", nitrogen: "medium", phosphorus: "medium", potassium: "low" },
-  { name: "Potato", icon: "🥔", nitrogen: "high", phosphorus: "high", potassium: "high" },
-  { name: "Tomato", icon: "🍅", nitrogen: "medium", phosphorus: "high", potassium: "high" },
+  { name: "Rice", icon: "rice", nitrogen: "high", phosphorus: "medium", potassium: "medium" },
+  { name: "Wheat", icon: "wheat", nitrogen: "high", phosphorus: "medium", potassium: "low" },
+  { name: "Maize", icon: "maize", nitrogen: "high", phosphorus: "high", potassium: "medium" },
+  { name: "Sugarcane", icon: "sugarcane", nitrogen: "high", phosphorus: "medium", potassium: "high" },
+  { name: "Cotton", icon: "cotton", nitrogen: "medium", phosphorus: "medium", potassium: "high" },
+  { name: "Soybean", icon: "soybean", nitrogen: "low", phosphorus: "high", potassium: "medium" },
+  { name: "Groundnut", icon: "groundnut", nitrogen: "low", phosphorus: "medium", potassium: "medium" },
+  { name: "Pulses", icon: "pulses", nitrogen: "low", phosphorus: "medium", potassium: "low" },
+  { name: "Millets", icon: "millets", nitrogen: "low", phosphorus: "low", potassium: "low" },
+  { name: "Mustard", icon: "mustard", nitrogen: "medium", phosphorus: "medium", potassium: "low" },
+  { name: "Potato", icon: "potato", nitrogen: "high", phosphorus: "high", potassium: "high" },
+  { name: "Tomato", icon: "tomato", nitrogen: "medium", phosphorus: "high", potassium: "high" },
 ];
 
 const FERTILIZER_MAP = {
@@ -443,7 +460,7 @@ export default function SoilAnalysis() {
                   <div className="sa-crops-grid">
                     {results.crops.map((crop, i) => (
                       <div className="sa-crop-item" key={i}>
-                        <span className="sa-crop-icon">{crop.icon}</span>
+                        <span className="sa-crop-icon">{CROP_ICONS[crop.icon] || CROP_ICONS.default}</span>
                         <span className="sa-crop-name">{crop.name}</span>
                         <div className="sa-crop-tags">
                           <span className={`sa-tag tag-n-${crop.nitrogen}`}>N:{crop.nitrogen[0].toUpperCase()}</span>
@@ -489,7 +506,7 @@ export default function SoilAnalysis() {
               <div className={`sa-summary-card ${results.quality.score >= 55 ? "summary-positive" : "summary-warning"}`}>
                 {results.quality.score >= 55 ? (
                   <>
-                    <h3>✅ Your Soil is in {results.quality.label} Condition</h3>
+                    <h3><CheckCircle size={20} className="inline-icon" /> Your Soil is in {results.quality.label} Condition</h3>
                     <p>
                       With a soil quality score of {results.quality.score}/100, your land is well-suited for farming.
                       Focus on maintaining nutrient balance with the recommended fertilizers above for best yields.
@@ -497,7 +514,7 @@ export default function SoilAnalysis() {
                   </>
                 ) : (
                   <>
-                    <h3>⚠️ Your Soil Needs Improvement</h3>
+                    <h3><AlertCircle size={20} className="inline-icon" /> Your Soil Needs Improvement</h3>
                     <p>
                       With a soil quality score of {results.quality.score}/100, your soil has nutrient deficiencies.
                       Apply the recommended fertilizers and consider adding organic matter like compost or green manure
