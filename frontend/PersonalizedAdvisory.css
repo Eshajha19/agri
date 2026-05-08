@@ -97,3 +97,205 @@
 .rec-icon {
   font-size: 28px;
 }
+
+/* PersonalizedAdvisory.css */
+
+.personalized-section {
+  width: 100%;
+  max-width: 1400px;
+  margin: 4rem auto;
+  padding: 2.8rem 2.5rem;
+  border-radius: 28px;
+
+  /* ✅ Better dark mode surface */
+  background: linear-gradient(
+    145deg,
+    rgba(18, 28, 52, 0.96),
+    rgba(10, 18, 38, 0.98)
+  );
+
+  border: 1px solid rgba(255, 255, 255, 0.08);
+
+  box-shadow:
+    0 10px 40px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+  backdrop-filter: blur(10px);
+
+  text-align: center;
+  overflow: hidden;
+  position: relative;
+}
+
+/* subtle glow */
+.personalized-section::before {
+  content: "";
+  position: absolute;
+  top: -120px;
+  left: -120px;
+  width: 280px;
+  height: 280px;
+  background: rgba(67, 97, 238, 0.15);
+  filter: blur(80px);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.personalized-section h2 {
+  font-size: clamp(2rem, 4vw, 3.3rem);
+  font-weight: 800;
+  margin-bottom: 2rem;
+
+  /* ✅ Removed harsh blue box */
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+
+  color: #ffffff;
+  letter-spacing: -1px;
+
+  background: linear-gradient(90deg, #60a5fa, #34d399);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.personalized-section p {
+  font-size: 1.08rem;
+  color: rgba(255, 255, 255, 0.72);
+  line-height: 1.7;
+  margin-top: 0.5rem;
+}
+
+/* GRID */
+.recommendation-grid {
+  margin-top: 2.5rem;
+
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.8rem;
+}
+
+/* CARD */
+.recommendation-card {
+  position: relative;
+
+  padding: 2rem 1.6rem;
+  border-radius: 24px;
+
+  background: rgba(255, 255, 255, 0.04);
+
+  border: 1px solid rgba(255, 255, 255, 0.08);
+
+  backdrop-filter: blur(14px);
+
+  transition:
+    transform 0.35s ease,
+    box-shadow 0.35s ease,
+    border-color 0.35s ease;
+
+  overflow: hidden;
+}
+
+/* hover effect */
+.recommendation-card:hover {
+  transform: translateY(-8px);
+
+  border-color: rgba(96, 165, 250, 0.35);
+
+  box-shadow:
+    0 16px 35px rgba(0, 0, 0, 0.4),
+    0 0 24px rgba(96, 165, 250, 0.12);
+}
+
+/* glow */
+.recommendation-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.06),
+    transparent
+  );
+  pointer-events: none;
+}
+
+/* ICON */
+.rec-icon {
+  font-size: 2.8rem;
+  margin-bottom: 1rem;
+
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.15));
+}
+
+/* CARD TITLE */
+.recommendation-card h3 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #ffffff;
+
+  margin-bottom: 0.9rem;
+  letter-spacing: -0.3px;
+}
+
+/* CARD TEXT */
+.recommendation-card p {
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+/* TYPE COLORS */
+
+.recommendation-card.weather {
+  border-top: 4px solid #38bdf8;
+}
+
+.recommendation-card.irrigation {
+  border-top: 4px solid #22c55e;
+}
+
+.recommendation-card.alert {
+  border-top: 4px solid #f97316;
+}
+
+.recommendation-card.crop {
+  border-top: 4px solid #a855f7;
+}
+
+.recommendation-card.market {
+  border-top: 4px solid #facc15;
+}
+
+/* EMPTY MESSAGE */
+.personalized-section > p {
+  margin-top: 1rem;
+  font-size: 1.05rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* RESPONSIVE */
+@media (max-width: 768px) {
+  .personalized-section {
+    padding: 2rem 1.3rem;
+    border-radius: 22px;
+  }
+
+  .recommendation-grid {
+    gap: 1.2rem;
+  }
+
+  .recommendation-card {
+    padding: 1.5rem 1.2rem;
+  }
+
+  .personalized-section h2 {
+    font-size: 2rem;
+    text-align: center;
+    line-height: 1.3;
+  }
+}
