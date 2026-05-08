@@ -774,3 +774,208 @@ body {
     font-size: 32px;
   }
 }
+.dark .resources-page {
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+.dark .resources-hero {
+  background: linear-gradient(
+    135deg,
+    #166534,
+    #15803d
+  );
+}
+
+.dark .hero-badge {
+  background: rgba(255, 255, 255, 0.1);
+  color: #dcfce7;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dark .resources-hero h1 {
+  color: #ffffff;
+}
+
+.dark .resources-hero h1 span {
+  color: #bbf7d0;
+}
+
+.dark .resources-hero p {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.dark .search-box {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.dark .search-box::placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.dark .search-box:focus {
+  border-color: #22c55e;
+  background: rgba(15, 23, 42, 1);
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.15);
+}
+
+.dark .filter-section {
+  background: transparent;
+}
+
+.dark .filter-header h2 {
+  color: #ffffff;
+}
+
+.dark .filter-header p {
+  color: #94a3b8;
+}
+
+.dark .filter-bar button {
+  background: #1e293b;
+  color: #e2e8f0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dark .filter-bar button:hover {
+  background: #243244;
+}
+
+.dark .filter-bar button.active {
+  background: linear-gradient(
+    135deg,
+    #16a34a,
+    #22c55e
+  );
+  color: white;
+}
+
+.dark .filter-bar button span {
+  background: rgba(255, 255, 255, 0.08);
+  color: #bbf7d0;
+}
+
+.dark .resources-grid {
+  background: transparent;
+}
+
+.dark .resource-card {
+  background: #111827;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+}
+
+.dark .resource-card:hover {
+  transform: translateY(-6px);
+  background: #172033;
+}
+
+.dark .card-icon {
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.dark .card-type {
+  color: #86efac;
+}
+
+.dark .resource-card h3 {
+  color: #ffffff;
+}
+
+.dark .resource-card p {
+  color: #cbd5e1;
+}
+
+.dark .tags span {
+  background: rgba(34, 197, 94, 0.14);
+  color: #bbf7d0;
+}
+
+.dark .explore-btn {
+  background: linear-gradient(
+    135deg,
+    #15803d,
+    #22c55e
+  );
+  color: white;
+}
+
+.dark .explore-btn:hover {
+  box-shadow: 0 10px 20px rgba(34, 197, 94, 0.25);
+}
+
+.dark .no-results {
+  background: #111827;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.dark .no-results h3 {
+  color: #ffffff;
+}
+
+.dark .no-results p {
+  color: #94a3b8;
+}
+
+.dark .no-results button {
+  background: #16a34a;
+  color: white;
+}
+
+.dark .load-more button {
+  background: linear-gradient(
+    135deg,
+    #15803d,
+    #22c55e
+  );
+  color: white;
+}
+
+.dark .load-more button:hover {
+  opacity: 0.9;
+}
+
+.dark .about-section {
+  background: #0b1220;
+}
+
+.dark .about-header h2 {
+  color: #ffffff;
+}
+
+.dark .about-header p {
+  color: #cbd5e1;
+}
+
+.dark .feature-card {
+  background: #111827;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.dark .feature-card:hover {
+  background: #172033;
+}
+
+.dark .feature-card h4 {
+  color: #ffffff;
+}
+
+.dark .feature-card p {
+  color: #cbd5e1;
+}
+
+@media (max-width: 768px) {
+  .dark .resource-card {
+    padding: 1.4rem;
+  }
+
+  .dark .resources-hero h1 {
+    font-size: 2.3rem;
+  }
+
+  .dark .filter-bar {
+    gap: 0.7rem;
+  }
+}
