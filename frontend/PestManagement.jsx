@@ -104,7 +104,7 @@ export default function PestManagement({ onClose }) {
         throw new Error("User not logged in");
       }
 
-      const response = await fetch("http://localhost:8000/api/whatsapp/trigger-alert", {
+      const response = await fetch("/api/whatsapp/trigger-alert", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
