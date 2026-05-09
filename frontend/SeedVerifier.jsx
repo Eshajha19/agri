@@ -54,17 +54,32 @@ const SeedVerifier = ({ onClose }) => {
     }
   };
 
-  const verifyCode = (code) => {
-    setTimeout(() => {
-      const upperCode = code.toUpperCase();
-      if (upperCode.includes("FS-AUTH")) {
-        setStatus("authentic");
-      } else if (upperCode.includes("FS-INVALID")) {
-        setStatus("invalid");
+  const [metadata, setMetadata] = useState(null);
+
+  const verifyCode = async (code) => {
+    try {
+      const response = await fetch("/api/seeds/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        setStatus(result.status);
+        if (result.status === "authentic" || result.status === "invalid") {
+          setMetadata(result);
+        }
       } else {
-        setStatus("not_found");
+        setError("Verification failed. Please try again.");
+        setStatus("idle");
       }
-    }, 1500);
+    } catch (err) {
+      console.error("Verification error:", err);
+      setError("Network error. Could not connect to verification server.");
+      setStatus("idle");
+    }
   };
 
   const handleManualSubmit = (e) => {
@@ -80,6 +95,7 @@ const SeedVerifier = ({ onClose }) => {
   const handleReset = () => {
     stopScanner();
     setScannedData(null);
+    setMetadata(null);
     setStatus("idle");
     setError(null);
   };
@@ -141,6 +157,8 @@ const SeedVerifier = ({ onClose }) => {
             <p>Verified & Safe for Use</p>
             <div className="data-details">
               <p><span>Batch Code:</span> <strong>{scannedData}</strong></p>
+              {metadata?.crop && <p><span>Crop:</span> <strong>{metadata.crop}</strong></p>}
+              {metadata?.batch && <p><span>Batch ID:</span> <strong>{metadata.batch}</strong></p>}
               <p><span>Status:</span> <strong className="success-text">REGISTERED</strong></p>
             </div>
             <button className="action-btn" onClick={handleReset}>Scan Another</button>
@@ -154,7 +172,8 @@ const SeedVerifier = ({ onClose }) => {
             <p>This code is blacklisted or invalid.</p>
             <div className="data-details">
               <p><span>Batch Code:</span> <strong>{scannedData}</strong></p>
-              <p><span>Status:</span> <strong className="danger-text">BLACKLISTED</strong></p>
+              {metadata?.reason && <p><span>Reason:</span> <strong className="danger-text">{metadata.reason}</strong></p>}
+              <p><span>Status:</span> <strong className="danger-text">INVALID / BLACKLISTED</strong></p>
             </div>
             <button className="action-btn danger-btn" onClick={handleReset}>Scan Again</button>
           </div>
