@@ -53,11 +53,20 @@ import {
   ThumbsUp,
   X,
   AlertTriangle,
-  TrendingDown
+  TrendingDown,
+  Bug,
+  BarChart3,
+  Rocket,
+  Trophy,
+  Medal,
+  Gem,
+  FileText,
+  Construction,
+  CloudRain,
 } from "lucide-react";
 import { FaSync } from "react-icons/fa";
 import { useAdvisorStore } from "./stores/advisorStore";
-import { usePerformanceStore } from "./stores/performanceStore";
+
 import { useYieldPrediction } from "./hooks/useYieldPrediction";
 import { auth, db } from "./lib/firebase";
 import { generateBankPDF, generateCSV } from "./utils/exportService";
@@ -131,7 +140,7 @@ export default function Advisor({ userData }) {
     setShowGreenPractices,
   } = useAdvisorStore();
 
-  const { liteMode } = usePerformanceStore();
+
 
   const {
     yieldForm,
@@ -363,10 +372,10 @@ export default function Advisor({ userData }) {
     });
 
   const getNextBadgeThreshold = (points) => {
-    if (points < 50) return { threshold: 50, name: "Active Contributor", icon: "🥉" };
-    if (points < 200) return { threshold: 200, name: "Farming Expert", icon: "🥈" };
-    if (points < 500) return { threshold: 500, name: "Master Agriculturist", icon: "🥇" };
-    return { threshold: points, name: "Maximum Rank", icon: "💎" };
+    if (points < 50) return { threshold: 50, name: "Active Contributor", icon: <Medal size={16} style={{ color: '#cd7f32' }} /> };
+    if (points < 200) return { threshold: 200, name: "Farming Expert", icon: <Medal size={16} style={{ color: '#c0c0c0' }} /> };
+    if (points < 500) return { threshold: 500, name: "Master Agriculturist", icon: <Trophy size={16} style={{ color: '#ffd700' }} /> };
+    return { threshold: points, name: "Maximum Rank", icon: <Gem size={16} style={{ color: '#4facfe' }} /> };
   };
 
   const currentReputation = userProfile?.reputation || 0;
@@ -376,14 +385,21 @@ export default function Advisor({ userData }) {
   return (
     <section className="advisor">
       <div className="floating-icons">
-        <span>🌱</span>
-        <span>☀️</span>
-        <span>💧</span>
-        <span>₹</span>
+        <span><Sprout /></span>
+        <span><Sun /></span>
+        <span><Droplets /></span>
+        <span><IndianRupee /></span>
       </div>
 
       <div className="advisor-hero">
-        <h1 className="fade-in">🌱 <span className="notranslate">AI-Powered Agricultural Advisor</span></h1>
+        <button 
+          className="back-btn" 
+          onClick={() => navigate(-1)}
+          aria-label="Go back"
+        >
+          <X size={20} />
+        </button>
+        <h1 className="fade-in"><Sprout className="inline-icon" /> <span className="notranslate">AI-Powered Agricultural Advisor</span></h1>
         <p className="fade-in">
           Personalized guidance for <span className="highlight">weather</span>,{" "}
           <span className="highlight">markets</span>, and{" "}
@@ -394,7 +410,7 @@ export default function Advisor({ userData }) {
           onClick={() => setShowSoilChatbot(true)}
           aria-label="Get Started with AI Soil Advisor"
         >
-          🚀 <span className="notranslate" aria-hidden="true">Get Started</span>
+          <Rocket className="inline-icon" /> <span className="notranslate" aria-hidden="true">Get Started</span>
         </button>
       </div>
 
@@ -422,7 +438,7 @@ export default function Advisor({ userData }) {
       <br />
 
       <div className="advisor-highlights">
-        <h2 className="slide-in">✨ <span className="notranslate">Features</span></h2>
+        <h2 className="slide-in"><Layers className="inline-icon" /> <span className="notranslate">Features</span></h2>
         <br />
         <br />
         <div className="cards">
@@ -573,13 +589,13 @@ export default function Advisor({ userData }) {
           </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowCropDiseaseDetection(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowCropDiseaseDetection(true); }} aria-label="Crop Disease Detection: Upload images">
-            <div className="icon" aria-hidden="true">🌿</div>
+            <div className="icon" aria-hidden="true"><Sprout size={32} /></div>
             <h3><span className="notranslate">Crop Disease Detection</span></h3>
             <p>Upload plant images to detect diseases and get remedies.</p>
           </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFertilizerPopup(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFertilizerPopup(true); }} aria-label="Fertilizer Recommendations: Plan your nutrition">
-            <div className="icon" aria-hidden="true">🌾</div>
+            <div className="icon" aria-hidden="true"><FlaskConical size={32} /></div>
             <h3><span className="notranslate">Fertilizer Recommendations</span></h3>
             <p>Get a crop-aware fertilizer plan based on soil pH and nutrient status.</p>
           </div>
@@ -593,13 +609,13 @@ export default function Advisor({ userData }) {
           </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowPestManagement(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowPestManagement(true); }} aria-label="Pest Management: Early warnings">
-            <div className="icon" aria-hidden="true">🐛</div>
+            <div className="icon" aria-hidden="true"><Bug size={32} /></div>
             <h3><span className="notranslate">Pest Management</span></h3>
             <p>Early warnings & organic pest control tips.</p>
           </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowYieldPopup(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowYieldPopup(true); }} aria-label="Yield Prediction: AI-based forecast">
-            <div className="icon" aria-hidden="true">📊</div>
+            <div className="icon" aria-hidden="true"><BarChart3 size={32} /></div>
             <h3><span className="notranslate">Yield Prediction</span></h3>
             <p>AI predicts crop yield based on soil & weather data.</p>
           </div>
@@ -614,20 +630,20 @@ export default function Advisor({ userData }) {
 
           {(userData?.role === "vendor" || userData?.role === "admin") && (
             <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowAgriMarketplace(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowAgriMarketplace(true); }} aria-label="Agri Marketplace: Equipment rental">
-              <div className="icon" aria-hidden="true">🚜</div>
+              <div className="icon" aria-hidden="true"><ShoppingCart size={32} /></div>
               <h3><span className="notranslate">Agri Marketplace</span></h3>
               <p>Rent or list farm equipment locally. Save costs and earn extra.</p>
             </div>
           )}
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowAgriLMS(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowAgriLMS(true); }} aria-label="Agri-LMS Academy: Online courses">
-            <div className="icon" aria-hidden="true">🎓</div>
+            <div className="icon" aria-hidden="true"><Award size={32} /></div>
             <h3><span className="notranslate">Agri-LMS Academy</span></h3>
             <p>Access video tutorials on modern farming and earn completion certificates.</p>
           </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowQRTraceability(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowQRTraceability(true); }} aria-label="QR-Farm Traceability: Trace your produce">
-            <div className="icon" aria-hidden="true">🔍</div>
+            <div className="icon" aria-hidden="true"><QrCode size={32} /></div>
             <h3><span className="notranslate">QR-Farm Traceability</span></h3>
             <p>Generate QR codes for your produce. Let customers trace their food from farm to table.</p>
           </div>
@@ -650,13 +666,13 @@ export default function Advisor({ userData }) {
           )}
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFarmPlanner3D(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFarmPlanner3D(true); }} aria-label="3D Farm Planner: Interactive design">
-            <div className="icon" aria-hidden="true">🗺️</div>
+            <div className="icon" aria-hidden="true"><Map size={32} /></div>
             <h3><span className="notranslate">3D Farm Planner</span></h3>
             <p>Design your farm layout in interactive 3D. Optimize land usage and irrigation.</p>
           </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowProfitCalculator(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowProfitCalculator(true); }} aria-label="Profit Calculator: ROI analysis">
-            <div className="icon" aria-hidden="true">💰</div>
+            <div className="icon" aria-hidden="true"><IndianRupee size={32} /></div>
             <h3><span className="notranslate">Profit Calculator</span></h3>
             <p>Calculate your crop profits and ROI before planting.</p>
           </div>
@@ -733,7 +749,7 @@ export default function Advisor({ userData }) {
               <h3><span className="notranslate">Expert Reputation</span></h3>
               <p>Track your community points and earn expert badges for your contributions.</p>
               <div className="mini-badge-info">
-                {currentReputation} pts · {currentReputation >= 500 ? "🥇" : currentReputation >= 200 ? "🥈" : currentReputation >= 50 ? "🥉" : "🌱"}
+                {currentReputation} pts · {currentReputation >= 500 ? <Trophy size={14} style={{ color: '#ffd700' }} /> : currentReputation >= 200 ? <Medal size={14} style={{ color: '#c0c0c0' }} /> : currentReputation >= 50 ? <Medal size={14} style={{ color: '#cd7f32' }} /> : <Sprout size={14} />}
               </div>
             </div>
           )}
@@ -815,7 +831,7 @@ export default function Advisor({ userData }) {
           }}
         >
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px" }}>
-            <h2 style={{ margin: 0 }}>@ 🌦️ Live Weather & Advisories</h2>
+            <h2 style={{ margin: 0 }}><CloudRain className="inline-icon" /> Live Weather & Advisories</h2>
             {weatherLastUpdated && (
               <LastUpdated timestamp={weatherLastUpdated} />
             )}
@@ -1033,7 +1049,7 @@ export default function Advisor({ userData }) {
                 </div>
                 <div className="badge-display">
                   <span className="badge-icon-large">
-                    {currentReputation >= 500 ? "🥇" : currentReputation >= 200 ? "🥈" : currentReputation >= 50 ? "🥉" : "🌱"}
+                    {currentReputation >= 500 ? <Trophy size={24} style={{ color: '#ffd700' }} /> : currentReputation >= 200 ? <Medal size={24} style={{ color: '#c0c0c0' }} /> : currentReputation >= 50 ? <Medal size={24} style={{ color: '#cd7f32' }} /> : <Sprout size={24} />}
                   </span>
                   <span className="badge-title">
                     {currentReputation >= 500 ? "Master Agriculturist" : 
@@ -1052,7 +1068,7 @@ export default function Advisor({ userData }) {
                   <div className="progress-fill" style={{ width: `${progressPercent}%` }}></div>
                 </div>
                 <p className="progress-note">
-                  Earn {nextBadge.threshold - currentReputation} more points to reach {nextBadge.icon} {nextBadge.name}
+                  Earn {nextBadge.threshold - currentReputation} more points to reach <span className="inline-icon-wrap">{nextBadge.icon}</span> {nextBadge.name}
                 </p>
               </div>
 
@@ -1134,7 +1150,7 @@ export default function Advisor({ userData }) {
                 riskLevel: userProfile?.riskLevel || "Moderate",
                 date: new Date().toLocaleDateString("en-IN"),
               })}>
-                <div className="btn-icon">📄</div>
+                <div className="btn-icon"><FileText size={20} /></div>
                 <div className="btn-text">
                   <strong>Export as PDF</strong>
                   <span>Bank-friendly format</span>
@@ -1153,7 +1169,7 @@ export default function Advisor({ userData }) {
                 riskLevel: userProfile?.riskLevel || "Moderate",
                 date: new Date().toLocaleDateString("en-IN"),
               })}>
-                <div className="btn-icon">📊</div>
+                <div className="btn-icon"><BarChart3 size={20} /></div>
                 <div className="btn-text">
                   <strong>Export as CSV</strong>
                   <span>Spreadsheet format</span>
@@ -1182,7 +1198,7 @@ export default function Advisor({ userData }) {
       {showSoilAnalysis && (
         <div className="weather-overlay" onClick={() => setShowSoilAnalysis(false)}>
           <div className="soil-analysis-popup" onClick={(e)=>e.stopPropagation()}>
-            <button className="close-btn" onClick={() => setShowSoilAnalysis(false)} style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 10 }}>✕</button>
+            <button className="close-btn" onClick={() => setShowSoilAnalysis(false)} style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 10 }}><X /></button>
             <SoilAnalysis />
           </div>
         </div>
@@ -1191,7 +1207,7 @@ export default function Advisor({ userData }) {
       {showSoilGuide && (
         <div className="weather-overlay" onClick={() => setShowSoilGuide(false)}>
           <div className="soil-analysis-popup" onClick={(e) => e.stopPropagation()}>
-            <button className="close-btn" onClick={() => setShowSoilGuide(false)} style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 10 }}>✕</button>
+            <button className="close-btn" onClick={() => setShowSoilGuide(false)} style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 10 }}><X /></button>
             <SoilGuide />
           </div>
         </div>
@@ -1208,8 +1224,8 @@ export default function Advisor({ userData }) {
       {showYieldPopup && (
         <div className="weather-overlay" onClick={closeYieldPopup}>
           <div className="yield-popup" onClick={(e)=>e.stopPropagation()}>
-            <button className="close-btn" onClick={closeYieldPopup}>✕</button>
-            <h2>📊 Yield Prediction</h2>
+            <button className="close-btn" onClick={closeYieldPopup}><X /></button>
+            <h2><BarChart3 className="inline-icon" /> Yield Prediction</h2>
             {yieldError && (
               <div style={{ color: '#dc2626', marginBottom: '16px', padding: '12px', background: '#fef2f2', borderRadius: '8px' }}>
                 Error: {yieldError}
@@ -1373,7 +1389,7 @@ export default function Advisor({ userData }) {
       {showAgriMarketplace && (
         <div className="weather-overlay" onClick={() => setShowAgriMarketplace(false)}>
           <div className="agri-modal-wrapper" onClick={(e) => e.stopPropagation()}>
-            <button className="close-btn agri-close-btn" onClick={() => setShowAgriMarketplace(false)}>✕</button>
+            <button className="close-btn agri-close-btn" onClick={() => setShowAgriMarketplace(false)}><X /></button>
             <AgriMarketplace onClose={() => setShowAgriMarketplace(false)} />
           </div>
         </div>
@@ -1382,7 +1398,7 @@ export default function Advisor({ userData }) {
       {showAgriLMS && (
         <div className="weather-overlay" onClick={() => setShowAgriLMS(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
-            <button className="close-btn agri-close-btn" onClick={() => setShowAgriLMS(false)}>✕</button>
+            <button className="close-btn agri-close-btn" onClick={() => setShowAgriLMS(false)}><X /></button>
             <AgriLMS />
           </div>
         </div>
@@ -1391,7 +1407,7 @@ export default function Advisor({ userData }) {
       {showQRTraceability && (
         <div className="weather-overlay" onClick={() => setShowQRTraceability(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
-            <button className="close-btn agri-close-btn" onClick={() => setShowQRTraceability(false)}>✕</button>
+            <button className="close-btn agri-close-btn" onClick={() => setShowQRTraceability(false)}><X /></button>
             <QRTraceability />
           </div>
         </div>
@@ -1400,7 +1416,7 @@ export default function Advisor({ userData }) {
       {showFarmPlanner3D && (
         <div className="weather-overlay" onClick={() => setShowFarmPlanner3D(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
-            <button className="close-btn agri-close-btn" onClick={() => setShowFarmPlanner3D(false)}>✕</button>
+            <button className="close-btn agri-close-btn" onClick={() => setShowFarmPlanner3D(false)}><X /></button>
             <FarmPlanner3D />
           </div>
         </div>
@@ -1409,7 +1425,7 @@ export default function Advisor({ userData }) {
       {showComingSoon && (
         <div className="weather-overlay" onClick={()=>setShowComingSoon(false)}>
           <div className="weather-popup coming-soon" onClick={(e)=>e.stopPropagation()}>
-            <h2>🚧 Coming Soon</h2>
+            <h2><Construction className="inline-icon" /> Coming Soon</h2>
             <p>This feature is under development. Stay tuned!</p>
             <button className="close-btn" onClick={() => setShowComingSoon(false)}>Close</button>
           </div>
@@ -1419,7 +1435,7 @@ export default function Advisor({ userData }) {
       {showFarmDiary && (
         <div className="weather-overlay" onClick={() => setShowFarmDiary(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
-            <button className="close-btn agri-close-btn" onClick={() => setShowFarmDiary(false)}>✕</button>
+            <button className="close-btn agri-close-btn" onClick={() => setShowFarmDiary(false)}><X /></button>
             <FarmDiary onClose={() => setShowFarmDiary(false)} />
           </div>
         </div>
