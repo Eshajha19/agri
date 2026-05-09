@@ -15,6 +15,7 @@ import {
   FaShieldAlt,
   FaSun,
   FaFlask,
+  FaPhoneAlt,
   FaQuoteLeft,
   FaSeedling,
   FaChevronRight,
