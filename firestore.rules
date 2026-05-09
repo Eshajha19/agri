@@ -1,32 +1,178 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper function to check roles
+
+    // ─────────────────────────────────────────────
+    // Helper functions
+    // ─────────────────────────────────────────────
+
+    // Check the caller's role stored in their Firestore user document.
     function hasRole(role) {
-      return request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+      return request.auth != null
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
     }
 
-    // User profiles: Users can read their own profile, Admins can read all
+    // Convenience: is the caller authenticated?
+    function isAuthed() {
+      return request.auth != null;
+    }
+
+    // Convenience: is the caller the owner of a document?
+    function isOwner(uid) {
+      return isAuthed() && request.auth.uid == uid;
+    }
+
+    // ─────────────────────────────────────────────
+    // Spam / rate-limit helpers
+    // ─────────────────────────────────────────────
+
+    // Minimum content length for posts (characters).
+    // Prevents one-word or empty-string spam submissions.
+    function postContentValid() {
+      return request.resource.data.content is string
+          && request.resource.data.content.size() >= 20;
+    }
+
+    // Minimum content length for comments (characters).
+    function commentContentValid() {
+      return request.resource.data.text is string
+          && request.resource.data.text.size() >= 5;
+    }
+
+    // The incoming document must carry a server-side timestamp so we can
+    // enforce cooldowns.  Clients that omit createdAt or supply a fake
+    // client timestamp are rejected.
+    function hasServerTimestamp(field) {
+      return request.resource.data[field] == request.time;
+    }
+
+    // Cooldown: the caller must not have posted within the last 60 seconds.
+    // We look up their most-recent post and compare its createdAt to now.
+    // If no prior post exists the query returns 0 docs → cooldown passes.
+    function postCooldownOk() {
+      let recentPosts = getAfter(/databases/$(database)/documents/posts)
+        == null
+        ? true
+        : (
+            firestore.query(
+              /databases/$(database)/documents/posts,
+              [["userId", "==", request.auth.uid],
+               ["createdAt", ">", request.time - duration.value(60, 's')]],
+              1
+            ).size() == 0
+          );
+      return recentPosts;
+    }
+
+    // Cooldown: the caller must not have commented within the last 30 seconds.
+    function commentCooldownOk() {
+      return firestore.query(
+        /databases/$(database)/documents/comments,
+        [["userId", "==", request.auth.uid],
+         ["createdAt", ">", request.time - duration.value(30, 's')]],
+        1
+      ).size() == 0;
+    }
+
+    // Reputation-gain frequency cap: a user may only receive a reputation
+    // increment from their own post if they have not already received one
+    // in the last 5 minutes.  This is enforced by checking the
+    // lastReputationGain timestamp stored on the user document.
+    function reputationCooldownOk(uid) {
+      let userData = get(/databases/$(database)/documents/users/$(uid)).data;
+      return !("lastReputationGain" in userData)
+          || (request.time - userData.lastReputationGain) > duration.value(300, 's');
+    }
+
+    // ─────────────────────────────────────────────
+    // Collection rules
+    // ─────────────────────────────────────────────
+
+    // User profiles
     match /users/{userId} {
-      allow read: if request.auth != null && (request.auth.uid == userId || hasRole('admin'));
-      allow write: if request.auth != null && request.auth.uid == userId;
+      allow read: if isAuthed() && (request.auth.uid == userId || hasRole('admin'));
+
+      // Users may update their own profile.
+      // Reputation increments are allowed only when the cooldown has elapsed,
+      // preventing tight-loop reputation farming.
+      allow update: if isOwner(userId)
+        && (
+          // Non-reputation fields: always allowed.
+          !("reputation" in request.resource.data.diff(resource.data).affectedKeys())
+          // Reputation change: enforce cooldown.
+          || reputationCooldownOk(userId)
+        );
+
+      allow create: if isOwner(userId);
     }
 
-    // Feedback: Only Admins can read, anyone logged in can create
+    // Community posts
+    match /posts/{postId} {
+      // Anyone authenticated can read posts.
+      allow read: if isAuthed();
+
+      // Create: authenticated, content ≥ 20 chars, server timestamp, 60 s cooldown.
+      allow create: if isAuthed()
+        && postContentValid()
+        && hasServerTimestamp('createdAt')
+        && request.resource.data.userId == request.auth.uid
+        && postCooldownOk();
+
+      // Update: only the post owner may edit content; anyone authenticated
+      // may update the likes array (for like/unlike actions).
+      allow update: if isAuthed()
+        && (
+          // Like / unlike: only the likes field changes.
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'commentsCount']))
+          // Owner editing their own post content.
+          || (isOwner(resource.data.userId) && postContentValid())
+        );
+
+      // Delete: post owner or admin.
+      allow delete: if isOwner(resource.data.userId) || hasRole('admin');
+    }
+
+    // Community comments
+    match /comments/{commentId} {
+      // Anyone authenticated can read comments.
+      allow read: if isAuthed();
+
+      // Create: authenticated, text ≥ 5 chars, server timestamp, 30 s cooldown.
+      allow create: if isAuthed()
+        && commentContentValid()
+        && hasServerTimestamp('createdAt')
+        && request.resource.data.userId == request.auth.uid
+        && commentCooldownOk();
+
+      // Update: only vote arrays (upvotes / downvotes) may be changed by
+      // any authenticated user; the comment author may also edit text.
+      allow update: if isAuthed()
+        && (
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['upvotes', 'downvotes'])
+          || (isOwner(resource.data.userId) && commentContentValid())
+        );
+
+      // Delete: comment owner or admin.
+      allow delete: if isOwner(resource.data.userId) || hasRole('admin');
+    }
+
+    // Feedback: only admins can read; any authenticated user can submit.
     match /feedback/{feedbackId} {
       allow read: if hasRole('admin');
-      allow create: if request.auth != null;
+      allow create: if isAuthed();
     }
 
-    // Reports: Only Experts and Admins can create/read
+    // Reports: experts and admins only.
     match /reports/{reportId} {
       allow read, write: if hasRole('expert') || hasRole('admin');
     }
-    
-    // Marketplace: Only Vendors and Admins can write
+
+    // Marketplace: public read; vendors and admins can write.
     match /marketplace/{itemId} {
       allow read: if true;
       allow write: if hasRole('vendor') || hasRole('admin');
     }
   }
 }
+

@@ -18,13 +18,20 @@
   --navbar-height: 70px; /* Ensure consistency */
 }
 
-.lite-mode .navbar,
+/* Lite Mode Performance Engine */
 .lite-mode .card,
 .lite-mode .modal,
 .lite-mode .glass-effect {
   box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
   backdrop-filter: none !important;
   background: var(--card-bg, #fff) !important;
+}
+
+/* seperating the navbar from rest */
+.lite-mode .navbar {
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
+  backdrop-filter: none !important;
+  background: var(--brand-primary, #2e7d32) !important;
 }
 
 /* Guest Banner */
