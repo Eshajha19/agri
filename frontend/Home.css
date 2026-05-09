@@ -906,7 +906,7 @@
   text-decoration: none;
   color: inherit;
   display: block;
-  opacity: 0;
+  opacity: 1;
   animation: fadeInUp 0.6s ease-out forwards;
 }
 
