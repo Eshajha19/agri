@@ -13,8 +13,13 @@ import {
   Navigation,
   CheckCircle,
   AlertCircle,
+  XCircle,
   X,
+  Calendar,
+  BarChart,
+  Brain,
 } from 'lucide-react';
+import { FaCalendarAlt, FaSeedling, FaBrain, FaChartLine } from 'react-icons/fa';
 
 function SmartCropRecommendation({ onClose }) {
   const {
@@ -52,7 +57,7 @@ function SmartCropRecommendation({ onClose }) {
         <div className="header-title">
           <Leaf size={28} className="icon" />
           <div>
-            <h2>🌱 Smart Crop Recommender</h2>
+            <h2><Leaf size={22} className="inline-icon" /> Smart Crop Recommender</h2>
             <p>AI-powered recommendations based on weather, soil & season</p>
           </div>
         </div>
@@ -192,7 +197,7 @@ function SmartCropRecommendation({ onClose }) {
         {/* Weather Information */}
         {weatherData && (
           <div className="weather-info">
-            <h4>📊 Current Weather Conditions</h4>
+            <h4><BarChart size={18} className="inline-icon" /> Current Weather Conditions</h4>
             <div className="weather-grid">
               <div className="weather-card">
                 <Thermometer size={20} />
@@ -216,7 +221,7 @@ function SmartCropRecommendation({ onClose }) {
         {/* Recommendations Section */}
         {hasSearched && (
           <div className="recommendations-section">
-            <h3>💡 Recommended Crops</h3>
+            <h3><Leaf size={20} className="inline-icon" /> Recommended Crops</h3>
 
             {recommendations.length === 0 ? (
               <div className="no-recommendations">
@@ -254,9 +259,9 @@ function SmartCropRecommendation({ onClose }) {
                           {reason.includes('✓') ? (
                             <CheckCircle size={14} className="icon-success" />
                           ) : reason.includes('✗') ? (
-                            <AlertCircle size={14} className="icon-warning" />
+                            <XCircle size={14} className="icon-error" />
                           ) : (
-                            <span className="icon-warning">⚠</span>
+                            <AlertCircle size={14} className="icon-warning" />
                           )}
                           <span>{reason}</span>
                         </div>
@@ -264,7 +269,7 @@ function SmartCropRecommendation({ onClose }) {
                     </div>
 
                     <div className="crop-season">
-                      🗓️ Optimal Season: <strong>{crop.optimal_season.toUpperCase()}</strong>
+                      <FaCalendarAlt className="inline-icon" /> Optimal Season: <strong>{crop.optimal_season.toUpperCase()}</strong>
                     </div>
 
                     <button className="crop-action">
@@ -288,11 +293,11 @@ function SmartCropRecommendation({ onClose }) {
         {/* Initial State */}
         {!hasSearched && !loading && (
           <div className="initial-state">
-            <div className="icon-large">🌾</div>
+            <div className="icon-large"><FaSeedling /></div>
             <h3>Start Your Crop Journey</h3>
             <p>Fill in your location and soil details to get personalized crop recommendations</p>
             <div className="tips">
-              <h4>💡 Tips:</h4>
+              <h4><Brain size={18} className="inline-icon" /> Tips:</h4>
               <ul>
                 <li>Use geolocation for accurate weather data</li>
                 <li>Select the correct soil type for better recommendations</li>
