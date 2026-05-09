@@ -3,7 +3,6 @@ import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import { useFloating, flip, shift, offset, autoUpdate } from "@floating-ui/react";
 import {
   FaComments,
   FaLeaf,
@@ -19,6 +18,9 @@ import {
   FaBolt,
   FaUserSecret,
   FaFileInvoiceDollar,
+  FaHome,
+  FaSun,
+  FaMoon,
 } from "react-icons/fa";
 import { usePerformanceStore } from "./stores/performanceStore";
 
@@ -61,7 +63,9 @@ import PrivacyPolicy from "./PrivacyPolicy";
 import Terms from "./Terms";
 import SoilAnalysis from "./SoilAnalysis";
 import SeedVerifier from "./SeedVerifier";
+import Footer from "./components/Footer";
 import { SkipLink } from "./NavigationManager";
+import { useTheme } from "./ThemeContext";
 
 // Libs
 import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc } from "./lib/firebase";
@@ -69,32 +73,47 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 
 // CSS
 import "./App.css";
-import "./themes/sunlight.css";
 
 const LANGUAGE_OPTIONS = [
-  { value: "en", label: "English" },
-  { value: "hi", label: "हिन्दी" },
-  { value: "bn", label: "বাংলা" },
-  { value: "te", label: "తెలుగు" },
-  { value: "ta", label: "தமிழ்" },
-  { value: "mr", label: "मराठी" },
-  { value: "gu", label: "ગુજરાતી" },
-  { value: "kn", label: "ಕನ್ನಡ" },
-  { value: "ml", label: "മലയാളം" },
-  { value: "pa", label: "ਪੰਜਾਬੀ" },
-  { value: "or", label: "ଓଡ଼ିଆ" },
-  { value: "as", label: "অসমীয়া" },
+  { value: "en", label: "🌍 English", englishName: "english" },
+  { value: "hi", label: "🇮🇳 हिंदी", englishName: "hindi" },
+  { value: "mr", label: "🇮🇳 मराठी", englishName: "marathi" },
+  { value: "bn", label: "🇮🇳 বাংলা", englishName: "bengali" },
+  { value: "ta", label: "🇮🇳 தமிழ்", englishName: "tamil" },
+  { value: "te", label: "🇮🇳 తెలుగు", englishName: "telugu" },
+  { value: "gu", label: "🇮🇳 ગુજરાતી", englishName: "gujarati" },
+  { value: "pa", label: "🇮🇳 ਪੰਜਾਬੀ", englishName: "punjabi" },
+  { value: "kn", label: "🇮🇳 ಕನ್ನಡ", englishName: "kannada" },
+  { value: "ml", label: "🇮🇳 മലയാളം", englishName: "malayalam" },
+  { value: "or", label: "🇮🇳 ଓଡ଼ିଆ", englishName: "odia" },
+  { value: "as", label: "🇮🇳 অসমীয়া", englishName: "assamese" },
 ];
 
 const getInitialLanguage = () => {
-  try {
-    return localStorage.getItem("preferredLanguage") || "en";
-  } catch {
-    return "en";
-  }
+  // Always default to English when the user enters the site
+  return "en";
 };
 
-const GuestBanner = ({ onSignUp }) => (
+/**
+ * Helper to apply Google Translate selection to the hidden widget
+ */
+const applyGoogleTranslate = (langCode) => {
+  try {
+    const select = document.querySelector(".goog-te-combo");
+    if (select) {
+      if (select.value !== langCode) {
+        select.value = langCode;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      return true;
+    }
+  } catch (e) {
+    console.error("GT Apply Error:", e);
+  }
+  return false;
+};
+
+const GuestBanner = () => (
   <div className="guest-banner">
     <div className="guest-banner-content">
       <FaUserSecret className="banner-icon" />
@@ -108,8 +127,9 @@ const GuestBanner = ({ onSignUp }) => (
 
 function App() {
   const scorecardRef = useRef(null);
-  const [settings, setSettings] = useState({ language: getInitialLanguage() });
+  const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
   const [isOpen, setIsOpen] = useState(false);
+  const { theme, toggleTheme } = useTheme();
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [profileCompleted, setProfileCompleted] = useState(true);
@@ -123,43 +143,58 @@ function App() {
 
   useEffect(() => {
     detectAndSetLiteMode();
-  }, []);
+  }, [detectAndSetLiteMode]);
 
   const { i18n } = useTranslation();
   const location = useLocation();
 
-  // Auth & Profile Sync
+  useNotifications();
+
+  /* ---------------- THEME SYSTEM (Moved to ThemeProvider) ---------------- */
+
+  /* ---------------- LANGUAGE AUTO-TRANS ---------------- */
+  useEffect(() => {
+    if (applyGoogleTranslate(preferredLang)) return;
+    const id = setInterval(() => {
+      if (applyGoogleTranslate(preferredLang)) clearInterval(id);
+    }, 300);
+    return () => clearInterval(id);
+  }, [preferredLang]);
+
+  /* ---------------- AUTH & FIRESTORE SYNC ---------------- */
   useEffect(() => {
     if (!isFirebaseConfigured()) {
       setLoading(false);
       return;
     }
+
+    // Safety timeout — if Firebase auth never responds (revoked key, network issue),
+    // force loading=false so the app doesn't hang forever on the spinner.
+    const safetyTimer = setTimeout(() => {
+      setLoading(false);
+    }, 5000);
+
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+      clearTimeout(safetyTimer);
       setUser(currentUser);
       if (currentUser) {
-        localStorage.setItem("userId", currentUser.uid);
-        const unsubscribeDoc = onSnapshot(
-          doc(db, "users", currentUser.uid),
-          (userDoc) => {
-            if (userDoc.exists()) {
-              const data = userDoc.data();
-              setUserData(data);
-              setProfileCompleted(data.profileCompleted === true);
-            } else if (currentUser.isAnonymous) {
-              // Guest user might not have a profile doc yet
-              setUserData({ displayName: "Guest Farmer", isAnonymous: true });
-              setProfileCompleted(true);
-            } else {
-              setUserData(null);
-              setProfileCompleted(false);
-            }
-            setLoading(false);
-          },
-          (error) => {
-            console.error("Firestore sync error:", error);
-            setLoading(false);
+        const unsubscribeDoc = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
+          if (userDoc.exists()) {
+            const data = userDoc.data();
+            setUserData(data);
+            setProfileCompleted(data.profileCompleted === true);
+          } else if (currentUser.isAnonymous) {
+            setUserData({ displayName: "Guest Farmer", isAnonymous: true });
+            setProfileCompleted(true);
+          } else {
+            setUserData(null);
+            setProfileCompleted(false);
           }
-        );
+          setLoading(false);
+        }, (error) => {
+          console.error("Firestore sync error:", error);
+          setLoading(false);
+        });
         return () => unsubscribeDoc();
       } else {
         setUserData(null);
@@ -167,89 +202,38 @@ function App() {
         setLoading(false);
       }
     });
-    return () => unsubscribeAuth();
+    return () => { clearTimeout(safetyTimer); unsubscribeAuth(); };
   }, []);
 
   // E2EE Key Generation Sync
-  //
-  // Private keys are stored as non-extractable CryptoKey objects in IndexedDB.
-  // Raw key material never touches JavaScript memory or localStorage, so an
-  // XSS attacker cannot exfiltrate the private key.
-  // Only the public key (safe to share) is published to Firebase.
   useEffect(() => {
     if (!user || !isFirebaseConfigured()) return;
 
     const ensurePublicKey = async () => {
       try {
-        const { cryptoService } = await import("./utils/cryptoService");
-
-        let privateKey = await cryptoService.loadPrivateKey(user.uid);
-        let publicJwk = null;
-
-        if (!privateKey) {
-          // ── Migrate any key previously stored in localStorage ──────────────
-          const legacyPrivateJwk = localStorage.getItem(`ecdh_private_${user.uid}`);
-          const legacyPublicJwk  = localStorage.getItem(`ecdh_public_${user.uid}`);
-
-          if (legacyPrivateJwk && legacyPublicJwk) {
-            // Re-import the old key as non-extractable and move it to IndexedDB
-            privateKey = await cryptoService.importPrivateKey(JSON.parse(legacyPrivateJwk));
-            await cryptoService.savePrivateKey(user.uid, privateKey);
-            publicJwk = JSON.parse(legacyPublicJwk);
-
-            // Remove the plaintext key material from localStorage
-            localStorage.removeItem(`ecdh_private_${user.uid}`);
-            localStorage.removeItem(`ecdh_public_${user.uid}`);
-          } else {
-            // ── Fresh key generation ─────────────────────────────────────────
-            const keyPair = await cryptoService.generateECDHKeyPair();
-            // Save the non-extractable private key to IndexedDB only
-            await cryptoService.savePrivateKey(user.uid, keyPair.privateKey);
-            // Export only the public key (safe to share)
-            publicJwk = await cryptoService.exportKey(keyPair.publicKey);
-          }
+        let privateJwk = localStorage.getItem(`agri:ecdh_private_${user.uid}`);
+        let publicJwk = localStorage.getItem(`agri:ecdh_public_${user.uid}`);
+        
+        if (!privateJwk || !publicJwk) {
+          const { cryptoService } = await import("./utils/cryptoService");
+          const keyPair = await cryptoService.generateECDHKeyPair();
+          privateJwk = await cryptoService.exportKey(keyPair.privateKey);
+          publicJwk = await cryptoService.exportKey(keyPair.publicKey);
+          localStorage.setItem(`agri:ecdh_private_${user.uid}`, JSON.stringify(privateJwk));
+          localStorage.setItem(`agri:ecdh_public_${user.uid}`, JSON.stringify(publicJwk));
         } else {
-          // Key already in IndexedDB — fetch the public JWK from Firebase
-          // (we don't store it locally; Firebase is the source of truth)
-          const pubKeyRef = doc(db, "public_keys", user.uid);
-          const { getDoc } = await import("firebase/firestore");
-          const snap = await getDoc(pubKeyRef);
-          if (snap.exists()) {
-            publicJwk = snap.data().jwk;
-          } else {
-            // Public key missing from Firebase (e.g. cleared) — regenerate pair
-            const keyPair = await cryptoService.generateECDHKeyPair();
-            await cryptoService.savePrivateKey(user.uid, keyPair.privateKey);
-            publicJwk = await cryptoService.exportKey(keyPair.publicKey);
-          }
+          publicJwk = JSON.parse(publicJwk);
         }
 
-        // Publish the public key to Firebase so peers can encrypt messages to us
-        if (publicJwk) {
-          const pubKeyRef = doc(db, "public_keys", user.uid);
-          await setDoc(pubKeyRef, { jwk: publicJwk }, { merge: true });
-        }
+        const pubKeyRef = doc(db, "public_keys", user.uid);
+        await setDoc(pubKeyRef, { jwk: publicJwk }, { merge: true });
       } catch (error) {
-        console.error("Failed to generate/publish ECDH keys:", error);
+        console.error("Failed to generate/publish ECDH keys globally:", error);
       }
     };
 
     ensurePublicKey();
   }, [user]);
-
-  // Theme Sync
-  const [isDarkTheme, setIsDarkTheme] = useState(() => {
-    try {
-      return (localStorage.getItem("theme") || "light") === "dark";
-    } catch {
-      return false;
-    }
-  });
-
-  useEffect(() => {
-    document.documentElement.classList.toggle("theme-dark", isDarkTheme);
-    localStorage.setItem("theme", isDarkTheme ? "dark" : "light");
-  }, [isDarkTheme]);
 
   // Online/Offline detection
   useEffect(() => {
@@ -272,12 +256,6 @@ function App() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Language init
-  useEffect(() => {
-    const lang = getInitialLanguage();
-    i18n.changeLanguage(lang);
-  }, [i18n]);
-
   // Click outside scorecard
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -290,28 +268,24 @@ function App() {
   }, []);
 
   const handleNavToggle = () => setIsOpen(!isOpen);
-  const handleThemeToggle = () => setIsDarkTheme(!isDarkTheme);
+  const handleThemeToggle = toggleTheme;
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      setUser(null);
-      setUserData(null);
-      setProfileCompleted(true);
+      window.location.href = "/";
     } catch (error) {
-      console.error("Logout error:", error);
+      console.error("Sign out error:", error);
     }
   };
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: "smooth" });
 
-  useNotifications();
-
   return (
-    <div className={`app ${isDarkTheme ? "theme-dark" : ""} ${liteMode ? "lite-mode" : ""}`}>
+    <div className={`app ${theme === "dark" ? "theme-dark" : ""} ${liteMode ? "lite-mode" : ""}`}>
       <SkipLink />
       {user?.isAnonymous && <GuestBanner />}
-      
+
       {loading && <Loader fullPage={true} message={<span className="notranslate">Initializing Fasal Saathi...</span>} />}
-      
+
       {isOffline && (
         <div className="offline-banner" role="alert">
           You are currently offline. Running in offline mode using local data.
@@ -320,28 +294,26 @@ function App() {
 
       <nav className={`navbar ${isOpen ? "menu-open" : ""}`} role="navigation" aria-label="Main Navigation">
         <div className="nav-left">
-          <Link to="/" className="brand" aria-label="Fasal Saathi Home">
-            <FaLeaf className="brand-icon" />
-            <span className="notranslate" translate="no">Fasal Saathi</span>
-          </Link>
+          <FaLeaf className="icon" />
+          <Link to="/" className="brand">Fasal Saathi</Link>
         </div>
 
         <ul className={`nav-center ${isOpen ? "active" : ""}`}>
-          <li><Link to="/" onClick={() => setIsOpen(false)}>Home</Link></li>
-          <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}>Works</Link></li>
-          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}>Guide</Link></li>
+          <li><Link to="/" onClick={() => setIsOpen(false)}><FaHome /> Home</Link></li>
+          <li><Link to="/advisor" onClick={() => setIsOpen(false)}><FaComments /> Chat</Link></li>
+          <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}><FaInfoCircle /> How It Works</Link></li>
+          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}><FaLeaf className="icon" /> Crop Guide</Link></li>
           <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
-          <li><Link to="/crop-planner" onClick={() => setIsOpen(false)}>Planner</Link></li>
         </ul>
 
         <div className="nav-right">
           <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Toggle Theme">
-            {isDarkTheme ? "☀️" : "🌙"}
+            {theme === "dark" ? <FaSun className="theme-toggle-icon" /> : <FaMoon className="theme-toggle-icon" />}
           </button>
 
-          <button 
-            onClick={(e) => { e.stopPropagation(); setShowMoreMenu(!showMoreMenu); }} 
-            className={`more-menu-toggle ${showMoreMenu ? 'active' : ''}`} 
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowMoreMenu(!showMoreMenu); }}
+            className={`more-menu-toggle ${showMoreMenu ? 'active' : ''}`}
             aria-label="More Options"
           >
             <span className="notranslate">More</span>
@@ -353,18 +325,18 @@ function App() {
               <div className="dropdown-links">
                 <div className="language-selector-section">
                   <label className="language-label">Language:</label>
-                  <LanguageDropdown 
+                  <LanguageDropdown
                     options={LANGUAGE_OPTIONS}
-                    value={settings.language}
+                    value={preferredLang}
                     onChange={(lang) => {
-                      setSettings({ ...settings, language: lang });
+                      setPreferredLang(lang);
                       i18n.changeLanguage(lang);
-                      localStorage.setItem("preferredLanguage", lang);
+                      localStorage.setItem("agri:preferredLanguage", lang);
                     }}
                   />
                 </div>
                 <div className="performance-toggle-section">
-                  <button 
+                  <button
                     className={`lite-mode-toggle ${liteMode ? 'active' : ''}`}
                     onClick={() => setLiteMode(!liteMode)}
                     role="menuitem"
@@ -396,25 +368,28 @@ function App() {
             {!loading && user ? (
               <div className="user-profile-trigger" onClick={() => { setShowScorecard(!showScorecard); setShowMoreMenu(false); }}>
                 <div className="profile-main">
-                  <span className="profile-name">{userData?.displayName || user.email?.split('@')?.[0] || "Farmer"}</span>
+                  <span className="profile-name">👋 {userData?.displayName || user.email?.split('@')[0]}</span>
                   <FaChevronDown className={`chevron ${showScorecard ? 'open' : ''}`} />
                 </div>
 
-                {showScorecard && (
+                {showScorecard && userData && (
                   <div className="profile-scorecard" onClick={(e) => e.stopPropagation()}>
                     <div className="scorecard-header">
-                      <div className="scorecard-avatar">{userData?.displayName?.[0] || 'F'}</div>
-                      <h3>{userData?.displayName || "Farmer"}</h3>
-                      <p>{user.email}</p>
+                      <div className="scorecard-avatar">{userData.displayName?.[0] || 'F'}</div>
+                      <h3>{userData.displayName}</h3>
+                      <p>{userData.email || user.email}</p>
                     </div>
                     <div className="scorecard-body">
-                      <div className="score-item"><label>Role</label><span className="role-badge">{userData?.role?.toUpperCase() || "FARMER"}</span></div>
-                      <div className="score-item"><label>Primary Crop</label><span>{userData?.cropType || "N/A"}</span></div>
-                      <div className="score-item"><label>Location</label><span>{userData?.address || "N/A"}</span></div>
-                      <div className="score-item">
-                        <label>Language</label>
-                        <span>{LANGUAGE_OPTIONS.find(l => l.value === (userData?.language || settings.language))?.label || "English"}</span>
-                      </div>
+                      {[
+                        { label: "🌾 Primary Crop", value: userData.cropType || "N/A" },
+                        { label: "🌐 Language", value: LANGUAGE_OPTIONS.find(l => l.value === (userData.language || preferredLang))?.label || preferredLang },
+                        { label: "📍 Location", value: userData.address || "Fetching..." }
+                      ].map((item, i) => (
+                        <div key={i} className="score-item">
+                          <label>{item.label}</label>
+                          <span>{item.value}</span>
+                        </div>
+                      ))}
                     </div>
                     <div className="scorecard-footer">
                       <button onClick={handleLogout} className="btn-logout-alt">Sign Out</button>
@@ -422,33 +397,40 @@ function App() {
                   </div>
                 )}
               </div>
-            ) : !loading && (
-              <Link to="/login" className="btn-get-started" aria-label="Get Started">
-                <span className="notranslate">Get Started</span>
-              </Link>
+            ) : (
+              <Link to="/login" className="btn-get-started">Get Started</Link>
             )}
           </div>
         </div>
 
-        <button className="hamburger" onClick={handleNavToggle} aria-label="Toggle Menu">
+        <button className="hamburger" onClick={() => setIsOpen(!isOpen)} aria-label="Toggle Menu">
           {isOpen ? <FaTimes /> : <FaBars />}
         </button>
       </nav>
 
-      {!loading && user && !user.isAnonymous && !user.emailVerified && location.pathname !== "/login" && (
+      {/* VERIFICATION GUARD */}
+      {!loading && user && !user.isAnonymous && !user.emailVerified && !showScorecard && location.pathname !== "/login" && (
         <div className="verification-overlay">
           <div className="verification-card">
             <div className="verify-icon">✉️</div>
             <h2>Verify Your Email</h2>
             <p>We've sent a link to <b>{user.email}</b>.<br /> Please verify your email to unlock all features.</p>
-            <button onClick={() => window.location.reload()} className="btn-refresh">I've Verified My Email</button>
+            <button 
+              onClick={() => {
+                auth.currentUser.reload().then(() => window.location.reload());
+              }} 
+              className="btn-refresh"
+            >
+              I've Verified My Email
+            </button>
             <button onClick={handleLogout} className="btn-logout-simple">Sign Out</button>
           </div>
         </div>
       )}
 
-      {!loading && user && user.emailVerified && !profileCompleted && location.pathname !== "/profile-setup" && (
-        <Navigate to="/profile-setup" replace />
+      {/* PROFILE COMPLETION GUARD */}
+      {!loading && user && (user.isAnonymous || user.emailVerified) && !profileCompleted && location.pathname !== "/profile-setup" && (
+        <Navigate to="/profile-setup" />
       )}
 
       <main id="main-content" tabIndex="-1" style={{ outline: 'none' }}>
@@ -496,10 +478,10 @@ function App() {
         <FaComments size={28} aria-hidden="true" />
       </Link>
 
-      <a 
-        href="https://wa.me/14155238886?text=I%20want%20to%20start%20the%20conversation" 
-        target="_blank" 
-        rel="noopener noreferrer" 
+      <a
+        href="https://wa.me/14155238886?text=I%20want%20to%20start%20the%20conversation"
+        target="_blank"
+        rel="noopener noreferrer"
         className="whatsapp-float"
         title="Chat with WhatsApp Bot"
       >
@@ -514,6 +496,7 @@ function App() {
       )}
 
       <ToastContainer position="bottom-right" />
+      <Footer />
     </div>
   );
 }

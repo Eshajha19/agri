@@ -59,7 +59,7 @@ apiClient.interceptors.request.use(
   (config) => {
     const nextConfig = { ...config };
     const token =
-      localStorage.getItem('authToken') || localStorage.getItem('token');
+      localStorage.getItem('agri:authToken') || localStorage.getItem('agri:token');
 
     if (token && !nextConfig.headers?.Authorization) {
       nextConfig.headers = {
