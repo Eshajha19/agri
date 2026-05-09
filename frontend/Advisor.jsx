@@ -23,6 +23,7 @@ import SeedVerifier from "./SeedVerifier";
 import ClimateSimulator from "./ClimateSimulator";
 import RAGAdvisor from "./RAGAdvisor";
 import GreenPractices from "./GreenPractices";
+import YieldPredictorForm from "./YieldPredictorForm";
 import { Leaf } from "lucide-react";
 
 import CropRotation from "./CropRotation";
@@ -143,15 +144,8 @@ export default function Advisor({ userData }) {
 
 
   const {
-    yieldForm,
-    updateYieldFormField,
-    yieldPrediction,
-    yieldLastUpdated,
-    yieldError,
-    yieldLoading,
     showYieldPopup,
     setShowYieldPopup,
-    fetchYield,
     closeYieldPopup,
   } = useYieldPrediction();
 
@@ -617,7 +611,14 @@ export default function Advisor({ userData }) {
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowYieldPopup(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowYieldPopup(true); }} aria-label="Yield Prediction: AI-based forecast">
             <div className="icon" aria-hidden="true"><BarChart3 size={32} /></div>
             <h3><span className="notranslate">Yield Prediction</span></h3>
-            <p>AI predicts crop yield based on soil & weather data.</p>
+            <p>AI predicts crop yield based on soil &amp; weather data.</p>
+            <button
+              className="card-link-btn"
+              onClick={(e) => { e.stopPropagation(); navigate("/yield-predictor"); }}
+              aria-label="Open Yield Predictor as full page"
+            >
+              Open full page →
+            </button>
           </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/schemes")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/schemes"); }} aria-label="Govt Schemes: Financial support">
@@ -1231,123 +1232,11 @@ export default function Advisor({ userData }) {
 
       {showYieldPopup && (
         <div className="weather-overlay" onClick={closeYieldPopup}>
-          <div className="yield-popup" onClick={(e)=>e.stopPropagation()}>
-            <button className="close-btn" onClick={closeYieldPopup}><X /></button>
-            <h2><BarChart3 className="inline-icon" /> Yield Prediction</h2>
-            {yieldError && (
-              <div style={{ color: '#dc2626', marginBottom: '16px', padding: '12px', background: '#fef2f2', borderRadius: '8px' }}>
-                Error: {yieldError}
-              </div>
-            )}
-            {yieldPrediction === null ? (
-              <form onSubmit={fetchYield} className="yield-form">
-                <div className="form-group">
-                  <label>Crop</label>
-                  <select value={yieldForm.Crop} onChange={(e) => updateYieldFormField("Crop", e.target.value)}>
-                    <option value="Paddy">Paddy</option>
-                    <option value="Cotton">Cotton</option>
-                    <option value="Maize">Maize</option>
-                    <option value="Bengal Gram">Bengal Gram</option>
-                    <option value="Groundnut">Groundnut</option>
-                    <option value="Chillies">Chillies</option>
-                    <option value="Red Gram">Red Gram</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Season</label>
-                  <select value={yieldForm.Season} onChange={(e) => updateYieldFormField("Season", e.target.value)}>
-                    <option value="Rabi">Rabi</option>
-                    <option value="Kharif">Kharif</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Covered Area (acres)</label>
-                  <input type="number" value={yieldForm.CropCoveredArea} onChange={(e) => updateYieldFormField("CropCoveredArea", parseFloat(e.target.value))} />
-                </div>
-                <div className="form-group">
-                  <label>Crop Height (cm)</label>
-                  <input type="number" value={yieldForm.CHeight} onChange={(e) => updateYieldFormField("CHeight", parseInt(e.target.value))} />
-                </div>
-                <div className="form-group">
-                  <label>Next Crop</label>
-                  <select value={yieldForm.CNext} onChange={(e) => updateYieldFormField("CNext", e.target.value)}>
-                    <option value="Pea">Pea</option>
-                    <option value="Lentil">Lentil</option>
-                    <option value="Maize">Maize</option>
-                    <option value="Sorghum">Sorghum</option>
-                    <option value="Wheat">Wheat</option>
-                    <option value="Soybean">Soybean</option>
-                    <option value="Mustard">Mustard</option>
-                    <option value="Rice">Rice</option>
-                    <option value="Tomato">Tomato</option>
-                    <option value="Onion">Onion</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Last Crop</label>
-                  <select value={yieldForm.CLast} onChange={(e) => updateYieldFormField("CLast", e.target.value)}>
-                    <option value="Lentil">Lentil</option>
-                    <option value="Pea">Pea</option>
-                    <option value="Maize">Maize</option>
-                    <option value="Sorghum">Sorghum</option>
-                    <option value="Soybean">Soybean</option>
-                    <option value="Wheat">Wheat</option>
-                    <option value="Mustard">Mustard</option>
-                    <option value="Rice">Rice</option>
-                    <option value="Tomato">Tomato</option>
-                    <option value="Onion">Onion</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Transplanting Method</label>
-                  <select value={yieldForm.CTransp} onChange={(e) => updateYieldFormField("CTransp", e.target.value)}>
-                    <option value="Transplanting">Transplanting</option>
-                    <option value="Drilling">Drilling</option>
-                    <option value="Broadcasting">Broadcasting</option>
-                    <option value="Seed Drilling">Seed Drilling</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Irrigation Type</label>
-                  <select value={yieldForm.IrriType} onChange={(e) => updateYieldFormField("IrriType", e.target.value)}>
-                    <option value="Flood">Flood</option>
-                    <option value="Sprinkler">Sprinkler</option>
-                    <option value="Drip">Drip</option>
-                    <option value="Surface">Surface</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Irrigation Source</label>
-                  <select value={yieldForm.IrriSource} onChange={(e) => updateYieldFormField("IrriSource", e.target.value)}>
-                    <option value="Groundwater">Groundwater</option>
-                    <option value="Canal">Canal</option>
-                    <option value="Rainfed">Rainfed</option>
-                    <option value="Well">Well</option>
-                    <option value="Tubewell">Tubewell</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Irrigation Count</label>
-                  <input type="number" value={yieldForm.IrriCount} onChange={(e) => updateYieldFormField("IrriCount", parseInt(e.target.value))} />
-                </div>
-                <div className="form-group">
-                  <label>Water Coverage (%)</label>
-                  <input type="number" max="100" value={yieldForm.WaterCov} onChange={(e) => updateYieldFormField("WaterCov", parseInt(e.target.value))} />
-                </div>
-                <div className="form-group full-width form-actions">
-                  <button type="submit" className="action-btn" disabled={yieldLoading}>
-                    {yieldLoading ? "Predicting..." : "Predict Yield"}
-                  </button>
-                  <button type="button" className="action-btn secondary" onClick={closeYieldPopup}>Cancel</button>
-                </div>
-              </form>
-            ) : (
-              <>
-                <p className="yield-result">Predicted Yield: <strong>{yieldPrediction.toFixed(2)}</strong> quintals/acre</p>
-                {yieldLastUpdated && <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'center' }}><LastUpdated timestamp={yieldLastUpdated} /></div>}
-                <button className="action-btn" onClick={closeYieldPopup}>Predict Another</button>
-              </>
-            )}
+          <div className="yield-popup" onClick={(e) => e.stopPropagation()}>
+            <button className="close-btn" onClick={closeYieldPopup} aria-label="Close yield prediction">
+              <X />
+            </button>
+            <YieldPredictorForm onClose={closeYieldPopup} />
           </div>
         </div>
       )}

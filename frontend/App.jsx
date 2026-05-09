@@ -65,6 +65,7 @@ import Terms from "./Terms";
 import SoilAnalysis from "./SoilAnalysis";
 import SeedVerifier from "./SeedVerifier";
 import FarmFinance from "./FarmFinance";
+import YieldPredictor from "./YieldPredictor";
 import Footer from "./components/Footer";
 import { SkipLink } from "./NavigationManager";
 import { useTheme } from "./ThemeContext";
@@ -304,7 +305,7 @@ function App() {
           <li><Link to="/" onClick={() => setIsOpen(false)}><FaHome /> Home</Link></li>
           <li><Link to="/advisor" onClick={() => setIsOpen(false)}><FaComments /> Chat</Link></li>
           <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}><FaInfoCircle /> How It Works</Link></li>
-          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}>Crop Guide</Link></li>
+          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}><FaLeaf className="icon" /> Crop Guide</Link></li>
           <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
         </ul>
 
@@ -470,6 +471,7 @@ function App() {
           <Route path="/crop-rotation" element={<CropRotation />} />
           <Route path="/seed-verifier" element={<SeedVerifier />} />
           <Route path="/farm-finance" element={<FarmFinance />} />
+          <Route path="/yield-predictor" element={<YieldPredictor />} />
           <Route path="/blog" element={<Blog />} />
           <Route path="/blog/:id" element={<BlogDetail />} />
           <Route path="*" element={<NotFound />} />
