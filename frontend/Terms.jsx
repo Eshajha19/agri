@@ -4,64 +4,72 @@ import "./Legal.css";
 export default function Terms() {
   return (
     <div className="legal-page">
-      <h1><span className="notranslate">Terms of Service</span></h1>
+      <h1>
+        <span className="notranslate">Terms of Service</span>
+      </h1>
+
       <p className="last-updated">Last Updated: April 2026</p>
 
-      <section>
+      <section className="legal-section">
         <h2>1. Introduction</h2>
+
         <p>
-          Welcome to <span className="notranslate" translate="no">Fasal Saathi</span>. By using our platform, you agree to comply
-          with and be bound by these Terms of Service. Please read them carefully.
+          Welcome to <span className="notranslate">Fasal Saathi</span>. By using
+          our platform, you agree to comply with these Terms of Service.
         </p>
       </section>
 
-      <section>
+      <section className="legal-section">
         <h2>2. Use of the Platform</h2>
+
         <p>
-          <span className="notranslate">Fasal Saathi</span> provides AI-based agricultural recommendations. The
-          information provided is for guidance only and should not be considered
-          a substitute for professional agricultural advice.
+          <span className="notranslate">Fasal Saathi</span> provides AI-based
+          agricultural recommendations.
         </p>
       </section>
 
-      <section>
+      <section className="legal-section">
         <h2>3. User Responsibilities</h2>
+
         <ul>
           <li>Provide accurate farm and soil data</li>
           <li>Use the platform ethically</li>
-          <li>Do not misuse or attempt to disrupt services</li>
+          <li>Do not misuse the services</li>
         </ul>
       </section>
 
-      <section>
+      <section className="legal-section">
         <h2>4. Data & Privacy</h2>
+
         <p>
-          We collect and process data as described in our Privacy Policy. Your
-          data is handled securely using trusted services like Firebase.
+          We collect and process data as described in our Privacy Policy.
         </p>
       </section>
 
-      <section>
+      <section className="legal-section">
         <h2>5. Limitation of Liability</h2>
+
         <p>
-          <span className="notranslate">Fasal Saathi</span> is not liable for any losses or damages resulting from the
-          use of recommendations provided by the platform.
+          <span className="notranslate">Fasal Saathi</span> is not liable for
+          losses resulting from platform recommendations.
         </p>
       </section>
 
-      <section>
+      <section className="legal-section">
         <h2>6. Changes to Terms</h2>
+
         <p>
-          We may update these Terms from time to time. Continued use of the
-          platform implies acceptance of updated terms.
+          We may update these Terms from time to time.
         </p>
       </section>
 
-      <section>
-        <h2>7. <span className="notranslate">Contact Us</span></h2>
+      <section className="legal-section">
+        <h2>
+          7. <span className="notranslate">Contact Us</span>
+        </h2>
+
         <p>
-          If you have any questions about these Terms, please contact us via the
-          Contact page.
+          Contact us through the Contact page for any questions.
         </p>
       </section>
     </div>
