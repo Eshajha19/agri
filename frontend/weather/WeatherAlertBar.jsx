@@ -15,7 +15,7 @@ import {
 import "./WeatherAlertBar.css";
 
 const REFRESH_INTERVAL_MS = 15 * 60 * 1000;
-const LEGACY_DISMISS_KEY = "agriLiveAlertDismissed";
+const LEGACY_DISMISS_KEY = "agri:liveAlertDismissed";
 
 export default function WeatherAlertBar() {
   const [snapshot, setSnapshot] = useState(() => getStoredWeatherSnapshot());

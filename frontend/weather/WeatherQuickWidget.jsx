@@ -14,9 +14,9 @@ import {
 } from "./weatherService";
 import "./WeatherQuickWidget.css";
 
-const WEATHER_CACHE_KEY = "agriWeatherSnapshot";
-const LEGACY_WIDGET_DISMISS_KEY = "agriWeatherWidgetDismissed";
-const ALERT_BAR_SHOWN_KEY = "agriAlertBarActive";
+const WEATHER_CACHE_KEY = "agri:weatherSnapshot";
+const LEGACY_WIDGET_DISMISS_KEY = "agri:weatherWidgetDismissed";
+const ALERT_BAR_SHOWN_KEY = "agri:alertBarActive";
 
 export default function WeatherQuickWidget() {
   const [snapshot, setSnapshot] = useState(() => getStoredWeatherSnapshot());

@@ -1,60 +1,59 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, ReferenceLine
 } from "recharts";
-import { Thermometer, Droplets, TrendingDown, TrendingUp, AlertTriangle, X } from "lucide-react";
+import { Thermometer, Droplets, TrendingDown, TrendingUp, AlertTriangle, X, Loader2 } from "lucide-react";
 import "./ClimateSimulator.css";
-
-const SENSITIVITIES = {
-  rice:      { temp: -0.05, rain: 0.02 },
-  wheat:     { temp: -0.06, rain: 0.03 },
-  cotton:    { temp: -0.03, rain: 0.01 },
-  maize:     { temp: -0.07, rain: 0.04 },
-  sugarcane: { temp: -0.02, rain: 0.05 },
-  soybean:   { temp: -0.04, rain: 0.03 },
-  potato:    { temp: -0.05, rain: 0.04 },
-  default:   { temp: -0.04, rain: 0.02 },
-};
-
-function computeSimulation(cropType, tempDelta, rainDelta) {
-  const coeff = SENSITIVITIES[cropType?.toLowerCase()] || SENSITIVITIES.default;
-  const yieldImpactTemp = tempDelta * coeff.temp;
-  const yieldImpactRain = (rainDelta / 100) * coeff.rain;
-  const totalYieldImpact = yieldImpactTemp + yieldImpactRain;
-  const profitImpact = totalYieldImpact * 1.5;
-  const suitability = Math.max(0, Math.min(100, 85 + totalYieldImpact * 100));
-  return {
-    yield_impact_pct: parseFloat((totalYieldImpact * 100).toFixed(2)),
-    profit_impact_pct: parseFloat((profitImpact * 100).toFixed(2)),
-    suitability_score: parseFloat(suitability.toFixed(1)),
-    risk_level: totalYieldImpact < -0.15 ? "High" : totalYieldImpact < -0.05 ? "Medium" : "Low",
-    recommendation:
-      tempDelta > 2
-        ? "Switch to heat-tolerant varieties"
-        : rainDelta < -20
-        ? "Ensure adequate irrigation"
-        : "Conditions remain viable",
-  };
-}
-
-function formatImpact(value) {
-  if (value > 0) return `+${value}%`;
-  if (value < 0) return `${value}%`;
-  return "No change";
-}
 
 const ClimateSimulator = ({ isOpen, onClose, userData }) => {
   const [tempDelta, setTempDelta] = useState(0);
   const [rainDelta, setRainDelta] = useState(0);
+  const [result, setResult] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   const cropType = userData?.cropType || "rice";
-  const result = computeSimulation(cropType, tempDelta, rainDelta);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const fetchSimulation = async () => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const response = await fetch(`/api/simulate-climate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            crop_type: cropType,
+            temp_delta: tempDelta,
+            rain_delta: rainDelta,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to fetch simulation results");
+        }
+
+        const data = await response.json();
+        setResult(data);
+      } catch (err) {
+        console.error("Simulation error:", err);
+        setError("Error connecting to simulation service.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    const timeoutId = setTimeout(fetchSimulation, 300); // Debounce API calls
+    return () => clearTimeout(timeoutId);
+  }, [isOpen, tempDelta, rainDelta, cropType]);
 
   if (!isOpen) return null;
 
   // Build chart data as deviation from 100 — amplified so small changes are visible
-  const simulatedYield  = parseFloat((100 + result.yield_impact_pct).toFixed(2));
-  const simulatedProfit = parseFloat((100 + result.profit_impact_pct).toFixed(2));
+  const simulatedYield  = result ? parseFloat((100 + result.yield_impact_pct).toFixed(2)) : 100;
+  const simulatedProfit = result ? parseFloat((100 + result.profit_impact_pct).toFixed(2)) : 100;
 
   const chartData = [
     { name: "Baseline",  Yield: 100, Profit: 100 },
@@ -66,14 +65,23 @@ const ClimateSimulator = ({ isOpen, onClose, userData }) => {
   const minVal  = Math.min(...allVals) - 5;
   const maxVal  = Math.max(...allVals) + 5;
 
-  const isNegYield  = result.yield_impact_pct < 0;
-  const isNegProfit = result.profit_impact_pct < 0;
+  const isNegYield  = result?.yield_impact_pct < 0;
+  const isNegProfit = result?.profit_impact_pct < 0;
+
+  const formatImpact = (value) => {
+    if (value > 0) return `+${value}%`;
+    if (value < 0) return `${value}%`;
+    return "No change";
+  };
 
   return (
     <div className="simulator-overlay">
       <div className="simulator-modal">
         <div className="simulator-header">
-          <h2>🌍 Climate Risk Simulator</h2>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <h2>🌍 Climate Risk Simulator</h2>
+            {isLoading && <Loader2 className="animate-spin" size={18} color="#22c55e" />}
+          </div>
           <button className="close-btn" onClick={onClose}><X /></button>
         </div>
 
@@ -114,27 +122,40 @@ const ClimateSimulator = ({ isOpen, onClose, userData }) => {
               </div>
             </div>
 
-            <div className="simulator-status">
-              <div className="status-item">
-                <span className="label">Current Crop:</span>
-                <span className="value">{cropType.toUpperCase()}</span>
+            {error ? (
+              <div className="error-box">
+                <AlertTriangle size={20} />
+                <p>{error}</p>
               </div>
-              <div className="status-item">
-                <span className="label">Risk Level:</span>
-                <span className={`value risk-${result.risk_level.toLowerCase()}`}>
-                  {result.risk_level}
-                </span>
-              </div>
-              <div className="status-item">
-                <span className="label">Suitability Score:</span>
-                <span className="value">{result.suitability_score}%</span>
-              </div>
-            </div>
+            ) : result ? (
+              <>
+                <div className="simulator-status">
+                  <div className="status-item">
+                    <span className="label">Current Crop:</span>
+                    <span className="value">{cropType.toUpperCase()}</span>
+                  </div>
+                  <div className="status-item">
+                    <span className="label">Risk Level:</span>
+                    <span className={`value risk-${result.risk_level.toLowerCase()}`}>
+                      {result.risk_level}
+                    </span>
+                  </div>
+                  <div className="status-item">
+                    <span className="label">Suitability Score:</span>
+                    <span className="value">{result.suitability_score}%</span>
+                  </div>
+                </div>
 
-            <div className="recommendation-box">
-              <AlertTriangle size={20} />
-              <p>{result.recommendation}</p>
-            </div>
+                <div className="recommendation-box">
+                  <AlertTriangle size={20} />
+                  <p>{result.recommendation}</p>
+                </div>
+              </>
+            ) : (
+              <div className="loading-placeholder">
+                <p>Calculating impacts...</p>
+              </div>
+            )}
           </div>
 
           {/* ── Visualization ── */}
@@ -160,14 +181,14 @@ const ClimateSimulator = ({ isOpen, onClose, userData }) => {
                 {isNegYield ? <TrendingDown size={28} /> : <TrendingUp size={28} />}
                 <div>
                   <h4>Yield Impact</h4>
-                  <p>{formatImpact(result.yield_impact_pct)}</p>
+                  <p>{result ? formatImpact(result.yield_impact_pct) : "--"}</p>
                 </div>
               </div>
               <div className={`stat-card ${isNegProfit ? "negative" : "positive"}`}>
                 {isNegProfit ? <TrendingDown size={28} /> : <TrendingUp size={28} />}
                 <div>
                   <h4>Profit Impact</h4>
-                  <p>{formatImpact(result.profit_impact_pct)}</p>
+                  <p>{result ? formatImpact(result.profit_impact_pct) : "--"}</p>
                 </div>
               </div>
             </div>
@@ -179,3 +200,4 @@ const ClimateSimulator = ({ isOpen, onClose, userData }) => {
 };
 
 export default ClimateSimulator;
+

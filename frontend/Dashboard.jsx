@@ -67,7 +67,7 @@ export default function Dashboard() {
     setIsUpdating(true);
     setUpdateMsg("");
     try {
-      const response = await fetch("http://localhost:8000/api/whatsapp/subscribe", {
+      const response = await fetch("/api/whatsapp/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
