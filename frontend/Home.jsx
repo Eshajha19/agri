@@ -14,7 +14,11 @@ import {
   FaBook,
   FaShieldAlt,
   FaSun,
-  FaFlask
+  FaFlask,
+  FaQuoteLeft,
+  FaSeedling,
+  FaChevronRight,
+  FaCloudSun
 } from "react-icons/fa";
 import WeatherAlertBar from "./weather/WeatherAlertBar";
 import WeatherQuickWidget from "./weather/WeatherQuickWidget";
