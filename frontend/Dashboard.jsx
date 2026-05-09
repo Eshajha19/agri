@@ -19,6 +19,7 @@ import {
   FaBook,
   FaPhoneAlt,
   FaShieldAlt,
+  FaFileInvoiceDollar,
 } from "react-icons/fa";
 import "./Dashboard.css";
 import {

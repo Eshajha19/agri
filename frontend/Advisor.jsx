@@ -671,6 +671,14 @@ export default function Advisor({ userData }) {
             <p>Design your farm layout in interactive 3D. Optimize land usage and irrigation.</p>
           </div>
 
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/farm-finance")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/farm-finance"); }} aria-label="Farm Finance: Seasonal P&L tracking">
+            <div className="icon" aria-hidden="true">
+              <IndianRupee size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Farm Finance</span></h3>
+            <p>Track seasonal income, expenses, and overall profitability with visual analytics.</p>
+          </div>
+
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowProfitCalculator(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowProfitCalculator(true); }} aria-label="Profit Calculator: ROI analysis">
             <div className="icon" aria-hidden="true"><IndianRupee size={32} /></div>
             <h3><span className="notranslate">Profit Calculator</span></h3>
