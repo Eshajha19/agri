@@ -1,4 +1,4 @@
-name: Sync PR Labels from Linked Issues
+name: Sync PR Labels and Assignees from Linked Issues
 
 on:
   pull_request_target:
@@ -9,11 +9,11 @@ permissions:
   pull-requests: write
 
 jobs:
-  sync-labels:
+  sync-pr-data:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Copy labels from linked issues
+      - name: Copy labels and assignees from linked issues
         uses: actions/github-script@v7
         with:
           script: |
@@ -27,7 +27,7 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
-            // Fresh PR body
+            // Get fresh PR body
             const { data: prDataFresh } = await github.rest.pulls.get({
               owner,
               repo,
@@ -36,7 +36,7 @@ jobs:
 
             const body = prDataFresh.body || "";
 
-            // Matching
+            // Match linked issues
             const strictMatches = [...body.matchAll(/(fixes|closes|resolves)\s*:?\s+#(\d+)/gi)]
               .map(m => Number(m[2]));
 
@@ -53,21 +53,27 @@ jobs:
               return;
             }
 
-            // PR labels
-            const { data: prData } = await github.rest.issues.get({
+            // Existing PR labels + assignees
+            const { data: prIssueData } = await github.rest.issues.get({
               owner,
               repo,
               issue_number: pr.number
             });
 
-            const existingLabels = prData.labels.map(l => l.name);
+            const existingLabels = prIssueData.labels.map(l => l.name);
+            const existingAssignees = prIssueData.assignees.map(a => a.login);
 
             let labelsToAdd = [];
+            let assigneesToAdd = [];
 
-            // Parallel fetch
+            // Fetch linked issues
             const issueResults = await Promise.allSettled(
               issueNumbers.map(issue_number =>
-                github.rest.issues.get({ owner, repo, issue_number })
+                github.rest.issues.get({
+                  owner,
+                  repo,
+                  issue_number
+                })
               )
             );
 
@@ -76,30 +82,57 @@ jobs:
               const issue_number = issueNumbers[i];
 
               if (result.status === "fulfilled") {
-                // Skip PRs (only use real issues)
-                if (!result.value.data.pull_request) {
-                  const issueLabels = result.value.data.labels.map(l => l.name);
+                const issue = result.value.data;
+
+                // Skip linked PRs
+                if (!issue.pull_request) {
+
+                  // Labels
+                  const issueLabels = issue.labels.map(l => l.name);
                   labelsToAdd.push(...issueLabels);
+
+                  // Assignees
+                  const issueAssignees = issue.assignees.map(a => a.login);
+                  assigneesToAdd.push(...issueAssignees);
                 }
+
               } else {
                 console.log(`Issue #${issue_number} error: ${result.reason.message}`);
               }
             }
 
-            // Deduplicate + filter
+            // Deduplicate labels
             labelsToAdd = [...new Set(labelsToAdd)]
               .filter(l => l && !existingLabels.includes(l));
 
-            if (labelsToAdd.length === 0) {
+            // Deduplicate assignees
+            assigneesToAdd = [...new Set(assigneesToAdd)]
+              .filter(a => a && !existingAssignees.includes(a));
+
+            // Add labels
+            if (labelsToAdd.length > 0) {
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number: pr.number,
+                labels: labelsToAdd
+              });
+
+              console.log(`Added labels: ${labelsToAdd.join(", ")}`);
+            } else {
               console.log("No new labels to add.");
-              return;
             }
 
-            await github.rest.issues.addLabels({
-              owner,
-              repo,
-              issue_number: pr.number,
-              labels: labelsToAdd
-            });
+            // Add assignees
+            if (assigneesToAdd.length > 0) {
+              await github.rest.issues.addAssignees({
+                owner,
+                repo,
+                issue_number: pr.number,
+                assignees: assigneesToAdd
+              });
 
-            console.log(`Added ${labelsToAdd.length} labels:`, labelsToAdd);
+              console.log(`Added assignees: ${assigneesToAdd.join(", ")}`);
+            } else {
+              console.log("No new assignees to add.");
+            }
