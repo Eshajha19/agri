@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { 
   MessageSquare, 
   ThumbsUp, 
@@ -14,7 +14,8 @@ import {
   Send,
   X,
   ShieldCheck,
-  MessageCircle
+  MessageCircle,
+  AlertCircle
 } from "lucide-react";
 import P2PChat from "./P2PChat";
 import { auth, db, isFirebaseConfigured } from "./lib/firebase";
@@ -29,9 +30,9 @@ import {
   arrayUnion, 
   arrayRemove,
   where,
-  Timestamp,
   getDocs,
-  increment
+  increment,
+  serverTimestamp,
 } from "firebase/firestore";
 import Loader from "./Loader";
 import "./Community.css";
@@ -44,6 +45,40 @@ const CATEGORIES = [
   { id: "market", label: "Market Prices", color: "#f59e0b" },
   { id: "success", label: "Success Stories", color: "#8b5cf6" },
 ];
+
+// ─── Rate-limit / spam-protection constants ───────────────────────────────────
+// These mirror the Firestore security rules so the UI gives instant feedback
+// before the write even reaches the server.
+
+/** Minimum characters required for a post. */
+const POST_MIN_LENGTH = 20;
+
+/** Minimum characters required for a comment. */
+const COMMENT_MIN_LENGTH = 5;
+
+/** Milliseconds a user must wait between posts (60 s). */
+const POST_COOLDOWN_MS = 60_000;
+
+/** Milliseconds a user must wait between comments (30 s). */
+const COMMENT_COOLDOWN_MS = 30_000;
+
+/** Milliseconds between reputation gains from posting (5 min). */
+const REPUTATION_COOLDOWN_MS = 300_000;
+
+/**
+ * Repeated-word spam detector.
+ * Returns true when any single word makes up more than 40 % of the total
+ * word count — a strong signal of copy-paste or keyboard-mash spam.
+ */
+function isSpam(text) {
+  const words = text.trim().toLowerCase().split(/\s+/);
+  if (words.length < 4) return false; // too short to judge
+  const freq = {};
+  for (const w of words) freq[w] = (freq[w] || 0) + 1;
+  const maxFreq = Math.max(...Object.values(freq));
+  return maxFreq / words.length > 0.4;
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 const Community = () => {
   const [posts, setPosts] = useState([]);
@@ -58,6 +93,19 @@ const Community = () => {
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [showP2PChat, setShowP2PChat] = useState(null); // stores the recipient object
   const [authorsData, setAuthorsData] = useState({});
+
+  // ── Rate-limit / spam state ──────────────────────────────────────────────
+  /** Timestamp (ms) of the user's last successful post. null = never posted. */
+  const [lastPostTime, setLastPostTime] = useState(null);
+  /** Timestamp (ms) of the user's last successful comment. */
+  const [lastCommentTime, setLastCommentTime] = useState(null);
+  /** Timestamp (ms) of the user's last reputation gain from posting. */
+  const [lastReputationGain, setLastReputationGain] = useState(null);
+  /** Validation / rate-limit error shown inside the create-post modal. */
+  const [postError, setPostError] = useState("");
+  /** Validation / rate-limit error shown inside the comments modal. */
+  const [commentError, setCommentError] = useState("");
+  // ────────────────────────────────────────────────────────────────────────
   
   // Fetch author data (reputation, badges) for posts and comments
   useEffect(() => {
@@ -128,30 +176,81 @@ const Community = () => {
 
   const handleCreatePost = async (e) => {
     e.preventDefault();
-    if (!isFirebaseConfigured() || !currentUser || !newPost.content.trim()) return;
+    if (!isFirebaseConfigured() || !currentUser) return;
+
+    const content = newPost.content.trim();
+
+    // ── Frontend validation (mirrors Firestore rules) ──────────────────────
+
+    // 1. Minimum content length
+    if (content.length < POST_MIN_LENGTH) {
+      setPostError(`Post must be at least ${POST_MIN_LENGTH} characters. Currently: ${content.length}.`);
+      return;
+    }
+
+    // 2. Spam detection
+    if (isSpam(content)) {
+      setPostError("Your post looks like spam (too many repeated words). Please write a genuine message.");
+      return;
+    }
+
+    // 3. Posting cooldown
+    if (lastPostTime !== null) {
+      const elapsed = Date.now() - lastPostTime;
+      if (elapsed < POST_COOLDOWN_MS) {
+        const remaining = Math.ceil((POST_COOLDOWN_MS - elapsed) / 1000);
+        setPostError(`Please wait ${remaining} second${remaining !== 1 ? "s" : ""} before posting again.`);
+        return;
+      }
+    }
+
+    setPostError("");
 
     try {
+      // Use serverTimestamp() so Firestore rules can verify the timestamp
+      // is server-generated (not a client-supplied fake value).
       await addDoc(collection(db, "posts"), {
         userId: currentUser.uid,
         userName: currentUser.displayName || currentUser.email.split('@')[0],
         userEmail: currentUser.email,
-        content: newPost.content,
+        content,
         category: newPost.category,
-        region: "Maharashtra", // Hardcoded for demo, could be from user profile
+        region: "Maharashtra",
         likes: [],
         commentsCount: 0,
-        createdAt: Timestamp.now()
+        createdAt: serverTimestamp(),
       });
 
-      // Award +10 reputation for starting a discussion
-      await updateDoc(doc(db, "users", currentUser.uid), {
-        reputation: increment(10)
-      });
+      // Record the post time for the local cooldown check.
+      setLastPostTime(Date.now());
+
+      // ── Reputation-gain frequency cap ──────────────────────────────────
+      // Only award +10 reputation if the user hasn't gained reputation from
+      // posting within the last REPUTATION_COOLDOWN_MS (5 minutes).
+      const now = Date.now();
+      const canGainReputation =
+        lastReputationGain === null ||
+        now - lastReputationGain >= REPUTATION_COOLDOWN_MS;
+
+      if (canGainReputation) {
+        await updateDoc(doc(db, "users", currentUser.uid), {
+          reputation: increment(10),
+          lastReputationGain: serverTimestamp(),
+        });
+        setLastReputationGain(now);
+      }
 
       setNewPost({ content: "", category: "general" });
       setShowCreateModal(false);
     } catch (err) {
       console.error("Error creating post:", err);
+      // Surface Firestore permission-denied errors (e.g. server-side cooldown
+      // triggered before the local timer expired due to clock skew).
+      if (err.code === "permission-denied") {
+        setPostError("Post rejected by server. You may be posting too quickly — please wait a moment.");
+      } else {
+        setPostError("Failed to create post. Please try again.");
+      }
     }
   };
 
@@ -199,36 +298,71 @@ const Community = () => {
 
   const handleAddComment = async (e) => {
     e.preventDefault();
-    if (!isFirebaseConfigured() || !currentUser || !newComment.trim() || !showCommentsModal) return;
+    if (!isFirebaseConfigured() || !currentUser || !showCommentsModal) return;
+
+    const text = newComment.trim();
+
+    // ── Frontend validation (mirrors Firestore rules) ──────────────────────
+
+    // 1. Minimum content length
+    if (text.length < COMMENT_MIN_LENGTH) {
+      setCommentError(`Comment must be at least ${COMMENT_MIN_LENGTH} characters.`);
+      return;
+    }
+
+    // 2. Spam detection
+    if (isSpam(text)) {
+      setCommentError("Your comment looks like spam. Please write a genuine reply.");
+      return;
+    }
+
+    // 3. Comment cooldown
+    if (lastCommentTime !== null) {
+      const elapsed = Date.now() - lastCommentTime;
+      if (elapsed < COMMENT_COOLDOWN_MS) {
+        const remaining = Math.ceil((COMMENT_COOLDOWN_MS - elapsed) / 1000);
+        setCommentError(`Please wait ${remaining} second${remaining !== 1 ? "s" : ""} before commenting again.`);
+        return;
+      }
+    }
+
+    setCommentError("");
 
     const postId = showCommentsModal.id;
     try {
       await addDoc(collection(db, "comments"), {
-        postId: postId,
+        postId,
         userId: currentUser.uid,
         userName: currentUser.displayName || currentUser.email.split('@')[0],
-        text: newComment,
+        text,
         upvotes: [],
         downvotes: [],
-        createdAt: Timestamp.now()
+        createdAt: serverTimestamp(),
       });
 
-      // Award +5 reputation for posting a comment
+      // Record the comment time for the local cooldown check.
+      setLastCommentTime(Date.now());
+
+      // Award +5 reputation for commenting (no frequency cap on comments —
+      // the 30 s cooldown already limits the rate sufficiently).
       await updateDoc(doc(db, "users", currentUser.uid), {
-        reputation: increment(5)
+        reputation: increment(5),
       });
 
-      // Update post comment count
-      const postRef = doc(db, "posts", postId);
-      await updateDoc(postRef, {
-        commentsCount: increment(1)
+      // Update post comment count.
+      await updateDoc(doc(db, "posts", postId), {
+        commentsCount: increment(1),
       });
 
       setNewComment("");
-      // Refresh comments locally for now or use another listener
       openComments(showCommentsModal);
     } catch (err) {
       console.error("Error adding comment:", err);
+      if (err.code === "permission-denied") {
+        setCommentError("Comment rejected by server. You may be commenting too quickly — please wait a moment.");
+      } else {
+        setCommentError("Failed to post comment. Please try again.");
+      }
     }
   };
 
@@ -428,7 +562,7 @@ const Community = () => {
           <div className="modal-card post-modal">
             <div className="modal-header">
               <h3>Start a New Discussion</h3>
-              <button className="close-btn" onClick={() => setShowCreateModal(false)}><X /></button>
+              <button className="close-btn" onClick={() => { setShowCreateModal(false); setPostError(""); }}><X /></button>
             </div>
             <form onSubmit={handleCreatePost}>
               <div className="form-group">
@@ -443,19 +577,46 @@ const Community = () => {
                 </select>
               </div>
               <div className="form-group">
-                <label>Your Message</label>
+                <label>
+                  Your Message
+                  <span className={`char-counter ${newPost.content.length < POST_MIN_LENGTH ? "char-counter--warn" : "char-counter--ok"}`}>
+                    {newPost.content.length}/{POST_MIN_LENGTH} min
+                  </span>
+                </label>
                 <textarea 
                   rows="5" 
                   placeholder={isFirebaseConfigured() ? "What's on your mind? Ask a question or share an experience..." : "Firebase not configured - cannot create posts"}
                   value={newPost.content}
-                  onChange={(e) => setNewPost({...newPost, content: e.target.value})}
+                  onChange={(e) => { setNewPost({...newPost, content: e.target.value}); setPostError(""); }}
                   required
                   disabled={!isFirebaseConfigured()}
                 ></textarea>
               </div>
+
+              {/* Rate-limit / validation error */}
+              {postError && (
+                <div className="spam-error-box" role="alert">
+                  <AlertCircle size={16} aria-hidden="true" />
+                  <span>{postError}</span>
+                </div>
+              )}
+
+              {/* Cooldown countdown hint */}
+              {lastPostTime !== null && Date.now() - lastPostTime < POST_COOLDOWN_MS && (
+                <p className="cooldown-hint">
+                  ⏳ Next post available in {Math.ceil((POST_COOLDOWN_MS - (Date.now() - lastPostTime)) / 1000)}s
+                </p>
+              )}
+
               <div className="modal-footer">
-                <button type="button" className="btn-cancel" onClick={() => setShowCreateModal(false)}><span className="notranslate">Cancel</span></button>
-                <button type="submit" className="btn-submit"><span className="notranslate">Post to Community</span></button>
+                <button type="button" className="btn-cancel" onClick={() => { setShowCreateModal(false); setPostError(""); }}><span className="notranslate">Cancel</span></button>
+                <button
+                  type="submit"
+                  className="btn-submit"
+                  disabled={!isFirebaseConfigured() || newPost.content.trim().length < POST_MIN_LENGTH}
+                >
+                  <span className="notranslate">Post to Community</span>
+                </button>
               </div>
             </form>
           </div>
@@ -468,7 +629,7 @@ const Community = () => {
           <div className="modal-card comments-modal">
             <div className="modal-header">
               <h3>Comments</h3>
-              <button className="close-btn" onClick={() => setShowCommentsModal(null)}><X /></button>
+              <button className="close-btn" onClick={() => { setShowCommentsModal(null); setCommentError(""); }}><X /></button>
             </div>
             
             <div className="original-post-context">
@@ -522,15 +683,23 @@ const Community = () => {
             </div>
 
              <form className="comment-form" onSubmit={handleAddComment}>
-               <input 
-                 type="text" 
-                 placeholder={isFirebaseConfigured() && currentUser ? "Write a reply..." : "Login to comment"}
-                 value={newComment}
-                 onChange={(e) => setNewComment(e.target.value)}
-                 required
-                 disabled={!isFirebaseConfigured() || !currentUser}
-               />
-               <button type="submit" className="send-btn" disabled={!isFirebaseConfigured() || !currentUser}><Send size={18} /></button>
+               <div className="comment-form-inner">
+                 <input 
+                   type="text" 
+                   placeholder={isFirebaseConfigured() && currentUser ? `Reply (min ${COMMENT_MIN_LENGTH} chars)…` : "Login to comment"}
+                   value={newComment}
+                   onChange={(e) => { setNewComment(e.target.value); setCommentError(""); }}
+                   required
+                   disabled={!isFirebaseConfigured() || !currentUser}
+                 />
+                 <button type="submit" className="send-btn" disabled={!isFirebaseConfigured() || !currentUser}><Send size={18} /></button>
+               </div>
+               {commentError && (
+                 <div className="spam-error-box spam-error-box--comment" role="alert">
+                   <AlertCircle size={14} aria-hidden="true" />
+                   <span>{commentError}</span>
+                 </div>
+               )}
              </form>
           </div>
         </div>
