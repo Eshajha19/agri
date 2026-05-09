@@ -1,10 +1,14 @@
-name: Sync PR Labels and Assignees from Linked Issues
+name: Sync PR Labels and Assignees
 
 on:
-  pull_request:
-    types: [opened, edited, synchronize]
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - synchronize
 
 permissions:
+  contents: read
   issues: write
   pull-requests: write
 
@@ -14,18 +18,21 @@ jobs:
 
     steps:
       - name: Sync labels and assignees from linked issues
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const pr = context.payload.pull_request;
 
-            if (!pr?.number) {
-              console.log("No PR number found.");
+            if (!pr) {
+              console.log("No PR found.");
               return;
             }
 
             const owner = context.repo.owner;
             const repo = context.repo.repo;
+
+            console.log(`Processing PR #${pr.number}`);
 
             // Fetch latest PR data
             const { data: freshPR } = await github.rest.pulls.get({
@@ -39,20 +46,19 @@ jobs:
             console.log("PR Body:");
             console.log(body);
 
-            // Match linked issues
-            const strictMatches = [
-              ...body.matchAll(/(?:fixes|closes|resolves)\s*:?\s+#(\d+)/gi)
-            ].map(m => Number(m[1]));
+            // Extract linked issues ONLY from:
+            // Fixes #123
+            // Closes #123
+            // Resolves #123
+            const matches = [
+              ...body.matchAll(
+                /(fixes|closes|resolves)\s*:?\s+#(\d+)/gi
+              )
+            ];
 
-            const looseMatches = [
-              ...body.matchAll(/(?:^|\s)#(\d+)\b/g)
-            ].map(m => Number(m[1]));
-
-            // Unique valid issue numbers
             const issueNumbers = [
               ...new Set(
-                [...strictMatches, ...looseMatches]
-                  .filter(n => Number.isInteger(n) && n !== pr.number)
+                matches.map(m => Number(m[2]))
               )
             ];
 
@@ -63,75 +69,82 @@ jobs:
               return;
             }
 
-            // Current PR data
-            const { data: prIssueData } = await github.rest.issues.get({
-              owner,
-              repo,
-              issue_number: pr.number
-            });
+            // Fetch current PR data
+            const { data: prIssue } =
+              await github.rest.issues.get({
+                owner,
+                repo,
+                issue_number: pr.number
+              });
 
-            const existingLabels = prIssueData.labels.map(l => l.name);
-            const existingAssignees = prIssueData.assignees.map(a => a.login);
+            const existingLabels =
+              prIssue.labels.map(label => label.name);
 
-            console.log("Existing Labels:", existingLabels);
-            console.log("Existing Assignees:", existingAssignees);
+            const existingAssignees =
+              prIssue.assignees.map(a => a.login);
+
+            console.log("Existing labels:", existingLabels);
+            console.log("Existing assignees:", existingAssignees);
 
             let labelsToAdd = [];
             let assigneesToAdd = [];
 
-            // Fetch linked issues
-            const issueResults = await Promise.allSettled(
-              issueNumbers.map(issue_number =>
-                github.rest.issues.get({
-                  owner,
-                  repo,
-                  issue_number
-                })
-              )
-            );
+            // Process all linked issues
+            for (const issue_number of issueNumbers) {
 
-            for (let i = 0; i < issueResults.length; i++) {
-              const result = issueResults[i];
-              const issue_number = issueNumbers[i];
+              try {
 
-              if (result.status === "fulfilled") {
-                const issue = result.value.data;
+                const { data: issue } =
+                  await github.rest.issues.get({
+                    owner,
+                    repo,
+                    issue_number
+                  });
 
-                // Skip linked PRs
+                // Skip if linked item is PR
                 if (issue.pull_request) {
-                  console.log(`#${issue_number} is a PR. Skipping.`);
+                  console.log(
+                    `#${issue_number} is a PR. Skipping.`
+                  );
                   continue;
                 }
 
-                console.log(`Processing issue #${issue_number}`);
+                console.log(
+                  `Processing issue #${issue_number}`
+                );
 
                 // Collect labels
-                const issueLabels = issue.labels.map(l => l.name);
+                const issueLabels =
+                  issue.labels.map(label => label.name);
+
                 labelsToAdd.push(...issueLabels);
 
                 // Collect assignees
-                const issueAssignees = issue.assignees.map(a => a.login);
+                const issueAssignees =
+                  issue.assignees.map(a => a.login);
+
                 assigneesToAdd.push(...issueAssignees);
 
                 console.log(
-                  `Issue #${issue_number} labels:`,
+                  `Issue labels:`,
                   issueLabels
                 );
 
                 console.log(
-                  `Issue #${issue_number} assignees:`,
+                  `Issue assignees:`,
                   issueAssignees
                 );
 
-              } else {
+              } catch (error) {
+
                 console.log(
                   `Failed fetching issue #${issue_number}:`,
-                  result.reason.message
+                  error.message
                 );
               }
             }
 
-            // Deduplicate labels
+            // Remove duplicate labels
             labelsToAdd = [
               ...new Set(labelsToAdd)
             ].filter(
@@ -140,7 +153,7 @@ jobs:
                 !existingLabels.includes(label)
             );
 
-            // Deduplicate assignees
+            // Remove duplicate assignees
             assigneesToAdd = [
               ...new Set(assigneesToAdd)
             ].filter(
@@ -149,12 +162,14 @@ jobs:
                 !existingAssignees.includes(assignee)
             );
 
-            console.log("Final labels to add:", labelsToAdd);
-            console.log("Final assignees to add:", assigneesToAdd);
+            console.log("Labels to add:", labelsToAdd);
+            console.log("Assignees to add:", assigneesToAdd);
 
             // Add labels
             if (labelsToAdd.length > 0) {
+
               try {
+
                 await github.rest.issues.addLabels({
                   owner,
                   repo,
@@ -167,18 +182,23 @@ jobs:
                 );
 
               } catch (error) {
+
                 console.log(
                   "Failed adding labels:",
                   error.message
                 );
               }
+
             } else {
-              console.log("No new labels to add.");
+
+              console.log("No labels to add.");
             }
 
-            // Add assignees
+            // Assign PR
             if (assigneesToAdd.length > 0) {
+
               try {
+
                 await github.rest.issues.addAssignees({
                   owner,
                   repo,
@@ -187,15 +207,18 @@ jobs:
                 });
 
                 console.log(
-                  `Added assignees: ${assigneesToAdd.join(", ")}`
+                  `Assigned PR to: ${assigneesToAdd.join(", ")}`
                 );
 
               } catch (error) {
+
                 console.log(
-                  "Failed assigning users:",
+                  "Failed assigning PR:",
                   error.message
                 );
               }
+
             } else {
-              console.log("No new assignees to add.");
+
+              console.log("No assignees found.");
             }
