@@ -1,19 +1,19 @@
-name: Sync PR Labels from Linked Issues
+name: Sync PR Labels and Assignees from Linked Issues
 
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, edited, synchronize]
 
 permissions:
-  issues: read
+  issues: write
   pull-requests: write
 
 jobs:
-  sync-labels:
+  sync-pr-data:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Copy labels from linked issues
+      - name: Sync labels and assignees from linked issues
         uses: actions/github-script@v7
         with:
           script: |
@@ -27,47 +27,66 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
-            // Fresh PR body
-            const { data: prDataFresh } = await github.rest.pulls.get({
+            // Fetch latest PR data
+            const { data: freshPR } = await github.rest.pulls.get({
               owner,
               repo,
               pull_number: pr.number
             });
 
-            const body = prDataFresh.body || "";
+            const body = freshPR.body || "";
 
-            // Matching
-            const strictMatches = [...body.matchAll(/(fixes|closes|resolves)\s*:?\s+#(\d+)/gi)]
-              .map(m => Number(m[2]));
+            console.log("PR Body:");
+            console.log(body);
 
-            const looseMatches = [...body.matchAll(/(?:^|\s)#(\d+)\b/g)]
-              .map(m => Number(m[1]));
+            // Match linked issues
+            const strictMatches = [
+              ...body.matchAll(/(?:fixes|closes|resolves)\s*:?\s+#(\d+)/gi)
+            ].map(m => Number(m[1]));
 
-            const issueNumbers = [...new Set(
-              [...strictMatches, ...looseMatches]
-                .filter(n => Number.isInteger(n) && n !== pr.number)
-            )];
+            const looseMatches = [
+              ...body.matchAll(/(?:^|\s)#(\d+)\b/g)
+            ].map(m => Number(m[1]));
+
+            // Unique valid issue numbers
+            const issueNumbers = [
+              ...new Set(
+                [...strictMatches, ...looseMatches]
+                  .filter(n => Number.isInteger(n) && n !== pr.number)
+              )
+            ];
+
+            console.log("Linked Issues:", issueNumbers);
 
             if (issueNumbers.length === 0) {
               console.log("No linked issues found.");
               return;
             }
 
-            // PR labels
-            const { data: prData } = await github.rest.issues.get({
+            // Current PR data
+            const { data: prIssueData } = await github.rest.issues.get({
               owner,
               repo,
               issue_number: pr.number
             });
 
-            const existingLabels = prData.labels.map(l => l.name);
+            const existingLabels = prIssueData.labels.map(l => l.name);
+            const existingAssignees = prIssueData.assignees.map(a => a.login);
+
+            console.log("Existing Labels:", existingLabels);
+            console.log("Existing Assignees:", existingAssignees);
 
             let labelsToAdd = [];
+            let assigneesToAdd = [];
 
-            // Parallel fetch
+            // Fetch linked issues
             const issueResults = await Promise.allSettled(
               issueNumbers.map(issue_number =>
-                github.rest.issues.get({ owner, repo, issue_number })
+                github.rest.issues.get({
+                  owner,
+                  repo,
+                  issue_number
+                })
               )
             );
 
@@ -76,30 +95,107 @@ jobs:
               const issue_number = issueNumbers[i];
 
               if (result.status === "fulfilled") {
-                // Skip PRs (only use real issues)
-                if (!result.value.data.pull_request) {
-                  const issueLabels = result.value.data.labels.map(l => l.name);
-                  labelsToAdd.push(...issueLabels);
+                const issue = result.value.data;
+
+                // Skip linked PRs
+                if (issue.pull_request) {
+                  console.log(`#${issue_number} is a PR. Skipping.`);
+                  continue;
                 }
+
+                console.log(`Processing issue #${issue_number}`);
+
+                // Collect labels
+                const issueLabels = issue.labels.map(l => l.name);
+                labelsToAdd.push(...issueLabels);
+
+                // Collect assignees
+                const issueAssignees = issue.assignees.map(a => a.login);
+                assigneesToAdd.push(...issueAssignees);
+
+                console.log(
+                  `Issue #${issue_number} labels:`,
+                  issueLabels
+                );
+
+                console.log(
+                  `Issue #${issue_number} assignees:`,
+                  issueAssignees
+                );
+
               } else {
-                console.log(`Issue #${issue_number} error: ${result.reason.message}`);
+                console.log(
+                  `Failed fetching issue #${issue_number}:`,
+                  result.reason.message
+                );
               }
             }
 
-            // Deduplicate + filter
-            labelsToAdd = [...new Set(labelsToAdd)]
-              .filter(l => l && !existingLabels.includes(l));
+            // Deduplicate labels
+            labelsToAdd = [
+              ...new Set(labelsToAdd)
+            ].filter(
+              label =>
+                label &&
+                !existingLabels.includes(label)
+            );
 
-            if (labelsToAdd.length === 0) {
+            // Deduplicate assignees
+            assigneesToAdd = [
+              ...new Set(assigneesToAdd)
+            ].filter(
+              assignee =>
+                assignee &&
+                !existingAssignees.includes(assignee)
+            );
+
+            console.log("Final labels to add:", labelsToAdd);
+            console.log("Final assignees to add:", assigneesToAdd);
+
+            // Add labels
+            if (labelsToAdd.length > 0) {
+              try {
+                await github.rest.issues.addLabels({
+                  owner,
+                  repo,
+                  issue_number: pr.number,
+                  labels: labelsToAdd
+                });
+
+                console.log(
+                  `Added labels: ${labelsToAdd.join(", ")}`
+                );
+
+              } catch (error) {
+                console.log(
+                  "Failed adding labels:",
+                  error.message
+                );
+              }
+            } else {
               console.log("No new labels to add.");
-              return;
             }
 
-            await github.rest.issues.addLabels({
-              owner,
-              repo,
-              issue_number: pr.number,
-              labels: labelsToAdd
-            });
+            // Add assignees
+            if (assigneesToAdd.length > 0) {
+              try {
+                await github.rest.issues.addAssignees({
+                  owner,
+                  repo,
+                  issue_number: pr.number,
+                  assignees: assigneesToAdd
+                });
 
-            console.log(`Added ${labelsToAdd.length} labels:`, labelsToAdd);
+                console.log(
+                  `Added assignees: ${assigneesToAdd.join(", ")}`
+                );
+
+              } catch (error) {
+                console.log(
+                  "Failed assigning users:",
+                  error.message
+                );
+              }
+            } else {
+              console.log("No new assignees to add.");
+            }
