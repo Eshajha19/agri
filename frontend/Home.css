@@ -924,6 +924,13 @@
 .feature-card-link:nth-child(12) { animation-delay: 0.65s; }
 .feature-card-link:nth-child(13) { animation-delay: 0.7s; }
 
+@media (prefers-reduced-motion: reduce) {
+  .feature-card-link {
+    opacity: 1;
+    animation: none;
+  }
+}
+
 .feature-card::before {
   content: '';
   position: absolute;
