@@ -19,6 +19,8 @@ import {
   FaUserSecret,
   FaFileInvoiceDollar,
   FaHome,
+  FaSun,
+  FaMoon,
 } from "react-icons/fa";
 import { usePerformanceStore } from "./stores/performanceStore";
 
@@ -306,7 +308,7 @@ function App() {
 
         <div className="nav-right">
           <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Toggle Theme">
-            {theme === "dark" ? "☀️" : "🌙"}
+            {theme === "dark" ? <FaSun className="theme-toggle-icon" /> : <FaMoon className="theme-toggle-icon" />}
           </button>
 
           <button
