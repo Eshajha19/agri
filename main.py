@@ -892,7 +892,7 @@ async def simulate_climate(request: Request, data: SimulationRequest):
 
 @app.post("/api/seeds/verify")
 @limiter.limit("10/minute")
-async def verify_seed(data: SeedVerifyRequest):
+async def verify_seed(data: SeedVerifyRequest, request: Request):
     """
     Verifies seed authenticity against a trusted batch registry.
     This replaces the unsafe client-side string matching.
