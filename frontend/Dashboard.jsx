@@ -20,6 +20,7 @@ import {
   FaPhoneAlt,
   FaShieldAlt,
   FaFileInvoiceDollar,
+  FaChartBar,
 } from "react-icons/fa";
 import "./Dashboard.css";
 import {
@@ -189,6 +190,7 @@ export default function Dashboard() {
 
   const quickActions = [
     { label: "AI Advisor", icon: <FaSeedling />, link: "/advisor" },
+    { label: "Yield Predictor", icon: <FaChartBar />, link: "/yield-predictor" },
     { label: "Crop Planner", icon: <FaCalendarAlt />, link: "/crop-planner" },
     { label: "Community", icon: <FaComments />, link: "/community" },
     { label: "Diseases", icon: <FaBug />, link: "/disease-awareness" },

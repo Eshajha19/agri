@@ -65,6 +65,7 @@ import Terms from "./Terms";
 import SoilAnalysis from "./SoilAnalysis";
 import SeedVerifier from "./SeedVerifier";
 import FarmFinance from "./FarmFinance";
+import YieldPredictor from "./YieldPredictor";
 import Footer from "./components/Footer";
 import { SkipLink } from "./NavigationManager";
 import { useTheme } from "./ThemeContext";
@@ -470,6 +471,7 @@ function App() {
           <Route path="/crop-rotation" element={<CropRotation />} />
           <Route path="/seed-verifier" element={<SeedVerifier />} />
           <Route path="/farm-finance" element={<FarmFinance />} />
+          <Route path="/yield-predictor" element={<YieldPredictor />} />
           <Route path="/blog" element={<Blog />} />
           <Route path="/blog/:id" element={<BlogDetail />} />
           <Route path="*" element={<NotFound />} />
