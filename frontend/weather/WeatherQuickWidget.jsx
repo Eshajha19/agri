@@ -5,6 +5,7 @@ import {
   FaMapMarkerAlt,
   FaTimes,
 } from "react-icons/fa";
+
 import {
   WEATHER_SNAPSHOT_EVENT,
   fetchWeatherByLocation,
@@ -12,6 +13,7 @@ import {
   getStoredWeatherSnapshot,
   notifyWeatherSnapshotUpdated,
 } from "./weatherService";
+
 import "./WeatherQuickWidget.css";
 
 const WEATHER_CACHE_KEY = "agriWeatherSnapshot";
@@ -19,22 +21,40 @@ const LEGACY_WIDGET_DISMISS_KEY = "agriWeatherWidgetDismissed";
 const ALERT_BAR_SHOWN_KEY = "agriAlertBarActive";
 
 export default function WeatherQuickWidget() {
-  const [snapshot, setSnapshot] = useState(() => getStoredWeatherSnapshot());
+  const [snapshot, setSnapshot] = useState(() =>
+    getStoredWeatherSnapshot()
+  );
+
   const [dismissed, setDismissed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // FIXED
+  const [isAlertBarActive, setIsAlertBarActive] = useState(false);
+
+  /*
+   -----------------------------------
+   RESET DISMISS ON PAGE REFRESH
+   -----------------------------------
+  */
   useEffect(() => {
-    // Always show on refresh
     setDismissed(false);
 
     try {
       localStorage.removeItem(LEGACY_WIDGET_DISMISS_KEY);
+
+      const alertStatus =
+        localStorage.getItem(ALERT_BAR_SHOWN_KEY) === "true";
+
+      setIsAlertBarActive(alertStatus);
     } catch {
-      // ignore
+      //
     }
 
-    const handlePageShow = () => setDismissed(false);
+    const handlePageShow = () => {
+      setDismissed(false);
+    };
+
     window.addEventListener("pageshow", handlePageShow);
 
     return () => {
@@ -42,65 +62,111 @@ export default function WeatherQuickWidget() {
     };
   }, []);
 
+  /*
+   -----------------------------------
+   WEATHER UPDATE LISTENERS
+   -----------------------------------
+  */
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     const handleWeatherUpdate = (event) => {
       if (!event.detail?.location) return;
+
       setSnapshot(event.detail);
       setError("");
     };
 
     const handleStorage = (event) => {
-      if (event.key !== WEATHER_CACHE_KEY) return;
+      // Weather cache update
+      if (event.key === WEATHER_CACHE_KEY) {
+        const latestSnapshot = getStoredWeatherSnapshot();
 
-      const latestSnapshot = getStoredWeatherSnapshot();
-      if (latestSnapshot?.location) {
-        setSnapshot(latestSnapshot);
-        setError("");
+        if (latestSnapshot?.location) {
+          setSnapshot(latestSnapshot);
+          setError("");
+        }
+      }
+
+      // Alert bar update
+      if (event.key === ALERT_BAR_SHOWN_KEY) {
+        setIsAlertBarActive(event.newValue === "true");
       }
     };
 
-    window.addEventListener(WEATHER_SNAPSHOT_EVENT, handleWeatherUpdate);
+    window.addEventListener(
+      WEATHER_SNAPSHOT_EVENT,
+      handleWeatherUpdate
+    );
+
     window.addEventListener("storage", handleStorage);
 
     return () => {
-      window.removeEventListener(WEATHER_SNAPSHOT_EVENT, handleWeatherUpdate);
+      window.removeEventListener(
+        WEATHER_SNAPSHOT_EVENT,
+        handleWeatherUpdate
+      );
+
       window.removeEventListener("storage", handleStorage);
     };
   }, []);
 
+  /*
+   -----------------------------------
+   FETCH GPS WEATHER
+   -----------------------------------
+  */
   const usePreciseGps = useCallback(async () => {
     setLoading(true);
     setError("");
 
     try {
       const preciseLocation = await getCurrentPosition();
-      const latestSnapshot = await fetchWeatherByLocation(preciseLocation);
+
+      const latestSnapshot =
+        await fetchWeatherByLocation(preciseLocation);
 
       setSnapshot(latestSnapshot);
+
       notifyWeatherSnapshotUpdated(latestSnapshot);
     } catch (locationError) {
       const permissionDenied =
         locationError?.code === 1 ||
-        /denied|permission/i.test(locationError?.message || "");
+        /denied|permission/i.test(
+          locationError?.message || ""
+        );
 
       setError(
         permissionDenied
-          ? "Location access denied. Please allow location and try again."
-          : locationError.message || "Unable to fetch GPS weather."
+          ? "Location access denied. Please allow location access."
+          : locationError.message ||
+              "Unable to fetch weather."
       );
     } finally {
       setLoading(false);
     }
   }, []);
 
+  /*
+   -----------------------------------
+   DISMISS
+   -----------------------------------
+  */
   const dismissWidget = () => {
     setDismissed(true);
   };
 
-  const locationSource = snapshot?.location?.source || "manual";
-  const showUseGps = !snapshot || locationSource !== "gps";
+  /*
+   -----------------------------------
+   DERIVED VALUES
+   -----------------------------------
+  */
+  const locationSource =
+    snapshot?.location?.source || "manual";
+
+  const showUseGps =
+    !snapshot || locationSource !== "gps";
+
   const roundedTemperature = Math.round(
     snapshot?.current?.temperature_2m || 0
   );
@@ -109,18 +175,27 @@ export default function WeatherQuickWidget() {
     return (
       snapshot?.location?.name ||
       snapshot?.location?.city ||
-      "Your area"
+      "Your Area"
     );
-  }, [snapshot?.location?.city, snapshot?.location?.name]);
+  }, [
+    snapshot?.location?.city,
+    snapshot?.location?.name,
+  ]);
 
-  // Only hide if dismissed or alert bar is active
-  const isAlertBarActive = localStorage.getItem(ALERT_BAR_SHOWN_KEY);
+  /*
+   -----------------------------------
+   HIDE CONDITIONS
+   -----------------------------------
+  */
   if (dismissed || isAlertBarActive) {
     return null;
   }
 
   return (
-    <aside className="weather-quick-widget" aria-live="polite">
+    <aside
+      className="weather-quick-widget"
+      aria-live="polite"
+    >
       {/* Close Button */}
       <button
         className="weather-quick-widget__dismiss"
@@ -134,7 +209,7 @@ export default function WeatherQuickWidget() {
       <div className="weather-quick-widget__head">
         <span className="weather-quick-widget__eyebrow">
           <FaCloudSun />
-          <span>Landing Weather</span>
+          <span>Live Weather</span>
         </span>
       </div>
 
@@ -151,18 +226,20 @@ export default function WeatherQuickWidget() {
               {roundedTemperature}
               {snapshot?.units?.temperature_2m || "°C"}
             </strong>
+
             <span>
-              {snapshot?.summary || "Current conditions"}
+              {snapshot?.summary ||
+                "Current weather conditions"}
             </span>
           </div>
         </>
       ) : (
         <p className="weather-quick-widget__placeholder emphasized">
-          📍 Enable location to see real-time weather updates
+          📍 Enable location to view live weather updates
         </p>
       )}
 
-      {/* GPS Button */}
+      {/* GPS BUTTON */}
       {showUseGps && (
         <button
           className="weather-quick-widget__gps-btn primary"
@@ -170,13 +247,16 @@ export default function WeatherQuickWidget() {
           disabled={loading}
         >
           <FaCrosshairs />
+
           <span>
-            {loading ? "Fetching weather..." : "Use My Location"}
+            {loading
+              ? "Fetching weather..."
+              : "Use My Location"}
           </span>
         </button>
       )}
 
-      {/* Error */}
+      {/* ERROR */}
       {error && (
         <p className="weather-quick-widget__error">
           {error}
