@@ -599,3 +599,94 @@
   border-color: #ef4444;
   background: #fef2f2;
 }
+
+/* ── Rate-limit / spam-protection UI ─────────────────────────────────────── */
+
+/* Character counter shown next to the "Your Message" label */
+.char-counter {
+  float: right;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 99px;
+  margin-left: 0.5rem;
+}
+
+.char-counter--warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.char-counter--ok {
+  background: #dcfce7;
+  color: #166534;
+}
+
+/* Error box shown when a post/comment is rejected */
+.spam-error-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  border-radius: 10px;
+  padding: 0.65rem 0.9rem;
+  font-size: 0.88rem;
+  font-weight: 500;
+  margin-bottom: 0.75rem;
+  line-height: 1.4;
+}
+
+.spam-error-box svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.spam-error-box--comment {
+  margin-top: 0.5rem;
+  margin-bottom: 0;
+}
+
+.theme-dark .spam-error-box {
+  background: rgba(185, 28, 28, 0.15);
+  border-color: rgba(185, 28, 28, 0.4);
+  color: #fca5a5;
+}
+
+/* Cooldown countdown hint */
+.cooldown-hint {
+  font-size: 0.82rem;
+  color: #92400e;
+  background: #fef3c7;
+  border-radius: 8px;
+  padding: 0.4rem 0.75rem;
+  margin-bottom: 0.75rem;
+  font-weight: 500;
+}
+
+.theme-dark .cooldown-hint {
+  background: rgba(146, 64, 14, 0.2);
+  color: #fcd34d;
+}
+
+/* Wrap the comment input + send button so the error can sit below them */
+.comment-form-inner {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.comment-form-inner input {
+  flex: 1;
+  padding: 0.75rem 1.25rem;
+  border-radius: 99px;
+  border: 1.5px solid #e2e8f0;
+}
+
+.theme-dark .comment-form-inner input {
+  background: #0f172a;
+  border-color: #334155;
+  color: white;
+}
+/* ─────────────────────────────────────────────────────────────────────────── */
