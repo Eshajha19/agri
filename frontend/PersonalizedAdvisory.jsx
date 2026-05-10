@@ -10,6 +10,7 @@ export default function PersonalizedRecommendations({ userProfile, weatherData }
     return generateRecommendations({
       weatherData,
       cropType: userProfile.cropType,
+      season: userProfile.season,
     });
 
   }, [userProfile, weatherData]);
