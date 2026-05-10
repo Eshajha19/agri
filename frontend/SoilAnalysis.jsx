@@ -1,5 +1,15 @@
-import React, { useState } from "react";
-import { Leaf, FlaskConical, Sprout, AlertCircle, RotateCcw, BarChart3, Wheat, Droplets } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import {
+  Leaf,
+  FlaskConical,
+  Sprout,
+  AlertCircle,
+  RotateCcw,
+  BarChart3,
+  Wheat,
+  Droplets,
+  Brain,
+} from "lucide-react";
 import "./SoilAnalysis.css";
 
 const NUTRIENT_RANGES = {
@@ -179,6 +189,21 @@ function getSoilUpdateSuggestions(levels) {
   ];
 }
 
+function detectSoilType(levels) {
+  if (
+    levels.nitrogen === "high" &&
+    levels.potassium === "high"
+  ) {
+    return "Loamy Soil";
+  }
+
+  if (levels.phosphorus === "low") {
+    return "Sandy Soil";
+  }
+
+  return "Clay Soil";
+}
+
 function getUpdateFrequency(score) {
   if (score >= 72) return "Recheck soil nutrients every 3-4 months and maintain existing practices.";
   if (score >= 55) return "Retest each season and adjust fertilizer applications as needed.";
@@ -190,6 +215,16 @@ export default function SoilAnalysis() {
   const [errors, setErrors] = useState({});
   const [results, setResults] = useState(null);
   const [hasAnalyzed, setHasAnalyzed] = useState(false);
+  const [animatedScore, setAnimatedScore] = useState(0);
+
+const SOIL_TIPS = [
+  "🌱 Rotate crops regularly to maintain nitrogen balance.",
+  "💧 Avoid overwatering to prevent nutrient leaching.",
+  "🌿 Add compost yearly to improve soil structure.",
+  "☀️ Test soil every season for accurate fertilizer planning.",
+];
+
+const [tipIndex, setTipIndex] = useState(0);
 
   const validateInputs = () => {
     const newErrors = {};
@@ -230,6 +265,7 @@ export default function SoilAnalysis() {
     const updateSuggestions = getSoilUpdateSuggestions(levels);
     const updateFrequency = getUpdateFrequency(quality.score);
     const soilInsights = getSoilInsights(levels);
+    const soilType = detectSoilType(levels);
 
     setResults({
       levels,
@@ -240,10 +276,37 @@ export default function SoilAnalysis() {
       updateSuggestions,
       updateFrequency,
       soilInsights,
+      soilType,
     });
     setHasAnalyzed(true);
   };
 
+  useEffect(() => {
+  if ({animatedScore}) {
+    let start = 0;
+
+    const interval = setInterval(() => {
+      start += 1;
+
+      if (start >= results.quality.score) {
+        start = results.quality.score;
+        clearInterval(interval);
+      }
+
+      setAnimatedScore(start);
+    }, 15);
+
+    return () => clearInterval(interval);
+  }
+}, [results]);
+
+useEffect(() => {
+  const interval = setInterval(() => {
+    setTipIndex((prev) => (prev + 1) % SOIL_TIPS.length);
+  }, 4000);
+
+  return () => clearInterval(interval);
+}, []);
   const handleReset = () => {
     setFormData({ nitrogen: "", phosphorus: "", potassium: "" });
     setResults(null);
@@ -280,6 +343,9 @@ export default function SoilAnalysis() {
         </div>
 
         <div className="soil-analysis-content">
+          <div className="sa-tips-banner">
+            {SOIL_TIPS[tipIndex]}
+          </div>
           <div className="sa-form-section">
             <div className="sa-section-title">
               <BarChart3 size={22} />
@@ -314,6 +380,23 @@ export default function SoilAnalysis() {
                       {errors[key]}
                     </div>
                   )}
+                  {formData[key] && (
+                <div
+                className={`sa-live-status ${getNutrientLevel(
+                key,
+                parseFloat(formData[key] || 0)
+              )}`}
+  >
+              Status:
+              { " "}
+              {formatLevelLabel(
+                getNutrientLevel(
+              key,
+              parseFloat(formData[key] || 0)
+            )
+              )}
+              </div>
+              )}
                   <div className="sa-range-hint">
                     <span>Very Low: &lt;{range.veryLow}</span>
                     <span>Low: {range.veryLow}–{range.low}</span>
@@ -335,6 +418,13 @@ export default function SoilAnalysis() {
                     Reset
                   </button>
                 )}
+
+                <button
+  type="button"
+  className="sa-btn-download"
+>
+  Download Report
+</button>
               </div>
             </form>
           </div>
@@ -371,6 +461,38 @@ export default function SoilAnalysis() {
                     </div>
                   </div>
                 </div>
+                <div className="sa-circle-grid">
+  {Object.entries(results.levels).map(([key, level]) => {
+    const percentage = Math.min(
+      (results.values[key] /
+        NUTRIENT_RANGES[key].high) *
+        100,
+      100
+    );
+
+    return (
+      <div className="sa-circle-card" key={key}>
+        <div
+          className="sa-circle"
+          style={{
+            background: `conic-gradient(
+              var(--${key}-color)
+              ${percentage * 3.6}deg,
+              #e5e7eb 0deg
+            )`,
+          }}
+        >
+          <div className="sa-circle-inner">
+            <span>{Math.round(percentage)}%</span>
+          </div>
+        </div>
+
+        <h4>{NUTRIENT_RANGES[key].label}</h4>
+        <p>{formatLevelLabel(level)}</p>
+      </div>
+    );
+  })}
+</div>
 
                 <div className="sa-nutrient-levels">
                   {Object.entries(results.levels).map(([key, level]) => (
@@ -410,6 +532,10 @@ export default function SoilAnalysis() {
                   ))}
                 </div>
               </div>
+              <div className="sa-soil-type-card">
+  <h3>Estimated Soil Type</h3>
+  <p>{results.soilType}</p>
+</div>
 
               <div className="sa-update-card">
                 <div className="sa-section-title">
@@ -485,6 +611,35 @@ export default function SoilAnalysis() {
                   ))}
                 </div>
               </div>
+
+              <div className="sa-ai-summary">
+  <div className="sa-ai-header">
+    <Brain size={22} />
+    <h2>AI Soil Recommendation</h2>
+  </div>
+
+  <p>
+    Based on the nutrient profile,
+    your soil is best suited for
+    {" "}
+    <strong>
+      {results.crops
+        .slice(0, 3)
+        .map((c) => c.name)
+        .join(", ")}
+    </strong>.
+
+    Focus on improving
+    {" "}
+    {results.levels.nitrogen === "low" &&
+      " nitrogen "}
+    {results.levels.phosphorus === "low" &&
+      " phosphorus "}
+    {results.levels.potassium === "low" &&
+      " potassium "}
+    levels for better crop yield.
+  </p>
+</div>
 
               <div className={`sa-summary-card ${results.quality.score >= 55 ? "summary-positive" : "summary-warning"}`}>
                 {results.quality.score >= 55 ? (
