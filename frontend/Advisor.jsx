@@ -172,16 +172,44 @@ export default function Advisor({ userData }) {
     }
   }, [auth?.currentUser]);
 
-  /* Animate stats on mount */
+  /* Animate stats on mount
+   *
+   * Fix: two bugs addressed here:
+   *
+   * 1. useAdvisorStore.getState() inside a setInterval callback reads a
+   *    snapshot that can be stale — it bypasses Zustand's reactive
+   *    subscription.  We now use the reactive store values (farmers, crops,
+   *    languages) that are already subscribed via useAdvisorStore() at the
+   *    top of the component, and pass them as dependencies so the effect
+   *    re-evaluates when they change.
+   *
+   * 2. The interval never stopped once all targets were reached, causing
+   *    it to fire every 50 ms indefinitely.  We now clear it as soon as
+   *    all three counters hit their targets, so no unnecessary work is
+   *    done after the animation completes.
+   */
   useEffect(() => {
+    // All targets already reached — nothing to animate.
+    if (farmers >= 50000 && crops >= 120 && languages >= 12) return;
+
     const interval = setInterval(() => {
-      const state = useAdvisorStore.getState();
-      if (state.farmers < 50000) setFarmers(state.farmers + 500);
-      if (state.crops < 120) setCrops(state.crops + 2);
-      if (state.languages < 12) setLanguages(state.languages + 1);
+      if (farmers < 50000) setFarmers(farmers + 500);
+      if (crops < 120) setCrops(crops + 2);
+      if (languages < 12) setLanguages(languages + 1);
+
+      // Stop the interval once every counter has reached its target.
+      // This prevents the interval from running indefinitely after the
+      // animation completes.
+      if (farmers + 500 >= 50000 && crops + 2 >= 120 && languages + 1 >= 12) {
+        clearInterval(interval);
+      }
     }, 50);
+
+    // Cleanup: clears the interval on unmount OR whenever the reactive
+    // values change and the effect re-runs, preventing background updates
+    // after the user navigates away from the Advisor page.
     return () => clearInterval(interval);
-  }, [setFarmers, setCrops, setLanguages]);
+  }, [farmers, crops, languages, setFarmers, setCrops, setLanguages]);
 
   useEffect(() => {
     try {
