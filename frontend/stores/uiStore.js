@@ -17,7 +17,7 @@ const LANGUAGE_OPTIONS = [
 
 const getInitialTheme = () => {
   try {
-    return localStorage.getItem('theme') || 'light';
+    return localStorage.getItem('agri:theme') || 'light';
   } catch {
     return 'light';
   }
@@ -25,7 +25,7 @@ const getInitialTheme = () => {
 
 const getInitialAccessibilityMode = () => {
   try {
-    return localStorage.getItem('accessibilityMode') === 'sunlight';
+    return localStorage.getItem('agri:accessibilityMode') === 'sunlight';
   } catch {
     return false;
   }
@@ -35,7 +35,7 @@ export const useUiStore = create((set) => ({
   // Theme state
   theme: getInitialTheme(),
   setTheme: (theme) => {
-    localStorage.setItem('theme', theme);
+    localStorage.setItem('agri:theme', theme);
     set({ theme });
   },
 
@@ -43,7 +43,7 @@ export const useUiStore = create((set) => ({
   isAccessibilityMode: getInitialAccessibilityMode(),
   setAccessibilityMode: (enabled) => {
     document.documentElement.classList.toggle('sunlight', enabled);
-    localStorage.setItem('accessibilityMode', enabled ? 'sunlight' : 'light');
+    localStorage.setItem('agri:accessibilityMode', enabled ? 'sunlight' : 'light');
     set({ isAccessibilityMode: enabled });
   },
 
@@ -56,9 +56,9 @@ export const useUiStore = create((set) => ({
   setNavOpen: (isOpen) => set({ isNavOpen: isOpen }),
 
   // Farmer profile
-  farmerName: localStorage.getItem('farmerName') || '',
+  farmerName: localStorage.getItem('agri:farmerName') || '',
   setFarmerName: (name) => {
-    localStorage.setItem('farmerName', name);
+    localStorage.setItem('agri:farmerName', name);
     set({ farmerName: name });
   },
   inputName: '',

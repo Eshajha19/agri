@@ -19,6 +19,8 @@ import {
   FaBook,
   FaPhoneAlt,
   FaShieldAlt,
+  FaFileInvoiceDollar,
+  FaChartBar,
 } from "react-icons/fa";
 import "./Dashboard.css";
 import {
@@ -67,7 +69,7 @@ export default function Dashboard() {
     setIsUpdating(true);
     setUpdateMsg("");
     try {
-      const response = await fetch("http://localhost:8000/api/whatsapp/subscribe", {
+      const response = await fetch("/api/whatsapp/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -188,6 +190,7 @@ export default function Dashboard() {
 
   const quickActions = [
     { label: "AI Advisor", icon: <FaSeedling />, link: "/advisor" },
+    { label: "Yield Predictor", icon: <FaChartBar />, link: "/yield-predictor" },
     { label: "Crop Planner", icon: <FaCalendarAlt />, link: "/crop-planner" },
     { label: "Community", icon: <FaComments />, link: "/community" },
     { label: "Diseases", icon: <FaBug />, link: "/disease-awareness" },
