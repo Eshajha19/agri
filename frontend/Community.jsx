@@ -31,6 +31,10 @@ import {
   arrayRemove,
   where,
   getDocs,
+  getDoc,
+  increment,
+  runTransaction,
+  writeBatch
   increment,
   serverTimestamp,
 } from "firebase/firestore";
@@ -231,6 +235,8 @@ const Community = () => {
       const canGainReputation =
         lastReputationGain === null ||
         now - lastReputationGain >= REPUTATION_COOLDOWN_MS;
+      
+      
 
       if (canGainReputation) {
         await updateDoc(doc(db, "users", currentUser.uid), {
@@ -256,22 +262,37 @@ const Community = () => {
 
   const handleLikePost = async (post) => {
     if (!isFirebaseConfigured() || !currentUser) return;
+
     const postRef = doc(db, "posts", post.id);
-    const isLiked = post.likes?.includes(currentUser.uid);
+    const authorRef = doc(db, "users", post.userId);
 
     try {
-      await updateDoc(postRef, {
-        likes: isLiked ? arrayRemove(currentUser.uid) : arrayUnion(currentUser.uid)
-      });
+      await runTransaction(db, async (transaction) => {
+        // Read the post's current state inside the transaction so we never
+        // act on stale React state.  Between the last render and this click,
+        // another user may have already liked or unliked the post — reading
+        // here gives us the ground truth.
+        const postSnap = await transaction.get(postRef);
+        if (!postSnap.exists()) return;
 
-      // Update post author's reputation (+10 for like, -10 if unliked)
-      if (post.userId !== currentUser.uid) {
-        // We use the author's userId from the post
-        const authorRef = doc(db, "users", post.userId);
-        await updateDoc(authorRef, {
-          reputation: increment(isLiked ? -10 : 10)
+        const currentLikes = postSnap.data().likes || [];
+        const isLiked = currentLikes.includes(currentUser.uid);
+
+        // Update the likes array
+        transaction.update(postRef, {
+          likes: isLiked
+            ? arrayRemove(currentUser.uid)
+            : arrayUnion(currentUser.uid)
         });
-      }
+
+        // Update the author's reputation in the same transaction so both
+        // writes succeed or both fail — no partial state.
+        if (post.userId !== currentUser.uid) {
+          transaction.update(authorRef, {
+            reputation: increment(isLiked ? -10 : 10)
+          });
+        }
+      });
     } catch (err) {
       console.error("Error liking post:", err);
     }
@@ -340,19 +361,19 @@ const Community = () => {
         createdAt: serverTimestamp(),
       });
 
+      // Award +5 reputation for posting a comment
+      const commenterRef = doc(db, "users", currentUser.uid);
+      batch.update(commenterRef, { reputation: increment(5) });
+
+      // Keep the post's comment count in sync
+      const postRef = doc(db, "posts", postId);
+      batch.update(postRef, { commentsCount: increment(1) });
+
+      await batch.commit();
+
       // Record the comment time for the local cooldown check.
       setLastCommentTime(Date.now());
 
-      // Award +5 reputation for commenting (no frequency cap on comments —
-      // the 30 s cooldown already limits the rate sufficiently).
-      await updateDoc(doc(db, "users", currentUser.uid), {
-        reputation: increment(5),
-      });
-
-      // Update post comment count.
-      await updateDoc(doc(db, "posts", postId), {
-        commentsCount: increment(1),
-      });
 
       setNewComment("");
       openComments(showCommentsModal);
@@ -368,51 +389,73 @@ const Community = () => {
 
   const handleVoteComment = async (comment, voteType) => {
     if (!isFirebaseConfigured() || !currentUser) return;
-    
-    const commentRef = doc(db, "comments", comment.id);
-    const hasUpvoted = comment.upvotes?.includes(currentUser.uid);
-    const hasDownvoted = comment.downvotes?.includes(currentUser.uid);
-    
-    let reputationChange = 0;
-    let updates = {};
 
-    if (voteType === 'up') {
-      if (hasUpvoted) {
-        updates.upvotes = arrayRemove(currentUser.uid);
-        reputationChange = -10;
-      } else {
-        updates.upvotes = arrayUnion(currentUser.uid);
-        reputationChange = 10;
-        if (hasDownvoted) {
-          updates.downvotes = arrayRemove(currentUser.uid);
-          reputationChange += 2; // recover the -2 from downvote
-        }
-      }
-    } else {
-      if (hasDownvoted) {
-        updates.downvotes = arrayRemove(currentUser.uid);
-        reputationChange = 2;
-      } else {
-        updates.downvotes = arrayUnion(currentUser.uid);
-        reputationChange = -2;
-        if (hasUpvoted) {
-          updates.upvotes = arrayRemove(currentUser.uid);
-          reputationChange -= 10; // remove the +10 from upvote
-        }
-      }
-    }
+    const commentRef = doc(db, "comments", comment.id);
+    const authorRef = doc(db, "users", comment.userId);
 
     try {
-      await updateDoc(commentRef, updates);
-      
-      // Update comment author's reputation
-      if (comment.userId !== currentUser.uid) {
-        await updateDoc(doc(db, "users", comment.userId), {
-          reputation: increment(reputationChange)
-        });
-      }
-      
-      // Refresh comments
+      await runTransaction(db, async (transaction) => {
+        // Read the comment's current vote arrays inside the transaction.
+        // The component's local state (comment.upvotes / comment.downvotes)
+        // is stale — rapid clicks or concurrent users can cause the same
+        // delta to be applied multiple times if we rely on it.
+        const commentSnap = await transaction.get(commentRef);
+        if (!commentSnap.exists()) return;
+
+        const data = commentSnap.data();
+        const currentUpvotes = data.upvotes || [];
+        const currentDownvotes = data.downvotes || [];
+
+        const hasUpvoted = currentUpvotes.includes(currentUser.uid);
+        const hasDownvoted = currentDownvotes.includes(currentUser.uid);
+
+        let reputationChange = 0;
+        const updates = {};
+
+        if (voteType === 'up') {
+          if (hasUpvoted) {
+            // Removing an existing upvote
+            updates.upvotes = arrayRemove(currentUser.uid);
+            reputationChange = -10;
+          } else {
+            // Adding an upvote
+            updates.upvotes = arrayUnion(currentUser.uid);
+            reputationChange = 10;
+            if (hasDownvoted) {
+              // Switching from downvote to upvote — also remove the downvote
+              updates.downvotes = arrayRemove(currentUser.uid);
+              reputationChange += 2; // recover the -2 from the prior downvote
+            }
+          }
+        } else {
+          if (hasDownvoted) {
+            // Removing an existing downvote
+            updates.downvotes = arrayRemove(currentUser.uid);
+            reputationChange = 2;
+          } else {
+            // Adding a downvote
+            updates.downvotes = arrayUnion(currentUser.uid);
+            reputationChange = -2;
+            if (hasUpvoted) {
+              // Switching from upvote to downvote — also remove the upvote
+              updates.upvotes = arrayRemove(currentUser.uid);
+              reputationChange -= 10; // remove the +10 from the prior upvote
+            }
+          }
+        }
+
+        // Commit the comment vote update and the author's reputation change
+        // in the same transaction — both succeed or both fail.
+        transaction.update(commentRef, updates);
+
+        if (comment.userId !== currentUser.uid && reputationChange !== 0) {
+          transaction.update(authorRef, {
+            reputation: increment(reputationChange)
+          });
+        }
+      });
+
+      // Refresh the comments list to reflect the new vote state
       openComments(showCommentsModal);
     } catch (err) {
       console.error("Error voting on comment:", err);
