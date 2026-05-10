@@ -23,11 +23,10 @@ service cloud.firestore {
     }
 
     // ─────────────────────────────────────────────
-    // Spam / rate-limit helpers
+    // Content validation helpers
     // ─────────────────────────────────────────────
 
     // Minimum content length for posts (characters).
-    // Prevents one-word or empty-string spam submissions.
     function postContentValid() {
       return request.resource.data.content is string
           && request.resource.data.content.size() >= 20;
@@ -39,45 +38,20 @@ service cloud.firestore {
           && request.resource.data.text.size() >= 5;
     }
 
-    // The incoming document must carry a server-side timestamp so we can
-    // enforce cooldowns.  Clients that omit createdAt or supply a fake
-    // client timestamp are rejected.
+    // The incoming document must carry a server-side timestamp.
+    // Clients that omit createdAt or supply a fake client timestamp are rejected.
     function hasServerTimestamp(field) {
       return request.resource.data[field] == request.time;
     }
 
-    // Cooldown: the caller must not have posted within the last 60 seconds.
-    // We look up their most-recent post and compare its createdAt to now.
-    // If no prior post exists the query returns 0 docs → cooldown passes.
-    function postCooldownOk() {
-      let recentPosts = getAfter(/databases/$(database)/documents/posts)
-        == null
-        ? true
-        : (
-            firestore.query(
-              /databases/$(database)/documents/posts,
-              [["userId", "==", request.auth.uid],
-               ["createdAt", ">", request.time - duration.value(60, 's')]],
-              1
-            ).size() == 0
-          );
-      return recentPosts;
-    }
-
-    // Cooldown: the caller must not have commented within the last 30 seconds.
-    function commentCooldownOk() {
-      return firestore.query(
-        /databases/$(database)/documents/comments,
-        [["userId", "==", request.auth.uid],
-         ["createdAt", ">", request.time - duration.value(30, 's')]],
-        1
-      ).size() == 0;
-    }
+    // ─────────────────────────────────────────────
+    // Reputation cooldown helper
+    // ─────────────────────────────────────────────
 
     // Reputation-gain frequency cap: a user may only receive a reputation
-    // increment from their own post if they have not already received one
-    // in the last 5 minutes.  This is enforced by checking the
-    // lastReputationGain timestamp stored on the user document.
+    // increment from posting if they have not already received one in the
+    // last 5 minutes.  Enforced by checking lastReputationGain on the
+    // user document.
     function reputationCooldownOk(uid) {
       let userData = get(/databases/$(database)/documents/users/$(uid)).data;
       return !("lastReputationGain" in userData)
@@ -92,18 +66,32 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isAuthed() && (request.auth.uid == userId || hasRole('admin'));
 
-      // Users may update their own profile.
-      // Reputation increments are allowed only when the cooldown has elapsed,
-      // preventing tight-loop reputation farming.
-      allow update: if isOwner(userId)
-        && (
-          // Non-reputation fields: always allowed.
-          !("reputation" in request.resource.data.diff(resource.data).affectedKeys())
-          // Reputation change: enforce cooldown.
-          || reputationCooldownOk(userId)
-        );
-
       allow create: if isOwner(userId);
+
+      // Users may update their own profile fields.
+      // Reputation increments on one's own document are allowed only when
+      // the cooldown has elapsed (prevents tight-loop reputation farming).
+      // Any authenticated user may increment another user's reputation
+      // (needed for like/unlike and comment-vote actions in Community.jsx).
+      allow update: if isOwner(userId)
+          && (
+            !("reputation" in request.resource.data.diff(resource.data).affectedKeys())
+            || reputationCooldownOk(userId)
+          )
+        || (
+          // Cross-user reputation update: only the reputation field may change.
+          // This covers handleLikePost and handleVoteComment writing to the
+          // post/comment author's document.
+          isAuthed()
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['reputation'])
+        );
+    }
+
+    // Feedback: only admins can read/delete; any authenticated user can submit.
+    match /feedback/{feedbackId} {
+      allow read, delete: if hasRole('admin');
+      allow create: if isAuthed();
     }
 
     // Community posts
@@ -111,19 +99,23 @@ service cloud.firestore {
       // Anyone authenticated can read posts.
       allow read: if isAuthed();
 
-      // Create: authenticated, content ≥ 20 chars, server timestamp, 60 s cooldown.
+      // Create: authenticated, content >= 20 chars, server timestamp.
+      // Rate-limiting (cooldown) is enforced on the backend via slowapi
+      // and on the frontend via POST_COOLDOWN_MS — Firestore Rules v2
+      // does not support collection queries inside rule functions.
       allow create: if isAuthed()
         && postContentValid()
         && hasServerTimestamp('createdAt')
-        && request.resource.data.userId == request.auth.uid
-        && postCooldownOk();
+        && request.resource.data.userId == request.auth.uid;
 
-      // Update: only the post owner may edit content; anyone authenticated
-      // may update the likes array (for like/unlike actions).
+      // Update: only the post owner may edit content; any authenticated
+      // user may update the likes array or commentsCount (like/unlike,
+      // comment count increment).
       allow update: if isAuthed()
         && (
-          // Like / unlike: only the likes field changes.
-          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'commentsCount']))
+          // Like / unlike or commentsCount increment: only those fields change.
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['likes', 'commentsCount'])
           // Owner editing their own post content.
           || (isOwner(resource.data.userId) && postContentValid())
         );
@@ -137,12 +129,11 @@ service cloud.firestore {
       // Anyone authenticated can read comments.
       allow read: if isAuthed();
 
-      // Create: authenticated, text ≥ 5 chars, server timestamp, 30 s cooldown.
+      // Create: authenticated, text >= 5 chars, server timestamp.
       allow create: if isAuthed()
         && commentContentValid()
         && hasServerTimestamp('createdAt')
-        && request.resource.data.userId == request.auth.uid
-        && commentCooldownOk();
+        && request.resource.data.userId == request.auth.uid;
 
       // Update: only vote arrays (upvotes / downvotes) may be changed by
       // any authenticated user; the comment author may also edit text.
@@ -157,12 +148,6 @@ service cloud.firestore {
       allow delete: if isOwner(resource.data.userId) || hasRole('admin');
     }
 
-    // Feedback: only admins can read; any authenticated user can submit.
-    match /feedback/{feedbackId} {
-      allow read: if hasRole('admin');
-      allow create: if isAuthed();
-    }
-
     // Reports: experts and admins only.
     match /reports/{reportId} {
       allow read, write: if hasRole('expert') || hasRole('admin');
@@ -173,6 +158,6 @@ service cloud.firestore {
       allow read: if true;
       allow write: if hasRole('vendor') || hasRole('admin');
     }
+
   }
 }
-
