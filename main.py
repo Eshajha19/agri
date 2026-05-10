@@ -16,6 +16,7 @@ from typing import Optional, Dict, Any
 
 from fastapi import FastAPI, HTTPException, Request, Form, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field
 
 class SimulationRequest(BaseModel):
@@ -80,7 +81,30 @@ try:
 except ImportError:
     HAS_GCP_KMS = False
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    FastAPI lifespan context manager.
+
+    Runs inside **every** Uvicorn/Gunicorn worker process on startup, so the
+    ML pipeline is always initialised regardless of how many workers are
+    spawned.  This replaces the previous bare ``init_ml_pipeline()`` call at
+    module level, which only ran reliably in single-worker deployments.
+
+    Multi-worker guarantee
+    ----------------------
+    When Uvicorn is started with ``--workers N``, each worker forks/spawns
+    from the main process and imports ``main.py`` independently.  The
+    ``lifespan`` hook is invoked by FastAPI in every worker's event loop,
+    ensuring ``ModelRegistry`` is populated in every process before the
+    first request is served.
+    """
+    init_ml_pipeline()
+    yield
+    # Shutdown: nothing to clean up for in-memory models.
+
+
+app = FastAPI(lifespan=lifespan)
 
 logger = logging.getLogger(__name__)
 
@@ -254,6 +278,11 @@ class SeedVerifyRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=100)
 
 # --- ML Pipeline Initialization ---
+# init_ml_pipeline() is called inside the FastAPI lifespan context manager
+# (defined above app = FastAPI(...)) so it runs in every Uvicorn worker
+# process on startup.  Do NOT call it here at module level — doing so would
+# run it in the main process only and leave additional workers with empty
+# registries in multi-worker deployments.
 router = ModelRouter(default_model="xgboost")
 
 def init_ml_pipeline():
