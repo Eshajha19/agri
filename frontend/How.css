@@ -8,6 +8,965 @@
   border-radius: 16px;
   position: relative;
   overflow: hidden;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08);
+}
+
+.sunlight .howitworks {
+  background: #fff;
+}
+
+.howitworks::before {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  z-index: 0;
+}
+
+.howitworks::before {
+  top: -60px;
+  left: -60px;
+  width: 220px;
+  height: 220px;
+  background: radial-gradient(circle, rgba(34, 197, 94, 0.25), transparent 70%);
+  animation: float 7s ease-in-out infinite;
+}
+
+.howitworks::after {
+  bottom: -80px;
+  right: -60px;
+  width: 260px;
+  height: 260px;
+  background: radial-gradient(circle, rgba(14, 165, 233, 0.2), transparent 70%);
+  animation: floatReverse 8s ease-in-out infinite;
+}
+
+.howitworks-header {
+  position: relative;
+  z-index: 2;
+  margin-bottom: 60px;
+}
+
+.section-tag {
+  display: inline-block;
+  background: rgba(34, 197, 94, 0.12);
+  color: #15803d;
+  padding: 8px 18px;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 18px;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.howitworks-header h1 {
+  font-size: 3rem;
+  font-weight: 800;
+  margin-bottom: 15px;
+  color: var(--brand-primary);
+}
+
+.sunlight .howitworks-header h1 {
+  -webkit-text-fill-color: initial;
+  color: #000;
+  background: none;
+}
+
+.howitworks-header p {
+  font-size: 1.15rem;
+  color: #475569;
+  max-width: 700px;
+  margin: 0 auto;
+  line-height: 1.8;
+}
+
+.steps-container {
+  position: relative;
+  z-index: 2;
+  margin-bottom: 80px;
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  gap: 28px;
+  position: relative;
+}
+
+.step-card {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(14px);
+  border-radius: 22px;
+  padding: 35px 25px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+  transition: all 0.35s ease;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(34, 197, 94, 0.15);
+  text-align: left;
+  cursor: pointer;
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+}
+
+.step-card:hover {
+  transform: translateY(-12px) scale(1.03);
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.12);
+  border-color: rgba(34, 197, 94, 0.4);
+}
+
+.step-card.active {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.08), rgba(14, 165, 233, 0.08));
+  border-color: rgba(34, 197, 94, 0.5);
+  box-shadow: 0 16px 40px rgba(34, 197, 94, 0.15);
+}
+
+.step-card::before {
+  content: attr(data-step);
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  width: 38px;
+  height: 38px;
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 12px rgba(34, 197, 94, 0.25);
+  transition: all 0.35s ease;
+}
+
+.step-card.active::before {
+  transform: scale(1.2);
+  box-shadow: 0 8px 16px rgba(34, 197, 94, 0.4);
+}
+
+.step-card::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 4px;
+  background: linear-gradient(90deg, #22c55e, #0ea5e9);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.35s ease;
+}
+
+.step-card:hover::after {
+  transform: scaleX(1);
+}
+
+.step-icon {
+  width: 70px;
+  height: 70px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.12), rgba(14, 165, 233, 0.12));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  margin-bottom: 20px;
+  animation: bounce 2.5s infinite;
+  transition: transform 0.35s ease;
+}
+
+.step-card.active .step-icon {
+  transform: scale(1.15);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.25), rgba(14, 165, 233, 0.25));
+}
+
+.step-card h3 {
+  font-size: 1.35rem;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: #064e3b;
+}
+
+.step-card p {
+  font-size: 1.1rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  flex-grow: 1;
+}
+
+.step-expanded {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(34, 197, 94, 0.2);
+  animation: slideDown 0.35s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.step-expanded {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(34, 197, 94, 0.2);
+  animation: slideDown 0.35s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.step-details {
+  font-size: 0.95rem;
+  color: #4b5563;
+  line-height: 1.6;
+  margin-bottom: 15px;
+  text-align: left;
+}
+
+.step-benefits {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.benefit-tag {
+  display: inline-block;
+  background: rgba(34, 197, 94, 0.08);
+  color: #15803d;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  text-align: left;
+  transition: all 0.25s ease;
+}
+
+.benefit-tag:hover {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: rgba(34, 197, 94, 0.4);
+}
+
+.step-indicator {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: transparent;
+  transition: background 0.35s ease;
+}
+
+.step-card.active .step-indicator {
+  background: linear-gradient(90deg, #22c55e, #0ea5e9);
+}
+
+.sunlight .step-card {
+  background: #fff;
+  border: 4px solid #000;
+  color: #000;
+}
+
+/* Outcomes Section */
+.outcomes-section {
+  position: relative;
+  z-index: 2;
+  margin: 80px 0;
+  padding: 60px 30px;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.08), rgba(14, 165, 233, 0.08));
+  border-radius: 20px;
+  border: 1px solid rgba(34, 197, 94, 0.15);
+}
+
+.outcomes-section h2 {
+  font-size: 2.2rem;
+  font-weight: 700;
+  margin-bottom: 40px;
+  color: var(--brand-primary);
+}
+
+.sunlight .outcomes-section {
+  background: #f9f9f9;
+  border: 2px solid #000;
+}
+
+.sunlight .outcomes-section h2 {
+  color: #000;
+}
+
+.outcomes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 30px;
+}
+
+.outcome-card {
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(10px);
+  padding: 30px 20px;
+  border-radius: 16px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.15);
+  transition: all 0.35s ease;
+  text-align: center;
+}
+
+.outcome-card:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 12px 28px rgba(34, 197, 94, 0.15);
+  border-color: rgba(34, 197, 94, 0.4);
+}
+
+.outcome-icon {
+  font-size: 2.5rem;
+  margin-bottom: 12px;
+  animation: bounce 2.5s infinite;
+}
+
+
+.sunlight .outcomes-section h2 {
+  color: #000;
+}
+
+.outcomes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 30px;
+}
+
+.outcome-card {
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(10px);
+  padding: 30px 20px;
+  border-radius: 16px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.15);
+  transition: all 0.35s ease;
+  text-align: center;
+}
+
+.outcome-card:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 12px 28px rgba(34, 197, 94, 0.15);
+  border-color: rgba(34, 197, 94, 0.4);
+}
+
+.outcome-icon {
+  font-size: 2.5rem;
+  margin-bottom: 12px;
+  animation: bounce 2.5s infinite;
+}
+
+.outcome-metric {
+  font-size: 2rem;
+  font-weight: 800;
+  color: #22c55e;
+  margin-bottom: 8px;
+}
+
+.outcome-label {
+  font-size: 1rem;
+  color: #4b5563;
+  font-weight: 500;
+}
+
+.sunlight .outcome-card {
+  background: #fff;
+  border: 2px solid #000;
+  color: #000;
+}
+
+.sunlight .outcome-metric {
+  color: #000;
+}
+
+/* CTA Section */
+.cta-section {
+  position: relative;
+  z-index: 2;
+  margin-top: 80px;
+  padding: 60px 30px;
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  border-radius: 20px;
+  box-shadow: 0 20px 40px rgba(34, 197, 94, 0.3);
+  text-align: center;
+  color: white;
+}
+
+.cta-section h2 {
+  font-size: 2.2rem;
+  font-weight: 700;
+  margin-bottom: 15px;
+}
+
+.cta-section p {
+  font-size: 1.1rem;
+  margin-bottom: 30px;
+  opacity: 0.95;
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.cta-button {
+  background: white;
+  color: #16a34a;
+  padding: 14px 40px;
+  border: none;
+  border-radius: 10px;
+  font-size: 1.05rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.35s ease;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+}
+
+.cta-button:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.2);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.cta-button:active {
+  transform: translateY(-1px);
+}
+
+/* Animations */
+@keyframes bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translate(0, 0);
+  }
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+
+  50% {
+    transform: translate(25px, 25px);
+  }
+}
+
+@keyframes floatReverse {
+  0%, 100% {
+    transform: translate(0, 0);
+  }
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+
+  50% {
+    transform: translate(-20px, -20px);
+  }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .howitworks {
+    padding: 80px 20px;
+    border-radius: 20px;
+  }
+
+  .howitworks-header h1 {
+    font-size: 2.3rem;
+  }
+
+  .howitworks-header p {
+    font-size: 1rem;
+  }
+
+  .steps {
+    grid-template-columns: 1fr;
+  }
+
+  .step-card {
+    padding: 28px 22px;
+    min-height: auto;
+  }
+
+  .outcomes-section {
+    padding: 40px 20px;
+  }
+
+  .outcomes-section h2 {
+    font-size: 1.8rem;
+  }
+
+  .outcomes-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+  }
+
+  .cta-section {
+    padding: 40px 20px;
+  }
+
+  .cta-section h2 {
+    font-size: 1.8rem;
+  }
+
+  .cta-button {
+    padding: 12px 30px;
+    font-size: 1rem;
+  }
+}
+
+.step-card:hover {
+  transform: translateY(-10px) scale(1.05);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  border-color: #22c55e;
+}
+
+.step-card::before {
+  content: attr(data-step);
+  position: absolute;
+  top: -15px;
+  right: -15px;
+  background: #22c55e;
+  color: white;
+  font-weight: bold;
+  font-size: 1rem;
+  padding: 8px 12px;
+  border-radius: 50%;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.2);
+}
+
+.step-icon {
+  font-size: 2.5rem;
+  margin-bottom: 15px;
+  display: inline-block;
+  animation: bounce 2s infinite;
+}
+
+.step-card h3 {
+  font-size: 1.3rem;
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: #064e3b;
+}
+
+.step-card p {
+  font-size: 1.1rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.sunlight .step-card {
+  background: #fff;
+  border: 4px solid #000;
+  color: #000;
+}
+
+@keyframes bounce {
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes float {
+
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+
+  50% {
+    transform: translate(20px, 20px);
+  }
+}
+
+.fade-up {
+  animation: fadeUp 1s ease forwards;
+  opacity: 0;
+}
+
+@keyframes fadeUp {
+  from {
+    transform: translateY(30px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.slide-in {
+  animation: slideIn 1s ease forwards;
+  opacity: 0;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+:root {
+  --bg: #08120d;
+  --card-bg: rgba(18, 30, 24, 0.72);
+  --card-border: rgba(255, 255, 255, 0.08);
+  --text: #f5f7f6;
+  --muted: #aeb8b2;
+  --green: #58d68d;
+  --shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+}
+
+.howitworks {
+  position: relative;
+  padding: 7rem 1.5rem;
+  background: linear-gradient(180deg, #08120d 0%, #102117 100%);
+  overflow: hidden;
+  color: var(--text);
+}
+
+.howitworks-header {
+  max-width: 860px;
+  margin: 0 auto 5rem;
+  text-align: center;
+}
+
+.section-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.45rem 1rem;
+  border-radius: 999px;
+  background: rgba(88, 214, 141, 0.12);
+  border: 1px solid rgba(88, 214, 141, 0.2);
+  color: #7fffb3;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 1.4rem;
+}
+
+.howitworks-header h1 {
+  font-size: clamp(2.5rem, 5vw, 4.4rem);
+  line-height: 1.08;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  margin-bottom: 1.4rem;
+}
+
+.howitworks-header p {
+  font-size: 1.08rem;
+  line-height: 1.9;
+  color: var(--muted);
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+
+.steps-container {
+  max-width: 1350px;
+  margin: 0 auto;
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 2rem;
+  align-items: stretch;
+}
+.step-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  min-height: 360px;
+  padding: 2rem;
+  border-radius: 30px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  backdrop-filter: blur(18px);
+  box-shadow: var(--shadow);
+  transition: all 0.35s ease;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.step-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    140deg,
+    rgba(255, 255, 255, 0.06),
+    transparent 50%
+  );
+  pointer-events: none;
+}
+
+.step-card:hover {
+  transform: translateY(-10px);
+  border-color: rgba(88, 214, 141, 0.3);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.38);
+}
+
+.step-card.active {
+  border-color: rgba(88, 214, 141, 0.45);
+  background: rgba(22, 37, 29, 0.9);
+}
+
+.step-number {
+  position: absolute;
+  top: 1.5rem;
+  right: 1.7rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.25);
+  letter-spacing: 0.08em;
+}
+.step-icon {
+  width: 78px;
+  height: 78px;
+  border-radius: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  margin-bottom: 1.8rem;
+  background: rgba(88, 214, 141, 0.12);
+  border: 1px solid rgba(88, 214, 141, 0.15);
+}
+.step-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.step-content h3 {
+  font-size: 1.45rem;
+  font-weight: 750;
+  line-height: 1.35;
+  margin-bottom: 1rem;
+  letter-spacing: -0.02em;
+}
+
+.step-content p {
+  font-size: 1rem;
+  line-height: 1.85;
+  color: var(--muted);
+  margin-bottom: 1.5rem;
+  flex-grow: 1;
+}
+
+.step-expanded {
+  margin-top: auto;
+  padding-top: 1.4rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  animation: fadeSlide 0.3s ease;
+}
+
+.step-details {
+  font-size: 0.96rem;
+  line-height: 1.8;
+  color: #d5ddd8;
+  margin-bottom: 1.2rem;
+}
+
+.step-benefits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
+.benefit-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.65rem 1rem;
+  border-radius: 999px;
+  background: rgba(88, 214, 141, 0.12);
+  border: 1px solid rgba(88, 214, 141, 0.16);
+  color: #c8f7dc;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.step-indicator {
+  width: 55px;
+  height: 4px;
+  border-radius: 999px;
+  margin-top: 1.8rem;
+  background: rgba(255, 255, 255, 0.12);
+  transition: all 0.3s ease;
+}
+
+.step-card.active .step-indicator {
+  width: 100px;
+  background: linear-gradient(90deg, #58d68d, #98f5b8);
+}
+
+.outcomes-section {
+  margin-top: 7rem;
+  text-align: center;
+}
+
+.outcomes-section h2 {
+  font-size: 2.4rem;
+  margin-bottom: 3rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.outcomes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1.8rem;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.outcome-card {
+  padding: 2rem;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: 0.3s ease;
+}
+
+.outcome-card:hover {
+  transform: translateY(-6px);
+}
+
+.outcome-icon {
+  font-size: 2rem;
+  margin-bottom: 1rem;
+}
+
+.outcome-metric {
+  font-size: 2rem;
+  font-weight: 800;
+  margin-bottom: 0.5rem;
+}
+
+.outcome-label {
+  color: var(--muted);
+  font-size: 0.98rem;
+}
+
+.cta-section {
+  margin-top: 7rem;
+  text-align: center;
+  max-width: 760px;
+  margin-inline: auto;
+}
+
+.cta-section h2 {
+  font-size: 2.8rem;
+  font-weight: 800;
+  margin-bottom: 1rem;
+  letter-spacing: -0.03em;
+}
+
+.cta-section p {
+  font-size: 1.05rem;
+  color: var(--muted);
+  line-height: 1.9;
+  margin-bottom: 2rem;
+}
+
+.cta-button {
+  padding: 1rem 2.4rem;
+  border: none;
+  border-radius: 16px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #06120b;
+  background: linear-gradient(135deg, #58d68d, #8cf6b5);
+  cursor: pointer;
+  transition: 0.3s ease;
+}
+
+.cta-button:hover {
+  transform: translateY(-4px) scale(1.02);
+  box-shadow: 0 14px 35px rgba(88, 214, 141, 0.3);
+}
+
+@keyframes fadeSlide {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 768px) {
+  .howitworks {
+    padding: 5rem 1.2rem;
+  }
+
+  .steps {
+    grid-template-columns: 1fr;
+  }
+
+  .step-card {
+    min-height: auto;
+    padding: 1.7rem;
+  }
+
+  .howitworks-header h1 {
+    font-size: 2.4rem;
+  }
+
+  .cta-section h2 {
+    font-size: 2.1rem;
+  }
+.howitworks {
+  max-width: 1200px;
+  margin: auto;
+  padding: 100px 30px;
+  text-align: center;
+  font-family: inherit;
+  background: var(--bg-primary);
+  border-radius: 16px;
+  position: relative;
+  overflow: hidden;
 }
 
 .howitworks-header {
