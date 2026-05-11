@@ -282,23 +282,24 @@ const [tipIndex, setTipIndex] = useState(0);
   };
 
   useEffect(() => {
-  if ({animatedScore}) {
-    let start = 0;
+    if (results) {
+      let start = 0;
+      setAnimatedScore(0);
 
-    const interval = setInterval(() => {
-      start += 1;
+      const interval = setInterval(() => {
+        start += 1;
 
-      if (start >= results.quality.score) {
-        start = results.quality.score;
-        clearInterval(interval);
-      }
+        if (start >= results.quality.score) {
+          start = results.quality.score;
+          clearInterval(interval);
+        }
 
-      setAnimatedScore(start);
-    }, 15);
+        setAnimatedScore(start);
+      }, 15);
 
-    return () => clearInterval(interval);
-  }
-}, [results]);
+      return () => clearInterval(interval);
+    }
+  }, [results]);
 
 useEffect(() => {
   const interval = setInterval(() => {
