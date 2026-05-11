@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import "./CropDiseaseDetection.css";
 
 export default function CropDiseaseDetection({ onClose }) {
   const [image, setImage] = useState(null);
@@ -7,23 +8,22 @@ export default function CropDiseaseDetection({ onClose }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Cleanup preview URL
   useEffect(() => {
     return () => preview && URL.revokeObjectURL(preview);
   }, [preview]);
 
-  // ESC close
   useEffect(() => {
     const handleEsc = (e) => e.key === "Escape" && onClose?.();
     window.addEventListener("keydown", handleEsc);
+
     return () => window.removeEventListener("keydown", handleEsc);
   }, [onClose]);
 
   const handleImageChange = (e) => {
     const file = e.target.files[0];
+
     if (!file) return;
 
-    // ✅ File validation
     if (!file.type.startsWith("image/")) {
       setError("⚠️ Please upload a valid image file.");
       return;
@@ -49,6 +49,7 @@ export default function CropDiseaseDetection({ onClose }) {
     setError(null);
 
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+
     if (!apiKey) {
       setError("⚠️ API key not configured.");
       setLoading(false);
@@ -66,20 +67,34 @@ export default function CropDiseaseDetection({ onClose }) {
     try {
       const base64 = await toBase64(image);
 
-      const prompt = `You are an agricultural expert. Analyze this crop image and return ONLY valid JSON:
+      const prompt = `
+You are an agricultural expert.
+
+Analyze the crop image and return ONLY valid JSON:
 
 {
   "disease": "disease name or Healthy",
   "confidence": "High/Medium/Low",
-  "treatment": "clear treatment steps",
-  "prevention": "practical prevention tips"
-}`;
+  "severity": "Low/Moderate/High",
+  "description": "short explanation",
+  "treatment": [
+    "step 1",
+    "step 2"
+  ],
+  "prevention": [
+    "tip 1",
+    "tip 2"
+  ]
+}
+`;
 
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify({
             contents: [
               {
@@ -103,146 +118,174 @@ export default function CropDiseaseDetection({ onClose }) {
       }
 
       const data = await response.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
-      if (!text) throw new Error("Empty response from AI");
+      const text =
+        data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
-      // ✅ Safer JSON parsing
+      if (!text) throw new Error("Empty AI response");
+
       let parsed;
+
       try {
-        parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+        parsed = JSON.parse(
+          text.replace(/```json|```/g, "").trim()
+        );
       } catch {
         throw new Error("Invalid AI response format");
       }
 
-      // ✅ Validate required fields
-      if (!parsed.disease || !parsed.confidence) {
-        throw new Error("Incomplete analysis result");
-      }
-
       setResult(parsed);
-
     } catch (err) {
       console.error(err);
-      setError(err.message || "❌ Detection failed. Try again.");
+      setError(err.message || "❌ Detection failed.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={{ 
-      maxWidth: "500px", 
-      margin: "40px auto", 
-      padding: "24px", 
-      background: "#fff", 
-      borderRadius: "16px", 
-      boxShadow: "0 4px 20px rgba(0,0,0,0.1)",
-      position: "relative"
-    }}>
-
-      {/* Close Button */}
-      <button
-        className="close-btn"
-        onClick={onClose}
-        aria-label="Close"
-      >
-        ✕
-      </button>
-
+    <div className="crop-disease-container">
       {/* Header */}
-      <h2 style={{ color: "#16a34a", marginBottom: "20px", fontSize: "24px", paddingRight: "40px" }}>
-        🌿 Crop Disease Detection
-      </h2>
+      <div className="crop-header">
+        <button
+          onClick={onClose}
+          className="close-btn"
+          aria-label="Close"
+        >
+          ✕
+        </button>
 
-      {/* Upload */}
-      <input
-        type="file"
-        accept="image/*"
-        onChange={handleImageChange}
-        style={{ marginBottom: "16px", width: "100%" }}
-      />
+        <h2>🌿 Crop Disease Detection</h2>
 
-      {/* Preview */}
-      {preview && (
-        <img 
-          src={preview} 
-          alt="Selected crop preview"
-          style={{ 
-            width: "100%", 
-            borderRadius: "12px", 
-            marginBottom: "16px",
-            maxHeight: "250px", 
-            objectFit: "cover" 
-          }} 
-        />
-      )}
-
-      {/* Button */}
-      <button
-        onClick={handleDetect}
-        disabled={!image || loading}
-        style={{ 
-          width: "100%", 
-          padding: "12px", 
-          backgroundColor: loading ? "#86efac" : "#16a34a",
-          color: "white", 
-          border: "none", 
-          borderRadius: "8px", 
-          fontSize: "16px", 
-          cursor: !image || loading ? "not-allowed" : "pointer",
-          opacity: !image || loading ? 0.7 : 1
-        }}
-      >
-        {loading ? "⏳ Analyzing image..." : "🔍 Detect Disease"}
-      </button>
-
-      {/* Error */}
-      {error && (
-        <p style={{ color: "red", marginTop: "12px", textAlign: "center" }}>
-          {error}
+        <p>
+          Upload a crop leaf image and get instant AI-powered
+          disease analysis.
         </p>
-      )}
+      </div>
 
-      {/* Result */}
-      {result && (
-        <div style={{ 
-          marginTop: "20px", 
-          padding: "16px", 
-          background: "#f0fdf4", 
-          borderRadius: "12px", 
-          border: "1px solid #bbf7d0" 
-        }}>
-          <p style={{ fontSize: "18px", fontWeight: "bold", color: "#111" }}>
-            🦠 Disease: 
-            <span style={{ 
-              color: result.disease === "Healthy" ? "#16a34a" : "#dc2626",
-              marginLeft: "6px"
-            }}>
-              {result.disease}
-            </span>
-          </p>
+      {/* Body */}
+      <div className="crop-body">
+        {/* Upload */}
+        <label className="upload-box">
+          <input
+            type="file"
+            accept="image/*"
+            onChange={handleImageChange}
+            hidden
+          />
 
-          <p style={{ color: "#555", marginTop: "8px" }}>
-            📊 Confidence: <strong>{result.confidence}</strong>
-          </p>
+          <div className="upload-icon">📷</div>
 
-          <p style={{ color: "#555", marginTop: "8px" }}>
-            💊 Treatment: {result.treatment}
-          </p>
+          <p>Click to upload crop image</p>
 
-          <p style={{ color: "#555", marginTop: "8px" }}>
-            🛡️ Prevention: {result.prevention}
-          </p>
-        </div>
-      )}
+          <span>JPG, PNG • Max 5MB</span>
+        </label>
 
-      {/* Empty */}
-      {!image && (
-        <p style={{ textAlign: "center", color: "#999", marginTop: "12px" }}>
-          Upload a crop image to begin detection
-        </p>
-      )}
+        {/* Preview */}
+        {preview && (
+          <div className="preview-wrapper">
+            <img
+              src={preview}
+              alt="Crop preview"
+              className="preview-image"
+            />
+          </div>
+        )}
+
+        {/* Button */}
+        <button
+          onClick={handleDetect}
+          disabled={!image || loading}
+          className="detect-btn"
+        >
+          {loading
+            ? "⏳ Analyzing Crop..."
+            : "🔍 Detect Disease"}
+        </button>
+
+        {/* Error */}
+        {error && <div className="error-box">{error}</div>}
+
+        {/* Result */}
+        {result && (
+          <div className="result-card">
+            <div className="result-top">
+              <h3
+                className={
+                  result.disease === "Healthy"
+                    ? "healthy"
+                    : "disease"
+                }
+              >
+                {result.disease === "Healthy"
+                  ? "✅ Healthy Crop"
+                  : `🦠 ${result.disease}`}
+              </h3>
+
+              <span className="confidence-badge">
+                {result.confidence} Confidence
+              </span>
+            </div>
+
+            {result.description && (
+              <div className="result-section">
+                <h4>📖 Description</h4>
+                <p>{result.description}</p>
+              </div>
+            )}
+
+            {result.severity && (
+              <div className="result-section">
+                <h4>⚠️ Severity</h4>
+
+                <span
+                  className={`severity-badge ${result.severity.toLowerCase()}`}
+                >
+                  {result.severity}
+                </span>
+              </div>
+            )}
+
+            {result.treatment && (
+              <div className="result-section">
+                <h4>💊 Recommended Treatment</h4>
+
+                <ul>
+                  {Array.isArray(result.treatment) ? (
+                    result.treatment.map((item, index) => (
+                      <li key={index}>{item}</li>
+                    ))
+                  ) : (
+                    <li>{result.treatment}</li>
+                  )}
+                </ul>
+              </div>
+            )}
+
+            {result.prevention && (
+              <div className="result-section">
+                <h4>🛡️ Prevention Tips</h4>
+
+                <ul>
+                  {Array.isArray(result.prevention) ? (
+                    result.prevention.map((item, index) => (
+                      <li key={index}>{item}</li>
+                    ))
+                  ) : (
+                    <li>{result.prevention}</li>
+                  )}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+
+        {!image && (
+          <div className="empty-text">
+            Upload a crop image to begin AI disease detection
+          </div>
+        )}
+      </div>
     </div>
   );
 }
