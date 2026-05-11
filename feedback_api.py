@@ -5,6 +5,7 @@ Provides secure server-side API for feedback submission with validation.
 
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, validator
 from typing import Optional, List
 from datetime import datetime
@@ -12,6 +13,12 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import os
 import logging
+
+# Rate limiting — mirrors the setup used in main.py so both apps enforce
+# consistent per-IP throttles via the same slowapi library.
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 # Import our validator
 from feedback_validation import FeedbackValidator
@@ -122,6 +129,15 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# ── Rate limiting ─────────────────────────────────────────────────────────────
+# slowapi uses the same key_func pattern as main.py (remote IP address).
+# The limiter is attached to app.state so the @limiter.limit() decorator
+# can resolve it at request time.
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# ─────────────────────────────────────────────────────────────────────────────
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -160,6 +176,7 @@ async def root():
 
 
 @app.post("/api/feedback", response_model=FeedbackResponse)
+@limiter.limit("5/minute")
 async def submit_feedback(
     feedback: FeedbackRequest,
     request: Request,
@@ -167,9 +184,15 @@ async def submit_feedback(
 ):
     """
     Submit feedback with server-side validation.
-    
-    This endpoint validates all input data, sanitizes it, and stores it securely
-    in Firestore. It prevents NoSQL injection and ensures data integrity.
+
+    Rate-limited to 5 requests per minute per IP address.  Without this
+    limit an attacker could exhaust the Firestore free-tier write quota
+    (20,000 writes/day) in seconds, taking down the entire application's
+    Firestore access and incurring direct billing costs.
+
+    This endpoint validates all input data, sanitizes it, and stores it
+    securely in Firestore.  It prevents NoSQL injection and ensures data
+    integrity.
     """
     try:
         logger.info(f"Received feedback submission from user: {feedback.userId}")
@@ -228,7 +251,8 @@ async def submit_feedback(
 
 
 @app.get("/api/feedback/stats", response_model=FeedbackStatsResponse)
-async def get_feedback_stats():
+@limiter.limit("10/minute")
+async def get_feedback_stats(request: Request):
     """Get feedback statistics (admin only)"""
     try:
         # In production, add authentication/authorization here
@@ -272,7 +296,8 @@ async def get_feedback_stats():
 
 
 @app.get("/api/feedback/validate-test")
-async def validate_test():
+@limiter.limit("10/minute")
+async def validate_test(request: Request):
     """Test endpoint to demonstrate validation"""
     test_cases = [
         {
