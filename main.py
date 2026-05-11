@@ -267,8 +267,8 @@ class YieldInput(BaseModel):
     data: list[float]
 
 class AlertTriggerRequest(BaseModel):
-    alert_type: str  # 'weather', 'pest', 'advisory'
-    message: str
+    alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
+    message: str = Field(..., min_length=1, max_length=500)
 
 class ReportRequest(BaseModel):
     name: str = Field(..., max_length=100)
@@ -597,7 +597,22 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     return {"success": True, "message": "Successfully subscribed"}
 
 @app.post("/api/whatsapp/trigger-alert")
-async def trigger_whatsapp_alert(data: AlertTriggerRequest):
+@limiter.limit("10/minute")
+async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
+    """
+    Broadcast a WhatsApp alert to all subscribers.
+
+    Requires authentication — admin or expert role only.
+
+    Previously this endpoint had no authentication check, no rate limit,
+    and no input constraints.  Any unauthenticated caller could send
+    arbitrary messages to every subscribed farmer, enabling social
+    engineering attacks (fake market alerts, fake pest warnings) and
+    consuming Twilio API credits at the attacker's discretion.
+    """
+    # RBAC: only admins and experts may broadcast alerts to all farmers.
+    await verify_role(request, required_roles=["admin", "expert"])
+
     # get_all() acquires the lock and returns a stable snapshot, so this read
     # cannot race with a concurrent subscription write.
     subscribers = subscriber_store.get_all()
@@ -608,12 +623,12 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest):
         res = send_whatsapp_message(info["phone_number"], formatted_msg)
         results.append({"user_id": user_id, "success": res.get("success", False)})
 
-    static_notifications.append({
-        "id": len(static_notifications) + 1,
-        "type": data.alert_type,
-        "message": data.message,
-        "time": datetime.now().isoformat(),
-    })
+    # Use the bounded, thread-safe NotificationStore instead of the bare
+    # static_notifications list (which had no size cap and racy ID generation).
+    _notification_store.append(
+        alert_type=data.alert_type,
+        message=data.message,
+    )
 
     return {"success": True, "results": results}
 
