@@ -6,6 +6,11 @@ import {
   FaVolumeUp,
   FaPaperPlane,
   FaImage,
+  FaFlask,
+  FaCloudSun,
+  FaBug,
+  FaSeedling,
+  FaTimes
 } from "react-icons/fa";
 
 import { useChatbot } from "./hooks/useChatbot";
@@ -51,10 +56,10 @@ function SoilChatbot({ onClose }) {
   };
 
   const suggestions = [
-    "🌤️ Weather-based farming advice",
-    "🌾 Recommended crops for this month",
-    "🧪 How to improve my soil health?",
-    "🐛 Pest control for my crops",
+    { text: "Weather-based farming advice", icon: <FaCloudSun /> },
+    { text: "Recommended crops for this month", icon: <FaSeedling /> },
+    { text: "How to improve my soil health?", icon: <FaFlask /> },
+    { text: "Pest control for my crops", icon: <FaBug /> },
   ];
 
   return (
@@ -63,7 +68,7 @@ function SoilChatbot({ onClose }) {
       <div className="chat-header">
         <div className="header-info">
           <h2>
-            🌱 Agri Assistant
+            <FaSeedling className="inline-icon" /> Agri Assistant
             <FaVolumeUp
               style={{
                 fontSize: "0.9rem",
@@ -77,7 +82,7 @@ function SoilChatbot({ onClose }) {
         </div>
 
         <button className="close-btn" onClick={onClose}>
-          ✖
+          <FaTimes />
         </button>
       </div>
 
@@ -97,7 +102,7 @@ function SoilChatbot({ onClose }) {
 
         {isListening && (
           <div className="chat-message user listening">
-            Listening... 🎤
+            Listening... <FaMicrophone />
           </div>
         )}
 
@@ -110,9 +115,9 @@ function SoilChatbot({ onClose }) {
           <button
             key={i}
             className="suggestion-chip"
-            onClick={() => handleSend(s)}
+            onClick={() => handleSend(s.text)}
           >
-            {s}
+            {s.icon} {s.text}
           </button>
         ))}
       </div>
