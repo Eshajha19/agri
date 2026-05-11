@@ -19,23 +19,22 @@ import {
 } from "lucide-react";
 import P2PChat from "./P2PChat";
 import { auth, db, isFirebaseConfigured } from "./lib/firebase";
-import { 
-  collection, 
-  addDoc, 
-  query, 
-  orderBy, 
-  onSnapshot, 
-  doc, 
-  updateDoc, 
-  arrayUnion, 
+import {
+  collection,
+  addDoc,
+  query,
+  orderBy,
+  onSnapshot,
+  doc,
+  updateDoc,
+  arrayUnion,
   arrayRemove,
   where,
   getDocs,
   getDoc,
   increment,
   runTransaction,
-  writeBatch
-  increment,
+  writeBatch,
   serverTimestamp,
 } from "firebase/firestore";
 import Loader from "./Loader";

@@ -28,6 +28,8 @@ import {
   BarChart, Bar, CartesianGrid
 } from "recharts";
 import { getHistoricalWeatherData } from "./weather/weatherService";
+import ErrorBoundary from "./ErrorBoundary";
+import apiClient from "./lib/apiClient";
 
 export default function Dashboard() {
   const name = localStorage.getItem("farmerName") || "Farmer";
@@ -47,7 +49,7 @@ export default function Dashboard() {
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
-  }, []);
+  }, [setCurrentTime]);
   useEffect(() => {
     setYieldData([
       { year: "2019", crop: "Wheat", yield: 30, region: "North", season: "Rabi" },
@@ -55,7 +57,7 @@ export default function Dashboard() {
       { year: "2021", crop: "Wheat", yield: 50, region: "North", season: "Rabi" },
       { year: "2022", crop: "Rice", yield: 60, region: "South", season: "Kharif" },
     ]);
-  }, []);
+  }, [setYieldData]);
   useEffect(() => {
     const fetchData = async () => {
       const data = await getHistoricalWeatherData();
@@ -63,24 +65,22 @@ export default function Dashboard() {
     };
 
     fetchData();
-  }, []);
+  }, [setHistoricalWeather]);
 
   const handleUpdateWhatsApp = async () => {
     setIsUpdating(true);
     setUpdateMsg("");
     try {
-      const response = await fetch("/api/whatsapp/subscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: localStorage.getItem("userId") || "user_" + name,
-          phone_number: phoneNumber,
-          name: name,
-          enabled: whatsappAlerts
-        }),
+      // Use apiClient instead of raw fetch() so the Firebase auth token is
+      // automatically injected via the Axios request interceptor in
+      // services/api.js.  The backend now derives user identity from the
+      // verified token — we no longer send user_id from localStorage, which
+      // could be spoofed to overwrite another user's subscription.
+      const response = await apiClient.post("/api/whatsapp/subscribe", {
+        phone_number: phoneNumber,
+        name: name,
       });
-      const data = await response.json();
-      if (data.success) {
+      if (response.data?.success) {
         localStorage.setItem("farmerPhone", phoneNumber);
         localStorage.setItem("whatsappAlerts", whatsappAlerts.toString());
         setUpdateMsg("Settings saved successfully!");
@@ -476,71 +476,75 @@ export default function Dashboard() {
             }}
           >
             {/* 📈 Line Chart */}
-            <div
-              style={{
-                background: "#ffffff",
-                borderRadius: "12px",
-                padding: "16px",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-              }}
-            >
-              <h4 style={{ marginBottom: "10px" }}>Yield Trend</h4>
-              <div 
-                 style={{ width: "100%", height: 350 }}
-                 role="img"
-                 aria-label="Line chart showing crop yield trend over years. The trend shows a steady increase from 30 in 2019 to 60 in 2022."
-               >
-                {filteredData.length === 0 ? (
-                  <div style={{ textAlign: "center", padding: "40px" }}>
-                    No data found. Try changing filters.
-                  </div>
-                ) : (
-                  <ResponsiveContainer>
-                    <LineChart data={filteredData}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                      <XAxis dataKey="year" axisLine={false} tickLine={false} />
-                      <YAxis axisLine={false} tickLine={false} />
-                      <Tooltip isAnimationActive={false} />
-                      <Line
-                        type="monotone"
-                        dataKey="yield"
-                        stroke="#22c55e"
-                        strokeWidth={3}
-                        dot={false}
-                        isAnimationActive={false}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                )}
+            <ErrorBoundary>
+              <div
+                style={{
+                  background: "#ffffff",
+                  borderRadius: "12px",
+                  padding: "16px",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                }}
+              >
+                <h4 style={{ marginBottom: "10px" }}>Yield Trend</h4>
+                <div 
+                   style={{ width: "100%", height: 350 }}
+                   role="img"
+                   aria-label="Line chart showing crop yield trend over years. The trend shows a steady increase from 30 in 2019 to 60 in 2022."
+                 >
+                  {filteredData.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "40px" }}>
+                      No data found. Try changing filters.
+                    </div>
+                  ) : (
+                    <ResponsiveContainer>
+                      <LineChart data={filteredData}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                        <XAxis dataKey="year" axisLine={false} tickLine={false} />
+                        <YAxis axisLine={false} tickLine={false} />
+                        <Tooltip isAnimationActive={false} />
+                        <Line
+                          type="monotone"
+                          dataKey="yield"
+                          stroke="#22c55e"
+                          strokeWidth={3}
+                          dot={false}
+                          isAnimationActive={false}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
               </div>
-            </div>
+            </ErrorBoundary>
 
             {/* 📊 Bar Chart */}
-            <div
-              style={{
-                background: "#ffffff",
-                borderRadius: "12px",
-                padding: "16px",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-              }}
-            >
-              <h4 style={{ marginBottom: "10px" }}>Crop Comparison</h4>
-              <div 
-                 style={{ width: "100%", height: 350 }}
-                 role="img"
-                 aria-label="Bar chart comparing yields across different crops."
-               >
-                <ResponsiveContainer>
-                  <BarChart data={yieldData}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                    <XAxis dataKey="crop" axisLine={false} tickLine={false} />
-                    <YAxis axisLine={false} tickLine={false} />
-                    <Tooltip isAnimationActive={false} />
-                    <Bar dataKey="yield" fill="#10b981" isAnimationActive={false} />
-                  </BarChart>
-                </ResponsiveContainer>
+            <ErrorBoundary>
+              <div
+                style={{
+                  background: "#ffffff",
+                  borderRadius: "12px",
+                  padding: "16px",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                }}
+              >
+                <h4 style={{ marginBottom: "10px" }}>Crop Comparison</h4>
+                <div 
+                   style={{ width: "100%", height: 350 }}
+                   role="img"
+                   aria-label="Bar chart comparing yields across different crops."
+                 >
+                  <ResponsiveContainer>
+                    <BarChart data={yieldData}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                      <XAxis dataKey="crop" axisLine={false} tickLine={false} />
+                      <YAxis axisLine={false} tickLine={false} />
+                      <Tooltip isAnimationActive={false} />
+                      <Bar dataKey="yield" fill="#10b981" isAnimationActive={false} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
-            </div>
+            </ErrorBoundary>
           </div>
         )}
         {/* CONDITION END */}
@@ -556,30 +560,32 @@ export default function Dashboard() {
         </p>
 
         {/* Weather Chart */}
-        <div style={{ width: "100%", height: 350 }}>
-          {historicalWeather.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "40px" }}>
-              Loading weather data...
-            </div>
-          ) : (
-            <ResponsiveContainer>
-              <LineChart data={historicalWeather}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                <XAxis dataKey="year" axisLine={false} tickLine={false} />
-                <YAxis axisLine={false} tickLine={false} />
-                <Tooltip isAnimationActive={false} />
-                <Line
-                  type="monotone"
-                  dataKey="temp"
-                  stroke="#f59e0b"
-                  strokeWidth={3}
-                  dot={false}
-                  isAnimationActive={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
-        </div>
+        <ErrorBoundary>
+          <div style={{ width: "100%", height: 350 }}>
+            {historicalWeather.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "40px" }}>
+                Loading weather data...
+              </div>
+            ) : (
+              <ResponsiveContainer>
+                <LineChart data={historicalWeather}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                  <XAxis dataKey="year" axisLine={false} tickLine={false} />
+                  <YAxis axisLine={false} tickLine={false} />
+                  <Tooltip isAnimationActive={false} />
+                  <Line
+                    type="monotone"
+                    dataKey="temp"
+                    stroke="#f59e0b"
+                    strokeWidth={3}
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </ErrorBoundary>
 
         {/* Insight */}
         <div style={{ marginTop: "15px", fontWeight: "500", color: "#374151" }}>

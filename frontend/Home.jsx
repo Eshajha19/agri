@@ -23,6 +23,7 @@ import {
 } from "react-icons/fa";
 import WeatherAlertBar from "./weather/WeatherAlertBar";
 import WeatherQuickWidget from "./weather/WeatherQuickWidget";
+import ErrorBoundary from "./ErrorBoundary";
 import "./Home.css";
 
 const features = [
@@ -212,9 +213,13 @@ export default function Home({ user }) {
 
   return (
     <div className="home">
-      <WeatherAlertBar />
+      <ErrorBoundary>
+        <WeatherAlertBar />
+      </ErrorBoundary>
       <div className="home-weather-relative-wrap">
-        <WeatherQuickWidget />
+        <ErrorBoundary>
+          <WeatherQuickWidget />
+        </ErrorBoundary>
       </div>
       <section className="hero-section highlight-light">
         <div className="hero-bg-image" aria-hidden="true">
