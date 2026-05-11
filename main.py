@@ -257,8 +257,11 @@ class PredictResponse(BaseModel):
 
 class WhatsAppSubscribeRequest(BaseModel):
     phone_number: str
-    user_id: str
     name: str
+    # user_id is accepted for backward compatibility but is IGNORED by the
+    # endpoint — the authoritative user identity is always derived from the
+    # verified Firebase ID token, never from client-supplied data.
+    user_id: Optional[str] = None
 
 class YieldInput(BaseModel):
     data: list[float]
@@ -552,14 +555,21 @@ def get_notifications(
 @app.post("/api/whatsapp/subscribe")
 @limiter.limit("2/minute")
 async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
-    user_id = data.user_id if data.user_id else str(datetime.now().timestamp())
+    # Require authentication so the subscriber's identity is always derived
+    # from the verified Firebase token — never from client-supplied data.
+    # Previously the endpoint accepted user_id from the request body, which
+    # allowed any caller to overwrite another user's subscription by sending
+    # a known user_id with an attacker-controlled phone number.
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+
     subscriber = {
         "phone_number": data.phone_number,
         "name": data.name,
         "subscribed_at": datetime.now().isoformat(),
     }
     try:
-        subscriber_store.upsert(user_id, subscriber)
+        subscriber_store.upsert(uid, subscriber)
     except OSError as exc:
         raise HTTPException(
             status_code=500,

@@ -29,6 +29,7 @@ import {
 } from "recharts";
 import { getHistoricalWeatherData } from "./weather/weatherService";
 import ErrorBoundary from "./ErrorBoundary";
+import apiClient from "./lib/apiClient";
 
 export default function Dashboard() {
   const name = localStorage.getItem("farmerName") || "Farmer";
@@ -70,18 +71,16 @@ export default function Dashboard() {
     setIsUpdating(true);
     setUpdateMsg("");
     try {
-      const response = await fetch("/api/whatsapp/subscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: localStorage.getItem("userId") || "user_" + name,
-          phone_number: phoneNumber,
-          name: name,
-          enabled: whatsappAlerts
-        }),
+      // Use apiClient instead of raw fetch() so the Firebase auth token is
+      // automatically injected via the Axios request interceptor in
+      // services/api.js.  The backend now derives user identity from the
+      // verified token — we no longer send user_id from localStorage, which
+      // could be spoofed to overwrite another user's subscription.
+      const response = await apiClient.post("/api/whatsapp/subscribe", {
+        phone_number: phoneNumber,
+        name: name,
       });
-      const data = await response.json();
-      if (data.success) {
+      if (response.data?.success) {
         localStorage.setItem("farmerPhone", phoneNumber);
         localStorage.setItem("whatsappAlerts", whatsappAlerts.toString());
         setUpdateMsg("Settings saved successfully!");
