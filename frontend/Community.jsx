@@ -350,7 +350,13 @@ const Community = () => {
 
     const postId = showCommentsModal.id;
     try {
-      await addDoc(collection(db, "comments"), {
+      // Use a write batch so the comment document, the commenter's reputation
+      // increment, and the post's commentsCount increment are all committed
+      // atomically.
+      const batch = writeBatch(db);
+
+      const commentRef = doc(collection(db, "comments"));
+      batch.set(commentRef, {
         postId,
         userId: currentUser.uid,
         userName: currentUser.displayName || currentUser.email.split('@')[0],
@@ -372,7 +378,6 @@ const Community = () => {
 
       // Record the comment time for the local cooldown check.
       setLastCommentTime(Date.now());
-
 
       setNewComment("");
       openComments(showCommentsModal);

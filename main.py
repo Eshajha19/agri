@@ -17,7 +17,7 @@ from typing import Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, Request, Form, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 
 class SimulationRequest(BaseModel):
     crop_type: str
@@ -257,15 +257,18 @@ class PredictResponse(BaseModel):
 
 class WhatsAppSubscribeRequest(BaseModel):
     phone_number: str
-    user_id: str
     name: str
+    # user_id is accepted for backward compatibility but is IGNORED by the
+    # endpoint — the authoritative user identity is always derived from the
+    # verified Firebase ID token, never from client-supplied data.
+    user_id: Optional[str] = None
 
 class YieldInput(BaseModel):
     data: list[float]
 
 class AlertTriggerRequest(BaseModel):
-    alert_type: str  # 'weather', 'pest', 'advisory'
-    message: str
+    alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
+    message: str = Field(..., min_length=1, max_length=500)
 
 class ReportRequest(BaseModel):
     name: str = Field(..., max_length=100)
@@ -273,6 +276,18 @@ class ReportRequest(BaseModel):
     area: str = Field(..., max_length=50)
     profit: str = Field(..., max_length=50)
     season: str = Field(..., max_length=50)
+
+    @validator("name", "crop", "area", "profit", "season", pre=True)
+    def reject_pipe_characters(cls, v):
+        # Belt-and-suspenders guard: the signing payload now uses JSON (which
+        # is unambiguous regardless of field content), but we also reject pipe
+        # characters at the model level so legacy code paths or future changes
+        # cannot accidentally reintroduce a delimiter-injection vulnerability.
+        if isinstance(v, str) and "|" in v:
+            raise ValueError(
+                "Field value must not contain the '|' character."
+            )
+        return v
 
 class SeedVerifyRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=100)
@@ -552,14 +567,21 @@ def get_notifications(
 @app.post("/api/whatsapp/subscribe")
 @limiter.limit("2/minute")
 async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
-    user_id = data.user_id if data.user_id else str(datetime.now().timestamp())
+    # Require authentication so the subscriber's identity is always derived
+    # from the verified Firebase token — never from client-supplied data.
+    # Previously the endpoint accepted user_id from the request body, which
+    # allowed any caller to overwrite another user's subscription by sending
+    # a known user_id with an attacker-controlled phone number.
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+
     subscriber = {
         "phone_number": data.phone_number,
         "name": data.name,
         "subscribed_at": datetime.now().isoformat(),
     }
     try:
-        subscriber_store.upsert(user_id, subscriber)
+        subscriber_store.upsert(uid, subscriber)
     except OSError as exc:
         raise HTTPException(
             status_code=500,
@@ -575,7 +597,22 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     return {"success": True, "message": "Successfully subscribed"}
 
 @app.post("/api/whatsapp/trigger-alert")
-async def trigger_whatsapp_alert(data: AlertTriggerRequest):
+@limiter.limit("10/minute")
+async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
+    """
+    Broadcast a WhatsApp alert to all subscribers.
+
+    Requires authentication — admin or expert role only.
+
+    Previously this endpoint had no authentication check, no rate limit,
+    and no input constraints.  Any unauthenticated caller could send
+    arbitrary messages to every subscribed farmer, enabling social
+    engineering attacks (fake market alerts, fake pest warnings) and
+    consuming Twilio API credits at the attacker's discretion.
+    """
+    # RBAC: only admins and experts may broadcast alerts to all farmers.
+    await verify_role(request, required_roles=["admin", "expert"])
+
     # get_all() acquires the lock and returns a stable snapshot, so this read
     # cannot race with a concurrent subscription write.
     subscribers = subscriber_store.get_all()
@@ -584,16 +621,17 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest):
 
     for user_id, info in subscribers.items():
         res = send_whatsapp_message(info["phone_number"], formatted_msg)
-        results.append({"user_id": user_id, "success": res.get("success", False)})
+        results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})
 
-    static_notifications.append({
-        "id": len(static_notifications) + 1,
-        "type": data.alert_type,
-        "message": data.message,
-        "time": datetime.now().isoformat(),
-    })
+    # Use the bounded, thread-safe NotificationStore instead of the bare
+    # static_notifications list (which had no size cap and racy ID generation).
+    _notification_store.append(
+        alert_type=data.alert_type,
+        message=data.message,
+    )
 
-    return {"success": True, "results": results}
+    delivered = sum(1 for r in results if r["success"])
+    return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
 
 @app.post("/api/whatsapp/webhook")
 async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
@@ -770,10 +808,35 @@ async def generate_signed_report(data: ReportRequest, request: Request):
         p.setStrokeColor(colors.black)
         p.rect(1*inch, y - 1.5*inch, width - 2*inch, 1.8*inch, stroke=1, fill=0)
         
-        # Data for signing
-        report_data_string = f"{data.name}|{data.crop}|{data.area}|{data.profit}|{datetime.now().date()}"
-        signature = private_key.sign(report_data_string.encode())
-        sig_id = hashlib.sha256(signature).hexdigest()[:8].upper()
+        # Data for signing — use a JSON object with explicit field keys so
+        # every field is unambiguously bound to its name.  The old pipe-
+        # delimited format ("Alice|Wheat|5 Acres|...") allowed two different
+        # inputs to produce the same string:
+        #   name="Alice|Wheat", crop="5 Acres"  →  "Alice|Wheat|5 Acres|..."
+        #   name="Alice",       crop="Wheat|5 Acres" →  "Alice|Wheat|5 Acres|..."
+        # With JSON, {"name": "Alice|Wheat", "crop": "5 Acres"} and
+        # {"name": "Alice", "crop": "Wheat|5 Acres"} are distinct byte strings,
+        # so the signature binds unambiguously to the exact field values.
+        # sort_keys=True ensures the serialisation is deterministic regardless
+        # of Python dict insertion order.
+        report_payload = {
+            "name":   data.name,
+            "crop":   data.crop,
+            "area":   data.area,
+            "profit": data.profit,
+            "season": data.season,
+            "date":   datetime.now().date().isoformat(),
+        }
+        report_data_bytes = json.dumps(report_payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
+        signature = private_key.sign(report_data_bytes)
+
+        # Use the full 64-char SHA-256 hex digest as the canonical signature
+        # fingerprint, then display the first 16 chars (64 bits) on the PDF.
+        # The old 8-char (32-bit) truncation had a ~1-in-4-billion collision
+        # probability per pair — not negligible for a document presented to a
+        # bank.  16 hex chars gives ~1-in-18-quintillion, which is negligible.
+        sig_full = hashlib.sha256(signature).hexdigest().upper()
+        sig_id = sig_full[:16]
 
         p.setFont("Helvetica-Bold", 14)
         p.drawString(1.2*inch, y - 0.3*inch, "DIGITAL CRYPTOGRAPHIC SIGNATURE")
