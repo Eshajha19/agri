@@ -17,7 +17,7 @@ from typing import Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, Request, Form, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 
 class SimulationRequest(BaseModel):
     crop_type: str
@@ -276,6 +276,18 @@ class ReportRequest(BaseModel):
     area: str = Field(..., max_length=50)
     profit: str = Field(..., max_length=50)
     season: str = Field(..., max_length=50)
+
+    @validator("name", "crop", "area", "profit", "season", pre=True)
+    def reject_pipe_characters(cls, v):
+        # Belt-and-suspenders guard: the signing payload now uses JSON (which
+        # is unambiguous regardless of field content), but we also reject pipe
+        # characters at the model level so legacy code paths or future changes
+        # cannot accidentally reintroduce a delimiter-injection vulnerability.
+        if isinstance(v, str) and "|" in v:
+            raise ValueError(
+                "Field value must not contain the '|' character."
+            )
+        return v
 
 class SeedVerifyRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=100)
@@ -780,10 +792,35 @@ async def generate_signed_report(data: ReportRequest, request: Request):
         p.setStrokeColor(colors.black)
         p.rect(1*inch, y - 1.5*inch, width - 2*inch, 1.8*inch, stroke=1, fill=0)
         
-        # Data for signing
-        report_data_string = f"{data.name}|{data.crop}|{data.area}|{data.profit}|{datetime.now().date()}"
-        signature = private_key.sign(report_data_string.encode())
-        sig_id = hashlib.sha256(signature).hexdigest()[:8].upper()
+        # Data for signing — use a JSON object with explicit field keys so
+        # every field is unambiguously bound to its name.  The old pipe-
+        # delimited format ("Alice|Wheat|5 Acres|...") allowed two different
+        # inputs to produce the same string:
+        #   name="Alice|Wheat", crop="5 Acres"  →  "Alice|Wheat|5 Acres|..."
+        #   name="Alice",       crop="Wheat|5 Acres" →  "Alice|Wheat|5 Acres|..."
+        # With JSON, {"name": "Alice|Wheat", "crop": "5 Acres"} and
+        # {"name": "Alice", "crop": "Wheat|5 Acres"} are distinct byte strings,
+        # so the signature binds unambiguously to the exact field values.
+        # sort_keys=True ensures the serialisation is deterministic regardless
+        # of Python dict insertion order.
+        report_payload = {
+            "name":   data.name,
+            "crop":   data.crop,
+            "area":   data.area,
+            "profit": data.profit,
+            "season": data.season,
+            "date":   datetime.now().date().isoformat(),
+        }
+        report_data_bytes = json.dumps(report_payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
+        signature = private_key.sign(report_data_bytes)
+
+        # Use the full 64-char SHA-256 hex digest as the canonical signature
+        # fingerprint, then display the first 16 chars (64 bits) on the PDF.
+        # The old 8-char (32-bit) truncation had a ~1-in-4-billion collision
+        # probability per pair — not negligible for a document presented to a
+        # bank.  16 hex chars gives ~1-in-18-quintillion, which is negligible.
+        sig_full = hashlib.sha256(signature).hexdigest().upper()
+        sig_id = sig_full[:16]
 
         p.setFont("Helvetica-Bold", 14)
         p.drawString(1.2*inch, y - 0.3*inch, "DIGITAL CRYPTOGRAPHIC SIGNATURE")
