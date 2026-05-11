@@ -621,7 +621,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
 
     for user_id, info in subscribers.items():
         res = send_whatsapp_message(info["phone_number"], formatted_msg)
-        results.append({"user_id": user_id, "success": res.get("success", False)})
+        results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})
 
     # Use the bounded, thread-safe NotificationStore instead of the bare
     # static_notifications list (which had no size cap and racy ID generation).
@@ -630,7 +630,8 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
         message=data.message,
     )
 
-    return {"success": True, "results": results}
+    delivered = sum(1 for r in results if r["success"])
+    return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
 
 @app.post("/api/whatsapp/webhook")
 async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
