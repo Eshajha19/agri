@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useCallback } from "react";
 import {
   FaBell,
   FaCrosshairs,
@@ -114,7 +114,7 @@ export default function WeatherCard({
   useEffect(() => {
     if (!embedded || snapshot) return;
     handleUseMyLocation();
-  }, []);
+  }, [embedded, snapshot, handleUseMyLocation]);
 
   /* Smart Notifications */
   useEffect(() => {
@@ -139,7 +139,7 @@ export default function WeatherCard({
     localStorage.setItem(SENT_NOTIFICATION_KEY, signature);
   }, [snapshot, cropWarnings, notificationPermission]);
 
-  const handleSearch = async () => {
+  const handleSearch = useCallback(async () => {
     if (!searchQuery.trim()) {
       setWeatherError("Enter a city or district name first.");
       return;
@@ -149,14 +149,14 @@ export default function WeatherCard({
       const location = await searchLocationByName(searchQuery);
       return fetchWeatherByLocation(location);
     });
-  };
+  }, [searchQuery, setWeatherError, loadWeather]);
 
-  const handleUseMyLocation = async () => {
+  const handleUseMyLocation = useCallback(async () => {
     await loadWeather(async () => {
       const location = await getCurrentPosition();
       return fetchWeatherByLocation(location);
     });
-  };
+  }, [loadWeather]);
 
   const topAlert = snapshot?.alerts?.[0];
   const units = snapshot?.units || {};

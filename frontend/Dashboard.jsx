@@ -47,7 +47,7 @@ export default function Dashboard() {
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
-  }, []);
+  }, [setCurrentTime]);
   useEffect(() => {
     setYieldData([
       { year: "2019", crop: "Wheat", yield: 30, region: "North", season: "Rabi" },
@@ -55,7 +55,7 @@ export default function Dashboard() {
       { year: "2021", crop: "Wheat", yield: 50, region: "North", season: "Rabi" },
       { year: "2022", crop: "Rice", yield: 60, region: "South", season: "Kharif" },
     ]);
-  }, []);
+  }, [setYieldData]);
   useEffect(() => {
     const fetchData = async () => {
       const data = await getHistoricalWeatherData();
@@ -63,7 +63,7 @@ export default function Dashboard() {
     };
 
     fetchData();
-  }, []);
+  }, [setHistoricalWeather]);
 
   const handleUpdateWhatsApp = async () => {
     setIsUpdating(true);
