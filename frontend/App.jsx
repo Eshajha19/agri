@@ -69,6 +69,7 @@ import YieldPredictor from "./YieldPredictor";
 import Footer from "./components/Footer";
 import { SkipLink } from "./NavigationManager";
 import { useTheme } from "./ThemeContext";
+import ErrorBoundary from "./ErrorBoundary";
 
 // Libs
 import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc } from "./lib/firebase";
@@ -437,23 +438,23 @@ function App() {
 
       <main id="main-content" tabIndex="-1" style={{ outline: 'none' }}>
         <Routes>
-          <Route path="/" element={<Home user={user} />} />
-          <Route path="/advisor" element={<Advisor userData={userData} />} />
+          <Route path="/" element={<ErrorBoundary><Home user={user} /></ErrorBoundary>} />
+          <Route path="/advisor" element={<ErrorBoundary><Advisor userData={userData} /></ErrorBoundary>} />
           <Route path="/how-it-works" element={<How />} />
-          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/dashboard" element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
           <Route path="/crop-guide" element={<CropGuide />} />
           <Route path="/schemes" element={<Schemes />} />
           <Route path="/resources" element={<Resources />} />
           <Route path="/login" element={<Auth />} />
           <Route path="/profile-setup" element={<ProfileSetup user={user} profileCompleted={profileCompleted} />} />
-          <Route path="/calendar" element={<Calendar />} />
+          <Route path="/calendar" element={<ErrorBoundary><Calendar /></ErrorBoundary>} />
           <Route path="/share-feedback" element={<Feedback />} />
           <Route path="/admin/feedback" element={<AdminFeedback />} />
-          <Route path="/market-prices" element={<MarketPrices />} />
-          <Route path="/farming-map" element={<FarmingMap />} />
-          <Route path="/profit-calculator" element={<CropProfitCalculator />} />
+          <Route path="/market-prices" element={<ErrorBoundary><MarketPrices /></ErrorBoundary>} />
+          <Route path="/farming-map" element={<ErrorBoundary><FarmingMap /></ErrorBoundary>} />
+          <Route path="/profit-calculator" element={<ErrorBoundary><CropProfitCalculator /></ErrorBoundary>} />
           <Route path="/community" element={<Community />} />
-          <Route path="/soil-analysis" element={<SoilAnalysis />} />
+          <Route path="/soil-analysis" element={<ErrorBoundary><SoilAnalysis /></ErrorBoundary>} />
           <Route path="/faq" element={<FAQ />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/privacy-policy" element={<PrivacyPolicy />} />
@@ -461,16 +462,16 @@ function App() {
           <Route path="/trace/:id" element={<QRTraceability />} />
           <Route path="/contact" element={<ContactUs />} />
           <Route path="/about" element={<AboutUs />} />
-          <Route path="/crop-planner" element={<SeasonalCropPlanner />} />
+          <Route path="/crop-planner" element={<ErrorBoundary><SeasonalCropPlanner /></ErrorBoundary>} />
           <Route path="/soil-guide" element={<SoilGuide />} />
-          <Route path="/disease-awareness" element={<CropDiseaseAwareness />} />
+          <Route path="/disease-awareness" element={<ErrorBoundary><CropDiseaseAwareness /></ErrorBoundary>} />
           <Route path="/helpline" element={<Helpline />} />
           <Route path="/glossary" element={<Glossary />} />
-          <Route path="/risk-index" element={<RiskIndex />} />
-          <Route path="/crop-rotation" element={<CropRotation />} />
-          <Route path="/seed-verifier" element={<SeedVerifier />} />
-          <Route path="/farm-finance" element={<FarmFinance />} />
-          <Route path="/yield-predictor" element={<YieldPredictor />} />
+          <Route path="/risk-index" element={<ErrorBoundary><RiskIndex /></ErrorBoundary>} />
+          <Route path="/crop-rotation" element={<ErrorBoundary><CropRotation /></ErrorBoundary>} />
+          <Route path="/seed-verifier" element={<ErrorBoundary><SeedVerifier /></ErrorBoundary>} />
+          <Route path="/farm-finance" element={<ErrorBoundary><FarmFinance /></ErrorBoundary>} />
+          <Route path="/yield-predictor" element={<ErrorBoundary><YieldPredictor /></ErrorBoundary>} />
           <Route path="/blog" element={<Blog />} />
           <Route path="/blog/:id" element={<BlogDetail />} />
           <Route path="*" element={<NotFound />} />
