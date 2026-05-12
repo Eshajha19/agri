@@ -749,6 +749,14 @@ export default function Advisor({ userData }) {
             </div>
           )}
 
+          {(userData?.role === "farmer" || userData?.role === "admin") && (
+            <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/equipment-management")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/equipment-management"); }} aria-label="Equipment Management: Monitor and maintain farm equipment">
+              <div className="icon" aria-hidden="true"><Settings size={32} /></div>
+              <h3><span className="notranslate">Equipment Management</span></h3>
+              <p>Real-time monitoring and predictive maintenance for all farm equipment.</p>
+            </div>
+          )}
+
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowAgriLMS(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowAgriLMS(true); }} aria-label="Agri-LMS Academy: Online courses">
             <div className="icon" aria-hidden="true"><Award size={32} /></div>
             <h3><span className="notranslate">Agri-LMS Academy</span></h3>
