@@ -1,6 +1,6 @@
 import { initializeApp, getApps } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore, doc, onSnapshot, getDoc, setDoc, updateDoc, enableIndexedDbPersistence } from "firebase/firestore";
+import { getFirestore, doc, onSnapshot, getDoc, setDoc, updateDoc } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
@@ -11,47 +11,35 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID || "",
 };
 
-const isConfigured = !!(firebaseConfig.apiKey && firebaseConfig.apiKey.length > 10 &&
-  firebaseConfig.projectId && firebaseConfig.authDomain);
+const isConfigured = !!(
+  firebaseConfig.apiKey &&
+  firebaseConfig.apiKey.length > 10 &&
+  firebaseConfig.projectId &&
+  firebaseConfig.authDomain
+);
 
-let app = null;
+let app  = null;
 let auth = null;
-let db = null;
+let db   = null;
 
 if (isConfigured) {
-  if (getApps().length === 0) {
-    app = initializeApp(firebaseConfig);
-  } else {
-    app = getApps()[0];
-  }
-  auth = getAuth(app);
-  db = getFirestore(app);
-  
-  // Enable offline persistence for Firestore
   try {
-    enableIndexedDbPersistence(db, {
-      synchronizeTabs: true,
-      forceOwnership: false
-    }).catch((err) => {
-      if (err.code === 'failed-precondition') {
-        console.warn('Offline persistence failed: Multiple tabs open');
-      } else if (err.code === 'unimplemented') {
-        console.warn('Offline persistence not supported in this browser');
-      } else {
-        console.error('Offline persistence error:', err);
-      }
+    app  = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+    auth = getAuth(app);
+    db   = getFirestore(app);
+
+    console.log("Firebase initialised", {
+      projectId: firebaseConfig.projectId,
+      authDomain: firebaseConfig.authDomain,
     });
   } catch (err) {
-    console.error('Failed to enable offline persistence:', err);
+    console.error("Firebase initialisation failed:", err);
+    // Leave auth/db as null so the rest of the app falls back gracefully
+    app = auth = db = null;
   }
-  
-  console.log("Firebase initialized with offline persistence", { 
-    projectId: firebaseConfig.projectId, 
-    authDomain: firebaseConfig.authDomain 
-  });
 } else {
-  console.warn("Firebase not configured - missing API key");
+  console.warn("Firebase not configured — missing API key or projectId");
 }
 
 export { app, auth, db, doc, onSnapshot, getDoc, setDoc, updateDoc };
-export const isFirebaseConfigured = () => isConfigured;
+export const isFirebaseConfigured = () => isConfigured && auth !== null;

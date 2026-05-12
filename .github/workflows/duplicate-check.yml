@@ -13,13 +13,13 @@ jobs:
 
     steps:
       - name: Add label and handle duplicates
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           script: |
             const issue = context.payload.issue;
             const issueTitle = issue.title.toLowerCase();
 
-            // ✅ Always add NSOC label
+            // ✅ Add label
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -27,28 +27,28 @@ jobs:
               labels: ["nsoc26"]
             });
 
-            // 🔍 Check for duplicate issues
+            // 🔍 Get issues
             const { data: issues } = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
               repo: context.repo.repo,
               state: "open"
             });
 
-            const similar = issues.find(i => 
+            const similar = issues.find(i =>
               i.number !== issue.number &&
               i.title.toLowerCase().includes(issueTitle)
             );
 
             if (similar) {
-              // ⚠️ Comment
+              // 💬 Comment
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issue.number,
-                body: `⚠️ Duplicate of #${similar.number}. Closing this issue.`
+                body: "⚠️ Duplicate of #" + similar.number + ". Closing this issue."
               });
 
-              // 🏷️ Add duplicate label
+              // 🏷️ Label
               await github.rest.issues.addLabels({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -56,7 +56,7 @@ jobs:
                 labels: ["duplicate"]
               });
 
-              // ❌ Close issue
+              // ❌ Close
               await github.rest.issues.update({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
