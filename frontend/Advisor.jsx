@@ -24,6 +24,7 @@ import ClimateSimulator from "./ClimateSimulator";
 import RAGAdvisor from "./RAGAdvisor";
 import GreenPractices from "./GreenPractices";
 import YieldPredictorForm from "./YieldPredictorForm";
+import YieldHistory from "./YieldHistory";
 import { Leaf } from "lucide-react";
 
 import CropRotation from "./CropRotation";
@@ -152,6 +153,7 @@ export default function Advisor({ userData }) {
   const [weatherStatus, setWeatherStatus] = useState("idle");
   const [weatherError, setWeatherError] = useState("");
   const [weatherData, setWeatherData] = useState(null);
+  const [showYieldHistory, setShowYieldHistory] = useState(false);
   const [weatherLocation, setWeatherLocation] = useState("");
   const [weatherLastUpdated, setWeatherLastUpdated] = useState(null);
   const [locationQuery, setLocationQuery] = useState("");
@@ -720,6 +722,12 @@ export default function Advisor({ userData }) {
             >
               Open full page →
             </button>
+          </div>
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowYieldHistory(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowYieldHistory(true); }} aria-label="Yield History: Track past predictions and accuracy">
+            <div className="icon" aria-hidden="true"><BarChart3 size={32} /></div>
+            <h3><span className="notranslate">Yield History</span></h3>
+            <p>Track past yield predictions, record actual harvests, and monitor model accuracy.</p>
           </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/schemes")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/schemes"); }} aria-label="Govt Schemes: Financial support">
@@ -1338,6 +1346,17 @@ export default function Advisor({ userData }) {
               <X />
             </button>
             <YieldPredictorForm onClose={closeYieldPopup} />
+          </div>
+        </div>
+      )}
+
+      {showYieldHistory && (
+        <div className="weather-overlay" onClick={() => setShowYieldHistory(false)}>
+          <div className="weather-popup" style={{ maxWidth: "900px", width: "95vw", maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+            <button className="close-btn" onClick={() => setShowYieldHistory(false)} aria-label="Close yield history">
+              <X />
+            </button>
+            <YieldHistory />
           </div>
         </div>
       )}
