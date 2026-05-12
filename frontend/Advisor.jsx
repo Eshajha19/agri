@@ -296,6 +296,8 @@ export default function Advisor({ userData }) {
       return () => unsubscribe();
     }
   }, [auth?.currentUser]);
+
+  /* Animate stats on mount
    *
    * Architecture
    * ------------
