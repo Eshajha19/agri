@@ -318,6 +318,24 @@ def init_ml_pipeline():
     except Exception as e:
         print(f"ML Pipeline Error: {e}")
 
+    # ── LSTM Price Forecaster Pre-training ──────────────────────────────────
+    # The LSTM models train on embedded data at first use. To prevent the
+    # first API request from timing out (training takes ~30-60s per crop),
+    # we trigger a background "warm-up" for the major commodities.
+    def warm_up_forecaster():
+        try:
+            from ml.price_forecaster import price_forecaster
+            commodities = price_forecaster.supported_commodities()
+            print(f"ML Pipeline: Starting background warm-up for {len(commodities)} commodities...")
+            for commodity in commodities:
+                # This triggers training if not already cached
+                price_forecaster.forecast(commodity, days=1)
+            print("ML Pipeline: All price forecast models warmed up.")
+        except Exception as e:
+            print(f"ML Pipeline: Forecaster warm-up failed: {e}")
+
+    threading.Thread(target=warm_up_forecaster, daemon=True).start()
+
 init_ml_pipeline()
 
 # Load model directly for backward compatibility or simple use cases if needed
@@ -1177,6 +1195,55 @@ async def verify_seed(data: SeedVerifyRequest, request: Request):
         "certified_on": entry["certified_on"],
         "expires_on": entry["expires_on"],
     }
+
+# ── Market Price Forecasting ──────────────────────────────────────────────────
+
+class MarketForecastRequest(BaseModel):
+    commodity: str = Field(..., min_length=1, max_length=60)
+    days: int = Field(default=14, ge=1, le=30)
+
+
+@app.post("/api/market/forecast")
+@limiter.limit("10/minute")
+async def market_price_forecast(data: MarketForecastRequest, request: Request):
+    """
+    Generate an LSTM-based 14-day price forecast for a commodity.
+
+    The forecasting engine (ml/price_forecaster.py) trains a lightweight
+    LSTM on embedded 2-year historical mandi price data at first request
+    and caches the model in memory.  Subsequent requests for the same
+    commodity are served from the cache with no retraining overhead.
+
+    Request body
+    ------------
+    - commodity : str   — commodity name (e.g. "Wheat", "Cotton")
+    - days      : int   — forecast horizon in days (1–30, default 14)
+
+    Response
+    --------
+    - commodity          : str
+    - forecast_days      : int
+    - forecast           : list[{date, price, lower_bound, upper_bound}]
+    - best_sell_date     : str   — ISO date of forecast price peak
+    - best_sell_price    : float — predicted peak price (₹/quintal)
+    - recommendation     : str   — human-readable selling advice
+    - model_type         : str   — "LSTM" or "Statistical" (fallback)
+    - generated_at       : str   — ISO UTC timestamp
+    """
+    try:
+        from ml.price_forecaster import price_forecaster
+        result = price_forecaster.forecast(
+            commodity=data.commodity,
+            days=data.days,
+        )
+        return result
+    except Exception as exc:
+        logger.error("Market forecast error for commodity='%s': %s", data.commodity, exc)
+        raise HTTPException(
+            status_code=500,
+            detail="Price forecast temporarily unavailable. Please try again later.",
+        )
+
 
 if __name__ == "__main__":
     import uvicorn
