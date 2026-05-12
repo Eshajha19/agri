@@ -11,15 +11,14 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+*.local
 
 # Environment / Secrets
 .env*
-*.local
 .vercel
 keys/
 frontend/test_ecdh.cjs
 test_ml_pipeline.py
-
 
 # Editor directories and files
 .vscode/*
@@ -35,12 +34,9 @@ test_ml_pipeline.py
 # Python
 __pycache__/
 .python-version
-dev-dist/
-dist/
 whatsapp_subscribers.json
 
 # Frontend build output
 dev-dist/
-dist/
 frontend/build/
 frontend/dist/

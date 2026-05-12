@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { FaFileInvoiceDollar, FaDownload, FaShieldAlt, FaCheckCircle, FaSpinner, FaHistory } from "react-icons/fa";
 import "./BankReports.css";
+import apiClient from "./lib/apiClient";
 
 const BankReports = ({ userData }) => {
   const [loading, setLoading] = useState(false);
@@ -19,21 +20,28 @@ const BankReports = ({ userData }) => {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch("http://localhost:8000/api/reports/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData)
-      });
+      // Use apiClient instead of raw fetch() so the Firebase auth token is
+      // automatically injected via the Axios request interceptor in
+      // services/api.js.  The raw fetch() call had no Authorization header,
+      // so every request was rejected with HTTP 401 by verify_role() on the
+      // backend — the feature was silently broken for all users.
+      //
+      // responseType: 'blob' tells Axios to treat the response body as binary
+      // data (the PDF file) rather than trying to parse it as JSON.
+      const response = await apiClient.post(
+        "/api/reports/generate",
+        formData,
+        { responseType: "blob" }
+      );
 
-      if (!response.ok) throw new Error("Failed to generate report");
-
-      const blob = await response.blob();
+      const blob = response.data;
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
       a.download = `FasalSaathi_BankReport_${Date.now()}.pdf`;
       document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
 
       // Save to history
@@ -50,7 +58,16 @@ const BankReports = ({ userData }) => {
 
     } catch (err) {
       console.error(err);
-      setError("Server connection failed. Ensure backend is running.");
+      const status = err?.response?.status;
+      if (status === 401) {
+        setError("You must be logged in to generate a report. Please sign in and try again.");
+      } else if (status === 403) {
+        setError("Report generation requires Expert or Admin role. Contact your administrator.");
+      } else if (status === 429) {
+        setError("Too many requests. Please wait a moment before trying again.");
+      } else {
+        setError("Failed to generate report. Please try again later.");
+      }
     } finally {
       setLoading(false);
     }

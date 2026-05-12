@@ -957,4 +957,338 @@
   .cta-section h2 {
     font-size: 2.1rem;
   }
+.howitworks {
+  max-width: 1200px;
+  margin: auto;
+  padding: 100px 30px;
+  text-align: center;
+  font-family: inherit;
+  background: var(--bg-primary);
+  border-radius: 16px;
+  position: relative;
+  overflow: hidden;
+}
+
+.howitworks-header {
+  position: relative;
+  z-index: 2;
+  margin-bottom: 60px;
+}
+
+.section-tag {
+  display: inline-block;
+  background: rgba(34, 197, 94, 0.12);
+  color: #15803d;
+  padding: 8px 18px;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 18px;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.howitworks-header h1 {
+  font-size: 3rem;
+  font-weight: 800;
+  margin-bottom: 15px;
+  color: var(--brand-primary);
+}
+
+.howitworks-header p {
+  font-size: 1.15rem;
+  color: #475569;
+  max-width: 700px;
+  margin: 0 auto;
+  line-height: 1.8;
+}
+
+.steps-container {
+  position: relative;
+  z-index: 10;
+  margin-bottom: 80px;
+  width: 100%;
+}
+
+.steps {
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 30px !important;
+  width: 100% !important;
+}
+
+.step-card-wrap {
+  position: relative;
+  width: 100%;
+  height: 420px;
+  perspective: 1500px;
+  z-index: 1;
+}
+
+.step-card-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  text-align: center;
+  transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  transform-style: preserve-3d;
+  cursor: pointer;
+}
+
+.step-card-wrap:hover .step-card-inner {
+  transform: rotateY(180deg);
+}
+
+.step-card-front, .step-card-back {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  border-radius: 22px;
+  padding: 30px 20px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.15);
+  box-sizing: border-box;
+}
+
+.step-card-front {
+  background: white;
+  color: #064e3b;
+  justify-content: center;
+  align-items: center;
+  z-index: 2;
+}
+
+.step-card-back {
+  background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+  color: #064e3b;
+  transform: rotateY(180deg);
+  text-align: left;
+  overflow-y: auto;
+  z-index: 1;
+}
+
+/* Dark Mode Overrides */
+.theme-dark .howitworks {
+  background: #070c16;
+}
+
+.theme-dark .howitworks-header h1 {
+  color: #f8fafc;
+}
+
+.theme-dark .howitworks-header p {
+  color: #94a3b8;
+}
+
+.theme-dark .step-card-front {
+  background: #1e293b;
+  border-color: #334155;
+  color: #f8fafc;
+}
+
+.theme-dark .step-card-back {
+  background: linear-gradient(135deg, #064e3b, #0f172a);
+  border-color: #334155;
+  color: #f8fafc;
+}
+
+.step-number {
+  position: absolute;
+  top: 15px;
+  left: 15px;
+  width: 34px;
+  height: 34px;
+  background: #22c55e;
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 0.85rem;
+}
+
+.step-icon {
+  font-size: 3rem;
+  color: #22c55e;
+  margin-bottom: 15px;
+  display: flex;
+  justify-content: center;
+}
+
+.step-card-front h3 {
+  font-size: 1.4rem;
+  margin-bottom: 10px;
+}
+
+.step-card-front p {
+  font-size: 1rem;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.theme-dark .step-card-front p {
+  color: #94a3b8;
+}
+
+.flip-hint {
+  margin-top: 15px;
+  font-size: 0.8rem;
+  color: #22c55e;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.step-card-back h3 {
+  font-size: 1.2rem;
+  margin-bottom: 15px;
+  color: #22c55e;
+}
+
+.step-details {
+  font-size: 0.9rem;
+  margin-bottom: 20px;
+  line-height: 1.6;
+}
+
+.step-benefits {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.benefit-tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(34, 197, 94, 0.1);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+/* Outcomes Section */
+.outcomes-section {
+  position: relative;
+  z-index: 2;
+  margin: 80px 0;
+  padding: 60px 30px;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.08), rgba(14, 165, 233, 0.08));
+  border-radius: 20px;
+  border: 1px solid rgba(34, 197, 94, 0.15);
+}
+
+.outcomes-section h2 {
+  font-size: 2.2rem;
+  font-weight: 700;
+  margin-bottom: 40px;
+  color: #064e3b;
+}
+
+.outcomes-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 30px;
+}
+
+.outcome-card {
+  background: rgba(255, 255, 255, 0.9);
+  padding: 30px 20px;
+  border-radius: 16px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.15);
+  text-align: center;
+}
+
+.outcome-icon {
+  font-size: 2.5rem;
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: center;
+  color: #22c55e;
+}
+
+.outcome-icon svg {
+  width: 32px;
+  height: 32px;
+}
+
+.outcome-metric {
+  font-size: 2rem;
+  font-weight: 800;
+  color: #22c55e;
+  margin-bottom: 8px;
+}
+
+.outcome-label {
+  font-size: 1rem;
+  color: #4b5563;
+  font-weight: 500;
+}
+
+/* Dark Mode Outcomes */
+.theme-dark .outcomes-section {
+  background: rgba(6, 78, 59, 0.2);
+  border-color: #334155;
+}
+
+.theme-dark .outcomes-section h2 {
+  color: #f8fafc;
+}
+
+.theme-dark .outcome-card {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.theme-dark .outcome-label {
+  color: #94a3b8;
+}
+
+.theme-dark .outcome-metric {
+  color: #4ade80;
+}
+
+/* CTA Section */
+.cta-section {
+  position: relative;
+  z-index: 2;
+  margin-top: 80px;
+  padding: 60px 30px;
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  border-radius: 20px;
+  box-shadow: 0 20px 40px rgba(34, 197, 94, 0.3);
+  text-align: center;
+  color: white;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .steps {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  .outcomes-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .steps {
+    grid-template-columns: 1fr !important;
+  }
+  .outcomes-grid {
+    grid-template-columns: 1fr;
+  }
+  .step-card-wrap {
+    height: 380px;
+  }
+  .howitworks-header h1 {
+    font-size: 2.2rem;
+  }
 }
