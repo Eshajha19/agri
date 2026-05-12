@@ -562,7 +562,7 @@
 .stat-label {
   font-size: 18px;
   /* This color provides decent contrast on both light and dark backgrounds */
-  color: #02702b !important; 
+  color: #02702b !important;
   font-weight: 600; /* Bolding the text helps readability significantly */
   text-shadow: 0px 0px 1px rgba(0,0,0,0.1); /* Adds a tiny bit of depth */
 }
@@ -573,11 +573,11 @@
 
 .hero-visual {
   position: absolute;
-  right: 34px;
+  right: 0px;
   top: 46%;
   transform: translateY(-50%);
-  width: 420px;
-  height: 500px;
+  width: 360px;
+  height: 520px;
   display: none;
   z-index: 1;
 }
@@ -591,7 +591,7 @@
 .floating-card {
   position: absolute;
   background: var(--white);
-  padding: 16px 24px;
+  padding: 14px 18px;
   border-radius: 16px;
   display: flex;
   align-items: center;
@@ -599,34 +599,27 @@
   box-shadow: var(--shadow-lg);
   animation: float 3s ease-in-out infinite;
   text-decoration: none;
-}
-
-.theme-dark .floating-card {
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  min-width: 190px;
 }
 
 .floating-card.card-1 {
-  top: 8%;
-  right: 24%;
-  animation-delay: 0s;
+  top: 18%;
+  right: 18%;
 }
 
 .floating-card.card-2 {
-  top: 36%;
-  right: 9%;
-  animation-delay: 0.5s;
+  top: 38%;
+  right: 0;
 }
 
 .floating-card.card-3 {
-  bottom: 24%;
-  right: 29%;
-  animation-delay: 1s;
+  top: 58%;
+  right: 18%;
 }
 
 .floating-card.card-4 {
-  bottom: 5%;
-  right: 12%;
-  animation-delay: 1.5s;
+  top: 78%;
+  right: 0;
 }
 
 @keyframes float {
@@ -812,20 +805,20 @@
     flex-direction: column;
     text-align: center;
   }
-  
+
   .contributors-stats {
     justify-content: center;
   }
-  
+
   .contributors-info p {
     max-width: 100%;
   }
-  
+
   .contributors-illustration {
     width: 150px;
     height: 150px;
   }
-  
+
   .big-icon {
     font-size: 60px;
   }
@@ -964,7 +957,7 @@
   border-radius: 20px;
   font-size: 28px;
   color: var(--white);
-  transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), 
+  transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
               box-shadow 0.5s ease;
   transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
               box-shadow 0.5s ease;
