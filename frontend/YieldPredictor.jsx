@@ -8,7 +8,6 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 import { X } from "lucide-react";
 import YieldPredictorForm from "./YieldPredictorForm";
-import ErrorBoundary from "./ErrorBoundary";
 import "./YieldPredictor.css";
 
 export default function YieldPredictor() {
@@ -26,9 +25,7 @@ export default function YieldPredictor() {
         </button>
 
         {/* Reusable form — no onClose prop means no Cancel button */}
-        <ErrorBoundary>
-          <YieldPredictorForm />
-        </ErrorBoundary>
+        <YieldPredictorForm />
       </div>
     </div>
   );
