@@ -23,6 +23,10 @@ import {
   FaSun,
   FaMoon,
 } from "react-icons/fa";
+import { 
+  GiThreeLeaves,
+} from "react-icons/gi";
+import { GrResources } from "react-icons/gr";
 import { usePerformanceStore } from "./stores/performanceStore";
 
 // Components
@@ -298,7 +302,6 @@ function App() {
 
       <nav className={`navbar ${isOpen ? "menu-open" : ""}`} role="navigation" aria-label="Main Navigation">
         <div className="nav-left">
-          <FaLeaf className="icon" />
           <Link to="/" className="brand">Fasal Saathi</Link>
         </div>
 
@@ -306,8 +309,8 @@ function App() {
           <li><Link to="/" onClick={() => setIsOpen(false)}><FaHome /> Home</Link></li>
           <li><Link to="/advisor" onClick={() => setIsOpen(false)}><FaComments /> Chat</Link></li>
           <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}><FaInfoCircle /> How It Works</Link></li>
-          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}><FaLeaf className="icon" /> Crop Guide</Link></li>
-          <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
+          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}><GiThreeLeaves />Crop Guide</Link></li>
+          <li><Link to="/resources" onClick={() => setIsOpen(false)}><GrResources />Resources</Link></li>
         </ul>
 
         <div className="nav-right">
