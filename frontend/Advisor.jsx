@@ -18,6 +18,7 @@ import QRTraceability from "./QRTraceability";
 import FarmPlanner3D from "./FarmPlanner3D";
 import FarmDiary from "./FarmDiary";
 import CropDiseaseDetection from "./CropDiseaseDetection";
+import PestDetection from "./PestDetection";
 import PestManagement from "./PestManagement";
 import SeedVerifier from "./SeedVerifier";
 import ClimateSimulator from "./ClimateSimulator";
@@ -622,6 +623,16 @@ export default function Advisor({ userData }) {
             <h3><span className="notranslate">Crop Disease Awareness</span></h3>
             <p>
               Learn about crop diseases and remedies for better farming.
+            </p>
+          </div>
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/pest-detection")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/pest-detection"); }} aria-label="Pest Detection: Identify pests and get treatment">
+            <div className="icon" aria-hidden="true">
+              <Bug size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Pest Detection</span></h3>
+            <p>
+              AI-powered pest identification with real-time alerts and treatment recommendations.
             </p>
           </div>
 
