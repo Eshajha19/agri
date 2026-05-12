@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { collection, addDoc } from "firebase/firestore";
 import { db, auth, isFirebaseConfigured } from "./lib/firebase";
+
 import {
   Star,
   Send,
@@ -10,12 +11,22 @@ import {
   MessageSquare,
   CheckCircle2,
 } from "lucide-react";
+
 import "./Feedback.css";
 
 const CROP_OPTIONS = [
-  "Rice", "Wheat", "Cotton", "Sugarcane", "Maize",
-  "Soybean", "Potato", "Onion", "Tomato", "Vegetables",
-  "Fruits", "Other",
+  "Rice",
+  "Wheat",
+  "Cotton",
+  "Sugarcane",
+  "Maize",
+  "Soybean",
+  "Potato",
+  "Onion",
+  "Tomato",
+  "Vegetables",
+  "Fruits",
+  "Other",
 ];
 
 const CATEGORY_OPTIONS = [
@@ -27,7 +38,6 @@ const CATEGORY_OPTIONS = [
   { value: "other", label: "📌 Other" },
 ];
 
-// ✅ Testimonials Data
 const TESTIMONIALS = [
   {
     text: "This app doubled my yield last season. My feedback on soil analysis was implemented!",
@@ -65,21 +75,23 @@ export default function Feedback() {
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
-
-  // ✅ Testimonial state
   const [testimonialIndex, setTestimonialIndex] = useState(0);
 
-  // ✅ Auto-rotate testimonials
   useEffect(() => {
     const interval = setInterval(() => {
-      setTestimonialIndex((prev) => (prev + 1) % TESTIMONIALS.length);
+      setTestimonialIndex(
+        (prev) => (prev + 1) % TESTIMONIALS.length
+      );
     }, 4000);
 
     return () => clearInterval(interval);
   }, []);
 
   const handleChange = (field, value) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
+    setForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
   };
 
   const handleSubmit = async (e) => {
@@ -87,28 +99,34 @@ export default function Feedback() {
     setError("");
 
     if (!form.message.trim()) {
-      setError("Please enter your feedback message.");
+      setError("Please enter your feedback.");
       return;
     }
 
     if (form.rating === 0) {
-      setError("Please select a rating.");
+      setError("Please provide a rating.");
       return;
     }
 
     if (!isFirebaseConfigured()) {
-      setError("Firebase is not configured. Please check your .env file.");
+      setError(
+        "Firebase is not configured properly."
+      );
       return;
     }
 
     setLoading(true);
+
     try {
       const user = auth?.currentUser;
 
       await addDoc(collection(db, "feedback"), {
         userId: user?.uid || "anonymous",
         userEmail: user?.email || "anonymous",
-        name: form.name || (user?.displayName ?? "Anonymous"),
+        name:
+          form.name ||
+          user?.displayName ||
+          "Anonymous",
         cropType: form.cropType,
         location: form.location,
         category: form.category,
@@ -119,8 +137,10 @@ export default function Feedback() {
 
       setSubmitted(true);
     } catch (err) {
-      console.error("Feedback submit error:", err);
-      setError("Failed to submit feedback. Please try again: " + err.message);
+      console.error(err);
+      setError(
+        "Failed to submit feedback. Please try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -135,6 +155,7 @@ export default function Feedback() {
       message: "",
       rating: 0,
     });
+
     setSubmitted(false);
     setError("");
   };
@@ -142,33 +163,50 @@ export default function Feedback() {
   if (submitted) {
     return (
       <div className="feedback-page">
-        <div className="feedback-success-card">
+        <div className="success-card">
           <div className="success-icon-ring">
-            <CheckCircle2 size={64} className="success-icon" />
+            <CheckCircle2
+              size={70}
+              className="success-icon"
+            />
           </div>
 
-          <h2>Thank You! 🙏</h2>
+          <h2>Thank You! 🌾</h2>
 
           <p>
-            Your feedback has been submitted successfully. We'll use it to make{" "}
-            <span className="notranslate" translate="no">
+            Your feedback helps us improve{" "}
+            <span
+              className="notranslate"
+              translate="no"
+            >
               Fasal Saathi
             </span>{" "}
-            even better for farmers like you.
+            for farmers across India.
           </p>
 
           <div className="submitted-rating">
-            {[1, 2, 3, 4, 5].map((s) => (
+            {[1, 2, 3, 4, 5].map((star) => (
               <Star
-                key={s}
+                key={star}
                 size={28}
-                className={s <= form.rating ? "star-filled" : "star-empty"}
-                fill={s <= form.rating ? "#f59e0b" : "none"}
+                fill={
+                  star <= form.rating
+                    ? "#f59e0b"
+                    : "none"
+                }
+                stroke={
+                  star <= form.rating
+                    ? "#f59e0b"
+                    : "#cbd5e1"
+                }
               />
             ))}
           </div>
 
-          <button className="fb-btn-primary" onClick={handleReset}>
+          <button
+            className="fb-submit-btn"
+            onClick={handleReset}
+          >
             Submit Another Feedback
           </button>
         </div>
@@ -179,175 +217,359 @@ export default function Feedback() {
   return (
     <div className="feedback-page">
       <div className="feedback-wrapper">
+        {/* LEFT PANEL */}
 
-        {/* Left Panel */}
         <div className="feedback-info-panel">
-          <div className="info-badge">🌾 Farmer Feedback</div>
+          <div className="info-badge">
+            🌾 Farmer Feedback
+          </div>
 
           <h1>Help Us Grow Better</h1>
 
           <p>
-            Your opinion directly shapes the future of{" "}
-            <span className="notranslate" translate="no">
+            Your opinion directly shapes the future
+            of{" "}
+            <span
+              className="notranslate"
+              translate="no"
+            >
               Fasal Saathi
             </span>
-            . Share your experience, suggest features, or report issues — every
-            word matters.
+            . Share your experience, suggest new
+            features, or report issues — every word
+            matters.
           </p>
 
-          {/* Farmer Showcase */}
+          {/* Farmer Images */}
+
           <div className="farmer-showcase">
             <div className="farmer-images">
-              <img src="/farmer1.png" alt="Farmer 1" className="farmer-img img-1" />
-              <img src="/farmer2.png" alt="Farmer 2" className="farmer-img img-2" />
+              <img
+                src="/farmer1.png"
+                alt="Farmer"
+                className="farmer-img"
+              />
+
+              <img
+                src="/farmer2.png"
+                alt="Farmer"
+                className="farmer-img"
+              />
             </div>
           </div>
 
+          {/* Stats */}
+
           <div className="info-stats">
             {[
-              { icon: "⭐", label: "Average Rating", value: "4.8/5" },
-              { icon: "💬", label: "Feedbacks Received", value: "2,400+" },
-              { icon: "🚀", label: "Features Added from Feedback", value: "18+" },
-            ].map((stat, i) => (
-              <div key={i} className="info-stat-item">
-                <span className="stat-emoji">{stat.icon}</span>
+              {
+                icon: "⭐",
+                value: "4.8/5",
+                label: "Average Rating",
+              },
+              {
+                icon: "💬",
+                value: "2,400+",
+                label: "Feedback Received",
+              },
+              {
+                icon: "🚀",
+                value: "18+",
+                label: "Features Added",
+              },
+            ].map((item, index) => (
+              <div
+                key={index}
+                className="info-stat-item"
+              >
+                <span className="stat-emoji">
+                  {item.icon}
+                </span>
+
                 <div>
-                  <div className="stat-value">{stat.value}</div>
-                  <div className="stat-label">{stat.label}</div>
+                  <div className="stat-value">
+                    {item.value}
+                  </div>
+
+                  <div className="stat-label">
+                    {item.label}
+                  </div>
                 </div>
               </div>
             ))}
           </div>
 
-          {/* ✅ Improved Testimonials */}
+          {/* Testimonial */}
+
           <div className="info-testimonial">
+            <div className="quote-icon">❝</div>
+
             <p className="testimonial-text">
-              {TESTIMONIALS[testimonialIndex].text}
+              {
+                TESTIMONIALS[testimonialIndex]
+                  .text
+              }
             </p>
 
-            <span className="testimonial-author">
-              — {TESTIMONIALS[testimonialIndex].author},{" "}
-              {TESTIMONIALS[testimonialIndex].location}
-            </span>
+            <div className="testimonial-footer">
+              <span className="testimonial-author">
+                {
+                  TESTIMONIALS[testimonialIndex]
+                    .author
+                }
+              </span>
+
+              <span className="testimonial-location">
+                {
+                  TESTIMONIALS[testimonialIndex]
+                    .location
+                }
+              </span>
+            </div>
 
             <div className="testimonial-dots">
               {TESTIMONIALS.map((_, i) => (
-                <span
+                <button
                   key={i}
-                  className={`dot ${i === testimonialIndex ? "active" : ""}`}
-                  onClick={() => setTestimonialIndex(i)}
+                  className={`dot ${
+                    i === testimonialIndex
+                      ? "active"
+                      : ""
+                  }`}
+                  onClick={() =>
+                    setTestimonialIndex(i)
+                  }
                 />
               ))}
             </div>
           </div>
-        </div> 
+        </div>
 
-        {/* Right Panel - Form */}
+        {/* RIGHT PANEL */}
+
         <div className="feedback-form-panel">
           <h2>Share Your Feedback</h2>
 
-          {error && <div className="fb-error">{error}</div>}
+          {error && (
+            <div className="fb-error">
+              {error}
+            </div>
+          )}
 
-          <form onSubmit={handleSubmit} className="fb-form">
-            {/* Star Rating */}
+          <form
+            className="fb-form"
+            onSubmit={handleSubmit}
+          >
+            {/* Rating */}
+
             <div className="fb-rating-section">
               <label>Overall Rating *</label>
+
               <div className="stars-row">
                 {[1, 2, 3, 4, 5].map((star) => (
                   <button
                     key={star}
                     type="button"
                     className="star-btn"
-                    onMouseEnter={() => setHoverRating(star)}
-                    onMouseLeave={() => setHoverRating(0)}
-                    onClick={() => handleChange("rating", star)}
-                    aria-label={`Rate ${star} star`}
+                    onMouseEnter={() =>
+                      setHoverRating(star)
+                    }
+                    onMouseLeave={() =>
+                      setHoverRating(0)
+                    }
+                    onClick={() =>
+                      handleChange(
+                        "rating",
+                        star
+                      )
+                    }
                   >
                     <Star
                       size={36}
-                      className="star-icon"
-                      fill={(hoverRating || form.rating) >= star ? "#f59e0b" : "none"}
-                      stroke={(hoverRating || form.rating) >= star ? "#f59e0b" : "#cbd5e1"}
+                      fill={
+                        (hoverRating ||
+                          form.rating) >=
+                        star
+                          ? "#f59e0b"
+                          : "none"
+                      }
+                      stroke={
+                        (hoverRating ||
+                          form.rating) >=
+                        star
+                          ? "#f59e0b"
+                          : "#cbd5e1"
+                      }
                     />
                   </button>
                 ))}
+
                 {form.rating > 0 && (
                   <span className="rating-label">
-                    {["", "Poor", "Fair", "Good", "Great", "Excellent!"][form.rating]}
+                    {
+                      [
+                        "",
+                        "Poor",
+                        "Fair",
+                        "Good",
+                        "Great",
+                        "Excellent!",
+                      ][form.rating]
+                    }
                   </span>
                 )}
               </div>
             </div>
 
-            {/* Category */}
+            <div className="form-divider"></div>
+
+            {/* Categories */}
+
             <div className="fb-group">
-              <label>Feedback Category</label>
+              <label>
+                Feedback Category
+              </label>
+
               <div className="category-grid">
-                {CATEGORY_OPTIONS.map((cat) => (
-                  <button
-                    key={cat.value}
-                    type="button"
-                    className={`cat-chip ${form.category === cat.value ? "active" : ""}`}
-                    onClick={() => handleChange("category", cat.value)}
-                  >
-                    {cat.label}
-                  </button>
-                ))}
+                {CATEGORY_OPTIONS.map(
+                  (cat) => (
+                    <button
+                      key={cat.value}
+                      type="button"
+                      className={`cat-chip ${
+                        form.category ===
+                        cat.value
+                          ? "active"
+                          : ""
+                      }`}
+                      onClick={() =>
+                        handleChange(
+                          "category",
+                          cat.value
+                        )
+                      }
+                    >
+                      {cat.label}
+                    </button>
+                  )
+                )}
               </div>
             </div>
 
             {/* Message */}
+
             <div className="fb-group">
-              <label><MessageSquare size={15} /> Feedback / Suggestions *</label>
+              <label>
+                <MessageSquare size={16} />
+                Feedback / Suggestions *
+              </label>
+
               <textarea
-                rows="4"
-                placeholder="Share your experience, suggestions, or report an issue..."
+                rows="5"
+                placeholder="Share your experience, feature request, or report an issue..."
                 value={form.message}
-                onChange={(e) => handleChange("message", e.target.value)}
-                required
+                onChange={(e) =>
+                  handleChange(
+                    "message",
+                    e.target.value
+                  )
+                }
               />
             </div>
 
-            {/* Optional Fields */}
+            {/* Name + Location */}
+
             <div className="fb-row">
               <div className="fb-group">
-                <label><User size={15} /> Your Name (Optional)</label>
+                <label>
+                  <User size={16} />
+                  Your Name
+                </label>
+
                 <input
                   type="text"
                   placeholder="e.g. Ramesh Kumar"
                   value={form.name}
-                  onChange={(e) => handleChange("name", e.target.value)}
+                  onChange={(e) =>
+                    handleChange(
+                      "name",
+                      e.target.value
+                    )
+                  }
                 />
               </div>
+
               <div className="fb-group">
-                <label><MapPin size={15} /> Location (Optional)</label>
+                <label>
+                  <MapPin size={16} />
+                  Location
+                </label>
+
                 <input
                   type="text"
                   placeholder="e.g. Nashik, Maharashtra"
                   value={form.location}
-                  onChange={(e) => handleChange("location", e.target.value)}
+                  onChange={(e) =>
+                    handleChange(
+                      "location",
+                      e.target.value
+                    )
+                  }
                 />
               </div>
             </div>
 
+            {/* Crop */}
+
             <div className="fb-group">
-              <label><Sprout size={15} /> Primary Crop (Optional)</label>
+              <label>
+                <Sprout size={16} />
+                Primary Crop
+              </label>
+
               <select
                 value={form.cropType}
-                onChange={(e) => handleChange("cropType", e.target.value)}
+                onChange={(e) =>
+                  handleChange(
+                    "cropType",
+                    e.target.value
+                  )
+                }
               >
-                <option value="">Select your main crop</option>
-                {CROP_OPTIONS.map((c) => (
-                  <option key={c} value={c}>{c}</option>
+                <option value="">
+                  Select your main crop
+                </option>
+
+                {CROP_OPTIONS.map((crop) => (
+                  <option
+                    key={crop}
+                    value={crop}
+                  >
+                    {crop}
+                  </option>
                 ))}
               </select>
             </div>
 
-            <button type="submit" className="fb-submit-btn" disabled={loading}>
+            <div className="form-divider"></div>
+
+            {/* Submit */}
+
+            <button
+              type="submit"
+              className="fb-submit-btn"
+              disabled={loading}
+            >
               {loading ? (
-                <><span className="fb-spinner"></span> Submitting...</>
+                <>
+                  <span className="fb-spinner"></span>
+                  Submitting...
+                </>
               ) : (
-                <><Send size={18} /> Submit Feedback</>
+                <>
+                  <Send size={18} />
+                  Submit Feedback
+                </>
               )}
             </button>
           </form>

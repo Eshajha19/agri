@@ -520,3 +520,464 @@
   font-weight: 500;
   text-align: right;
 }
+
+.feedback-page {
+  min-height: 100vh;
+  padding: 50px 20px;
+  background:
+    radial-gradient(circle at top left,
+      #dcfce7 0%,
+      transparent 30%),
+    radial-gradient(circle at bottom right,
+      #f0fdf4 0%,
+      transparent 30%),
+    #f8fafc;
+}
+
+.feedback-wrapper {
+  max-width: 1320px;
+  margin: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+}
+
+.feedback-info-panel,
+.feedback-form-panel,
+.success-card {
+  background: rgba(255,255,255,0.85);
+  backdrop-filter: blur(14px);
+  border-radius: 30px;
+  padding: 40px;
+  border: 1px solid rgba(255,255,255,0.4);
+  box-shadow:
+    0 10px 40px rgba(15,23,42,0.08);
+}
+
+/* LEFT PANEL */
+
+.feedback-info-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.info-badge {
+  width: fit-content;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #166534;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.feedback-info-panel h1 {
+  font-size: clamp(2.4rem, 5vw, 4rem);
+  line-height: 1.1;
+  margin: 20px 0;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.feedback-info-panel p {
+  line-height: 1.8;
+  color: #475569;
+  font-size: 1.05rem;
+}
+
+/* Farmer Images */
+
+.farmer-showcase {
+  margin: 30px 0;
+}
+
+.farmer-images {
+  display: flex;
+  gap: 18px;
+}
+
+.farmer-img {
+  width: 120px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 24px;
+  border: 4px solid white;
+  box-shadow:
+    0 12px 30px rgba(0,0,0,0.08);
+  transition: 0.3s ease;
+}
+
+.farmer-img:hover {
+  transform: translateY(-4px);
+}
+
+/* Stats */
+
+.info-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.info-stat-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: white;
+  border-radius: 20px;
+  padding: 18px;
+  border: 1px solid #e2e8f0;
+}
+
+.stat-emoji {
+  font-size: 1.8rem;
+}
+
+.stat-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.stat-label {
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+/* Testimonial */
+
+.info-testimonial {
+  margin-top: auto;
+  margin-top: 30px;
+  padding: 28px;
+  border-radius: 24px;
+  background:
+    linear-gradient(135deg,
+      #166534,
+      #15803d);
+  color: white;
+  position: relative;
+}
+
+.quote-icon {
+  position: absolute;
+  top: 10px;
+  right: 20px;
+  font-size: 3rem;
+  opacity: 0.2;
+}
+
+.testimonial-text {
+  line-height: 1.8;
+  margin-bottom: 20px;
+}
+
+.testimonial-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.testimonial-author {
+  font-weight: 700;
+}
+
+.testimonial-location {
+  font-size: 0.9rem;
+  opacity: 0.9;
+}
+
+.testimonial-dots {
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(255,255,255,0.35);
+  cursor: pointer;
+  transition: 0.3s ease;
+}
+
+.dot.active {
+  width: 28px;
+  background: white;
+}
+
+/* FORM */
+
+.feedback-form-panel h2 {
+  font-size: 2rem;
+  margin-bottom: 30px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.fb-form {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.form-divider {
+  height: 1px;
+  background: #e2e8f0;
+}
+
+/* Rating */
+
+.fb-rating-section label {
+  font-weight: 700;
+  color: #334155;
+}
+
+.stars-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.star-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: 0.25s ease;
+}
+
+.star-btn:hover {
+  transform: scale(1.1);
+}
+
+.rating-label {
+  margin-left: 10px;
+  font-weight: 700;
+  color: #16a34a;
+}
+
+/* Inputs */
+
+.fb-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fb-group label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.fb-group input,
+.fb-group textarea,
+.fb-group select {
+  width: 100%;
+  padding: 15px 18px;
+  border-radius: 16px;
+  border: 1px solid #dbe4ee;
+  background: white;
+  font-size: 1rem;
+  transition: 0.25s ease;
+}
+
+.fb-group textarea {
+  resize: vertical;
+  min-height: 140px;
+}
+
+.fb-group input:focus,
+.fb-group textarea:focus,
+.fb-group select:focus {
+  outline: none;
+  border-color: #16a34a;
+  box-shadow:
+    0 0 0 4px rgba(34,197,94,0.15);
+}
+
+/* Categories */
+
+.category-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.cat-chip {
+  border: 1px solid #dbe4ee;
+  background: white;
+  border-radius: 999px;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: 0.25s ease;
+  font-weight: 500;
+}
+
+.cat-chip:hover {
+  transform: translateY(-2px);
+}
+
+.cat-chip.active {
+  background: #16a34a;
+  color: white;
+  border-color: #16a34a;
+}
+
+/* Row */
+
+.fb-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+/* Submit Button */
+
+.fb-submit-btn {
+  height: 58px;
+  border: none;
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg,
+      #16a34a,
+      #15803d);
+  color: white;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: 0.3s ease;
+}
+
+.fb-submit-btn:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 14px 28px rgba(22,163,74,0.25);
+}
+
+.fb-submit-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Spinner */
+
+.fb-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255,255,255,0.4);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Error */
+
+.fb-error {
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  font-weight: 500;
+  margin-bottom: 20px;
+}
+
+/* Success */
+
+.success-card {
+  max-width: 560px;
+  margin: auto;
+  text-align: center;
+}
+
+.success-icon-ring {
+  width: 120px;
+  height: 120px;
+  border-radius: 999px;
+  background: #dcfce7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: auto;
+}
+
+.success-icon {
+  color: #16a34a;
+}
+
+.success-card h2 {
+  margin: 24px 0 10px;
+  font-size: 2.2rem;
+  color: #0f172a;
+}
+
+.success-card p {
+  line-height: 1.7;
+  color: #475569;
+}
+
+.submitted-rating {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin: 28px 0;
+}
+
+/* Responsive */
+
+@media (max-width: 980px) {
+  .feedback-wrapper {
+    grid-template-columns: 1fr;
+  }
+
+  .fb-row {
+    grid-template-columns: 1fr;
+  }
+
+  .feedback-info-panel,
+  .feedback-form-panel {
+    padding: 28px;
+  }
+
+  .testimonial-footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}
+
+@media (max-width: 640px) {
+  .feedback-page {
+    padding: 20px 14px;
+  }
+
+  .feedback-info-panel h1 {
+    font-size: 2rem;
+  }
+
+  .feedback-form-panel h2 {
+    font-size: 1.7rem;
+  }
+
+  .farmer-img {
+    width: 90px;
+    height: 90px;
+  }
+}
