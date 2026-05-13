@@ -133,6 +133,55 @@ const testimonials = [
   { name: "Suresh Patel", location: "Gujarat", text: "Best AI farming assistant. Simple to use even for elderly farmers." },
 ];
 
+const dailyQuotes = [
+  {
+    text: "Sustainable farming starts with small, mindful practices that protect soil, water, and future harvests.",
+    author: "Agriculture Awareness"
+  },
+  {
+    text: "A healthy farm is built on rotation, rest, and respect for the land.",
+    author: "Farming Wisdom"
+  },
+  {
+    text: "Conserving water today ensures a stronger harvest tomorrow.",
+    author: "Climate Smart Agriculture"
+  },
+  {
+    text: "Every seed planted with care is a step toward food security and community resilience.",
+    author: "Sustainable Growth"
+  },
+  {
+    text: "Observe the soil, follow the season, and let nature guide your crop choices.",
+    author: "Field Insight"
+  },
+  {
+    text: "Healthy crops need balanced nutrition, smart irrigation, and regular disease checks.",
+    author: "Agri Awareness"
+  },
+  {
+    text: "Farmers who learn each season can grow more than crops — they grow solutions.",
+    author: "Motivational Farming"
+  },
+  {
+    text: "Use organic methods where possible to protect biodiversity and build long-term soil fertility.",
+    author: "Eco-Friendly Farming"
+  },
+  {
+    text: "A good farm plan blends weather awareness, crop diversity, and sustainable resource use.",
+    author: "Planning for Prosperity"
+  },
+];
+
+const getDailyQuote = () => {
+  const today = new Date().toISOString().split("T")[0];
+  let hash = 0;
+  for (let i = 0; i < today.length; i += 1) {
+    hash = (hash * 31 + today.charCodeAt(i)) | 0;
+  }
+  const index = Math.abs(hash) % dailyQuotes.length;
+  return dailyQuotes[index];
+};
+
 // ─── Pre-generated stable bird data (avoids Math.random() on every render) ───
 const BIRD_DATA = Array.from({ length: 7 }, (_, i) => ({
   id: i,
@@ -200,6 +249,7 @@ const Birds = () => (
 // ─── Home component ───────────────────────────────────────────────────────────
 export default function Home({ user }) {
   const [statValues, setStatValues] = React.useState([0, 0, 0, 0]);
+  const [dailyQuote, setDailyQuote] = React.useState(getDailyQuote());
 
   React.useEffect(() => {
     const interval = setInterval(() => {
@@ -209,6 +259,20 @@ export default function Home({ user }) {
       }));
     }, 50);
     return () => clearInterval(interval);
+  }, []);
+
+  React.useEffect(() => {
+    setDailyQuote(getDailyQuote());
+    const now = new Date();
+    const nextMidnight = new Date(now);
+    nextMidnight.setHours(24, 0, 0, 0);
+    const remainingMs = nextMidnight.getTime() - now.getTime();
+
+    const refreshTimeout = setTimeout(() => {
+      setDailyQuote(getDailyQuote());
+    }, remainingMs + 1000);
+
+    return () => clearTimeout(refreshTimeout);
   }, []);
 
   return (
@@ -297,6 +361,21 @@ export default function Home({ user }) {
             <FaBug className="card-icon" />
             <span>Disease Alerts</span>
           </Link>
+        </div>
+      </section>
+
+      <section className="quote-awareness-section">
+        <div className="section-header">
+          <h2>Daily Agriculture Awareness</h2>
+          <p>Motivational farming wisdom and sustainable agriculture tips for every day.</p>
+        </div>
+        <div className="quote-card">
+          <div className="quote-card-top">
+            <FaQuoteLeft className="quote-icon" />
+            <span className="quote-label">Daily Farming Quote</span>
+          </div>
+          <p className="quote-card-text">{dailyQuote.text}</p>
+          <div className="quote-author">— {dailyQuote.author}</div>
         </div>
       </section>
 

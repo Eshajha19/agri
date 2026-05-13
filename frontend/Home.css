@@ -654,6 +654,75 @@
   background: var(--light);
 }
 
+.quote-awareness-section {
+  padding: 80px 5%;
+  background: linear-gradient(135deg, #ecfdf5 0%, #ddf4ea 100%);
+}
+
+.theme-dark .quote-awareness-section {
+  background: linear-gradient(135deg, #122b16 0%, #1f3d23 100%);
+}
+
+.quote-awareness-section .quote-card {
+  max-width: 900px;
+  margin: 0 auto;
+  background: var(--white);
+  border-radius: 28px;
+  padding: 36px 40px;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid rgba(34, 197, 94, 0.16);
+}
+
+.theme-dark .quote-awareness-section .quote-card {
+  background: rgba(15, 23, 42, 0.88);
+  border-color: rgba(59, 130, 246, 0.16);
+}
+
+.quote-awareness-section .quote-card-top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.quote-awareness-section .quote-icon {
+  font-size: 32px;
+  color: #16a34a;
+  opacity: 0.9;
+}
+
+.quote-awareness-section .quote-label {
+  display: inline-block;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.theme-dark .quote-awareness-section .quote-label {
+  color: #d1fae5;
+}
+
+.quote-awareness-section .quote-card-text {
+  font-size: 22px;
+  line-height: 1.75;
+  color: var(--dark);
+  margin: 0 0 22px;
+}
+
+.theme-dark .quote-awareness-section .quote-card-text {
+  color: #e2e8f0;
+}
+
+.quote-awareness-section .quote-author {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.theme-dark .quote-awareness-section .quote-author {
+  color: #a7f3d0;
+}
+
 .theme-dark .section-header h2 {
   color: var(--text-primary);
 }
