@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ChevronRight, FlaskConical, Info, Sprout } from "lucide-react";
+import { ChevronRight, FlaskConical, Info, Sprout, X } from "lucide-react";
 import { generateFertilizerRecommendation } from "./utils/fertilizerRecommendation";
 
 const INITIAL_FORM = {
@@ -40,7 +40,7 @@ export default function FertilizerRecommendation({ onClose }) {
   return (
     <div className="yield-popup fertilizer-popup">
       <button className="close-btn" onClick={onClose} aria-label="Close fertilizer recommendation panel">
-        ✕
+        <X size={24} />
       </button>
 
       <h2>

@@ -6,7 +6,7 @@ export default function useNotifications() {
 
   const fetchNotifications = async () => {
     try {
-      const res = await fetch("http://localhost:8000/api/notifications");
+      const res = await fetch("/api/notifications");
       const data = await res.json();
 
       if (data.success) {
