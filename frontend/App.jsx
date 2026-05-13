@@ -50,6 +50,8 @@ import AboutUs from "./AboutUs";
 import LanguageDropdown from "./LanguageDropdown";
 import ProfileSetup from "./ProfileSetup";
 import QRTraceability from "./QRTraceability";
+import PestDetection from "./PestDetection";
+import EquipmentManagement from "./EquipmentManagement";
 import Resources from "./Resources";
 import SeasonalCropPlanner from "./SeasonalCropPlanner";
 import SoilGuide from "./SoilGuide";
@@ -473,6 +475,7 @@ function App() {
           <Route path="/soil-guide" element={<SoilGuide />} />
           <Route path="/disease-awareness" element={<CropDiseaseAwareness />} />
           <Route path="/pest-detection" element={<PestDetection />} />
+          <Route path="/equipment-management" element={<EquipmentManagement />} />
           <Route path="/helpline" element={<Helpline />} />
           <Route path="/glossary" element={<Glossary />} />
           <Route path="/risk-index" element={<RiskIndex />} />

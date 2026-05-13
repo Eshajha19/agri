@@ -18,6 +18,7 @@ import QRTraceability from "./QRTraceability";
 import FarmPlanner3D from "./FarmPlanner3D";
 import FarmDiary from "./FarmDiary";
 import CropDiseaseDetection from "./CropDiseaseDetection";
+import PestDetection from "./PestDetection";
 import PestManagement from "./PestManagement";
 import SeedVerifier from "./SeedVerifier";
 import ClimateSimulator from "./ClimateSimulator";
@@ -667,6 +668,14 @@ return () => unsubscribe();
               <div className="icon" aria-hidden="true"><ShoppingCart size={32} /></div>
               <h3><span className="notranslate">Agri Marketplace</span></h3>
               <p>Rent or list farm equipment locally. Save costs and earn extra.</p>
+            </div>
+          )}
+
+          {(userData?.role === "farmer" || userData?.role === "admin") && (
+            <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/equipment-management")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/equipment-management"); }} aria-label="Equipment Management: Monitor and maintain farm equipment">
+              <div className="icon" aria-hidden="true"><Settings size={32} /></div>
+              <h3><span className="notranslate">Equipment Management</span></h3>
+              <p>Real-time monitoring and predictive maintenance for all farm equipment.</p>
             </div>
           )}
 
