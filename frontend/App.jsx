@@ -23,6 +23,10 @@ import {
   FaSun,
   FaMoon,
 } from "react-icons/fa";
+import { 
+  GiThreeLeaves,
+} from "react-icons/gi";
+import { GrResources } from "react-icons/gr";
 import { usePerformanceStore } from "./stores/performanceStore";
 
 // Components
@@ -48,6 +52,7 @@ import LanguageDropdown from "./LanguageDropdown";
 import useNotifications from "./Notifications";
 import ProfileSetup from "./ProfileSetup";
 import QRTraceability from "./QRTraceability";
+import PestDetection from "./PestDetection";
 import Resources from "./Resources";
 import SeasonalCropPlanner from "./SeasonalCropPlanner";
 import SoilGuide from "./SoilGuide";
@@ -297,7 +302,6 @@ function App() {
 
       <nav className={`navbar ${isOpen ? "menu-open" : ""}`} role="navigation" aria-label="Main Navigation">
         <div className="nav-left">
-          <FaLeaf className="icon" />
           <Link to="/" className="brand">Fasal Saathi</Link>
         </div>
 
@@ -305,8 +309,8 @@ function App() {
           <li><Link to="/" onClick={() => setIsOpen(false)}><FaHome /> Home</Link></li>
           <li><Link to="/advisor" onClick={() => setIsOpen(false)}><FaComments /> Chat</Link></li>
           <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}><FaInfoCircle /> How It Works</Link></li>
-          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}><FaLeaf className="icon" /> Crop Guide</Link></li>
-          <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
+          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}><GiThreeLeaves />Crop Guide</Link></li>
+          <li><Link to="/resources" onClick={() => setIsOpen(false)}><GrResources />Resources</Link></li>
         </ul>
 
         <div className="nav-right">
@@ -465,6 +469,7 @@ function App() {
           <Route path="/crop-planner" element={<SeasonalCropPlanner />} />
           <Route path="/soil-guide" element={<SoilGuide />} />
           <Route path="/disease-awareness" element={<CropDiseaseAwareness />} />
+          <Route path="/pest-detection" element={<PestDetection />} />
           <Route path="/helpline" element={<Helpline />} />
           <Route path="/glossary" element={<Glossary />} />
           <Route path="/risk-index" element={<RiskIndex />} />

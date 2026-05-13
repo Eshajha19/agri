@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import "./Advisor.css";
 import WeatherCard from "./weather/WeatherCard";
@@ -18,12 +18,14 @@ import QRTraceability from "./QRTraceability";
 import FarmPlanner3D from "./FarmPlanner3D";
 import FarmDiary from "./FarmDiary";
 import CropDiseaseDetection from "./CropDiseaseDetection";
+import PestDetection from "./PestDetection";
 import PestManagement from "./PestManagement";
 import SeedVerifier from "./SeedVerifier";
 import ClimateSimulator from "./ClimateSimulator";
 import RAGAdvisor from "./RAGAdvisor";
 import GreenPractices from "./GreenPractices";
 import YieldPredictorForm from "./YieldPredictorForm";
+import YieldHistory from "./YieldHistory";
 import { Leaf } from "lucide-react";
 
 import CropRotation from "./CropRotation";
@@ -152,6 +154,7 @@ export default function Advisor({ userData }) {
   const [weatherStatus, setWeatherStatus] = useState("idle");
   const [weatherError, setWeatherError] = useState("");
   const [weatherData, setWeatherData] = useState(null);
+  const [showYieldHistory, setShowYieldHistory] = useState(false);
   const [weatherLocation, setWeatherLocation] = useState("");
   const [weatherLastUpdated, setWeatherLastUpdated] = useState(null);
   const [locationQuery, setLocationQuery] = useState("");
@@ -172,16 +175,117 @@ export default function Advisor({ userData }) {
     }
   }, [auth?.currentUser]);
 
-  /* Animate stats on mount */
+  /* Animate stats on mount
+   *
+   * Architecture
+   * ------------
+   * The animation runs entirely in local component state using
+   * requestAnimationFrame (rAF) rather than setInterval + global store writes.
+   *
+   * Why this is better than the previous setInterval approach:
+   *
+   * 1. No global store thrashing — the previous implementation wrote to the
+   *    Zustand store on every tick (every 50 ms = ~200 writes to reach the
+   *    targets), causing the entire component tree subscribed to those values
+   *    to re-render on each write.  Local state confines re-renders to this
+   *    component only.
+   *
+   * 2. No stale-closure / rapid create-destroy cycle — the previous fix put
+   *    [farmers, crops, languages] in the dependency array, which caused the
+   *    effect to tear down and recreate the interval on every store update,
+   *    resulting in a rapid create/destroy cycle that was worse than the
+   *    original bug.
+   *
+   * 3. rAF is frame-rate aware — it fires at most once per display frame
+   *    (~16 ms at 60 fps) and is automatically paused by the browser when
+   *    the tab is hidden, saving CPU on background tabs.
+   *
+   * 4. Single global store write — the store is updated exactly once when
+   *    all counters reach their targets, so the final values are persisted
+   *    for when the user navigates back to this page.
+   *
+   * 5. Clean unmount — cancelling the rAF handle in the cleanup function
+   *    guarantees the animation stops immediately when the component unmounts,
+   *    with no background updates.
+   */
+  const TARGETS = { farmers: 50000, crops: 120, languages: 12 };
+  const STEPS   = { farmers: 500,   crops: 2,   languages: 1  };
+
+  // Local display counters — drive the rendered numbers without touching
+  // the global store on every frame.
+  const [displayFarmers,   setDisplayFarmers]   = useState(farmers);
+  const [displayCrops,     setDisplayCrops]     = useState(crops);
+  const [displayLanguages, setDisplayLanguages] = useState(languages);
+
+  // Stable refs so the rAF callback always reads the latest values without
+  // being listed as effect dependencies (avoids the stale-closure trap).
+  const displayRef = useRef({ farmers, crops, languages });
+  const rafRef     = useRef(null);
+
   useEffect(() => {
-    const interval = setInterval(() => {
-      const state = useAdvisorStore.getState();
-      if (state.farmers < 50000) setFarmers(state.farmers + 500);
-      if (state.crops < 120) setCrops(state.crops + 2);
-      if (state.languages < 12) setLanguages(state.languages + 1);
-    }, 50);
-    return () => clearInterval(interval);
-  }, [setFarmers, setCrops, setLanguages]);
+    // If the store already holds the final values (e.g. user navigated back),
+    // sync local display state and skip the animation entirely.
+    if (
+      farmers  >= TARGETS.farmers  &&
+      crops    >= TARGETS.crops    &&
+      languages >= TARGETS.languages
+    ) {
+      setDisplayFarmers(TARGETS.farmers);
+      setDisplayCrops(TARGETS.crops);
+      setDisplayLanguages(TARGETS.languages);
+      return;
+    }
+
+    // Reset local counters to 0 so the animation always plays from the start
+    // when the component mounts fresh.
+    displayRef.current = { farmers: 0, crops: 0, languages: 0 };
+    setDisplayFarmers(0);
+    setDisplayCrops(0);
+    setDisplayLanguages(0);
+
+    const tick = () => {
+      const cur = displayRef.current;
+      const nextFarmers   = Math.min(cur.farmers   + STEPS.farmers,   TARGETS.farmers);
+      const nextCrops     = Math.min(cur.crops     + STEPS.crops,     TARGETS.crops);
+      const nextLanguages = Math.min(cur.languages + STEPS.languages, TARGETS.languages);
+
+      displayRef.current = {
+        farmers:   nextFarmers,
+        crops:     nextCrops,
+        languages: nextLanguages,
+      };
+
+      setDisplayFarmers(nextFarmers);
+      setDisplayCrops(nextCrops);
+      setDisplayLanguages(nextLanguages);
+
+      const done =
+        nextFarmers   >= TARGETS.farmers  &&
+        nextCrops     >= TARGETS.crops    &&
+        nextLanguages >= TARGETS.languages;
+
+      if (done) {
+        // Write final values to the global store exactly once so they are
+        // persisted if the user navigates away and returns.
+        setFarmers(TARGETS.farmers);
+        setCrops(TARGETS.crops);
+        setLanguages(TARGETS.languages);
+      } else {
+        rafRef.current = requestAnimationFrame(tick);
+      }
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+
+    // Cancel the animation immediately on unmount — no background updates.
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run once on mount — rAF loop manages its own lifecycle internally.
 
   useEffect(() => {
     try {
@@ -410,15 +514,15 @@ export default function Advisor({ userData }) {
 
       <div className="advisor-stats">
         <div className="stat">
-          <h2><span className="stat-number">{farmers.toLocaleString()}</span>{farmers >= 50000 && <span className="stat-plus">+</span>}</h2>
+          <h2><span className="stat-number">{displayFarmers.toLocaleString()}</span>{displayFarmers >= 50000 && <span className="stat-plus">+</span>}</h2>
           <p><span className="notranslate">Farmers Connected</span></p>
         </div>
         <div className="stat">
-          <h2><span className="stat-number">{crops}</span>{crops >= 120 && <span className="stat-plus">+</span>}</h2>
+          <h2><span className="stat-number">{displayCrops}</span>{displayCrops >= 120 && <span className="stat-plus">+</span>}</h2>
           <p><span className="notranslate">Crops Analyzed</span></p>
         </div>
         <div className="stat">
-          <h2><span className="stat-number">{languages}</span>{languages >= 12 && <span className="stat-plus">+</span>}</h2>
+          <h2><span className="stat-number">{displayLanguages}</span>{displayLanguages >= 12 && <span className="stat-plus">+</span>}</h2>
           <p><span className="notranslate">Languages Available</span></p>
         </div>
       </div>
@@ -522,6 +626,16 @@ export default function Advisor({ userData }) {
             </p>
           </div>
 
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/pest-detection")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/pest-detection"); }} aria-label="Pest Detection: Identify pests and get treatment">
+            <div className="icon" aria-hidden="true">
+              <Bug size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Pest Detection</span></h3>
+            <p>
+              AI-powered pest identification with real-time alerts and treatment recommendations.
+            </p>
+          </div>
+
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowIrrigation(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowIrrigation(true); }} aria-label="Irrigation Guidance: Water-saving tips">
             <div className="icon" aria-hidden="true">
               <Droplets size={32} strokeWidth={2} />
@@ -619,6 +733,12 @@ export default function Advisor({ userData }) {
             >
               Open full page →
             </button>
+          </div>
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowYieldHistory(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowYieldHistory(true); }} aria-label="Yield History: Track past predictions and accuracy">
+            <div className="icon" aria-hidden="true"><BarChart3 size={32} /></div>
+            <h3><span className="notranslate">Yield History</span></h3>
+            <p>Track past yield predictions, record actual harvests, and monitor model accuracy.</p>
           </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/schemes")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/schemes"); }} aria-label="Govt Schemes: Financial support">
@@ -1237,6 +1357,17 @@ export default function Advisor({ userData }) {
               <X />
             </button>
             <YieldPredictorForm onClose={closeYieldPopup} />
+          </div>
+        </div>
+      )}
+
+      {showYieldHistory && (
+        <div className="weather-overlay" onClick={() => setShowYieldHistory(false)}>
+          <div className="weather-popup" style={{ maxWidth: "900px", width: "95vw", maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+            <button className="close-btn" onClick={() => setShowYieldHistory(false)} aria-label="Close yield history">
+              <X />
+            </button>
+            <YieldHistory />
           </div>
         </div>
       )}
