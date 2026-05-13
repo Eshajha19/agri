@@ -585,6 +585,42 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+.bookmark-btn {
+  border: 1px solid rgba(22, 125, 34, 0.16);
+  background: #f8faf5;
+  color: #166534;
+  padding: 8px 14px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.bookmark-btn:hover {
+  background: #ecfdf5;
+  border-color: #bbf7d0;
+}
+
+.bookmark-btn.active {
+  background: #16a34a;
+  color: #ffffff;
+  border-color: #16a34a;
+}
+
+.blog-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.detail-bookmark-btn {
+  margin: 12px 0 20px;
+}
+
 @media (max-width: 768px) {
   .blog-hero {
     padding: 60px 5% 50px;

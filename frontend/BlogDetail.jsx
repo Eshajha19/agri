@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { FaArrowLeft, FaClock, FaUser, FaCalendarAlt, FaLeaf, FaCloudSun, FaLandmark, FaBug, FaTint, FaSeedling } from "react-icons/fa";
+import { FaArrowLeft, FaClock, FaUser, FaCalendarAlt, FaLeaf, FaCloudSun, FaLandmark, FaBug, FaTint, FaSeedling, FaBookmark, FaRegBookmark } from "react-icons/fa";
 import "./Blog.css";
+import { getBookmarks, toggleBookmark } from "./utils/bookmarkStorage";
 
 const BLOG_POSTS = [
   {
@@ -269,6 +270,17 @@ const CATEGORY_ICONS = {
 export default function BlogDetail() {
   const { id } = useParams();
   const post = BLOG_POSTS.find((p) => p.id === parseInt(id, 10));
+  const [isBookmarked, setIsBookmarked] = useState(false);
+
+  useEffect(() => {
+    setIsBookmarked(getBookmarks("articles").some((item) => item.id === parseInt(id, 10)));
+  }, [id]);
+
+  const handleToggleArticleBookmark = () => {
+    if (!post) return;
+    const updated = toggleBookmark("articles", post);
+    setIsBookmarked(updated.some((item) => item.id === post.id));
+  };
 
   React.useEffect(() => {
     window.scrollTo(0, 0);
@@ -309,6 +321,13 @@ export default function BlogDetail() {
               {post.category}
             </div>
             <h1>{post.title}</h1>
+            <button
+              className={`detail-bookmark-btn ${isBookmarked ? "active" : ""}`}
+              onClick={handleToggleArticleBookmark}
+              aria-label={isBookmarked ? "Remove bookmark" : "Bookmark article"}
+            >
+              {isBookmarked ? <FaBookmark /> : <FaRegBookmark />} {isBookmarked ? "Saved" : "Bookmark"}
+            </button>
             <div className="blog-detail-meta">
               <span className="meta-item">
                 <FaUser /> {post.author}
