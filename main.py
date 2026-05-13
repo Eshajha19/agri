@@ -7,6 +7,7 @@ import itertools
 import threading
 import logging
 import re
+import math
 import joblib
 import hashlib
 import pandas as pd
@@ -61,6 +62,7 @@ from ml.registry import ModelRegistry
 from ml.adapters.xgboost_adapter import XGBoostAdapter
 from ml.router import ModelRouter
 from ml.preprocessing import UnknownCategoryError, MissingFeatureError
+from ml.validators import InputValidationError
 
 # Other internal modules
 from alert_rules import generate_alerts
@@ -487,9 +489,9 @@ def predict_yield(data: PredictRequest, request: Request):
     """
     Standardised prediction endpoint using ML Router for dynamic model selection.
 
-    Returns HTTP 422 when the input contains an unknown categorical value or a
-    missing required feature, so callers receive an actionable error message
-    rather than a silently corrupted prediction.
+    Returns HTTP 422 when the input contains an unknown categorical value, a
+    missing required feature, or an out-of-range numeric parameter, so callers
+    receive an actionable error message rather than a silently corrupted prediction.
     """
     try:
         input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
@@ -502,6 +504,18 @@ def predict_yield(data: PredictRequest, request: Request):
         predicted_yield = router.predict(input_data, context)
         return {"predicted_ExpYield": float(predicted_yield)}
 
+    except InputValidationError as e:
+        # A numeric parameter is out of acceptable range or invalid type.
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "invalid_input",
+                "field": e.field,
+                "value": str(e.value),
+                "constraint": e.constraint,
+                "message": str(e),
+            },
+        )
     except UnknownCategoryError as e:
         # The submitted categorical value was not in the training vocabulary.
         raise HTTPException(
@@ -695,14 +709,34 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
         data = payload.data
         if len(data) != 5:
             raise ValueError("Exactly 5 values are required")
-        data = np.array(data).reshape(1, -1)
-        prediction = model_lag.predict(data)
+        
+        # Validate each numeric value in the time series
+        validated_data = []
+        for i, value in enumerate(data):
+            try:
+                # Convert to float and check for special values
+                numeric_value = float(value)
+                if math.isnan(numeric_value):
+                    raise ValueError(f"Value at position {i} cannot be NaN")
+                if math.isinf(numeric_value):
+                    raise ValueError(f"Value at position {i} cannot be infinite")
+                # Check for reasonable yield range (0 to 100,000 kg/ha)
+                if not (0 <= numeric_value <= 100000):
+                    raise ValueError(
+                        f"Value at position {i} ({numeric_value}) must be between 0 and 100,000 kg/ha"
+                    )
+                validated_data.append(numeric_value)
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Invalid value at position {i}: {value}. {str(e)}")
+        
+        data_array = np.array(validated_data).reshape(1, -1)
+        prediction = model_lag.predict(data_array)
         return {
             "prediction": round(float(prediction[0]), 2),
             "model": "RandomForest Time Series (Lag Features)"
         }
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
@@ -715,7 +749,27 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
         data = payload.data
         if len(data) != 5:
             raise ValueError("Exactly 5 values are required")
-        temp = list(data)
+        
+        # Validate each numeric value in the time series
+        validated_data = []
+        for i, value in enumerate(data):
+            try:
+                # Convert to float and check for special values
+                numeric_value = float(value)
+                if math.isnan(numeric_value):
+                    raise ValueError(f"Value at position {i} cannot be NaN")
+                if math.isinf(numeric_value):
+                    raise ValueError(f"Value at position {i} cannot be infinite")
+                # Check for reasonable yield range (0 to 100,000 kg/ha)
+                if not (0 <= numeric_value <= 100000):
+                    raise ValueError(
+                        f"Value at position {i} ({numeric_value}) must be between 0 and 100,000 kg/ha"
+                    )
+                validated_data.append(numeric_value)
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Invalid value at position {i}: {value}. {str(e)}")
+        
+        temp = list(validated_data)
         trend = []
         for _ in range(5):
             features = temp[:5]
@@ -729,7 +783,7 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
             "model": "RandomForest Trend Forecast (Lag Features)"
         }
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
