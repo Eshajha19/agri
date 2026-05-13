@@ -138,7 +138,7 @@ const MarketPrices = () => {
       </section>
 
       <div className="market-stats-grid" role="status" aria-live="polite">
-        <div className="stat-card price-up">
+        <div className="stat-card price-up glass-card">
           <div className="stat-icon-wrap" aria-hidden="true">
             <TrendingUp size={24} />
           </div>
