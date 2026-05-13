@@ -18,6 +18,7 @@ import QRTraceability from "./QRTraceability";
 import FarmPlanner3D from "./FarmPlanner3D";
 import FarmDiary from "./FarmDiary";
 import CropDiseaseDetection from "./CropDiseaseDetection";
+import PestDetection from "./PestDetection";
 import PestManagement from "./PestManagement";
 import SeedVerifier from "./SeedVerifier";
 import ClimateSimulator from "./ClimateSimulator";
@@ -27,12 +28,11 @@ import YieldPredictorForm from "./YieldPredictorForm";
 import CropRotation from "./CropRotation";
 import P2PChat from "./P2PChat";
 import GeoAlertMesh from "./GeoAlertMesh";
-import SmartCropRecommendation from "./SmartCropRecommendation";
-import PersonalizedAdvisory from "./PersonalizedAdvisory";
-import PestDetection from "./PestDetection";
-import YieldHistory from "./YieldHistory";
+ import SmartCropRecommendation from "./SmartCropRecommendation";
+ import PersonalizedAdvisory from "./PersonalizedAdvisory";
+ import YieldHistory from "./YieldHistory";
 
-// Keep critical components synchronous
+ // Keep critical components synchronous
 import LastUpdated from "./LastUpdated";
 import { Leaf } from "lucide-react";
 import {
@@ -64,11 +64,12 @@ import {
   Rocket,
   Trophy,
   Medal,
-  Gem,
-  FileText,
-  Construction,
-  CloudRain,
-} from "lucide-react";
+   Gem,
+   FileText,
+   Construction,
+   CloudRain,
+   Settings,
+ } from "lucide-react";
 import { FaSync } from "react-icons/fa";
 import { useAdvisorStore } from "./stores/advisorStore";
 
@@ -667,6 +668,14 @@ return () => unsubscribe();
               <div className="icon" aria-hidden="true"><ShoppingCart size={32} /></div>
               <h3><span className="notranslate">Agri Marketplace</span></h3>
               <p>Rent or list farm equipment locally. Save costs and earn extra.</p>
+            </div>
+          )}
+
+          {(userData?.role === "farmer" || userData?.role === "admin") && (
+            <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/equipment-management")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/equipment-management"); }} aria-label="Equipment Management: Monitor and maintain farm equipment">
+              <div className="icon" aria-hidden="true"><Settings size={32} /></div>
+              <h3><span className="notranslate">Equipment Management</span></h3>
+              <p>Real-time monitoring and predictive maintenance for all farm equipment.</p>
             </div>
           )}
 
