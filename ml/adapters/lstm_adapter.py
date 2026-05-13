@@ -13,8 +13,9 @@ class LSTMAdapter(YieldModel):
     Adapter for LSTM yield prediction model.
     """
     
-    def __init__(self):
+    def __init__(self, time_steps: int = 1):
         self.model = None
+        self.time_steps = time_steps
 
     def load(self, model_path: str):
         if not TENSORFLOW_AVAILABLE:
@@ -31,13 +32,20 @@ class LSTMAdapter(YieldModel):
         if self.model is None:
             raise ValueError("Model not loaded. Call load() first.")
         
-        # LSTM models often require 3D input: (samples, time_steps, features)
-        # For simplicity, we assume single-step prediction or handles reshaping here
-        # This is a placeholder for the actual reshaping logic needed for LSTM
-        
-        # Example: Reshape to (1, 1, num_features)
+        # LSTM models require 3D input: (samples, time_steps, features_per_step)
+        # We use the stored time_steps metadata to preserve temporal structure.
         data_array = input_data.values
-        reshaped_data = data_array.reshape((data_array.shape[0], 1, data_array.shape[1]))
+        num_samples = data_array.shape[0]
+        total_features = data_array.shape[1]
+        
+        if total_features % self.time_steps != 0:
+            raise ValueError(
+                f"Total features ({total_features}) must be divisible by "
+                f"time_steps ({self.time_steps}) to preserve temporal structure."
+            )
+            
+        features_per_step = total_features // self.time_steps
+        reshaped_data = data_array.reshape((num_samples, self.time_steps, features_per_step))
         
         prediction = self.model.predict(reshaped_data)
         return float(prediction[0][0])

@@ -1,5 +1,5 @@
-setuptools
 pip
+setuptools
 wheel
 fastapi
 uvicorn
@@ -18,5 +18,5 @@ twilio
 google-cloud-secret-manager
 slowapi
 firebase-admin
-
-
+google-generativeai
+aiohttp
