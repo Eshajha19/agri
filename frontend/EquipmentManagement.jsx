@@ -19,7 +19,7 @@ export default function EquipmentManagement({ onClose }) {
   const [loading, setLoading] = useState(false);
   const [realTimeMode, setRealTimeMode] = useState(true);
   const [timeRange, setTimeRange] = useState('7d');
-  const equipmentService = useRef(new EquipmentService());
+  const equipmentService = useRef(EquipmentService);
 
   // Load equipment data
   useEffect(() => {
