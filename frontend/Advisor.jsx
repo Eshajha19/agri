@@ -798,6 +798,14 @@ export default function Advisor({ userData }) {
             <p>Get AI-powered crop suggestions based on your soil and climate.</p>
           </div>
 
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowCropRecommendationAdvisor(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowCropRecommendationAdvisor(true); }} aria-label="Crop Advisor: Detailed soil analysis and recommendations">
+            <div className="icon" aria-hidden="true" style={{background: 'rgba(16, 185, 129, 0.1)', color: '#10b981'}}>
+              <FlaskConical size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Crop Advisor (Soil Analysis)</span></h3>
+            <p>Enter soil parameters for detailed crop compatibility analysis and recommendations.</p>
+          </div>
+
           {(userData?.role === "expert" || userData?.role === "admin") && (
             <div className="card reveal expert-card" role="button" tabIndex={0} onClick={() => setShowExpertStatus(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowExpertStatus(true); }} aria-label="Expert Reputation: View badges">
               <div className="icon" aria-hidden="true">
@@ -1433,6 +1441,14 @@ export default function Advisor({ userData }) {
             >
               Close
             </button>
+          </div>
+        </div>
+      )}
+
+      {showCropRecommendationAdvisor && (
+        <div className="weather-overlay" onClick={() => setShowCropRecommendationAdvisor(false)}>
+          <div className="weather-popup crop-advisor-popup" onClick={(e) => e.stopPropagation()}>
+            <CropRecommendationAdvisor onClose={() => setShowCropRecommendationAdvisor(false)} />
           </div>
         </div>
       )}

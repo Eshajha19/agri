@@ -318,6 +318,18 @@
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
 }
 
+.crop-advisor-popup {
+  position: relative;
+  background: white;
+  border-radius: 16px;
+  padding: 0;
+  max-width: 1200px;
+  width: 95%;
+  max-height: 95vh;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
 .theme-dark .weather-popup,
 .theme-dark .chatbot-popup,
 .theme-dark .soil-analysis-popup {
