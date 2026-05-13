@@ -23,11 +23,29 @@ export const generateRecommendations = ({ weatherData, cropType, season }) => {
 
   if (!weatherData?.daily) return tips;
 
-  const nextDays = weatherData.daily.slice(0, 3);
+  // Normalize daily data to array format.
+  // The weather snapshot from open-meteo uses an object with arrays (daily.time, etc.)
+  // Some callers may pass an array already; handle both.
+  let dailyArray;
+  if (Array.isArray(weatherData.daily)) {
+    dailyArray = weatherData.daily;
+  } else if (weatherData.daily?.time && Array.isArray(weatherData.daily.time)) {
+    const d = weatherData.daily;
+    dailyArray = d.time.slice(0, 3).map((date, i) => ({
+      date,
+      maxTemp: d.temperature_2m_max?.[i] ?? null,
+      minTemp: d.temperature_2m_min?.[i] ?? null,
+      rain:    d.precipitation_sum?.[i] ?? 0,
+    }));
+  } else {
+    return tips;
+  }
 
-  const heavyRain = nextDays.some(day => day.pop > 0.7);
-  const highTemp  = nextDays.some(day => day.temp.max > 35);
-  const coldTemp  = nextDays.some(day => day.temp.min < 5);
+  const nextDays = dailyArray.slice(0, 3);
+
+  const heavyRain = nextDays.some(day => day.rain > 0);
+  const highTemp  = nextDays.some(day => day.maxTemp > 35);
+  const coldTemp  = nextDays.some(day => day.minTemp < 5);
 
   // ── Weather-based tips ────────────────────────────────────────────────────
 

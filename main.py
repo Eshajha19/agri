@@ -7,6 +7,7 @@ import itertools
 import threading
 import logging
 import re
+import math
 import joblib
 import hashlib
 import pandas as pd
@@ -61,11 +62,13 @@ from ml.registry import ModelRegistry
 from ml.adapters.xgboost_adapter import XGBoostAdapter
 from ml.router import ModelRouter
 from ml.preprocessing import UnknownCategoryError, MissingFeatureError
+from ml.validators import InputValidationError
 
 # Other internal modules
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
+from weather_alerts import weather_service, WeatherAlert
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -304,6 +307,17 @@ class ReportRequest(BaseModel):
 class SeedVerifyRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=100)
 
+class WeatherAlertRequest(BaseModel):
+    """Request for weather alerts by location and crop"""
+    latitude: float = Field(..., ge=-90, le=90)
+    longitude: float = Field(..., ge=-180, le=180)
+    location: str = Field(..., max_length=100)
+    crop: Optional[str] = Field(default=None, max_length=50)
+
+class WeatherLocationRequest(BaseModel):
+    """Request to geocode a location"""
+    location: str = Field(..., min_length=2, max_length=100)
+
 # --- ML Pipeline Initialization ---
 # init_ml_pipeline() is called inside the FastAPI lifespan context manager
 # (defined above app = FastAPI(...)) so it runs in every Uvicorn worker
@@ -475,9 +489,9 @@ def predict_yield(data: PredictRequest, request: Request):
     """
     Standardised prediction endpoint using ML Router for dynamic model selection.
 
-    Returns HTTP 422 when the input contains an unknown categorical value or a
-    missing required feature, so callers receive an actionable error message
-    rather than a silently corrupted prediction.
+    Returns HTTP 422 when the input contains an unknown categorical value, a
+    missing required feature, or an out-of-range numeric parameter, so callers
+    receive an actionable error message rather than a silently corrupted prediction.
     """
     try:
         input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
@@ -490,6 +504,18 @@ def predict_yield(data: PredictRequest, request: Request):
         predicted_yield = router.predict(input_data, context)
         return {"predicted_ExpYield": float(predicted_yield)}
 
+    except InputValidationError as e:
+        # A numeric parameter is out of acceptable range or invalid type.
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "invalid_input",
+                "field": e.field,
+                "value": str(e.value),
+                "constraint": e.constraint,
+                "message": str(e),
+            },
+        )
     except UnknownCategoryError as e:
         # The submitted categorical value was not in the training vocabulary.
         raise HTTPException(
@@ -683,14 +709,34 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
         data = payload.data
         if len(data) != 5:
             raise ValueError("Exactly 5 values are required")
-        data = np.array(data).reshape(1, -1)
-        prediction = model_lag.predict(data)
+        
+        # Validate each numeric value in the time series
+        validated_data = []
+        for i, value in enumerate(data):
+            try:
+                # Convert to float and check for special values
+                numeric_value = float(value)
+                if math.isnan(numeric_value):
+                    raise ValueError(f"Value at position {i} cannot be NaN")
+                if math.isinf(numeric_value):
+                    raise ValueError(f"Value at position {i} cannot be infinite")
+                # Check for reasonable yield range (0 to 100,000 kg/ha)
+                if not (0 <= numeric_value <= 100000):
+                    raise ValueError(
+                        f"Value at position {i} ({numeric_value}) must be between 0 and 100,000 kg/ha"
+                    )
+                validated_data.append(numeric_value)
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Invalid value at position {i}: {value}. {str(e)}")
+        
+        data_array = np.array(validated_data).reshape(1, -1)
+        prediction = model_lag.predict(data_array)
         return {
             "prediction": round(float(prediction[0]), 2),
             "model": "RandomForest Time Series (Lag Features)"
         }
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
@@ -703,7 +749,27 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
         data = payload.data
         if len(data) != 5:
             raise ValueError("Exactly 5 values are required")
-        temp = list(data)
+        
+        # Validate each numeric value in the time series
+        validated_data = []
+        for i, value in enumerate(data):
+            try:
+                # Convert to float and check for special values
+                numeric_value = float(value)
+                if math.isnan(numeric_value):
+                    raise ValueError(f"Value at position {i} cannot be NaN")
+                if math.isinf(numeric_value):
+                    raise ValueError(f"Value at position {i} cannot be infinite")
+                # Check for reasonable yield range (0 to 100,000 kg/ha)
+                if not (0 <= numeric_value <= 100000):
+                    raise ValueError(
+                        f"Value at position {i} ({numeric_value}) must be between 0 and 100,000 kg/ha"
+                    )
+                validated_data.append(numeric_value)
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Invalid value at position {i}: {value}. {str(e)}")
+        
+        temp = list(validated_data)
         trend = []
         for _ in range(5):
             features = temp[:5]
@@ -717,7 +783,7 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
             "model": "RandomForest Trend Forecast (Lag Features)"
         }
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
@@ -743,6 +809,122 @@ def get_notifications(
         season=season
     )
     return {"success": True, "data": _notification_store.get_recent() + dynamic_alerts}
+
+# --- Weather Alerts Endpoints ---
+
+@app.post("/api/weather/geocode")
+async def geocode_location(data: WeatherLocationRequest):
+    """
+    Get coordinates (latitude, longitude) for a location.
+    
+    This endpoint helps users find their farm location's coordinates
+    without exposing any API keys.
+    """
+    try:
+        result = await weather_service.get_coordinates(data.location)
+        if result:
+            latitude, longitude, name = result
+            return {
+                "success": True,
+                "location": name,
+                "latitude": latitude,
+                "longitude": longitude,
+            }
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Location '{data.location}' not found"
+            )
+    except Exception as e:
+        logger.error(f"Geocoding error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to geocode location"
+        ) from e
+
+
+@app.post("/api/weather/alerts")
+@limiter.limit("10/minute")
+async def get_weather_alerts(data: WeatherAlertRequest, request: Request):
+    """
+    Get real-time weather alerts for a specific location and crop.
+    
+    Args:
+        latitude: Farm latitude
+        longitude: Farm longitude
+        location: Location name for display
+        crop: (Optional) Crop type for crop-specific warnings
+    
+    Returns:
+        Weather alerts with severity levels and recommended actions
+    
+    Note: No API keys are exposed. Uses free Open-Meteo API.
+    """
+    try:
+        # Fetch current weather
+        weather = await weather_service.fetch_weather(
+            data.latitude,
+            data.longitude,
+            data.location
+        )
+        
+        if not weather:
+            raise HTTPException(
+                status_code=503,
+                detail="Unable to fetch weather data. Please try again."
+            )
+        
+        # Analyze weather and generate alerts
+        alerts = weather_service.analyze_weather(weather, data.crop)
+        
+        # Get summary
+        summary = weather_service.get_alerts_summary(alerts)
+        
+        return {
+            "success": True,
+            "location": data.location,
+            "crop": data.crop,
+            "weather": {
+                "temperature": weather.temperature,
+                "humidity": weather.humidity,
+                "rainfall": weather.rainfall,
+                "wind_speed": weather.wind_speed,
+                "cloud_cover": weather.cloud_cover,
+                "timestamp": weather.timestamp.isoformat(),
+            },
+            "alerts": summary,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Weather alert error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate weather alerts"
+        ) from e
+
+
+@app.get("/api/weather/alerts/history")
+@limiter.limit("5/minute")
+async def get_alerts_history(request: Request):
+    """
+    Get recent weather alerts history.
+    Useful for reviewing past alerts and trends.
+    """
+    try:
+        # Get recent alerts from the service history
+        recent_alerts = weather_service.alert_history[-50:]  # Last 50 alerts
+        return {
+            "success": True,
+            "total_alerts": len(weather_service.alert_history),
+            "recent_alerts": [alert.to_dict() for alert in recent_alerts],
+        }
+    except Exception as e:
+        logger.error(f"Alert history error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retrieve alert history"
+        ) from e
 
 # --- WhatsApp Service Endpoints ---
 #
