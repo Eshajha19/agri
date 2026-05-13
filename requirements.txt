@@ -21,3 +21,4 @@ firebase-admin
 google-generativeai
 opencv-python
 pillow
+qrcode
