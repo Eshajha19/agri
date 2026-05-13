@@ -118,5 +118,20 @@ service cloud.firestore {
       allow write: if hasRole('vendor') || hasRole('admin');
     }
 
+    // Farming Calendar activities — owner only.
+    match /activities/{activityId} {
+      allow read, write: if isAuthed() && request.auth.uid == resource.data.userId;
+      allow create: if isAuthed() && request.resource.data.userId == request.auth.uid;
+    }
+
+    // Government scheme applications — owner only.
+    match /scheme_applications/{appId} {
+      allow read, update, delete: if isAuthed() && request.auth.uid == resource.data.userId;
+      allow create: if isAuthed()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.schemeId is int
+        && request.resource.data.status is string;
+    }
+
   }
 }
