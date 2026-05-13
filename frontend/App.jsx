@@ -313,7 +313,7 @@ function App() {
 
         <ul className={`nav-center ${isOpen ? "active" : ""}`}>
           <li><Link to="/" onClick={() => setIsOpen(false)}><FaHome /> Home</Link></li>
-          <li><Link to="/advisor" onClick={() => setIsOpen(false)}><FaComments /> Chat</Link></li>
+          <li><Link to="/about" onClick={() => setIsOpen(false)}><FaInfoCircle /> About</Link></li>
           <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}><FaInfoCircle /> How It Works</Link></li>
           <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}><GiThreeLeaves />Crop Guide</Link></li>
           <li><Link to="/resources" onClick={() => setIsOpen(false)}><GrResources />Resources</Link></li>
