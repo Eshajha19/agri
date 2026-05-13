@@ -160,33 +160,63 @@ export default function Schemes() {
         {filteredSchemes.length > 0 ? (
           filteredSchemes.map((scheme) => (
             <div key={scheme.id} className="scheme-card">
-              <div className="scheme-header">
-                <div className="scheme-icon">{scheme.icon}</div>
-                <div className="scheme-category">{scheme.category}</div>
-              </div>
+  
+  {/* TOP */}
+  <div className="scheme-top">
+    <div className="scheme-icon">{scheme.icon}</div>
 
-              <h2 className="scheme-title">{scheme.title}</h2>
-              <p style={{ marginTop: '-15px', fontSize: '0.9rem', color: '#64748b', fontWeight: '500' }}>
-                {scheme.fullName}
-              </p>
+    <div className="scheme-top-content">
+      <span className="scheme-category">
+        {scheme.category}
+      </span>
 
-              <div className="scheme-info">
-                <div className="info-box">
-                  <h4><FaInfoCircle /> Benefits</h4>
-                  <p className="info-content">{scheme.benefits}</p>
-                </div>
-                <div className="info-box">
-                  <h4><FaUserCheck /> Eligibility</h4>
-                  <p className="info-content">{scheme.eligibility}</p>
-                </div>
-              </div>
+      <h2 className="scheme-title">
+        {scheme.title}
+      </h2>
 
-              <div className="scheme-footer">
-                <a href={scheme.link} target="_blank" rel="noopener noreferrer" className="btn-visit">
-                  Apply on Official Website <FaExternalLinkAlt size={14} />
-                </a>
-              </div>
-            </div>
+      <p className="scheme-fullname">
+        {scheme.fullName}
+      </p>
+    </div>
+  </div>
+
+  {/* BENEFITS */}
+  <div className="info-box benefit-box">
+    <div className="info-title">
+      <FaCheckCircle />
+      <span>Benefits</span>
+    </div>
+
+    <p className="info-content">
+      {scheme.benefits}
+    </p>
+  </div>
+
+  {/* ELIGIBILITY */}
+  <div className="info-box eligibility-box">
+    <div className="info-title">
+      <FaUserCheck />
+      <span>Eligibility</span>
+    </div>
+
+    <p className="info-content">
+      {scheme.eligibility}
+    </p>
+  </div>
+
+  {/* FOOTER */}
+  <div className="scheme-footer">
+    <a
+      href={scheme.link}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="btn-visit"
+    >
+      Apply on Official Website
+      <FaExternalLinkAlt size={13} />
+    </a>
+  </div>
+</div>
           ))
         ) : (
           <div className="no-schemes">
