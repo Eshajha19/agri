@@ -1,36 +1,16 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import "./Advisor.css";
-// Components - Lazily Loaded for better bundle size
-const WeatherCard = React.lazy(() => import("./weather/WeatherCard"));
-const Forecast = React.lazy(() => import("./Forecast"));
-const SoilChatbot = React.lazy(() => import("./SoilChatbot"));
-const SoilAnalysis = React.lazy(() => import("./SoilAnalysis"));
-const SoilGuide = React.lazy(() => import("./SoilGuide"));
-const IrrigationGuidance = React.lazy(() => import("./IrrigationGuidance"));
-const CropProfitCalculator = React.lazy(() => import("./CropProfitCalculator"));
-const FarmingMap = React.lazy(() => import("./FarmingMap"));
-const FertilizerRecommendation = React.lazy(() => import("./FertilizerRecommendation"));
-const AgriMarketplace = React.lazy(() => import("./AgriMarketplace"));
-const AgriLMS = React.lazy(() => import("./AgriLMS"));
-const BankReports = React.lazy(() => import("./BankReports"));
-const QRTraceability = React.lazy(() => import("./QRTraceability"));
-const FarmPlanner3D = React.lazy(() => import("./FarmPlanner3D"));
-const FarmDiary = React.lazy(() => import("./FarmDiary"));
-const CropDiseaseDetection = React.lazy(() => import("./CropDiseaseDetection"));
-const PestManagement = React.lazy(() => import("./PestManagement"));
-const SeedVerifier = React.lazy(() => import("./SeedVerifier"));
-const ClimateSimulator = React.lazy(() => import("./ClimateSimulator"));
-const RAGAdvisor = React.lazy(() => import("./RAGAdvisor"));
-const GreenPractices = React.lazy(() => import("./GreenPractices"));
-const YieldPredictorForm = React.lazy(() => import("./YieldPredictorForm"));
-const CropRotation = React.lazy(() => import("./CropRotation"));
-const P2PChat = React.lazy(() => import("./P2PChat"));
-const GeoAlertMesh = React.lazy(() => import("./GeoAlertMesh"));
-const SmartCropRecommendation = React.lazy(() => import("./SmartCropRecommendation"));
-const PersonalizedAdvisory = React.lazy(() => import("./PersonalizedAdvisory"));
-
-import LastUpdated from "./LastUpdated";
+// Components - Static imports (lazy loading removed for faster feature access)
+import WeatherCard from "./weather/WeatherCard";
+import Forecast from "./Forecast";
+import SoilChatbot from "./SoilChatbot";
+import SoilAnalysis from "./SoilAnalysis";
+import SoilGuide from "./SoilGuide";
+import IrrigationGuidance from "./IrrigationGuidance";
+import CropProfitCalculator from "./CropProfitCalculator";
+import FarmingMap from "./FarmingMap";
+import FertilizerRecommendation from "./FertilizerRecommendation";
 import AgriMarketplace from "./AgriMarketplace";
 import AgriLMS from "./AgriLMS";
 import BankReports from "./BankReports";
@@ -38,14 +18,22 @@ import QRTraceability from "./QRTraceability";
 import FarmPlanner3D from "./FarmPlanner3D";
 import FarmDiary from "./FarmDiary";
 import CropDiseaseDetection from "./CropDiseaseDetection";
-import PestDetection from "./PestDetection";
 import PestManagement from "./PestManagement";
 import SeedVerifier from "./SeedVerifier";
 import ClimateSimulator from "./ClimateSimulator";
 import RAGAdvisor from "./RAGAdvisor";
 import GreenPractices from "./GreenPractices";
 import YieldPredictorForm from "./YieldPredictorForm";
+import CropRotation from "./CropRotation";
+import P2PChat from "./P2PChat";
+import GeoAlertMesh from "./GeoAlertMesh";
+import SmartCropRecommendation from "./SmartCropRecommendation";
+import PersonalizedAdvisory from "./PersonalizedAdvisory";
+import PestDetection from "./PestDetection";
 import YieldHistory from "./YieldHistory";
+
+// Keep critical components synchronous
+import LastUpdated from "./LastUpdated";
 import { Leaf } from "lucide-react";
 import {
   Sun,
@@ -173,7 +161,7 @@ export default function Advisor({ userData }) {
 
   const [weatherStatus, setWeatherStatus] = useState("idle");
   const [weatherError, setWeatherError] = useState("");
-  // snapshot follows the open-meteo shape from weatherService.js
+  const [userProfile, setUserProfile] = useState(null);
   const [weatherSnapshot, setWeatherSnapshot] = useState(() => getStoredWeatherSnapshot());
   const [showYieldHistory, setShowYieldHistory] = useState(false);
   const [locationQuery, setLocationQuery] = useState("");
@@ -307,10 +295,11 @@ export default function Advisor({ userData }) {
           setUserProfile(doc.data());
         }
       });
-      return () => unsubscribe();
+return () => unsubscribe();
     }
-  }, [auth?.currentUser]);
-   *
+}, [auth?.currentUser]);
+
+  /**
    * Architecture
    * ------------
    * The animation runs entirely in local component state using
@@ -479,10 +468,10 @@ export default function Advisor({ userData }) {
         </div>
       </div>
 
-      <PersonalizedAdvisory
-        userProfile={userProfile}
-        weatherData={weatherData}
-      />
+<PersonalizedAdvisory
+         userProfile={userProfile}
+         weatherData={weatherSnapshot}
+       />
 
       <br />
       <br />
@@ -508,35 +497,7 @@ export default function Advisor({ userData }) {
             <p>Plan your crops throughout the year with seasonal recommendations and crop rotation cycles.</p>
           </div>
 
-          <div
-            className="card reveal"
-            role="button"
-            tabIndex={0}
-            onClick={() => setShowWeather(true)}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowWeather(true); }}
-            aria-label="Weather Intelligence: Hyperlocal weather forecasts and alerts"
-          >
-            <div className="icon" aria-hidden="true">
-              <Sun size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">Weather Intelligence</span></h3>
-            <p>Get hyperlocal weather forecasts, alerts, and crop-specific advisories.</p>
-          </div>
           
-          <div
-            className="card reveal"
-            role="button"
-            tabIndex={0}
-            onClick={() => setShowForecast(true)}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowForecast(true); }}
-            aria-label="7-Day Forecast: Detailed weekly weather outlook"
-          >
-            <div className="icon" aria-hidden="true">
-              <CloudSun size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">7-Day Forecast</span></h3>
-            <p>Detailed weekly weather outlook to plan your farming activities.</p>
-          </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/community")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/community"); }} aria-label="Farmer Community: Connect and share tips">
             <div className="icon" aria-hidden="true">
