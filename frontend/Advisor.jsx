@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import "./Advisor.css";
+// Components - Static imports (lazy loading removed for faster feature access)
 import WeatherCard from "./weather/WeatherCard";
 import Forecast from "./Forecast";
 import SoilChatbot from "./SoilChatbot";
@@ -10,7 +11,6 @@ import IrrigationGuidance from "./IrrigationGuidance";
 import CropProfitCalculator from "./CropProfitCalculator";
 import FarmingMap from "./FarmingMap";
 import FertilizerRecommendation from "./FertilizerRecommendation";
-import LastUpdated from "./LastUpdated";
 import AgriMarketplace from "./AgriMarketplace";
 import AgriLMS from "./AgriLMS";
 import BankReports from "./BankReports";
@@ -25,13 +25,17 @@ import ClimateSimulator from "./ClimateSimulator";
 import RAGAdvisor from "./RAGAdvisor";
 import GreenPractices from "./GreenPractices";
 import YieldPredictorForm from "./YieldPredictorForm";
-import { Leaf } from "lucide-react";
-
 import CropRotation from "./CropRotation";
 import P2PChat from "./P2PChat";
 import GeoAlertMesh from "./GeoAlertMesh";
 import SmartCropRecommendation from "./SmartCropRecommendation";
 import PersonalizedAdvisory from "./PersonalizedAdvisory";
+import PestDetection from "./PestDetection";
+import YieldHistory from "./YieldHistory";
+
+// Keep critical components synchronous
+import LastUpdated from "./LastUpdated";
+import { Leaf } from "lucide-react";
 import {
   Sun,
   Droplets,
@@ -73,11 +77,17 @@ import { useYieldPrediction } from "./hooks/useYieldPrediction";
 import { auth, db } from "./lib/firebase";
 import { generateBankPDF, generateCSV } from "./utils/exportService";
 import { doc, onSnapshot } from "firebase/firestore";
+import {
+  WEATHER_SNAPSHOT_EVENT,
+  getStoredWeatherSnapshot,
+  fetchWeatherByLocation,
+  getCurrentPosition,
+  fetchWeatherByIP,
+  searchLocationByName,
+} from "./weather/weatherService";
 
 export default function Advisor({ userData }) {
   const navigate = useNavigate();
-  const WEATHER_API_KEY = import.meta.env.VITE_OPENWEATHER_API_KEY;
-  const WEATHER_CACHE_KEY = "advisorWeatherCache";
   
   const {
     farmers,
@@ -152,12 +162,129 @@ export default function Advisor({ userData }) {
 
   const [weatherStatus, setWeatherStatus] = useState("idle");
   const [weatherError, setWeatherError] = useState("");
-  const [weatherData, setWeatherData] = useState(null);
-  const [weatherLocation, setWeatherLocation] = useState("");
-  const [weatherLastUpdated, setWeatherLastUpdated] = useState(null);
-  const [locationQuery, setLocationQuery] = useState("");
-  const [coords, setCoords] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
+  const [weatherSnapshot, setWeatherSnapshot] = useState(() => getStoredWeatherSnapshot());
+  const [showYieldHistory, setShowYieldHistory] = useState(false);
+  const [locationQuery, setLocationQuery] = useState("");
+
+  // ── Shared weather snapshot integration ──────────────────────────────────
+  // Subscribe to the global WEATHER_SNAPSHOT_EVENT so any fetch by
+  // WeatherAlertBar or WeatherQuickWidget is immediately reflected here —
+  // no duplicate API call needed.
+  useEffect(() => {
+    const handleSnapshot = (event) => {
+      const snap = event.detail;
+      if (snap?.location) {
+        setWeatherSnapshot(snap);
+        setWeatherStatus("ready");
+        setWeatherError("");
+      }
+    };
+    window.addEventListener(WEATHER_SNAPSHOT_EVENT, handleSnapshot);
+    return () => window.removeEventListener(WEATHER_SNAPSHOT_EVENT, handleSnapshot);
+  }, []);
+
+  // On mount: if a valid cached snapshot already exists (written by
+  // WeatherAlertBar on the Home page), use it immediately — no fetch needed.
+  useEffect(() => {
+    const cached = getStoredWeatherSnapshot();
+    if (cached?.location) {
+      setWeatherSnapshot(cached);
+      setWeatherStatus("ready");
+    }
+  }, []);
+
+  // Derive advisories from the open-meteo snapshot alerts array.
+  // weatherService.js already computes these via deriveAlerts() — we just
+  // map them to the shape the existing JSX expects.
+  const advisories = useMemo(() => {
+    if (!weatherSnapshot?.alerts?.length) return [];
+    return weatherSnapshot.alerts
+      .filter(a => a.type !== "stable")
+      .map(a => ({ type: a.type, title: a.title, message: a.message }));
+  }, [weatherSnapshot]);
+
+  // Fetch weather via the shared service (writes to the shared cache and
+  // broadcasts WEATHER_SNAPSHOT_EVENT so all components stay in sync).
+  const fetchWeather = async ({ latitude, longitude, label }) => {
+    setWeatherStatus("loading");
+    setWeatherError("");
+    try {
+      const snap = await fetchWeatherByLocation({
+        latitude, longitude,
+        city: label || "Your area",
+        name: label || "Your area",
+        source: "manual",
+      });
+      setWeatherSnapshot(snap);
+      setWeatherStatus("ready");
+    } catch (err) {
+      setWeatherStatus("error");
+      setWeatherError(err?.message || "Failed to load weather data.");
+    }
+  };
+
+  const handleUseMyLocation = async () => {
+    setWeatherStatus("loading");
+    setWeatherError("");
+    try {
+      const location = await getCurrentPosition();
+      const snap = await fetchWeatherByLocation(location);
+      setWeatherSnapshot(snap);
+      setWeatherStatus("ready");
+    } catch {
+      // GPS failed — fall back to IP-based location
+      try {
+        const snap = await fetchWeatherByIP();
+        setWeatherSnapshot(snap);
+        setWeatherStatus("ready");
+      } catch (err) {
+        setWeatherStatus("error");
+        setWeatherError(err?.message || "Unable to access your location. Please search manually.");
+      }
+    }
+  };
+
+  const handleLocationSearch = async (event) => {
+    event.preventDefault();
+    if (!locationQuery.trim()) return;
+    setWeatherStatus("loading");
+    setWeatherError("");
+    try {
+      const location = await searchLocationByName(locationQuery.trim());
+      const snap = await fetchWeatherByLocation(location);
+      setWeatherSnapshot(snap);
+      setWeatherStatus("ready");
+    } catch (err) {
+      setWeatherStatus("error");
+      setWeatherError(err?.message || "Location not found. Try a nearby city or district.");
+    }
+  };
+
+  // Helpers to format open-meteo data for the weather dashboard JSX.
+  // open-meteo daily arrays are indexed by day (0 = today).
+  const formatTemp = (value) => `${Math.round(value ?? 0)}°C`;
+  const formatDay = (isoDate) =>
+    new Date(isoDate).toLocaleDateString(undefined, {
+      weekday: "short", day: "numeric", month: "short",
+    });
+
+  // Build a normalised daily array from the open-meteo snapshot so the
+  // existing JSX can iterate it without changes to the template.
+  const dailyForecast = useMemo(() => {
+    const d = weatherSnapshot?.daily;
+    if (!d?.time?.length) return [];
+    return d.time.slice(0, 7).map((date, i) => ({
+      date,
+      maxTemp: d.temperature_2m_max?.[i] ?? null,
+      minTemp: d.temperature_2m_min?.[i] ?? null,
+      rain:    d.precipitation_sum?.[i] ?? 0,
+      code:    d.weather_code?.[i] ?? 0,
+    }));
+  }, [weatherSnapshot]);
+
+  const weatherLocation = weatherSnapshot?.location?.name || weatherSnapshot?.location?.city || "";
+  const weatherLastUpdated = weatherSnapshot?.fetchedAt ? new Date(weatherSnapshot.fetchedAt).getTime() : null;
 
   useEffect(() => {
     // Priority: auth.currentUser, then fallback to localStorage
@@ -169,12 +296,11 @@ export default function Advisor({ userData }) {
           setUserProfile(doc.data());
         }
       });
-      return () => unsubscribe();
+return () => unsubscribe();
     }
-  }, [auth?.currentUser]);
+}, [auth?.currentUser]);
 
-  /* Animate stats on mount
-   *
+  /**
    * Architecture
    * ------------
    * The animation runs entirely in local component state using
@@ -285,188 +411,6 @@ export default function Advisor({ userData }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Run once on mount — rAF loop manages its own lifecycle internally.
 
-  useEffect(() => {
-    try {
-      const cached = localStorage.getItem(WEATHER_CACHE_KEY);
-      if (!cached) return;
-      const parsed = JSON.parse(cached);
-      if (!parsed?.timestamp || !parsed?.data) return;
-      const ageMinutes = (Date.now() - parsed.timestamp) / 60000;
-      if (ageMinutes <= 30) {
-        setWeatherData(parsed.data);
-        setWeatherLocation(parsed.location || "");
-        setWeatherLastUpdated(parsed.timestamp);
-        setWeatherStatus("ready");
-      }
-    } catch {
-      localStorage.removeItem(WEATHER_CACHE_KEY);
-    }
-  }, []);
-
-  const advisories = useMemo(() => {
-    if (!weatherData?.daily?.length) return [];
-    const daily = weatherData.daily.slice(0, 7);
-    const advisoriesList = [];
-
-    const heatDays = daily.filter((day) => day?.temp?.max >= 38);
-    if (heatDays.length >= 2) {
-      advisoriesList.push({
-        type: "heat",
-        title: "Heatwave risk",
-        message: "Plan irrigation during early hours and protect seedlings with shade nets.",
-      });
-    }
-
-    const frostDays = daily.filter((day) => day?.temp?.min <= 4);
-    if (frostDays.length > 0) {
-      advisoriesList.push({
-        type: "frost",
-        title: "Frost risk",
-        message: "Cover sensitive crops at night and avoid late evening irrigation.",
-      });
-    }
-
-    const heavyRainDays = daily.filter((day) =>
-      day?.pop >= 0.7 && ["Rain", "Thunderstorm"].includes(day?.weather?.[0]?.main)
-    );
-    if (heavyRainDays.length > 0) {
-      advisoriesList.push({
-        type: "rain",
-        title: "Heavy rain alert",
-        message: "Delay fertilizer application and ensure proper field drainage.",
-      });
-    }
-
-    const dryStretch = daily.filter((day) => day?.pop <= 0.2).length >= 3;
-    if (dryStretch) {
-      advisoriesList.push({
-        type: "dry",
-        title: "Dry spell likely",
-        message: "Consider light irrigation cycles and mulch to retain soil moisture.",
-      });
-    }
-
-    return advisoriesList;
-  }, [weatherData]);
-
-  const fetchWeather = async ({ latitude, longitude, label }) => {
-    if (!WEATHER_API_KEY) {
-      setWeatherStatus("error");
-      setWeatherError("Weather API key is missing. Add VITE_OPENWEATHER_API_KEY to your env.");
-      return;
-    }
-
-    setWeatherStatus("loading");
-    setWeatherError("");
-    const controller = new AbortController();
-    const { signal } = controller;
-
-    try {
-      const url = new URL("https://api.openweathermap.org/data/2.5/onecall");
-      url.searchParams.set("lat", latitude);
-      url.searchParams.set("lon", longitude);
-      url.searchParams.set("exclude", "minutely,hourly,alerts");
-      url.searchParams.set("units", "metric");
-      url.searchParams.set("appid", WEATHER_API_KEY);
-
-      const response = await fetch(url.toString(), { signal });
-      if (!response.ok) {
-        throw new Error(`Weather API error (${response.status})`);
-      }
-
-      const data = await response.json();
-      const timestamp = Date.now();
-      setWeatherData(data);
-      setWeatherLocation(label || weatherLocation);
-      setWeatherLastUpdated(timestamp);
-      setWeatherStatus("ready");
-
-      localStorage.setItem(
-        WEATHER_CACHE_KEY,
-        JSON.stringify({
-          timestamp,
-          data,
-          location: label || weatherLocation,
-        })
-      );
-    } catch (error) {
-      if (error?.name === "AbortError") return;
-      setWeatherStatus("error");
-      setWeatherError(error?.message || "Failed to load weather data.");
-    }
-  };
-
-  const handleUseMyLocation = () => {
-    if (!navigator.geolocation) {
-      setWeatherStatus("error");
-      setWeatherError("Geolocation is not supported in this browser.");
-      return;
-    }
-
-    setWeatherStatus("loading");
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        setCoords({ latitude, longitude });
-        fetchWeather({
-          latitude,
-          longitude,
-          label: "Current location",
-        });
-      },
-      () => {
-        setWeatherStatus("error");
-        setWeatherError("Unable to access your location. Please search manually.");
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
-  };
-
-  const handleLocationSearch = async (event) => {
-    event.preventDefault();
-    if (!locationQuery.trim()) return;
-    if (!WEATHER_API_KEY) {
-      setWeatherStatus("error");
-      setWeatherError("Weather API key is missing. Add VITE_OPENWEATHER_API_KEY to your env.");
-      return;
-    }
-
-    setWeatherStatus("loading");
-    setWeatherError("");
-    try {
-      const geoUrl = new URL("https://api.openweathermap.org/geo/1.0/direct");
-      geoUrl.searchParams.set("q", locationQuery);
-      geoUrl.searchParams.set("limit", "1");
-      geoUrl.searchParams.set("appid", WEATHER_API_KEY);
-
-      const response = await fetch(geoUrl.toString());
-      if (!response.ok) {
-        throw new Error(`Location lookup failed (${response.status})`);
-      }
-
-      const results = await response.json();
-      if (!results?.length) {
-        throw new Error("Location not found. Try a nearby city or district.");
-      }
-
-      const match = results[0];
-      const label = [match.name, match.state, match.country].filter(Boolean).join(", ");
-      setCoords({ latitude: match.lat, longitude: match.lon });
-      fetchWeather({ latitude: match.lat, longitude: match.lon, label });
-    } catch (error) {
-      setWeatherStatus("error");
-      setWeatherError(error?.message || "Failed to search location.");
-    }
-  };
-
-  const formatTemp = (value) => `${Math.round(value)}°C`;
-  const formatDay = (timestamp) =>
-    new Date(timestamp * 1000).toLocaleDateString(undefined, {
-      weekday: "short",
-      day: "numeric",
-      month: "short",
-    });
-
   const getNextBadgeThreshold = (points) => {
     if (points < 50) return { threshold: 50, name: "Active Contributor", icon: <Medal size={16} style={{ color: '#cd7f32' }} /> };
     if (points < 200) return { threshold: 200, name: "Farming Expert", icon: <Medal size={16} style={{ color: '#c0c0c0' }} /> };
@@ -525,10 +469,10 @@ export default function Advisor({ userData }) {
         </div>
       </div>
 
-      <PersonalizedAdvisory
-        userProfile={userProfile}
-        weatherData={weatherData}
-      />
+<PersonalizedAdvisory
+         userProfile={userProfile}
+         weatherData={weatherSnapshot}
+       />
 
       <br />
       <br />
@@ -554,35 +498,7 @@ export default function Advisor({ userData }) {
             <p>Plan your crops throughout the year with seasonal recommendations and crop rotation cycles.</p>
           </div>
 
-          <div
-            className="card reveal"
-            role="button"
-            tabIndex={0}
-            onClick={() => setShowWeather(true)}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowWeather(true); }}
-            aria-label="Weather Intelligence: Hyperlocal weather forecasts and alerts"
-          >
-            <div className="icon" aria-hidden="true">
-              <Sun size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">Weather Intelligence</span></h3>
-            <p>Get hyperlocal weather forecasts, alerts, and crop-specific advisories.</p>
-          </div>
           
-          <div
-            className="card reveal"
-            role="button"
-            tabIndex={0}
-            onClick={() => setShowForecast(true)}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowForecast(true); }}
-            aria-label="7-Day Forecast: Detailed weekly weather outlook"
-          >
-            <div className="icon" aria-hidden="true">
-              <CloudSun size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">7-Day Forecast</span></h3>
-            <p>Detailed weekly weather outlook to plan your farming activities.</p>
-          </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/community")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/community"); }} aria-label="Farmer Community: Connect and share tips">
             <div className="icon" aria-hidden="true">
@@ -731,6 +647,12 @@ export default function Advisor({ userData }) {
             >
               Open full page →
             </button>
+          </div>
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowYieldHistory(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowYieldHistory(true); }} aria-label="Yield History: Track past predictions and accuracy">
+            <div className="icon" aria-hidden="true"><BarChart3 size={32} /></div>
+            <h3><span className="notranslate">Yield History</span></h3>
+            <p>Track past yield predictions, record actual harvests, and monitor model accuracy.</p>
           </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/schemes")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/schemes"); }} aria-label="Govt Schemes: Financial support">
@@ -1010,10 +932,10 @@ export default function Advisor({ userData }) {
               className="action-btn secondary"
               type="button"
               onClick={() => {
-                if (coords) {
+                if (weatherSnapshot?.location) {
                   fetchWeather({
-                    latitude: coords.latitude,
-                    longitude: coords.longitude,
+                    latitude: weatherSnapshot.location.latitude,
+                    longitude: weatherSnapshot.location.longitude,
                     label: weatherLocation,
                   });
                 }
@@ -1047,7 +969,7 @@ export default function Advisor({ userData }) {
             </div>
           )}
 
-          {weatherStatus === "ready" && weatherData?.current && (
+          {weatherStatus === "ready" && weatherSnapshot?.current && (
             <div
               style={{
                 display: "grid",
@@ -1066,16 +988,16 @@ export default function Advisor({ userData }) {
               >
                 <h3 style={{ marginTop: 0 }}>Now</h3>
                 <p style={{ fontSize: "28px", margin: "8px 0" }}>
-                  {formatTemp(weatherData.current.temp)}
+                  {formatTemp(weatherSnapshot.current.temperature_2m)}
                 </p>
                 <p style={{ margin: 0 }}>
-                  {weatherData.current.weather?.[0]?.description}
+                  {weatherSnapshot.summary || "Current conditions"}
                 </p>
                 <p style={{ margin: "8px 0 0" }}>
-                  Humidity: {weatherData.current.humidity}%
+                  Humidity: {weatherSnapshot.current.relative_humidity_2m}%
                 </p>
                 <p style={{ margin: 0 }}>
-                  Wind: {Math.round(weatherData.current.wind_speed)} m/s
+                  Wind: {Math.round(weatherSnapshot.current.wind_speed_10m)} m/s
                 </p>
               </div>
 
@@ -1101,7 +1023,7 @@ export default function Advisor({ userData }) {
             </div>
           )}
 
-          {weatherStatus === "ready" && weatherData?.daily?.length > 0 && (
+          {weatherStatus === "ready" && dailyForecast.length > 0 && (
             <div
               style={{
                 marginTop: "18px",
@@ -1110,9 +1032,9 @@ export default function Advisor({ userData }) {
                 gap: "12px",
               }}
             >
-              {weatherData.daily.slice(0, 7).map((day) => (
+              {dailyForecast.map((day) => (
                 <div
-                  key={day.dt}
+                  key={day.date}
                   style={{
                     background: "white",
                     borderRadius: "14px",
@@ -1121,12 +1043,12 @@ export default function Advisor({ userData }) {
                     boxShadow: "0 10px 20px rgba(15, 23, 42, 0.06)",
                   }}
                 >
-                  <p style={{ margin: "0 0 6px" }}>{formatDay(day.dt)}</p>
+                  <p style={{ margin: "0 0 6px" }}>{formatDay(day.date)}</p>
                   <p style={{ margin: "0 0 6px", fontSize: "18px" }}>
-                    {formatTemp(day.temp.max)} / {formatTemp(day.temp.min)}
+                    {formatTemp(day.maxTemp)} / {formatTemp(day.minTemp)}
                   </p>
                   <p style={{ margin: 0, fontSize: "12px", color: "#475569" }}>
-                    {day.weather?.[0]?.main} · {Math.round(day.pop * 100)}% rain
+                    Rain: {Math.round(day.rain)} mm
                   </p>
                 </div>
               ))}
@@ -1357,6 +1279,17 @@ export default function Advisor({ userData }) {
               <X />
             </button>
             <YieldPredictorForm onClose={closeYieldPopup} />
+          </div>
+        </div>
+      )}
+
+      {showYieldHistory && (
+        <div className="weather-overlay" onClick={() => setShowYieldHistory(false)}>
+          <div className="weather-popup" style={{ maxWidth: "900px", width: "95vw", maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+            <button className="close-btn" onClick={() => setShowYieldHistory(false)} aria-label="Close yield history">
+              <X />
+            </button>
+            <YieldHistory />
           </div>
         </div>
       )}

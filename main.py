@@ -7,6 +7,7 @@ import itertools
 import threading
 import logging
 import re
+import math
 import joblib
 import hashlib
 import pandas as pd
@@ -61,11 +62,13 @@ from ml.registry import ModelRegistry
 from ml.adapters.xgboost_adapter import XGBoostAdapter
 from ml.router import ModelRouter
 from ml.preprocessing import UnknownCategoryError, MissingFeatureError
+from ml.validators import InputValidationError
 
 # Other internal modules
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
+from weather_alerts import weather_service, WeatherAlert
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -139,17 +142,17 @@ db_firestore = None
 
 if not firebase_admin._apps:
     try:
-        # In a GCP environment this picks up Application Default Credentials
-        # automatically.  For local dev set GOOGLE_APPLICATION_CREDENTIALS to
-        # the path of a service-account key file.
         firebase_admin.initialize_app()
-        db_firestore = firestore.client()
-        _firebase_logger.info("Firebase Admin: successfully initialized")
+        _firebase_logger.info("Firebase Admin: initialized new app")
     except Exception as e:
-        _firebase_logger.warning(
-            "Firebase Admin: could not initialize — role-gated endpoints will "
-            "return 503 until Firestore is reachable. Reason: %s", e
-        )
+        _firebase_logger.warning("Firebase Admin: initialization failed: %s", e)
+
+try:
+    db_firestore = firestore.client()
+    _firebase_logger.info("Firestore: client successfully connected")
+except Exception as e:
+    db_firestore = None
+    _firebase_logger.warning("Firestore: could not connect client: %s", e)
 
 async def verify_role(request: Request, required_roles: list = None):
     """
@@ -255,6 +258,18 @@ class PredictRequest(BaseModel):
 class PredictResponse(BaseModel):
     predicted_ExpYield: float
 
+class YieldHistoryRecord(BaseModel):
+    crop: str
+    season: str
+    area: float
+    predicted_yield: float
+    inputs: Dict[str, Any]
+    timestamp: datetime = Field(default_factory=datetime.now)
+
+class ActualYieldUpdate(BaseModel):
+    record_id: str
+    actual_yield: float
+
 class WhatsAppSubscribeRequest(BaseModel):
     phone_number: str
     name: str
@@ -292,6 +307,17 @@ class ReportRequest(BaseModel):
 class SeedVerifyRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=100)
 
+class WeatherAlertRequest(BaseModel):
+    """Request for weather alerts by location and crop"""
+    latitude: float = Field(..., ge=-90, le=90)
+    longitude: float = Field(..., ge=-180, le=180)
+    location: str = Field(..., max_length=100)
+    crop: Optional[str] = Field(default=None, max_length=50)
+
+class WeatherLocationRequest(BaseModel):
+    """Request to geocode a location"""
+    location: str = Field(..., min_length=2, max_length=100)
+
 # --- ML Pipeline Initialization ---
 # init_ml_pipeline() is called inside the FastAPI lifespan context manager
 # (defined above app = FastAPI(...)) so it runs in every Uvicorn worker
@@ -317,6 +343,24 @@ def init_ml_pipeline():
         
     except Exception as e:
         print(f"ML Pipeline Error: {e}")
+
+    # ── LSTM Price Forecaster Pre-training ──────────────────────────────────
+    # The LSTM models train on embedded data at first use. To prevent the
+    # first API request from timing out (training takes ~30-60s per crop),
+    # we trigger a background "warm-up" for the major commodities.
+    def warm_up_forecaster():
+        try:
+            from ml.price_forecaster import price_forecaster
+            commodities = price_forecaster.supported_commodities()
+            print(f"ML Pipeline: Starting background warm-up for {len(commodities)} commodities...")
+            for commodity in commodities:
+                # This triggers training if not already cached
+                price_forecaster.forecast(commodity, days=1)
+            print("ML Pipeline: All price forecast models warmed up.")
+        except Exception as e:
+            print(f"ML Pipeline: Forecaster warm-up failed: {e}")
+
+    threading.Thread(target=warm_up_forecaster, daemon=True).start()
 
 init_ml_pipeline()
 
@@ -445,9 +489,9 @@ def predict_yield(data: PredictRequest, request: Request):
     """
     Standardised prediction endpoint using ML Router for dynamic model selection.
 
-    Returns HTTP 422 when the input contains an unknown categorical value or a
-    missing required feature, so callers receive an actionable error message
-    rather than a silently corrupted prediction.
+    Returns HTTP 422 when the input contains an unknown categorical value, a
+    missing required feature, or an out-of-range numeric parameter, so callers
+    receive an actionable error message rather than a silently corrupted prediction.
     """
     try:
         input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
@@ -460,6 +504,18 @@ def predict_yield(data: PredictRequest, request: Request):
         predicted_yield = router.predict(input_data, context)
         return {"predicted_ExpYield": float(predicted_yield)}
 
+    except InputValidationError as e:
+        # A numeric parameter is out of acceptable range or invalid type.
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "invalid_input",
+                "field": e.field,
+                "value": str(e.value),
+                "constraint": e.constraint,
+                "message": str(e),
+            },
+        )
     except UnknownCategoryError as e:
         # The submitted categorical value was not in the training vocabulary.
         raise HTTPException(
@@ -485,6 +541,165 @@ def predict_yield(data: PredictRequest, request: Request):
         print(f"Prediction Error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.post("/api/yield/history")
+@limiter.limit("10/minute")
+async def save_yield_history(data: YieldHistoryRecord, request: Request):
+    """Stores initial yield prediction metadata in Firestore."""
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+    
+    if not db_firestore:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    try:
+        # Create a new record with initial null actual_yield
+        record_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
+        record_data["uid"] = uid
+        record_data["actual_yield"] = None
+        record_data["accuracy"] = None
+        
+        # Use a timestamp-based ID or let Firestore generate
+        doc_ref = db_firestore.collection("yield_history").document()
+        doc_ref.set(record_data)
+        
+        return {"success": True, "record_id": doc_ref.id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/yield/record-actual")
+@limiter.limit("5/minute")
+async def record_actual_yield(data: ActualYieldUpdate, request: Request):
+    """Updates a yield history record with the actual harvested yield and computes accuracy."""
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+
+    if not db_firestore:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    try:
+        doc_ref = db_firestore.collection("yield_history").document(data.record_id)
+        doc_snap = doc_ref.get()
+        
+        if not doc_snap.exists:
+            raise HTTPException(status_code=404, detail="Record not found")
+        
+        existing = doc_snap.to_dict()
+        if existing["uid"] != uid:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        # Calculate accuracy: (1 - |pred - actual| / actual) * 100
+        # Capped at 0-100%
+        pred = existing["predicted_yield"]
+        actual = data.actual_yield
+        if actual > 0:
+            error = abs(pred - actual) / actual
+            accuracy = max(0, (1 - error) * 100)
+        else:
+            accuracy = 0
+
+        doc_ref.update({
+            "actual_yield": actual,
+            "accuracy": round(accuracy, 2)
+        })
+
+        return {"success": True, "accuracy": round(accuracy, 2)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/yield/analytics")
+@limiter.limit("10/minute")
+async def get_yield_analytics(request: Request):
+    """Returns yield history, accuracy metrics, and detects model drift."""
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+
+    if not db_firestore:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    try:
+        # Remove order_by to avoid composite index requirement (uid ASC, timestamp DESC)
+        docs = db_firestore.collection("yield_history")\
+            .where("uid", "==", uid)\
+            .limit(100)\
+            .stream()
+        
+        history = []
+        try:
+            for d in docs:
+                try:
+                    item = d.to_dict()
+                    if not item: continue
+                    item["id"] = d.id
+                    
+                    # Robust timestamp parsing
+                    ts = item.get("timestamp")
+                    parsed_ts = datetime.min
+                    if hasattr(ts, "to_datetime"):
+                        parsed_ts = ts.to_datetime()
+                    elif isinstance(ts, datetime):
+                        parsed_ts = ts
+                    elif isinstance(ts, str):
+                        try:
+                            parsed_ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        except:
+                            pass
+                    
+                    item["timestamp_obj"] = parsed_ts
+                    history.append(item)
+                except Exception as row_err:
+                    _firebase_logger.warning("Skipping malformed yield record %s: %s", getattr(d, "id", "unknown"), row_err)
+        except Exception as stream_err:
+            _firebase_logger.error("Firestore stream failed: %s", stream_err)
+            raise HTTPException(status_code=500, detail="Database stream error")
+
+        # Sort in memory: Newest first
+        history.sort(key=lambda x: x.get("timestamp_obj", datetime.min), reverse=True)
+        
+        # Limit to 20 for response
+        history = history[:20]
+
+        # Final cleanup for JSON
+        clean_history = []
+        for item in history:
+            clean_item = {
+                "id": item.get("id"),
+                "crop": item.get("crop", "Unknown"),
+                "season": item.get("season", "Unknown"),
+                "area": item.get("area", 0),
+                "predicted_yield": item.get("predicted_yield", 0),
+                "actual_yield": item.get("actual_yield"),
+                "accuracy": item.get("accuracy"),
+                "timestamp": item["timestamp_obj"].isoformat() if isinstance(item.get("timestamp_obj"), datetime) else datetime.now().isoformat()
+            }
+            clean_history.append(clean_item)
+
+        # Drift Detection Logic
+        completed = [h for h in clean_history if h.get("accuracy") is not None]
+        drift_detected = False
+        avg_accuracy = None
+        
+        if len(completed) >= 3:
+            recent_accs = [float(h["accuracy"]) for h in completed[:3]]
+            avg_accuracy = sum(recent_accs) / len(recent_accs)
+            if avg_accuracy < 75:
+                drift_detected = True
+
+        return {
+            "history": clean_history,
+            "metrics": {
+                "avg_accuracy": round(avg_accuracy, 2) if avg_accuracy is not None else None,
+                "drift_detected": drift_detected,
+                "total_records": len(clean_history),
+                "completed_records": len(completed)
+            },
+            "drift_alert": "Significant model drift detected. Local environmental changes may be affecting accuracy. Consider participating in retraining." if drift_detected else None
+        }
+    except Exception as e:
+        _firebase_logger.error("Analytics Fatal Error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Analytics internal error: {str(e)}")
+
 @app.post("/predict-yield-lag")
 @limiter.limit("5/minute")
 async def predict_yield_lag(payload: YieldInput, request: Request):
@@ -494,14 +709,34 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
         data = payload.data
         if len(data) != 5:
             raise ValueError("Exactly 5 values are required")
-        data = np.array(data).reshape(1, -1)
-        prediction = model_lag.predict(data)
+        
+        # Validate each numeric value in the time series
+        validated_data = []
+        for i, value in enumerate(data):
+            try:
+                # Convert to float and check for special values
+                numeric_value = float(value)
+                if math.isnan(numeric_value):
+                    raise ValueError(f"Value at position {i} cannot be NaN")
+                if math.isinf(numeric_value):
+                    raise ValueError(f"Value at position {i} cannot be infinite")
+                # Check for reasonable yield range (0 to 100,000 kg/ha)
+                if not (0 <= numeric_value <= 100000):
+                    raise ValueError(
+                        f"Value at position {i} ({numeric_value}) must be between 0 and 100,000 kg/ha"
+                    )
+                validated_data.append(numeric_value)
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Invalid value at position {i}: {value}. {str(e)}")
+        
+        data_array = np.array(validated_data).reshape(1, -1)
+        prediction = model_lag.predict(data_array)
         return {
             "prediction": round(float(prediction[0]), 2),
             "model": "RandomForest Time Series (Lag Features)"
         }
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
@@ -514,7 +749,27 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
         data = payload.data
         if len(data) != 5:
             raise ValueError("Exactly 5 values are required")
-        temp = list(data)
+        
+        # Validate each numeric value in the time series
+        validated_data = []
+        for i, value in enumerate(data):
+            try:
+                # Convert to float and check for special values
+                numeric_value = float(value)
+                if math.isnan(numeric_value):
+                    raise ValueError(f"Value at position {i} cannot be NaN")
+                if math.isinf(numeric_value):
+                    raise ValueError(f"Value at position {i} cannot be infinite")
+                # Check for reasonable yield range (0 to 100,000 kg/ha)
+                if not (0 <= numeric_value <= 100000):
+                    raise ValueError(
+                        f"Value at position {i} ({numeric_value}) must be between 0 and 100,000 kg/ha"
+                    )
+                validated_data.append(numeric_value)
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Invalid value at position {i}: {value}. {str(e)}")
+        
+        temp = list(validated_data)
         trend = []
         for _ in range(5):
             features = temp[:5]
@@ -528,7 +783,7 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
             "model": "RandomForest Trend Forecast (Lag Features)"
         }
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
@@ -554,6 +809,122 @@ def get_notifications(
         season=season
     )
     return {"success": True, "data": _notification_store.get_recent() + dynamic_alerts}
+
+# --- Weather Alerts Endpoints ---
+
+@app.post("/api/weather/geocode")
+async def geocode_location(data: WeatherLocationRequest):
+    """
+    Get coordinates (latitude, longitude) for a location.
+    
+    This endpoint helps users find their farm location's coordinates
+    without exposing any API keys.
+    """
+    try:
+        result = await weather_service.get_coordinates(data.location)
+        if result:
+            latitude, longitude, name = result
+            return {
+                "success": True,
+                "location": name,
+                "latitude": latitude,
+                "longitude": longitude,
+            }
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Location '{data.location}' not found"
+            )
+    except Exception as e:
+        logger.error(f"Geocoding error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to geocode location"
+        ) from e
+
+
+@app.post("/api/weather/alerts")
+@limiter.limit("10/minute")
+async def get_weather_alerts(data: WeatherAlertRequest, request: Request):
+    """
+    Get real-time weather alerts for a specific location and crop.
+    
+    Args:
+        latitude: Farm latitude
+        longitude: Farm longitude
+        location: Location name for display
+        crop: (Optional) Crop type for crop-specific warnings
+    
+    Returns:
+        Weather alerts with severity levels and recommended actions
+    
+    Note: No API keys are exposed. Uses free Open-Meteo API.
+    """
+    try:
+        # Fetch current weather
+        weather = await weather_service.fetch_weather(
+            data.latitude,
+            data.longitude,
+            data.location
+        )
+        
+        if not weather:
+            raise HTTPException(
+                status_code=503,
+                detail="Unable to fetch weather data. Please try again."
+            )
+        
+        # Analyze weather and generate alerts
+        alerts = weather_service.analyze_weather(weather, data.crop)
+        
+        # Get summary
+        summary = weather_service.get_alerts_summary(alerts)
+        
+        return {
+            "success": True,
+            "location": data.location,
+            "crop": data.crop,
+            "weather": {
+                "temperature": weather.temperature,
+                "humidity": weather.humidity,
+                "rainfall": weather.rainfall,
+                "wind_speed": weather.wind_speed,
+                "cloud_cover": weather.cloud_cover,
+                "timestamp": weather.timestamp.isoformat(),
+            },
+            "alerts": summary,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Weather alert error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate weather alerts"
+        ) from e
+
+
+@app.get("/api/weather/alerts/history")
+@limiter.limit("5/minute")
+async def get_alerts_history(request: Request):
+    """
+    Get recent weather alerts history.
+    Useful for reviewing past alerts and trends.
+    """
+    try:
+        # Get recent alerts from the service history
+        recent_alerts = weather_service.alert_history[-50:]  # Last 50 alerts
+        return {
+            "success": True,
+            "total_alerts": len(weather_service.alert_history),
+            "recent_alerts": [alert.to_dict() for alert in recent_alerts],
+        }
+    except Exception as e:
+        logger.error(f"Alert history error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retrieve alert history"
+        ) from e
 
 # --- WhatsApp Service Endpoints ---
 #
@@ -1177,6 +1548,55 @@ async def verify_seed(data: SeedVerifyRequest, request: Request):
         "certified_on": entry["certified_on"],
         "expires_on": entry["expires_on"],
     }
+
+# ── Market Price Forecasting ──────────────────────────────────────────────────
+
+class MarketForecastRequest(BaseModel):
+    commodity: str = Field(..., min_length=1, max_length=60)
+    days: int = Field(default=14, ge=1, le=30)
+
+
+@app.post("/api/market/forecast")
+@limiter.limit("10/minute")
+async def market_price_forecast(data: MarketForecastRequest, request: Request):
+    """
+    Generate an LSTM-based 14-day price forecast for a commodity.
+
+    The forecasting engine (ml/price_forecaster.py) trains a lightweight
+    LSTM on embedded 2-year historical mandi price data at first request
+    and caches the model in memory.  Subsequent requests for the same
+    commodity are served from the cache with no retraining overhead.
+
+    Request body
+    ------------
+    - commodity : str   — commodity name (e.g. "Wheat", "Cotton")
+    - days      : int   — forecast horizon in days (1–30, default 14)
+
+    Response
+    --------
+    - commodity          : str
+    - forecast_days      : int
+    - forecast           : list[{date, price, lower_bound, upper_bound}]
+    - best_sell_date     : str   — ISO date of forecast price peak
+    - best_sell_price    : float — predicted peak price (₹/quintal)
+    - recommendation     : str   — human-readable selling advice
+    - model_type         : str   — "LSTM" or "Statistical" (fallback)
+    - generated_at       : str   — ISO UTC timestamp
+    """
+    try:
+        from ml.price_forecaster import price_forecaster
+        result = price_forecaster.forecast(
+            commodity=data.commodity,
+            days=data.days,
+        )
+        return result
+    except Exception as exc:
+        logger.error("Market forecast error for commodity='%s': %s", data.commodity, exc)
+        raise HTTPException(
+            status_code=500,
+            detail="Price forecast temporarily unavailable. Please try again later.",
+        )
+
 
 if __name__ == "__main__":
     import uvicorn
