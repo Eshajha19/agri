@@ -50,14 +50,16 @@ export default function CropRecommendationAdvisor({ onClose }) {
     );
   };
 
-  // Handle input changes
-  const handleInputChange = (e) => {
-    const { name, value, type } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: type === 'number' ? parseFloat(value) : value,
-    }));
-  };
+   // Handle input changes
+   const handleInputChange = (e) => {
+     const { name, value, type } = e.target;
+     // Parse float for numeric inputs (including range)
+     const numericValue = type === 'number' || type === 'range' ? parseFloat(value) : value;
+     setFormData((prev) => ({
+       ...prev,
+       [name]: numericValue,
+     }));
+   };
 
   // Reset form
   const handleReset = () => {
