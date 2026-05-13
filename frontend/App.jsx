@@ -29,26 +29,48 @@ import {
 import { GrResources } from "react-icons/gr";
 import { usePerformanceStore } from "./stores/performanceStore";
 
-// Components
-import AdminFeedback from "./AdminFeedback";
-import Advisor from "./Advisor";
-import Auth from "./Auth";
-import Calendar from "./FarmingCalendar";
-import Contributors from "./Contributors";
-import CropGuide from "./CropGuide";
-import CropProfitCalculator from "./CropProfitCalculator";
-import Dashboard from "./Dashboard";
-import Feedback from "./Feedback";
-import FarmingMap from "./FarmingMap";
-import Schemes from "./GovernmentSchemes";
-import How from "./How";
-import Home from "./Home";
-import MarketPrices from "./MarketPrices";
+// Components - Lazily Loaded for better bundle size
+const AdminFeedback = React.lazy(() => import("./AdminFeedback"));
+const Advisor = React.lazy(() => import("./Advisor"));
+const Auth = React.lazy(() => import("./Auth"));
+const Calendar = React.lazy(() => import("./FarmingCalendar"));
+const Contributors = React.lazy(() => import("./Contributors"));
+const CropGuide = React.lazy(() => import("./CropGuide"));
+const CropProfitCalculator = React.lazy(() => import("./CropProfitCalculator"));
+const Dashboard = React.lazy(() => import("./Dashboard"));
+const Feedback = React.lazy(() => import("./Feedback"));
+const FarmingMap = React.lazy(() => import("./FarmingMap"));
+const Schemes = React.lazy(() => import("./GovernmentSchemes"));
+const How = React.lazy(() => import("./How"));
+const Home = React.lazy(() => import("./Home"));
+const MarketPrices = React.lazy(() => import("./MarketPrices"));
+const Community = React.lazy(() => import("./Community"));
+const ContactUs = React.lazy(() => import("./ContactUs"));
+const AboutUs = React.lazy(() => import("./AboutUs"));
+const LanguageDropdown = React.lazy(() => import("./LanguageDropdown"));
+const ProfileSetup = React.lazy(() => import("./ProfileSetup"));
+const QRTraceability = React.lazy(() => import("./QRTraceability"));
+const Resources = React.lazy(() => import("./Resources"));
+const SeasonalCropPlanner = React.lazy(() => import("./SeasonalCropPlanner"));
+const SoilGuide = React.lazy(() => import("./SoilGuide"));
+const CropDiseaseAwareness = React.lazy(() => import("./CropDiseaseAwareness"));
+const CropRotation = React.lazy(() => import("./CropRotation"));
+const Helpline = React.lazy(() => import("./Helpline"));
+const Glossary = React.lazy(() => import("./Glossary"));
+const RiskIndex = React.lazy(() => import("./RiskIndex"));
+const Blog = React.lazy(() => import("./Blog"));
+const BlogDetail = React.lazy(() => import("./BlogDetail"));
+const FAQ = React.lazy(() => import("./FAQ"));
+const NotFound = React.lazy(() => import("./NotFound"));
+const PrivacyPolicy = React.lazy(() => import("./PrivacyPolicy"));
+const Terms = React.lazy(() => import("./Terms"));
+const SoilAnalysis = React.lazy(() => import("./SoilAnalysis"));
+const SeedVerifier = React.lazy(() => import("./SeedVerifier"));
+const FarmFinance = React.lazy(() => import("./FarmFinance"));
+const YieldPredictor = React.lazy(() => import("./YieldPredictor"));
+
+// Keep critical components synchronous
 import Loader from "./Loader";
-import Community from "./Community";
-import ContactUs from "./ContactUs";
-import AboutUs from "./AboutUs";
-import LanguageDropdown from "./LanguageDropdown";
 import useNotifications from "./Notifications";
 import ProfileSetup from "./ProfileSetup";
 import QRTraceability from "./QRTraceability";
@@ -74,6 +96,7 @@ import YieldPredictor from "./YieldPredictor";
 import Footer from "./components/Footer";
 import { SkipLink } from "./NavigationManager";
 import { useTheme } from "./ThemeContext";
+import ErrorBoundary from "./ErrorBoundary";
 
 // Libs
 import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc } from "./lib/firebase";

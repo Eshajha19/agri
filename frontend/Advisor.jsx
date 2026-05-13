@@ -1,15 +1,35 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import "./Advisor.css";
-import WeatherCard from "./weather/WeatherCard";
-import Forecast from "./Forecast";
-import SoilChatbot from "./SoilChatbot";
-import SoilAnalysis from "./SoilAnalysis";
-import SoilGuide from "./SoilGuide";
-import IrrigationGuidance from "./IrrigationGuidance";
-import CropProfitCalculator from "./CropProfitCalculator";
-import FarmingMap from "./FarmingMap";
-import FertilizerRecommendation from "./FertilizerRecommendation";
+// Components - Lazily Loaded for better bundle size
+const WeatherCard = React.lazy(() => import("./weather/WeatherCard"));
+const Forecast = React.lazy(() => import("./Forecast"));
+const SoilChatbot = React.lazy(() => import("./SoilChatbot"));
+const SoilAnalysis = React.lazy(() => import("./SoilAnalysis"));
+const SoilGuide = React.lazy(() => import("./SoilGuide"));
+const IrrigationGuidance = React.lazy(() => import("./IrrigationGuidance"));
+const CropProfitCalculator = React.lazy(() => import("./CropProfitCalculator"));
+const FarmingMap = React.lazy(() => import("./FarmingMap"));
+const FertilizerRecommendation = React.lazy(() => import("./FertilizerRecommendation"));
+const AgriMarketplace = React.lazy(() => import("./AgriMarketplace"));
+const AgriLMS = React.lazy(() => import("./AgriLMS"));
+const BankReports = React.lazy(() => import("./BankReports"));
+const QRTraceability = React.lazy(() => import("./QRTraceability"));
+const FarmPlanner3D = React.lazy(() => import("./FarmPlanner3D"));
+const FarmDiary = React.lazy(() => import("./FarmDiary"));
+const CropDiseaseDetection = React.lazy(() => import("./CropDiseaseDetection"));
+const PestManagement = React.lazy(() => import("./PestManagement"));
+const SeedVerifier = React.lazy(() => import("./SeedVerifier"));
+const ClimateSimulator = React.lazy(() => import("./ClimateSimulator"));
+const RAGAdvisor = React.lazy(() => import("./RAGAdvisor"));
+const GreenPractices = React.lazy(() => import("./GreenPractices"));
+const YieldPredictorForm = React.lazy(() => import("./YieldPredictorForm"));
+const CropRotation = React.lazy(() => import("./CropRotation"));
+const P2PChat = React.lazy(() => import("./P2PChat"));
+const GeoAlertMesh = React.lazy(() => import("./GeoAlertMesh"));
+const SmartCropRecommendation = React.lazy(() => import("./SmartCropRecommendation"));
+const PersonalizedAdvisory = React.lazy(() => import("./PersonalizedAdvisory"));
+
 import LastUpdated from "./LastUpdated";
 import AgriMarketplace from "./AgriMarketplace";
 import AgriLMS from "./AgriLMS";
@@ -27,12 +47,6 @@ import GreenPractices from "./GreenPractices";
 import YieldPredictorForm from "./YieldPredictorForm";
 import YieldHistory from "./YieldHistory";
 import { Leaf } from "lucide-react";
-
-import CropRotation from "./CropRotation";
-import P2PChat from "./P2PChat";
-import GeoAlertMesh from "./GeoAlertMesh";
-import SmartCropRecommendation from "./SmartCropRecommendation";
-import PersonalizedAdvisory from "./PersonalizedAdvisory";
 import {
   Sun,
   Droplets,
