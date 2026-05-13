@@ -23,9 +23,13 @@ import {
   FaSun,
   FaMoon,
 } from "react-icons/fa";
+import { 
+  GiThreeLeaves,
+} from "react-icons/gi";
+import { GrResources } from "react-icons/gr";
 import { usePerformanceStore } from "./stores/performanceStore";
 
-// Components
+// Components - Static imports (lazy loading removed for faster feature access)
 import AdminFeedback from "./AdminFeedback";
 import Advisor from "./Advisor";
 import Auth from "./Auth";
@@ -40,14 +44,14 @@ import Schemes from "./GovernmentSchemes";
 import How from "./How";
 import Home from "./Home";
 import MarketPrices from "./MarketPrices";
-import Loader from "./Loader";
 import Community from "./Community";
 import ContactUs from "./ContactUs";
 import AboutUs from "./AboutUs";
 import LanguageDropdown from "./LanguageDropdown";
-import useNotifications from "./Notifications";
 import ProfileSetup from "./ProfileSetup";
 import QRTraceability from "./QRTraceability";
+import PestDetection from "./PestDetection";
+import EquipmentManagement from "./EquipmentManagement";
 import Resources from "./Resources";
 import SeasonalCropPlanner from "./SeasonalCropPlanner";
 import SoilGuide from "./SoilGuide";
@@ -63,16 +67,22 @@ import NotFound from "./NotFound";
 import PrivacyPolicy from "./PrivacyPolicy";
 import Terms from "./Terms";
 import SoilAnalysis from "./SoilAnalysis";
-import SeedVerifier from "./SeedVerifier";
-import FarmFinance from "./FarmFinance";
-import YieldPredictor from "./YieldPredictor";
+ import SeedVerifier from "./SeedVerifier";
+ import FarmFinance from "./FarmFinance";
+ import YieldPredictor from "./YieldPredictor";
+
+ // Keep critical components synchronous
+import Loader from "./Loader";
+import useNotifications from "./Notifications";
 import Footer from "./components/Footer";
 import { SkipLink } from "./NavigationManager";
 import { useTheme } from "./ThemeContext";
+import ErrorBoundary from "./ErrorBoundary";
 
 // Libs
 import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc } from "./lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
+import { cryptoService } from "./utils/cryptoService";
 
 // CSS
 import "./App.css";
@@ -218,7 +228,6 @@ function App() {
         let publicJwk = localStorage.getItem(`agri:ecdh_public_${user.uid}`);
         
         if (!privateJwk || !publicJwk) {
-          const { cryptoService } = await import("./utils/cryptoService");
           const keyPair = await cryptoService.generateECDHKeyPair();
           privateJwk = await cryptoService.exportKey(keyPair.privateKey);
           publicJwk = await cryptoService.exportKey(keyPair.publicKey);
@@ -297,7 +306,6 @@ function App() {
 
       <nav className={`navbar ${isOpen ? "menu-open" : ""}`} role="navigation" aria-label="Main Navigation">
         <div className="nav-left">
-          <FaLeaf className="icon" />
           <Link to="/" className="brand">Fasal Saathi</Link>
         </div>
 
@@ -305,8 +313,8 @@ function App() {
           <li><Link to="/" onClick={() => setIsOpen(false)}><FaHome /> Home</Link></li>
           <li><Link to="/advisor" onClick={() => setIsOpen(false)}><FaComments /> Chat</Link></li>
           <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}><FaInfoCircle /> How It Works</Link></li>
-          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}><FaLeaf className="icon" /> Crop Guide</Link></li>
-          <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
+          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}><GiThreeLeaves />Crop Guide</Link></li>
+          <li><Link to="/resources" onClick={() => setIsOpen(false)}><GrResources />Resources</Link></li>
         </ul>
 
         <div className="nav-right">
@@ -465,6 +473,8 @@ function App() {
           <Route path="/crop-planner" element={<SeasonalCropPlanner />} />
           <Route path="/soil-guide" element={<SoilGuide />} />
           <Route path="/disease-awareness" element={<CropDiseaseAwareness />} />
+          <Route path="/pest-detection" element={<PestDetection />} />
+          <Route path="/equipment-management" element={<EquipmentManagement />} />
           <Route path="/helpline" element={<Helpline />} />
           <Route path="/glossary" element={<Glossary />} />
           <Route path="/risk-index" element={<RiskIndex />} />
