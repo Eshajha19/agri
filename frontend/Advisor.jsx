@@ -30,9 +30,9 @@ import P2PChat from "./P2PChat";
 import GeoAlertMesh from "./GeoAlertMesh";
 import SmartCropRecommendation from "./SmartCropRecommendation";
 import PersonalizedAdvisory from "./PersonalizedAdvisory";
- import YieldHistory from "./YieldHistory";
-
- // Keep critical components synchronous
+import YieldHistory from "./YieldHistory";
+import CropRecommendationAdvisor from "./CropRecommendationAdvisor";
+import EquipmentManagement from "./EquipmentManagement";
 import LastUpdated from "./LastUpdated";
 import { Leaf } from "lucide-react";
 import {
@@ -150,7 +150,11 @@ export default function Advisor({ userData }) {
     setShowRAGAdvisor,
     showGreenPractices,
     setShowGreenPractices,
-  } = useAdvisorStore();
+    showCropRecommendationAdvisor,
+    setShowCropRecommendationAdvisor,
+    showEquipmentManagement,
+    setShowEquipmentManagement,
+} = useAdvisorStore();
 
 
 
@@ -691,28 +695,28 @@ export default function Advisor({ userData }) {
             <p>Access video tutorials on modern farming and earn completion certificates.</p>
           </div>
 
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowQRTraceability(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowQRTraceability(true); }} aria-label="QR-Farm Traceability: Trace your produce">
-            <div className="icon" aria-hidden="true"><QrCode size={32} /></div>
-            <h3><span className="notranslate">QR-Farm Traceability</span></h3>
-            <p>Generate QR codes for your produce. Let customers trace their food from farm to table.</p>
-          </div>
+           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowQRTraceability(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowQRTraceability(true); }} aria-label="QR-Farm Traceability: Trace your produce">
+             <div className="icon" aria-hidden="true"><QrCode size={32} /></div>
+             <h3><span className="notranslate">QR-Farm Traceability</span></h3>
+             <p>Generate QR codes for your produce. Let customers trace their food from farm to table.</p>
+           </div>
 
-          {(userData?.role === "vendor" || userData?.role === "admin") && (
-            <div 
-              className="card reveal" 
-              role="button" 
-              tabIndex={0} 
-              onClick={() => setShowSeedVerifier(true)} 
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSeedVerifier(true); }} 
-              aria-label="Vision-Lite: Seed Authenticity Verifier"
-            >
-              <div className="icon" aria-hidden="true">
-                <QrCode size={32} strokeWidth={2} />
-              </div>
-              <h3><span className="notranslate">Vision-Lite: Seed Verifier</span></h3>
-              <p>Scan seed packets to verify authenticity and prevent counterfeit usage.</p>
-            </div>
-          )}
+           {(userData?.role === "vendor" || userData?.role === "admin") && (
+             <div 
+               className="card reveal" 
+               role="button" 
+               tabIndex={0} 
+               onClick={() => setShowSeedVerifier(true)} 
+               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSeedVerifier(true); }} 
+               aria-label="Vision-Lite: Seed Authenticity Verifier"
+             >
+               <div className="icon" aria-hidden="true">
+                 <QrCode size={32} strokeWidth={2} />
+               </div>
+               <h3><span className="notranslate">Vision-Lite: Seed Verifier</span></h3>
+               <p>Scan seed packets to verify authenticity and prevent counterfeit usage.</p>
+             </div>
+           )}
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFarmPlanner3D(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFarmPlanner3D(true); }} aria-label="3D Farm Planner: Interactive design">
             <div className="icon" aria-hidden="true"><Map size={32} /></div>
@@ -827,15 +831,13 @@ export default function Advisor({ userData }) {
             <p>Report and receive highly localized (5km radius) real-time disaster alerts.</p>
           </div>
 
-          {(userData?.role === "expert" || userData?.role === "admin") && (
-            <div className="card reveal bank-report-card" role="button" tabIndex={0} onClick={() => setShowBankReport(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowBankReport(true); }} aria-label="Bank Reports: Export financial data">
-              <div className="icon" aria-hidden="true">
-                <Landmark size={32} strokeWidth={2} />
-              </div>
-              <h3><span className="notranslate">Bank Reports & Export</span></h3>
-              <p>Generate professional PDF/CSV reports for bank loans and financial records.</p>
-            </div>
-          )}
+<div className="card reveal bank-report-card" role="button" tabIndex={0} onClick={() => setShowBankReport(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowBankReport(true); }} aria-label="Bank Reports: Export financial data">
+  <div className="icon" aria-hidden="true">
+    <Landmark size={32} strokeWidth={2} />
+  </div>
+  <h3><span className="notranslate">Bank Reports & Export</span></h3>
+  <p>Generate professional PDF/CSV reports for bank loans and financial records.</p>
+</div>
 
           <div 
             className="card reveal" 
