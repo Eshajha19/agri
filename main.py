@@ -118,6 +118,7 @@ from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
 from crop_quality_grading import CropQualityGrader
 from blockchain_supply_chain import SupplyChainBlockchain
+from farm_finance_ai import FarmFinanceAI
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -344,6 +345,23 @@ class ReportRequest(BaseModel):
 class SeedVerifyRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=100)
 
+class FinanceAssessmentRequest(BaseModel):
+    farmer_name: str = Field(..., min_length=1, max_length=100)
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    acreage: float = Field(default=0, ge=0)
+    annual_revenue: float = Field(default=0, ge=0)
+    annual_operating_cost: float = Field(default=0, ge=0)
+    existing_debt: float = Field(default=0, ge=0)
+    emergency_fund: float = Field(default=0, ge=0)
+    credit_score: int = Field(default=650, ge=300, le=900)
+    requested_loan_amount: float = Field(default=0, ge=0)
+    loan_tenure_months: int = Field(default=36, ge=6, le=120)
+    irrigation_cost: float = Field(default=0, ge=0)
+    labor_cost: float = Field(default=0, ge=0)
+    selected_lender: Optional[str] = Field(default=None, max_length=100)
+    farm_location: Optional[str] = Field(default=None, max_length=120)
+    notes: Optional[str] = Field(default=None, max_length=500)
+
 # --- ML Pipeline Initialization ---
 # init_ml_pipeline() is called inside the FastAPI lifespan context manager
 # (defined above app = FastAPI(...)) so it runs in every Uvicorn worker
@@ -487,6 +505,9 @@ _crop_quality_grader = CropQualityGrader()
 # Initialize Supply Chain Blockchain
 _supply_chain_blockchain = SupplyChainBlockchain()
 
+# Initialize Farm Finance AI
+_farm_finance_ai = FarmFinanceAI()
+
 # --- Routes ---
 
 @app.get("/")
@@ -612,6 +633,39 @@ def get_notifications(
         season=season
     )
     return {"success": True, "data": _notification_store.get_recent() + dynamic_alerts}
+
+@app.post("/api/finance/analyze")
+@limiter.limit("10/minute")
+async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest):
+    """Analyze farm finances and return loan recommendations."""
+    analysis = _farm_finance_ai.analyze_financial_profile(body.model_dump())
+    return {"success": True, "data": analysis}
+
+
+@app.post("/api/finance/applications")
+@limiter.limit("5/minute")
+async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
+    """Create a loan application from the current farm profile."""
+    application = _farm_finance_ai.create_application(body.model_dump())
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/applications/{application_id}")
+def get_finance_application(application_id: str):
+    application = _farm_finance_ai.get_application(application_id)
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/products")
+def get_finance_products():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+
+@app.get("/api/finance/marketplace")
+def get_finance_marketplace():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
 
 # --- WhatsApp Service Endpoints ---
 #
