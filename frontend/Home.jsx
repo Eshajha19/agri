@@ -559,12 +559,20 @@ export default function Home({ user }) {
               <FaQuoteLeft className="quote-icon" />
               <p className="testimonial-text">{testimonial.text}</p>
               <div className="testimonial-author">
-                <div className="author-avatar">{testimonial.name[0]}</div>
-                <div className="author-info">
-                  <span className="author-name"><span className="notranslate">{testimonial.name}</span></span>
-                  <span className="author-location">{testimonial.location}</span>
-                </div>
-              </div>
+                <div className="author-avatar">
+    {testimonial.name.charAt(0)}
+  </div>
+
+  <div className="author-info">
+    <span className="author-name">
+      <span className="notranslate">{testimonial.name}</span>
+    </span>
+
+    <span className="author-location">
+      {testimonial.location}
+    </span>
+  </div>
+</div>
             </div>
           ))}
         </div>

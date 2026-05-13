@@ -530,15 +530,15 @@ export default function Advisor({ userData }) {
             </p>
           </div>
 
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/blog")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/blog"); }} aria-label="Knowledge Blog: Farming articles">
-            <div className="icon" aria-hidden="true">
-              <Book size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">Knowledge Blog</span></h3>
-            <p>
-              Read articles on crop management, weather, and farming best practices.
-            </p>
-          </div>
+           <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/blog")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/blog"); }} aria-label="Knowledge Blog: Farming articles">
+             <div className="icon" aria-hidden="true">
+               <Book size={32} strokeWidth={2} />
+             </div>
+             <h3><span className="notranslate">Knowledge Blog</span></h3>
+             <p>
+               Read articles on crop management, weather, and farming best practices.
+             </p>
+           </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/disease-awareness")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/disease-awareness"); }} aria-label="Crop Disease Awareness: Learn remedies">
             <div className="icon" aria-hidden="true">
@@ -868,6 +868,15 @@ export default function Advisor({ userData }) {
             <h3><span className="notranslate">AI Research Advisor</span></h3>
             <p>Get research-backed agricultural advice with verified citations from ICAR, FAO, and more.</p>
           </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/farming-news")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/farming-news"); }} aria-label="Farming News: Latest agricultural updates">
+              <div className="icon" aria-hidden="true">
+                <Book size={32} strokeWidth={2} />
+              </div>
+              <h3><span className="notranslate">Farming News</span></h3>
+              <p>
+                Stay updated with the latest agricultural news, weather alerts, and policy changes.
+              </p>
+            </div>
 
           <div 
             className="card reveal" 
@@ -886,7 +895,7 @@ export default function Advisor({ userData }) {
             <p>Track eco-friendly practices, calculate carbon impact, and monetize sustainability.</p>
           </div>
         </div>
-
+        
         <div
           className="weather-dashboard"
           style={{
