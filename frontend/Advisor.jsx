@@ -28,8 +28,8 @@ import YieldPredictorForm from "./YieldPredictorForm";
 import CropRotation from "./CropRotation";
 import P2PChat from "./P2PChat";
 import GeoAlertMesh from "./GeoAlertMesh";
- import SmartCropRecommendation from "./SmartCropRecommendation";
- import PersonalizedAdvisory from "./PersonalizedAdvisory";
+import SmartCropRecommendation from "./SmartCropRecommendation";
+import PersonalizedAdvisory from "./PersonalizedAdvisory";
  import YieldHistory from "./YieldHistory";
 
  // Keep critical components synchronous
@@ -286,19 +286,25 @@ export default function Advisor({ userData }) {
   const weatherLocation = weatherSnapshot?.location?.name || weatherSnapshot?.location?.city || "";
   const weatherLastUpdated = weatherSnapshot?.fetchedAt ? new Date(weatherSnapshot.fetchedAt).getTime() : null;
 
-  useEffect(() => {
-    // Priority: auth.currentUser, then fallback to localStorage
-    const uid = auth?.currentUser?.uid || localStorage.getItem("userId");
-    
-    if (uid) {
-      const unsubscribe = onSnapshot(doc(db, "users", uid), (doc) => {
-        if (doc.exists()) {
-          setUserProfile(doc.data());
-        }
-      });
-return () => unsubscribe();
-    }
-}, [auth?.currentUser]);
+   useEffect(() => {
+     // Check if Firebase is configured
+     if (!auth || !db) {
+       console.warn("Firebase not configured - skipping user profile subscription");
+       return;
+     }
+     
+     // Priority: auth.currentUser, then fallback to localStorage
+     const uid = auth.currentUser?.uid || localStorage.getItem("userId");
+     
+     if (uid) {
+       const unsubscribe = onSnapshot(doc(db, "users", uid), (doc) => {
+         if (doc.exists()) {
+           setUserProfile(doc.data());
+         }
+       });
+       return () => unsubscribe();
+     }
+   }, []); // Run once on mount — rAF loop manages its own lifecycle internally.
 
   /**
    * Architecture
