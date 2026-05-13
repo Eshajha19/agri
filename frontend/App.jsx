@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
-import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
+import { Routes, Route, Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -18,10 +18,10 @@ import {
   FaShieldAlt,
   FaBolt,
   FaUserSecret,
-  FaFileInvoiceDollar,
   FaHome,
   FaSun,
   FaMoon,
+  FaUser,
 } from "react-icons/fa";
 import { 
   GiThreeLeaves,
@@ -140,6 +140,7 @@ const GuestBanner = ({ onSignUp }) => (
 );
 
 function App() {
+  const navigate = useNavigate();
   const scorecardRef = useRef(null);
   const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
   const [isOpen, setIsOpen] = useState(false);
