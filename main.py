@@ -318,6 +318,28 @@ class WeatherLocationRequest(BaseModel):
     """Request to geocode a location"""
     location: str = Field(..., min_length=2, max_length=100)
 
+class NewsArticle(BaseModel):
+    """Model for a single farming news article"""
+    id: str
+    title: str = Field(..., max_length=200)
+    description: str = Field(..., max_length=500)
+    category: str = Field(..., max_length=50)  # e.g., "Weather", "Crop Management", "Government Schemes"
+    author: str = Field(..., max_length=100)
+    date: str  # ISO format date string
+    read_time: str = Field(..., max_length=20)
+    thumbnail: str = Field(..., max_length=500)  # Image URL
+    content: Optional[str] = Field(default=None, max_length=5000)
+    source: Optional[str] = Field(default=None, max_length=100)
+    url: Optional[str] = Field(default=None, max_length=500)
+
+class NewsListResponse(BaseModel):
+    """Response model for news list endpoint"""
+    articles: list[NewsArticle]
+    total_count: int
+    page: int
+    page_size: int
+    has_more: bool
+
 # --- ML Pipeline Initialization ---
 # init_ml_pipeline() is called inside the FastAPI lifespan context manager
 # (defined above app = FastAPI(...)) so it runs in every Uvicorn worker
@@ -809,6 +831,179 @@ def get_notifications(
         season=season
     )
     return {"success": True, "data": _notification_store.get_recent() + dynamic_alerts}
+
+# --- Farming News Endpoints ---
+
+# Sample farming news data (in production, this would come from Firebase or an external news API)
+FARMING_NEWS_DATABASE = [
+    {
+        "id": "news-001",
+        "title": "New Monsoon Forecast Predicts Above-Normal Rainfall for 2026",
+        "description": "The India Meteorological Department has released the official monsoon forecast for 2026, predicting above-normal rainfall across most of India.",
+        "category": "Weather",
+        "author": "Dr. Rajesh Kumar",
+        "date": "2026-05-13",
+        "read_time": "4 min read",
+        "thumbnail": "https://images.unsplash.com/photo-1561470508-fd4df1ed90b2?w=600&q=80",
+        "content": "The 2026 monsoon season is expected to bring 98% of the Long Period Average (LPA) rainfall to India. This forecast is crucial for kharif crop planning across the nation.",
+        "source": "India Meteorological Department",
+        "url": "https://example.com/monsoon-2026"
+    },
+    {
+        "id": "news-002",
+        "title": "PM-KISAN Scheme Extended: ₹2,000 Per Acre for Every Farmer",
+        "description": "The government has announced extension of PM-KISAN benefits with increased financial assistance for the 2026 agricultural season.",
+        "category": "Government Schemes",
+        "author": "Priya Sharma",
+        "date": "2026-05-12",
+        "read_time": "5 min read",
+        "thumbnail": "https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=600&q=80",
+        "content": "Under the extended PM-KISAN scheme, every eligible farmer will receive ₹2,000 per acre, increasing from the previous ₹1,000. Apply now through your nearest CSC.",
+        "source": "Ministry of Agriculture",
+        "url": "https://example.com/pm-kisan-2026"
+    },
+    {
+        "id": "news-003",
+        "title": "New Crop Insurance Policy Launched with 50% Lower Premiums",
+        "description": "A revolutionary crop insurance scheme has been launched with reduced premiums and faster claims processing.",
+        "category": "Insurance",
+        "author": "Arun Verma",
+        "date": "2026-05-11",
+        "read_time": "6 min read",
+        "thumbnail": "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600&q=80",
+        "content": "The new Pradhan Mantri Fasal Bima Yojana (PMFBY) 2.0 offers 50% lower premiums and 24-hour claim settlement for crop losses.",
+        "source": "Ministry of Finance",
+        "url": "https://example.com/crop-insurance-2026"
+    },
+    {
+        "id": "news-004",
+        "title": "Revolutionary Rice Blast Resistant Variety Released",
+        "description": "Scientists have developed a new rice variety with natural resistance to blast disease, reducing fungicide requirement by 70%.",
+        "category": "Crop Management",
+        "author": "Dr. Suresh Patel",
+        "date": "2026-05-10",
+        "read_time": "5 min read",
+        "thumbnail": "https://images.unsplash.com/photo-1595841696677-6489ff3f8cd1?w=600&q=80",
+        "content": "The new IR-72 BL rice variety has been approved for cultivation in 15 states. It maintains yield while reducing disease pressure.",
+        "source": "IRRI",
+        "url": "https://example.com/rice-variety"
+    },
+    {
+        "id": "news-005",
+        "title": "Smart Irrigation Technology Saves 60% Water",
+        "description": "A new IoT-based irrigation system is helping farmers reduce water consumption while maintaining crop yields.",
+        "category": "Technology",
+        "author": "Meena Singh",
+        "date": "2026-05-09",
+        "read_time": "7 min read",
+        "thumbnail": "https://images.unsplash.com/photo-1464226184884-fa280b87c399?w=600&q=80",
+        "content": "Farmers using the new AI-powered drip irrigation system are reporting 60% water savings and 15% yield improvement.",
+        "source": "AgriTech Today",
+        "url": "https://example.com/smart-irrigation"
+    },
+    {
+        "id": "news-006",
+        "title": "Organic Farming Premium Prices Announced for 2026",
+        "description": "Government has announced minimum support prices for organic crops, increasing profitability for organic farmers.",
+        "category": "Organic Farming",
+        "author": "Sunita Devi",
+        "date": "2026-05-08",
+        "read_time": "5 min read",
+        "thumbnail": "https://images.unsplash.com/photo-1625246333195-78d9c38ad449?w=600&q=80",
+        "content": "Organic rice and wheat will receive premium prices 15-20% higher than conventional crops in the upcoming season.",
+        "source": "Ministry of Agriculture",
+        "url": "https://example.com/organic-premium"
+    },
+    {
+        "id": "news-007",
+        "title": "Cotton Prices Rise as Global Demand Increases",
+        "description": "Cotton prices have surged 12% in the past month due to increased global demand and supply constraints.",
+        "category": "Market Prices",
+        "author": "Rajesh Kumar",
+        "date": "2026-05-07",
+        "read_time": "4 min read",
+        "thumbnail": "https://images.unsplash.com/photo-1500937386664-56d1dfef3854?w=600&q=80",
+        "content": "Cotton prices have reached ₹6,200 per quintal, the highest in 18 months. Farmers are advised to time their sales strategically.",
+        "source": "Market Watch",
+        "url": "https://example.com/cotton-prices"
+    },
+    {
+        "id": "news-008",
+        "title": "Soil Health Card Camps Begin Across India",
+        "description": "Free soil testing camps have been started in 500 districts to provide soil health cards to farmers.",
+        "category": "Soil Management",
+        "author": "Dr. Kavita Rao",
+        "date": "2026-05-06",
+        "read_time": "5 min read",
+        "thumbnail": "https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600&q=80",
+        "content": "Farmers can collect free soil samples at designated camps. Results will be available within 2 weeks.",
+        "source": "Soil Health Card Scheme",
+        "url": "https://example.com/soil-health-card"
+    },
+]
+
+@app.get("/api/farming-news", response_model=NewsListResponse)
+def get_farming_news(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=50),
+    category: Optional[str] = Query(default=None, max_length=50),
+    search: Optional[str] = Query(default=None, max_length=100)
+):
+    """
+    Get paginated farming news articles with optional filtering by category or search text.
+    
+    Real-time updates are simulated by serving news from an in-memory database.
+    In production, this would integrate with Firebase or an external news API.
+    
+    **Parameters:**
+    - page: Page number (starts at 1)
+    - page_size: Number of articles per page (1-50)
+    - category: Optional filter by category (e.g., "Weather", "Government Schemes")
+    - search: Optional text search in title and description
+    
+    **Returns:**
+    - articles: List of news articles for the current page
+    - total_count: Total number of articles matching filters
+    - page: Current page number
+    - page_size: Articles per page
+    - has_more: Whether more pages are available
+    """
+    try:
+        # Filter by category if provided
+        articles = FARMING_NEWS_DATABASE
+        if category:
+            articles = [a for a in articles if a.get("category", "").lower() == category.lower()]
+        
+        # Filter by search text if provided
+        if search:
+            search_lower = search.lower()
+            articles = [
+                a for a in articles 
+                if search_lower in a.get("title", "").lower() or 
+                   search_lower in a.get("description", "").lower()
+            ]
+        
+        # Calculate pagination
+        total_count = len(articles)
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        
+        paginated_articles = articles[start_idx:end_idx]
+        has_more = end_idx < total_count
+        
+        # Convert to NewsArticle model
+        news_articles = [NewsArticle(**article) for article in paginated_articles]
+        
+        return NewsListResponse(
+            articles=news_articles,
+            total_count=total_count,
+            page=page,
+            page_size=page_size,
+            has_more=has_more
+        )
+    except Exception as e:
+        _firebase_logger.error(f"Error fetching farming news: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch farming news")
 
 # --- Weather Alerts Endpoints ---
 

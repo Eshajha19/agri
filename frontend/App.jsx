@@ -22,6 +22,7 @@ import {
   FaSun,
   FaMoon,
   FaUser,
+  FaNewspaper,
 } from "react-icons/fa";
 import { 
   GiThreeLeaves,
@@ -63,6 +64,7 @@ import Glossary from "./Glossary";
 import RiskIndex from "./RiskIndex";
 import Blog from "./Blog";
 import BlogDetail from "./BlogDetail";
+import FarmingNews from "./FarmingNews";
 import FAQ from "./FAQ";
 import NotFound from "./NotFound";
 import PrivacyPolicy from "./PrivacyPolicy";
@@ -372,6 +374,7 @@ function App() {
                 <Link to="/disease-awareness" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaLeaf /> Awareness</Link>
                 <Link to="/risk-index" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Risk Index</Link>
                 <Link to="/glossary" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaBook /> Glossary</Link>
+                <Link to="/farming-news" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaNewspaper /> Farming News</Link>
                 <Link to="/about" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> About Us</Link>
                 <Link to="/contact" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> Contact</Link>
               </div>
@@ -489,6 +492,7 @@ function App() {
           <Route path="/yield-predictor" element={<YieldPredictor />} />
           <Route path="/blog" element={<Blog />} />
           <Route path="/blog/:id" element={<BlogDetail />} />
+          <Route path="/farming-news" element={<FarmingNews />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
