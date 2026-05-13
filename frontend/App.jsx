@@ -49,6 +49,7 @@ import ContactUs from "./ContactUs";
 import AboutUs from "./AboutUs";
 import LanguageDropdown from "./LanguageDropdown";
 import ProfileSetup from "./ProfileSetup";
+import ProfileSettings from "./ProfileSettings";
 import QRTraceability from "./QRTraceability";
 import PestDetection from "./PestDetection";
 import EquipmentManagement from "./EquipmentManagement";
@@ -362,6 +363,7 @@ function App() {
                   </button>
                 </div>
                 <Link to="/dashboard" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaTachometerAlt /> Dashboard</Link>
+                <Link to="/profile-settings" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaUser /> Profile Settings</Link>
                 {userData?.role === "admin" && (
                   <Link to="/admin/feedback" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Feedback Admin</Link>
                 )}
@@ -403,6 +405,7 @@ function App() {
                       ))}
                     </div>
                     <div className="scorecard-footer">
+                      <button onClick={() => { navigate("/profile-settings"); setShowScorecard(false); }} className="btn-logout-alt">Edit Profile</button>
                       <button onClick={handleLogout} className="btn-logout-alt">Sign Out</button>
                     </div>
                   </div>
@@ -455,6 +458,7 @@ function App() {
           <Route path="/resources" element={<Resources />} />
           <Route path="/login" element={<Auth />} />
           <Route path="/profile-setup" element={<ProfileSetup user={user} profileCompleted={profileCompleted} />} />
+          <Route path="/profile-settings" element={<ProfileSettings user={user} userData={userData} />} />
           <Route path="/calendar" element={<Calendar />} />
           <Route path="/share-feedback" element={<Feedback />} />
           <Route path="/admin/feedback" element={<AdminFeedback />} />
