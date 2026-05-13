@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+
 .legal-page {
   max-width: 900px;
   margin: auto;
@@ -41,4 +43,302 @@
   margin-bottom: 10px;
   color: #1b5e20;
   font-size: 1.1em;
+}
+
+:root {
+  --primary: #1b5e20;
+  --primary-light: #2e7d32;
+  --accent: #66bb6a;
+  --bg: #f4f8f3;
+  --card: rgba(255, 255, 255, 0.88);
+  --text: #1f2937;
+  --muted: #6b7280;
+  --border: rgba(34, 197, 94, 0.15);
+  --shadow:
+    0 10px 30px rgba(0, 0, 0, 0.06),
+    0 4px 12px rgba(0, 0, 0, 0.04);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: "Inter", sans-serif;
+  background:
+    radial-gradient(circle at top left, #d7f5dd 0%, transparent 28%),
+    radial-gradient(circle at bottom right, #c8f7d1 0%, transparent 25%),
+    var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+.legal-page {
+  position: relative;
+  max-width: 1000px;
+  margin: 70px auto;
+  padding: 60px;
+  background: var(--card);
+  backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 32px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* Decorative Glow */
+.legal-page::before,
+.legal-page::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  z-index: -1;
+}
+
+.legal-page::before {
+  width: 320px;
+  height: 320px;
+  background: rgba(102, 187, 106, 0.15);
+  top: -120px;
+  right: -100px;
+  filter: blur(50px);
+}
+
+.legal-page::after {
+  width: 260px;
+  height: 260px;
+  background: rgba(46, 125, 50, 0.12);
+  bottom: -100px;
+  left: -80px;
+  filter: blur(55px);
+}
+
+/* =========================
+   HEADER
+========================= */
+
+.legal-page h1 {
+  font-size: clamp(2.4rem, 4vw, 4rem);
+  font-weight: 800;
+  text-align: center;
+  color: var(--primary);
+  letter-spacing: -2px;
+  margin-bottom: 12px;
+  line-height: 1.1;
+}
+
+.last-updated {
+  text-align: center;
+  font-size: 0.95rem;
+  color: var(--muted);
+  margin-bottom: 55px;
+  position: relative;
+}
+
+.last-updated::after {
+  content: "";
+  display: block;
+  width: 90px;
+  height: 4px;
+  margin: 18px auto 0;
+  border-radius: 50px;
+  background: linear-gradient(
+    90deg,
+    var(--primary-light),
+    var(--accent)
+  );
+}
+
+.legal-page section {
+  position: relative;
+  margin-bottom: 38px;
+  padding: 28px 28px 22px;
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.72);
+  transition:
+    transform 0.3s ease,
+    box-shadow 0.3s ease,
+    border-color 0.3s ease;
+}
+
+.legal-page section:hover {
+  transform: translateY(-4px);
+  border-color: rgba(34, 197, 94, 0.28);
+  box-shadow:
+    0 10px 25px rgba(0, 0, 0, 0.05),
+    0 4px 10px rgba(34, 197, 94, 0.08);
+}
+
+/* Section Number Accent */
+.legal-page h2 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 1.45rem;
+  color: var(--primary-light);
+  margin-bottom: 18px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.legal-page h2::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  background: linear-gradient(
+    135deg,
+    var(--primary-light),
+    var(--accent)
+  );
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 10px rgba(76, 175, 80, 0.4);
+}
+
+.legal-page p {
+  font-size: 1rem;
+  color: var(--text);
+  line-height: 1.9;
+  margin-bottom: 16px;
+}
+.legal-page ul {
+  margin-top: 14px;
+  padding-left: 10px;
+  display: grid;
+  gap: 14px;
+}
+
+.legal-page li {
+  position: relative;
+  list-style: none;
+  padding-left: 30px;
+  line-height: 1.8;
+  color: var(--text);
+}
+
+.legal-page li::before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-weight: 700;
+  color: var(--primary-light);
+}
+
+.legal-page strong {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.legal-page a {
+  color: var(--primary-light);
+  text-decoration: none;
+  position: relative;
+  font-weight: 600;
+}
+
+.legal-page a::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -2px;
+  width: 0;
+  height: 2px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.legal-page a:hover::after {
+  width: 100%;
+}
+.notranslate {
+  white-space: nowrap;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    180deg,
+    var(--primary-light),
+    var(--accent)
+  );
+  border-radius: 50px;
+}
+
+::-webkit-scrollbar-track {
+  background: #edf5ed;
+}
+
+@media (max-width: 992px) {
+  .legal-page {
+    margin: 40px 24px;
+    padding: 45px 34px;
+  }
+}
+
+@media (max-width: 768px) {
+  .legal-page {
+    padding: 38px 24px;
+    border-radius: 24px;
+  }
+
+  .legal-page h1 {
+    font-size: 2.5rem;
+  }
+
+  .legal-page h2 {
+    font-size: 1.25rem;
+  }
+
+  .legal-page section {
+    padding: 24px 20px;
+  }
+
+  .legal-page p,
+  .legal-page li {
+    font-size: 0.96rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .legal-page {
+    margin: 20px 14px;
+    padding: 28px 18px;
+  }
+
+  .legal-page h1 {
+    font-size: 2rem;
+    letter-spacing: -1px;
+  }
+
+  .last-updated {
+    margin-bottom: 40px;
+  }
+
+  .legal-page h2 {
+    font-size: 1.1rem;
+    gap: 8px;
+  }
+
+  .legal-page section {
+    padding: 20px 16px;
+    border-radius: 18px;
+  }
+
+  .legal-page p,
+  .legal-page li {
+    font-size: 0.93rem;
+    line-height: 1.7;
+  }
 }

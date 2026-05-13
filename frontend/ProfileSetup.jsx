@@ -147,7 +147,7 @@ const ProfileSetup = ({ user, profileCompleted }) => {
         // If WhatsApp alerts are enabled, subscribe via backend
         if (whatsappAlerts && phoneNumber) {
           try {
-            await fetch("http://localhost:8000/api/whatsapp/subscribe", {
+            await fetch("/api/whatsapp/subscribe", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
