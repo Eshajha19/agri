@@ -28,12 +28,11 @@ import YieldPredictorForm from "./YieldPredictorForm";
 import CropRotation from "./CropRotation";
 import P2PChat from "./P2PChat";
 import GeoAlertMesh from "./GeoAlertMesh";
-import SmartCropRecommendation from "./SmartCropRecommendation";
-import PersonalizedAdvisory from "./PersonalizedAdvisory";
-import PestDetection from "./PestDetection";
-import YieldHistory from "./YieldHistory";
+ import SmartCropRecommendation from "./SmartCropRecommendation";
+ import PersonalizedAdvisory from "./PersonalizedAdvisory";
+ import YieldHistory from "./YieldHistory";
 
-// Keep critical components synchronous
+ // Keep critical components synchronous
 import LastUpdated from "./LastUpdated";
 import { Leaf } from "lucide-react";
 import {
@@ -65,11 +64,12 @@ import {
   Rocket,
   Trophy,
   Medal,
-  Gem,
-  FileText,
-  Construction,
-  CloudRain,
-} from "lucide-react";
+   Gem,
+   FileText,
+   Construction,
+   CloudRain,
+   Settings,
+ } from "lucide-react";
 import { FaSync } from "react-icons/fa";
 import { useAdvisorStore } from "./stores/advisorStore";
 

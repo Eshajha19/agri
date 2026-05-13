@@ -67,12 +67,11 @@ import NotFound from "./NotFound";
 import PrivacyPolicy from "./PrivacyPolicy";
 import Terms from "./Terms";
 import SoilAnalysis from "./SoilAnalysis";
-import SeedVerifier from "./SeedVerifier";
-import FarmFinance from "./FarmFinance";
-import YieldPredictor from "./YieldPredictor";
-import PestDetection from "./PestDetection";
+ import SeedVerifier from "./SeedVerifier";
+ import FarmFinance from "./FarmFinance";
+ import YieldPredictor from "./YieldPredictor";
 
-// Keep critical components synchronous
+ // Keep critical components synchronous
 import Loader from "./Loader";
 import useNotifications from "./Notifications";
 import Footer from "./components/Footer";
