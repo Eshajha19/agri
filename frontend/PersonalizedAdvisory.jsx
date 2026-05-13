@@ -2,7 +2,10 @@ import React, { useMemo } from "react";
 import "./PersonalizedAdvisory.css";
 import { generateRecommendations } from "./utils/recommendationEngine";
 
-export default function PersonalizedRecommendations({ userProfile, weatherData }) {
+export default function PersonalizedRecommendations({
+  userProfile,
+  weatherData,
+}) {
 
   const recommendations = useMemo(() => {
     if (!userProfile) return [];
@@ -15,32 +18,69 @@ export default function PersonalizedRecommendations({ userProfile, weatherData }
   }, [userProfile, weatherData]);
 
   return (
-    <div className="personalized-section">
-      <h2>🎯 Personalized Recommendations</h2>
+    <section className="personalized-section">
+
+      <div className="section-header">
+        <h2>🎯 Personalized Recommendations</h2>
+
+        {weatherData && (
+          <div className="weather-summary">
+            <span>🌡 {weatherData.temp}°C</span>
+            <span>💧 {weatherData.humidity}%</span>
+            <span>🌧 {weatherData.condition}</span>
+          </div>
+        )}
+      </div>
 
       {!userProfile ? (
-        <p>Complete your profile to get recommendations.</p>
-      ) : recommendations.length === 0 ? (
-        <p>No recommendations available.</p>
-      ) : (
-        <div className="recommendation-grid">
-          {recommendations.map((rec, index) => (
-            <div key={index} className={`recommendation-card ${rec.type}`}>
-              
-              <div className="rec-icon">{rec.icon}</div>
 
-              {/* Optional: show type as title */}
-              <h3 style={{ textTransform: "capitalize" }}>
-                {rec.type}
+        <div className="empty-state">
+          <p>Complete your profile to unlock smart farming suggestions.</p>
+        </div>
+
+      ) : recommendations.length === 0 ? (
+
+        <div className="empty-state">
+          <p>No recommendations available right now.</p>
+        </div>
+
+      ) : (
+
+        <div className="recommendation-grid">
+
+          {recommendations.map((rec, index) => (
+            <div
+              key={index}
+              className={`recommendation-card ${rec.type}`}
+            >
+
+              <div className="card-top">
+
+                <div className="rec-icon">
+                  {rec.icon}
+                </div>
+
+                <span className={`priority ${rec.priority || "medium"}`}>
+                  {rec.priority || "medium"}
+                </span>
+
+              </div>
+
+              <h3>
+                {rec.title || rec.type}
               </h3>
 
-              {/* ✅ Correct field from engine */}
               <p>{rec.text}</p>
+
+              <button className="learn-btn">
+                Learn More →
+              </button>
 
             </div>
           ))}
+
         </div>
       )}
-    </div>
+    </section>
   );
 }
