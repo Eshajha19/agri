@@ -1,32 +1,137 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper function to check roles
+
+    // ─────────────────────────────────────────────
+    // Helper functions
+    // ─────────────────────────────────────────────
+
     function hasRole(role) {
-      return request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+      return request.auth != null
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
     }
 
-    // User profiles: Users can read their own profile, Admins can read all
+    function isAuthed() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isAuthed() && request.auth.uid == uid;
+    }
+
+    // ─────────────────────────────────────────────
+    // Content validation helpers
+    // ─────────────────────────────────────────────
+
+    function postContentValid() {
+      return request.resource.data.content is string
+        && request.resource.data.content.size() >= 20;
+    }
+
+    function commentContentValid() {
+      return request.resource.data.text is string
+        && request.resource.data.text.size() >= 5;
+    }
+
+    function hasServerTimestamp(field) {
+      return request.resource.data[field] == request.time;
+    }
+
+    // Cooldown enforcement belongs in the backend (slowapi rate limiting).
+    // These stubs keep the rules valid while the backend handles rate limits.
+    function postCooldownOk() {
+      return true;
+    }
+
+    function commentCooldownOk() {
+      return true;
+    }
+
+    // Reputation-gain frequency cap enforced via lastReputationGain timestamp.
+    function reputationCooldownOk(uid) {
+      let userData = get(/databases/$(database)/documents/users/$(uid)).data;
+      return !("lastReputationGain" in userData)
+        || (request.time - userData.lastReputationGain) > duration.value(300, 's');
+    }
+
+    // ─────────────────────────────────────────────
+    // Collection rules
+    // ─────────────────────────────────────────────
+
+    // User profiles
     match /users/{userId} {
-      allow read: if request.auth != null && (request.auth.uid == userId || hasRole('admin'));
-      allow write: if request.auth != null && request.auth.uid == userId;
+      allow read: if isAuthed() && (request.auth.uid == userId || hasRole('admin'));
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId)
+        && (
+          !("reputation" in request.resource.data.diff(resource.data).affectedKeys())
+          || reputationCooldownOk(userId)
+        );
     }
 
-    // Feedback: Only Admins can read, anyone logged in can create
+    // Feedback: only admins can read/delete; any authenticated user can submit.
     match /feedback/{feedbackId} {
-      allow read: if hasRole('admin');
-      allow create: if request.auth != null;
+      allow read, delete: if hasRole('admin');
+      allow create: if isAuthed();
     }
 
-    // Reports: Only Experts and Admins can create/read
+    // Community posts
+    match /posts/{postId} {
+      allow read: if isAuthed();
+      allow create: if isAuthed()
+        && postContentValid()
+        && hasServerTimestamp('createdAt')
+        && request.resource.data.userId == request.auth.uid
+        && postCooldownOk();
+      allow update: if isAuthed()
+        && (
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'commentsCount']))
+          || (isOwner(resource.data.userId) && postContentValid())
+        );
+      allow delete: if isOwner(resource.data.userId) || hasRole('admin');
+    }
+
+    // Community comments
+    match /comments/{commentId} {
+      allow read: if isAuthed();
+      allow create: if isAuthed()
+        && commentContentValid()
+        && hasServerTimestamp('createdAt')
+        && request.resource.data.userId == request.auth.uid
+        && commentCooldownOk();
+      allow update: if isAuthed()
+        && (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['upvotes', 'downvotes'])
+          || (isOwner(resource.data.userId) && commentContentValid())
+        );
+      allow delete: if isOwner(resource.data.userId) || hasRole('admin');
+    }
+
+    // Reports: experts and admins only.
     match /reports/{reportId} {
       allow read, write: if hasRole('expert') || hasRole('admin');
     }
-    
-    // Marketplace: Only Vendors and Admins can write
+
+    // Marketplace: public read; vendors and admins can write.
     match /marketplace/{itemId} {
       allow read: if true;
       allow write: if hasRole('vendor') || hasRole('admin');
     }
+
+    // Farming Calendar activities — owner only.
+    match /activities/{activityId} {
+      allow read, write: if isAuthed() && request.auth.uid == resource.data.userId;
+      allow create: if isAuthed() && request.resource.data.userId == request.auth.uid;
+    }
+
+    // Government scheme applications — owner only.
+    match /scheme_applications/{appId} {
+      allow read, update, delete: if isAuthed() && request.auth.uid == resource.data.userId;
+      allow create: if isAuthed()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.schemeId is int
+        && request.resource.data.status is string;
+    }
+
   }
 }
