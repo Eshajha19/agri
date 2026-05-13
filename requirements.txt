@@ -19,3 +19,4 @@ google-cloud-secret-manager
 slowapi
 firebase-admin
 google-generativeai
+aiohttp
