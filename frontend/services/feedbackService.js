@@ -1,9 +1,11 @@
 /**
  * Feedback Service
  * Provides secure API calls for feedback operations with error handling and validation.
+ * Uses the unified apiClient (lib/apiClient.js) so all requests get auth injection,
+ * retries, global loader tracking, and offline queue support automatically.
  */
 
-const API_BASE_URL = ''; // Relative URL for same-origin API calls
+import apiClient from '../lib/apiClient';
 
 /**
  * Submit feedback to the secure backend API
@@ -12,19 +14,12 @@ const API_BASE_URL = ''; // Relative URL for same-origin API calls
  */
 export const submitFeedback = async (feedbackData) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/feedback`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(feedbackData),
+    const response = await apiClient.post('/api/feedback', feedbackData, {
+      errorContext: 'feedback-submit',
+      errorMessage: 'Failed to submit feedback. Please try again.',
     });
 
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.detail || result.error || 'Failed to submit feedback');
-    }
+    const result = response.data;
 
     if (!result.success) {
       throw new Error(result.message || 'Feedback submission failed');
@@ -37,24 +32,25 @@ export const submitFeedback = async (feedbackData) => {
     };
   } catch (error) {
     console.error('Feedback submission error:', error);
-    
+
     // Provide user-friendly error messages
     let userMessage = 'Failed to submit feedback. Please try again.';
-    
-    if (error.message.includes('Message is required')) {
+    const msg = error.response?.data?.detail || error.message || '';
+
+    if (msg.includes('Message is required')) {
       userMessage = 'Please enter a valid feedback message.';
-    } else if (error.message.includes('Invalid data format')) {
+    } else if (msg.includes('Invalid data format')) {
       userMessage = 'Your feedback contains invalid characters. Please remove any special symbols and try again.';
-    } else if (error.message.includes('rating')) {
+    } else if (msg.includes('rating')) {
       userMessage = 'Please select a valid rating between 1 and 5 stars.';
-    } else if (error.message.includes('network') || error.message.includes('fetch')) {
+    } else if (msg.includes('network') || msg.includes('fetch') || msg.includes('offline')) {
       userMessage = 'Network error. Please check your connection and try again.';
     }
-    
+
     return {
       success: false,
       error: userMessage,
-      originalError: error.message,
+      originalError: msg,
     };
   }
 };
@@ -65,30 +61,22 @@ export const submitFeedback = async (feedbackData) => {
  */
 export const getFeedbackStats = async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/feedback/stats`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+    const response = await apiClient.get('/api/feedback/stats', {
+      errorContext: 'feedback-stats',
+      errorMessage: 'Failed to load feedback statistics.',
     });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.detail || result.error || 'Failed to fetch statistics');
-    }
 
     return {
       success: true,
-      data: result,
+      data: response.data,
     };
   } catch (error) {
     console.error('Feedback stats error:', error);
-    
+
     return {
       success: false,
       error: 'Failed to load feedback statistics. Please try again later.',
-      originalError: error.message,
+      originalError: error.response?.data?.detail || error.message,
     };
   }
 };
@@ -225,30 +213,22 @@ export const sanitizeFeedbackData = (data) => {
  */
 export const testValidationEndpoint = async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/feedback/validate-test`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+    const response = await apiClient.get('/api/feedback/validate-test', {
+      errorContext: 'feedback-validate-test',
+      errorMessage: 'Validation test failed.',
     });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.detail || result.error || 'Validation test failed');
-    }
 
     return {
       success: true,
-      data: result,
+      data: response.data,
     };
   } catch (error) {
     console.error('Validation test error:', error);
-    
+
     return {
       success: false,
       error: 'Validation test failed. API may not be available.',
-      originalError: error.message,
+      originalError: error.response?.data?.detail || error.message,
     };
   }
 };

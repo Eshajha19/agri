@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+
 .legal-page {
   max-width: 900px;
   margin: auto;
@@ -42,8 +44,6 @@
   color: #1b5e20;
   font-size: 1.1em;
 }
-
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
 
 :root {
   --primary: #1b5e20;
