@@ -265,6 +265,16 @@ class WeatherLocationRequest(BaseModel):
     """Request to geocode a location"""
     location: str = Field(..., min_length=2, max_length=100)
 
+class CropRecommendationRequest(BaseModel):
+    """Request for crop recommendations based on soil parameters"""
+    soil_ph: float = Field(..., ge=4.0, le=9.0)
+    nitrogen: float = Field(..., ge=0)
+    phosphorus: float = Field(..., ge=0)
+    potassium: float = Field(..., ge=0)
+    location: str = Field(..., max_length=100)
+    season: Optional[str] = Field(default="kharif", max_length=20)
+    area_size: Optional[float] = Field(default=None, ge=0.1)
+
 # --- ML Pipeline Initialization ---
 router = ModelRouter(default_model="xgboost")
 
@@ -1213,6 +1223,156 @@ async def verify_seed(data: SeedVerifyRequest, request: Request):
         "certified_on": entry["certified_on"],
         "expires_on": entry["expires_on"],
     }
+
+@app.post("/api/crop/recommend")
+@limiter.limit("20/minute")
+async def recommend_crops(data: CropRecommendationRequest, request: Request):
+    """
+    Provide AI-powered crop recommendations based on soil parameters.
+    
+    Input parameters:
+    - soil_ph: Soil pH (4.0-9.0)
+    - nitrogen: Nitrogen content (mg/kg or ppm)
+    - phosphorus: Phosphorus content (mg/kg or ppm)
+    - potassium: Potassium content (mg/kg or ppm)
+    - location: Farm location (city/region)
+    - season: Growing season (kharif, rabi, summer)
+    - area_size: Farm area in hectares (optional)
+    
+    Returns:
+    - recommendations: List of suitable crops with compatibility scores
+    - soil_analysis: Interpretation of soil parameters
+    - warnings: Any soil-related concerns
+    """
+    
+    try:
+        # Soil analysis based on input parameters
+        soil_analysis = {
+            "ph_level": "Acidic" if data.soil_ph < 6.5 else "Neutral" if data.soil_ph < 7.5 else "Alkaline",
+            "ph_value": data.soil_ph,
+            "nitrogen_level": "Low" if data.nitrogen < 20 else "Medium" if data.nitrogen < 40 else "High",
+            "nitrogen_value": data.nitrogen,
+            "phosphorus_level": "Low" if data.phosphorus < 10 else "Medium" if data.phosphorus < 25 else "High",
+            "phosphorus_value": data.phosphorus,
+            "potassium_level": "Low" if data.potassium < 80 else "Medium" if data.potassium < 150 else "High",
+            "potassium_value": data.potassium,
+        }
+        
+        # Crop suitability database based on soil and season
+        # In production, this would come from a ML model or database
+        crop_database = {
+            "kharif": [
+                {"name": "Rice", "base_score": 85, "ph_optimal": (6.0, 7.0), "n_favorable": data.nitrogen > 25, "p_favorable": data.phosphorus > 10, "k_favorable": data.potassium > 80},
+                {"name": "Maize", "base_score": 80, "ph_optimal": (6.5, 7.5), "n_favorable": data.nitrogen > 30, "p_favorable": data.phosphorus > 15, "k_favorable": data.potassium > 100},
+                {"name": "Cotton", "base_score": 75, "ph_optimal": (6.0, 8.0), "n_favorable": data.nitrogen > 20, "p_favorable": data.phosphorus > 12, "k_favorable": data.potassium > 120},
+                {"name": "Sugarcane", "base_score": 70, "ph_optimal": (6.0, 8.0), "n_favorable": data.nitrogen > 40, "p_favorable": data.phosphorus > 20, "k_favorable": data.potassium > 150},
+                {"name": "Soybean", "base_score": 72, "ph_optimal": (6.5, 7.5), "n_favorable": data.nitrogen > 15, "p_favorable": data.phosphorus > 18, "k_favorable": data.potassium > 90},
+            ],
+            "rabi": [
+                {"name": "Wheat", "base_score": 88, "ph_optimal": (6.5, 7.5), "n_favorable": data.nitrogen > 28, "p_favorable": data.phosphorus > 14, "k_favorable": data.potassium > 85},
+                {"name": "Chickpea", "base_score": 80, "ph_optimal": (6.0, 8.0), "n_favorable": data.nitrogen > 10, "p_favorable": data.phosphorus > 12, "k_favorable": data.potassium > 70},
+                {"name": "Mustard", "base_score": 78, "ph_optimal": (6.0, 8.0), "n_favorable": data.nitrogen > 20, "p_favorable": data.phosphorus > 10, "k_favorable": data.potassium > 60},
+                {"name": "Barley", "base_score": 75, "ph_optimal": (6.5, 8.0), "n_favorable": data.nitrogen > 25, "p_favorable": data.phosphorus > 12, "k_favorable": data.potassium > 80},
+                {"name": "Lentil", "base_score": 77, "ph_optimal": (6.0, 8.0), "n_favorable": data.nitrogen > 12, "p_favorable": data.phosphorus > 14, "k_favorable": data.potassium > 75},
+            ],
+            "summer": [
+                {"name": "Groundnut", "base_score": 82, "ph_optimal": (5.8, 7.0), "n_favorable": data.nitrogen > 18, "p_favorable": data.phosphorus > 20, "k_favorable": data.potassium > 100},
+                {"name": "Watermelon", "base_score": 78, "ph_optimal": (6.0, 8.0), "n_favorable": data.nitrogen > 25, "p_favorable": data.phosphorus > 15, "k_favorable": data.potassium > 140},
+                {"name": "Sunflower", "base_score": 80, "ph_optimal": (6.0, 8.0), "n_favorable": data.nitrogen > 22, "p_favorable": data.phosphorus > 18, "k_favorable": data.potassium > 110},
+                {"name": "Okra", "base_score": 76, "ph_optimal": (6.0, 8.0), "n_favorable": data.nitrogen > 20, "p_favorable": data.phosphorus > 12, "k_favorable": data.potassium > 90},
+            ],
+        }
+        
+        season = data.season.lower() if data.season else "kharif"
+        crops = crop_database.get(season, crop_database["kharif"])
+        
+        recommendations = []
+        
+        for crop in crops:
+            score = crop["base_score"]
+            reasons = []
+            
+            # pH adjustment (±10 points based on optimal range)
+            ph_min, ph_max = crop["ph_optimal"]
+            if data.soil_ph < ph_min or data.soil_ph > ph_max:
+                score -= 15
+                reasons.append("Soil pH not optimal")
+            else:
+                score += 5
+            
+            # Nutrient adjustments
+            if crop["n_favorable"]:
+                score += 8
+                reasons.append("Good nitrogen levels")
+            else:
+                score -= 5
+                reasons.append("Low nitrogen levels")
+            
+            if crop["p_favorable"]:
+                score += 7
+                reasons.append("Good phosphorus levels")
+            else:
+                score -= 3
+                reasons.append("Low phosphorus levels")
+            
+            if crop["k_favorable"]:
+                score += 8
+                reasons.append("Good potassium levels")
+            else:
+                score -= 5
+                reasons.append("Low potassium levels")
+            
+            # Ensure score is within 0-100 range
+            score = max(0, min(100, score))
+            
+            recommendations.append({
+                "crop": crop["name"],
+                "compatibility_score": round(score, 1),
+                "reasons": reasons,
+                "season": season,
+                "recommended_fertilizer": f"N: {max(0, 40 - data.nitrogen):.0f}kg, P: {max(0, 20 - data.phosphorus):.0f}kg, K: {max(0, 120 - data.potassium):.0f}kg per hectare" if data.area_size else "Consult local agronomist for exact fertilizer doses",
+            })
+        
+        # Sort by compatibility score
+        recommendations.sort(key=lambda x: x["compatibility_score"], reverse=True)
+        
+        # Generate warnings if any
+        warnings = []
+        if data.soil_ph < 5.5:
+            warnings.append("⚠️ Soil is very acidic - consider lime application")
+        elif data.soil_ph > 8.5:
+            warnings.append("⚠️ Soil is very alkaline - consider sulfur application")
+        
+        if data.nitrogen < 15:
+            warnings.append("⚠️ Nitrogen levels are low - consider nitrogen fertilizer")
+        
+        if data.phosphorus < 8:
+            warnings.append("⚠️ Phosphorus levels are critically low")
+        
+        if data.potassium < 50:
+            warnings.append("⚠️ Potassium levels are low")
+        
+        logger.info(
+            "Crop recommendation requested: location=%s season=%s top_crop=%s score=%.1f",
+            data.location,
+            season,
+            recommendations[0]["crop"] if recommendations else "None",
+            recommendations[0]["compatibility_score"] if recommendations else 0,
+        )
+        
+        return {
+            "success": True,
+            "location": data.location,
+            "season": season,
+            "soil_analysis": soil_analysis,
+            "recommendations": recommendations,
+            "warnings": warnings,
+            "total_recommendations": len(recommendations),
+        }
+        
+    except Exception as e:
+        logger.error("Crop recommendation error: %s", str(e))
+        raise HTTPException(status_code=500, detail="Error processing crop recommendation")
 
 if __name__ == "__main__":
     import uvicorn
