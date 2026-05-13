@@ -47,6 +47,19 @@ class RAGQuery(BaseModel):
     query: str = Field(..., min_length=3, max_length=500)
     top_k: int = Field(default=3, ge=1, le=5)
 
+# Crop Quality Grading Models
+class CropQualityGradingRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    image_base64: str = Field(..., min_length=100)  # Base64 encoded image
+
+class CropQualityBatchRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    images_base64: list = Field(..., min_items=1, max_items=100)  # Multiple images
+
+class QualityTrendsRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    days: int = Field(default=7, ge=1, le=30)
+
 # Rate Limiting
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -66,6 +79,7 @@ from ml.preprocessing import UnknownCategoryError, MissingFeatureError
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
+from crop_quality_grading import CropQualityGrader
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -428,6 +442,9 @@ _notification_store.append(
     alert_type="weather",
     message="🌧️ Heavy rainfall expected in your region today.",
 )
+
+# Initialize Crop Quality Grader
+_crop_quality_grader = CropQualityGrader()
 
 # --- Routes ---
 
@@ -1177,6 +1194,174 @@ async def verify_seed(data: SeedVerifyRequest, request: Request):
         "certified_on": entry["certified_on"],
         "expires_on": entry["expires_on"],
     }
+
+# --- Crop Quality Grading Endpoints ---
+
+@app.post("/api/quality/assess-single")
+@limiter.limit("10/minute")
+async def assess_single_crop(request: Request, data: CropQualityGradingRequest):
+    """
+    Assess quality of a single crop from image
+    
+    Request body:
+    {
+        "crop_type": "tomato",  // or potato, grain, fruit
+        "image_base64": "<base64_encoded_image>"
+    }
+    """
+    try:
+        # Decode base64 image
+        import base64
+        image_bytes = base64.b64decode(data.image_base64)
+        
+        # Assess the crop
+        assessment = _crop_quality_grader.assess_crop_image(
+            image_bytes, 
+            data.crop_type
+        )
+        
+        # Convert to dict
+        from dataclasses import asdict
+        result = asdict(assessment)
+        
+        return {
+            "success": True,
+            "data": result,
+            "timestamp": datetime.now().isoformat()
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Quality assessment error: %s", str(e))
+        raise HTTPException(status_code=500, detail="Quality assessment failed")
+
+@app.post("/api/quality/assess-batch")
+@limiter.limit("5/minute")
+async def assess_batch_crops(request: Request, data: CropQualityBatchRequest):
+    """
+    Assess quality of multiple crops in batch
+    
+    Request body:
+    {
+        "crop_type": "tomato",
+        "images_base64": ["<base64_image1>", "<base64_image2>", ...]
+    }
+    """
+    try:
+        import base64
+        
+        # Decode all images
+        image_bytes_list = []
+        for img_b64 in data.images_base64:
+            try:
+                image_bytes = base64.b64decode(img_b64)
+                image_bytes_list.append(image_bytes)
+            except Exception as e:
+                logger.warning("Failed to decode image: %s", str(e))
+                continue
+        
+        if not image_bytes_list:
+            raise ValueError("No valid images provided")
+        
+        # Batch grade
+        result = _crop_quality_grader.batch_grade_crops(
+            image_bytes_list,
+            data.crop_type
+        )
+        
+        return {
+            "success": True,
+            "data": result,
+            "timestamp": datetime.now().isoformat()
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Batch assessment error: %s", str(e))
+        raise HTTPException(status_code=500, detail="Batch assessment failed")
+
+@app.post("/api/quality/trends")
+@limiter.limit("10/minute")
+async def get_quality_trends(request: Request, data: QualityTrendsRequest):
+    """
+    Get quality trends for a crop type
+    
+    Request body:
+    {
+        "crop_type": "tomato",
+        "days": 7
+    }
+    """
+    try:
+        trends = _crop_quality_grader.get_quality_trends(
+            data.crop_type,
+            data.days
+        )
+        
+        return {
+            "success": True,
+            "data": trends,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error("Quality trends error: %s", str(e))
+        raise HTTPException(status_code=500, detail="Failed to retrieve trends")
+
+@app.get("/api/quality/supported-crops")
+@limiter.limit("20/minute")
+async def get_supported_crops(request: Request):
+    """
+    Get list of supported crops for quality grading
+    """
+    return {
+        "success": True,
+        "crops": _crop_quality_grader.supported_crops,
+        "total": len(_crop_quality_grader.supported_crops)
+    }
+
+@app.post("/api/quality/market-price")
+@limiter.limit("10/minute")
+async def calculate_market_price(request: Request, data: CropQualityGradingRequest):
+    """
+    Calculate market price adjustment based on quality grade
+    
+    Request body:
+    {
+        "crop_type": "tomato",
+        "image_base64": "<base64_encoded_image>"
+    }
+    """
+    try:
+        import base64
+        from crop_quality_grading import GRADE_MAPPING
+        
+        # Decode image
+        image_bytes = base64.b64decode(data.image_base64)
+        
+        # Assess quality
+        assessment = _crop_quality_grader.assess_crop_image(
+            image_bytes,
+            data.crop_type
+        )
+        
+        # Get grade info
+        grade_info = GRADE_MAPPING[assessment.grade]
+        
+        return {
+            "success": True,
+            "crop_type": data.crop_type,
+            "grade": assessment.grade,
+            "grade_label": grade_info["label"],
+            "score": assessment.score,
+            "price_multiplier": grade_info["price_multiplier"],
+            "recommendations": assessment.recommendations,
+            "timestamp": datetime.now().isoformat()
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Market price calculation error: %s", str(e))
+        raise HTTPException(status_code=500, detail="Price calculation failed")
 
 if __name__ == "__main__":
     import uvicorn
