@@ -29,6 +29,7 @@ import CropRotation from "./CropRotation";
 import P2PChat from "./P2PChat";
 import GeoAlertMesh from "./GeoAlertMesh";
 import SmartCropRecommendation from "./SmartCropRecommendation";
+import CropRecommendationAdvisor from "./CropRecommendationAdvisor";
 import PersonalizedAdvisory from "./PersonalizedAdvisory";
 import YieldHistory from "./YieldHistory";
 import CropRecommendationAdvisor from "./CropRecommendationAdvisor";
