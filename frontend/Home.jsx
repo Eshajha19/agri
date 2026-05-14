@@ -659,19 +659,19 @@ export default function Home({ user }) {
               <p className="testimonial-text">{testimonial.text}</p>
               <div className="testimonial-author">
                 <div className="author-avatar">
-                  {testimonial.name.charAt(0)}
-                </div>
+    {testimonial.name.charAt(0)}
+  </div>
 
-                <div className="author-info">
-                  <span className="author-name">
-                    <span className="notranslate">{testimonial.name}</span>
-                  </span>
+  <div className="author-info">
+    <span className="author-name">
+      <span className="notranslate">{testimonial.name}</span>
+    </span>
 
-                  <span className="author-location">
-                    {testimonial.location}
-                  </span>
-                </div>
-              </div>
+    <span className="author-location">
+      {testimonial.location}
+    </span>
+  </div>
+</div>
             </div>
           ))}
         </div>
