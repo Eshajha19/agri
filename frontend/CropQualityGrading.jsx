@@ -28,11 +28,11 @@ const CropQualityGrading = () => {
           setSupportedCrops(data.crops);
         }
       } catch (error) {
-        console.error("Error fetching supported crops:", error);
+        // console.error("Error fetching supported crops:", error);
       }
     };
     fetchCrops();
-  }, []);
+  }, [API_BASE]);
 
   // Handle file selection
   const handleFileSelect = (e) => {
@@ -41,17 +41,18 @@ const CropQualityGrading = () => {
     setImages(validFiles);
   };
 
-  // Convert file to base64
-  const fileToBase64 = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const base64 = reader.result.split(",")[1];
-        resolve(base64);
-      };
-      reader.onerror = reject;
-    });
-  };
+   // Convert file to base64
+   const fileToBase64 = (file) => {
+     return new Promise((resolve, reject) => {
+       const reader = new FileReader();
+       reader.onload = () => {
+         const base64 = reader.result.split(",")[1];
+         resolve(base64);
+       };
+       reader.onerror = reject;
+       reader.readAsDataURL(file);
+     });
+   };
 
   // Assess single crop
   const assessSingleCrop = async () => {
