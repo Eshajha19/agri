@@ -94,10 +94,13 @@ export const useAdvisorStore = create((set) => ({
    setShowRAGAdvisor: (show) => set({ showRAGAdvisor: show }),
 
 showGreenPractices: false,
-    setShowGreenPractices: (show) => set({ showGreenPractices: show }),
+     setShowGreenPractices: (show) => set({ showGreenPractices: show }),
 
-    showEquipmentManagement: false,
-    setShowEquipmentManagement: (show) => set({ showEquipmentManagement: show }),
+     showEquipmentManagement: false,
+     setShowEquipmentManagement: (show) => set({ showEquipmentManagement: show }),
+
+     showCropGrading: false,
+     setShowCropGrading: (show) => set({ showCropGrading: show }),
 
     // Reset all modals to closed
    resetAdvisorStore: () =>
@@ -130,8 +133,9 @@ showSmartCropRecommendation: false,
         showSeedVerifier: false,
         showGeoAlerts: false,
         showClimateSimulator: false,
-        showRAGAdvisor: false,
-        showGreenPractices: false,
-        showEquipmentManagement: false,
+showRAGAdvisor: false,
+         showGreenPractices: false,
+         showEquipmentManagement: false,
+         showCropGrading: false,
      }),
 }));
