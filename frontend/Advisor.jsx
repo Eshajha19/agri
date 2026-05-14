@@ -32,8 +32,8 @@ import SmartCropRecommendation from "./SmartCropRecommendation";
 import CropRecommendationAdvisor from "./CropRecommendationAdvisor";
 import PersonalizedAdvisory from "./PersonalizedAdvisory";
 import YieldHistory from "./YieldHistory";
-import CropRecommendationAdvisor from "./CropRecommendationAdvisor";
 import EquipmentManagement from "./EquipmentManagement";
+import CropQualityGrading from "./CropQualityGrading";
 import LastUpdated from "./LastUpdated";
 import { Leaf } from "lucide-react";
 import {
@@ -90,72 +90,72 @@ import {
 export default function Advisor({ userData }) {
   const navigate = useNavigate();
   
-  const {
-    farmers,
-    setFarmers,
-    crops,
-    setCrops,
-    languages,
-    setLanguages,
-    showWeather,
-    setShowWeather,
-    showSoilChatbot,
-    setShowSoilChatbot,
-    showSoilAnalysis,
-    setShowSoilAnalysis,
-    showSoilGuide,
-    setShowSoilGuide,
-    showFertilizerPopup,
-    setShowFertilizerPopup,
-    showComingSoon,
-    setShowComingSoon,
-    showIrrigation,
-    setShowIrrigation,
-    showProfitCalculator,
-    setShowProfitCalculator,
-    showFarmingMap,
-    setShowFarmingMap,
-    showCropDiseaseDetection,
-    setShowCropDiseaseDetection,
-    showPestManagement,
-    setShowPestManagement,
-    showAgriMarketplace,
-    setShowAgriMarketplace,
-    showAgriLMS,
-    setShowAgriLMS,
-    showQRTraceability,
-    setShowQRTraceability,
-    showFarmPlanner3D,
-    setShowFarmPlanner3D,
-    showFarmDiary,
-    setShowFarmDiary,
-    showCropRotation,
-    setShowCropRotation,
-    showForecast,
-    setShowForecast,
-    showExpertStatus,
-    setShowExpertStatus,
-    showBankReport,
-    setShowBankReport,
-    showP2PChat,
-    setShowP2PChat,
-    showSmartCropRecommendation,
-    setShowSmartCropRecommendation,
-    showSeedVerifier,
-    setShowSeedVerifier,
-    showGeoAlerts,
-    setShowGeoAlerts,
-    showClimateSimulator,
-    setShowClimateSimulator,
-    showRAGAdvisor,
-    setShowRAGAdvisor,
-    showGreenPractices,
-    setShowGreenPractices,
-    showCropRecommendationAdvisor,
-    setShowCropRecommendationAdvisor,
-    showEquipmentManagement,
-    setShowEquipmentManagement,
-} = useAdvisorStore();
+   const {
+     farmers,
+     setFarmers,
+     crops,
+     setCrops,
+     languages,
+     setLanguages,
+     showWeather,
+     setShowWeather,
+     showSoilChatbot,
+     setShowSoilChatbot,
+     showSoilAnalysis,
+     setShowSoilAnalysis,
+     showSoilGuide,
+     setShowSoilGuide,
+     showFertilizerPopup,
+     setShowFertilizerPopup,
+     showComingSoon,
+     setShowComingSoon,
+     showIrrigation,
+     setShowIrrigation,
+     showProfitCalculator,
+     setShowProfitCalculator,
+     showFarmingMap,
+     setShowFarmingMap,
+     showCropDiseaseDetection,
+     setShowCropDiseaseDetection,
+     showPestManagement,
+     setShowPestManagement,
+     showAgriMarketplace,
+     setShowAgriMarketplace,
+     showAgriLMS,
+     setShowAgriLMS,
+     showQRTraceability,
+     setShowQRTraceability,
+     showFarmPlanner3D,
+     setShowFarmPlanner3D,
+     showFarmDiary,
+     setShowFarmDiary,
+     showCropRotation,
+     setShowCropRotation,
+     showForecast,
+     setShowForecast,
+     showExpertStatus,
+     setShowExpertStatus,
+     showBankReport,
+     setShowBankReport,
+     showP2PChat,
+     setShowP2PChat,
+     showSmartCropRecommendation,
+     setShowSmartCropRecommendation,
+     showSeedVerifier,
+     setShowSeedVerifier,
+     showGeoAlerts,
+     setShowGeoAlerts,
+     showClimateSimulator,
+     setShowClimateSimulator,
+     showRAGAdvisor,
+     setShowRAGAdvisor,
+showGreenPractices,
+      setShowGreenPractices,
+      showCropRecommendationAdvisor,
+      setShowCropRecommendationAdvisor,
+      showCropGrading,
+      setShowCropGrading,
+    } = useAdvisorStore();
 
 
 
@@ -895,6 +895,23 @@ export default function Advisor({ userData }) {
             <h3><span className="notranslate">Green Practices & Carbon</span></h3>
             <p>Track eco-friendly practices, calculate carbon impact, and monetize sustainability.</p>
           </div>
+
+          <div
+            className="card reveal"
+            style={{ border: '2px solid #f59e0b', background: 'rgba(245, 158, 11, 0.02)' }}
+            role="button"
+            tabIndex={0}
+            onClick={() => setShowCropGrading(true)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowCropGrading(true); }}
+            aria-label="Crop Grading: Grade your harvest quality"
+          >
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b' }}>
+              <BarChart3 size={32} strokeWidth={2} />
+            </div>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#f59e0b', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>NEW</div>
+            <h3><span className="notranslate">Crop Grading</span></h3>
+            <p>Analyze crop quality metrics, get grading recommendations, and estimate market value.</p>
+          </div>
         </div>
         
         <div
@@ -1485,16 +1502,24 @@ export default function Advisor({ userData }) {
         onClose={() => setShowRAGAdvisor(false)}
       />
 
-      {showGreenPractices && (
-        <div className="weather-overlay" onClick={() => setShowGreenPractices(false)}>
-          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
-            <GreenPractices 
-              userProfile={userProfile} 
-              onClose={() => setShowGreenPractices(false)} 
-            />
+{showGreenPractices && (
+         <div className="weather-overlay" onClick={() => setShowGreenPractices(false)}>
+           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+             <GreenPractices 
+               userProfile={userProfile} 
+               onClose={() => setShowGreenPractices(false)} 
+             />
+           </div>
+         </div>
+       )}
+
+        {showCropGrading && (
+          <div className="weather-overlay" onClick={() => setShowCropGrading(false)}>
+            <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
+              <CropQualityGrading onClose={() => setShowCropGrading(false)} />
+            </div>
           </div>
-        </div>
-      )}
-    </section>
-  );
-}
+        )}
+     </section>
+   );
+ }
