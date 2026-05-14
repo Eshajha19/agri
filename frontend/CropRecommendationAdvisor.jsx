@@ -7,6 +7,7 @@ import {
   Activity,
   MapPin,
   Droplets,
+  Bug,
   Zap,
   TrendingUp,
   Loader,
@@ -228,6 +229,13 @@ export default function CropRecommendationAdvisor({ onClose }) {
                 <Zap size={16} /> Fertilizer Recommendation
               </h6>
               <p className="fertilizer-text">{crop.recommended_fertilizer}</p>
+            </div>
+
+            <div className="pesticide-section">
+              <h6>
+                <Bug size={16} /> Pesticide Guidance
+              </h6>
+              <p className="pesticide-text">{crop.recommended_pesticide}</p>
             </div>
 
             <button

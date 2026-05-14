@@ -276,6 +276,45 @@ class CropRecommendationRequest(BaseModel):
     season: Optional[str] = Field(default="kharif", max_length=20)
     area_size: Optional[float] = Field(default=None, ge=0.1)
 
+
+def build_pesticide_guidance(crop_name: str, season: str) -> str:
+    crop_key = str(crop_name or "").strip().title()
+    season_key = str(season or "kharif").strip().lower()
+
+    crop_guidance = {
+        "Rice": "Watch for stem borer, leaf folder, and blast pressure. Start with field sanitation, trap monitoring, and registered products only after local thresholds are crossed.",
+        "Maize": "Scout for fall armyworm and stem borer damage. Use pheromone traps and targeted sprays only after confirming active infestation.",
+        "Cotton": "Monitor for sucking pests such as aphids, jassids, and whitefly. Prefer yellow sticky traps, neem-based sprays, and local-approval products when pressure is high.",
+        "Sugarcane": "Check for early shoot borer and top borer activity. Remove infested shoots quickly and escalate to registered control options only when scouting shows spread.",
+        "Soybean": "Keep an eye on semiloopers and girdle beetles. Use regular scouting, trap placement, and label-approved insecticides only if crop loss is building.",
+        "Wheat": "Track aphids and rust-related disease pressure. Keep spraying windows dry and choose registered products only when field scouting confirms need.",
+        "Chickpea": "Monitor pod borer and aphid activity. Combine field hygiene with trap-based scouting before any chemical spray is considered.",
+        "Mustard": "Watch for aphids and sawfly damage. Use border monitoring, trap crops, and only registered pesticides that match the confirmed pest.",
+        "Barley": "Inspect for aphids and leaf diseases. Prefer early scouting and local extension guidance before any chemical treatment.",
+        "Lentil": "Monitor aphids and wilt-related stress. Use regular field checks and avoid blanket spraying when no pest buildup is visible.",
+        "Groundnut": "Watch for leaf miner, aphids, and leaf spot pressure. Keep the crop clean, use biological controls where possible, and spray only on confirmed pest pressure.",
+        "Watermelon": "Monitor for red pumpkin beetle and aphids. Use traps, crop hygiene, and registered products only after infestation is verified.",
+        "Sunflower": "Scout for head borer and sucking pests. Focus on field sanitation and threshold-based control rather than calendar sprays.",
+        "Okra": "Watch for whitefly and fruit borer damage. Start with trap monitoring and neem-based protection, then move to registered pesticides only if needed.",
+    }
+
+    guidance = crop_guidance.get(
+        crop_key,
+        "Use integrated pest management: scout weekly, prefer traps and biological controls, and apply registered pesticides only when pest pressure is confirmed.",
+    )
+
+    season_notes = {
+        "kharif": "Kharif weather can raise fungal and sucking-pest pressure, so avoid spraying before heavy rain and keep field borders clean.",
+        "rabi": "Rabi crops often face aphids and cooler-weather pests, so check undersides of leaves and spray only in calm, dry windows.",
+        "summer": "Summer conditions can favor mites and rapid pest spread, so inspect fields in the early morning and avoid harsh midday spraying.",
+    }
+
+    return " ".join([
+        guidance,
+        season_notes.get(season_key, season_notes["kharif"]),
+        "Always follow the product label, local safety intervals, and extension advice before using any pesticide.",
+    ])
+
 # --- ML Pipeline Initialization ---
 router = ModelRouter(default_model="xgboost")
 
@@ -1336,6 +1375,7 @@ async def recommend_crops(data: CropRecommendationRequest, request: Request):
                 "reasons": reasons,
                 "season": season,
                 "recommended_fertilizer": f"N: {max(0, 40 - data.nitrogen):.0f}kg, P: {max(0, 20 - data.phosphorus):.0f}kg, K: {max(0, 120 - data.potassium):.0f}kg per hectare" if data.area_size else "Consult local agronomist for exact fertilizer doses",
+                "recommended_pesticide": build_pesticide_guidance(crop["name"], season),
             })
         
         # Sort by compatibility score
