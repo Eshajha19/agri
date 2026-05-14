@@ -2206,3 +2206,219 @@ testimonials-section {
     font-size: 0.95rem;
   }
 }
+.quote-awareness-section {
+  padding: 100px 5%;
+  background: linear-gradient(135deg, #ecfdf5 0%, #ddf4ea 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+.quote-awareness-section::before {
+  content: "";
+  position: absolute;
+  top: -50%;
+  right: -20%;
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.08) 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.quote-awareness-section::after {
+  content: "";
+  position: absolute;
+  bottom: -30%;
+  left: -10%;
+  width: 300px;
+  height: 300px;
+  background: radial-gradient(circle, rgba(45, 90, 39, 0.06) 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.theme-dark .quote-awareness-section {
+  background: linear-gradient(135deg, #122b16 0%, #1f3d23 100%);
+}
+
+.quote-awareness-section .section-header {
+  margin-bottom: 48px;
+}
+
+.quote-awareness-section .section-header h2 {
+  font-size: clamp(28px, 4.5vw, 42px);
+  font-weight: 800;
+  color: var(--primary-dark);
+  margin-bottom: 12px;
+  line-height: 1.2;
+}
+
+.theme-dark .quote-awareness-section .section-header h2 {
+  color: #4ade80;
+}
+
+.quote-awareness-section .section-header p {
+  font-size: 18px;
+  color: var(--gray-500);
+  max-width: 600px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+.theme-dark .quote-awareness-section .section-header p {
+  color: #94a3b8;
+}
+
+.quote-awareness-section .quote-card {
+  max-width: 900px;
+  margin: 0 auto;
+  background: var(--white);
+  border-radius: 32px;
+  padding: 48px 56px;
+  box-shadow: var(--shadow-lg);
+  border: 2px solid rgba(34, 197, 94, 0.18);
+  position: relative;
+  overflow: hidden;
+  transition: all 0.4s ease;
+}
+
+.quote-awareness-section .quote-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--gradient);
+  border-radius: 32px 32px 0 0;
+}
+
+.theme-dark .quote-awareness-section .quote-card {
+  background: rgba(15, 23, 42, 0.92);
+  border-color: rgba(59, 130, 246, 0.2);
+  backdrop-filter: blur(16px);
+}
+
+.quote-awareness-section .quote-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 25px 80px rgba(0, 0, 0, 0.12);
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.quote-awareness-section .quote-card-top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.quote-awareness-section .quote-icon {
+  font-size: 36px;
+  color: var(--primary);
+  opacity: 0.8;
+  filter: drop-shadow(0 2px 8px rgba(34, 197, 94, 0.25));
+  transition: transform 0.3s ease;
+}
+
+.quote-awareness-section .quote-card:hover .quote-icon {
+  transform: scale(1.05);
+}
+
+.quote-awareness-section .quote-label {
+  display: inline-block;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  padding: 6px 14px;
+  background: rgba(34, 197, 94, 0.1);
+  border-radius: 50px;
+}
+
+.theme-dark .quote-awareness-section .quote-label {
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.12);
+}
+
+.quote-awareness-section .quote-card-text {
+  font-size: clamp(20px, 3vw, 26px);
+  line-height: 1.7;
+  color: var(--dark);
+  margin: 0 0 26px;
+  font-weight: 500;
+  position: relative;
+}
+
+.theme-dark .quote-awareness-section .quote-card-text {
+  color: #f3f4f6;
+}
+
+.quote-awareness-section .quote-author {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 20px;
+  border-top: 2px solid rgba(34, 197, 94, 0.15);
+}
+
+.quote-awareness-section .quote-author::before {
+  content: "";
+  width: 24px;
+  height: 2px;
+  background: var(--gradient);
+  border-radius: 1px;
+}
+
+.theme-dark .quote-awareness-section .quote-author {
+  color: #4ade80;
+}
+
+.quote-awareness-section .quote-author::before {
+  background: linear-gradient(90deg, #4ade80, #22c55e);
+}
+
+@media (max-width: 768px) {
+  .quote-awareness-section {
+    padding: 70px 5%;
+  }
+
+  .quote-awareness-section .quote-card {
+    padding: 36px 28px;
+    border-radius: 24px;
+  }
+
+  .quote-awareness-section .quote-card-top {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .quote-awareness-section .quote-icon {
+    font-size: 28px;
+  }
+
+  .quote-awareness-section .quote-label {
+    font-size: 14px;
+    padding: 5px 12px;
+  }
+
+  .quote-awareness-section .quote-author {
+    font-size: 15px;
+    padding-top: 16px;
+  }
+
+  .quote-awareness-section .quote-card-text {
+    font-size: 18px;
+    line-height: 1.65;
+  }
+}
+
+@media (max-width: 480px) {
+  .quote-awareness-section .quote-card {
+    padding: 28px 20px;
+  }
+}
