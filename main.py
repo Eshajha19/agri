@@ -43,6 +43,43 @@ class RAGQuery(BaseModel):
     query: str = Field(..., min_length=3, max_length=500)
     top_k: int = Field(default=3, ge=1, le=5)
 
+# Blockchain Supply Chain Models
+class RegisterActorRequest(BaseModel):
+    actor_id: str = Field(..., min_length=1, max_length=50)
+    name: str = Field(..., min_length=1, max_length=100)
+    actor_type: str = Field(..., min_length=1, max_length=50)
+    location: str = Field(..., min_length=1, max_length=100)
+
+class CreateProductBatchRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    farm_id: str = Field(..., min_length=1, max_length=50)
+    quantity: float = Field(..., gt=0)
+    unit: str = Field(..., min_length=1, max_length=20)
+    planting_date: str = Field(..., min_length=1)
+    harvesting_date: str = Field(..., min_length=1)
+    farmer_name: str = Field(..., min_length=1, max_length=100)
+
+class AddSupplyChainNodeRequest(BaseModel):
+    batch_id: str = Field(..., min_length=1)
+    node_type: str = Field(..., min_length=1, max_length=50)
+    actor_name: str = Field(..., min_length=1, max_length=100)
+    location: str = Field(..., min_length=1, max_length=100)
+    action: str = Field(..., min_length=1, max_length=50)
+    temperature: Optional[float] = None
+    humidity: Optional[float] = None
+    quality_check: Optional[str] = None
+    notes: str = Field(default="", max_length=500)
+
+class CreateSmartContractRequest(BaseModel):
+    batch_id: str = Field(..., min_length=1)
+    seller: str = Field(..., min_length=1, max_length=100)
+    buyer: str = Field(..., min_length=1, max_length=100)
+    price: float = Field(..., gt=0)
+    terms: Optional[Dict] = None
+
+class ExecuteContractRequest(BaseModel):
+    contract_id: str = Field(..., min_length=1)
+
 # Crop Quality Grading Models
 class CropQualityGradingRequest(BaseModel):
     crop_type: str = Field(..., min_length=1, max_length=50)
@@ -77,6 +114,7 @@ from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
 from crop_quality_grading import CropQualityGrader
+from blockchain_supply_chain import SupplyChainBlockchain
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -311,6 +349,12 @@ static_notifications = [
 
 # Initialize Crop Quality Grader
 _crop_quality_grader = CropQualityGrader()
+
+# Initialize Crop Quality Grader
+_crop_quality_grader = CropQualityGrader()
+
+# Initialize Supply Chain Blockchain
+_supply_chain_blockchain = SupplyChainBlockchain()
 
 # --- Routes ---
 
@@ -1293,3 +1337,175 @@ async def calculate_market_price(request: Request, data: CropQualityGradingReque
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
+# --- Blockchain Supply Chain Endpoints ---
+
+@app.post("/api/blockchain/register-actor")
+@limiter.limit("10/minute")
+async def register_actor(request: Request, data: RegisterActorRequest):
+    """Register supply chain participant"""
+    try:
+        actor_data = _supply_chain_blockchain.register_actor(
+            data.actor_id,
+            data.name,
+            data.actor_type,
+            data.location
+        )
+        return {"success": True, "actor": actor_data}
+    except Exception as e:
+        logger.error("Register actor error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/blockchain/create-batch")
+@limiter.limit("10/minute")
+async def create_batch(request: Request, data: CreateProductBatchRequest):
+    """Create product batch on blockchain"""
+    try:
+        batch = _supply_chain_blockchain.create_product_batch(
+            data.crop_type,
+            data.farm_id,
+            data.quantity,
+            data.unit,
+            data.planting_date,
+            data.harvesting_date,
+            data.farmer_name
+        )
+        from dataclasses import asdict
+        return {"success": True, "batch": asdict(batch)}
+    except Exception as e:
+        logger.error("Create batch error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/blockchain/add-node")
+@limiter.limit("10/minute")
+async def add_node(request: Request, data: AddSupplyChainNodeRequest):
+    """Add supply chain node"""
+    try:
+        node = _supply_chain_blockchain.add_supply_chain_node(
+            data.batch_id,
+            data.node_type,
+            data.actor_name,
+            data.location,
+            data.action,
+            temperature=data.temperature,
+            humidity=data.humidity,
+            quality_check=data.quality_check,
+            notes=data.notes
+        )
+        from dataclasses import asdict
+        return {"success": True, "node": asdict(node)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Add node error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/blockchain/create-contract")
+@limiter.limit("10/minute")
+async def create_contract(request: Request, data: CreateSmartContractRequest):
+    """Create smart contract"""
+    try:
+        contract = _supply_chain_blockchain.create_smart_contract(
+            data.batch_id,
+            data.seller,
+            data.buyer,
+            data.price,
+            data.terms
+        )
+        from dataclasses import asdict
+        return {"success": True, "contract": asdict(contract)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Create contract error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/blockchain/execute-contract")
+@limiter.limit("10/minute")
+async def execute_contract(request: Request, data: ExecuteContractRequest):
+    """Execute smart contract"""
+    try:
+        result = _supply_chain_blockchain.execute_smart_contract(data.contract_id)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Execute contract error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blockchain/qr-code/{batch_id}")
+@limiter.limit("20/minute")
+async def get_qr_code(batch_id: str):
+    """Get QR code for batch"""
+    try:
+        qr_code = _supply_chain_blockchain.generate_qr_code(batch_id)
+        return {"success": True, "batch_id": batch_id, "qr_code_base64": qr_code}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("QR code generation error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blockchain/verify/{batch_id}")
+@limiter.limit("20/minute")
+async def verify_batch(batch_id: str):
+    """Verify batch authenticity"""
+    try:
+        verification = _supply_chain_blockchain.verify_batch(batch_id)
+        return verification
+    except Exception as e:
+        logger.error("Verification error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blockchain/journey/{batch_id}")
+@limiter.limit("20/minute")
+async def get_journey(batch_id: str):
+    """Get supply chain journey"""
+    try:
+        journey = _supply_chain_blockchain.get_supply_chain_journey(batch_id)
+        return {"success": True, "data": journey}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Journey retrieval error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blockchain/analytics/{batch_id}")
+@limiter.limit("20/minute")
+async def get_analytics(batch_id: str):
+    """Get supply chain analytics"""
+    try:
+        analytics = _supply_chain_blockchain.get_supply_chain_analytics(batch_id)
+        return {"success": True, "data": analytics}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Analytics error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blockchain/marketplace")
+@limiter.limit("20/minute")
+async def get_marketplace():
+    """Get certified products for marketplace"""
+    try:
+        certified = _supply_chain_blockchain.get_certified_products()
+        return {"success": True, "products": certified, "count": len(certified)}
+    except Exception as e:
+        logger.error("Marketplace error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blockchain/stats")
+@limiter.limit("20/minute")
+async def get_stats():
+    """Get blockchain statistics"""
+    try:
+        stats = {
+            "total_records": _supply_chain_blockchain.get_blockchain_record_count(),
+            "total_products": len(_supply_chain_blockchain.products),
+            "registered_actors": len(_supply_chain_blockchain.verified_actors),
+            "total_contracts": len(_supply_chain_blockchain.smart_contracts)
+        }
+        return {"success": True, "stats": stats}
+    except Exception as e:
+        logger.error("Stats error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
