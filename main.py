@@ -60,6 +60,7 @@ from ml.registry import ModelRegistry
 from ml.adapters.xgboost_adapter import XGBoostAdapter
 from ml.router import ModelRouter
 from ml.preprocessing import UnknownCategoryError, MissingFeatureError
+from ml.security import verify_and_load_joblib
 
 # Other internal modules
 from alert_rules import generate_alerts
@@ -300,8 +301,12 @@ init_ml_pipeline()
 
 # Load model directly for backward compatibility or simple use cases if needed
 try:
-    model = joblib.load("yield_model.joblib")
-    model_lag = joblib.load("sklearn_yield_model.pkl")
+    # Use signature-verified loading to prevent execution of malicious
+    # pickled objects. These calls expect companion signature files:
+    # - yield_model.joblib.sig
+    # - sklearn_yield_model.pkl.sig
+    model = verify_and_load_joblib("yield_model.joblib")
+    model_lag = verify_and_load_joblib("sklearn_yield_model.pkl")
     print("Models loaded successfully")
 except Exception as e:
     print(f"Error loading models: {e}")
