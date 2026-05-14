@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useTranslation } from 'react-i18next';
-import { getEquipmentInfo, evaluateEquipmentHealth } from './utils/equipmentDatabase';
+import { getEquipmentInfo, getMaintenanceSchedule, evaluateEquipmentHealth, generateMaintenanceReport, getAllEquipmentData, saveEquipmentData } from './utils/equipmentDatabase';
 import EquipmentService from './services/equipmentApi';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
 
