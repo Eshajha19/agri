@@ -2,23 +2,18 @@
 import os
 import io
 import json
-import collections
-import itertools
-import threading
 import logging
 import re
-import math
 import joblib
 import hashlib
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, Dict, Any
 
 from fastapi import FastAPI, HTTPException, Request, Form, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field
 
 class SimulationRequest(BaseModel):
     crop_type: str
@@ -112,7 +107,6 @@ from ml.registry import ModelRegistry
 from ml.adapters.xgboost_adapter import XGBoostAdapter
 from ml.router import ModelRouter
 from ml.preprocessing import UnknownCategoryError, MissingFeatureError
-from ml.validators import InputValidationError
 
 # Other internal modules
 from alert_rules import generate_alerts
@@ -136,30 +130,7 @@ try:
 except ImportError:
     HAS_GCP_KMS = False
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """
-    FastAPI lifespan context manager.
-
-    Runs inside **every** Uvicorn/Gunicorn worker process on startup, so the
-    ML pipeline is always initialised regardless of how many workers are
-    spawned.  This replaces the previous bare ``init_ml_pipeline()`` call at
-    module level, which only ran reliably in single-worker deployments.
-
-    Multi-worker guarantee
-    ----------------------
-    When Uvicorn is started with ``--workers N``, each worker forks/spawns
-    from the main process and imports ``main.py`` independently.  The
-    ``lifespan`` hook is invoked by FastAPI in every worker's event loop,
-    ensuring ``ModelRegistry`` is populated in every process before the
-    first request is served.
-    """
-    init_ml_pipeline()
-    yield
-    # Shutdown: nothing to clean up for in-memory models.
-
-
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 
 logger = logging.getLogger(__name__)
 
@@ -194,17 +165,17 @@ db_firestore = None
 
 if not firebase_admin._apps:
     try:
+        # In a GCP environment this picks up Application Default Credentials
+        # automatically.  For local dev set GOOGLE_APPLICATION_CREDENTIALS to
+        # the path of a service-account key file.
         firebase_admin.initialize_app()
-        _firebase_logger.info("Firebase Admin: initialized new app")
+        db_firestore = firestore.client()
+        _firebase_logger.info("Firebase Admin: successfully initialized")
     except Exception as e:
-        _firebase_logger.warning("Firebase Admin: initialization failed: %s", e)
-
-try:
-    db_firestore = firestore.client()
-    _firebase_logger.info("Firestore: client successfully connected")
-except Exception as e:
-    db_firestore = None
-    _firebase_logger.warning("Firestore: could not connect client: %s", e)
+        _firebase_logger.warning(
+            "Firebase Admin: could not initialize — role-gated endpoints will "
+            "return 503 until Firestore is reachable. Reason: %s", e
+        )
 
 async def verify_role(request: Request, required_roles: list = None):
     """
@@ -310,32 +281,17 @@ class PredictRequest(BaseModel):
 class PredictResponse(BaseModel):
     predicted_ExpYield: float
 
-class YieldHistoryRecord(BaseModel):
-    crop: str
-    season: str
-    area: float
-    predicted_yield: float
-    inputs: Dict[str, Any]
-    timestamp: datetime = Field(default_factory=datetime.now)
-
-class ActualYieldUpdate(BaseModel):
-    record_id: str
-    actual_yield: float
-
 class WhatsAppSubscribeRequest(BaseModel):
     phone_number: str
+    user_id: str
     name: str
-    # user_id is accepted for backward compatibility but is IGNORED by the
-    # endpoint — the authoritative user identity is always derived from the
-    # verified Firebase ID token, never from client-supplied data.
-    user_id: Optional[str] = None
 
 class YieldInput(BaseModel):
     data: list[float]
 
 class AlertTriggerRequest(BaseModel):
-    alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
-    message: str = Field(..., min_length=1, max_length=500)
+    alert_type: str  # 'weather', 'pest', 'advisory'
+    message: str
 
 class ReportRequest(BaseModel):
     name: str = Field(..., max_length=100)
@@ -377,11 +333,6 @@ class FinanceAssessmentRequest(BaseModel):
     notes: Optional[str] = Field(default=None, max_length=500)
 
 # --- ML Pipeline Initialization ---
-# init_ml_pipeline() is called inside the FastAPI lifespan context manager
-# (defined above app = FastAPI(...)) so it runs in every Uvicorn worker
-# process on startup.  Do NOT call it here at module level — doing so would
-# run it in the main process only and leave additional workers with empty
-# registries in multi-worker deployments.
 router = ModelRouter(default_model="xgboost")
 
 def init_ml_pipeline():
@@ -402,30 +353,16 @@ def init_ml_pipeline():
     except Exception as e:
         print(f"ML Pipeline Error: {e}")
 
-    # ── LSTM Price Forecaster Pre-training ──────────────────────────────────
-    # The LSTM models train on embedded data at first use. To prevent the
-    # first API request from timing out (training takes ~30-60s per crop),
-    # we trigger a background "warm-up" for the major commodities.
-    def warm_up_forecaster():
-        try:
-            from ml.price_forecaster import price_forecaster
-            commodities = price_forecaster.supported_commodities()
-            print(f"ML Pipeline: Starting background warm-up for {len(commodities)} commodities...")
-            for commodity in commodities:
-                # This triggers training if not already cached
-                price_forecaster.forecast(commodity, days=1)
-            print("ML Pipeline: All price forecast models warmed up.")
-        except Exception as e:
-            print(f"ML Pipeline: Forecaster warm-up failed: {e}")
-
-    threading.Thread(target=warm_up_forecaster, daemon=True).start()
-
 init_ml_pipeline()
 
 # Load model directly for backward compatibility or simple use cases if needed
 try:
-    model = joblib.load("yield_model.joblib")
-    model_lag = joblib.load("sklearn_yield_model.pkl")
+    # Use signature-verified loading to prevent execution of malicious
+    # pickled objects. These calls expect companion signature files:
+    # - yield_model.joblib.sig
+    # - sklearn_yield_model.pkl.sig
+    model = verify_and_load_joblib("yield_model.joblib")
+    model_lag = verify_and_load_joblib("sklearn_yield_model.pkl")
     print("Models loaded successfully")
 except Exception as e:
     print(f"Error loading models: {e}")
@@ -433,103 +370,17 @@ except Exception as e:
     model_lag = None
 
 # --- Static Notifications Storage ---
-#
-# Problems with the original bare list:
-#
-# 1. Unbounded growth — every trigger_whatsapp_alert call appended an entry
-#    that was never removed.  After weeks in production the list could hold
-#    thousands of entries, all serialised and sent to every client on every
-#    GET /api/notifications poll.
-#
-# 2. Duplicate IDs under concurrency — `len(list) + 1` is not atomic.  Two
-#    concurrent trigger-alert requests could both read the same length and
-#    produce entries with identical IDs, silently corrupting any client-side
-#    deduplication keyed on id.
-#
-# Fix — NotificationStore:
-#
-# • collections.deque(maxlen=MAX_NOTIFICATIONS) caps memory at a fixed
-#   ceiling.  When the deque is full, the oldest entry is automatically
-#   evicted before the new one is appended — no manual cleanup needed.
-#
-# • itertools.count() produces a strictly monotonically increasing integer
-#   sequence.  In CPython, next() on a count object is effectively atomic
-#   for the GIL-protected use case here, so two concurrent appends always
-#   get distinct IDs.
-#
-# • threading.Lock() serialises append() so the read-then-increment
-#   sequence is never interleaved across threads.
-#
-# • get_recent() filters by a TTL window so the response payload stays
-#   small even when the deque is at capacity.
+static_notifications = [
+    {
+        "id": 1,
+        "type": "weather",
+        "message": "🌧️ Heavy rainfall expected in your region today.",
+        "time": datetime.now().isoformat()
+    }
+]
 
-# Maximum number of triggered-alert entries kept in memory at any time.
-# Oldest entries are evicted automatically when this ceiling is reached.
-_MAX_NOTIFICATIONS = 200
-
-# How long a triggered-alert entry remains visible to clients.
-_NOTIFICATION_TTL_HOURS = 24
-
-
-class NotificationStore:
-    """
-    Thread-safe, bounded, TTL-aware store for in-process notifications.
-
-    Parameters
-    ----------
-    maxlen : int
-        Hard cap on the number of entries held in memory.  When full,
-        the oldest entry is evicted before the new one is appended.
-    ttl_hours : int
-        Entries older than this many hours are excluded from get_recent().
-    """
-
-    def __init__(self, maxlen: int = _MAX_NOTIFICATIONS, ttl_hours: int = _NOTIFICATION_TTL_HOURS):
-        self._deque: collections.deque = collections.deque(maxlen=maxlen)
-        self._lock = threading.Lock()
-        self._counter = itertools.count(start=1)
-        self._ttl = timedelta(hours=ttl_hours)
-
-    def append(self, alert_type: str, message: str) -> dict:
-        """
-        Add a new notification entry and return it.
-
-        The ID is assigned from a monotonically increasing counter so
-        concurrent calls always produce distinct values.
-        """
-        with self._lock:
-            entry = {
-                "id": next(self._counter),
-                "type": alert_type,
-                "message": message,
-                "time": datetime.now().isoformat(),
-            }
-            self._deque.append(entry)
-        return entry
-
-    def get_recent(self) -> list:
-        """
-        Return all entries newer than the configured TTL, oldest first.
-
-        Takes a snapshot under the lock so callers always see a consistent
-        view even if append() is running concurrently.
-        """
-        cutoff = datetime.now() - self._ttl
-        with self._lock:
-            snapshot = list(self._deque)
-        return [
-            e for e in snapshot
-            if datetime.fromisoformat(e["time"]) >= cutoff
-        ]
-
-
-# Seed the store with the initial weather advisory that was previously
-# hard-coded in the bare list.
-_notification_store = NotificationStore()
-_notification_store.append(
-    alert_type="weather",
-    message="🌧️ Heavy rainfall expected in your region today.",
-)
+# Initialize Crop Quality Grader
+_crop_quality_grader = CropQualityGrader()
 
 # Initialize Crop Quality Grader
 _crop_quality_grader = CropQualityGrader()
@@ -556,9 +407,9 @@ def predict_yield(data: PredictRequest, request: Request):
     """
     Standardised prediction endpoint using ML Router for dynamic model selection.
 
-    Returns HTTP 422 when the input contains an unknown categorical value, a
-    missing required feature, or an out-of-range numeric parameter, so callers
-    receive an actionable error message rather than a silently corrupted prediction.
+    Returns HTTP 422 when the input contains an unknown categorical value or a
+    missing required feature, so callers receive an actionable error message
+    rather than a silently corrupted prediction.
     """
     try:
         input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
@@ -571,18 +422,6 @@ def predict_yield(data: PredictRequest, request: Request):
         predicted_yield = router.predict(input_data, context)
         return {"predicted_ExpYield": float(predicted_yield)}
 
-    except InputValidationError as e:
-        # A numeric parameter is out of acceptable range or invalid type.
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "invalid_input",
-                "field": e.field,
-                "value": str(e.value),
-                "constraint": e.constraint,
-                "message": str(e),
-            },
-        )
     except UnknownCategoryError as e:
         # The submitted categorical value was not in the training vocabulary.
         raise HTTPException(
@@ -608,165 +447,6 @@ def predict_yield(data: PredictRequest, request: Request):
         print(f"Prediction Error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.post("/api/yield/history")
-@limiter.limit("10/minute")
-async def save_yield_history(data: YieldHistoryRecord, request: Request):
-    """Stores initial yield prediction metadata in Firestore."""
-    token_data = await verify_role(request)
-    uid = token_data["uid"]
-    
-    if not db_firestore:
-        raise HTTPException(status_code=503, detail="Database unavailable")
-
-    try:
-        # Create a new record with initial null actual_yield
-        record_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
-        record_data["uid"] = uid
-        record_data["actual_yield"] = None
-        record_data["accuracy"] = None
-        
-        # Use a timestamp-based ID or let Firestore generate
-        doc_ref = db_firestore.collection("yield_history").document()
-        doc_ref.set(record_data)
-        
-        return {"success": True, "record_id": doc_ref.id}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/yield/record-actual")
-@limiter.limit("5/minute")
-async def record_actual_yield(data: ActualYieldUpdate, request: Request):
-    """Updates a yield history record with the actual harvested yield and computes accuracy."""
-    token_data = await verify_role(request)
-    uid = token_data["uid"]
-
-    if not db_firestore:
-        raise HTTPException(status_code=503, detail="Database unavailable")
-
-    try:
-        doc_ref = db_firestore.collection("yield_history").document(data.record_id)
-        doc_snap = doc_ref.get()
-        
-        if not doc_snap.exists:
-            raise HTTPException(status_code=404, detail="Record not found")
-        
-        existing = doc_snap.to_dict()
-        if existing["uid"] != uid:
-            raise HTTPException(status_code=403, detail="Access denied")
-
-        # Calculate accuracy: (1 - |pred - actual| / actual) * 100
-        # Capped at 0-100%
-        pred = existing["predicted_yield"]
-        actual = data.actual_yield
-        if actual > 0:
-            error = abs(pred - actual) / actual
-            accuracy = max(0, (1 - error) * 100)
-        else:
-            accuracy = 0
-
-        doc_ref.update({
-            "actual_yield": actual,
-            "accuracy": round(accuracy, 2)
-        })
-
-        return {"success": True, "accuracy": round(accuracy, 2)}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/yield/analytics")
-@limiter.limit("10/minute")
-async def get_yield_analytics(request: Request):
-    """Returns yield history, accuracy metrics, and detects model drift."""
-    token_data = await verify_role(request)
-    uid = token_data["uid"]
-
-    if not db_firestore:
-        raise HTTPException(status_code=503, detail="Database unavailable")
-
-    try:
-        # Remove order_by to avoid composite index requirement (uid ASC, timestamp DESC)
-        docs = db_firestore.collection("yield_history")\
-            .where("uid", "==", uid)\
-            .limit(100)\
-            .stream()
-        
-        history = []
-        try:
-            for d in docs:
-                try:
-                    item = d.to_dict()
-                    if not item: continue
-                    item["id"] = d.id
-                    
-                    # Robust timestamp parsing
-                    ts = item.get("timestamp")
-                    parsed_ts = datetime.min
-                    if hasattr(ts, "to_datetime"):
-                        parsed_ts = ts.to_datetime()
-                    elif isinstance(ts, datetime):
-                        parsed_ts = ts
-                    elif isinstance(ts, str):
-                        try:
-                            parsed_ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                        except:
-                            pass
-                    
-                    item["timestamp_obj"] = parsed_ts
-                    history.append(item)
-                except Exception as row_err:
-                    _firebase_logger.warning("Skipping malformed yield record %s: %s", getattr(d, "id", "unknown"), row_err)
-        except Exception as stream_err:
-            _firebase_logger.error("Firestore stream failed: %s", stream_err)
-            raise HTTPException(status_code=500, detail="Database stream error")
-
-        # Sort in memory: Newest first
-        history.sort(key=lambda x: x.get("timestamp_obj", datetime.min), reverse=True)
-        
-        # Limit to 20 for response
-        history = history[:20]
-
-        # Final cleanup for JSON
-        clean_history = []
-        for item in history:
-            clean_item = {
-                "id": item.get("id"),
-                "crop": item.get("crop", "Unknown"),
-                "season": item.get("season", "Unknown"),
-                "area": item.get("area", 0),
-                "predicted_yield": item.get("predicted_yield", 0),
-                "actual_yield": item.get("actual_yield"),
-                "accuracy": item.get("accuracy"),
-                "timestamp": item["timestamp_obj"].isoformat() if isinstance(item.get("timestamp_obj"), datetime) else datetime.now().isoformat()
-            }
-            clean_history.append(clean_item)
-
-        # Drift Detection Logic
-        completed = [h for h in clean_history if h.get("accuracy") is not None]
-        drift_detected = False
-        avg_accuracy = None
-        
-        if len(completed) >= 3:
-            recent_accs = [float(h["accuracy"]) for h in completed[:3]]
-            avg_accuracy = sum(recent_accs) / len(recent_accs)
-            if avg_accuracy < 75:
-                drift_detected = True
-
-        return {
-            "history": clean_history,
-            "metrics": {
-                "avg_accuracy": round(avg_accuracy, 2) if avg_accuracy is not None else None,
-                "drift_detected": drift_detected,
-                "total_records": len(clean_history),
-                "completed_records": len(completed)
-            },
-            "drift_alert": "Significant model drift detected. Local environmental changes may be affecting accuracy. Consider participating in retraining." if drift_detected else None
-        }
-    except Exception as e:
-        _firebase_logger.error("Analytics Fatal Error: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Analytics internal error: {str(e)}")
-
 @app.post("/predict-yield-lag")
 @limiter.limit("5/minute")
 async def predict_yield_lag(payload: YieldInput, request: Request):
@@ -776,34 +456,14 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
         data = payload.data
         if len(data) != 5:
             raise ValueError("Exactly 5 values are required")
-        
-        # Validate each numeric value in the time series
-        validated_data = []
-        for i, value in enumerate(data):
-            try:
-                # Convert to float and check for special values
-                numeric_value = float(value)
-                if math.isnan(numeric_value):
-                    raise ValueError(f"Value at position {i} cannot be NaN")
-                if math.isinf(numeric_value):
-                    raise ValueError(f"Value at position {i} cannot be infinite")
-                # Check for reasonable yield range (0 to 100,000 kg/ha)
-                if not (0 <= numeric_value <= 100000):
-                    raise ValueError(
-                        f"Value at position {i} ({numeric_value}) must be between 0 and 100,000 kg/ha"
-                    )
-                validated_data.append(numeric_value)
-            except (TypeError, ValueError) as e:
-                raise ValueError(f"Invalid value at position {i}: {value}. {str(e)}")
-        
-        data_array = np.array(validated_data).reshape(1, -1)
-        prediction = model_lag.predict(data_array)
+        data = np.array(data).reshape(1, -1)
+        prediction = model_lag.predict(data)
         return {
             "prediction": round(float(prediction[0]), 2),
             "model": "RandomForest Time Series (Lag Features)"
         }
     except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
@@ -816,27 +476,7 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
         data = payload.data
         if len(data) != 5:
             raise ValueError("Exactly 5 values are required")
-        
-        # Validate each numeric value in the time series
-        validated_data = []
-        for i, value in enumerate(data):
-            try:
-                # Convert to float and check for special values
-                numeric_value = float(value)
-                if math.isnan(numeric_value):
-                    raise ValueError(f"Value at position {i} cannot be NaN")
-                if math.isinf(numeric_value):
-                    raise ValueError(f"Value at position {i} cannot be infinite")
-                # Check for reasonable yield range (0 to 100,000 kg/ha)
-                if not (0 <= numeric_value <= 100000):
-                    raise ValueError(
-                        f"Value at position {i} ({numeric_value}) must be between 0 and 100,000 kg/ha"
-                    )
-                validated_data.append(numeric_value)
-            except (TypeError, ValueError) as e:
-                raise ValueError(f"Invalid value at position {i}: {value}. {str(e)}")
-        
-        temp = list(validated_data)
+        temp = data[::-1]  # reverse once
         trend = []
         for _ in range(5):
             features = temp[:5]
@@ -850,7 +490,7 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
             "model": "RandomForest Trend Forecast (Lag Features)"
         }
     except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
@@ -861,14 +501,7 @@ def get_notifications(
     water_coverage: int = Query(default=None, ge=0, le=100),
     season: str = Query(default=None)
 ):
-    """
-    Return recent triggered-alert notifications combined with dynamic
-    farm advisory alerts generated from the query parameters.
-
-    Only notifications newer than the store's TTL window are included,
-    so the response payload stays small regardless of how long the
-    process has been running.
-    """
+    """Generate dynamic farm advisory alerts + static ones."""
     dynamic_alerts = generate_alerts(
         crop=crop,
         irrigation_count=irrigation_count,
@@ -922,21 +555,14 @@ def get_finance_marketplace():
 @app.post("/api/whatsapp/subscribe")
 @limiter.limit("2/minute")
 async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
-    # Require authentication so the subscriber's identity is always derived
-    # from the verified Firebase token — never from client-supplied data.
-    # Previously the endpoint accepted user_id from the request body, which
-    # allowed any caller to overwrite another user's subscription by sending
-    # a known user_id with an attacker-controlled phone number.
-    token_data = await verify_role(request)
-    uid = token_data["uid"]
-
+    user_id = data.user_id if data.user_id else str(datetime.now().timestamp())
     subscriber = {
         "phone_number": data.phone_number,
         "name": data.name,
         "subscribed_at": datetime.now().isoformat(),
     }
     try:
-        subscriber_store.upsert(uid, subscriber)
+        subscriber_store.upsert(user_id, subscriber)
     except OSError as exc:
         raise HTTPException(
             status_code=500,
@@ -952,22 +578,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     return {"success": True, "message": "Successfully subscribed"}
 
 @app.post("/api/whatsapp/trigger-alert")
-@limiter.limit("10/minute")
-async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
-    """
-    Broadcast a WhatsApp alert to all subscribers.
-
-    Requires authentication — admin or expert role only.
-
-    Previously this endpoint had no authentication check, no rate limit,
-    and no input constraints.  Any unauthenticated caller could send
-    arbitrary messages to every subscribed farmer, enabling social
-    engineering attacks (fake market alerts, fake pest warnings) and
-    consuming Twilio API credits at the attacker's discretion.
-    """
-    # RBAC: only admins and experts may broadcast alerts to all farmers.
-    await verify_role(request, required_roles=["admin", "expert"])
-
+async def trigger_whatsapp_alert(data: AlertTriggerRequest):
     # get_all() acquires the lock and returns a stable snapshot, so this read
     # cannot race with a concurrent subscription write.
     subscribers = subscriber_store.get_all()
@@ -976,17 +587,16 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
 
     for user_id, info in subscribers.items():
         res = send_whatsapp_message(info["phone_number"], formatted_msg)
-        results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})
+        results.append({"user_id": user_id, "success": res.get("success", False)})
 
-    # Use the bounded, thread-safe NotificationStore instead of the bare
-    # static_notifications list (which had no size cap and racy ID generation).
-    _notification_store.append(
-        alert_type=data.alert_type,
-        message=data.message,
-    )
+    static_notifications.append({
+        "id": len(static_notifications) + 1,
+        "type": data.alert_type,
+        "message": data.message,
+        "time": datetime.now().isoformat(),
+    })
 
-    delivered = sum(1 for r in results if r["success"])
-    return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
+    return {"success": True, "results": results}
 
 @app.post("/api/whatsapp/webhook")
 async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
@@ -1163,35 +773,10 @@ async def generate_signed_report(data: ReportRequest, request: Request):
         p.setStrokeColor(colors.black)
         p.rect(1*inch, y - 1.5*inch, width - 2*inch, 1.8*inch, stroke=1, fill=0)
         
-        # Data for signing — use a JSON object with explicit field keys so
-        # every field is unambiguously bound to its name.  The old pipe-
-        # delimited format ("Alice|Wheat|5 Acres|...") allowed two different
-        # inputs to produce the same string:
-        #   name="Alice|Wheat", crop="5 Acres"  →  "Alice|Wheat|5 Acres|..."
-        #   name="Alice",       crop="Wheat|5 Acres" →  "Alice|Wheat|5 Acres|..."
-        # With JSON, {"name": "Alice|Wheat", "crop": "5 Acres"} and
-        # {"name": "Alice", "crop": "Wheat|5 Acres"} are distinct byte strings,
-        # so the signature binds unambiguously to the exact field values.
-        # sort_keys=True ensures the serialisation is deterministic regardless
-        # of Python dict insertion order.
-        report_payload = {
-            "name":   data.name,
-            "crop":   data.crop,
-            "area":   data.area,
-            "profit": data.profit,
-            "season": data.season,
-            "date":   datetime.now().date().isoformat(),
-        }
-        report_data_bytes = json.dumps(report_payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
-        signature = private_key.sign(report_data_bytes)
-
-        # Use the full 64-char SHA-256 hex digest as the canonical signature
-        # fingerprint, then display the first 16 chars (64 bits) on the PDF.
-        # The old 8-char (32-bit) truncation had a ~1-in-4-billion collision
-        # probability per pair — not negligible for a document presented to a
-        # bank.  16 hex chars gives ~1-in-18-quintillion, which is negligible.
-        sig_full = hashlib.sha256(signature).hexdigest().upper()
-        sig_id = sig_full[:16]
+        # Data for signing
+        report_data_string = f"{data.name}|{data.crop}|{data.area}|{data.profit}|{datetime.now().date()}"
+        signature = private_key.sign(report_data_string.encode())
+        sig_id = hashlib.sha256(signature).hexdigest()[:8].upper()
 
         p.setFont("Helvetica-Bold", 14)
         p.drawString(1.2*inch, y - 0.3*inch, "DIGITAL CRYPTOGRAPHIC SIGNATURE")
