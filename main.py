@@ -2,16 +2,13 @@
 import os
 import io
 import json
-import collections
-import itertools
-import threading
 import logging
 import re
 import joblib
 import hashlib
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, Dict, Any
 
 from fastapi import FastAPI, HTTPException, Request, Form, Query, Response
@@ -46,6 +43,19 @@ class RAGQuery(BaseModel):
     query: str = Field(..., min_length=3, max_length=500)
     top_k: int = Field(default=3, ge=1, le=5)
 
+# Crop Quality Grading Models
+class CropQualityGradingRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    image_base64: str = Field(..., min_length=100)  # Base64 encoded image
+
+class CropQualityBatchRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    images_base64: list = Field(..., min_items=1, max_items=100)  # Multiple images
+
+class QualityTrendsRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    days: int = Field(default=7, ge=1, le=30)
+
 # Rate Limiting
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -66,7 +76,7 @@ from ml.security import verify_and_load_joblib
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
-from weather_alerts import weather_service, WeatherAlert
+from crop_quality_grading import CropQualityGrader
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -252,69 +262,6 @@ class ReportRequest(BaseModel):
     profit: str = Field(..., max_length=50)
     season: str = Field(..., max_length=50)
 
-class SeedVerifyRequest(BaseModel):
-    code: str = Field(..., min_length=4, max_length=100)
-
-class WeatherAlertRequest(BaseModel):
-    """Request for weather alerts by location and crop"""
-    latitude: float = Field(..., ge=-90, le=90)
-    longitude: float = Field(..., ge=-180, le=180)
-    location: str = Field(..., max_length=100)
-    crop: Optional[str] = Field(default=None, max_length=50)
-
-class WeatherLocationRequest(BaseModel):
-    """Request to geocode a location"""
-    location: str = Field(..., min_length=2, max_length=100)
-
-class CropRecommendationRequest(BaseModel):
-    """Request for crop recommendations based on soil parameters"""
-    soil_ph: float = Field(..., ge=4.0, le=9.0)
-    nitrogen: float = Field(..., ge=0)
-    phosphorus: float = Field(..., ge=0)
-    potassium: float = Field(..., ge=0)
-    location: str = Field(..., max_length=100)
-    season: Optional[str] = Field(default="kharif", max_length=20)
-    area_size: Optional[float] = Field(default=None, ge=0.1)
-
-
-def build_pesticide_guidance(crop_name: str, season: str) -> str:
-    crop_key = str(crop_name or "").strip().title()
-    season_key = str(season or "kharif").strip().lower()
-
-    crop_guidance = {
-        "Rice": "Watch for stem borer, leaf folder, and blast pressure. Start with field sanitation, trap monitoring, and registered products only after local thresholds are crossed.",
-        "Maize": "Scout for fall armyworm and stem borer damage. Use pheromone traps and targeted sprays only after confirming active infestation.",
-        "Cotton": "Monitor for sucking pests such as aphids, jassids, and whitefly. Prefer yellow sticky traps, neem-based sprays, and local-approval products when pressure is high.",
-        "Sugarcane": "Check for early shoot borer and top borer activity. Remove infested shoots quickly and escalate to registered control options only when scouting shows spread.",
-        "Soybean": "Keep an eye on semiloopers and girdle beetles. Use regular scouting, trap placement, and label-approved insecticides only if crop loss is building.",
-        "Wheat": "Track aphids and rust-related disease pressure. Keep spraying windows dry and choose registered products only when field scouting confirms need.",
-        "Chickpea": "Monitor pod borer and aphid activity. Combine field hygiene with trap-based scouting before any chemical spray is considered.",
-        "Mustard": "Watch for aphids and sawfly damage. Use border monitoring, trap crops, and only registered pesticides that match the confirmed pest.",
-        "Barley": "Inspect for aphids and leaf diseases. Prefer early scouting and local extension guidance before any chemical treatment.",
-        "Lentil": "Monitor aphids and wilt-related stress. Use regular field checks and avoid blanket spraying when no pest buildup is visible.",
-        "Groundnut": "Watch for leaf miner, aphids, and leaf spot pressure. Keep the crop clean, use biological controls where possible, and spray only on confirmed pest pressure.",
-        "Watermelon": "Monitor for red pumpkin beetle and aphids. Use traps, crop hygiene, and registered products only after infestation is verified.",
-        "Sunflower": "Scout for head borer and sucking pests. Focus on field sanitation and threshold-based control rather than calendar sprays.",
-        "Okra": "Watch for whitefly and fruit borer damage. Start with trap monitoring and neem-based protection, then move to registered pesticides only if needed.",
-    }
-
-    guidance = crop_guidance.get(
-        crop_key,
-        "Use integrated pest management: scout weekly, prefer traps and biological controls, and apply registered pesticides only when pest pressure is confirmed.",
-    )
-
-    season_notes = {
-        "kharif": "Kharif weather can raise fungal and sucking-pest pressure, so avoid spraying before heavy rain and keep field borders clean.",
-        "rabi": "Rabi crops often face aphids and cooler-weather pests, so check undersides of leaves and spray only in calm, dry windows.",
-        "summer": "Summer conditions can favor mites and rapid pest spread, so inspect fields in the early morning and avoid harsh midday spraying.",
-    }
-
-    return " ".join([
-        guidance,
-        season_notes.get(season_key, season_notes["kharif"]),
-        "Always follow the product label, local safety intervals, and extension advice before using any pesticide.",
-    ])
-
 # --- ML Pipeline Initialization ---
 router = ModelRouter(default_model="xgboost")
 
@@ -353,103 +300,17 @@ except Exception as e:
     model_lag = None
 
 # --- Static Notifications Storage ---
-#
-# Problems with the original bare list:
-#
-# 1. Unbounded growth — every trigger_whatsapp_alert call appended an entry
-#    that was never removed.  After weeks in production the list could hold
-#    thousands of entries, all serialised and sent to every client on every
-#    GET /api/notifications poll.
-#
-# 2. Duplicate IDs under concurrency — `len(list) + 1` is not atomic.  Two
-#    concurrent trigger-alert requests could both read the same length and
-#    produce entries with identical IDs, silently corrupting any client-side
-#    deduplication keyed on id.
-#
-# Fix — NotificationStore:
-#
-# • collections.deque(maxlen=MAX_NOTIFICATIONS) caps memory at a fixed
-#   ceiling.  When the deque is full, the oldest entry is automatically
-#   evicted before the new one is appended — no manual cleanup needed.
-#
-# • itertools.count() produces a strictly monotonically increasing integer
-#   sequence.  In CPython, next() on a count object is effectively atomic
-#   for the GIL-protected use case here, so two concurrent appends always
-#   get distinct IDs.
-#
-# • threading.Lock() serialises append() so the read-then-increment
-#   sequence is never interleaved across threads.
-#
-# • get_recent() filters by a TTL window so the response payload stays
-#   small even when the deque is at capacity.
+static_notifications = [
+    {
+        "id": 1,
+        "type": "weather",
+        "message": "🌧️ Heavy rainfall expected in your region today.",
+        "time": datetime.now().isoformat()
+    }
+]
 
-# Maximum number of triggered-alert entries kept in memory at any time.
-# Oldest entries are evicted automatically when this ceiling is reached.
-_MAX_NOTIFICATIONS = 200
-
-# How long a triggered-alert entry remains visible to clients.
-_NOTIFICATION_TTL_HOURS = 24
-
-
-class NotificationStore:
-    """
-    Thread-safe, bounded, TTL-aware store for in-process notifications.
-
-    Parameters
-    ----------
-    maxlen : int
-        Hard cap on the number of entries held in memory.  When full,
-        the oldest entry is evicted before the new one is appended.
-    ttl_hours : int
-        Entries older than this many hours are excluded from get_recent().
-    """
-
-    def __init__(self, maxlen: int = _MAX_NOTIFICATIONS, ttl_hours: int = _NOTIFICATION_TTL_HOURS):
-        self._deque: collections.deque = collections.deque(maxlen=maxlen)
-        self._lock = threading.Lock()
-        self._counter = itertools.count(start=1)
-        self._ttl = timedelta(hours=ttl_hours)
-
-    def append(self, alert_type: str, message: str) -> dict:
-        """
-        Add a new notification entry and return it.
-
-        The ID is assigned from a monotonically increasing counter so
-        concurrent calls always produce distinct values.
-        """
-        with self._lock:
-            entry = {
-                "id": next(self._counter),
-                "type": alert_type,
-                "message": message,
-                "time": datetime.now().isoformat(),
-            }
-            self._deque.append(entry)
-        return entry
-
-    def get_recent(self) -> list:
-        """
-        Return all entries newer than the configured TTL, oldest first.
-
-        Takes a snapshot under the lock so callers always see a consistent
-        view even if append() is running concurrently.
-        """
-        cutoff = datetime.now() - self._ttl
-        with self._lock:
-            snapshot = list(self._deque)
-        return [
-            e for e in snapshot
-            if datetime.fromisoformat(e["time"]) >= cutoff
-        ]
-
-
-# Seed the store with the initial weather advisory that was previously
-# hard-coded in the bare list.
-_notification_store = NotificationStore()
-_notification_store.append(
-    alert_type="weather",
-    message="🌧️ Heavy rainfall expected in your region today.",
-)
+# Initialize Crop Quality Grader
+_crop_quality_grader = CropQualityGrader()
 
 # --- Routes ---
 
@@ -536,7 +397,7 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
         data = payload.data
         if len(data) != 5:
             raise ValueError("Exactly 5 values are required")
-        temp = list(data)
+        temp = data[::-1]  # reverse once
         trend = []
         for _ in range(5):
             features = temp[:5]
@@ -561,21 +422,14 @@ def get_notifications(
     water_coverage: int = Query(default=None, ge=0, le=100),
     season: str = Query(default=None)
 ):
-    """
-    Return recent triggered-alert notifications combined with dynamic
-    farm advisory alerts generated from the query parameters.
-
-    Only notifications newer than the store's TTL window are included,
-    so the response payload stays small regardless of how long the
-    process has been running.
-    """
+    """Generate dynamic farm advisory alerts + static ones."""
     dynamic_alerts = generate_alerts(
         crop=crop,
         irrigation_count=irrigation_count,
         water_coverage=water_coverage,
         season=season
     )
-    return {"success": True, "data": _notification_store.get_recent() + dynamic_alerts}
+    return {"success": True, "data": static_notifications + dynamic_alerts}
 
 # --- Weather Alerts Endpoints ---
 
@@ -1268,156 +1122,173 @@ async def verify_seed(data: SeedVerifyRequest, request: Request):
         "expires_on": entry["expires_on"],
     }
 
-@app.post("/api/crop/recommend")
-@limiter.limit("20/minute")
-async def recommend_crops(data: CropRecommendationRequest, request: Request):
+# --- Crop Quality Grading Endpoints ---
+
+@app.post("/api/quality/assess-single")
+@limiter.limit("10/minute")
+async def assess_single_crop(request: Request, data: CropQualityGradingRequest):
     """
-    Provide AI-powered crop recommendations based on soil parameters.
+    Assess quality of a single crop from image
     
-    Input parameters:
-    - soil_ph: Soil pH (4.0-9.0)
-    - nitrogen: Nitrogen content (mg/kg or ppm)
-    - phosphorus: Phosphorus content (mg/kg or ppm)
-    - potassium: Potassium content (mg/kg or ppm)
-    - location: Farm location (city/region)
-    - season: Growing season (kharif, rabi, summer)
-    - area_size: Farm area in hectares (optional)
-    
-    Returns:
-    - recommendations: List of suitable crops with compatibility scores
-    - soil_analysis: Interpretation of soil parameters
-    - warnings: Any soil-related concerns
+    Request body:
+    {
+        "crop_type": "tomato",  // or potato, grain, fruit
+        "image_base64": "<base64_encoded_image>"
+    }
     """
-    
     try:
-        # Soil analysis based on input parameters
-        soil_analysis = {
-            "ph_level": "Acidic" if data.soil_ph < 6.5 else "Neutral" if data.soil_ph < 7.5 else "Alkaline",
-            "ph_value": data.soil_ph,
-            "nitrogen_level": "Low" if data.nitrogen < 20 else "Medium" if data.nitrogen < 40 else "High",
-            "nitrogen_value": data.nitrogen,
-            "phosphorus_level": "Low" if data.phosphorus < 10 else "Medium" if data.phosphorus < 25 else "High",
-            "phosphorus_value": data.phosphorus,
-            "potassium_level": "Low" if data.potassium < 80 else "Medium" if data.potassium < 150 else "High",
-            "potassium_value": data.potassium,
+        # Decode base64 image
+        import base64
+        image_bytes = base64.b64decode(data.image_base64)
+        
+        # Assess the crop
+        assessment = _crop_quality_grader.assess_crop_image(
+            image_bytes, 
+            data.crop_type
+        )
+        
+        # Convert to dict
+        from dataclasses import asdict
+        result = asdict(assessment)
+        
+        return {
+            "success": True,
+            "data": result,
+            "timestamp": datetime.now().isoformat()
         }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Quality assessment error: %s", str(e))
+        raise HTTPException(status_code=500, detail="Quality assessment failed")
+
+@app.post("/api/quality/assess-batch")
+@limiter.limit("5/minute")
+async def assess_batch_crops(request: Request, data: CropQualityBatchRequest):
+    """
+    Assess quality of multiple crops in batch
+    
+    Request body:
+    {
+        "crop_type": "tomato",
+        "images_base64": ["<base64_image1>", "<base64_image2>", ...]
+    }
+    """
+    try:
+        import base64
         
-        # Crop suitability database based on soil and season
-        # In production, this would come from a ML model or database
-        crop_database = {
-            "kharif": [
-                {"name": "Rice", "base_score": 85, "ph_optimal": (6.0, 7.0), "n_favorable": data.nitrogen > 25, "p_favorable": data.phosphorus > 10, "k_favorable": data.potassium > 80},
-                {"name": "Maize", "base_score": 80, "ph_optimal": (6.5, 7.5), "n_favorable": data.nitrogen > 30, "p_favorable": data.phosphorus > 15, "k_favorable": data.potassium > 100},
-                {"name": "Cotton", "base_score": 75, "ph_optimal": (6.0, 8.0), "n_favorable": data.nitrogen > 20, "p_favorable": data.phosphorus > 12, "k_favorable": data.potassium > 120},
-                {"name": "Sugarcane", "base_score": 70, "ph_optimal": (6.0, 8.0), "n_favorable": data.nitrogen > 40, "p_favorable": data.phosphorus > 20, "k_favorable": data.potassium > 150},
-                {"name": "Soybean", "base_score": 72, "ph_optimal": (6.5, 7.5), "n_favorable": data.nitrogen > 15, "p_favorable": data.phosphorus > 18, "k_favorable": data.potassium > 90},
-            ],
-            "rabi": [
-                {"name": "Wheat", "base_score": 88, "ph_optimal": (6.5, 7.5), "n_favorable": data.nitrogen > 28, "p_favorable": data.phosphorus > 14, "k_favorable": data.potassium > 85},
-                {"name": "Chickpea", "base_score": 80, "ph_optimal": (6.0, 8.0), "n_favorable": data.nitrogen > 10, "p_favorable": data.phosphorus > 12, "k_favorable": data.potassium > 70},
-                {"name": "Mustard", "base_score": 78, "ph_optimal": (6.0, 8.0), "n_favorable": data.nitrogen > 20, "p_favorable": data.phosphorus > 10, "k_favorable": data.potassium > 60},
-                {"name": "Barley", "base_score": 75, "ph_optimal": (6.5, 8.0), "n_favorable": data.nitrogen > 25, "p_favorable": data.phosphorus > 12, "k_favorable": data.potassium > 80},
-                {"name": "Lentil", "base_score": 77, "ph_optimal": (6.0, 8.0), "n_favorable": data.nitrogen > 12, "p_favorable": data.phosphorus > 14, "k_favorable": data.potassium > 75},
-            ],
-            "summer": [
-                {"name": "Groundnut", "base_score": 82, "ph_optimal": (5.8, 7.0), "n_favorable": data.nitrogen > 18, "p_favorable": data.phosphorus > 20, "k_favorable": data.potassium > 100},
-                {"name": "Watermelon", "base_score": 78, "ph_optimal": (6.0, 8.0), "n_favorable": data.nitrogen > 25, "p_favorable": data.phosphorus > 15, "k_favorable": data.potassium > 140},
-                {"name": "Sunflower", "base_score": 80, "ph_optimal": (6.0, 8.0), "n_favorable": data.nitrogen > 22, "p_favorable": data.phosphorus > 18, "k_favorable": data.potassium > 110},
-                {"name": "Okra", "base_score": 76, "ph_optimal": (6.0, 8.0), "n_favorable": data.nitrogen > 20, "p_favorable": data.phosphorus > 12, "k_favorable": data.potassium > 90},
-            ],
-        }
+        # Decode all images
+        image_bytes_list = []
+        for img_b64 in data.images_base64:
+            try:
+                image_bytes = base64.b64decode(img_b64)
+                image_bytes_list.append(image_bytes)
+            except Exception as e:
+                logger.warning("Failed to decode image: %s", str(e))
+                continue
         
-        season = data.season.lower() if data.season else "kharif"
-        crops = crop_database.get(season, crop_database["kharif"])
+        if not image_bytes_list:
+            raise ValueError("No valid images provided")
         
-        recommendations = []
-        
-        for crop in crops:
-            score = crop["base_score"]
-            reasons = []
-            
-            # pH adjustment (±10 points based on optimal range)
-            ph_min, ph_max = crop["ph_optimal"]
-            if data.soil_ph < ph_min or data.soil_ph > ph_max:
-                score -= 15
-                reasons.append("Soil pH not optimal")
-            else:
-                score += 5
-            
-            # Nutrient adjustments
-            if crop["n_favorable"]:
-                score += 8
-                reasons.append("Good nitrogen levels")
-            else:
-                score -= 5
-                reasons.append("Low nitrogen levels")
-            
-            if crop["p_favorable"]:
-                score += 7
-                reasons.append("Good phosphorus levels")
-            else:
-                score -= 3
-                reasons.append("Low phosphorus levels")
-            
-            if crop["k_favorable"]:
-                score += 8
-                reasons.append("Good potassium levels")
-            else:
-                score -= 5
-                reasons.append("Low potassium levels")
-            
-            # Ensure score is within 0-100 range
-            score = max(0, min(100, score))
-            
-            recommendations.append({
-                "crop": crop["name"],
-                "compatibility_score": round(score, 1),
-                "reasons": reasons,
-                "season": season,
-                "recommended_fertilizer": f"N: {max(0, 40 - data.nitrogen):.0f}kg, P: {max(0, 20 - data.phosphorus):.0f}kg, K: {max(0, 120 - data.potassium):.0f}kg per hectare" if data.area_size else "Consult local agronomist for exact fertilizer doses",
-                "recommended_pesticide": build_pesticide_guidance(crop["name"], season),
-            })
-        
-        # Sort by compatibility score
-        recommendations.sort(key=lambda x: x["compatibility_score"], reverse=True)
-        
-        # Generate warnings if any
-        warnings = []
-        if data.soil_ph < 5.5:
-            warnings.append("⚠️ Soil is very acidic - consider lime application")
-        elif data.soil_ph > 8.5:
-            warnings.append("⚠️ Soil is very alkaline - consider sulfur application")
-        
-        if data.nitrogen < 15:
-            warnings.append("⚠️ Nitrogen levels are low - consider nitrogen fertilizer")
-        
-        if data.phosphorus < 8:
-            warnings.append("⚠️ Phosphorus levels are critically low")
-        
-        if data.potassium < 50:
-            warnings.append("⚠️ Potassium levels are low")
-        
-        logger.info(
-            "Crop recommendation requested: location=%s season=%s top_crop=%s score=%.1f",
-            data.location,
-            season,
-            recommendations[0]["crop"] if recommendations else "None",
-            recommendations[0]["compatibility_score"] if recommendations else 0,
+        # Batch grade
+        result = _crop_quality_grader.batch_grade_crops(
+            image_bytes_list,
+            data.crop_type
         )
         
         return {
             "success": True,
-            "location": data.location,
-            "season": season,
-            "soil_analysis": soil_analysis,
-            "recommendations": recommendations,
-            "warnings": warnings,
-            "total_recommendations": len(recommendations),
+            "data": result,
+            "timestamp": datetime.now().isoformat()
         }
-        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error("Crop recommendation error: %s", str(e))
-        raise HTTPException(status_code=500, detail="Error processing crop recommendation")
+        logger.error("Batch assessment error: %s", str(e))
+        raise HTTPException(status_code=500, detail="Batch assessment failed")
+
+@app.post("/api/quality/trends")
+@limiter.limit("10/minute")
+async def get_quality_trends(request: Request, data: QualityTrendsRequest):
+    """
+    Get quality trends for a crop type
+    
+    Request body:
+    {
+        "crop_type": "tomato",
+        "days": 7
+    }
+    """
+    try:
+        trends = _crop_quality_grader.get_quality_trends(
+            data.crop_type,
+            data.days
+        )
+        
+        return {
+            "success": True,
+            "data": trends,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error("Quality trends error: %s", str(e))
+        raise HTTPException(status_code=500, detail="Failed to retrieve trends")
+
+@app.get("/api/quality/supported-crops")
+@limiter.limit("20/minute")
+async def get_supported_crops(request: Request):
+    """
+    Get list of supported crops for quality grading
+    """
+    return {
+        "success": True,
+        "crops": _crop_quality_grader.supported_crops,
+        "total": len(_crop_quality_grader.supported_crops)
+    }
+
+@app.post("/api/quality/market-price")
+@limiter.limit("10/minute")
+async def calculate_market_price(request: Request, data: CropQualityGradingRequest):
+    """
+    Calculate market price adjustment based on quality grade
+    
+    Request body:
+    {
+        "crop_type": "tomato",
+        "image_base64": "<base64_encoded_image>"
+    }
+    """
+    try:
+        import base64
+        from crop_quality_grading import GRADE_MAPPING
+        
+        # Decode image
+        image_bytes = base64.b64decode(data.image_base64)
+        
+        # Assess quality
+        assessment = _crop_quality_grader.assess_crop_image(
+            image_bytes,
+            data.crop_type
+        )
+        
+        # Get grade info
+        grade_info = GRADE_MAPPING[assessment.grade]
+        
+        return {
+            "success": True,
+            "crop_type": data.crop_type,
+            "grade": assessment.grade,
+            "grade_label": grade_info["label"],
+            "score": assessment.score,
+            "price_multiplier": grade_info["price_multiplier"],
+            "recommendations": assessment.recommendations,
+            "timestamp": datetime.now().isoformat()
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Market price calculation error: %s", str(e))
+        raise HTTPException(status_code=500, detail="Price calculation failed")
 
 if __name__ == "__main__":
     import uvicorn

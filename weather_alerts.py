@@ -173,12 +173,12 @@ class WeatherData:
 class WeatherAlert:
     """Alert object"""
     id: str
-    type: str = "alert"
-    alert_type: str = "weather"
     severity: AlertSeverity
     condition: WeatherCondition
     title: str
     message: str
+    type: str = "alert"
+    alert_type: str = "weather"
     crop: Optional[str] = None
     recommended_action: Optional[str] = None
     timestamp: Optional[datetime] = None
