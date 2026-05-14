@@ -107,6 +107,7 @@ from ml.registry import ModelRegistry
 from ml.adapters.xgboost_adapter import XGBoostAdapter
 from ml.router import ModelRouter
 from ml.preprocessing import UnknownCategoryError, MissingFeatureError
+from ml.security import verify_and_load_joblib
 
 # Other internal modules
 from alert_rules import generate_alerts
@@ -473,6 +474,122 @@ def get_notifications(
         season=season
     )
     return {"success": True, "data": static_notifications + dynamic_alerts}
+
+# --- Weather Alerts Endpoints ---
+
+@app.post("/api/weather/geocode")
+async def geocode_location(data: WeatherLocationRequest):
+    """
+    Get coordinates (latitude, longitude) for a location.
+    
+    This endpoint helps users find their farm location's coordinates
+    without exposing any API keys.
+    """
+    try:
+        result = await weather_service.get_coordinates(data.location)
+        if result:
+            latitude, longitude, name = result
+            return {
+                "success": True,
+                "location": name,
+                "latitude": latitude,
+                "longitude": longitude,
+            }
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Location '{data.location}' not found"
+            )
+    except Exception as e:
+        logger.error(f"Geocoding error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to geocode location"
+        ) from e
+
+
+@app.post("/api/weather/alerts")
+@limiter.limit("10/minute")
+async def get_weather_alerts(data: WeatherAlertRequest, request: Request):
+    """
+    Get real-time weather alerts for a specific location and crop.
+    
+    Args:
+        latitude: Farm latitude
+        longitude: Farm longitude
+        location: Location name for display
+        crop: (Optional) Crop type for crop-specific warnings
+    
+    Returns:
+        Weather alerts with severity levels and recommended actions
+    
+    Note: No API keys are exposed. Uses free Open-Meteo API.
+    """
+    try:
+        # Fetch current weather
+        weather = await weather_service.fetch_weather(
+            data.latitude,
+            data.longitude,
+            data.location
+        )
+        
+        if not weather:
+            raise HTTPException(
+                status_code=503,
+                detail="Unable to fetch weather data. Please try again."
+            )
+        
+        # Analyze weather and generate alerts
+        alerts = weather_service.analyze_weather(weather, data.crop)
+        
+        # Get summary
+        summary = weather_service.get_alerts_summary(alerts)
+        
+        return {
+            "success": True,
+            "location": data.location,
+            "crop": data.crop,
+            "weather": {
+                "temperature": weather.temperature,
+                "humidity": weather.humidity,
+                "rainfall": weather.rainfall,
+                "wind_speed": weather.wind_speed,
+                "cloud_cover": weather.cloud_cover,
+                "timestamp": weather.timestamp.isoformat(),
+            },
+            "alerts": summary,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Weather alert error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate weather alerts"
+        ) from e
+
+
+@app.get("/api/weather/alerts/history")
+@limiter.limit("5/minute")
+async def get_alerts_history(request: Request):
+    """
+    Get recent weather alerts history.
+    Useful for reviewing past alerts and trends.
+    """
+    try:
+        # Get recent alerts from the service history
+        recent_alerts = weather_service.alert_history[-50:]  # Last 50 alerts
+        return {
+            "success": True,
+            "total_alerts": len(weather_service.alert_history),
+            "recent_alerts": [alert.to_dict() for alert in recent_alerts],
+        }
+    except Exception as e:
+        logger.error(f"Alert history error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retrieve alert history"
+        ) from e
 
 # --- WhatsApp Service Endpoints ---
 #
