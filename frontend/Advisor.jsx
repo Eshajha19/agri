@@ -35,6 +35,9 @@ import YieldHistory from "./YieldHistory";
 import EquipmentManagement from "./EquipmentManagement";
 import CropQualityGrading from "./CropQualityGrading";
 import LastUpdated from "./LastUpdated";
+import ExpertDirectory from "./components/ExpertDirectory";
+import TeleConsultation from "./components/TeleConsultation";
+import ConsultationHistory from "./components/ConsultationHistory";
 import { Leaf } from "lucide-react";
 import {
   Sun,
@@ -70,6 +73,9 @@ import {
    Construction,
    CloudRain,
    Settings,
+   Video,
+   Phone,
+   Users,
  } from "lucide-react";
 import { FaSync } from "react-icons/fa";
 import { useAdvisorStore } from "./stores/advisorStore";
@@ -153,8 +159,16 @@ showGreenPractices,
       setShowGreenPractices,
       showCropRecommendationAdvisor,
       setShowCropRecommendationAdvisor,
-      showCropGrading,
-      setShowCropGrading,
+       showCropGrading,
+       setShowCropGrading,
+       showExpertDirectory,
+       setShowExpertDirectory,
+       showTeleConsultation,
+       setShowTeleConsultation,
+       activeConsultation,
+       setActiveConsultation,
+       showConsultationHistory,
+       setShowConsultationHistory,
     } = useAdvisorStore();
 
 
@@ -861,6 +875,37 @@ showGreenPractices,
             <h3><span className="notranslate">AI Research Advisor</span></h3>
             <p>Get research-backed agricultural advice with verified citations from ICAR, FAO, and more.</p>
           </div>
+
+          <div 
+            className="card reveal" 
+            style={{ border: '2px solid #6366f1', background: 'rgba(99, 102, 241, 0.02)' }}
+            role="button" 
+            tabIndex={0} 
+            onClick={() => setShowExpertDirectory(true)} 
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowExpertDirectory(true); }} 
+            aria-label="Expert/KVK Booking: Schedule consultations"
+          >
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(99, 102, 241, 0.1)', color: '#6366f1' }}>
+              <Video size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Expert/KVK Booking</span></h3>
+            <p>Book consultations with agricultural experts and KVK advisors via video or audio call.</p>
+          </div>
+
+          <div 
+            className="card reveal" 
+            role="button" 
+            tabIndex={0} 
+            onClick={() => setShowConsultationHistory(true)} 
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowConsultationHistory(true); }} 
+            aria-label="Consultation History: View past sessions"
+          >
+            <div className="icon" aria-hidden="true">
+              <Users size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">My Consultations</span></h3>
+            <p>View your past and upcoming consultation history with experts.</p>
+          </div>
 <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/farming-news")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/farming-news"); }} aria-label="Farming News: Latest agricultural updates">
               <div className="icon" aria-hidden="true">
                 <Book size={32} strokeWidth={2} />
@@ -1512,6 +1557,36 @@ showGreenPractices,
             </div>
           </div>
         )}
+
+      {showExpertDirectory && (
+        <ExpertDirectory 
+          onClose={() => setShowExpertDirectory(false)}
+          onBookConsultation={(consultation) => {
+            setShowExpertDirectory(false);
+            setShowConsultationHistory(true);
+          }}
+        />
+      )}
+
+      {showConsultationHistory && (
+        <ConsultationHistory 
+          onClose={() => setShowConsultationHistory(false)}
+          onStartConsultation={(consultation) => {
+            setActiveConsultation(consultation);
+            setShowTeleConsultation(true);
+          }}
+        />
+      )}
+
+      {showTeleConsultation && activeConsultation && (
+        <TeleConsultation 
+          consultation={activeConsultation}
+          onEnd={() => {
+            setShowTeleConsultation(false);
+            setActiveConsultation(null);
+          }}
+        />
+      )}
      </section>
    );
  }
