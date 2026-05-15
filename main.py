@@ -316,6 +316,32 @@ class ReportRequest(BaseModel):
 class SeedVerifyRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=100)
 
+# Whitelist of commodities the price forecaster supports.
+# Restricting to this set prevents an attacker from submitting arbitrary
+# strings that each trigger a new LSTM training run and grow the model
+# cache without bound.
+_FORECASTABLE_COMMODITIES = frozenset([
+    "Wheat",
+    "Paddy (Dhan)",
+    "Cotton",
+    "Onion",
+    "Soybean",
+    "Maize",
+])
+
+class MarketForecastRequest(BaseModel):
+    commodity: str = Field(..., min_length=1, max_length=60)
+    days: int = Field(default=14, ge=1, le=30)
+
+    @validator("commodity")
+    def commodity_must_be_supported(cls, v):
+        if v not in _FORECASTABLE_COMMODITIES:
+            raise ValueError(
+                f"Unsupported commodity '{v}'. "
+                f"Supported values: {sorted(_FORECASTABLE_COMMODITIES)}"
+            )
+        return v
+
 class FinanceAssessmentRequest(BaseModel):
     farmer_name: str = Field(..., min_length=1, max_length=100)
     crop_type: str = Field(..., min_length=1, max_length=50)
@@ -2047,3 +2073,63 @@ async def get_stats():
     except Exception as e:
         logger.error("Stats error: %s", str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Market Price Forecasting ──────────────────────────────────────────────────
+
+@app.post("/api/market/forecast")
+@limiter.limit("10/minute")
+async def market_price_forecast(data: MarketForecastRequest, request: Request):
+    """
+    Generate an LSTM-based price forecast for a supported commodity.
+
+    Authentication required — any logged-in user may call this endpoint.
+
+    The forecasting engine (ml/price_forecaster.py) trains a lightweight
+    LSTM on embedded 2-year historical mandi price data at first request
+    per commodity and caches the model in memory.  Subsequent requests
+    for the same commodity are served from the cache with no retraining.
+
+    Security hardening applied:
+    - verify_role() requires a valid Firebase ID token (any role).
+    - MarketForecastRequest.commodity is validated against a whitelist of
+      the 6 supported commodities.  Unknown strings are rejected with 422
+      before the forecaster is called, preventing an attacker from
+      submitting thousands of unique strings that each trigger a new
+      30-epoch LSTM training run and grow the model cache without bound.
+
+    Request body
+    ------------
+    - commodity : str  — one of: Wheat, Paddy (Dhan), Cotton, Onion,
+                         Soybean, Maize
+    - days      : int  — forecast horizon in days (1–30, default 14)
+
+    Response
+    --------
+    - commodity          : str
+    - forecast_days      : int
+    - forecast           : list[{date, price, lower_bound, upper_bound}]
+    - best_sell_date     : str   — ISO date of forecast price peak
+    - best_sell_price    : float — predicted peak price (₹/quintal)
+    - recommendation     : str   — human-readable selling advice
+    - model_type         : str   — "LSTM" or "Statistical" (fallback)
+    - generated_at       : str   — ISO UTC timestamp
+    """
+    await verify_role(request)   # any authenticated user; no role restriction
+
+    try:
+        from ml.price_forecaster import price_forecaster
+        result = price_forecaster.forecast(
+            commodity=data.commodity,
+            days=data.days,
+        )
+        return result
+    except Exception as exc:
+        logger.error(
+            "Market forecast error for commodity='%s': %s",
+            data.commodity, exc,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Price forecast temporarily unavailable. Please try again later.",
+        )
