@@ -35,6 +35,7 @@ import PersonalizedAdvisory from "./PersonalizedAdvisory";
 import YieldHistory from "./YieldHistory";
 import EquipmentManagement from "./EquipmentManagement";
 import CropQualityGrading from "./CropQualityGrading";
+import SustainabilityAnalytics from "./SustainabilityAnalytics";
 import LastUpdated from "./LastUpdated";
 import ExpertDirectory from "./components/ExpertDirectory";
 import TeleConsultation from "./components/TeleConsultation";
@@ -162,6 +163,8 @@ showGreenPractices,
       setShowCropRecommendationAdvisor,
        showCropGrading,
        setShowCropGrading,
+       showSustainabilityAnalytics,
+       setShowSustainabilityAnalytics,
        showExpertDirectory,
        setShowExpertDirectory,
        showTeleConsultation,
@@ -942,6 +945,23 @@ showGreenPractices,
 
           <div
             className="card reveal"
+            style={{ border: '2px solid #0d9488', background: 'rgba(13, 148, 136, 0.04)' }}
+            role="button"
+            tabIndex={0}
+            onClick={() => setShowSustainabilityAnalytics(true)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSustainabilityAnalytics(true); }}
+            aria-label="Sustainability Analytics: Water footprint and carbon emissions"
+          >
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(13, 148, 136, 0.12)', color: '#0d9488' }}>
+              <Droplets size={32} strokeWidth={2} />
+            </div>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#0d9488', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>LCA</div>
+            <h3><span className="notranslate">Sustainability Analytics</span></h3>
+            <p>Estimate water footprint and carbon emissions per crop season with LCA-style insights.</p>
+          </div>
+
+          <div
+            className="card reveal"
             style={{ border: '2px solid #f59e0b', background: 'rgba(245, 158, 11, 0.02)' }}
             role="button"
             tabIndex={0}
@@ -1573,6 +1593,20 @@ showGreenPractices,
           </div>
         )}
 
+<<<<<<< HEAD
+      {showSustainabilityAnalytics && (
+        <div className="weather-overlay" onClick={() => setShowSustainabilityAnalytics(false)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+            <SustainabilityAnalytics
+              userProfile={userProfile}
+              onClose={() => setShowSustainabilityAnalytics(false)}
+            />
+          </div>
+        </div>
+      )}
+
+=======
+>>>>>>> upstream/main
       {showExpertDirectory && (
         <ExpertDirectory 
           onClose={() => setShowExpertDirectory(false)}
