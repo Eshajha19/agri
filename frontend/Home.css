@@ -2313,6 +2313,18 @@ testimonials-section {
   margin-bottom: 28px;
 }
 
+.quote-card-below {
+  position: relative;
+}
+
+.quote-buttons {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  gap: 10px;
+}
+
 .quote-awareness-section .quote-icon {
   font-size: 36px;
   color: var(--primary);
