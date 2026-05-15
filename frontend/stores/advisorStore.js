@@ -102,6 +102,9 @@ showGreenPractices: false,
      showCropGrading: false,
      setShowCropGrading: (show) => set({ showCropGrading: show }),
 
+   showSustainabilityAnalytics: false,
+   setShowSustainabilityAnalytics: (show) => set({ showSustainabilityAnalytics: show }),
+
    showExpertDirectory: false,
    setShowExpertDirectory: (show) => set({ showExpertDirectory: show }),
 
@@ -149,6 +152,7 @@ showRAGAdvisor: false,
          showGreenPractices: false,
          showEquipmentManagement: false,
           showCropGrading: false,
+         showSustainabilityAnalytics: false,
           showExpertDirectory: false,
           showTeleConsultation: false,
           activeConsultation: null,

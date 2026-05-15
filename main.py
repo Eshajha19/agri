@@ -13,7 +13,7 @@ from typing import Optional, Dict, Any
 
 from fastapi import FastAPI, HTTPException, Request, Form, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 
 class SimulationRequest(BaseModel):
     crop_type: str
@@ -116,6 +116,7 @@ from whatsapp_store import subscriber_store
 from crop_quality_grading import CropQualityGrader
 from blockchain_supply_chain import SupplyChainBlockchain
 from farm_finance_ai import FarmFinanceAI
+from sustainability_analytics import SustainabilityAnalytics
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -244,7 +245,9 @@ frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
 trusted_origins = [
     "http://localhost:5173",     # Local development
     "http://127.0.0.1:5173",     # Local development alternative
-    "https://yourfrontend.com",  # Production domain placeholder
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:8000",
 ]
 
 # Add any custom frontend URLs from environment
@@ -260,8 +263,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=trusted_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # --- Models ---
@@ -333,6 +336,20 @@ class FinanceAssessmentRequest(BaseModel):
     farm_location: Optional[str] = Field(default=None, max_length=120)
     notes: Optional[str] = Field(default=None, max_length=500)
 
+class SustainabilityAnalyzeRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    season: str = Field(default="Kharif", max_length=20)
+    acreage: float = Field(..., gt=0, le=5000)
+    irrigation_type: str = Field(default="drip")
+    irrigation_events: int = Field(default=10, ge=0, le=200)
+    fertilizer_n_kg: Optional[float] = Field(default=None, ge=0, le=50000)
+    fertilizer_p_kg: Optional[float] = Field(default=None, ge=0, le=50000)
+    fertilizer_k_kg: Optional[float] = Field(default=None, ge=0, le=50000)
+    machinery_hours: Optional[float] = Field(default=None, ge=0, le=10000)
+    diesel_liters: Optional[float] = Field(default=None, ge=0, le=50000)
+    organic_practices: bool = Field(default=False)
+    user_id: Optional[str] = Field(default=None, max_length=128)
+
 # --- ML Pipeline Initialization ---
 router = ModelRouter(default_model="xgboost")
 
@@ -391,6 +408,7 @@ _supply_chain_blockchain = SupplyChainBlockchain()
 
 # Initialize Farm Finance AI
 _farm_finance_ai = FarmFinanceAI()
+_sustainability_analytics = SustainabilityAnalytics()
 
 # --- Routes ---
 
@@ -515,7 +533,8 @@ def get_notifications(
 @limiter.limit("10/minute")
 async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest):
     """Analyze farm finances and return loan recommendations."""
-    analysis = _farm_finance_ai.analyze_financial_profile(body.model_dump())
+    input_data = body.model_dump() if hasattr(body, "model_dump") else body.dict()
+    analysis = _farm_finance_ai.analyze_financial_profile(input_data)
     return {"success": True, "data": analysis}
 
 
@@ -523,7 +542,8 @@ async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest)
 @limiter.limit("5/minute")
 async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
     """Create a loan application from the current farm profile."""
-    application = _farm_finance_ai.create_application(body.model_dump())
+    input_data = body.model_dump() if hasattr(body, "model_dump") else body.dict()
+    application = _farm_finance_ai.create_application(input_data)
     return {"success": True, "data": application}
 
 
@@ -543,6 +563,32 @@ def get_finance_products():
 @app.get("/api/finance/marketplace")
 def get_finance_marketplace():
     return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+# --- Sustainability Analytics Endpoints ---
+
+@app.post("/api/sustainability/analyze")
+@limiter.limit("20/minute")
+async def analyze_sustainability(request: Request, body: SustainabilityAnalyzeRequest):
+    """LCA-style water footprint and carbon emission estimate for a crop season."""
+    input_data = body.model_dump() if hasattr(body, "model_dump") else body.dict()
+    analysis = _sustainability_analytics.analyze(input_data)
+    return {"success": True, "data": analysis}
+
+
+@app.get("/api/sustainability/history")
+def get_sustainability_history(
+    user_id: str = Query(default="anonymous", max_length=128),
+    limit: int = Query(default=12, ge=1, le=50),
+):
+    """Historical sustainability records for comparative analytics."""
+    history = _sustainability_analytics.get_history(user_id, limit=limit)
+    return {"success": True, "data": history}
+
+
+@app.get("/api/sustainability/formulas")
+def get_sustainability_formulas():
+    """Configurable LCA coefficient datasets used by the analytics engine."""
+    return {"success": True, "data": _sustainability_analytics.get_formula_config()}
 
 # --- Weather Alerts Endpoints ---
 

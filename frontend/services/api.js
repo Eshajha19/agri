@@ -86,7 +86,7 @@ async function getFirebaseIdToken() {
 }
 
 const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/',
+  baseURL: '', // Use relative path to leverage Vite proxy
   timeout: API_TIMEOUT_MS,
   headers: {
     'Content-Type': 'application/json',
