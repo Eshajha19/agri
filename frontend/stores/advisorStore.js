@@ -35,7 +35,8 @@ export const useAdvisorStore = create((set) => ({
 
   showPestManagement: false,
   setShowPestManagement: (show) => set({ showPestManagement: show }),
-
+   showSprayReminder: false,
+   setShowSprayReminder: (show) => set({ showSprayReminder: show }),
   showSoilAnalysis: false,
   setShowSoilAnalysis: (show) => set({ showSoilAnalysis: show }),
 
@@ -130,6 +131,7 @@ showGreenPractices: false,
        showFarmingMap: false,
        showCropDiseaseDetection: false,
        showPestManagement: false,
+       showSprayReminder: false,
        showComingSoon: false,
        showAgriMarketplace: false,
        showQRTraceability: false,
