@@ -125,10 +125,12 @@ export default function Advisor({ userData }) {
      setShowFarmingMap,
      showCropDiseaseDetection,
      setShowCropDiseaseDetection,
-     showPestManagement,
-     setShowPestManagement,
-     showAgriMarketplace,
-     setShowAgriMarketplace,
+      showPestManagement,
+      setShowPestManagement,
+      showSprayReminder,
+      setShowSprayReminder,
+      showAgriMarketplace,
+      setShowAgriMarketplace,
      showAgriLMS,
      setShowAgriLMS,
      showQRTraceability,
@@ -1593,7 +1595,6 @@ showGreenPractices,
           </div>
         )}
 
-<<<<<<< HEAD
       {showSustainabilityAnalytics && (
         <div className="weather-overlay" onClick={() => setShowSustainabilityAnalytics(false)}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
@@ -1605,8 +1606,6 @@ showGreenPractices,
         </div>
       )}
 
-=======
->>>>>>> upstream/main
       {showExpertDirectory && (
         <ExpertDirectory 
           onClose={() => setShowExpertDirectory(false)}
