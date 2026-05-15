@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 from typing import List
 
+from ml.validators import validate_ml_inputs, InputValidationError
+
 
 class UnknownCategoryError(ValueError):
     """
@@ -102,12 +104,18 @@ class FeaturePreprocessor:
 
         Raises
         ------
+        InputValidationError
+            If any numeric parameter is out of acceptable range or invalid type.
         UnknownCategoryError
             If a categorical value produces no encoded columns (unknown category).
         MissingFeatureError
             If required numeric feature columns are absent after encoding.
         """
-        df = pd.DataFrame([input_data])
+        # Step 1: Validate and sanitize numeric inputs BEFORE any processing
+        # This prevents invalid values from reaching the model
+        validated_data = validate_ml_inputs(input_data)
+        
+        df = pd.DataFrame([validated_data])
 
         # --- One-hot encode with drop_first=False ---
         # Using drop_first=True on a single-row DataFrame silently drops ALL

@@ -2,22 +2,18 @@
 import os
 import io
 import json
-import collections
-import itertools
-import threading
 import logging
 import re
 import joblib
 import hashlib
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, Dict, Any
 
 from fastapi import FastAPI, HTTPException, Request, Form, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field
 
 class SimulationRequest(BaseModel):
     crop_type: str
@@ -47,6 +43,56 @@ class RAGQuery(BaseModel):
     query: str = Field(..., min_length=3, max_length=500)
     top_k: int = Field(default=3, ge=1, le=5)
 
+# Blockchain Supply Chain Models
+class RegisterActorRequest(BaseModel):
+    actor_id: str = Field(..., min_length=1, max_length=50)
+    name: str = Field(..., min_length=1, max_length=100)
+    actor_type: str = Field(..., min_length=1, max_length=50)
+    location: str = Field(..., min_length=1, max_length=100)
+
+class CreateProductBatchRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    farm_id: str = Field(..., min_length=1, max_length=50)
+    quantity: float = Field(..., gt=0)
+    unit: str = Field(..., min_length=1, max_length=20)
+    planting_date: str = Field(..., min_length=1)
+    harvesting_date: str = Field(..., min_length=1)
+    farmer_name: str = Field(..., min_length=1, max_length=100)
+
+class AddSupplyChainNodeRequest(BaseModel):
+    batch_id: str = Field(..., min_length=1)
+    node_type: str = Field(..., min_length=1, max_length=50)
+    actor_name: str = Field(..., min_length=1, max_length=100)
+    location: str = Field(..., min_length=1, max_length=100)
+    action: str = Field(..., min_length=1, max_length=50)
+    temperature: Optional[float] = None
+    humidity: Optional[float] = None
+    quality_check: Optional[str] = None
+    notes: str = Field(default="", max_length=500)
+
+class CreateSmartContractRequest(BaseModel):
+    batch_id: str = Field(..., min_length=1)
+    seller: str = Field(..., min_length=1, max_length=100)
+    buyer: str = Field(..., min_length=1, max_length=100)
+    price: float = Field(..., gt=0)
+    terms: Optional[Dict] = None
+
+class ExecuteContractRequest(BaseModel):
+    contract_id: str = Field(..., min_length=1)
+
+# Crop Quality Grading Models
+class CropQualityGradingRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    image_base64: str = Field(..., min_length=100)  # Base64 encoded image
+
+class CropQualityBatchRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    images_base64: list = Field(..., min_items=1, max_items=100)  # Multiple images
+
+class QualityTrendsRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    days: int = Field(default=7, ge=1, le=30)
+
 # Rate Limiting
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -61,11 +107,15 @@ from ml.registry import ModelRegistry
 from ml.adapters.xgboost_adapter import XGBoostAdapter
 from ml.router import ModelRouter
 from ml.preprocessing import UnknownCategoryError, MissingFeatureError
+from ml.security import verify_and_load_joblib
 
 # Other internal modules
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
+from crop_quality_grading import CropQualityGrader
+from blockchain_supply_chain import SupplyChainBlockchain
+from farm_finance_ai import FarmFinanceAI
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -81,30 +131,7 @@ try:
 except ImportError:
     HAS_GCP_KMS = False
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """
-    FastAPI lifespan context manager.
-
-    Runs inside **every** Uvicorn/Gunicorn worker process on startup, so the
-    ML pipeline is always initialised regardless of how many workers are
-    spawned.  This replaces the previous bare ``init_ml_pipeline()`` call at
-    module level, which only ran reliably in single-worker deployments.
-
-    Multi-worker guarantee
-    ----------------------
-    When Uvicorn is started with ``--workers N``, each worker forks/spawns
-    from the main process and imports ``main.py`` independently.  The
-    ``lifespan`` hook is invoked by FastAPI in every worker's event loop,
-    ensuring ``ModelRegistry`` is populated in every process before the
-    first request is served.
-    """
-    init_ml_pipeline()
-    yield
-    # Shutdown: nothing to clean up for in-memory models.
-
-
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 
 logger = logging.getLogger(__name__)
 
@@ -257,18 +284,15 @@ class PredictResponse(BaseModel):
 
 class WhatsAppSubscribeRequest(BaseModel):
     phone_number: str
+    user_id: str
     name: str
-    # user_id is accepted for backward compatibility but is IGNORED by the
-    # endpoint — the authoritative user identity is always derived from the
-    # verified Firebase ID token, never from client-supplied data.
-    user_id: Optional[str] = None
 
 class YieldInput(BaseModel):
     data: list[float]
 
 class AlertTriggerRequest(BaseModel):
-    alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
-    message: str = Field(..., min_length=1, max_length=500)
+    alert_type: str  # 'weather', 'pest', 'advisory'
+    message: str
 
 class ReportRequest(BaseModel):
     name: str = Field(..., max_length=100)
@@ -292,12 +316,24 @@ class ReportRequest(BaseModel):
 class SeedVerifyRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=100)
 
+class FinanceAssessmentRequest(BaseModel):
+    farmer_name: str = Field(..., min_length=1, max_length=100)
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    acreage: float = Field(default=0, ge=0)
+    annual_revenue: float = Field(default=0, ge=0)
+    annual_operating_cost: float = Field(default=0, ge=0)
+    existing_debt: float = Field(default=0, ge=0)
+    emergency_fund: float = Field(default=0, ge=0)
+    credit_score: int = Field(default=650, ge=300, le=900)
+    requested_loan_amount: float = Field(default=0, ge=0)
+    loan_tenure_months: int = Field(default=36, ge=6, le=120)
+    irrigation_cost: float = Field(default=0, ge=0)
+    labor_cost: float = Field(default=0, ge=0)
+    selected_lender: Optional[str] = Field(default=None, max_length=100)
+    farm_location: Optional[str] = Field(default=None, max_length=120)
+    notes: Optional[str] = Field(default=None, max_length=500)
+
 # --- ML Pipeline Initialization ---
-# init_ml_pipeline() is called inside the FastAPI lifespan context manager
-# (defined above app = FastAPI(...)) so it runs in every Uvicorn worker
-# process on startup.  Do NOT call it here at module level — doing so would
-# run it in the main process only and leave additional workers with empty
-# registries in multi-worker deployments.
 router = ModelRouter(default_model="xgboost")
 
 def init_ml_pipeline():
@@ -318,30 +354,16 @@ def init_ml_pipeline():
     except Exception as e:
         print(f"ML Pipeline Error: {e}")
 
-    # ── LSTM Price Forecaster Pre-training ──────────────────────────────────
-    # The LSTM models train on embedded data at first use. To prevent the
-    # first API request from timing out (training takes ~30-60s per crop),
-    # we trigger a background "warm-up" for the major commodities.
-    def warm_up_forecaster():
-        try:
-            from ml.price_forecaster import price_forecaster
-            commodities = price_forecaster.supported_commodities()
-            print(f"ML Pipeline: Starting background warm-up for {len(commodities)} commodities...")
-            for commodity in commodities:
-                # This triggers training if not already cached
-                price_forecaster.forecast(commodity, days=1)
-            print("ML Pipeline: All price forecast models warmed up.")
-        except Exception as e:
-            print(f"ML Pipeline: Forecaster warm-up failed: {e}")
-
-    threading.Thread(target=warm_up_forecaster, daemon=True).start()
-
 init_ml_pipeline()
 
 # Load model directly for backward compatibility or simple use cases if needed
 try:
-    model = joblib.load("yield_model.joblib")
-    model_lag = joblib.load("sklearn_yield_model.pkl")
+    # Use signature-verified loading to prevent execution of malicious
+    # pickled objects. These calls expect companion signature files:
+    # - yield_model.joblib.sig
+    # - sklearn_yield_model.pkl.sig
+    model = verify_and_load_joblib("yield_model.joblib")
+    model_lag = verify_and_load_joblib("sklearn_yield_model.pkl")
     print("Models loaded successfully")
 except Exception as e:
     print(f"Error loading models: {e}")
@@ -349,103 +371,26 @@ except Exception as e:
     model_lag = None
 
 # --- Static Notifications Storage ---
-#
-# Problems with the original bare list:
-#
-# 1. Unbounded growth — every trigger_whatsapp_alert call appended an entry
-#    that was never removed.  After weeks in production the list could hold
-#    thousands of entries, all serialised and sent to every client on every
-#    GET /api/notifications poll.
-#
-# 2. Duplicate IDs under concurrency — `len(list) + 1` is not atomic.  Two
-#    concurrent trigger-alert requests could both read the same length and
-#    produce entries with identical IDs, silently corrupting any client-side
-#    deduplication keyed on id.
-#
-# Fix — NotificationStore:
-#
-# • collections.deque(maxlen=MAX_NOTIFICATIONS) caps memory at a fixed
-#   ceiling.  When the deque is full, the oldest entry is automatically
-#   evicted before the new one is appended — no manual cleanup needed.
-#
-# • itertools.count() produces a strictly monotonically increasing integer
-#   sequence.  In CPython, next() on a count object is effectively atomic
-#   for the GIL-protected use case here, so two concurrent appends always
-#   get distinct IDs.
-#
-# • threading.Lock() serialises append() so the read-then-increment
-#   sequence is never interleaved across threads.
-#
-# • get_recent() filters by a TTL window so the response payload stays
-#   small even when the deque is at capacity.
+static_notifications = [
+    {
+        "id": 1,
+        "type": "weather",
+        "message": "🌧️ Heavy rainfall expected in your region today.",
+        "time": datetime.now().isoformat()
+    }
+]
 
-# Maximum number of triggered-alert entries kept in memory at any time.
-# Oldest entries are evicted automatically when this ceiling is reached.
-_MAX_NOTIFICATIONS = 200
+# Initialize Crop Quality Grader
+_crop_quality_grader = CropQualityGrader()
 
-# How long a triggered-alert entry remains visible to clients.
-_NOTIFICATION_TTL_HOURS = 24
+# Initialize Crop Quality Grader
+_crop_quality_grader = CropQualityGrader()
 
+# Initialize Supply Chain Blockchain
+_supply_chain_blockchain = SupplyChainBlockchain()
 
-class NotificationStore:
-    """
-    Thread-safe, bounded, TTL-aware store for in-process notifications.
-
-    Parameters
-    ----------
-    maxlen : int
-        Hard cap on the number of entries held in memory.  When full,
-        the oldest entry is evicted before the new one is appended.
-    ttl_hours : int
-        Entries older than this many hours are excluded from get_recent().
-    """
-
-    def __init__(self, maxlen: int = _MAX_NOTIFICATIONS, ttl_hours: int = _NOTIFICATION_TTL_HOURS):
-        self._deque: collections.deque = collections.deque(maxlen=maxlen)
-        self._lock = threading.Lock()
-        self._counter = itertools.count(start=1)
-        self._ttl = timedelta(hours=ttl_hours)
-
-    def append(self, alert_type: str, message: str) -> dict:
-        """
-        Add a new notification entry and return it.
-
-        The ID is assigned from a monotonically increasing counter so
-        concurrent calls always produce distinct values.
-        """
-        with self._lock:
-            entry = {
-                "id": next(self._counter),
-                "type": alert_type,
-                "message": message,
-                "time": datetime.now().isoformat(),
-            }
-            self._deque.append(entry)
-        return entry
-
-    def get_recent(self) -> list:
-        """
-        Return all entries newer than the configured TTL, oldest first.
-
-        Takes a snapshot under the lock so callers always see a consistent
-        view even if append() is running concurrently.
-        """
-        cutoff = datetime.now() - self._ttl
-        with self._lock:
-            snapshot = list(self._deque)
-        return [
-            e for e in snapshot
-            if datetime.fromisoformat(e["time"]) >= cutoff
-        ]
-
-
-# Seed the store with the initial weather advisory that was previously
-# hard-coded in the bare list.
-_notification_store = NotificationStore()
-_notification_store.append(
-    alert_type="weather",
-    message="🌧️ Heavy rainfall expected in your region today.",
-)
+# Initialize Farm Finance AI
+_farm_finance_ai = FarmFinanceAI()
 
 # --- Routes ---
 
@@ -532,7 +477,7 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
         data = payload.data
         if len(data) != 5:
             raise ValueError("Exactly 5 values are required")
-        temp = list(data)
+        temp = data[::-1]  # reverse once
         trend = []
         for _ in range(5):
             features = temp[:5]
@@ -557,14 +502,7 @@ def get_notifications(
     water_coverage: int = Query(default=None, ge=0, le=100),
     season: str = Query(default=None)
 ):
-    """
-    Return recent triggered-alert notifications combined with dynamic
-    farm advisory alerts generated from the query parameters.
-
-    Only notifications newer than the store's TTL window are included,
-    so the response payload stays small regardless of how long the
-    process has been running.
-    """
+    """Generate dynamic farm advisory alerts + static ones."""
     dynamic_alerts = generate_alerts(
         crop=crop,
         irrigation_count=irrigation_count,
@@ -572,6 +510,155 @@ def get_notifications(
         season=season
     )
     return {"success": True, "data": _notification_store.get_recent() + dynamic_alerts}
+
+@app.post("/api/finance/analyze")
+@limiter.limit("10/minute")
+async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest):
+    """Analyze farm finances and return loan recommendations."""
+    analysis = _farm_finance_ai.analyze_financial_profile(body.model_dump())
+    return {"success": True, "data": analysis}
+
+
+@app.post("/api/finance/applications")
+@limiter.limit("5/minute")
+async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
+    """Create a loan application from the current farm profile."""
+    application = _farm_finance_ai.create_application(body.model_dump())
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/applications/{application_id}")
+def get_finance_application(application_id: str):
+    application = _farm_finance_ai.get_application(application_id)
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/products")
+def get_finance_products():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+
+@app.get("/api/finance/marketplace")
+def get_finance_marketplace():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+# --- Weather Alerts Endpoints ---
+
+@app.post("/api/weather/geocode")
+async def geocode_location(data: WeatherLocationRequest):
+    """
+    Get coordinates (latitude, longitude) for a location.
+    
+    This endpoint helps users find their farm location's coordinates
+    without exposing any API keys.
+    """
+    try:
+        result = await weather_service.get_coordinates(data.location)
+        if result:
+            latitude, longitude, name = result
+            return {
+                "success": True,
+                "location": name,
+                "latitude": latitude,
+                "longitude": longitude,
+            }
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Location '{data.location}' not found"
+            )
+    except Exception as e:
+        logger.error(f"Geocoding error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to geocode location"
+        ) from e
+
+
+@app.post("/api/weather/alerts")
+@limiter.limit("10/minute")
+async def get_weather_alerts(data: WeatherAlertRequest, request: Request):
+    """
+    Get real-time weather alerts for a specific location and crop.
+    
+    Args:
+        latitude: Farm latitude
+        longitude: Farm longitude
+        location: Location name for display
+        crop: (Optional) Crop type for crop-specific warnings
+    
+    Returns:
+        Weather alerts with severity levels and recommended actions
+    
+    Note: No API keys are exposed. Uses free Open-Meteo API.
+    """
+    try:
+        # Fetch current weather
+        weather = await weather_service.fetch_weather(
+            data.latitude,
+            data.longitude,
+            data.location
+        )
+        
+        if not weather:
+            raise HTTPException(
+                status_code=503,
+                detail="Unable to fetch weather data. Please try again."
+            )
+        
+        # Analyze weather and generate alerts
+        alerts = weather_service.analyze_weather(weather, data.crop)
+        
+        # Get summary
+        summary = weather_service.get_alerts_summary(alerts)
+        
+        return {
+            "success": True,
+            "location": data.location,
+            "crop": data.crop,
+            "weather": {
+                "temperature": weather.temperature,
+                "humidity": weather.humidity,
+                "rainfall": weather.rainfall,
+                "wind_speed": weather.wind_speed,
+                "cloud_cover": weather.cloud_cover,
+                "timestamp": weather.timestamp.isoformat(),
+            },
+            "alerts": summary,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Weather alert error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate weather alerts"
+        ) from e
+
+
+@app.get("/api/weather/alerts/history")
+@limiter.limit("5/minute")
+async def get_alerts_history(request: Request):
+    """
+    Get recent weather alerts history.
+    Useful for reviewing past alerts and trends.
+    """
+    try:
+        # Get recent alerts from the service history
+        recent_alerts = weather_service.alert_history[-50:]  # Last 50 alerts
+        return {
+            "success": True,
+            "total_alerts": len(weather_service.alert_history),
+            "recent_alerts": [alert.to_dict() for alert in recent_alerts],
+        }
+    except Exception as e:
+        logger.error(f"Alert history error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retrieve alert history"
+        ) from e
 
 # --- WhatsApp Service Endpoints ---
 #
@@ -585,21 +672,14 @@ def get_notifications(
 @app.post("/api/whatsapp/subscribe")
 @limiter.limit("2/minute")
 async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
-    # Require authentication so the subscriber's identity is always derived
-    # from the verified Firebase token — never from client-supplied data.
-    # Previously the endpoint accepted user_id from the request body, which
-    # allowed any caller to overwrite another user's subscription by sending
-    # a known user_id with an attacker-controlled phone number.
-    token_data = await verify_role(request)
-    uid = token_data["uid"]
-
+    user_id = data.user_id if data.user_id else str(datetime.now().timestamp())
     subscriber = {
         "phone_number": data.phone_number,
         "name": data.name,
         "subscribed_at": datetime.now().isoformat(),
     }
     try:
-        subscriber_store.upsert(uid, subscriber)
+        subscriber_store.upsert(user_id, subscriber)
     except OSError as exc:
         raise HTTPException(
             status_code=500,
@@ -615,22 +695,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     return {"success": True, "message": "Successfully subscribed"}
 
 @app.post("/api/whatsapp/trigger-alert")
-@limiter.limit("10/minute")
-async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
-    """
-    Broadcast a WhatsApp alert to all subscribers.
-
-    Requires authentication — admin or expert role only.
-
-    Previously this endpoint had no authentication check, no rate limit,
-    and no input constraints.  Any unauthenticated caller could send
-    arbitrary messages to every subscribed farmer, enabling social
-    engineering attacks (fake market alerts, fake pest warnings) and
-    consuming Twilio API credits at the attacker's discretion.
-    """
-    # RBAC: only admins and experts may broadcast alerts to all farmers.
-    await verify_role(request, required_roles=["admin", "expert"])
-
+async def trigger_whatsapp_alert(data: AlertTriggerRequest):
     # get_all() acquires the lock and returns a stable snapshot, so this read
     # cannot race with a concurrent subscription write.
     subscribers = subscriber_store.get_all()
@@ -639,17 +704,16 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
 
     for user_id, info in subscribers.items():
         res = send_whatsapp_message(info["phone_number"], formatted_msg)
-        results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})
+        results.append({"user_id": user_id, "success": res.get("success", False)})
 
-    # Use the bounded, thread-safe NotificationStore instead of the bare
-    # static_notifications list (which had no size cap and racy ID generation).
-    _notification_store.append(
-        alert_type=data.alert_type,
-        message=data.message,
-    )
+    static_notifications.append({
+        "id": len(static_notifications) + 1,
+        "type": data.alert_type,
+        "message": data.message,
+        "time": datetime.now().isoformat(),
+    })
 
-    delivered = sum(1 for r in results if r["success"])
-    return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
+    return {"success": True, "results": results}
 
 @app.post("/api/whatsapp/webhook")
 async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
@@ -826,35 +890,10 @@ async def generate_signed_report(data: ReportRequest, request: Request):
         p.setStrokeColor(colors.black)
         p.rect(1*inch, y - 1.5*inch, width - 2*inch, 1.8*inch, stroke=1, fill=0)
         
-        # Data for signing — use a JSON object with explicit field keys so
-        # every field is unambiguously bound to its name.  The old pipe-
-        # delimited format ("Alice|Wheat|5 Acres|...") allowed two different
-        # inputs to produce the same string:
-        #   name="Alice|Wheat", crop="5 Acres"  →  "Alice|Wheat|5 Acres|..."
-        #   name="Alice",       crop="Wheat|5 Acres" →  "Alice|Wheat|5 Acres|..."
-        # With JSON, {"name": "Alice|Wheat", "crop": "5 Acres"} and
-        # {"name": "Alice", "crop": "Wheat|5 Acres"} are distinct byte strings,
-        # so the signature binds unambiguously to the exact field values.
-        # sort_keys=True ensures the serialisation is deterministic regardless
-        # of Python dict insertion order.
-        report_payload = {
-            "name":   data.name,
-            "crop":   data.crop,
-            "area":   data.area,
-            "profit": data.profit,
-            "season": data.season,
-            "date":   datetime.now().date().isoformat(),
-        }
-        report_data_bytes = json.dumps(report_payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
-        signature = private_key.sign(report_data_bytes)
-
-        # Use the full 64-char SHA-256 hex digest as the canonical signature
-        # fingerprint, then display the first 16 chars (64 bits) on the PDF.
-        # The old 8-char (32-bit) truncation had a ~1-in-4-billion collision
-        # probability per pair — not negligible for a document presented to a
-        # bank.  16 hex chars gives ~1-in-18-quintillion, which is negligible.
-        sig_full = hashlib.sha256(signature).hexdigest().upper()
-        sig_id = sig_full[:16]
+        # Data for signing
+        report_data_string = f"{data.name}|{data.crop}|{data.area}|{data.profit}|{datetime.now().date()}"
+        signature = private_key.sign(report_data_string.encode())
+        sig_id = hashlib.sha256(signature).hexdigest()[:8].upper()
 
         p.setFont("Helvetica-Bold", 14)
         p.drawString(1.2*inch, y - 0.3*inch, "DIGITAL CRYPTOGRAPHIC SIGNATURE")
@@ -1196,55 +1235,815 @@ async def verify_seed(data: SeedVerifyRequest, request: Request):
         "expires_on": entry["expires_on"],
     }
 
-# ── Market Price Forecasting ──────────────────────────────────────────────────
+# --- Crop Quality Grading Endpoints ---
 
-class MarketForecastRequest(BaseModel):
-    commodity: str = Field(..., min_length=1, max_length=60)
-    days: int = Field(default=14, ge=1, le=30)
-
-
-@app.post("/api/market/forecast")
+@app.post("/api/quality/assess-single")
 @limiter.limit("10/minute")
-async def market_price_forecast(data: MarketForecastRequest, request: Request):
+async def assess_single_crop(request: Request, data: CropQualityGradingRequest):
     """
-    Generate an LSTM-based 14-day price forecast for a commodity.
-
-    The forecasting engine (ml/price_forecaster.py) trains a lightweight
-    LSTM on embedded 2-year historical mandi price data at first request
-    and caches the model in memory.  Subsequent requests for the same
-    commodity are served from the cache with no retraining overhead.
-
-    Request body
-    ------------
-    - commodity : str   — commodity name (e.g. "Wheat", "Cotton")
-    - days      : int   — forecast horizon in days (1–30, default 14)
-
-    Response
-    --------
-    - commodity          : str
-    - forecast_days      : int
-    - forecast           : list[{date, price, lower_bound, upper_bound}]
-    - best_sell_date     : str   — ISO date of forecast price peak
-    - best_sell_price    : float — predicted peak price (₹/quintal)
-    - recommendation     : str   — human-readable selling advice
-    - model_type         : str   — "LSTM" or "Statistical" (fallback)
-    - generated_at       : str   — ISO UTC timestamp
+    Assess quality of a single crop from image
+    
+    Request body:
+    {
+        "crop_type": "tomato",  // or potato, grain, fruit
+        "image_base64": "<base64_encoded_image>"
+    }
     """
     try:
-        from ml.price_forecaster import price_forecaster
-        result = price_forecaster.forecast(
-            commodity=data.commodity,
-            days=data.days,
+        # Decode base64 image
+        import base64
+        image_bytes = base64.b64decode(data.image_base64)
+        
+        # Assess the crop
+        assessment = _crop_quality_grader.assess_crop_image(
+            image_bytes, 
+            data.crop_type
         )
-        return result
-    except Exception as exc:
-        logger.error("Market forecast error for commodity='%s': %s", data.commodity, exc)
-        raise HTTPException(
-            status_code=500,
-            detail="Price forecast temporarily unavailable. Please try again later.",
+        
+        # Convert to dict
+        from dataclasses import asdict
+        result = asdict(assessment)
+        
+        return {
+            "success": True,
+            "data": result,
+            "timestamp": datetime.now().isoformat()
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Quality assessment error: %s", str(e))
+        raise HTTPException(status_code=500, detail="Quality assessment failed")
+
+@app.post("/api/quality/assess-batch")
+@limiter.limit("5/minute")
+async def assess_batch_crops(request: Request, data: CropQualityBatchRequest):
+    """
+    Assess quality of multiple crops in batch
+    
+    Request body:
+    {
+        "crop_type": "tomato",
+        "images_base64": ["<base64_image1>", "<base64_image2>", ...]
+    }
+    """
+    try:
+        import base64
+        
+        # Decode all images
+        image_bytes_list = []
+        for img_b64 in data.images_base64:
+            try:
+                image_bytes = base64.b64decode(img_b64)
+                image_bytes_list.append(image_bytes)
+            except Exception as e:
+                logger.warning("Failed to decode image: %s", str(e))
+                continue
+        
+        if not image_bytes_list:
+            raise ValueError("No valid images provided")
+        
+        # Batch grade
+        result = _crop_quality_grader.batch_grade_crops(
+            image_bytes_list,
+            data.crop_type
         )
+        
+        return {
+            "success": True,
+            "data": result,
+            "timestamp": datetime.now().isoformat()
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Batch assessment error: %s", str(e))
+        raise HTTPException(status_code=500, detail="Batch assessment failed")
+
+@app.post("/api/quality/trends")
+@limiter.limit("10/minute")
+async def get_quality_trends(request: Request, data: QualityTrendsRequest):
+    """
+    Get quality trends for a crop type
+    
+    Request body:
+    {
+        "crop_type": "tomato",
+        "days": 7
+    }
+    """
+    try:
+        trends = _crop_quality_grader.get_quality_trends(
+            data.crop_type,
+            data.days
+        )
+        
+        return {
+            "success": True,
+            "data": trends,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error("Quality trends error: %s", str(e))
+        raise HTTPException(status_code=500, detail="Failed to retrieve trends")
+
+@app.get("/api/quality/supported-crops")
+@limiter.limit("20/minute")
+async def get_supported_crops(request: Request):
+    """
+    Get list of supported crops for quality grading
+    """
+    return {
+        "success": True,
+        "crops": _crop_quality_grader.supported_crops,
+        "total": len(_crop_quality_grader.supported_crops)
+    }
+
+@app.post("/api/quality/market-price")
+@limiter.limit("10/minute")
+async def calculate_market_price(request: Request, data: CropQualityGradingRequest):
+    """
+    Calculate market price adjustment based on quality grade
+    
+    Request body:
+    {
+        "crop_type": "tomato",
+        "image_base64": "<base64_encoded_image>"
+    }
+    """
+    try:
+        import base64
+        from crop_quality_grading import GRADE_MAPPING
+        
+        # Decode image
+        image_bytes = base64.b64decode(data.image_base64)
+        
+        # Assess quality
+        assessment = _crop_quality_grader.assess_crop_image(
+            image_bytes,
+            data.crop_type
+        )
+        
+        # Get grade info
+        grade_info = GRADE_MAPPING[assessment.grade]
+        
+        return {
+            "success": True,
+            "crop_type": data.crop_type,
+            "grade": assessment.grade,
+            "grade_label": grade_info["label"],
+            "score": assessment.score,
+            "price_multiplier": grade_info["price_multiplier"],
+            "recommendations": assessment.recommendations,
+            "timestamp": datetime.now().isoformat()
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Market price calculation error: %s", str(e))
+        raise HTTPException(status_code=500, detail="Price calculation failed")
+
+class ConsultationBookRequest(BaseModel):
+    expert_id: str = Field(..., min_length=1, max_length=100)
+    expert_name: str = Field(..., min_length=1, max_length=200)
+    expert_specialization: str = Field(..., min_length=1, max_length=100)
+    date: str = Field(..., min_length=10, max_length=10)
+    time: str = Field(..., min_length=5, max_length=5)
+    notes: Optional[str] = Field(default="", max_length=1000)
+    consultation_type: str = Field(default="video", pattern=r'^(video|audio)$')
+
+class ConsultationUpdateRequest(BaseModel):
+    status: str = Field(..., pattern=r'^(scheduled|completed|cancelled|in-progress)$')
+    notes: Optional[str] = Field(default=None, max_length=1000)
+
+class ExpertSlotRequest(BaseModel):
+    expert_id: str = Field(..., min_length=1, max_length=100)
+    date: str = Field(..., min_length=10, max_length=10)
+
+# --- Expert Consultation APIs ---
+
+@app.get("/api/experts")
+async def get_experts(
+    specialization: Optional[str] = None,
+    kvk_only: bool = False,
+    search: Optional[str] = None
+):
+    """
+    Get list of available experts/KVK advisors.
+    
+    Query parameters:
+    - specialization: Filter by specialization (crop_disease, fertilizers, etc.)
+    - kvk_only: Return only KVK experts
+    - search: Search by name or location
+    """
+    try:
+        experts = []
+
+        if db_firestore:
+            try:
+                experts_ref = db_firestore.collection("experts")
+                docs = experts_ref.get()
+
+                for doc in docs:
+                    expert_data = doc.to_dict()
+                    expert_data["id"] = doc.id
+                    experts.append(expert_data)
+            except Exception as e:
+                logger.warning(f"Firestore experts query failed: {e}")
+
+        if not experts:
+            experts = [
+                {
+                    "id": "exp1",
+                    "name": "Dr. Ramesh Kumar",
+                    "specialization": "crop_disease",
+                    "qualification": "Ph.D. in Plant Pathology",
+                    "location": "Madhya Pradesh",
+                    "phone": "+91 9876543210",
+                    "rating": 4.8,
+                    "experience": 15,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Jabalpur",
+                    "bio": "Specialist in crop disease diagnosis and organic treatment methods.",
+                    "avatar": "https://randomuser.me/api/portraits/men/32.jpg"
+                },
+                {
+                    "id": "exp2",
+                    "name": "Dr. Priya Sharma",
+                    "specialization": "fertilizers",
+                    "qualification": "M.Sc. Agricultural Chemistry",
+                    "location": "Maharashtra",
+                    "phone": "+91 9876543211",
+                    "rating": 4.9,
+                    "experience": 12,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Pune",
+                    "bio": "Expert in nano-fertilizers and sustainable nutrient management.",
+                    "avatar": "https://randomuser.me/api/portraits/women/44.jpg"
+                },
+                {
+                    "id": "exp3",
+                    "name": "Er. Suresh Patil",
+                    "specialization": "irrigation",
+                    "qualification": "B.Tech Agricultural Engineering",
+                    "location": "Karnataka",
+                    "phone": "+91 9876543212",
+                    "rating": 4.7,
+                    "experience": 10,
+                    "is_kvk": False,
+                    "bio": "Drip irrigation and water management specialist.",
+                    "avatar": "https://randomuser.me/api/portraits/men/45.jpg"
+                },
+                {
+                    "id": "exp4",
+                    "name": "Dr. Anjali Verma",
+                    "specialization": "pest_management",
+                    "qualification": "Ph.D. Entomology",
+                    "location": "Uttar Pradesh",
+                    "phone": "+91 9876543213",
+                    "rating": 4.6,
+                    "experience": 8,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Lucknow",
+                    "bio": "Integrated pest management and organic pest control expert.",
+                    "avatar": "https://randomuser.me/api/portraits/women/65.jpg"
+                },
+                {
+                    "id": "exp5",
+                    "name": "Dr. Mahendra Singh",
+                    "specialization": "soil_health",
+                    "qualification": "Ph.D. Soil Science",
+                    "location": "Rajasthan",
+                    "phone": "+91 9876543214",
+                    "rating": 4.9,
+                    "experience": 20,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Jaipur",
+                    "bio": "Soil health assessment and reclamation specialist.",
+                    "avatar": "https://randomuser.me/api/portraits/men/67.jpg"
+                },
+                {
+                    "id": "exp6",
+                    "name": "Dr. Kavita Desai",
+                    "specialization": "market_advisory",
+                    "qualification": "MBA Agriculture Business",
+                    "location": "Gujarat",
+                    "phone": "+91 9876543215",
+                    "rating": 4.8,
+                    "experience": 14,
+                    "is_kvk": False,
+                    "bio": "Market intelligence and price forecasting expert.",
+                    "avatar": "https://randomuser.me/api/portraits/women/28.jpg"
+                }
+            ]
+
+        if specialization:
+            experts = [e for e in experts if e.get("specialization") == specialization]
+        if kvk_only:
+            experts = [e for e in experts if e.get("is_kvk")]
+        if search:
+            search_lower = search.lower()
+            experts = [e for e in experts if search_lower in e.get("name", "").lower() or search_lower in e.get("location", "").lower()]
+
+        if not experts:
+            experts = [
+                {
+                    "id": "exp1",
+                    "name": "Dr. Ramesh Kumar",
+                    "specialization": "crop_disease",
+                    "qualification": "Ph.D. in Plant Pathology",
+                    "location": "Madhya Pradesh",
+                    "phone": "+91 9876543210",
+                    "rating": 4.8,
+                    "experience": 15,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Jabalpur",
+                    "bio": "Specialist in crop disease diagnosis and organic treatment methods.",
+                    "avatar": "https://randomuser.me/api/portraits/men/32.jpg"
+                },
+                {
+                    "id": "exp2",
+                    "name": "Dr. Priya Sharma",
+                    "specialization": "fertilizers",
+                    "qualification": "M.Sc. Agricultural Chemistry",
+                    "location": "Maharashtra",
+                    "phone": "+91 9876543211",
+                    "rating": 4.9,
+                    "experience": 12,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Pune",
+                    "bio": "Expert in nano-fertilizers and sustainable nutrient management.",
+                    "avatar": "https://randomuser.me/api/portraits/women/44.jpg"
+                },
+                {
+                    "id": "exp3",
+                    "name": "Er. Suresh Patil",
+                    "specialization": "irrigation",
+                    "qualification": "B.Tech Agricultural Engineering",
+                    "location": "Karnataka",
+                    "phone": "+91 9876543212",
+                    "rating": 4.7,
+                    "experience": 10,
+                    "is_kvk": False,
+                    "bio": "Drip irrigation and water management specialist.",
+                    "avatar": "https://randomuser.me/api/portraits/men/45.jpg"
+                },
+                {
+                    "id": "exp4",
+                    "name": "Dr. Anjali Verma",
+                    "specialization": "pest_management",
+                    "qualification": "Ph.D. Entomology",
+                    "location": "Uttar Pradesh",
+                    "phone": "+91 9876543213",
+                    "rating": 4.6,
+                    "experience": 8,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Lucknow",
+                    "bio": "Integrated pest management and organic pest control expert.",
+                    "avatar": "https://randomuser.me/api/portraits/women/65.jpg"
+                },
+                {
+                    "id": "exp5",
+                    "name": "Dr. Mahendra Singh",
+                    "specialization": "soil_health",
+                    "qualification": "Ph.D. Soil Science",
+                    "location": "Rajasthan",
+                    "phone": "+91 9876543214",
+                    "rating": 4.9,
+                    "experience": 20,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Jaipur",
+                    "bio": "Soil health assessment and reclamation specialist.",
+                    "avatar": "https://randomuser.me/api/portraits/men/67.jpg"
+                },
+                {
+                    "id": "exp6",
+                    "name": "Dr. Kavita Desai",
+                    "specialization": "market_advisory",
+                    "qualification": "MBA Agriculture Business",
+                    "location": "Gujarat",
+                    "phone": "+91 9876543215",
+                    "rating": 4.8,
+                    "experience": 14,
+                    "is_kvk": False,
+                    "bio": "Market intelligence and price forecasting expert.",
+                    "avatar": "https://randomuser.me/api/portraits/women/28.jpg"
+                }
+            ]
+
+            if specialization:
+                experts = [e for e in experts if e.get("specialization") == specialization]
+            if kvk_only:
+                experts = [e for e in experts if e.get("is_kvk")]
+            if search:
+                search_lower = search.lower()
+                experts = [e for e in experts if search_lower in e.get("name", "").lower() or search_lower in e.get("location", "").lower()]
+
+        return {"experts": experts, "count": len(experts)}
+    except Exception as e:
+        logger.error(f"Error fetching experts: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch experts")
+
+
+@app.get("/api/experts/{expert_id}/slots")
+async def get_expert_slots(expert_id: str, date: str):
+    """
+    Get available time slots for an expert on a specific date.
+    
+    Path parameters:
+    - expert_id: ID of the expert
+    
+    Query parameters:
+    - date: Date in YYYY-MM-DD format
+    """
+    try:
+        from datetime import datetime, timedelta
+
+        requested_date = datetime.strptime(date, "%Y-%m-%d")
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        if requested_date < today:
+            return {"slots": [], "message": "Cannot book slots for past dates"}
+
+        slots = []
+        for hour in range(9, 18):
+            for minute in [0, 30]:
+                time_str = f"{hour:02d}:{minute:02d}"
+                available = True
+
+                if requested_date.date() == today.date() and hour <= datetime.now().hour:
+                    available = False
+
+                if available:
+                    slots.append({
+                        "time": time_str,
+                        "display": f"{hour}:{minute:02d} {'AM' if hour < 12 else 'PM'}",
+                        "available": available
+                    })
+
+        return {"expert_id": expert_id, "date": date, "slots": slots}
+    except Exception as e:
+        logger.error(f"Error fetching slots: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch slots")
+
+
+@app.post("/api/consultation/book")
+async def book_consultation(
+    request: ConsultationBookRequest,
+    authorization: Optional[str] = None
+):
+    """
+    Book a consultation with an expert.
+    
+    Request body:
+    - expert_id: Expert's ID
+    - expert_name: Expert's name
+    - expert_specialization: Expert's specialization
+    - date: Date in YYYY-MM-DD format
+    - time: Time in HH:MM format
+    - notes: Optional notes about the consultation
+    - consultation_type: "video" or "audio"
+    """
+    try:
+        user_data = None
+
+        if authorization:
+            try:
+                token = authorization.replace("Bearer ", "")
+                decoded_token = firebase_auth.verify_id_token(token)
+                user_id = decoded_token.get("uid")
+
+                user_ref = db_firestore.collection("users").document(user_id)
+                user_doc = user_ref.get()
+                if user_doc.exists:
+                    user_data = user_doc.to_dict()
+            except Exception as e:
+                logger.warning(f"Auth verification failed: {e}")
+
+        consultation_data = {
+            "expert_id": request.expert_id,
+            "expert_name": request.expert_name,
+            "expert_specialization": request.expert_specialization,
+            "user_id": user_data.get("uid") if user_data else "anonymous",
+            "user_name": user_data.get("displayName") if user_data else "Guest Farmer",
+            "date": request.date,
+            "time": request.time,
+            "notes": request.notes,
+            "type": request.consultation_type,
+            "status": "scheduled",
+            "created_at": datetime.now().isoformat()
+        }
+
+        doc_ref = db_firestore.collection("consultations").document()
+        doc_ref.set(consultation_data)
+
+        return {
+            "success": True,
+            "consultation_id": doc_ref.id,
+            "message": "Consultation booked successfully"
+        }
+    except Exception as e:
+        logger.error(f"Error booking consultation: {e}")
+        raise HTTPException(status_code=500, detail="Failed to book consultation")
+
+
+@app.put("/api/consultation/{consultation_id}")
+async def update_consultation(
+    consultation_id: str,
+    request: ConsultationUpdateRequest,
+    authorization: Optional[str] = None
+):
+    """
+    Update consultation status.
+    
+    Path parameters:
+    - consultation_id: ID of the consultation
+    
+    Request body:
+    - status: New status (scheduled, completed, cancelled, in-progress)
+    - notes: Optional notes
+    """
+    try:
+        doc_ref = db_firestore.collection("consultations").document(consultation_id)
+        doc = doc_ref.get()
+
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Consultation not found")
+
+        update_data = {
+            "status": request.status,
+            "updated_at": datetime.now().isoformat()
+        }
+
+        if request.notes:
+            update_data["notes"] = request.notes
+
+        if request.status == "completed":
+            update_data["completed_at"] = datetime.now().isoformat()
+
+        doc_ref.update(update_data)
+
+        return {
+            "success": True,
+            "message": "Consultation updated successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating consultation: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update consultation")
+
+
+@app.get("/api/consultations")
+async def get_user_consultations(
+    user_id: Optional[str] = None,
+    status: Optional[str] = None,
+    authorization: Optional[str] = None
+):
+    """
+    Get user's consultation history.
+    
+    Query parameters:
+    - user_id: User ID (optional, will use auth if provided)
+    - status: Filter by status (scheduled, completed, cancelled)
+    """
+    try:
+        consultations_ref = db_firestore.collection("consultations")
+        query = consultations_ref
+
+        if user_id:
+            query = query.where("user_id", "==", user_id)
+
+        docs = query.get()
+        consultations = []
+
+        for doc in docs:
+            consultation = doc.to_dict()
+            consultation["id"] = doc.id
+
+            if status and consultation.get("status") != status:
+                continue
+
+            consultations.append(consultation)
+
+        consultations.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+
+        return {
+            "consultations": consultations,
+            "count": len(consultations)
+        }
+    except Exception as e:
+        logger.error(f"Error fetching consultations: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch consultations")
+
+
+@app.delete("/api/consultation/{consultation_id}")
+async def cancel_consultation(
+    consultation_id: str,
+    authorization: Optional[str] = None
+):
+    """
+    Cancel a consultation.
+    
+    Path parameters:
+    - consultation_id: ID of the consultation to cancel
+    """
+    try:
+        doc_ref = db_firestore.collection("consultations").document(consultation_id)
+        doc = doc_ref.get()
+
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Consultation not found")
+
+        doc_ref.update({
+            "status": "cancelled",
+            "cancelled_at": datetime.now().isoformat()
+        })
+
+        return {
+            "success": True,
+            "message": "Consultation cancelled successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cancelling consultation: {e}")
+        raise HTTPException(status_code=500, detail="Failed to cancel consultation")
+
 
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
+# --- Blockchain Supply Chain Endpoints ---
+
+@app.post("/api/blockchain/register-actor")
+@limiter.limit("10/minute")
+async def register_actor(request: Request, data: RegisterActorRequest):
+    """Register supply chain participant"""
+    try:
+        actor_data = _supply_chain_blockchain.register_actor(
+            data.actor_id,
+            data.name,
+            data.actor_type,
+            data.location
+        )
+        return {"success": True, "actor": actor_data}
+    except Exception as e:
+        logger.error("Register actor error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/blockchain/create-batch")
+@limiter.limit("10/minute")
+async def create_batch(request: Request, data: CreateProductBatchRequest):
+    """Create product batch on blockchain"""
+    try:
+        batch = _supply_chain_blockchain.create_product_batch(
+            data.crop_type,
+            data.farm_id,
+            data.quantity,
+            data.unit,
+            data.planting_date,
+            data.harvesting_date,
+            data.farmer_name
+        )
+        from dataclasses import asdict
+        return {"success": True, "batch": asdict(batch)}
+    except Exception as e:
+        logger.error("Create batch error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/blockchain/add-node")
+@limiter.limit("10/minute")
+async def add_node(request: Request, data: AddSupplyChainNodeRequest):
+    """Add supply chain node"""
+    try:
+        node = _supply_chain_blockchain.add_supply_chain_node(
+            data.batch_id,
+            data.node_type,
+            data.actor_name,
+            data.location,
+            data.action,
+            temperature=data.temperature,
+            humidity=data.humidity,
+            quality_check=data.quality_check,
+            notes=data.notes
+        )
+        from dataclasses import asdict
+        return {"success": True, "node": asdict(node)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Add node error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/blockchain/create-contract")
+@limiter.limit("10/minute")
+async def create_contract(request: Request, data: CreateSmartContractRequest):
+    """Create smart contract"""
+    try:
+        contract = _supply_chain_blockchain.create_smart_contract(
+            data.batch_id,
+            data.seller,
+            data.buyer,
+            data.price,
+            data.terms
+        )
+        from dataclasses import asdict
+        return {"success": True, "contract": asdict(contract)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Create contract error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/blockchain/execute-contract")
+@limiter.limit("10/minute")
+async def execute_contract(request: Request, data: ExecuteContractRequest):
+    """Execute smart contract"""
+    try:
+        result = _supply_chain_blockchain.execute_smart_contract(data.contract_id)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Execute contract error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blockchain/qr-code/{batch_id}")
+@limiter.limit("20/minute")
+async def get_qr_code(batch_id: str):
+    """Get QR code for batch"""
+    try:
+        qr_code = _supply_chain_blockchain.generate_qr_code(batch_id)
+        return {"success": True, "batch_id": batch_id, "qr_code_base64": qr_code}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("QR code generation error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blockchain/verify/{batch_id}")
+@limiter.limit("20/minute")
+async def verify_batch(batch_id: str):
+    """Verify batch authenticity"""
+    try:
+        verification = _supply_chain_blockchain.verify_batch(batch_id)
+        return verification
+    except Exception as e:
+        logger.error("Verification error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blockchain/journey/{batch_id}")
+@limiter.limit("20/minute")
+async def get_journey(batch_id: str):
+    """Get supply chain journey"""
+    try:
+        journey = _supply_chain_blockchain.get_supply_chain_journey(batch_id)
+        return {"success": True, "data": journey}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Journey retrieval error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blockchain/analytics/{batch_id}")
+@limiter.limit("20/minute")
+async def get_analytics(batch_id: str):
+    """Get supply chain analytics"""
+    try:
+        analytics = _supply_chain_blockchain.get_supply_chain_analytics(batch_id)
+        return {"success": True, "data": analytics}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Analytics error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blockchain/marketplace")
+@limiter.limit("20/minute")
+async def get_marketplace():
+    """Get certified products for marketplace"""
+    try:
+        certified = _supply_chain_blockchain.get_certified_products()
+        return {"success": True, "products": certified, "count": len(certified)}
+    except Exception as e:
+        logger.error("Marketplace error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blockchain/stats")
+@limiter.limit("20/minute")
+async def get_stats():
+    """Get blockchain statistics"""
+    try:
+        stats = {
+            "total_records": _supply_chain_blockchain.get_blockchain_record_count(),
+            "total_products": len(_supply_chain_blockchain.products),
+            "registered_actors": len(_supply_chain_blockchain.verified_actors),
+            "total_contracts": len(_supply_chain_blockchain.smart_contracts)
+        }
+        return {"success": True, "stats": stats}
+    except Exception as e:
+        logger.error("Stats error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))

@@ -6,7 +6,7 @@
 // Use environment variable for API key to avoid hardcoding in source code
 // Fallback to public demo key to ensure the app works without local setup
 const API_KEY = import.meta.env.VITE_API_KEY ||
- "579b464db66ec23bdd000001cdd39465d03e4d774860900bb102e473";
+  "579b464db66ec23bdd000001cdd39465d03e4d774860900bb102e473";
 
 const RESOURCE_ID = "9ef27db9-c68f-406d-99fd-3c373b06019a";
 const BASE_URL = "https://api.data.gov.in/resource";
@@ -16,6 +16,7 @@ const BASE_URL = "https://api.data.gov.in/resource";
   console.warn("Using fallback public API key. Set VITE_API_KEY in .env for production.");
 
 }
+import { fetchPriceForecast } from '../services/marketForecastApi';
 const MOCK_FALLBACK = [
   { id: 1, commodity: "Paddy (Dhan)", state: "Punjab", district: "Amritsar", mandi: "Amritsar", minPrice: 2100, maxPrice: 2350, modalPrice: 2200, arrivalDate: "2026-04-20" },
   { id: 2, commodity: "Wheat", state: "Haryana", district: "Karnal", mandi: "Karnal", minPrice: 2000, maxPrice: 2275, modalPrice: 2150, arrivalDate: "2026-04-21" },
@@ -116,7 +117,6 @@ export const fetchPriceTrends = async (commodity) => {
   // Replaced Math.random() mock with real backend LSTM forecast call.
   // Returns the 7-day slice of the 14-day forecast for the trends chart.
   try {
-    const { fetchPriceForecast } = await import('../services/marketForecastApi');
     const forecast = await fetchPriceForecast(commodity, 7);
     if (forecast && Array.isArray(forecast.forecast)) {
       return forecast.forecast.map((d, i) => ({
