@@ -102,6 +102,18 @@ showGreenPractices: false,
      showCropGrading: false,
      setShowCropGrading: (show) => set({ showCropGrading: show }),
 
+   showExpertDirectory: false,
+   setShowExpertDirectory: (show) => set({ showExpertDirectory: show }),
+
+   showTeleConsultation: false,
+   setShowTeleConsultation: (show) => set({ showTeleConsultation: show }),
+
+   activeConsultation: null,
+   setActiveConsultation: (consultation) => set({ activeConsultation: consultation }),
+
+   showConsultationHistory: false,
+   setShowConsultationHistory: (show) => set({ showConsultationHistory: show }),
+
     // Reset all modals to closed
    resetAdvisorStore: () =>
      set({
@@ -136,6 +148,10 @@ showSmartCropRecommendation: false,
 showRAGAdvisor: false,
          showGreenPractices: false,
          showEquipmentManagement: false,
-         showCropGrading: false,
-     }),
+          showCropGrading: false,
+          showExpertDirectory: false,
+          showTeleConsultation: false,
+          activeConsultation: null,
+          showConsultationHistory: false,
+      }),
 }));
