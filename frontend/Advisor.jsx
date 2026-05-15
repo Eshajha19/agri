@@ -20,6 +20,7 @@ import FarmDiary from "./FarmDiary";
 import CropDiseaseDetection from "./CropDiseaseDetection";
 import PestDetection from "./PestDetection";
 import PestManagement from "./PestManagement";
+import SprayReminder from "./SprayReminder";
 import SeedVerifier from "./SeedVerifier";
 import ClimateSimulator from "./ClimateSimulator";
 import RAGAdvisor from "./RAGAdvisor";
@@ -662,6 +663,12 @@ showGreenPractices,
             <div className="icon" aria-hidden="true"><Bug size={32} /></div>
             <h3><span className="notranslate">Pest Management</span></h3>
             <p>Early warnings & organic pest control tips.</p>
+          </div>
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowSprayReminder(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSprayReminder(true); }} aria-label="Spray Scheduler: Weather-aware spray scheduling">
+            <div className="icon" aria-hidden="true"><CloudRain size={32} /></div>
+            <h3><span className="notranslate">Spray Scheduler</span></h3>
+            <p>Weather-aware spray scheduling &amp; rotation recommendations.</p>
           </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowYieldPopup(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowYieldPopup(true); }} aria-label="Yield Prediction: AI-based forecast">
@@ -1432,6 +1439,14 @@ showGreenPractices,
         <div className="weather-overlay" onClick={() => setShowPestManagement(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ padding: 0, background: 'transparent', boxShadow: 'none' }}>
             <PestManagement onClose={() => setShowPestManagement(false)} />
+          </div>
+        </div>
+      )}
+
+      {showSprayReminder && (
+        <div className="weather-overlay" onClick={() => setShowSprayReminder(false)}>
+          <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ padding: 0, background: 'transparent', boxShadow: 'none' }}>
+            <SprayReminder onClose={() => setShowSprayReminder(false)} />
           </div>
         </div>
       )}
