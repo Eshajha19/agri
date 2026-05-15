@@ -1,0 +1,432 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+from uuid import uuid4
+
+
+@dataclass(frozen=True)
+class LoanProduct:
+    lender_name: str
+    product_name: str
+    min_credit_score: int
+    max_debt_ratio: float
+    max_amount_factor: float
+    annual_interest_rate: float
+    tenure_months: int
+    description: str
+    requires_collateral: bool = False
+
+
+@dataclass
+class FinanceApplication:
+    application_id: str
+    farmer_name: str
+    crop_type: str
+    requested_amount: float
+    recommended_amount: float
+    selected_lender: str
+    status: str
+    created_at: str
+    assessment_score: float
+    risk_level: str
+    required_documents: List[str] = field(default_factory=list)
+    notes: List[str] = field(default_factory=list)
+
+
+class FarmFinanceAI:
+    """Deterministic finance-planning engine for farm loan recommendations."""
+
+    def __init__(self) -> None:
+        self.loan_products: List[LoanProduct] = [
+            LoanProduct(
+                lender_name="Regional Cooperative Bank",
+                product_name="Crop Growth Loan",
+                min_credit_score=600,
+                max_debt_ratio=0.35,
+                max_amount_factor=0.65,
+                annual_interest_rate=7.5,
+                tenure_months=48,
+                description="Low-cost working capital for seasonal crop cycles.",
+            ),
+            LoanProduct(
+                lender_name="National Agriculture Bank",
+                product_name="Kisan Working Capital Loan",
+                min_credit_score=650,
+                max_debt_ratio=0.45,
+                max_amount_factor=0.9,
+                annual_interest_rate=8.9,
+                tenure_months=60,
+                description="Flexible repayment loan for input purchases and expansion.",
+            ),
+            LoanProduct(
+                lender_name="Agri NBFC",
+                product_name="Climate Resilience Credit",
+                min_credit_score=580,
+                max_debt_ratio=0.55,
+                max_amount_factor=0.55,
+                annual_interest_rate=10.8,
+                tenure_months=36,
+                description="Faster approval for farms investing in resilience upgrades.",
+            ),
+            LoanProduct(
+                lender_name="Farmer Co-op Finance",
+                product_name="Warehouse Receipt Loan",
+                min_credit_score=620,
+                max_debt_ratio=0.4,
+                max_amount_factor=0.7,
+                annual_interest_rate=8.1,
+                tenure_months=24,
+                description="Short-term credit backed by stored produce and receipts.",
+                requires_collateral=True,
+            ),
+        ]
+        self.applications: Dict[str, FinanceApplication] = {}
+
+    def analyze_financial_profile(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        data = self._normalize_payload(payload)
+        annual_revenue = data["annual_revenue"]
+        annual_operating_cost = data["annual_operating_cost"]
+        existing_debt = data["existing_debt"]
+        emergency_fund = data["emergency_fund"]
+        credit_score = data["credit_score"]
+        requested_amount = data["requested_loan_amount"]
+        tenure_months = data["loan_tenure_months"]
+        crop_type = data["crop_type"]
+
+        annual_profit = annual_revenue - annual_operating_cost
+        profit_margin = annual_profit / annual_revenue if annual_revenue else 0.0
+        debt_ratio = existing_debt / annual_revenue if annual_revenue else 1.0
+        monthly_surplus = annual_profit / 12 if annual_profit > 0 else 0.0
+        emergency_cover_months = emergency_fund / (annual_operating_cost / 12 if annual_operating_cost else 1.0)
+        crop_risk = self._crop_risk_factor(crop_type)
+
+        score = 100.0
+        score -= crop_risk * 12
+
+        if profit_margin < 0:
+            score -= 30
+        elif profit_margin < 0.15:
+            score -= 15
+        elif profit_margin < 0.25:
+            score -= 6
+
+        if debt_ratio > 0.6:
+            score -= 25
+        elif debt_ratio > 0.35:
+            score -= 15
+        elif debt_ratio > 0.2:
+            score -= 8
+
+        if credit_score < 600:
+            score -= 18
+        elif credit_score < 700:
+            score -= 8
+        elif credit_score >= 780:
+            score += 4
+
+        if emergency_cover_months < 1:
+            score -= 15
+        elif emergency_cover_months < 3:
+            score -= 8
+
+        if requested_amount > annual_revenue * 0.8 > 0:
+            score -= 10
+
+        if annual_revenue <= 0:
+            score = 0
+
+        score = max(0, min(100, round(score, 1)))
+        risk_level = self._risk_level(score)
+        best_product = self._best_product(data, score, debt_ratio)
+        lender_matches = self._lender_matches(data, score, debt_ratio)
+
+        max_affordable_emi = round(max(monthly_surplus * 0.35, 0.0), 2)
+        recommended_loan_amount = self._recommended_loan_amount(
+            annual_revenue=annual_revenue,
+            requested_amount=requested_amount,
+            max_affordable_emi=max_affordable_emi,
+            rate=best_product.annual_interest_rate,
+            tenure_months=tenure_months or best_product.tenure_months,
+        )
+
+        estimated_emi = round(
+            self._calculate_emi(
+                principal=recommended_loan_amount,
+                annual_interest_rate=best_product.annual_interest_rate,
+                tenure_months=tenure_months or best_product.tenure_months,
+            ),
+            2,
+        )
+
+        recommended_documents = [
+            "Government-issued photo ID",
+            "Land ownership or lease documents",
+            "Last 12 months of bank statements",
+            "Crop income and expense summary",
+            "Kisan / farmer registration proof",
+        ]
+
+        action_plan = self._action_plan(score, debt_ratio, emergency_cover_months)
+
+        return {
+            "farmer_name": data["farmer_name"],
+            "crop_type": crop_type,
+            "acreage": data["acreage"],
+            "annual_revenue": round(annual_revenue, 2),
+            "annual_operating_cost": round(annual_operating_cost, 2),
+            "annual_profit": round(annual_profit, 2),
+            "profit_margin_pct": round(profit_margin * 100, 1),
+            "debt_ratio_pct": round(debt_ratio * 100, 1),
+            "credit_score": credit_score,
+            "financial_health_score": score,
+            "risk_level": risk_level,
+            "crop_risk_factor": round(crop_risk, 2),
+            "emergency_cover_months": round(emergency_cover_months, 2),
+            "max_affordable_emi": max_affordable_emi,
+            "recommended_loan_amount": recommended_loan_amount,
+            "estimated_emi": estimated_emi,
+            "tenure_months": tenure_months or best_product.tenure_months,
+            "selected_product": self._product_payload(best_product),
+            "lender_matches": lender_matches,
+            "required_documents": recommended_documents,
+            "action_plan": action_plan,
+            "marketplace": [self._product_payload(product) for product in self.loan_products],
+        }
+
+    def create_application(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        analysis = self.analyze_financial_profile(payload)
+        requested_lender = (payload.get("selected_lender") or "").strip()
+        selected_product = self._select_product(requested_lender, analysis["lender_matches"], analysis["selected_product"])
+        application_id = f"LOAN-{uuid4().hex[:10].upper()}"
+        status = "pre_approved" if analysis["financial_health_score"] >= 80 else "under_review"
+        if analysis["financial_health_score"] < 45:
+            status = "needs_documents"
+
+        application = FinanceApplication(
+            application_id=application_id,
+            farmer_name=analysis["farmer_name"],
+            crop_type=analysis["crop_type"],
+            requested_amount=float(payload.get("requested_loan_amount") or analysis["recommended_loan_amount"]),
+            recommended_amount=analysis["recommended_loan_amount"],
+            selected_lender=selected_product["lender_name"],
+            status=status,
+            created_at=datetime.now().isoformat(),
+            assessment_score=analysis["financial_health_score"],
+            risk_level=analysis["risk_level"],
+            required_documents=analysis["required_documents"],
+            notes=analysis["action_plan"],
+        )
+        self.applications[application_id] = application
+
+        return {
+            "application_id": application.application_id,
+            "farmer_name": application.farmer_name,
+            "crop_type": application.crop_type,
+            "requested_amount": round(application.requested_amount, 2),
+            "recommended_amount": round(application.recommended_amount, 2),
+            "selected_lender": application.selected_lender,
+            "status": application.status,
+            "created_at": application.created_at,
+            "assessment_score": application.assessment_score,
+            "risk_level": application.risk_level,
+            "required_documents": application.required_documents,
+            "notes": application.notes,
+            "estimated_emi": analysis["estimated_emi"],
+        }
+
+    def get_application(self, application_id: str) -> Optional[Dict[str, Any]]:
+        application = self.applications.get(application_id)
+        if not application:
+            return None
+        return {
+            "application_id": application.application_id,
+            "farmer_name": application.farmer_name,
+            "crop_type": application.crop_type,
+            "requested_amount": round(application.requested_amount, 2),
+            "recommended_amount": round(application.recommended_amount, 2),
+            "selected_lender": application.selected_lender,
+            "status": application.status,
+            "created_at": application.created_at,
+            "assessment_score": application.assessment_score,
+            "risk_level": application.risk_level,
+            "required_documents": application.required_documents,
+            "notes": application.notes,
+        }
+
+    def list_marketplace(self) -> List[Dict[str, Any]]:
+        return [self._product_payload(product) for product in self.loan_products]
+
+    def _normalize_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        def to_float(value: Any, default: float = 0.0) -> float:
+            try:
+                if value in (None, ""):
+                    return default
+                return float(value)
+            except (TypeError, ValueError):
+                return default
+
+        def to_int(value: Any, default: int = 0) -> int:
+            try:
+                if value in (None, ""):
+                    return default
+                return int(float(value))
+            except (TypeError, ValueError):
+                return default
+
+        return {
+            "farmer_name": str(payload.get("farmer_name") or "Farmer").strip(),
+            "crop_type": str(payload.get("crop_type") or "Mixed Crops").strip(),
+            "acreage": to_float(payload.get("acreage"), 0.0),
+            "annual_revenue": to_float(payload.get("annual_revenue"), 0.0),
+            "annual_operating_cost": to_float(payload.get("annual_operating_cost"), 0.0),
+            "existing_debt": to_float(payload.get("existing_debt"), 0.0),
+            "emergency_fund": to_float(payload.get("emergency_fund"), 0.0),
+            "credit_score": max(300, min(900, to_int(payload.get("credit_score"), 650))),
+            "requested_loan_amount": to_float(payload.get("requested_loan_amount"), 0.0),
+            "loan_tenure_months": max(6, to_int(payload.get("loan_tenure_months"), 36)),
+        }
+
+    def _crop_risk_factor(self, crop_type: str) -> float:
+        crop = crop_type.lower()
+        crop_risks = {
+            "rice": 0.35,
+            "wheat": 0.22,
+            "maize": 0.3,
+            "cotton": 0.33,
+            "sugarcane": 0.2,
+            "vegetables": 0.4,
+            "fruits": 0.38,
+            "tomato": 0.42,
+            "potato": 0.24,
+        }
+        return crop_risks.get(crop, 0.28)
+
+    def _risk_level(self, score: float) -> str:
+        if score >= 80:
+            return "Low"
+        if score >= 60:
+            return "Moderate"
+        if score >= 40:
+            return "High"
+        return "Critical"
+
+    def _best_product(self, payload: Dict[str, Any], score: float, debt_ratio: float) -> LoanProduct:
+        matches = self._candidate_products(payload, score, debt_ratio)
+        if matches:
+            return matches[0]
+        return self.loan_products[0]
+
+    def _candidate_products(self, payload: Dict[str, Any], score: float, debt_ratio: float) -> List[LoanProduct]:
+        annual_revenue = payload["annual_revenue"]
+        credit_score = payload["credit_score"]
+        recommended_amount = max(payload["requested_loan_amount"], annual_revenue * 0.25)
+        valid_products = []
+        for product in self.loan_products:
+            if credit_score < product.min_credit_score:
+                continue
+            if debt_ratio > product.max_debt_ratio:
+                continue
+            if annual_revenue > 0 and recommended_amount > annual_revenue * product.max_amount_factor:
+                continue
+            valid_products.append(product)
+        return sorted(
+            valid_products,
+            key=lambda item: (item.annual_interest_rate, -item.max_amount_factor),
+        )
+
+    def _lender_matches(self, payload: Dict[str, Any], score: float, debt_ratio: float) -> List[Dict[str, Any]]:
+        matches: List[Dict[str, Any]] = []
+        annual_revenue = payload["annual_revenue"]
+        requested_amount = max(payload["requested_loan_amount"], annual_revenue * 0.25)
+        for product in self.loan_products:
+            fit_score = 100
+            if payload["credit_score"] < product.min_credit_score:
+                fit_score -= 35
+            if debt_ratio > product.max_debt_ratio:
+                fit_score -= 25
+            if annual_revenue > 0 and requested_amount > annual_revenue * product.max_amount_factor:
+                fit_score -= 20
+            fit_score -= max(0, 80 - score) * 0.4
+            if fit_score < 40:
+                continue
+            matches.append({
+                **self._product_payload(product),
+                "fit_score": round(max(0, min(100, fit_score)), 1),
+            })
+        matches.sort(key=lambda item: (-item["fit_score"], item["annual_interest_rate"]))
+        return matches
+
+    def _select_product(self, requested_lender: str, lender_matches: List[Dict[str, Any]], fallback: Dict[str, Any]) -> Dict[str, Any]:
+        if requested_lender:
+            for lender in lender_matches:
+                if lender["lender_name"].lower() == requested_lender.lower():
+                    return lender
+            for product in self.loan_products:
+                if product.lender_name.lower() == requested_lender.lower():
+                    return self._product_payload(product)
+        if lender_matches:
+            return lender_matches[0]
+        return fallback
+
+    def _product_payload(self, product: LoanProduct) -> Dict[str, Any]:
+        return {
+            "lender_name": product.lender_name,
+            "product_name": product.product_name,
+            "min_credit_score": product.min_credit_score,
+            "max_debt_ratio": product.max_debt_ratio,
+            "max_amount_factor": product.max_amount_factor,
+            "annual_interest_rate": product.annual_interest_rate,
+            "tenure_months": product.tenure_months,
+            "description": product.description,
+            "requires_collateral": product.requires_collateral,
+        }
+
+    def _recommended_loan_amount(
+        self,
+        annual_revenue: float,
+        requested_amount: float,
+        max_affordable_emi: float,
+        rate: float,
+        tenure_months: int,
+    ) -> float:
+        candidate = requested_amount or annual_revenue * 0.3
+        affordable_principal = self._principal_from_emi(max_affordable_emi, rate, tenure_months)
+        revenue_cap = annual_revenue * 0.75 if annual_revenue else candidate
+        return max(0.0, round(min(candidate, affordable_principal, revenue_cap), 2))
+
+    def _principal_from_emi(self, monthly_emi: float, annual_interest_rate: float, tenure_months: int) -> float:
+        monthly_rate = annual_interest_rate / 12 / 100
+        if monthly_emi <= 0 or tenure_months <= 0:
+            return 0.0
+        if monthly_rate == 0:
+            return monthly_emi * tenure_months
+        growth = (1 + monthly_rate) ** tenure_months
+        return monthly_emi * ((growth - 1) / (monthly_rate * growth))
+
+    def _calculate_emi(self, principal: float, annual_interest_rate: float, tenure_months: int) -> float:
+        if principal <= 0 or tenure_months <= 0:
+            return 0.0
+        monthly_rate = annual_interest_rate / 12 / 100
+        if monthly_rate == 0:
+            return principal / tenure_months
+        growth = (1 + monthly_rate) ** tenure_months
+        return principal * monthly_rate * growth / (growth - 1)
+
+    def _action_plan(self, score: float, debt_ratio: float, emergency_cover_months: float) -> List[str]:
+        plan = []
+        if score >= 80:
+            plan.append("Profile is strong enough for standard agricultural working-capital products.")
+        elif score >= 60:
+            plan.append("Improve input-output records to unlock better pricing and faster approval.")
+        else:
+            plan.append("Reduce revolving debt before applying to improve approval chances.")
+
+        if debt_ratio > 0.35:
+            plan.append("Rework liabilities and avoid a request above current repayment capacity.")
+        if emergency_cover_months < 2:
+            plan.append("Build a small emergency reserve for weather and price shocks.")
+        if len(plan) < 3:
+            plan.append("Submit the required documents early to speed up review.")
+        return plan[:3]

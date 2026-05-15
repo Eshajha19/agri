@@ -597,10 +597,6 @@
   margin-bottom: 14px;
 }
 
-.pesticide-section {
-  margin-bottom: 14px;
-}
-
 .fertilizer-section h6 {
   display: flex;
   align-items: center;
@@ -613,26 +609,7 @@
   letter-spacing: 0.5px;
 }
 
-.pesticide-section h6 {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0 0 8px 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary, #1f2937);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
 .fertilizer-text {
-  margin: 0;
-  font-size: 13px;
-  color: #4b5563;
-  line-height: 1.4;
-}
-
-.pesticide-text {
   margin: 0;
   font-size: 13px;
   color: #4b5563;

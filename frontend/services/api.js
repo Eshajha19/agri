@@ -2,6 +2,7 @@ import axios from 'axios';
 
 import { useUiStore } from '../stores/uiStore';
 import { reportErrorToBackend } from '../utils/errorReporting';
+import { auth } from '../lib/firebase';
 
 const toNumberOr = (value, fallback) => {
   const parsed = Number(value);
@@ -47,6 +48,43 @@ const getRetryDelayMs = (retryCount, retryDelayMs) => {
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Retrieve the current Firebase ID token for the signed-in user.
+ *
+ * Why not localStorage?
+ * ---------------------
+ * Firebase Authentication manages ID tokens internally through the SDK.
+ * It does NOT persist them to localStorage under any predictable key, so
+ * reading localStorage.getItem('agri:authToken') always returns null for
+ * Firebase-authenticated users, causing every protected request to be sent
+ * without an Authorization header.
+ *
+ * auth.currentUser.getIdToken(false) returns the cached token when it is
+ * still valid (< 1 hour old) and automatically fetches a fresh one when it
+ * has expired — giving us transparent token refresh at zero extra cost.
+ *
+ * Returns null when:
+ *   - No user is signed in (anonymous or unauthenticated)
+ *   - Firebase is not configured (missing env vars)
+ *   - The token fetch fails for any reason (network error, revoked token)
+ *
+ * In all null cases the request proceeds without an Authorization header,
+ * which is the correct behaviour for public endpoints.
+ */
+async function getFirebaseIdToken() {
+  try {
+    if (auth?.currentUser) {
+      // Pass false to use the cached token; Firebase refreshes automatically
+      // when the token is within 5 minutes of expiry.
+      return await auth.currentUser.getIdToken(false);
+    }
+  } catch (err) {
+    // Log but do not throw — unauthenticated requests are valid for public routes.
+    console.warn('[api] Could not retrieve Firebase ID token:', err?.message);
+  }
+  return null;
+}
+
 const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/',
   timeout: API_TIMEOUT_MS,
@@ -55,17 +93,21 @@ const apiClient = axios.create({
   },
 });
 
+// Axios request interceptors support returning a Promise, so the async
+// token fetch integrates cleanly without any additional wrapper.
 apiClient.interceptors.request.use(
-  (config) => {
+  async (config) => {
     const nextConfig = { ...config };
-    const token =
-      localStorage.getItem('agri:authToken') || localStorage.getItem('agri:token');
 
-    if (token && !nextConfig.headers?.Authorization) {
-      nextConfig.headers = {
-        ...nextConfig.headers,
-        Authorization: `Bearer ${token}`,
-      };
+    // Only inject the token when the caller has not already set one.
+    if (!nextConfig.headers?.Authorization) {
+      const token = await getFirebaseIdToken();
+      if (token) {
+        nextConfig.headers = {
+          ...nextConfig.headers,
+          Authorization: `Bearer ${token}`,
+        };
+      }
     }
 
     if (!nextConfig.skipGlobalLoader) {

@@ -7,7 +7,6 @@ import {
   Activity,
   MapPin,
   Droplets,
-  Bug,
   Zap,
   TrendingUp,
   Loader,
@@ -51,14 +50,16 @@ export default function CropRecommendationAdvisor({ onClose }) {
     );
   };
 
-  // Handle input changes
-  const handleInputChange = (e) => {
-    const { name, value, type } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: type === 'number' ? parseFloat(value) : value,
-    }));
-  };
+   // Handle input changes
+   const handleInputChange = (e) => {
+     const { name, value, type } = e.target;
+     // Parse float for numeric inputs (including range)
+     const numericValue = type === 'number' || type === 'range' ? parseFloat(value) : value;
+     setFormData((prev) => ({
+       ...prev,
+       [name]: numericValue,
+     }));
+   };
 
   // Reset form
   const handleReset = () => {
@@ -229,13 +230,6 @@ export default function CropRecommendationAdvisor({ onClose }) {
                 <Zap size={16} /> Fertilizer Recommendation
               </h6>
               <p className="fertilizer-text">{crop.recommended_fertilizer}</p>
-            </div>
-
-            <div className="pesticide-section">
-              <h6>
-                <Bug size={16} /> Pesticide Guidance
-              </h6>
-              <p className="pesticide-text">{crop.recommended_pesticide}</p>
             </div>
 
             <button
