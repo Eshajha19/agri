@@ -232,10 +232,19 @@ export default function CropDiseaseDetection({ onClose }) {
         }
       }
 
-      // Save to history
-      const historyEntry = saveDiseaseHistory(detectionResult);
-      if (historyEntry) {
-        setHistory(prev => [historyEntry, ...prev]);
+      // Save to history — only a slim summary is persisted (disease name,
+      // confidence, method).  If localStorage is full, show a non-blocking
+      // warning rather than silently failing.
+      try {
+        const historyEntry = saveDiseaseHistory(detectionResult);
+        if (historyEntry) {
+          setHistory(prev => [historyEntry, ...prev]);
+        }
+      } catch (storageErr) {
+        // QuotaExceededError — history could not be saved but the detection
+        // result is still shown.  Warn the user so they know to clear history.
+        console.warn('Disease history not saved — localStorage quota exceeded:', storageErr);
+        setError('⚠️ Detection complete, but history could not be saved (storage full). Clear history to free space.');
       }
 
       setResult(detectionResult);
