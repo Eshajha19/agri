@@ -2,6 +2,9 @@ import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor
 import joblib
+import os
+import hmac
+import hashlib
 
 # Load data
 df = pd.read_csv("Train.csv")
@@ -31,5 +34,18 @@ model.fit(X, y)
 
 # Save model
 joblib.dump(model, "sklearn_yield_model.pkl")
+
+# If a model signing key is available, create a signature file to allow
+# verification when the model is loaded in production.
+signing_key = os.getenv("MODEL_SIGNING_KEY")
+if signing_key:
+    with open("sklearn_yield_model.pkl", "rb") as f:
+        data = f.read()
+    sig = hmac.new(signing_key.encode("utf-8"), data, hashlib.sha256).hexdigest()
+    with open("sklearn_yield_model.pkl.sig", "w", encoding="utf-8") as sf:
+        sf.write(sig)
+    print("Wrote signature to sklearn_yield_model.pkl.sig")
+else:
+    print("MODEL_SIGNING_KEY not set; no signature file written")
 
 print("✅ Sklearn time-series model trained and saved")

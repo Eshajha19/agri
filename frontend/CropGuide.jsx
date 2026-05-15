@@ -1,6 +1,7 @@
 "use client";
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import "./CropGuide.css";
+import { getBookmarks, toggleBookmark } from "./utils/bookmarkStorage";
 
 // 📦 DATA
 const CROPS = [
@@ -72,6 +73,18 @@ export default function CropGuide() {
   const [selectedSeason, setSelectedSeason] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCrop, setActiveCrop] = useState(null);
+  const [bookmarkedCropIds, setBookmarkedCropIds] = useState(() =>
+    getBookmarks("crops").map((crop) => crop.id)
+  );
+
+  useEffect(() => {
+    setBookmarkedCropIds(getBookmarks("crops").map((crop) => crop.id));
+  }, []);
+
+  const handleToggleCropBookmark = (crop) => {
+    const updated = toggleBookmark("crops", crop);
+    setBookmarkedCropIds(updated.map((item) => item.id));
+  };
 
   // 🔍 FILTER + SEARCH (memoized for performance)
   const filteredCrops = useMemo(() => {
@@ -134,9 +147,20 @@ export default function CropGuide() {
                 <p><strong>Water:</strong> {crop.water}</p>
               </div>
 
-              <button onClick={() => setActiveCrop(crop)}>
-                View Details
-              </button>
+              <div className="crop-card-actions">
+                <button onClick={() => setActiveCrop(crop)}>
+                  View Details
+                </button>
+                <button
+                  className={`bookmark-btn ${bookmarkedCropIds.includes(crop.id) ? "active" : ""}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleToggleCropBookmark(crop);
+                  }}
+                >
+                  {bookmarkedCropIds.includes(crop.id) ? "Saved" : "Bookmark"}
+                </button>
+              </div>
             </div>
           ))
         ) : (
@@ -158,7 +182,15 @@ export default function CropGuide() {
               ✖
             </button>
 
-            <h2>🌾 {activeCrop.name}</h2>
+            <div className="modal-header-row">
+              <h2>🌾 {activeCrop.name}</h2>
+              <button
+                className={`bookmark-btn modal-bookmark ${bookmarkedCropIds.includes(activeCrop.id) ? "active" : ""}`}
+                onClick={() => handleToggleCropBookmark(activeCrop)}
+              >
+                {bookmarkedCropIds.includes(activeCrop.id) ? "Saved" : "Bookmark"}
+              </button>
+            </div>
 
             <div className="modal-info">
               <p><strong>Season:</strong> {activeCrop.season}</p>

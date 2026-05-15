@@ -162,26 +162,41 @@ const P2PChat = ({ recipient, onClose }) => {
         orderBy("createdAt", "asc")
       );
 
-      const unsubscribe = onSnapshot(q, async (snapshot) => {
-        const decryptedDocs = await Promise.all(snapshot.docs.map(async (doc) => {
-          const data = doc.data();
-          try {
-            if (data.encryptedContent && data.encryptedContent.iv) {
-              const decryptedText = await cryptoService.decryptMessage(data.encryptedContent, sharedKey);
-              return { id: doc.id, ...data, content: decryptedText };
-            } else {
-              return { id: doc.id, ...data, content: "[Legacy Insecure Format]" };
+      const unsubscribe = onSnapshot(
+        q,
+        async (snapshot) => {
+          const decryptedDocs = await Promise.all(snapshot.docs.map(async (doc) => {
+            const data = doc.data();
+            try {
+              if (data.encryptedContent && data.encryptedContent.iv) {
+                const decryptedText = await cryptoService.decryptMessage(data.encryptedContent, sharedKey);
+                return { id: doc.id, ...data, content: decryptedText };
+              } else {
+                return { id: doc.id, ...data, content: "[Legacy Insecure Format]" };
+              }
+            } catch (e) {
+              return { id: doc.id, ...data, content: "[Decryption Failed]" };
             }
-          } catch (e) {
-            return { id: doc.id, ...data, content: "[Decryption Failed]" };
+          }));
+
+          if (isMounted) {
+            setMessages(decryptedDocs);
+            setTimeout(scrollToBottom, 100);
           }
-        }));
-        
-        if (isMounted) {
-          setMessages(decryptedDocs);
-          setTimeout(scrollToBottom, 100);
+        },
+        (error) => {
+          // Surface Firestore query errors (e.g. missing composite index in
+          // production) so they are visible in logs rather than silently
+          // leaving the chat empty.
+          console.error(
+            "P2PChat: Firestore query failed for chatId=%s — %s\n" +
+            "If this is a 'requires an index' error, ensure firestore.indexes.json " +
+            "has been deployed via: firebase deploy --only firestore:indexes",
+            chatId,
+            error.message
+          );
         }
-      });
+      );
 
       return () => {
         isMounted = false;
