@@ -22,6 +22,7 @@ import {
   FaHome,
   FaSun,
   FaMoon,
+  FaTrophy,
 } from "react-icons/fa";
 import { usePerformanceStore } from "./stores/performanceStore";
 
@@ -42,6 +43,7 @@ import Home from "./Home";
 import MarketPrices from "./MarketPrices";
 import Loader from "./Loader";
 import Community from "./Community";
+import Leaderboard from "./Leaderboard";
 import ContactUs from "./ContactUs";
 import AboutUs from "./AboutUs";
 import LanguageDropdown from "./LanguageDropdown";
@@ -354,6 +356,7 @@ function App() {
                   </button>
                 </div>
                 <Link to="/dashboard" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaTachometerAlt /> Dashboard</Link>
+                <Link to="/leaderboard" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaTrophy /> Leaderboard</Link>
                 {userData?.role === "admin" && (
                   <Link to="/admin/feedback" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Feedback Admin</Link>
                 )}
@@ -454,6 +457,7 @@ function App() {
           <Route path="/farming-map" element={<FarmingMap />} />
           <Route path="/profit-calculator" element={<CropProfitCalculator />} />
           <Route path="/community" element={<Community />} />
+          <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/soil-analysis" element={<SoilAnalysis />} />
           <Route path="/faq" element={<FAQ />} />
           <Route path="/terms" element={<Terms />} />
