@@ -104,7 +104,6 @@ showGreenPractices: false,
 
    showSustainabilityAnalytics: false,
    setShowSustainabilityAnalytics: (show) => set({ showSustainabilityAnalytics: show }),
-
    showExpertDirectory: false,
    setShowExpertDirectory: (show) => set({ showExpertDirectory: show }),
 

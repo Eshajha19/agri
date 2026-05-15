@@ -1578,6 +1578,7 @@ showGreenPractices,
           </div>
         )}
 
+<<<<<<< HEAD
       {showSustainabilityAnalytics && (
         <div className="weather-overlay" onClick={() => setShowSustainabilityAnalytics(false)}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
@@ -1589,6 +1590,8 @@ showGreenPractices,
         </div>
       )}
 
+=======
+>>>>>>> upstream/main
       {showExpertDirectory && (
         <ExpertDirectory 
           onClose={() => setShowExpertDirectory(false)}
