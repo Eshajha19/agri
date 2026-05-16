@@ -20,6 +20,7 @@ import FarmDiary from "./FarmDiary";
 import CropDiseaseDetection from "./CropDiseaseDetection";
 import PestDetection from "./PestDetection";
 import PestManagement from "./PestManagement";
+import SprayReminder from "./SprayReminder";
 import SeedVerifier from "./SeedVerifier";
 import ClimateSimulator from "./ClimateSimulator";
 import RAGAdvisor from "./RAGAdvisor";
@@ -34,6 +35,7 @@ import PersonalizedAdvisory from "./PersonalizedAdvisory";
 import YieldHistory from "./YieldHistory";
 import EquipmentManagement from "./EquipmentManagement";
 import CropQualityGrading from "./CropQualityGrading";
+import SustainabilityAnalytics from "./SustainabilityAnalytics";
 import LastUpdated from "./LastUpdated";
 import ExpertDirectory from "./components/ExpertDirectory";
 import TeleConsultation from "./components/TeleConsultation";
@@ -123,10 +125,12 @@ export default function Advisor({ userData }) {
      setShowFarmingMap,
      showCropDiseaseDetection,
      setShowCropDiseaseDetection,
-     showPestManagement,
-     setShowPestManagement,
-     showAgriMarketplace,
-     setShowAgriMarketplace,
+      showPestManagement,
+      setShowPestManagement,
+      showSprayReminder,
+      setShowSprayReminder,
+      showAgriMarketplace,
+      setShowAgriMarketplace,
      showAgriLMS,
      setShowAgriLMS,
      showQRTraceability,
@@ -161,6 +165,8 @@ showGreenPractices,
       setShowCropRecommendationAdvisor,
        showCropGrading,
        setShowCropGrading,
+       showSustainabilityAnalytics,
+       setShowSustainabilityAnalytics,
        showExpertDirectory,
        setShowExpertDirectory,
        showTeleConsultation,
@@ -661,6 +667,12 @@ showGreenPractices,
             <p>Early warnings & organic pest control tips.</p>
           </div>
 
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowSprayReminder(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSprayReminder(true); }} aria-label="Spray Scheduler: Weather-aware spray scheduling">
+            <div className="icon" aria-hidden="true"><CloudRain size={32} /></div>
+            <h3><span className="notranslate">Spray Scheduler</span></h3>
+            <p>Weather-aware spray scheduling &amp; rotation recommendations.</p>
+          </div>
+
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowYieldPopup(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowYieldPopup(true); }} aria-label="Yield Prediction: AI-based forecast">
             <div className="icon" aria-hidden="true"><BarChart3 size={32} /></div>
             <h3><span className="notranslate">Yield Prediction</span></h3>
@@ -931,6 +943,23 @@ showGreenPractices,
             <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#10b981', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>EARN</div>
             <h3><span className="notranslate">Green Practices & Carbon</span></h3>
             <p>Track eco-friendly practices, calculate carbon impact, and monetize sustainability.</p>
+          </div>
+
+          <div
+            className="card reveal"
+            style={{ border: '2px solid #0d9488', background: 'rgba(13, 148, 136, 0.04)' }}
+            role="button"
+            tabIndex={0}
+            onClick={() => setShowSustainabilityAnalytics(true)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSustainabilityAnalytics(true); }}
+            aria-label="Sustainability Analytics: Water footprint and carbon emissions"
+          >
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(13, 148, 136, 0.12)', color: '#0d9488' }}>
+              <Droplets size={32} strokeWidth={2} />
+            </div>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#0d9488', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>LCA</div>
+            <h3><span className="notranslate">Sustainability Analytics</span></h3>
+            <p>Estimate water footprint and carbon emissions per crop season with LCA-style insights.</p>
           </div>
 
           <div
@@ -1416,6 +1445,14 @@ showGreenPractices,
         </div>
       )}
 
+      {showSprayReminder && (
+        <div className="weather-overlay" onClick={() => setShowSprayReminder(false)}>
+          <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ padding: 0, background: 'transparent', boxShadow: 'none' }}>
+            <SprayReminder onClose={() => setShowSprayReminder(false)} />
+          </div>
+        </div>
+      )}
+
       {showAgriMarketplace && (
         <div className="weather-overlay" onClick={() => setShowAgriMarketplace(false)}>
           <div className="agri-modal-wrapper" onClick={(e) => e.stopPropagation()}>
@@ -1557,6 +1594,17 @@ showGreenPractices,
             </div>
           </div>
         )}
+
+      {showSustainabilityAnalytics && (
+        <div className="weather-overlay" onClick={() => setShowSustainabilityAnalytics(false)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+            <SustainabilityAnalytics
+              userProfile={userProfile}
+              onClose={() => setShowSustainabilityAnalytics(false)}
+            />
+          </div>
+        </div>
+      )}
 
       {showExpertDirectory && (
         <ExpertDirectory 
