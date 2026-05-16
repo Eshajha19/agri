@@ -2435,3 +2435,62 @@ testimonials-section {
     padding: 28px 20px;
   }
 }
+
+/* =========================================
+   Daily Quote Prev / Next Buttons Responsive
+========================================= */
+
+/* Button styling */
+.quote-buttons button {
+  padding: 10px 16px;
+  border: none;
+  border-radius: 12px;
+  background: var(--gradient);
+  color: white;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  min-width: 90px;
+}
+
+.quote-buttons button:hover {
+  transform: scale(1.05);
+  opacity: 0.95;
+}
+
+/* Tablet */
+@media (max-width: 768px) {
+  .quote-buttons {
+    position: static;
+    margin-top: 20px;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .quote-buttons button {
+    flex: 1;
+    max-width: 140px;
+    font-size: 14px;
+    padding: 10px 14px;
+  }
+}
+
+/* Mobile */
+@media (max-width: 480px) {
+  .quote-buttons {
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .quote-buttons button {
+    flex: 1;
+    max-width: 140px;
+    font-size: 14px;
+    padding: 10px 12px;
+    white-space: nowrap;
+  }
+}
