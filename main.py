@@ -119,6 +119,15 @@ from persistence.repositories import (
     SupplyChainRepository,
 )
 
+# RBAC (Role-Based Access Control)
+from rbac import (
+    RBACManager,
+    RBACMiddleware,
+    Permission,
+    require_permission,
+    print_rbac_matrix,
+)
+
 # Other internal modules
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
@@ -296,6 +305,12 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
 )
+
+# Add RBAC middleware for access logging
+app.add_middleware(RBACMiddleware)
+
+# Log RBAC matrix on startup
+logger.info(print_rbac_matrix())
 
 # --- Models ---
 
@@ -626,7 +641,8 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
 @app.get("/api/notifications")
-def get_notifications(
+async def get_notifications(
+    request: Request,
     crop: str = Query(default=None),
     irrigation_count: int = Query(default=None, ge=0),
     water_coverage: int = Query(default=None, ge=0, le=100),
@@ -640,6 +656,10 @@ def get_notifications(
     so the response payload stays small regardless of how long the
     process has been running.
     """
+    # Check permission: user can read notifications
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.NOTIFICATIONS_READ], require_all=False
+    )
     dynamic_alerts = generate_alerts(
         crop=crop,
         irrigation_count=irrigation_count,
@@ -652,6 +672,10 @@ def get_notifications(
 @limiter.limit("10/minute")
 async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest):
     """Analyze farm finances and return loan recommendations."""
+    # Check permission: farmer can create finance requests
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
     analysis = _farm_finance_ai.analyze_financial_profile(body.model_dump())
     return {"success": True, "data": analysis}
 
@@ -660,12 +684,20 @@ async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest)
 @limiter.limit("5/minute")
 async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
     """Create a loan application from the current farm profile."""
+    # Check permission: farmer can create finance applications
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
     application = _farm_finance_ai.create_application(body.model_dump())
     return {"success": True, "data": application}
 
 
 @app.get("/api/finance/applications/{application_id}")
-def get_finance_application(application_id: str):
+async def get_finance_application(application_id: str, request: Request):
+    # Check permission: user can read finance applications (own or all if expert/admin)
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_READ_OWN, Permission.FINANCE_READ_ALL], require_all=False
+    )
     application = _farm_finance_ai.get_application(application_id)
     if not application:
         raise HTTPException(status_code=404, detail="Application not found")
@@ -1113,7 +1145,15 @@ async def simulate_climate(request: Request, data: SimulationRequest):
 async def verify_seed(data: SeedVerifyRequest, request: Request):
     """
     Verifies seed authenticity against the trusted batch registry.
+    
+    Requires authentication and appropriate role.
+    """
+    # RBAC: user can verify seeds
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.SEEDS_VERIFY], require_all=False
+    )
 
+    """
     Registry lookup logic
     ---------------------
     Each entry in SEED_REGISTRY is keyed by the canonical batch code
@@ -1318,6 +1358,11 @@ async def assess_single_crop(request: Request, data: CropQualityGradingRequest):
         "image_base64": "<base64_encoded_image>"
     }
     """
+    # RBAC: user can assess crop quality
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.QUALITY_ASSESS], require_all=False
+    )
+    
     try:
         # Decode base64 image
         import base64
@@ -1356,6 +1401,11 @@ async def assess_batch_crops(request: Request, data: CropQualityBatchRequest):
         "images_base64": ["<base64_image1>", "<base64_image2>", ...]
     }
     """
+    # RBAC: user can assess crop quality
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.QUALITY_ASSESS], require_all=False
+    )
+    
     try:
         import base64
         
