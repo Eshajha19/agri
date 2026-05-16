@@ -90,6 +90,7 @@ const Community = () => {
     if (posts.length > 0 || postComments.length > 0) {
       fetchAuthors();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [posts, postComments]);
   
   // Mock verification check for demo
