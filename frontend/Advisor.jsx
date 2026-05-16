@@ -113,11 +113,11 @@ export default function Advisor({ userData }) {
      setShowSoilAnalysis,
      showSoilGuide,
      setShowSoilGuide,
-     showFertilizerPopup,
-     setShowFertilizerPopup,
-     showComingSoon,
-     setShowComingSoon,
-     showIrrigation,
+      showFertilizerPopup,
+      setShowFertilizerPopup,
+      showOfflineStatus,
+      setShowOfflineStatus,
+      showIrrigation,
      setShowIrrigation,
      showProfitCalculator,
      setShowProfitCalculator,
@@ -653,12 +653,12 @@ showGreenPractices,
             <p>Get a crop-aware fertilizer plan based on soil pH and nutrient status.</p>
           </div>
 
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowComingSoon(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowComingSoon(true); }} aria-label="Offline Access: Use anytime">
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowOfflineStatus(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowOfflineStatus(true); }} aria-label="Offline Access: PWA Enabled">
             <div className="icon" aria-hidden="true">
               <WifiOff size={32} strokeWidth={2} />
             </div>
             <h3><span className="notranslate">Offline Access</span></h3>
-            <p>Use the app anytime, even without internet connectivity.</p>
+            <p>Fasal Saathi works offline! You can use the app anytime, even without internet connectivity.</p>
           </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowPestManagement(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowPestManagement(true); }} aria-label="Pest Management: Early warnings">
@@ -1489,12 +1489,23 @@ showGreenPractices,
         </div>
       )}
 
-      {showComingSoon && (
-        <div className="weather-overlay" onClick={()=>setShowComingSoon(false)}>
+      {showOfflineStatus && (
+        <div className="weather-overlay" onClick={()=>setShowOfflineStatus(false)}>
           <div className="weather-popup coming-soon" onClick={(e)=>e.stopPropagation()}>
-            <h2><Construction className="inline-icon" /> Coming Soon</h2>
-            <p>This feature is under development. Stay tuned!</p>
-            <button className="close-btn" onClick={() => setShowComingSoon(false)}>Close</button>
+            <h2>
+              <WifiOff className="inline-icon" /> 
+              {(!navigator.onLine || window.matchMedia('(display-mode: standalone)').matches) ? "Offline Mode Active" : "Offline Ready"}
+            </h2>
+            <p>
+              {(!navigator.onLine || window.matchMedia('(display-mode: standalone)').matches)
+                ? "You are currently using Fasal Saathi in offline/PWA mode. Core features are fully functional without an internet connection."
+                : "Fasal Saathi is available as a Progressive Web App (PWA). You can use it even when you don't have internet access!"
+              }
+            </p>
+            {navigator.onLine && !window.matchMedia('(display-mode: standalone)').matches && (
+              <p style={{marginTop: "8px", fontSize: "14px", color: "#475569"}}>Tip: Add this app to your home screen for the best offline experience.</p>
+            )}
+            <button className="close-btn" onClick={() => setShowOfflineStatus(false)}>Close</button>
           </div>
         </div>
       )}
