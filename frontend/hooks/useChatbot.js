@@ -5,6 +5,8 @@ import apiClient from '../services/api';
 
 export const useChatbot = () => {
   const { handleWarning } = useErrorHandler();
+  const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_API_KEY;
+  const isGeminiConfigured = Boolean(geminiApiKey);
   const {
     messages,
     addMessage,
@@ -138,12 +140,10 @@ export const useChatbot = () => {
           });
         }
 
-        const API_KEY = import.meta.env.VITE_API_KEY;
-
-        if (!API_KEY) {
+        if (!isGeminiConfigured) {
           setIsLoading(false);
           addMessage({
-            text: '⚠️ API Key is missing. Please add your Gemini API key to enable the AI features.',
+            text: 'AI chat is temporarily unavailable right now. Please use the crop guide, weather alerts, or pest tools for support.',
             from: 'bot',
           });
           return;
@@ -155,7 +155,7 @@ export const useChatbot = () => {
             contents: [{ parts }],
           },
           {
-            params: { key: API_KEY },
+            params: { key: geminiApiKey },
             retries: 1,
             errorContext: 'chatbot-message',
             errorMessage: 'Failed to process your message. Please try again.',
@@ -203,6 +203,7 @@ export const useChatbot = () => {
     stopSpeaking,
     isLoading,
     handleSendMessage,
+    isGeminiConfigured,
     resetChatbotStore,
   };
 };

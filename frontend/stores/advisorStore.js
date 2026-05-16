@@ -35,7 +35,8 @@ export const useAdvisorStore = create((set) => ({
 
   showPestManagement: false,
   setShowPestManagement: (show) => set({ showPestManagement: show }),
-
+   showSprayReminder: false,
+   setShowSprayReminder: (show) => set({ showSprayReminder: show }),
   showSoilAnalysis: false,
   setShowSoilAnalysis: (show) => set({ showSoilAnalysis: show }),
 
@@ -75,11 +76,14 @@ export const useAdvisorStore = create((set) => ({
    showP2PChat: false,
    setShowP2PChat: (show) => set({ showP2PChat: show }),
 
-   showSmartCropRecommendation: false,
-   setShowSmartCropRecommendation: (show) => set({ showSmartCropRecommendation: show }),
+    showSmartCropRecommendation: false,
+    setShowSmartCropRecommendation: (show) => set({ showSmartCropRecommendation: show }),
 
-   showSeedVerifier: false,
-   setShowSeedVerifier: (show) => set({ showSeedVerifier: show }),
+    showCropRecommendationAdvisor: false,
+    setShowCropRecommendationAdvisor: (show) => set({ showCropRecommendationAdvisor: show }),
+
+    showSeedVerifier: false,
+    setShowSeedVerifier: (show) => set({ showSeedVerifier: show }),
 
    showGeoAlerts: false,
    setShowGeoAlerts: (show) => set({ showGeoAlerts: show }),
@@ -90,10 +94,30 @@ export const useAdvisorStore = create((set) => ({
    showRAGAdvisor: false,
    setShowRAGAdvisor: (show) => set({ showRAGAdvisor: show }),
 
-   showGreenPractices: false,
-   setShowGreenPractices: (show) => set({ showGreenPractices: show }),
+showGreenPractices: false,
+     setShowGreenPractices: (show) => set({ showGreenPractices: show }),
 
-   // Reset all modals to closed
+     showEquipmentManagement: false,
+     setShowEquipmentManagement: (show) => set({ showEquipmentManagement: show }),
+
+     showCropGrading: false,
+     setShowCropGrading: (show) => set({ showCropGrading: show }),
+
+   showSustainabilityAnalytics: false,
+   setShowSustainabilityAnalytics: (show) => set({ showSustainabilityAnalytics: show }),
+   showExpertDirectory: false,
+   setShowExpertDirectory: (show) => set({ showExpertDirectory: show }),
+
+   showTeleConsultation: false,
+   setShowTeleConsultation: (show) => set({ showTeleConsultation: show }),
+
+   activeConsultation: null,
+   setActiveConsultation: (consultation) => set({ activeConsultation: consultation }),
+
+   showConsultationHistory: false,
+   setShowConsultationHistory: (show) => set({ showConsultationHistory: show }),
+
+    // Reset all modals to closed
    resetAdvisorStore: () =>
      set({
        farmers: 0,
@@ -109,6 +133,7 @@ export const useAdvisorStore = create((set) => ({
        showFarmingMap: false,
        showCropDiseaseDetection: false,
        showPestManagement: false,
+       showSprayReminder: false,
        showComingSoon: false,
        showAgriMarketplace: false,
        showQRTraceability: false,
@@ -120,11 +145,18 @@ export const useAdvisorStore = create((set) => ({
        showBankReport: false,
        showCropRotation: false,
        showP2PChat: false,
-       showSmartCropRecommendation: false,
-       showSeedVerifier: false,
-       showGeoAlerts: false,
-       showClimateSimulator: false,
-       showRAGAdvisor: false,
-       showGreenPractices: false,
-     }),
+showSmartCropRecommendation: false,
+        showSeedVerifier: false,
+        showGeoAlerts: false,
+        showClimateSimulator: false,
+showRAGAdvisor: false,
+         showGreenPractices: false,
+         showEquipmentManagement: false,
+          showCropGrading: false,
+         showSustainabilityAnalytics: false,
+          showExpertDirectory: false,
+          showTeleConsultation: false,
+          activeConsultation: null,
+          showConsultationHistory: false,
+      }),
 }));

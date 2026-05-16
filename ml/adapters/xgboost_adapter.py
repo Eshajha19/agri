@@ -1,6 +1,6 @@
-import joblib
 import pandas as pd
 from ml.base import YieldModel
+from ml.security import verify_and_load_joblib
 
 class XGBoostAdapter(YieldModel):
     """
@@ -13,7 +13,12 @@ class XGBoostAdapter(YieldModel):
 
     def load(self, model_path: str):
         try:
-            self.model = joblib.load(model_path)
+            # Verify model signature before loading to avoid executing
+            # arbitrary pickled code. The signature file is expected to be
+            # alongside the model at `model_path + '.sig'` and the signing
+            # key must be provided via the `MODEL_SIGNING_KEY` environment
+            # variable.
+            self.model = verify_and_load_joblib(model_path)
             # Try to extract feature names if it's an XGBoost model
             if hasattr(self.model, 'get_booster'):
                 self._feature_names = list(self.model.get_booster().feature_names)
@@ -27,14 +32,21 @@ class XGBoostAdapter(YieldModel):
     def predict(self, input_data: pd.DataFrame) -> float:
         if self.model is None:
             raise ValueError("Model not loaded. Call load() first.")
-        
-        # Ensure columns match what the model expects
+
+        # The FeaturePreprocessor is responsible for validating and aligning
+        # columns before this point.  We do a final shape check here as a
+        # safety net, but we do NOT silently fill missing columns with 0 —
+        # that would mask corrupt inputs and produce meaningless predictions.
         if self._feature_names:
-            for col in self._feature_names:
-                if col not in input_data.columns:
-                    input_data[col] = 0
+            missing = [c for c in self._feature_names if c not in input_data.columns]
+            if missing:
+                raise ValueError(
+                    f"XGBoostAdapter.predict() received a DataFrame that is "
+                    f"missing {len(missing)} expected column(s): {missing}. "
+                    "Ensure FeaturePreprocessor.preprocess() is called first."
+                )
             input_data = input_data[self._feature_names]
-            
+
         prediction = self.model.predict(input_data)
         return float(prediction[0])
 
