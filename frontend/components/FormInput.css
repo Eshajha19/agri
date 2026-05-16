@@ -1,0 +1,253 @@
+.form-group {
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+.form-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #2c3e50;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.form-required {
+  color: #e74c3c;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.form-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.form-input-icon {
+  position: absolute;
+  left: 12px;
+  color: #7f8c8d;
+  pointer-events: none;
+  font-size: 16px;
+  transition: color 0.2s ease;
+}
+
+.form-input {
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 14px;
+  border: 2px solid #bdc3c7;
+  border-radius: 6px;
+  outline: none;
+  transition: all 0.2s ease;
+  font-family: inherit;
+  background-color: #fff;
+  color: #2c3e50;
+}
+
+.form-input.form-input-with-icon {
+  padding-left: 40px;
+}
+
+.form-input:hover:not(:disabled) {
+  border-color: #95a5a6;
+}
+
+.form-input:focus {
+  border-color: #2ecc71;
+  box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.1);
+  background-color: #fafbfc;
+}
+
+.form-input-focused .form-input-icon {
+  color: #2ecc71;
+}
+
+.form-input-error {
+  border-color: #e74c3c;
+}
+
+.form-input-error:focus {
+  box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.1);
+}
+
+.form-input-success {
+  border-color: #27ae60;
+}
+
+.form-input-success:focus {
+  box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.1);
+}
+
+.form-input-disabled {
+  background-color: #ecf0f1;
+  color: #95a5a6;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.form-input::placeholder {
+  color: #bdc3c7;
+}
+
+.form-input-status {
+  position: absolute;
+  right: 12px;
+  font-size: 16px;
+  pointer-events: none;
+  animation: statusPop 0.3s ease-out;
+}
+
+@keyframes statusPop {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.form-input-status-error {
+  color: #e74c3c;
+}
+
+.form-input-status-success {
+  color: #27ae60;
+}
+
+.form-feedback {
+  font-size: 13px;
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.form-feedback-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.form-feedback-error {
+  color: #e74c3c;
+}
+
+.form-feedback-help {
+  color: #7f8c8d;
+}
+
+.form-char-count {
+  font-size: 12px;
+  color: #95a5a6;
+  margin-top: 6px;
+  text-align: right;
+}
+
+/* Dark Mode */
+@media (prefers-color-scheme: dark) {
+  .form-label {
+    color: #ecf0f1;
+  }
+
+  .form-input {
+    background-color: #2a2a2a;
+    color: #ecf0f1;
+    border-color: #444;
+  }
+
+  .form-input:hover:not(:disabled) {
+    border-color: #555;
+  }
+
+  .form-input:focus {
+    background-color: #1a1a1a;
+    border-color: #2ecc71;
+    box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.15);
+  }
+
+  .form-input::placeholder {
+    color: #666;
+  }
+
+  .form-input-disabled {
+    background-color: #1a1a1a;
+    color: #666;
+  }
+
+  .form-input-icon {
+    color: #999;
+  }
+
+  .form-input-focused .form-input-icon {
+    color: #2ecc71;
+  }
+
+  .form-feedback-help {
+    color: #999;
+  }
+
+  .form-char-count {
+    color: #777;
+  }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .form-group {
+    margin-bottom: 16px;
+  }
+
+  .form-input {
+    padding: 12px 14px;
+    font-size: 16px;
+  }
+
+  .form-input.form-input-with-icon {
+    padding-left: 36px;
+  }
+}
+
+/* Accessibility */
+.form-input:focus-visible {
+  outline: 2px solid #2ecc71;
+  outline-offset: 2px;
+}
+
+.form-label:has(+ .form-input-wrapper:focus-within) {
+  color: #2ecc71;
+}
+
+/* Password strength indicator (optional) */
+.form-input-strength {
+  height: 4px;
+  background-color: #ecf0f1;
+  border-radius: 2px;
+  margin-top: 8px;
+  overflow: hidden;
+}
+
+.form-input-strength-bar {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.form-input-strength-weak {
+  background-color: #e74c3c;
+  width: 33%;
+}
+
+.form-input-strength-medium {
+  background-color: #f39c12;
+  width: 66%;
+}
+
+.form-input-strength-strong {
+  background-color: #27ae60;
+  width: 100%;
+}
