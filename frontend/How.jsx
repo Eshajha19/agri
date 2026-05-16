@@ -1,5 +1,18 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
+import { 
+  Wifi, 
+  BrainCircuit, 
+  Sprout, 
+  CloudSun, 
+  LayoutDashboard, 
+  TrendingUp,
+  LineChart,
+  CircleDollarSign,
+  CheckCircle2,
+  Users2,
+  Check
+} from "lucide-react";
 import "./How.css";
 
 export default function How() {
@@ -7,7 +20,7 @@ export default function How() {
 
   const steps = [
     {
-      icon: "📡",
+      icon: <Wifi size={24} />,
       title: "Collect Farm Data",
       desc: "Gather soil condition, crop type, weather patterns, and location-based insights.",
       details: "Our sensors and integrations automatically capture comprehensive farm data including soil moisture, temperature, humidity, and GPS location.",
@@ -15,7 +28,7 @@ export default function How() {
       color: "blue",
     },
     {
-      icon: "🤖",
+      icon: <BrainCircuit size={24} />,
       title: "Smart AI Analysis",
       desc: "AI studies the data and generates accurate recommendations for farmers.",
       details: "Advanced machine learning models analyze patterns from thousands of farms to provide personalized insights specific to your region.",
@@ -23,7 +36,7 @@ export default function How() {
       color: "green",
     },
     {
-      icon: "🌱",
+      icon: <Sprout size={24} />,
       title: "Crop Suggestions",
       desc: "Receive the best crop, fertilizer, and irrigation guidance for maximum yield.",
       details: "Get evidence-based recommendations for crop selection, planting schedules, and resource optimization tailored to your farm.",
@@ -31,7 +44,7 @@ export default function How() {
       color: "yellow",
     },
     {
-      icon: "☁️",
+      icon: <CloudSun size={24} />,
       title: "Weather Monitoring",
       desc: "Stay updated with rainfall, temperature, and storm alerts in real time.",
       details: "Receive real-time weather alerts, forecasts, and climate insights to help you plan farming activities effectively.",
@@ -39,7 +52,7 @@ export default function How() {
       color: "purple",
     },
     {
-      icon: "📱",
+      icon: <LayoutDashboard size={24} />,
       title: "Easy Dashboard Access",
       desc: "View all insights on a clean, mobile-friendly dashboard anytime, anywhere.",
       details: "Access all your farm data, recommendations, and insights from any device with an intuitive, user-friendly interface.",
@@ -47,7 +60,7 @@ export default function How() {
       color: "orange",
     },
     {
-      icon: "🚜",
+      icon: <TrendingUp size={24} />,
       title: "Better Farming Results",
       desc: "Improve productivity, reduce waste, and increase profits with smarter decisions.",
       details: "See measurable improvements in crop yield, resource efficiency, and farm profitability within the first season.",
@@ -57,10 +70,10 @@ export default function How() {
   ];
 
   const outcomes = [
-    { metric: "30-40%", label: "Higher Yield", icon: "📈" },
-    { metric: "25%", label: "Cost Reduction", icon: "💰" },
-    { metric: "99.9%", label: "Uptime", icon: "✅" },
-    { metric: "24/7", label: "Support", icon: "🤝" },
+    { metric: "30-40%", label: "Higher Yield", icon: <LineChart size={32} /> },
+    { metric: "25%", label: "Cost Reduction", icon: <CircleDollarSign size={32} /> },
+    { metric: "99.9%", label: "Uptime", icon: <CheckCircle2 size={32} /> },
+    { metric: "24/7", label: "Support", icon: <Users2 size={32} /> },
   ];
 
   return (
@@ -79,36 +92,32 @@ export default function How() {
           {steps.map((step, index) => (
             <div
               key={index}
-              className={`step-card fade-up ${activeStep === index ? "active" : ""}`}
+              className="step-card-wrap fade-up"
               data-step={index + 1}
-              onClick={() => setActiveStep(index)}
-              role="button"
-              tabIndex="0"
-              onKeyPress={(e) => {
-                if (e.key === "Enter" || e.key === " ") setActiveStep(index);
-              }}
             >
-              <div className="step-number">0{index + 1}</div>
+              <div className="step-card-inner">
+                {/* FRONT FACE */}
+                <div className="step-card-front">
+                  <div className="step-number">0{index + 1}</div>
+                  <div className="step-icon">{step.icon}</div>
+                  <h3>{step.title}</h3>
+                  <p>{step.desc}</p>
+                  <div className="flip-hint">Hover to see details</div>
+                </div>
 
-              <div className="step-icon">{step.icon}</div>
-
-              <div className="step-content">
-                <h3>{step.title}</h3>
-                <p>{step.desc}</p>
-                
-                {activeStep === index && (
-                  <div className="step-expanded">
-                    <div className="step-details">{step.details}</div>
-                    <div className="step-benefits">
-                      {step.benefits.map((benefit, i) => (
-                        <span key={i} className="benefit-tag">✓ {benefit}</span>
-                      ))}
-                    </div>
+                {/* BACK FACE */}
+                <div className="step-card-back">
+                  <h3>{step.title}</h3>
+                  <div className="step-details">{step.details}</div>
+                  <div className="step-benefits">
+                    {step.benefits.map((benefit, i) => (
+                      <span key={i} className="benefit-tag">
+                        <Check size={14} className="inline-icon" /> {benefit}
+                      </span>
+                    ))}
                   </div>
-                )}
+                </div>
               </div>
-
-              <div className="step-indicator"></div>
             </div>
           ))}
         </div>

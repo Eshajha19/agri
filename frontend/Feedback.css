@@ -520,3 +520,131 @@
   font-weight: 500;
   text-align: right;
 }
+
+/* Main Page */
+.feedback-page {
+  background: #f8fafc;
+  color: #1e293b;
+}
+
+/* Panels */
+.feedback-info-panel,
+.feedback-form-panel {
+  background: #ffffff;
+  color: #1e293b;
+}
+
+/* Headings */
+.feedback-info-panel h1,
+.feedback-form-panel h2,
+.fb-group label,
+.fb-rating-section label {
+  color: #0f172a;
+}
+
+/* Paragraph Text */
+.feedback-info-panel p,
+.stat-label,
+.testimonial-text,
+.testimonial-author,
+.rating-label {
+  color: #475569;
+}
+
+/* Inputs */
+.fb-group input,
+.fb-group textarea,
+.fb-group select {
+  background: #ffffff;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+}
+
+.fb-group input::placeholder,
+.fb-group textarea::placeholder {
+  color: #94a3b8;
+}
+
+/* Focus States */
+.fb-group input:focus,
+.fb-group textarea:focus,
+.fb-group select:focus {
+  border-color: #22c55e;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.15);
+}
+
+/* Category Chips */
+.cat-chip {
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+}
+
+.cat-chip.active {
+  background: #22c55e;
+  color: white;
+  border-color: #22c55e;
+}
+
+/* Error Box */
+.fb-error {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+/* Buttons */
+.fb-submit-btn,
+.fb-btn-primary {
+  background: #16a34a;
+  color: white;
+}
+
+.fb-submit-btn:hover,
+.fb-btn-primary:hover {
+  background: #15803d;
+}
+
+/* Stats */
+.stat-value {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+/* Testimonial Card */
+.info-testimonial {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+/* Dots */
+.dot {
+  background: #cbd5e1;
+}
+
+.dot.active {
+  background: #22c55e;
+}
+
+/* Success Card */
+.feedback-success-card {
+  background: #ffffff;
+  color: #1e293b;
+}
+
+/* Mobile Improvements */
+@media (max-width: 768px) {
+  .feedback-info-panel,
+  .feedback-form-panel {
+    padding: 1.2rem;
+  }
+
+  .feedback-info-panel h1 {
+    font-size: 2rem;
+  }
+
+  .feedback-form-panel h2 {
+    font-size: 1.5rem;
+  }
+}

@@ -14,6 +14,8 @@
     "@floating-ui/react": "^0.27.19",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
+    "@tensorflow-models/mobilenet": "^2.1.1",
+    "@tensorflow/tfjs": "^4.22.0",
     "axios": "^1.15.2",
     "crypto-js": "^4.2.0",
     "date-fns": "^4.1.0",
