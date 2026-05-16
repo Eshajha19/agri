@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { ChevronDown, Check } from "lucide-react";
 
 function LanguageDropdown({ options, value, onChange }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -93,7 +94,7 @@ function LanguageDropdown({ options, value, onChange }) {
         aria-controls="lang-dropdown-list"
         aria-label="Select language"
       >
-        {selected ? selected.label : "Language"} ▾
+        {selected ? selected.label : "Language"} <ChevronDown size={14} className="inline-icon" />
       </button>
 
       {isOpen && (
@@ -132,7 +133,7 @@ function LanguageDropdown({ options, value, onChange }) {
                 >
                   {o.label}
                   {o.value === value && (
-                    <span className="lang-dropdown-check" aria-hidden="true">✓</span>
+                    <span className="lang-dropdown-check" aria-hidden="true"><Check size={14} /></span>
                   )}
                 </li>
               ))
