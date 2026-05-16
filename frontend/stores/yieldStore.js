@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { predictYield } from '../services/yieldApi';
 
 export const useYieldStore = create((set, get) => ({
   // Yield form state
@@ -42,23 +41,6 @@ export const useYieldStore = create((set, get) => ({
   // Popup visibility
   showYieldPopup: false,
   setShowYieldPopup: (show) => set({ showYieldPopup: show }),
-
-  // Fetch yield prediction
-  fetchYield: async function () {
-    set({ yieldLoading: true, yieldError: null });
-    try {
-      const data = await predictYield(get().yieldForm);
-      set({ yieldPrediction: data.predicted_ExpYield, yieldLastUpdated: Date.now(), showYieldPopup: true });
-    } catch (error) {
-      const message =
-        error?.response?.data?.detail ||
-        error.message ||
-        'Failed to get prediction';
-      set({ yieldError: message });
-    } finally {
-      set({ yieldLoading: false });
-    }
-  },
 
   // Reset store
   resetYieldStore: () =>

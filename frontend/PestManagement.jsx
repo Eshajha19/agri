@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { FaBug, FaSearch, FaExclamationTriangle, FaSeedling, FaFlask, FaShieldAlt, FaWhatsapp, FaArrowCircleRight, FaTimes, FaSpinner, FaHistory } from "react-icons/fa";
 import "./PestManagement.css";
 
 export default function PestManagement({ onClose }) {
@@ -103,12 +104,12 @@ export default function PestManagement({ onClose }) {
         throw new Error("User not logged in");
       }
 
-      const response = await fetch("http://localhost:8000/api/whatsapp/trigger-alert", {
+      const response = await fetch("/api/whatsapp/trigger-alert", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           alert_type: "pest",
-          message: `🚨 SEVERE PEST DETECTED: ${result.likelyPest} in ${crop}. \nAction: ${result.organicTreatment}`
+          message: `ALERT: SEVERE PEST DETECTED: ${result.likelyPest} in ${crop}. \nAction: ${result.organicTreatment}`
         })
       });
 
@@ -133,11 +134,11 @@ export default function PestManagement({ onClose }) {
         onClick={onClose}
         aria-label="Close"
       >
-        ✕
+        <FaTimes />
       </button>
 
       <h2 className="modal-title">
-        🐛 Pest Management Advice
+        <FaBug /> Pest Management Advice
       </h2>
       <p className="modal-subtitle">Describe what's affecting your crop, and our AI will provide pest control solutions.</p>
 
@@ -168,7 +169,7 @@ export default function PestManagement({ onClose }) {
         disabled={loading}
         className={`pm-btn ${loading ? 'loading' : ''}`}
       >
-        {loading ? "⏳ Analyzing..." : "🔍 Get Advice"}
+        {loading ? <><FaSpinner className="spin" /> Analyzing...</> : <><FaSearch /> Get Advice</>}
       </button>
 
       {error && (
@@ -178,21 +179,21 @@ export default function PestManagement({ onClose }) {
       {result && (
         <div className="pm-result">
           <p className="result-item">
-            <strong>🐛 Likely Pest:</strong> <span className="highlight-pest">{result.likelyPest}</span>
+            <strong><FaBug /> Likely Pest:</strong> <span className="highlight-pest">{result.likelyPest}</span>
           </p>
           <p className="result-item">
-            <strong>⚠️ Severity:</strong> <span className={`severity-badge ${result.severity?.toLowerCase() || 'medium'}`}>{result.severity}</span>
+            <strong><FaExclamationTriangle /> Severity:</strong> <span className={`severity-badge ${result.severity?.toLowerCase() || 'medium'}`}>{result.severity}</span>
           </p>
           <div className="result-box organic">
-            <h4>🌱 Organic Treatment</h4>
+            <h4><FaSeedling /> Organic Treatment</h4>
             <p>{result.organicTreatment}</p>
           </div>
           <div className="result-box chemical">
-            <h4>🧪 Chemical Treatment</h4>
+            <h4><FaFlask /> Chemical Treatment</h4>
             <p>{result.chemicalTreatment}</p>
           </div>
           <div className="result-box prevention">
-            <h4>🛡️ Prevention Tips</h4>
+            <h4><FaShieldAlt /> Prevention Tips</h4>
             <p>{result.prevention}</p>
           </div>
 
@@ -203,7 +204,7 @@ export default function PestManagement({ onClose }) {
                 disabled={sending}
                 className="whatsapp-btn"
               >
-                {sending ? "Sending..." : "📲 Send Alert to WhatsApp"}
+                {sending ? "Sending..." : <><FaWhatsapp /> Send Alert to WhatsApp</>}
               </button>
               {success && <p className="pm-success-msg">{success}</p>}
             </div>
