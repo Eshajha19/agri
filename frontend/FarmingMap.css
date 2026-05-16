@@ -358,9 +358,107 @@
   border: none !important;
 }
 .user-marker .fm-icon { animation: fm-bounce 2s infinite; }
+
+/* Farmer marker */
+.farmer-marker-container {
+  background: none !important;
+  border: none !important;
+}
+.fm-farmer-marker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+}
+.farmer-avatar {
+  font-size: 24px;
+  background: rgba(15, 25, 35, 0.9);
+  border: 2px solid #4ade80;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(74, 222, 128, 0.3);
+}
+.farmer-label {
+  background: #4ade80;
+  color: #0f1923;
+  font-size: 0.65rem;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-top: 2px;
+  white-space: nowrap;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+/* Severity-based alerts */
+.alert-marker.severity-high .fm-icon {
+  filter: drop-shadow(0 0 8px #ef4444);
+  animation: fm-pulse-red 1.5s infinite;
+}
+.alert-marker.severity-medium .fm-icon {
+  filter: drop-shadow(0 0 6px #f59e0b);
+}
+
+@keyframes fm-pulse-red {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.2); opacity: 0.8; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
 @keyframes fm-bounce {
   0%,100% { transform: translateY(0); }
   50%      { transform: translateY(-5px); }
+}
+
+/* Nearby Farmers List */
+.fm-nearby-list {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255,255,255,0.1);
+}
+.farmer-scroll {
+  max-height: 120px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.fm-farmer-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  background: rgba(74, 222, 128, 0.05);
+  margin-bottom: 0.3rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.fm-farmer-item:hover {
+  background: rgba(74, 222, 128, 0.15);
+}
+.farmer-dot {
+  width: 8px;
+  height: 8px;
+  background: #4ade80;
+  border-radius: 50%;
+  box-shadow: 0 0 4px #4ade80;
+}
+.farmer-name-mini {
+  flex: 1;
+  font-size: 0.78rem;
+  color: #e2e8f0;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.farmer-dist {
+  font-size: 0.65rem;
+  color: #64748b;
+  font-weight: 600;
 }
 
 /* ─── Popups ──────────────────────────────────────────────── */
@@ -370,6 +468,8 @@
 .weather-popup strong { color: #2563eb; }
 .crop-popup strong    { color: #16a34a; }
 .alert-popup strong   { color: #dc2626; }
+.alert-popup.severity-high strong { color: #ef4444; }
+.alert-popup.severity-medium strong { color: #f59e0b; }
 
 /* ─── Details panel ───────────────────────────────────────── */
 .marker-details-panel {
