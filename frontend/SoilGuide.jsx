@@ -138,7 +138,7 @@ export default function SoilGuide() {
 
       <div className="soil-tips-section">
         <div className="tips-container">
-          <h2>🌱 General Soil Management Tips</h2>
+          <h2><Leaf className="inline-icon" /> General Soil Management Tips</h2>
           <div className="tips-grid">
             <div className="tip-card">
               <Droplets className="tip-icon" />
