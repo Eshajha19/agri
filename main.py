@@ -1,23 +1,21 @@
+# -*- coding: utf-8 -*-
 # main.py
 import os
 import io
 import json
-import collections
-import itertools
-import threading
 import logging
 import re
 import joblib
 import hashlib
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, Dict, Any
 
 from fastapi import FastAPI, HTTPException, Request, Form, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field, validator
+from feature_flags.routes import router as flags_router
 
 class SimulationRequest(BaseModel):
     crop_type: str
@@ -111,6 +109,7 @@ from ml.registry import ModelRegistry
 from ml.adapters.xgboost_adapter import XGBoostAdapter
 from ml.router import ModelRouter
 from ml.preprocessing import UnknownCategoryError, MissingFeatureError
+from ml.security import verify_and_load_joblib
 
 # Persistence Layer
 from persistence.repositories import (
@@ -141,30 +140,8 @@ try:
 except ImportError:
     HAS_GCP_KMS = False
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """
-    FastAPI lifespan context manager.
-
-    Runs inside **every** Uvicorn/Gunicorn worker process on startup, so the
-    ML pipeline is always initialised regardless of how many workers are
-    spawned.  This replaces the previous bare ``init_ml_pipeline()`` call at
-    module level, which only ran reliably in single-worker deployments.
-
-    Multi-worker guarantee
-    ----------------------
-    When Uvicorn is started with ``--workers N``, each worker forks/spawns
-    from the main process and imports ``main.py`` independently.  The
-    ``lifespan`` hook is invoked by FastAPI in every worker's event loop,
-    ensuring ``ModelRegistry`` is populated in every process before the
-    first request is served.
-    """
-    init_ml_pipeline()
-    yield
-    # Shutdown: nothing to clean up for in-memory models.
-
-
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
+app.include_router(flags_router)
 
 logger = logging.getLogger(__name__)
 
@@ -277,7 +254,9 @@ frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
 trusted_origins = [
     "http://localhost:5173",     # Local development
     "http://127.0.0.1:5173",     # Local development alternative
-    "https://yourfrontend.com",  # Production domain placeholder
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:8000",
 ]
 
 # Add any custom frontend URLs from environment
@@ -293,8 +272,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=trusted_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # --- Models ---
@@ -317,18 +296,15 @@ class PredictResponse(BaseModel):
 
 class WhatsAppSubscribeRequest(BaseModel):
     phone_number: str
+    user_id: str
     name: str
-    # user_id is accepted for backward compatibility but is IGNORED by the
-    # endpoint — the authoritative user identity is always derived from the
-    # verified Firebase ID token, never from client-supplied data.
-    user_id: Optional[str] = None
 
 class YieldInput(BaseModel):
     data: list[float]
 
 class AlertTriggerRequest(BaseModel):
-    alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
-    message: str = Field(..., min_length=1, max_length=500)
+    alert_type: str  # 'weather', 'pest', 'advisory'
+    message: str
 
 class ReportRequest(BaseModel):
     name: str = Field(..., max_length=100)
@@ -348,6 +324,15 @@ class ReportRequest(BaseModel):
                 "Field value must not contain the '|' character."
             )
         return v
+
+class WeatherLocationRequest(BaseModel):
+    location: str
+
+class WeatherAlertRequest(BaseModel):
+    latitude: float
+    longitude: float
+    location: str
+    crop: Optional[str] = None
 
 class SeedVerifyRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=100)
@@ -370,11 +355,6 @@ class FinanceAssessmentRequest(BaseModel):
     notes: Optional[str] = Field(default=None, max_length=500)
 
 # --- ML Pipeline Initialization ---
-# init_ml_pipeline() is called inside the FastAPI lifespan context manager
-# (defined above app = FastAPI(...)) so it runs in every Uvicorn worker
-# process on startup.  Do NOT call it here at module level — doing so would
-# run it in the main process only and leave additional workers with empty
-# registries in multi-worker deployments.
 router = ModelRouter(default_model="xgboost")
 
 def init_ml_pipeline():
@@ -399,8 +379,12 @@ init_ml_pipeline()
 
 # Load model directly for backward compatibility or simple use cases if needed
 try:
-    model = joblib.load("yield_model.joblib")
-    model_lag = joblib.load("sklearn_yield_model.pkl")
+    # Use signature-verified loading to prevent execution of malicious
+    # pickled objects. These calls expect companion signature files:
+    # - yield_model.joblib.sig
+    # - sklearn_yield_model.pkl.sig
+    model = verify_and_load_joblib("yield_model.joblib")
+    model_lag = verify_and_load_joblib("sklearn_yield_model.pkl")
     print("Models loaded successfully")
 except Exception as e:
     print(f"Error loading models: {e}")
@@ -408,103 +392,27 @@ except Exception as e:
     model_lag = None
 
 # --- Static Notifications Storage ---
-#
-# Problems with the original bare list:
-#
-# 1. Unbounded growth — every trigger_whatsapp_alert call appended an entry
-#    that was never removed.  After weeks in production the list could hold
-#    thousands of entries, all serialised and sent to every client on every
-#    GET /api/notifications poll.
-#
-# 2. Duplicate IDs under concurrency — `len(list) + 1` is not atomic.  Two
-#    concurrent trigger-alert requests could both read the same length and
-#    produce entries with identical IDs, silently corrupting any client-side
-#    deduplication keyed on id.
-#
-# Fix — NotificationStore:
-#
-# • collections.deque(maxlen=MAX_NOTIFICATIONS) caps memory at a fixed
-#   ceiling.  When the deque is full, the oldest entry is automatically
-#   evicted before the new one is appended — no manual cleanup needed.
-#
-# • itertools.count() produces a strictly monotonically increasing integer
-#   sequence.  In CPython, next() on a count object is effectively atomic
-#   for the GIL-protected use case here, so two concurrent appends always
-#   get distinct IDs.
-#
-# • threading.Lock() serialises append() so the read-then-increment
-#   sequence is never interleaved across threads.
-#
-# • get_recent() filters by a TTL window so the response payload stays
-#   small even when the deque is at capacity.
+static_notifications = [
+    {
+        "id": 1,
+        "type": "weather",
+        "message": "🌧️ Heavy rainfall expected in your region today.",
+        "time": datetime.now().isoformat()
+    }
+]
 
-# Maximum number of triggered-alert entries kept in memory at any time.
-# Oldest entries are evicted automatically when this ceiling is reached.
-_MAX_NOTIFICATIONS = 200
+# Initialize Crop Quality Grader
+_crop_quality_grader = CropQualityGrader()
 
-# How long a triggered-alert entry remains visible to clients.
-_NOTIFICATION_TTL_HOURS = 24
+# Initialize Crop Quality Grader
+_crop_quality_grader = CropQualityGrader()
 
+# Initialize Supply Chain Blockchain
+_supply_chain_blockchain = SupplyChainBlockchain()
 
-class NotificationStore:
-    """
-    Thread-safe, bounded, TTL-aware store for in-process notifications.
-
-    Parameters
-    ----------
-    maxlen : int
-        Hard cap on the number of entries held in memory.  When full,
-        the oldest entry is evicted before the new one is appended.
-    ttl_hours : int
-        Entries older than this many hours are excluded from get_recent().
-    """
-
-    def __init__(self, maxlen: int = _MAX_NOTIFICATIONS, ttl_hours: int = _NOTIFICATION_TTL_HOURS):
-        self._deque: collections.deque = collections.deque(maxlen=maxlen)
-        self._lock = threading.Lock()
-        self._counter = itertools.count(start=1)
-        self._ttl = timedelta(hours=ttl_hours)
-
-    def append(self, alert_type: str, message: str) -> dict:
-        """
-        Add a new notification entry and return it.
-
-        The ID is assigned from a monotonically increasing counter so
-        concurrent calls always produce distinct values.
-        """
-        with self._lock:
-            entry = {
-                "id": next(self._counter),
-                "type": alert_type,
-                "message": message,
-                "time": datetime.now().isoformat(),
-            }
-            self._deque.append(entry)
-        return entry
-
-    def get_recent(self) -> list:
-        """
-        Return all entries newer than the configured TTL, oldest first.
-
-        Takes a snapshot under the lock so callers always see a consistent
-        view even if append() is running concurrently.
-        """
-        cutoff = datetime.now() - self._ttl
-        with self._lock:
-            snapshot = list(self._deque)
-        return [
-            e for e in snapshot
-            if datetime.fromisoformat(e["time"]) >= cutoff
-        ]
-
-
-# Seed the store with the initial weather advisory that was previously
-# hard-coded in the bare list.
-_notification_store = NotificationStore()
-_notification_store.append(
-    alert_type="weather",
-    message="🌧️ Heavy rainfall expected in your region today.",
-)
+# Initialize Farm Finance AI
+_farm_finance_ai = FarmFinanceAI()
+_sustainability_analytics = SustainabilityAnalytics()
 
 # Initialize repositories for persistent storage
 _finance_repository = FinanceApplicationRepository()
@@ -607,7 +515,7 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
         data = payload.data
         if len(data) != 5:
             raise ValueError("Exactly 5 values are required")
-        temp = list(data)
+        temp = data[::-1]  # reverse once
         trend = []
         for _ in range(5):
             features = temp[:5]
@@ -632,21 +540,191 @@ def get_notifications(
     water_coverage: int = Query(default=None, ge=0, le=100),
     season: str = Query(default=None)
 ):
-    """
-    Return recent triggered-alert notifications combined with dynamic
-    farm advisory alerts generated from the query parameters.
-
-    Only notifications newer than the store's TTL window are included,
-    so the response payload stays small regardless of how long the
-    process has been running.
-    """
+    """Generate dynamic farm advisory alerts + static ones."""
     dynamic_alerts = generate_alerts(
         crop=crop,
         irrigation_count=irrigation_count,
         water_coverage=water_coverage,
         season=season
     )
-    return {"success": True, "data": _notification_store.get_recent() + dynamic_alerts}
+    return {"success": True, "data": static_notifications[-10:] + dynamic_alerts}
+
+@app.post("/api/finance/analyze")
+@limiter.limit("10/minute")
+async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest):
+    """Analyze farm finances and return loan recommendations."""
+    input_data = body.model_dump() if hasattr(body, "model_dump") else body.dict()
+    analysis = _farm_finance_ai.analyze_financial_profile(input_data)
+    return {"success": True, "data": analysis}
+
+
+@app.post("/api/finance/applications")
+@limiter.limit("5/minute")
+async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
+    """Create a loan application from the current farm profile."""
+    input_data = body.model_dump() if hasattr(body, "model_dump") else body.dict()
+    application = _farm_finance_ai.create_application(input_data)
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/applications/{application_id}")
+def get_finance_application(application_id: str):
+    application = _farm_finance_ai.get_application(application_id)
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/products")
+def get_finance_products():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+
+@app.get("/api/finance/marketplace")
+def get_finance_marketplace():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+# --- Sustainability Analytics Endpoints ---
+
+@app.post("/api/sustainability/analyze")
+@limiter.limit("20/minute")
+async def analyze_sustainability(request: Request, body: SustainabilityAnalyzeRequest):
+    """LCA-style water footprint and carbon emission estimate for a crop season."""
+    input_data = body.model_dump() if hasattr(body, "model_dump") else body.dict()
+    analysis = _sustainability_analytics.analyze(input_data)
+    return {"success": True, "data": analysis}
+
+
+@app.get("/api/sustainability/history")
+def get_sustainability_history(
+    user_id: str = Query(default="anonymous", max_length=128),
+    limit: int = Query(default=12, ge=1, le=50),
+):
+    """Historical sustainability records for comparative analytics."""
+    history = _sustainability_analytics.get_history(user_id, limit=limit)
+    return {"success": True, "data": history}
+
+
+@app.get("/api/sustainability/formulas")
+def get_sustainability_formulas():
+    """Configurable LCA coefficient datasets used by the analytics engine."""
+    return {"success": True, "data": _sustainability_analytics.get_formula_config()}
+
+# --- Weather Alerts Endpoints ---
+
+@app.post("/api/weather/geocode")
+async def geocode_location(data: WeatherLocationRequest):
+    """
+    Get coordinates (latitude, longitude) for a location.
+    
+    This endpoint helps users find their farm location's coordinates
+    without exposing any API keys.
+    """
+    try:
+        result = await weather_service.get_coordinates(data.location)
+        if result:
+            latitude, longitude, name = result
+            return {
+                "success": True,
+                "location": name,
+                "latitude": latitude,
+                "longitude": longitude,
+            }
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Location '{data.location}' not found"
+            )
+    except Exception as e:
+        logger.error(f"Geocoding error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to geocode location"
+        ) from e
+
+
+@app.post("/api/weather/alerts")
+@limiter.limit("10/minute")
+async def get_weather_alerts(data: WeatherAlertRequest, request: Request):
+    """
+    Get real-time weather alerts for a specific location and crop.
+    
+    Args:
+        latitude: Farm latitude
+        longitude: Farm longitude
+        location: Location name for display
+        crop: (Optional) Crop type for crop-specific warnings
+    
+    Returns:
+        Weather alerts with severity levels and recommended actions
+    
+    Note: No API keys are exposed. Uses free Open-Meteo API.
+    """
+    try:
+        # Fetch current weather
+        weather = await weather_service.fetch_weather(
+            data.latitude,
+            data.longitude,
+            data.location
+        )
+        
+        if not weather:
+            raise HTTPException(
+                status_code=503,
+                detail="Unable to fetch weather data. Please try again."
+            )
+        
+        # Analyze weather and generate alerts
+        alerts = weather_service.analyze_weather(weather, data.crop)
+        
+        # Get summary
+        summary = weather_service.get_alerts_summary(alerts)
+        
+        return {
+            "success": True,
+            "location": data.location,
+            "crop": data.crop,
+            "weather": {
+                "temperature": weather.temperature,
+                "humidity": weather.humidity,
+                "rainfall": weather.rainfall,
+                "wind_speed": weather.wind_speed,
+                "cloud_cover": weather.cloud_cover,
+                "timestamp": weather.timestamp.isoformat(),
+            },
+            "alerts": summary,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Weather alert error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate weather alerts"
+        ) from e
+
+
+@app.get("/api/weather/alerts/history")
+@limiter.limit("5/minute")
+async def get_alerts_history(request: Request):
+    """
+    Get recent weather alerts history.
+    Useful for reviewing past alerts and trends.
+    """
+    try:
+        # Get recent alerts from the service history
+        recent_alerts = weather_service.alert_history[-50:]  # Last 50 alerts
+        return {
+            "success": True,
+            "total_alerts": len(weather_service.alert_history),
+            "recent_alerts": [alert.to_dict() for alert in recent_alerts],
+        }
+    except Exception as e:
+        logger.error(f"Alert history error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retrieve alert history"
+        ) from e
 
 @app.post("/api/finance/analyze")
 @limiter.limit("10/minute")
@@ -693,21 +771,14 @@ def get_finance_marketplace():
 @app.post("/api/whatsapp/subscribe")
 @limiter.limit("2/minute")
 async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
-    # Require authentication so the subscriber's identity is always derived
-    # from the verified Firebase token — never from client-supplied data.
-    # Previously the endpoint accepted user_id from the request body, which
-    # allowed any caller to overwrite another user's subscription by sending
-    # a known user_id with an attacker-controlled phone number.
-    token_data = await verify_role(request)
-    uid = token_data["uid"]
-
+    user_id = data.user_id if data.user_id else str(datetime.now().timestamp())
     subscriber = {
         "phone_number": data.phone_number,
         "name": data.name,
         "subscribed_at": datetime.now().isoformat(),
     }
     try:
-        subscriber_store.upsert(uid, subscriber)
+        subscriber_store.upsert(user_id, subscriber)
     except OSError as exc:
         raise HTTPException(
             status_code=500,
@@ -723,22 +794,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     return {"success": True, "message": "Successfully subscribed"}
 
 @app.post("/api/whatsapp/trigger-alert")
-@limiter.limit("10/minute")
-async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
-    """
-    Broadcast a WhatsApp alert to all subscribers.
-
-    Requires authentication — admin or expert role only.
-
-    Previously this endpoint had no authentication check, no rate limit,
-    and no input constraints.  Any unauthenticated caller could send
-    arbitrary messages to every subscribed farmer, enabling social
-    engineering attacks (fake market alerts, fake pest warnings) and
-    consuming Twilio API credits at the attacker's discretion.
-    """
-    # RBAC: only admins and experts may broadcast alerts to all farmers.
-    await verify_role(request, required_roles=["admin", "expert"])
-
+async def trigger_whatsapp_alert(data: AlertTriggerRequest):
     # get_all() acquires the lock and returns a stable snapshot, so this read
     # cannot race with a concurrent subscription write.
     subscribers = subscriber_store.get_all()
@@ -747,17 +803,16 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
 
     for user_id, info in subscribers.items():
         res = send_whatsapp_message(info["phone_number"], formatted_msg)
-        results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})
+        results.append({"user_id": user_id, "success": res.get("success", False)})
 
-    # Use the bounded, thread-safe NotificationStore instead of the bare
-    # static_notifications list (which had no size cap and racy ID generation).
-    _notification_store.append(
-        alert_type=data.alert_type,
-        message=data.message,
-    )
+    static_notifications.append({
+        "id": len(static_notifications) + 1,
+        "type": data.alert_type,
+        "message": data.message,
+        "time": datetime.now().isoformat(),
+    })
 
-    delivered = sum(1 for r in results if r["success"])
-    return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
+    return {"success": True, "results": results}
 
 @app.post("/api/whatsapp/webhook")
 async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
@@ -934,35 +989,10 @@ async def generate_signed_report(data: ReportRequest, request: Request):
         p.setStrokeColor(colors.black)
         p.rect(1*inch, y - 1.5*inch, width - 2*inch, 1.8*inch, stroke=1, fill=0)
         
-        # Data for signing — use a JSON object with explicit field keys so
-        # every field is unambiguously bound to its name.  The old pipe-
-        # delimited format ("Alice|Wheat|5 Acres|...") allowed two different
-        # inputs to produce the same string:
-        #   name="Alice|Wheat", crop="5 Acres"  →  "Alice|Wheat|5 Acres|..."
-        #   name="Alice",       crop="Wheat|5 Acres" →  "Alice|Wheat|5 Acres|..."
-        # With JSON, {"name": "Alice|Wheat", "crop": "5 Acres"} and
-        # {"name": "Alice", "crop": "Wheat|5 Acres"} are distinct byte strings,
-        # so the signature binds unambiguously to the exact field values.
-        # sort_keys=True ensures the serialisation is deterministic regardless
-        # of Python dict insertion order.
-        report_payload = {
-            "name":   data.name,
-            "crop":   data.crop,
-            "area":   data.area,
-            "profit": data.profit,
-            "season": data.season,
-            "date":   datetime.now().date().isoformat(),
-        }
-        report_data_bytes = json.dumps(report_payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
-        signature = private_key.sign(report_data_bytes)
-
-        # Use the full 64-char SHA-256 hex digest as the canonical signature
-        # fingerprint, then display the first 16 chars (64 bits) on the PDF.
-        # The old 8-char (32-bit) truncation had a ~1-in-4-billion collision
-        # probability per pair — not negligible for a document presented to a
-        # bank.  16 hex chars gives ~1-in-18-quintillion, which is negligible.
-        sig_full = hashlib.sha256(signature).hexdigest().upper()
-        sig_id = sig_full[:16]
+        # Data for signing
+        report_data_string = f"{data.name}|{data.crop}|{data.area}|{data.profit}|{datetime.now().date()}"
+        signature = private_key.sign(report_data_string.encode())
+        sig_id = hashlib.sha256(signature).hexdigest()[:8].upper()
 
         p.setFont("Helvetica-Bold", 14)
         p.drawString(1.2*inch, y - 0.3*inch, "DIGITAL CRYPTOGRAPHIC SIGNATURE")
