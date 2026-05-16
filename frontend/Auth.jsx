@@ -10,7 +10,7 @@ import {
   linkWithCredential,
   EmailAuthProvider
 } from "firebase/auth";
-import { doc, setDoc, getDoc } from "firebase/firestore";
+import { doc, setDoc } from "firebase/firestore";
 import { useNavigate, useLocation } from "react-router-dom";
 import { FaGoogle, FaEnvelope, FaLock, FaUser, FaArrowRight, FaLeaf, FaUserSecret } from "react-icons/fa";
 import { auth, db, isFirebaseConfigured } from "./lib/firebase";

@@ -265,7 +265,6 @@ function App() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleNavToggle = () => setIsOpen(!isOpen);
   const handleThemeToggle = toggleTheme;
   const handleLogout = async () => {
     try {

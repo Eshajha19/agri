@@ -31,7 +31,7 @@ const INITIAL_EQUIPMENT = [
   { id: 16, name: "Massey Ferguson 9500",          type: "Tractor",   price: 950,  priceUnit: "hr",  location: "Patna, Bihar",          distance: "14 km", rating: 4.5, owner: "Manoj Singh",        available: false },
 ];
 
-export default function AgriMarketplace({ onClose }) {
+export default function AgriMarketplace() {
   const [equipment, setEquipment] = useState(INITIAL_EQUIPMENT);
   const [searchQuery, setSearchQuery] = useState("");
   const [locationQuery, setLocationQuery] = useState("");

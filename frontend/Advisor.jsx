@@ -131,7 +131,8 @@ export default function Advisor({ userData }) {
     setShowGreenPractices,
   } = useAdvisorStore();
 
-  const { liteMode } = usePerformanceStore();
+  // Performance store accessed but liteMode not needed in this component
+  usePerformanceStore();
 
   const {
     yieldForm,
@@ -167,7 +168,7 @@ export default function Advisor({ userData }) {
       });
       return () => unsubscribe();
     }
-  }, [auth?.currentUser]);
+  }, []); // auth.currentUser is accessed directly, not as a dependency
 
   /* Animate stats on mount */
   useEffect(() => {
