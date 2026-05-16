@@ -48,6 +48,7 @@ import Home from "./Home";
 import MarketPrices from "./MarketPrices";
 import Community from "./Community";
 import Leaderboard from "./Leaderboard";
+import { FaTrophy, FaRobot } from "react-icons/fa";
 import ContactUs from "./ContactUs";
 import AboutUs from "./AboutUs";
 import LanguageDropdown from "./LanguageDropdown";
@@ -369,7 +370,9 @@ function App() {
                 )}
                 <Link to="/community" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaComments /> Community</Link>
                 <Link to="/risk-index" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Risk Index</Link>
+                <Link to="/smart-farm-autopilot" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaRobot /> Smart Farm Autopilot</Link>
                 <Link to="/glossary" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaBook /> Glossary</Link>
+                <Link to="/leaderboard" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaTrophy /> Leaderboard</Link>
                 <Link to="/about" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> About Us</Link>
                 <Link to="/contact" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> Contact</Link>
               </div>

@@ -162,7 +162,7 @@ const Leaderboard = () => {
   const [rankingMode, setRankingMode] = useState("overall");
   const [farmers, setFarmers] = useState(DEFAULT_FARMERS);
   const [loading, setLoading] = useState(true);
-  const currentUid = auth.currentUser?.uid;
+  const currentUid = auth?.currentUser?.uid;
 
   useEffect(() => {
     let isActive = true;
