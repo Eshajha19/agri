@@ -125,12 +125,12 @@ export default function Advisor({ userData }) {
      setShowFarmingMap,
      showCropDiseaseDetection,
      setShowCropDiseaseDetection,
-      showPestManagement,
-      setShowPestManagement,
-      showSprayReminder,
-      setShowSprayReminder,
-      showAgriMarketplace,
-      setShowAgriMarketplace,
+     showPestManagement,
+     setShowPestManagement,
+     showSprayReminder,
+     setShowSprayReminder,
+     showAgriMarketplace,
+     setShowAgriMarketplace,
      showAgriLMS,
      setShowAgriLMS,
      showQRTraceability,
@@ -1607,33 +1607,45 @@ showGreenPractices,
       )}
 
       {showExpertDirectory && (
-        <ExpertDirectory 
-          onClose={() => setShowExpertDirectory(false)}
-          onBookConsultation={(consultation) => {
-            setShowExpertDirectory(false);
-            setShowConsultationHistory(true);
-          }}
-        />
+        <div className="weather-overlay" onClick={() => setShowExpertDirectory(false)}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <ExpertDirectory 
+              onClose={() => setShowExpertDirectory(false)}
+              onBookConsultation={(consultation) => {
+                setShowExpertDirectory(false);
+                setShowConsultationHistory(true);
+              }}
+            />
+          </div>
+        </div>
       )}
 
       {showConsultationHistory && (
-        <ConsultationHistory 
-          onClose={() => setShowConsultationHistory(false)}
-          onStartConsultation={(consultation) => {
-            setActiveConsultation(consultation);
-            setShowTeleConsultation(true);
-          }}
-        />
+        <div className="weather-overlay" onClick={() => setShowConsultationHistory(false)}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <ConsultationHistory 
+              onClose={() => setShowConsultationHistory(false)}
+              onStartConsultation={(consultation) => {
+                setActiveConsultation(consultation);
+                setShowTeleConsultation(true);
+              }}
+            />
+          </div>
+        </div>
       )}
 
       {showTeleConsultation && activeConsultation && (
-        <TeleConsultation 
-          consultation={activeConsultation}
-          onEnd={() => {
-            setShowTeleConsultation(false);
-            setActiveConsultation(null);
-          }}
-        />
+        <div className="weather-overlay" onClick={() => setShowTeleConsultation(false)}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <TeleConsultation 
+              consultation={activeConsultation}
+              onEnd={() => {
+                setShowTeleConsultation(false);
+                setActiveConsultation(null);
+              }}
+            />
+          </div>
+        </div>
       )}
      </section>
    );

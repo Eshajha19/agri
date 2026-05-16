@@ -117,6 +117,9 @@ showGreenPractices: false,
    showConsultationHistory: false,
    setShowConsultationHistory: (show) => set({ showConsultationHistory: show }),
 
+   selectedExpert: null,
+   setSelectedExpert: (expert) => set({ selectedExpert: expert }),
+
     // Reset all modals to closed
    resetAdvisorStore: () =>
      set({
@@ -158,5 +161,6 @@ showRAGAdvisor: false,
           showTeleConsultation: false,
           activeConsultation: null,
           showConsultationHistory: false,
+          selectedExpert: null,
       }),
 }));

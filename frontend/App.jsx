@@ -59,6 +59,7 @@ import EquipmentManagement from "./EquipmentManagement";
 import Resources from "./Resources";
 import SeasonalCropPlanner from "./SeasonalCropPlanner";
 import SoilGuide from "./SoilGuide";
+import FeatureFlagDashboard from "./components/FeatureFlagDashboard/FeatureFlagDashboard";
 import CropDiseaseAwareness from "./CropDiseaseAwareness";
 import CropRotation from "./CropRotation";
 import Helpline from "./Helpline";
@@ -231,21 +232,14 @@ function App() {
 
     const ensurePublicKey = async () => {
       try {
-        let privateJwk = localStorage.getItem(`agri:ecdh_private_${user.uid}`);
-        let publicJwk = localStorage.getItem(`agri:ecdh_public_${user.uid}`);
+        // ensureKeys handles both secure retrieval from IndexedDB 
+        // and migration from legacy localStorage if it exists.
+        const { publicJwk } = await cryptoService.ensureKeys(user.uid);
         
-        if (!privateJwk || !publicJwk) {
-          const keyPair = await cryptoService.generateECDHKeyPair();
-          privateJwk = await cryptoService.exportKey(keyPair.privateKey);
-          publicJwk = await cryptoService.exportKey(keyPair.publicKey);
-          localStorage.setItem(`agri:ecdh_private_${user.uid}`, JSON.stringify(privateJwk));
-          localStorage.setItem(`agri:ecdh_public_${user.uid}`, JSON.stringify(publicJwk));
-        } else {
-          publicJwk = JSON.parse(publicJwk);
+        if (publicJwk) {
+          const pubKeyRef = doc(db, "public_keys", user.uid);
+          await setDoc(pubKeyRef, { jwk: publicJwk }, { merge: true });
         }
-
-        const pubKeyRef = doc(db, "public_keys", user.uid);
-        await setDoc(pubKeyRef, { jwk: publicJwk }, { merge: true });
       } catch (error) {
         console.error("Failed to generate/publish ECDH keys globally:", error);
       }
@@ -456,6 +450,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Home user={user} />} />
           <Route path="/advisor" element={<Advisor userData={userData} />} />
+          <Route path="/feature-flags" element={<FeatureFlagDashboard />} />
           <Route path="/how-it-works" element={<How />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/crop-guide" element={<CropGuide />} />
