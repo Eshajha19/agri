@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import re
+import threading
 import joblib
 import hashlib
 import pandas as pd
@@ -138,6 +139,11 @@ app = FastAPI()
 app.include_router(flags_router)
 
 logger = logging.getLogger(__name__)
+
+# Server-side idempotency cache for deduplicating transactional POST requests.
+# In production, this should use a persistent store like Redis with a TTL.
+_IDEMPOTENCY_CACHE: Dict[str, Any] = {}
+_IDEMPOTENCY_LOCK = threading.Lock()
 
 # Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
 # ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
@@ -580,9 +586,26 @@ async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest)
 @limiter.limit("5/minute")
 async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
     """Create a loan application from the current farm profile."""
+    # Idempotency check: prevent duplicate applications on retry
+    idem_key = request.headers.get("X-Idempotency-Key")
+    if idem_key:
+        with _IDEMPOTENCY_LOCK:
+            if idem_key in _IDEMPOTENCY_CACHE:
+                logger.info(f"Idempotency: Returning cached finance application for key {idem_key}")
+                return _IDEMPOTENCY_CACHE[idem_key]
+
     input_data = body.model_dump() if hasattr(body, "model_dump") else body.dict()
     application = _farm_finance_ai.create_application(input_data)
-    return {"success": True, "data": application}
+    result = {"success": True, "data": application}
+
+    if idem_key:
+        with _IDEMPOTENCY_LOCK:
+            # Basic eviction: clear cache if too large
+            if len(_IDEMPOTENCY_CACHE) > 1000:
+                _IDEMPOTENCY_CACHE.clear()
+            _IDEMPOTENCY_CACHE[idem_key] = result
+
+    return result
 
 
 @app.get("/api/finance/applications/{application_id}")
@@ -1774,10 +1797,19 @@ async def get_expert_slots(expert_id: str, date: str):
 @app.post("/api/consultation/book")
 async def book_consultation(
     request: ConsultationBookRequest,
+    raw_request: Request,
     authorization: Optional[str] = None
 ):
     """
     Book a consultation with an expert.
+    """
+    # Idempotency check: prevent duplicate bookings on retry
+    idem_key = raw_request.headers.get("X-Idempotency-Key")
+    if idem_key:
+        with _IDEMPOTENCY_LOCK:
+            if idem_key in _IDEMPOTENCY_CACHE:
+                logger.info(f"Idempotency: Returning cached consultation for key {idem_key}")
+                return _IDEMPOTENCY_CACHE[idem_key]
     
     Request body:
     - expert_id: Expert's ID
@@ -1821,11 +1853,19 @@ async def book_consultation(
         doc_ref = db_firestore.collection("consultations").document()
         doc_ref.set(consultation_data)
 
-        return {
+        result = {
             "success": True,
             "consultation_id": doc_ref.id,
             "message": "Consultation booked successfully"
         }
+
+        if idem_key:
+            with _IDEMPOTENCY_LOCK:
+                if len(_IDEMPOTENCY_CACHE) > 1000:
+                    _IDEMPOTENCY_CACHE.clear()
+                _IDEMPOTENCY_CACHE[idem_key] = result
+
+        return result
     except Exception as e:
         logger.error(f"Error booking consultation: {e}")
         raise HTTPException(status_code=500, detail="Failed to book consultation")
