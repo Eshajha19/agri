@@ -47,6 +47,7 @@ import How from "./How";
 import Home from "./Home";
 import MarketPrices from "./MarketPrices";
 import Community from "./Community";
+import Leaderboard from "./Leaderboard";
 import ContactUs from "./ContactUs";
 import AboutUs from "./AboutUs";
 import LanguageDropdown from "./LanguageDropdown";
@@ -470,6 +471,7 @@ function App() {
           <Route path="/farming-map" element={<FarmingMap />} />
           <Route path="/profit-calculator" element={<CropProfitCalculator />} />
           <Route path="/community" element={<Community />} />
+          <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/soil-analysis" element={<SoilAnalysis />} />
           <Route path="/faq" element={<FAQ />} />
           <Route path="/terms" element={<Terms />} />
