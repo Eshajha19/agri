@@ -66,6 +66,16 @@
   border: 1px solid #fee2e2;
 }
 
+.setup-success {
+  background: #ecfdf5;
+  color: #166534;
+  padding: 1rem;
+  border-radius: 12px;
+  margin-bottom: 1.5rem;
+  font-size: 0.9rem;
+  border: 1px solid #d1fae5;
+}
+
 .setup-form {
   display: flex;
   flex-direction: column;
