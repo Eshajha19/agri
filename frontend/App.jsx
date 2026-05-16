@@ -58,6 +58,7 @@ import EquipmentManagement from "./EquipmentManagement";
 import Resources from "./Resources";
 import SeasonalCropPlanner from "./SeasonalCropPlanner";
 import SoilGuide from "./SoilGuide";
+import FeatureFlagDashboard from "./components/FeatureFlagDashboard/FeatureFlagDashboard";
 import CropDiseaseAwareness from "./CropDiseaseAwareness";
 import CropRotation from "./CropRotation";
 import Helpline from "./Helpline";
@@ -447,6 +448,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Home user={user} />} />
           <Route path="/advisor" element={<Advisor userData={userData} />} />
+          <Route path="/feature-flags" element={<FeatureFlagDashboard />} />
           <Route path="/how-it-works" element={<How />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/crop-guide" element={<CropGuide />} />

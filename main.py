@@ -14,6 +14,7 @@ from typing import Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, Request, Form, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, validator
+from feature_flags.routes import router as flags_router
 
 class SimulationRequest(BaseModel):
     crop_type: str
@@ -133,6 +134,7 @@ except ImportError:
     HAS_GCP_KMS = False
 
 app = FastAPI()
+app.include_router(flags_router)
 
 logger = logging.getLogger(__name__)
 
