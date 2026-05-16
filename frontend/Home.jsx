@@ -365,22 +365,23 @@ export default function Home({ user }) {
         <div className="features-grid">
           {features.map((feature, index) => (
             <Link
-    to={feature.link || "/"}
-    key={index}
-    className="feature-card-link"
-  >
-    <div className="feature-card">
-      <div className="feature-category">{feature.category}</div>
-      <div className="feature-icon">{feature.icon}</div>
-      <h3>{feature.title}</h3>
-      <p>{feature.desc}</p>
-      <div className="feature-card-footer">
-        <span>Learn more</span>
-        <FaArrowRight size={16} />
-      </div>
-    </div>
-  </Link>
-))} 
+              to={feature.link || "/"}
+              key={index}
+              className="feature-card-link"
+              aria-label={`${feature.title}: ${feature.desc}`}
+            >
+              <div className="feature-card">
+                <div className="feature-category">{feature.category}</div>
+                <div className="feature-icon" aria-hidden="true">{feature.icon}</div>
+                <h3>{feature.title}</h3>
+                <p>{feature.desc}</p>
+                <div className="feature-card-footer">
+                  <span>Learn more</span>
+                  <FaArrowRight size={16} aria-hidden="true" />
+                </div>
+              </div>
+            </Link>
+          ))} 
         </div>
       </section>
 
