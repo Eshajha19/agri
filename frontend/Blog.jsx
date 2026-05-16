@@ -1,7 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { FaSearch, FaArrowRight, FaClock, FaUser, FaLeaf, FaCloudSun, FaLandmark, FaBug, FaTint, FaSeedling } from "react-icons/fa";
+import { FaSearch, FaArrowRight, FaClock, FaUser, FaLeaf, FaCloudSun, FaLandmark, FaBug, FaTint, FaSeedling, FaBookmark, FaRegBookmark } from "react-icons/fa";
 import "./Blog.css";
+import { getBookmarks, toggleBookmark } from "./utils/bookmarkStorage";
 
 const BLOG_POSTS = [
   {
@@ -99,6 +100,18 @@ const CATEGORY_ICONS = {
 export default function Blog() {
   const [activeCategory, setActiveCategory] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
+  const [bookmarkedArticleIds, setBookmarkedArticleIds] = useState(() =>
+    getBookmarks("articles").map((article) => article.id)
+  );
+
+  useEffect(() => {
+    setBookmarkedArticleIds(getBookmarks("articles").map((article) => article.id));
+  }, []);
+
+  const handleToggleArticleBookmark = (post) => {
+    const updated = toggleBookmark("articles", post);
+    setBookmarkedArticleIds(updated.map((item) => item.id));
+  };
 
   React.useEffect(() => {
     window.scrollTo(0, 0);
@@ -187,13 +200,22 @@ export default function Blog() {
                 </div>
                 <div className="blog-card-footer">
                   <span className="blog-card-date">{post.date}</span>
-                  <Link
-                    to={`/blog/${post.id}`}
-                    id={`blog-read-more-${post.id}`}
-                    className="btn-read-more"
-                  >
-                    Read More <FaArrowRight />
-                  </Link>
+                  <div className="blog-card-actions">
+                    <button
+                      className={`bookmark-btn ${bookmarkedArticleIds.includes(post.id) ? "active" : ""}`}
+                      onClick={() => handleToggleArticleBookmark(post)}
+                      aria-label={bookmarkedArticleIds.includes(post.id) ? "Remove bookmark" : "Bookmark article"}
+                    >
+                      {bookmarkedArticleIds.includes(post.id) ? <FaBookmark /> : <FaRegBookmark />} {bookmarkedArticleIds.includes(post.id) ? "Saved" : "Save"}
+                    </button>
+                    <Link
+                      to={`/blog/${post.id}`}
+                      id={`blog-read-more-${post.id}`}
+                      className="btn-read-more"
+                    >
+                      Read More <FaArrowRight />
+                    </Link>
+                  </div>
                 </div>
               </div>
             </article>

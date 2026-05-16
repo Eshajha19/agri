@@ -2,21 +2,18 @@
 import os
 import io
 import json
-import collections
-import itertools
-import threading
 import logging
 import re
 import joblib
 import hashlib
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, Dict, Any
 
 from fastapi import FastAPI, HTTPException, Request, Form, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 
 class SimulationRequest(BaseModel):
     crop_type: str
@@ -46,6 +43,56 @@ class RAGQuery(BaseModel):
     query: str = Field(..., min_length=3, max_length=500)
     top_k: int = Field(default=3, ge=1, le=5)
 
+# Blockchain Supply Chain Models
+class RegisterActorRequest(BaseModel):
+    actor_id: str = Field(..., min_length=1, max_length=50)
+    name: str = Field(..., min_length=1, max_length=100)
+    actor_type: str = Field(..., min_length=1, max_length=50)
+    location: str = Field(..., min_length=1, max_length=100)
+
+class CreateProductBatchRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    farm_id: str = Field(..., min_length=1, max_length=50)
+    quantity: float = Field(..., gt=0)
+    unit: str = Field(..., min_length=1, max_length=20)
+    planting_date: str = Field(..., min_length=1)
+    harvesting_date: str = Field(..., min_length=1)
+    farmer_name: str = Field(..., min_length=1, max_length=100)
+
+class AddSupplyChainNodeRequest(BaseModel):
+    batch_id: str = Field(..., min_length=1)
+    node_type: str = Field(..., min_length=1, max_length=50)
+    actor_name: str = Field(..., min_length=1, max_length=100)
+    location: str = Field(..., min_length=1, max_length=100)
+    action: str = Field(..., min_length=1, max_length=50)
+    temperature: Optional[float] = None
+    humidity: Optional[float] = None
+    quality_check: Optional[str] = None
+    notes: str = Field(default="", max_length=500)
+
+class CreateSmartContractRequest(BaseModel):
+    batch_id: str = Field(..., min_length=1)
+    seller: str = Field(..., min_length=1, max_length=100)
+    buyer: str = Field(..., min_length=1, max_length=100)
+    price: float = Field(..., gt=0)
+    terms: Optional[Dict] = None
+
+class ExecuteContractRequest(BaseModel):
+    contract_id: str = Field(..., min_length=1)
+
+# Crop Quality Grading Models
+class CropQualityGradingRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    image_base64: str = Field(..., min_length=100)  # Base64 encoded image
+
+class CropQualityBatchRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    images_base64: list = Field(..., min_items=1, max_items=100)  # Multiple images
+
+class QualityTrendsRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    days: int = Field(default=7, ge=1, le=30)
+
 # Rate Limiting
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -66,7 +113,10 @@ from ml.security import verify_and_load_joblib
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
-from weather_alerts import weather_service, WeatherAlert
+from crop_quality_grading import CropQualityGrader
+from blockchain_supply_chain import SupplyChainBlockchain
+from farm_finance_ai import FarmFinanceAI
+from sustainability_analytics import SustainabilityAnalytics
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -195,7 +245,9 @@ frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
 trusted_origins = [
     "http://localhost:5173",     # Local development
     "http://127.0.0.1:5173",     # Local development alternative
-    "https://yourfrontend.com",  # Production domain placeholder
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:8000",
 ]
 
 # Add any custom frontend URLs from environment
@@ -211,8 +263,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=trusted_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # --- Models ---
@@ -252,68 +304,77 @@ class ReportRequest(BaseModel):
     profit: str = Field(..., max_length=50)
     season: str = Field(..., max_length=50)
 
+    @validator("name", "crop", "area", "profit", "season", pre=True)
+    def reject_pipe_characters(cls, v):
+        # Belt-and-suspenders guard: the signing payload now uses JSON (which
+        # is unambiguous regardless of field content), but we also reject pipe
+        # characters at the model level so legacy code paths or future changes
+        # cannot accidentally reintroduce a delimiter-injection vulnerability.
+        if isinstance(v, str) and "|" in v:
+            raise ValueError(
+                "Field value must not contain the '|' character."
+            )
+        return v
+
 class SeedVerifyRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=100)
 
-class WeatherAlertRequest(BaseModel):
-    """Request for weather alerts by location and crop"""
-    latitude: float = Field(..., ge=-90, le=90)
-    longitude: float = Field(..., ge=-180, le=180)
-    location: str = Field(..., max_length=100)
-    crop: Optional[str] = Field(default=None, max_length=50)
+# Whitelist of commodities the price forecaster supports.
+# Restricting to this set prevents an attacker from submitting arbitrary
+# strings that each trigger a new LSTM training run and grow the model
+# cache without bound.
+_FORECASTABLE_COMMODITIES = frozenset([
+    "Wheat",
+    "Paddy (Dhan)",
+    "Cotton",
+    "Onion",
+    "Soybean",
+    "Maize",
+])
 
-class WeatherLocationRequest(BaseModel):
-    """Request to geocode a location"""
-    location: str = Field(..., min_length=2, max_length=100)
+class MarketForecastRequest(BaseModel):
+    commodity: str = Field(..., min_length=1, max_length=60)
+    days: int = Field(default=14, ge=1, le=30)
 
-class CropRecommendationRequest(BaseModel):
-    """Request for crop recommendations based on soil parameters"""
-    soil_ph: float = Field(..., ge=4.0, le=9.0)
-    nitrogen: float = Field(..., ge=0)
-    phosphorus: float = Field(..., ge=0)
-    potassium: float = Field(..., ge=0)
-    location: str = Field(..., max_length=100)
-    season: Optional[str] = Field(default="kharif", max_length=20)
-    area_size: Optional[float] = Field(default=None, ge=0.1)
+    @validator("commodity")
+    def commodity_must_be_supported(cls, v):
+        if v not in _FORECASTABLE_COMMODITIES:
+            raise ValueError(
+                f"Unsupported commodity '{v}'. "
+                f"Supported values: {sorted(_FORECASTABLE_COMMODITIES)}"
+            )
+        return v
 
+class FinanceAssessmentRequest(BaseModel):
+    farmer_name: str = Field(..., min_length=1, max_length=100)
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    acreage: float = Field(default=0, ge=0)
+    annual_revenue: float = Field(default=0, ge=0)
+    annual_operating_cost: float = Field(default=0, ge=0)
+    existing_debt: float = Field(default=0, ge=0)
+    emergency_fund: float = Field(default=0, ge=0)
+    credit_score: int = Field(default=650, ge=300, le=900)
+    requested_loan_amount: float = Field(default=0, ge=0)
+    loan_tenure_months: int = Field(default=36, ge=6, le=120)
+    irrigation_cost: float = Field(default=0, ge=0)
+    labor_cost: float = Field(default=0, ge=0)
+    selected_lender: Optional[str] = Field(default=None, max_length=100)
+    farm_location: Optional[str] = Field(default=None, max_length=120)
+    notes: Optional[str] = Field(default=None, max_length=500)
 
-def build_pesticide_guidance(crop_name: str, season: str) -> str:
-    crop_key = str(crop_name or "").strip().title()
-    season_key = str(season or "kharif").strip().lower()
-
-    crop_guidance = {
-        "Rice": "Watch for stem borer, leaf folder, and blast pressure. Start with field sanitation, trap monitoring, and registered products only after local thresholds are crossed.",
-        "Maize": "Scout for fall armyworm and stem borer damage. Use pheromone traps and targeted sprays only after confirming active infestation.",
-        "Cotton": "Monitor for sucking pests such as aphids, jassids, and whitefly. Prefer yellow sticky traps, neem-based sprays, and local-approval products when pressure is high.",
-        "Sugarcane": "Check for early shoot borer and top borer activity. Remove infested shoots quickly and escalate to registered control options only when scouting shows spread.",
-        "Soybean": "Keep an eye on semiloopers and girdle beetles. Use regular scouting, trap placement, and label-approved insecticides only if crop loss is building.",
-        "Wheat": "Track aphids and rust-related disease pressure. Keep spraying windows dry and choose registered products only when field scouting confirms need.",
-        "Chickpea": "Monitor pod borer and aphid activity. Combine field hygiene with trap-based scouting before any chemical spray is considered.",
-        "Mustard": "Watch for aphids and sawfly damage. Use border monitoring, trap crops, and only registered pesticides that match the confirmed pest.",
-        "Barley": "Inspect for aphids and leaf diseases. Prefer early scouting and local extension guidance before any chemical treatment.",
-        "Lentil": "Monitor aphids and wilt-related stress. Use regular field checks and avoid blanket spraying when no pest buildup is visible.",
-        "Groundnut": "Watch for leaf miner, aphids, and leaf spot pressure. Keep the crop clean, use biological controls where possible, and spray only on confirmed pest pressure.",
-        "Watermelon": "Monitor for red pumpkin beetle and aphids. Use traps, crop hygiene, and registered products only after infestation is verified.",
-        "Sunflower": "Scout for head borer and sucking pests. Focus on field sanitation and threshold-based control rather than calendar sprays.",
-        "Okra": "Watch for whitefly and fruit borer damage. Start with trap monitoring and neem-based protection, then move to registered pesticides only if needed.",
-    }
-
-    guidance = crop_guidance.get(
-        crop_key,
-        "Use integrated pest management: scout weekly, prefer traps and biological controls, and apply registered pesticides only when pest pressure is confirmed.",
-    )
-
-    season_notes = {
-        "kharif": "Kharif weather can raise fungal and sucking-pest pressure, so avoid spraying before heavy rain and keep field borders clean.",
-        "rabi": "Rabi crops often face aphids and cooler-weather pests, so check undersides of leaves and spray only in calm, dry windows.",
-        "summer": "Summer conditions can favor mites and rapid pest spread, so inspect fields in the early morning and avoid harsh midday spraying.",
-    }
-
-    return " ".join([
-        guidance,
-        season_notes.get(season_key, season_notes["kharif"]),
-        "Always follow the product label, local safety intervals, and extension advice before using any pesticide.",
-    ])
+class SustainabilityAnalyzeRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    season: str = Field(default="Kharif", max_length=20)
+    acreage: float = Field(..., gt=0, le=5000)
+    irrigation_type: str = Field(default="drip")
+    irrigation_events: int = Field(default=10, ge=0, le=200)
+    fertilizer_n_kg: Optional[float] = Field(default=None, ge=0, le=50000)
+    fertilizer_p_kg: Optional[float] = Field(default=None, ge=0, le=50000)
+    fertilizer_k_kg: Optional[float] = Field(default=None, ge=0, le=50000)
+    machinery_hours: Optional[float] = Field(default=None, ge=0, le=10000)
+    diesel_liters: Optional[float] = Field(default=None, ge=0, le=50000)
+    organic_practices: bool = Field(default=False)
+    user_id: Optional[str] = Field(default=None, max_length=128)
 
 # --- ML Pipeline Initialization ---
 router = ModelRouter(default_model="xgboost")
@@ -353,103 +414,27 @@ except Exception as e:
     model_lag = None
 
 # --- Static Notifications Storage ---
-#
-# Problems with the original bare list:
-#
-# 1. Unbounded growth — every trigger_whatsapp_alert call appended an entry
-#    that was never removed.  After weeks in production the list could hold
-#    thousands of entries, all serialised and sent to every client on every
-#    GET /api/notifications poll.
-#
-# 2. Duplicate IDs under concurrency — `len(list) + 1` is not atomic.  Two
-#    concurrent trigger-alert requests could both read the same length and
-#    produce entries with identical IDs, silently corrupting any client-side
-#    deduplication keyed on id.
-#
-# Fix — NotificationStore:
-#
-# • collections.deque(maxlen=MAX_NOTIFICATIONS) caps memory at a fixed
-#   ceiling.  When the deque is full, the oldest entry is automatically
-#   evicted before the new one is appended — no manual cleanup needed.
-#
-# • itertools.count() produces a strictly monotonically increasing integer
-#   sequence.  In CPython, next() on a count object is effectively atomic
-#   for the GIL-protected use case here, so two concurrent appends always
-#   get distinct IDs.
-#
-# • threading.Lock() serialises append() so the read-then-increment
-#   sequence is never interleaved across threads.
-#
-# • get_recent() filters by a TTL window so the response payload stays
-#   small even when the deque is at capacity.
+static_notifications = [
+    {
+        "id": 1,
+        "type": "weather",
+        "message": "🌧️ Heavy rainfall expected in your region today.",
+        "time": datetime.now().isoformat()
+    }
+]
 
-# Maximum number of triggered-alert entries kept in memory at any time.
-# Oldest entries are evicted automatically when this ceiling is reached.
-_MAX_NOTIFICATIONS = 200
+# Initialize Crop Quality Grader
+_crop_quality_grader = CropQualityGrader()
 
-# How long a triggered-alert entry remains visible to clients.
-_NOTIFICATION_TTL_HOURS = 24
+# Initialize Crop Quality Grader
+_crop_quality_grader = CropQualityGrader()
 
+# Initialize Supply Chain Blockchain
+_supply_chain_blockchain = SupplyChainBlockchain()
 
-class NotificationStore:
-    """
-    Thread-safe, bounded, TTL-aware store for in-process notifications.
-
-    Parameters
-    ----------
-    maxlen : int
-        Hard cap on the number of entries held in memory.  When full,
-        the oldest entry is evicted before the new one is appended.
-    ttl_hours : int
-        Entries older than this many hours are excluded from get_recent().
-    """
-
-    def __init__(self, maxlen: int = _MAX_NOTIFICATIONS, ttl_hours: int = _NOTIFICATION_TTL_HOURS):
-        self._deque: collections.deque = collections.deque(maxlen=maxlen)
-        self._lock = threading.Lock()
-        self._counter = itertools.count(start=1)
-        self._ttl = timedelta(hours=ttl_hours)
-
-    def append(self, alert_type: str, message: str) -> dict:
-        """
-        Add a new notification entry and return it.
-
-        The ID is assigned from a monotonically increasing counter so
-        concurrent calls always produce distinct values.
-        """
-        with self._lock:
-            entry = {
-                "id": next(self._counter),
-                "type": alert_type,
-                "message": message,
-                "time": datetime.now().isoformat(),
-            }
-            self._deque.append(entry)
-        return entry
-
-    def get_recent(self) -> list:
-        """
-        Return all entries newer than the configured TTL, oldest first.
-
-        Takes a snapshot under the lock so callers always see a consistent
-        view even if append() is running concurrently.
-        """
-        cutoff = datetime.now() - self._ttl
-        with self._lock:
-            snapshot = list(self._deque)
-        return [
-            e for e in snapshot
-            if datetime.fromisoformat(e["time"]) >= cutoff
-        ]
-
-
-# Seed the store with the initial weather advisory that was previously
-# hard-coded in the bare list.
-_notification_store = NotificationStore()
-_notification_store.append(
-    alert_type="weather",
-    message="🌧️ Heavy rainfall expected in your region today.",
-)
+# Initialize Farm Finance AI
+_farm_finance_ai = FarmFinanceAI()
+_sustainability_analytics = SustainabilityAnalytics()
 
 # --- Routes ---
 
@@ -536,7 +521,7 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
         data = payload.data
         if len(data) != 5:
             raise ValueError("Exactly 5 values are required")
-        temp = list(data)
+        temp = data[::-1]  # reverse once
         trend = []
         for _ in range(5):
             features = temp[:5]
@@ -561,14 +546,7 @@ def get_notifications(
     water_coverage: int = Query(default=None, ge=0, le=100),
     season: str = Query(default=None)
 ):
-    """
-    Return recent triggered-alert notifications combined with dynamic
-    farm advisory alerts generated from the query parameters.
-
-    Only notifications newer than the store's TTL window are included,
-    so the response payload stays small regardless of how long the
-    process has been running.
-    """
+    """Generate dynamic farm advisory alerts + static ones."""
     dynamic_alerts = generate_alerts(
         crop=crop,
         irrigation_count=irrigation_count,
@@ -576,6 +554,67 @@ def get_notifications(
         season=season
     )
     return {"success": True, "data": _notification_store.get_recent() + dynamic_alerts}
+
+@app.post("/api/finance/analyze")
+@limiter.limit("10/minute")
+async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest):
+    """Analyze farm finances and return loan recommendations."""
+    input_data = body.model_dump() if hasattr(body, "model_dump") else body.dict()
+    analysis = _farm_finance_ai.analyze_financial_profile(input_data)
+    return {"success": True, "data": analysis}
+
+
+@app.post("/api/finance/applications")
+@limiter.limit("5/minute")
+async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
+    """Create a loan application from the current farm profile."""
+    input_data = body.model_dump() if hasattr(body, "model_dump") else body.dict()
+    application = _farm_finance_ai.create_application(input_data)
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/applications/{application_id}")
+def get_finance_application(application_id: str):
+    application = _farm_finance_ai.get_application(application_id)
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/products")
+def get_finance_products():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+
+@app.get("/api/finance/marketplace")
+def get_finance_marketplace():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+# --- Sustainability Analytics Endpoints ---
+
+@app.post("/api/sustainability/analyze")
+@limiter.limit("20/minute")
+async def analyze_sustainability(request: Request, body: SustainabilityAnalyzeRequest):
+    """LCA-style water footprint and carbon emission estimate for a crop season."""
+    input_data = body.model_dump() if hasattr(body, "model_dump") else body.dict()
+    analysis = _sustainability_analytics.analyze(input_data)
+    return {"success": True, "data": analysis}
+
+
+@app.get("/api/sustainability/history")
+def get_sustainability_history(
+    user_id: str = Query(default="anonymous", max_length=128),
+    limit: int = Query(default=12, ge=1, le=50),
+):
+    """Historical sustainability records for comparative analytics."""
+    history = _sustainability_analytics.get_history(user_id, limit=limit)
+    return {"success": True, "data": history}
+
+
+@app.get("/api/sustainability/formulas")
+def get_sustainability_formulas():
+    """Configurable LCA coefficient datasets used by the analytics engine."""
+    return {"success": True, "data": _sustainability_analytics.get_formula_config()}
 
 # --- Weather Alerts Endpoints ---
 
@@ -1268,157 +1307,875 @@ async def verify_seed(data: SeedVerifyRequest, request: Request):
         "expires_on": entry["expires_on"],
     }
 
-@app.post("/api/crop/recommend")
-@limiter.limit("20/minute")
-async def recommend_crops(data: CropRecommendationRequest, request: Request):
+# --- Crop Quality Grading Endpoints ---
+
+@app.post("/api/quality/assess-single")
+@limiter.limit("10/minute")
+async def assess_single_crop(request: Request, data: CropQualityGradingRequest):
     """
-    Provide AI-powered crop recommendations based on soil parameters.
+    Assess quality of a single crop from image
     
-    Input parameters:
-    - soil_ph: Soil pH (4.0-9.0)
-    - nitrogen: Nitrogen content (mg/kg or ppm)
-    - phosphorus: Phosphorus content (mg/kg or ppm)
-    - potassium: Potassium content (mg/kg or ppm)
-    - location: Farm location (city/region)
-    - season: Growing season (kharif, rabi, summer)
-    - area_size: Farm area in hectares (optional)
-    
-    Returns:
-    - recommendations: List of suitable crops with compatibility scores
-    - soil_analysis: Interpretation of soil parameters
-    - warnings: Any soil-related concerns
+    Request body:
+    {
+        "crop_type": "tomato",  // or potato, grain, fruit
+        "image_base64": "<base64_encoded_image>"
+    }
     """
-    
     try:
-        # Soil analysis based on input parameters
-        soil_analysis = {
-            "ph_level": "Acidic" if data.soil_ph < 6.5 else "Neutral" if data.soil_ph < 7.5 else "Alkaline",
-            "ph_value": data.soil_ph,
-            "nitrogen_level": "Low" if data.nitrogen < 20 else "Medium" if data.nitrogen < 40 else "High",
-            "nitrogen_value": data.nitrogen,
-            "phosphorus_level": "Low" if data.phosphorus < 10 else "Medium" if data.phosphorus < 25 else "High",
-            "phosphorus_value": data.phosphorus,
-            "potassium_level": "Low" if data.potassium < 80 else "Medium" if data.potassium < 150 else "High",
-            "potassium_value": data.potassium,
+        # Decode base64 image
+        import base64
+        image_bytes = base64.b64decode(data.image_base64)
+        
+        # Assess the crop
+        assessment = _crop_quality_grader.assess_crop_image(
+            image_bytes, 
+            data.crop_type
+        )
+        
+        # Convert to dict
+        from dataclasses import asdict
+        result = asdict(assessment)
+        
+        return {
+            "success": True,
+            "data": result,
+            "timestamp": datetime.now().isoformat()
         }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Quality assessment error: %s", str(e))
+        raise HTTPException(status_code=500, detail="Quality assessment failed")
+
+@app.post("/api/quality/assess-batch")
+@limiter.limit("5/minute")
+async def assess_batch_crops(request: Request, data: CropQualityBatchRequest):
+    """
+    Assess quality of multiple crops in batch
+    
+    Request body:
+    {
+        "crop_type": "tomato",
+        "images_base64": ["<base64_image1>", "<base64_image2>", ...]
+    }
+    """
+    try:
+        import base64
         
-        # Crop suitability database based on soil and season
-        # In production, this would come from a ML model or database
-        crop_database = {
-            "kharif": [
-                {"name": "Rice", "base_score": 85, "ph_optimal": (6.0, 7.0), "n_favorable": data.nitrogen > 25, "p_favorable": data.phosphorus > 10, "k_favorable": data.potassium > 80},
-                {"name": "Maize", "base_score": 80, "ph_optimal": (6.5, 7.5), "n_favorable": data.nitrogen > 30, "p_favorable": data.phosphorus > 15, "k_favorable": data.potassium > 100},
-                {"name": "Cotton", "base_score": 75, "ph_optimal": (6.0, 8.0), "n_favorable": data.nitrogen > 20, "p_favorable": data.phosphorus > 12, "k_favorable": data.potassium > 120},
-                {"name": "Sugarcane", "base_score": 70, "ph_optimal": (6.0, 8.0), "n_favorable": data.nitrogen > 40, "p_favorable": data.phosphorus > 20, "k_favorable": data.potassium > 150},
-                {"name": "Soybean", "base_score": 72, "ph_optimal": (6.5, 7.5), "n_favorable": data.nitrogen > 15, "p_favorable": data.phosphorus > 18, "k_favorable": data.potassium > 90},
-            ],
-            "rabi": [
-                {"name": "Wheat", "base_score": 88, "ph_optimal": (6.5, 7.5), "n_favorable": data.nitrogen > 28, "p_favorable": data.phosphorus > 14, "k_favorable": data.potassium > 85},
-                {"name": "Chickpea", "base_score": 80, "ph_optimal": (6.0, 8.0), "n_favorable": data.nitrogen > 10, "p_favorable": data.phosphorus > 12, "k_favorable": data.potassium > 70},
-                {"name": "Mustard", "base_score": 78, "ph_optimal": (6.0, 8.0), "n_favorable": data.nitrogen > 20, "p_favorable": data.phosphorus > 10, "k_favorable": data.potassium > 60},
-                {"name": "Barley", "base_score": 75, "ph_optimal": (6.5, 8.0), "n_favorable": data.nitrogen > 25, "p_favorable": data.phosphorus > 12, "k_favorable": data.potassium > 80},
-                {"name": "Lentil", "base_score": 77, "ph_optimal": (6.0, 8.0), "n_favorable": data.nitrogen > 12, "p_favorable": data.phosphorus > 14, "k_favorable": data.potassium > 75},
-            ],
-            "summer": [
-                {"name": "Groundnut", "base_score": 82, "ph_optimal": (5.8, 7.0), "n_favorable": data.nitrogen > 18, "p_favorable": data.phosphorus > 20, "k_favorable": data.potassium > 100},
-                {"name": "Watermelon", "base_score": 78, "ph_optimal": (6.0, 8.0), "n_favorable": data.nitrogen > 25, "p_favorable": data.phosphorus > 15, "k_favorable": data.potassium > 140},
-                {"name": "Sunflower", "base_score": 80, "ph_optimal": (6.0, 8.0), "n_favorable": data.nitrogen > 22, "p_favorable": data.phosphorus > 18, "k_favorable": data.potassium > 110},
-                {"name": "Okra", "base_score": 76, "ph_optimal": (6.0, 8.0), "n_favorable": data.nitrogen > 20, "p_favorable": data.phosphorus > 12, "k_favorable": data.potassium > 90},
-            ],
-        }
+        # Decode all images
+        image_bytes_list = []
+        for img_b64 in data.images_base64:
+            try:
+                image_bytes = base64.b64decode(img_b64)
+                image_bytes_list.append(image_bytes)
+            except Exception as e:
+                logger.warning("Failed to decode image: %s", str(e))
+                continue
         
-        season = data.season.lower() if data.season else "kharif"
-        crops = crop_database.get(season, crop_database["kharif"])
+        if not image_bytes_list:
+            raise ValueError("No valid images provided")
         
-        recommendations = []
-        
-        for crop in crops:
-            score = crop["base_score"]
-            reasons = []
-            
-            # pH adjustment (±10 points based on optimal range)
-            ph_min, ph_max = crop["ph_optimal"]
-            if data.soil_ph < ph_min or data.soil_ph > ph_max:
-                score -= 15
-                reasons.append("Soil pH not optimal")
-            else:
-                score += 5
-            
-            # Nutrient adjustments
-            if crop["n_favorable"]:
-                score += 8
-                reasons.append("Good nitrogen levels")
-            else:
-                score -= 5
-                reasons.append("Low nitrogen levels")
-            
-            if crop["p_favorable"]:
-                score += 7
-                reasons.append("Good phosphorus levels")
-            else:
-                score -= 3
-                reasons.append("Low phosphorus levels")
-            
-            if crop["k_favorable"]:
-                score += 8
-                reasons.append("Good potassium levels")
-            else:
-                score -= 5
-                reasons.append("Low potassium levels")
-            
-            # Ensure score is within 0-100 range
-            score = max(0, min(100, score))
-            
-            recommendations.append({
-                "crop": crop["name"],
-                "compatibility_score": round(score, 1),
-                "reasons": reasons,
-                "season": season,
-                "recommended_fertilizer": f"N: {max(0, 40 - data.nitrogen):.0f}kg, P: {max(0, 20 - data.phosphorus):.0f}kg, K: {max(0, 120 - data.potassium):.0f}kg per hectare" if data.area_size else "Consult local agronomist for exact fertilizer doses",
-                "recommended_pesticide": build_pesticide_guidance(crop["name"], season),
-            })
-        
-        # Sort by compatibility score
-        recommendations.sort(key=lambda x: x["compatibility_score"], reverse=True)
-        
-        # Generate warnings if any
-        warnings = []
-        if data.soil_ph < 5.5:
-            warnings.append("⚠️ Soil is very acidic - consider lime application")
-        elif data.soil_ph > 8.5:
-            warnings.append("⚠️ Soil is very alkaline - consider sulfur application")
-        
-        if data.nitrogen < 15:
-            warnings.append("⚠️ Nitrogen levels are low - consider nitrogen fertilizer")
-        
-        if data.phosphorus < 8:
-            warnings.append("⚠️ Phosphorus levels are critically low")
-        
-        if data.potassium < 50:
-            warnings.append("⚠️ Potassium levels are low")
-        
-        logger.info(
-            "Crop recommendation requested: location=%s season=%s top_crop=%s score=%.1f",
-            data.location,
-            season,
-            recommendations[0]["crop"] if recommendations else "None",
-            recommendations[0]["compatibility_score"] if recommendations else 0,
+        # Batch grade
+        result = _crop_quality_grader.batch_grade_crops(
+            image_bytes_list,
+            data.crop_type
         )
         
         return {
             "success": True,
-            "location": data.location,
-            "season": season,
-            "soil_analysis": soil_analysis,
-            "recommendations": recommendations,
-            "warnings": warnings,
-            "total_recommendations": len(recommendations),
+            "data": result,
+            "timestamp": datetime.now().isoformat()
         }
-        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error("Crop recommendation error: %s", str(e))
-        raise HTTPException(status_code=500, detail="Error processing crop recommendation")
+        logger.error("Batch assessment error: %s", str(e))
+        raise HTTPException(status_code=500, detail="Batch assessment failed")
+
+@app.post("/api/quality/trends")
+@limiter.limit("10/minute")
+async def get_quality_trends(request: Request, data: QualityTrendsRequest):
+    """
+    Get quality trends for a crop type
+    
+    Request body:
+    {
+        "crop_type": "tomato",
+        "days": 7
+    }
+    """
+    try:
+        trends = _crop_quality_grader.get_quality_trends(
+            data.crop_type,
+            data.days
+        )
+        
+        return {
+            "success": True,
+            "data": trends,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error("Quality trends error: %s", str(e))
+        raise HTTPException(status_code=500, detail="Failed to retrieve trends")
+
+@app.get("/api/quality/supported-crops")
+@limiter.limit("20/minute")
+async def get_supported_crops(request: Request):
+    """
+    Get list of supported crops for quality grading
+    """
+    return {
+        "success": True,
+        "crops": _crop_quality_grader.supported_crops,
+        "total": len(_crop_quality_grader.supported_crops)
+    }
+
+@app.post("/api/quality/market-price")
+@limiter.limit("10/minute")
+async def calculate_market_price(request: Request, data: CropQualityGradingRequest):
+    """
+    Calculate market price adjustment based on quality grade
+    
+    Request body:
+    {
+        "crop_type": "tomato",
+        "image_base64": "<base64_encoded_image>"
+    }
+    """
+    try:
+        import base64
+        from crop_quality_grading import GRADE_MAPPING
+        
+        # Decode image
+        image_bytes = base64.b64decode(data.image_base64)
+        
+        # Assess quality
+        assessment = _crop_quality_grader.assess_crop_image(
+            image_bytes,
+            data.crop_type
+        )
+        
+        # Get grade info
+        grade_info = GRADE_MAPPING[assessment.grade]
+        
+        return {
+            "success": True,
+            "crop_type": data.crop_type,
+            "grade": assessment.grade,
+            "grade_label": grade_info["label"],
+            "score": assessment.score,
+            "price_multiplier": grade_info["price_multiplier"],
+            "recommendations": assessment.recommendations,
+            "timestamp": datetime.now().isoformat()
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Market price calculation error: %s", str(e))
+        raise HTTPException(status_code=500, detail="Price calculation failed")
+
+class ConsultationBookRequest(BaseModel):
+    expert_id: str = Field(..., min_length=1, max_length=100)
+    expert_name: str = Field(..., min_length=1, max_length=200)
+    expert_specialization: str = Field(..., min_length=1, max_length=100)
+    date: str = Field(..., min_length=10, max_length=10)
+    time: str = Field(..., min_length=5, max_length=5)
+    notes: Optional[str] = Field(default="", max_length=1000)
+    consultation_type: str = Field(default="video", pattern=r'^(video|audio)$')
+
+class ConsultationUpdateRequest(BaseModel):
+    status: str = Field(..., pattern=r'^(scheduled|completed|cancelled|in-progress)$')
+    notes: Optional[str] = Field(default=None, max_length=1000)
+
+class ExpertSlotRequest(BaseModel):
+    expert_id: str = Field(..., min_length=1, max_length=100)
+    date: str = Field(..., min_length=10, max_length=10)
+
+# --- Expert Consultation APIs ---
+
+@app.get("/api/experts")
+async def get_experts(
+    specialization: Optional[str] = None,
+    kvk_only: bool = False,
+    search: Optional[str] = None
+):
+    """
+    Get list of available experts/KVK advisors.
+    
+    Query parameters:
+    - specialization: Filter by specialization (crop_disease, fertilizers, etc.)
+    - kvk_only: Return only KVK experts
+    - search: Search by name or location
+    """
+    try:
+        experts = []
+
+        if db_firestore:
+            try:
+                experts_ref = db_firestore.collection("experts")
+                docs = experts_ref.get()
+
+                for doc in docs:
+                    expert_data = doc.to_dict()
+                    expert_data["id"] = doc.id
+                    experts.append(expert_data)
+            except Exception as e:
+                logger.warning(f"Firestore experts query failed: {e}")
+
+        if not experts:
+            experts = [
+                {
+                    "id": "exp1",
+                    "name": "Dr. Ramesh Kumar",
+                    "specialization": "crop_disease",
+                    "qualification": "Ph.D. in Plant Pathology",
+                    "location": "Madhya Pradesh",
+                    "phone": "+91 9876543210",
+                    "rating": 4.8,
+                    "experience": 15,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Jabalpur",
+                    "bio": "Specialist in crop disease diagnosis and organic treatment methods.",
+                    "avatar": "https://randomuser.me/api/portraits/men/32.jpg"
+                },
+                {
+                    "id": "exp2",
+                    "name": "Dr. Priya Sharma",
+                    "specialization": "fertilizers",
+                    "qualification": "M.Sc. Agricultural Chemistry",
+                    "location": "Maharashtra",
+                    "phone": "+91 9876543211",
+                    "rating": 4.9,
+                    "experience": 12,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Pune",
+                    "bio": "Expert in nano-fertilizers and sustainable nutrient management.",
+                    "avatar": "https://randomuser.me/api/portraits/women/44.jpg"
+                },
+                {
+                    "id": "exp3",
+                    "name": "Er. Suresh Patil",
+                    "specialization": "irrigation",
+                    "qualification": "B.Tech Agricultural Engineering",
+                    "location": "Karnataka",
+                    "phone": "+91 9876543212",
+                    "rating": 4.7,
+                    "experience": 10,
+                    "is_kvk": False,
+                    "bio": "Drip irrigation and water management specialist.",
+                    "avatar": "https://randomuser.me/api/portraits/men/45.jpg"
+                },
+                {
+                    "id": "exp4",
+                    "name": "Dr. Anjali Verma",
+                    "specialization": "pest_management",
+                    "qualification": "Ph.D. Entomology",
+                    "location": "Uttar Pradesh",
+                    "phone": "+91 9876543213",
+                    "rating": 4.6,
+                    "experience": 8,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Lucknow",
+                    "bio": "Integrated pest management and organic pest control expert.",
+                    "avatar": "https://randomuser.me/api/portraits/women/65.jpg"
+                },
+                {
+                    "id": "exp5",
+                    "name": "Dr. Mahendra Singh",
+                    "specialization": "soil_health",
+                    "qualification": "Ph.D. Soil Science",
+                    "location": "Rajasthan",
+                    "phone": "+91 9876543214",
+                    "rating": 4.9,
+                    "experience": 20,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Jaipur",
+                    "bio": "Soil health assessment and reclamation specialist.",
+                    "avatar": "https://randomuser.me/api/portraits/men/67.jpg"
+                },
+                {
+                    "id": "exp6",
+                    "name": "Dr. Kavita Desai",
+                    "specialization": "market_advisory",
+                    "qualification": "MBA Agriculture Business",
+                    "location": "Gujarat",
+                    "phone": "+91 9876543215",
+                    "rating": 4.8,
+                    "experience": 14,
+                    "is_kvk": False,
+                    "bio": "Market intelligence and price forecasting expert.",
+                    "avatar": "https://randomuser.me/api/portraits/women/28.jpg"
+                }
+            ]
+
+        if specialization:
+            experts = [e for e in experts if e.get("specialization") == specialization]
+        if kvk_only:
+            experts = [e for e in experts if e.get("is_kvk")]
+        if search:
+            search_lower = search.lower()
+            experts = [e for e in experts if search_lower in e.get("name", "").lower() or search_lower in e.get("location", "").lower()]
+
+        if not experts:
+            experts = [
+                {
+                    "id": "exp1",
+                    "name": "Dr. Ramesh Kumar",
+                    "specialization": "crop_disease",
+                    "qualification": "Ph.D. in Plant Pathology",
+                    "location": "Madhya Pradesh",
+                    "phone": "+91 9876543210",
+                    "rating": 4.8,
+                    "experience": 15,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Jabalpur",
+                    "bio": "Specialist in crop disease diagnosis and organic treatment methods.",
+                    "avatar": "https://randomuser.me/api/portraits/men/32.jpg"
+                },
+                {
+                    "id": "exp2",
+                    "name": "Dr. Priya Sharma",
+                    "specialization": "fertilizers",
+                    "qualification": "M.Sc. Agricultural Chemistry",
+                    "location": "Maharashtra",
+                    "phone": "+91 9876543211",
+                    "rating": 4.9,
+                    "experience": 12,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Pune",
+                    "bio": "Expert in nano-fertilizers and sustainable nutrient management.",
+                    "avatar": "https://randomuser.me/api/portraits/women/44.jpg"
+                },
+                {
+                    "id": "exp3",
+                    "name": "Er. Suresh Patil",
+                    "specialization": "irrigation",
+                    "qualification": "B.Tech Agricultural Engineering",
+                    "location": "Karnataka",
+                    "phone": "+91 9876543212",
+                    "rating": 4.7,
+                    "experience": 10,
+                    "is_kvk": False,
+                    "bio": "Drip irrigation and water management specialist.",
+                    "avatar": "https://randomuser.me/api/portraits/men/45.jpg"
+                },
+                {
+                    "id": "exp4",
+                    "name": "Dr. Anjali Verma",
+                    "specialization": "pest_management",
+                    "qualification": "Ph.D. Entomology",
+                    "location": "Uttar Pradesh",
+                    "phone": "+91 9876543213",
+                    "rating": 4.6,
+                    "experience": 8,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Lucknow",
+                    "bio": "Integrated pest management and organic pest control expert.",
+                    "avatar": "https://randomuser.me/api/portraits/women/65.jpg"
+                },
+                {
+                    "id": "exp5",
+                    "name": "Dr. Mahendra Singh",
+                    "specialization": "soil_health",
+                    "qualification": "Ph.D. Soil Science",
+                    "location": "Rajasthan",
+                    "phone": "+91 9876543214",
+                    "rating": 4.9,
+                    "experience": 20,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Jaipur",
+                    "bio": "Soil health assessment and reclamation specialist.",
+                    "avatar": "https://randomuser.me/api/portraits/men/67.jpg"
+                },
+                {
+                    "id": "exp6",
+                    "name": "Dr. Kavita Desai",
+                    "specialization": "market_advisory",
+                    "qualification": "MBA Agriculture Business",
+                    "location": "Gujarat",
+                    "phone": "+91 9876543215",
+                    "rating": 4.8,
+                    "experience": 14,
+                    "is_kvk": False,
+                    "bio": "Market intelligence and price forecasting expert.",
+                    "avatar": "https://randomuser.me/api/portraits/women/28.jpg"
+                }
+            ]
+
+            if specialization:
+                experts = [e for e in experts if e.get("specialization") == specialization]
+            if kvk_only:
+                experts = [e for e in experts if e.get("is_kvk")]
+            if search:
+                search_lower = search.lower()
+                experts = [e for e in experts if search_lower in e.get("name", "").lower() or search_lower in e.get("location", "").lower()]
+
+        return {"experts": experts, "count": len(experts)}
+    except Exception as e:
+        logger.error(f"Error fetching experts: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch experts")
+
+
+@app.get("/api/experts/{expert_id}/slots")
+async def get_expert_slots(expert_id: str, date: str):
+    """
+    Get available time slots for an expert on a specific date.
+    
+    Path parameters:
+    - expert_id: ID of the expert
+    
+    Query parameters:
+    - date: Date in YYYY-MM-DD format
+    """
+    try:
+        from datetime import datetime, timedelta
+
+        requested_date = datetime.strptime(date, "%Y-%m-%d")
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        if requested_date < today:
+            return {"slots": [], "message": "Cannot book slots for past dates"}
+
+        slots = []
+        for hour in range(9, 18):
+            for minute in [0, 30]:
+                time_str = f"{hour:02d}:{minute:02d}"
+                available = True
+
+                if requested_date.date() == today.date() and hour <= datetime.now().hour:
+                    available = False
+
+                if available:
+                    slots.append({
+                        "time": time_str,
+                        "display": f"{hour}:{minute:02d} {'AM' if hour < 12 else 'PM'}",
+                        "available": available
+                    })
+
+        return {"expert_id": expert_id, "date": date, "slots": slots}
+    except Exception as e:
+        logger.error(f"Error fetching slots: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch slots")
+
+
+@app.post("/api/consultation/book")
+async def book_consultation(
+    request: ConsultationBookRequest,
+    authorization: Optional[str] = None
+):
+    """
+    Book a consultation with an expert.
+    
+    Request body:
+    - expert_id: Expert's ID
+    - expert_name: Expert's name
+    - expert_specialization: Expert's specialization
+    - date: Date in YYYY-MM-DD format
+    - time: Time in HH:MM format
+    - notes: Optional notes about the consultation
+    - consultation_type: "video" or "audio"
+    """
+    try:
+        user_data = None
+
+        if authorization:
+            try:
+                token = authorization.replace("Bearer ", "")
+                decoded_token = firebase_auth.verify_id_token(token)
+                user_id = decoded_token.get("uid")
+
+                user_ref = db_firestore.collection("users").document(user_id)
+                user_doc = user_ref.get()
+                if user_doc.exists:
+                    user_data = user_doc.to_dict()
+            except Exception as e:
+                logger.warning(f"Auth verification failed: {e}")
+
+        consultation_data = {
+            "expert_id": request.expert_id,
+            "expert_name": request.expert_name,
+            "expert_specialization": request.expert_specialization,
+            "user_id": user_data.get("uid") if user_data else "anonymous",
+            "user_name": user_data.get("displayName") if user_data else "Guest Farmer",
+            "date": request.date,
+            "time": request.time,
+            "notes": request.notes,
+            "type": request.consultation_type,
+            "status": "scheduled",
+            "created_at": datetime.now().isoformat()
+        }
+
+        doc_ref = db_firestore.collection("consultations").document()
+        doc_ref.set(consultation_data)
+
+        return {
+            "success": True,
+            "consultation_id": doc_ref.id,
+            "message": "Consultation booked successfully"
+        }
+    except Exception as e:
+        logger.error(f"Error booking consultation: {e}")
+        raise HTTPException(status_code=500, detail="Failed to book consultation")
+
+
+@app.put("/api/consultation/{consultation_id}")
+async def update_consultation(
+    consultation_id: str,
+    request: ConsultationUpdateRequest,
+    authorization: Optional[str] = None
+):
+    """
+    Update consultation status.
+    
+    Path parameters:
+    - consultation_id: ID of the consultation
+    
+    Request body:
+    - status: New status (scheduled, completed, cancelled, in-progress)
+    - notes: Optional notes
+    """
+    try:
+        doc_ref = db_firestore.collection("consultations").document(consultation_id)
+        doc = doc_ref.get()
+
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Consultation not found")
+
+        update_data = {
+            "status": request.status,
+            "updated_at": datetime.now().isoformat()
+        }
+
+        if request.notes:
+            update_data["notes"] = request.notes
+
+        if request.status == "completed":
+            update_data["completed_at"] = datetime.now().isoformat()
+
+        doc_ref.update(update_data)
+
+        return {
+            "success": True,
+            "message": "Consultation updated successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating consultation: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update consultation")
+
+
+@app.get("/api/consultations")
+async def get_user_consultations(
+    user_id: Optional[str] = None,
+    status: Optional[str] = None,
+    authorization: Optional[str] = None
+):
+    """
+    Get user's consultation history.
+    
+    Query parameters:
+    - user_id: User ID (optional, will use auth if provided)
+    - status: Filter by status (scheduled, completed, cancelled)
+    """
+    try:
+        consultations_ref = db_firestore.collection("consultations")
+        query = consultations_ref
+
+        if user_id:
+            query = query.where("user_id", "==", user_id)
+
+        docs = query.get()
+        consultations = []
+
+        for doc in docs:
+            consultation = doc.to_dict()
+            consultation["id"] = doc.id
+
+            if status and consultation.get("status") != status:
+                continue
+
+            consultations.append(consultation)
+
+        consultations.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+
+        return {
+            "consultations": consultations,
+            "count": len(consultations)
+        }
+    except Exception as e:
+        logger.error(f"Error fetching consultations: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch consultations")
+
+
+@app.delete("/api/consultation/{consultation_id}")
+async def cancel_consultation(
+    consultation_id: str,
+    authorization: Optional[str] = None
+):
+    """
+    Cancel a consultation.
+    
+    Path parameters:
+    - consultation_id: ID of the consultation to cancel
+    """
+    try:
+        doc_ref = db_firestore.collection("consultations").document(consultation_id)
+        doc = doc_ref.get()
+
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Consultation not found")
+
+        doc_ref.update({
+            "status": "cancelled",
+            "cancelled_at": datetime.now().isoformat()
+        })
+
+        return {
+            "success": True,
+            "message": "Consultation cancelled successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cancelling consultation: {e}")
+        raise HTTPException(status_code=500, detail="Failed to cancel consultation")
+
+
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
+# --- Blockchain Supply Chain Endpoints ---
+
+@app.post("/api/blockchain/register-actor")
+@limiter.limit("10/minute")
+async def register_actor(request: Request, data: RegisterActorRequest):
+    """Register supply chain participant"""
+    try:
+        actor_data = _supply_chain_blockchain.register_actor(
+            data.actor_id,
+            data.name,
+            data.actor_type,
+            data.location
+        )
+        return {"success": True, "actor": actor_data}
+    except Exception as e:
+        logger.error("Register actor error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/blockchain/create-batch")
+@limiter.limit("10/minute")
+async def create_batch(request: Request, data: CreateProductBatchRequest):
+    """Create product batch on blockchain"""
+    try:
+        batch = _supply_chain_blockchain.create_product_batch(
+            data.crop_type,
+            data.farm_id,
+            data.quantity,
+            data.unit,
+            data.planting_date,
+            data.harvesting_date,
+            data.farmer_name
+        )
+        from dataclasses import asdict
+        return {"success": True, "batch": asdict(batch)}
+    except Exception as e:
+        logger.error("Create batch error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/blockchain/add-node")
+@limiter.limit("10/minute")
+async def add_node(request: Request, data: AddSupplyChainNodeRequest):
+    """Add supply chain node"""
+    try:
+        node = _supply_chain_blockchain.add_supply_chain_node(
+            data.batch_id,
+            data.node_type,
+            data.actor_name,
+            data.location,
+            data.action,
+            temperature=data.temperature,
+            humidity=data.humidity,
+            quality_check=data.quality_check,
+            notes=data.notes
+        )
+        from dataclasses import asdict
+        return {"success": True, "node": asdict(node)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Add node error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/blockchain/create-contract")
+@limiter.limit("10/minute")
+async def create_contract(request: Request, data: CreateSmartContractRequest):
+    """Create smart contract"""
+    try:
+        contract = _supply_chain_blockchain.create_smart_contract(
+            data.batch_id,
+            data.seller,
+            data.buyer,
+            data.price,
+            data.terms
+        )
+        from dataclasses import asdict
+        return {"success": True, "contract": asdict(contract)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Create contract error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/blockchain/execute-contract")
+@limiter.limit("10/minute")
+async def execute_contract(request: Request, data: ExecuteContractRequest):
+    """Execute smart contract"""
+    try:
+        result = _supply_chain_blockchain.execute_smart_contract(data.contract_id)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Execute contract error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blockchain/qr-code/{batch_id}")
+@limiter.limit("20/minute")
+async def get_qr_code(batch_id: str):
+    """Get QR code for batch"""
+    try:
+        qr_code = _supply_chain_blockchain.generate_qr_code(batch_id)
+        return {"success": True, "batch_id": batch_id, "qr_code_base64": qr_code}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("QR code generation error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blockchain/verify/{batch_id}")
+@limiter.limit("20/minute")
+async def verify_batch(batch_id: str):
+    """Verify batch authenticity"""
+    try:
+        verification = _supply_chain_blockchain.verify_batch(batch_id)
+        return verification
+    except Exception as e:
+        logger.error("Verification error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blockchain/journey/{batch_id}")
+@limiter.limit("20/minute")
+async def get_journey(batch_id: str):
+    """Get supply chain journey"""
+    try:
+        journey = _supply_chain_blockchain.get_supply_chain_journey(batch_id)
+        return {"success": True, "data": journey}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Journey retrieval error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blockchain/analytics/{batch_id}")
+@limiter.limit("20/minute")
+async def get_analytics(batch_id: str):
+    """Get supply chain analytics"""
+    try:
+        analytics = _supply_chain_blockchain.get_supply_chain_analytics(batch_id)
+        return {"success": True, "data": analytics}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Analytics error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blockchain/marketplace")
+@limiter.limit("20/minute")
+async def get_marketplace():
+    """Get certified products for marketplace"""
+    try:
+        certified = _supply_chain_blockchain.get_certified_products()
+        return {"success": True, "products": certified, "count": len(certified)}
+    except Exception as e:
+        logger.error("Marketplace error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blockchain/stats")
+@limiter.limit("20/minute")
+async def get_stats():
+    """Get blockchain statistics"""
+    try:
+        stats = {
+            "total_records": _supply_chain_blockchain.get_blockchain_record_count(),
+            "total_products": len(_supply_chain_blockchain.products),
+            "registered_actors": len(_supply_chain_blockchain.verified_actors),
+            "total_contracts": len(_supply_chain_blockchain.smart_contracts)
+        }
+        return {"success": True, "stats": stats}
+    except Exception as e:
+        logger.error("Stats error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Market Price Forecasting ──────────────────────────────────────────────────
+
+@app.post("/api/market/forecast")
+@limiter.limit("10/minute")
+async def market_price_forecast(data: MarketForecastRequest, request: Request):
+    """
+    Generate an LSTM-based price forecast for a supported commodity.
+
+    Authentication required — any logged-in user may call this endpoint.
+
+    The forecasting engine (ml/price_forecaster.py) trains a lightweight
+    LSTM on embedded 2-year historical mandi price data at first request
+    per commodity and caches the model in memory.  Subsequent requests
+    for the same commodity are served from the cache with no retraining.
+
+    Security hardening applied:
+    - verify_role() requires a valid Firebase ID token (any role).
+    - MarketForecastRequest.commodity is validated against a whitelist of
+      the 6 supported commodities.  Unknown strings are rejected with 422
+      before the forecaster is called, preventing an attacker from
+      submitting thousands of unique strings that each trigger a new
+      30-epoch LSTM training run and grow the model cache without bound.
+
+    Request body
+    ------------
+    - commodity : str  — one of: Wheat, Paddy (Dhan), Cotton, Onion,
+                         Soybean, Maize
+    - days      : int  — forecast horizon in days (1–30, default 14)
+
+    Response
+    --------
+    - commodity          : str
+    - forecast_days      : int
+    - forecast           : list[{date, price, lower_bound, upper_bound}]
+    - best_sell_date     : str   — ISO date of forecast price peak
+    - best_sell_price    : float — predicted peak price (₹/quintal)
+    - recommendation     : str   — human-readable selling advice
+    - model_type         : str   — "LSTM" or "Statistical" (fallback)
+    - generated_at       : str   — ISO UTC timestamp
+    """
+    await verify_role(request)   # any authenticated user; no role restriction
+
+    try:
+        from ml.price_forecaster import price_forecaster
+        result = price_forecaster.forecast(
+            commodity=data.commodity,
+            days=data.days,
+        )
+        return result
+    except Exception as exc:
+        logger.error(
+            "Market forecast error for commodity='%s': %s",
+            data.commodity, exc,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Price forecast temporarily unavailable. Please try again later.",
+        )

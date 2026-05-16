@@ -466,3 +466,204 @@
   .filter-group { width: 100%; }
   .select-wrapper { flex: 1; }
 }
+
+/* ── 14-Day Forecast Tab ─────────────────────────────────────────────────── */
+
+.forecast-container {
+  padding: 8px 0;
+}
+
+.forecast-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.forecast-commodity-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.forecast-commodity-selector label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.theme-dark .forecast-commodity-selector label {
+  color: #94a3b8;
+}
+
+.forecast-commodity-selector select {
+  padding: 9px 14px;
+  border-radius: 10px;
+  border: 1.5px solid #e2e8f0;
+  background: #fff;
+  font-size: 0.95rem;
+  color: #0f172a;
+  min-width: 200px;
+}
+
+.theme-dark .forecast-commodity-selector select {
+  background: #1e293b;
+  border-color: #334155;
+  color: #f1f5f9;
+}
+
+/* Sell recommendation card */
+.sell-recommendation-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 20px 24px;
+  border-radius: 16px;
+  margin-bottom: 28px;
+  border: 1.5px solid transparent;
+}
+
+.sell-recommendation-card.rec-hold {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.sell-recommendation-card.rec-sell {
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.sell-recommendation-card.rec-stable {
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.theme-dark .sell-recommendation-card.rec-hold  { background: rgba(16,185,129,0.1); border-color: rgba(16,185,129,0.3); }
+.theme-dark .sell-recommendation-card.rec-sell  { background: rgba(239,68,68,0.1);  border-color: rgba(239,68,68,0.3);  }
+.theme-dark .sell-recommendation-card.rec-stable{ background: rgba(245,158,11,0.1); border-color: rgba(245,158,11,0.3); }
+
+.rec-icon-wrap {
+  flex-shrink: 0;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.6);
+}
+
+.rec-hold   .rec-icon-wrap { color: #166534; }
+.rec-sell   .rec-icon-wrap { color: #dc2626; }
+.rec-stable .rec-icon-wrap { color: #d97706; }
+
+.rec-content h4 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0 0 6px;
+  color: #0f172a;
+}
+
+.theme-dark .rec-content h4 { color: #f1f5f9; }
+
+.rec-content p {
+  font-size: 0.9rem;
+  color: #475569;
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+
+.theme-dark .rec-content p { color: #94a3b8; }
+
+.model-badge {
+  font-size: 0.75rem;
+  color: #64748b;
+  background: rgba(0,0,0,0.05);
+  padding: 3px 8px;
+  border-radius: 99px;
+}
+
+/* Forecast chart header */
+.forecast-chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.forecast-chart-header h3 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.theme-dark .forecast-chart-header h3 { color: #f1f5f9; }
+
+.confidence-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.ci-swatch {
+  display: inline-block;
+  width: 20px;
+  height: 10px;
+  background: rgba(59,130,246,0.2);
+  border: 1px solid rgba(59,130,246,0.4);
+  border-radius: 3px;
+}
+
+/* Forecast data table */
+.forecast-table-details {
+  margin-top: 24px;
+}
+
+.forecast-table-details summary {
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #166534;
+  padding: 8px 0;
+  user-select: none;
+}
+
+.forecast-table-wrap {
+  overflow-x: auto;
+  margin-top: 12px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+}
+
+.theme-dark .forecast-table-wrap { border-color: #334155; }
+
+.forecast-table tbody tr.best-sell-row {
+  background: #fef9c3;
+  font-weight: 600;
+}
+
+.theme-dark .forecast-table tbody tr.best-sell-row {
+  background: rgba(245,158,11,0.15);
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .forecast-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .forecast-commodity-selector select {
+    min-width: unset;
+    width: 100%;
+  }
+
+  .sell-recommendation-card {
+    flex-direction: column;
+  }
+}

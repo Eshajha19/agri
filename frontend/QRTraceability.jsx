@@ -62,8 +62,30 @@ export default function QRTraceability() {
   const generateNewBatch = (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
+
+    // Generate a collision-resistant batch ID using the current year,
+    // a millisecond timestamp, and 4 random hex chars.
+    // Format: BATCH-YYYY-<13-digit ms timestamp>-<4 hex chars>
+    // Collision probability is astronomically low — the timestamp alone
+    // makes two IDs generated in the same millisecond extremely unlikely,
+    // and the random suffix eliminates the remaining risk.
+    // The year is derived from the current date so IDs remain accurate
+    // across years instead of being hardcoded to 2026.
+    const year = new Date().getFullYear();
+    const ts = Date.now();
+    const rand = Math.floor(Math.random() * 0xffff).toString(16).toUpperCase().padStart(4, '0');
+    const newId = `BATCH-${year}-${ts}-${rand}`;
+
+    // Guard: reject the (now astronomically unlikely) case where the ID
+    // already exists, so the user gets an actionable error instead of
+    // silent data loss.
+    if (batches.some(b => b.id === newId)) {
+      alert("ID generation collision — please try again.");
+      return;
+    }
+
     const newBatch = {
-      id: `BATCH-2026-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`,
+      id: newId,
       crop: formData.get('crop'),
       variety: formData.get('variety'),
       harvestDate: formData.get('harvestDate'),
