@@ -47,6 +47,8 @@ import How from "./How";
 import Home from "./Home";
 import MarketPrices from "./MarketPrices";
 import Community from "./Community";
+import Leaderboard from "./Leaderboard";
+import { FaTrophy, FaRobot } from "react-icons/fa";
 import ContactUs from "./ContactUs";
 import AboutUs from "./AboutUs";
 import LanguageDropdown from "./LanguageDropdown";
@@ -72,11 +74,12 @@ import NotFound from "./NotFound";
 import PrivacyPolicy from "./PrivacyPolicy";
 import Terms from "./Terms";
 import SoilAnalysis from "./SoilAnalysis";
- import SeedVerifier from "./SeedVerifier";
- import FarmFinance from "./FarmFinance";
- import YieldPredictor from "./YieldPredictor";
+import SeedVerifier from "./SeedVerifier";
+import FarmFinance from "./FarmFinance";
+import YieldPredictor from "./YieldPredictor";
+import SmartFarmAutopilot from "./SmartFarmAutopilot";
 
- // Keep critical components synchronous
+// Keep critical components synchronous
 import Loader from "./Loader";
 import useNotifications from "./Notifications";
 import Footer from "./components/Footer";
@@ -367,7 +370,9 @@ function App() {
                 )}
                 <Link to="/community" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaComments /> Community</Link>
                 <Link to="/risk-index" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Risk Index</Link>
+                <Link to="/smart-farm-autopilot" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaRobot /> Smart Farm Autopilot</Link>
                 <Link to="/glossary" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaBook /> Glossary</Link>
+                <Link to="/leaderboard" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaTrophy /> Leaderboard</Link>
                 <Link to="/about" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> About Us</Link>
                 <Link to="/contact" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> Contact</Link>
               </div>
@@ -464,6 +469,7 @@ function App() {
           <Route path="/farming-map" element={<FarmingMap />} />
           <Route path="/profit-calculator" element={<CropProfitCalculator />} />
           <Route path="/community" element={<Community />} />
+          <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/soil-analysis" element={<SoilAnalysis />} />
           <Route path="/faq" element={<FAQ />} />
           <Route path="/terms" element={<Terms />} />
@@ -484,6 +490,7 @@ function App() {
           <Route path="/seed-verifier" element={<SeedVerifier />} />
           <Route path="/farm-finance" element={<FarmFinance />} />
           <Route path="/yield-predictor" element={<YieldPredictor />} />
+          <Route path="/smart-farm-autopilot" element={<SmartFarmAutopilot />} />
           <Route path="/blog" element={<Blog />} />
           <Route path="/blog/:id" element={<BlogDetail />} />
           <Route path="/farming-news" element={<FarmingNews />} />
