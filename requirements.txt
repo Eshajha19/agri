@@ -19,4 +19,6 @@ google-cloud-secret-manager
 slowapi
 firebase-admin
 google-generativeai
-aiohttp
+opencv-python
+pillow
+qrcode

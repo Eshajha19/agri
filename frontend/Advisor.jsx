@@ -20,6 +20,7 @@ import FarmDiary from "./FarmDiary";
 import CropDiseaseDetection from "./CropDiseaseDetection";
 import PestDetection from "./PestDetection";
 import PestManagement from "./PestManagement";
+import SprayReminder from "./SprayReminder";
 import SeedVerifier from "./SeedVerifier";
 import ClimateSimulator from "./ClimateSimulator";
 import RAGAdvisor from "./RAGAdvisor";
@@ -29,11 +30,16 @@ import CropRotation from "./CropRotation";
 import P2PChat from "./P2PChat";
 import GeoAlertMesh from "./GeoAlertMesh";
 import SmartCropRecommendation from "./SmartCropRecommendation";
+import CropRecommendationAdvisor from "./CropRecommendationAdvisor";
 import PersonalizedAdvisory from "./PersonalizedAdvisory";
 import YieldHistory from "./YieldHistory";
-import CropRecommendationAdvisor from "./CropRecommendationAdvisor";
 import EquipmentManagement from "./EquipmentManagement";
+import CropQualityGrading from "./CropQualityGrading";
+import SustainabilityAnalytics from "./SustainabilityAnalytics";
 import LastUpdated from "./LastUpdated";
+import ExpertDirectory from "./components/ExpertDirectory";
+import TeleConsultation from "./components/TeleConsultation";
+import ConsultationHistory from "./components/ConsultationHistory";
 import { Leaf } from "lucide-react";
 import {
   Sun,
@@ -69,6 +75,9 @@ import {
    Construction,
    CloudRain,
    Settings,
+   Video,
+   Phone,
+   Users,
  } from "lucide-react";
 import { FaSync } from "react-icons/fa";
 import { useAdvisorStore } from "./stores/advisorStore";
@@ -89,72 +98,84 @@ import {
 export default function Advisor({ userData }) {
   const navigate = useNavigate();
   
-  const {
-    farmers,
-    setFarmers,
-    crops,
-    setCrops,
-    languages,
-    setLanguages,
-    showWeather,
-    setShowWeather,
-    showSoilChatbot,
-    setShowSoilChatbot,
-    showSoilAnalysis,
-    setShowSoilAnalysis,
-    showSoilGuide,
-    setShowSoilGuide,
-    showFertilizerPopup,
-    setShowFertilizerPopup,
-    showComingSoon,
-    setShowComingSoon,
-    showIrrigation,
-    setShowIrrigation,
-    showProfitCalculator,
-    setShowProfitCalculator,
-    showFarmingMap,
-    setShowFarmingMap,
-    showCropDiseaseDetection,
-    setShowCropDiseaseDetection,
-    showPestManagement,
-    setShowPestManagement,
-    showAgriMarketplace,
-    setShowAgriMarketplace,
-    showAgriLMS,
-    setShowAgriLMS,
-    showQRTraceability,
-    setShowQRTraceability,
-    showFarmPlanner3D,
-    setShowFarmPlanner3D,
-    showFarmDiary,
-    setShowFarmDiary,
-    showCropRotation,
-    setShowCropRotation,
-    showForecast,
-    setShowForecast,
-    showExpertStatus,
-    setShowExpertStatus,
-    showBankReport,
-    setShowBankReport,
-    showP2PChat,
-    setShowP2PChat,
-    showSmartCropRecommendation,
-    setShowSmartCropRecommendation,
-    showSeedVerifier,
-    setShowSeedVerifier,
-    showGeoAlerts,
-    setShowGeoAlerts,
-    showClimateSimulator,
-    setShowClimateSimulator,
-    showRAGAdvisor,
-    setShowRAGAdvisor,
-    showGreenPractices,
-    setShowGreenPractices,
-    showCropRecommendationAdvisor,
-    setShowCropRecommendationAdvisor,
-    showEquipmentManagement,
-    setShowEquipmentManagement,
-} = useAdvisorStore();
+   const {
+     farmers,
+     setFarmers,
+     crops,
+     setCrops,
+     languages,
+     setLanguages,
+     showWeather,
+     setShowWeather,
+     showSoilChatbot,
+     setShowSoilChatbot,
+     showSoilAnalysis,
+     setShowSoilAnalysis,
+     showSoilGuide,
+     setShowSoilGuide,
+     showFertilizerPopup,
+     setShowFertilizerPopup,
+     showComingSoon,
+     setShowComingSoon,
+     showIrrigation,
+     setShowIrrigation,
+     showProfitCalculator,
+     setShowProfitCalculator,
+     showFarmingMap,
+     setShowFarmingMap,
+     showCropDiseaseDetection,
+     setShowCropDiseaseDetection,
+      showPestManagement,
+      setShowPestManagement,
+      showSprayReminder,
+      setShowSprayReminder,
+      showAgriMarketplace,
+      setShowAgriMarketplace,
+     showAgriLMS,
+     setShowAgriLMS,
+     showQRTraceability,
+     setShowQRTraceability,
+     showFarmPlanner3D,
+     setShowFarmPlanner3D,
+     showFarmDiary,
+     setShowFarmDiary,
+     showCropRotation,
+     setShowCropRotation,
+     showForecast,
+     setShowForecast,
+     showExpertStatus,
+     setShowExpertStatus,
+     showBankReport,
+     setShowBankReport,
+     showP2PChat,
+     setShowP2PChat,
+     showSmartCropRecommendation,
+     setShowSmartCropRecommendation,
+     showSeedVerifier,
+     setShowSeedVerifier,
+     showGeoAlerts,
+     setShowGeoAlerts,
+     showClimateSimulator,
+     setShowClimateSimulator,
+     showRAGAdvisor,
+     setShowRAGAdvisor,
+showGreenPractices,
+      setShowGreenPractices,
+      showCropRecommendationAdvisor,
+      setShowCropRecommendationAdvisor,
+       showCropGrading,
+       setShowCropGrading,
+       showSustainabilityAnalytics,
+       setShowSustainabilityAnalytics,
+       showExpertDirectory,
+       setShowExpertDirectory,
+       showTeleConsultation,
+       setShowTeleConsultation,
+       activeConsultation,
+       setActiveConsultation,
+       showConsultationHistory,
+       setShowConsultationHistory,
+    } = useAdvisorStore();
 
 
 
@@ -646,6 +667,12 @@ export default function Advisor({ userData }) {
             <p>Early warnings & organic pest control tips.</p>
           </div>
 
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowSprayReminder(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSprayReminder(true); }} aria-label="Spray Scheduler: Weather-aware spray scheduling">
+            <div className="icon" aria-hidden="true"><CloudRain size={32} /></div>
+            <h3><span className="notranslate">Spray Scheduler</span></h3>
+            <p>Weather-aware spray scheduling &amp; rotation recommendations.</p>
+          </div>
+
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowYieldPopup(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowYieldPopup(true); }} aria-label="Yield Prediction: AI-based forecast">
             <div className="icon" aria-hidden="true"><BarChart3 size={32} /></div>
             <h3><span className="notranslate">Yield Prediction</span></h3>
@@ -678,14 +705,6 @@ export default function Advisor({ userData }) {
               <div className="icon" aria-hidden="true"><ShoppingCart size={32} /></div>
               <h3><span className="notranslate">Agri Marketplace</span></h3>
               <p>Rent or list farm equipment locally. Save costs and earn extra.</p>
-            </div>
-          )}
-
-          {(userData?.role === "farmer" || userData?.role === "admin") && (
-            <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/equipment-management")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/equipment-management"); }} aria-label="Equipment Management: Monitor and maintain farm equipment">
-              <div className="icon" aria-hidden="true"><Settings size={32} /></div>
-              <h3><span className="notranslate">Equipment Management</span></h3>
-              <p>Real-time monitoring and predictive maintenance for all farm equipment.</p>
             </div>
           )}
 
@@ -868,6 +887,37 @@ export default function Advisor({ userData }) {
             <h3><span className="notranslate">AI Research Advisor</span></h3>
             <p>Get research-backed agricultural advice with verified citations from ICAR, FAO, and more.</p>
           </div>
+
+          <div 
+            className="card reveal" 
+            style={{ border: '2px solid #6366f1', background: 'rgba(99, 102, 241, 0.02)' }}
+            role="button" 
+            tabIndex={0} 
+            onClick={() => setShowExpertDirectory(true)} 
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowExpertDirectory(true); }} 
+            aria-label="Expert/KVK Booking: Schedule consultations"
+          >
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(99, 102, 241, 0.1)', color: '#6366f1' }}>
+              <Video size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Expert/KVK Booking</span></h3>
+            <p>Book consultations with agricultural experts and KVK advisors via video or audio call.</p>
+          </div>
+
+          <div 
+            className="card reveal" 
+            role="button" 
+            tabIndex={0} 
+            onClick={() => setShowConsultationHistory(true)} 
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowConsultationHistory(true); }} 
+            aria-label="Consultation History: View past sessions"
+          >
+            <div className="icon" aria-hidden="true">
+              <Users size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">My Consultations</span></h3>
+            <p>View your past and upcoming consultation history with experts.</p>
+          </div>
 <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/farming-news")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/farming-news"); }} aria-label="Farming News: Latest agricultural updates">
               <div className="icon" aria-hidden="true">
                 <Book size={32} strokeWidth={2} />
@@ -893,6 +943,40 @@ export default function Advisor({ userData }) {
             <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#10b981', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>EARN</div>
             <h3><span className="notranslate">Green Practices & Carbon</span></h3>
             <p>Track eco-friendly practices, calculate carbon impact, and monetize sustainability.</p>
+          </div>
+
+          <div
+            className="card reveal"
+            style={{ border: '2px solid #0d9488', background: 'rgba(13, 148, 136, 0.04)' }}
+            role="button"
+            tabIndex={0}
+            onClick={() => setShowSustainabilityAnalytics(true)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSustainabilityAnalytics(true); }}
+            aria-label="Sustainability Analytics: Water footprint and carbon emissions"
+          >
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(13, 148, 136, 0.12)', color: '#0d9488' }}>
+              <Droplets size={32} strokeWidth={2} />
+            </div>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#0d9488', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>LCA</div>
+            <h3><span className="notranslate">Sustainability Analytics</span></h3>
+            <p>Estimate water footprint and carbon emissions per crop season with LCA-style insights.</p>
+          </div>
+
+          <div
+            className="card reveal"
+            style={{ border: '2px solid #f59e0b', background: 'rgba(245, 158, 11, 0.02)' }}
+            role="button"
+            tabIndex={0}
+            onClick={() => setShowCropGrading(true)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowCropGrading(true); }}
+            aria-label="Crop Grading: Grade your harvest quality"
+          >
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b' }}>
+              <BarChart3 size={32} strokeWidth={2} />
+            </div>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#f59e0b', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>NEW</div>
+            <h3><span className="notranslate">Crop Grading</span></h3>
+            <p>Analyze crop quality metrics, get grading recommendations, and estimate market value.</p>
           </div>
         </div>
         
@@ -1361,6 +1445,14 @@ export default function Advisor({ userData }) {
         </div>
       )}
 
+      {showSprayReminder && (
+        <div className="weather-overlay" onClick={() => setShowSprayReminder(false)}>
+          <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ padding: 0, background: 'transparent', boxShadow: 'none' }}>
+            <SprayReminder onClose={() => setShowSprayReminder(false)} />
+          </div>
+        </div>
+      )}
+
       {showAgriMarketplace && (
         <div className="weather-overlay" onClick={() => setShowAgriMarketplace(false)}>
           <div className="agri-modal-wrapper" onClick={(e) => e.stopPropagation()}>
@@ -1484,16 +1576,65 @@ export default function Advisor({ userData }) {
         onClose={() => setShowRAGAdvisor(false)}
       />
 
-      {showGreenPractices && (
-        <div className="weather-overlay" onClick={() => setShowGreenPractices(false)}>
+{showGreenPractices && (
+         <div className="weather-overlay" onClick={() => setShowGreenPractices(false)}>
+           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+             <GreenPractices 
+               userProfile={userProfile} 
+               onClose={() => setShowGreenPractices(false)} 
+             />
+           </div>
+         </div>
+       )}
+
+        {showCropGrading && (
+          <div className="weather-overlay" onClick={() => setShowCropGrading(false)}>
+            <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
+              <CropQualityGrading onClose={() => setShowCropGrading(false)} />
+            </div>
+          </div>
+        )}
+
+      {showSustainabilityAnalytics && (
+        <div className="weather-overlay" onClick={() => setShowSustainabilityAnalytics(false)}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
-            <GreenPractices 
-              userProfile={userProfile} 
-              onClose={() => setShowGreenPractices(false)} 
+            <SustainabilityAnalytics
+              userProfile={userProfile}
+              onClose={() => setShowSustainabilityAnalytics(false)}
             />
           </div>
         </div>
       )}
-    </section>
-  );
-}
+
+      {showExpertDirectory && (
+        <ExpertDirectory 
+          onClose={() => setShowExpertDirectory(false)}
+          onBookConsultation={(consultation) => {
+            setShowExpertDirectory(false);
+            setShowConsultationHistory(true);
+          }}
+        />
+      )}
+
+      {showConsultationHistory && (
+        <ConsultationHistory 
+          onClose={() => setShowConsultationHistory(false)}
+          onStartConsultation={(consultation) => {
+            setActiveConsultation(consultation);
+            setShowTeleConsultation(true);
+          }}
+        />
+      )}
+
+      {showTeleConsultation && activeConsultation && (
+        <TeleConsultation 
+          consultation={activeConsultation}
+          onEnd={() => {
+            setShowTeleConsultation(false);
+            setActiveConsultation(null);
+          }}
+        />
+      )}
+     </section>
+   );
+ }

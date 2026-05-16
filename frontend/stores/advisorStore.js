@@ -35,7 +35,8 @@ export const useAdvisorStore = create((set) => ({
 
   showPestManagement: false,
   setShowPestManagement: (show) => set({ showPestManagement: show }),
-
+   showSprayReminder: false,
+   setShowSprayReminder: (show) => set({ showSprayReminder: show }),
   showSoilAnalysis: false,
   setShowSoilAnalysis: (show) => set({ showSoilAnalysis: show }),
 
@@ -94,10 +95,27 @@ export const useAdvisorStore = create((set) => ({
    setShowRAGAdvisor: (show) => set({ showRAGAdvisor: show }),
 
 showGreenPractices: false,
-    setShowGreenPractices: (show) => set({ showGreenPractices: show }),
+     setShowGreenPractices: (show) => set({ showGreenPractices: show }),
 
-    showEquipmentManagement: false,
-    setShowEquipmentManagement: (show) => set({ showEquipmentManagement: show }),
+     showEquipmentManagement: false,
+     setShowEquipmentManagement: (show) => set({ showEquipmentManagement: show }),
+
+     showCropGrading: false,
+     setShowCropGrading: (show) => set({ showCropGrading: show }),
+
+   showSustainabilityAnalytics: false,
+   setShowSustainabilityAnalytics: (show) => set({ showSustainabilityAnalytics: show }),
+   showExpertDirectory: false,
+   setShowExpertDirectory: (show) => set({ showExpertDirectory: show }),
+
+   showTeleConsultation: false,
+   setShowTeleConsultation: (show) => set({ showTeleConsultation: show }),
+
+   activeConsultation: null,
+   setActiveConsultation: (consultation) => set({ activeConsultation: consultation }),
+
+   showConsultationHistory: false,
+   setShowConsultationHistory: (show) => set({ showConsultationHistory: show }),
 
     // Reset all modals to closed
    resetAdvisorStore: () =>
@@ -115,6 +133,7 @@ showGreenPractices: false,
        showFarmingMap: false,
        showCropDiseaseDetection: false,
        showPestManagement: false,
+       showSprayReminder: false,
        showComingSoon: false,
        showAgriMarketplace: false,
        showQRTraceability: false,
@@ -130,8 +149,14 @@ showSmartCropRecommendation: false,
         showSeedVerifier: false,
         showGeoAlerts: false,
         showClimateSimulator: false,
-        showRAGAdvisor: false,
-        showGreenPractices: false,
-        showEquipmentManagement: false,
-     }),
+showRAGAdvisor: false,
+         showGreenPractices: false,
+         showEquipmentManagement: false,
+          showCropGrading: false,
+         showSustainabilityAnalytics: false,
+          showExpertDirectory: false,
+          showTeleConsultation: false,
+          activeConsultation: null,
+          showConsultationHistory: false,
+      }),
 }));

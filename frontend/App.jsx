@@ -16,7 +16,8 @@ import {
   FaInfoCircle,
   FaBook,
   FaShieldAlt,
-  FaBolt,
+FaBolt,
+  FaFileInvoiceDollar,
   FaUserSecret,
   FaHome,
   FaSun,
@@ -371,10 +372,8 @@ function App() {
                   <Link to="/admin/feedback" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Feedback Admin</Link>
                 )}
                 <Link to="/community" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaComments /> Community</Link>
-                <Link to="/disease-awareness" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaLeaf /> Awareness</Link>
                 <Link to="/risk-index" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Risk Index</Link>
                 <Link to="/glossary" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaBook /> Glossary</Link>
-                <Link to="/farming-news" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaNewspaper /> Farming News</Link>
                 <Link to="/about" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> About Us</Link>
                 <Link to="/contact" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> Contact</Link>
               </div>
