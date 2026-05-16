@@ -61,6 +61,7 @@ import PrivacyPolicy from "./PrivacyPolicy";
 import Terms from "./Terms";
 import SoilAnalysis from "./SoilAnalysis";
 import SeedVerifier from "./SeedVerifier";
+import Leaderboard from "./Leaderboard";
 import Footer from "./components/Footer";
 import { SkipLink } from "./NavigationManager";
 import { useTheme } from "./ThemeContext";
@@ -467,6 +468,7 @@ function App() {
           <Route path="/seed-verifier" element={<SeedVerifier />} />
           <Route path="/blog" element={<Blog />} />
           <Route path="/blog/:id" element={<BlogDetail />} />
+          <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
