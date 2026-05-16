@@ -124,6 +124,9 @@ const Auth = () => {
         await sendEmailVerification(user);
 
         // Store/Update user info in Firestore
+        // role: "farmer" is written explicitly so the backend's verify_role
+        // function never has to fall back to a default — the field is always
+        // present from the moment the account is created.
         await setDoc(doc(db, "users", user.uid), {
           uid: user.uid,
           displayName: displayName,
@@ -131,6 +134,7 @@ const Auth = () => {
           phoneNumber: phoneNumber,
           createdAt: new Date().toISOString(),
           verified: false,
+          role: "farmer",
           reputation: 0,
           profileCompleted: false
         }, { merge: true });
@@ -165,17 +169,29 @@ const Auth = () => {
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
 
-      // Create/Update user in Firestore
-      // We wrap this in a try-catch to differentiate between Auth and Firestore failures
+      // Create/Update user in Firestore.
+      // We wrap this in a try-catch to differentiate between Auth and Firestore failures.
       try {
-        await setDoc(doc(db, "users", user.uid), {
+        // Read the existing document first so we never overwrite a role that
+        // was already set (e.g. an admin re-logging in via Google).  On first
+        // sign-in the document won't exist, so we write role: "farmer" as the
+        // explicit default.  On subsequent logins we only update mutable fields
+        // (displayName, photoURL, lastLogin) and leave role untouched.
+        const userDocRef = doc(db, "users", user.uid);
+        const existingDoc = await getDoc(userDocRef);
+        const isNewUser = !existingDoc.exists() || !existingDoc.data()?.role;
+
+        await setDoc(userDocRef, {
           uid: user.uid,
           displayName: user.displayName,
           email: user.email,
           photoURL: user.photoURL,
           lastLogin: new Date().toISOString(),
-          profileCompleted: true, // Google users often don't need the full setup
-          reputation: 0
+          profileCompleted: true,
+          reputation: 0,
+          // Only set role on first sign-in. Subsequent logins must not
+          // overwrite a role that was elevated (e.g. farmer → expert/admin).
+          ...(isNewUser && { role: "farmer" }),
         }, { merge: true });
       } catch (fsErr) {
         console.error("Firestore sync error:", fsErr);

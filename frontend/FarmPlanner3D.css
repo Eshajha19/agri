@@ -158,3 +158,59 @@
     height: 400px;
   }
 }
+
+/* Dark Mode Support */
+.theme-dark .farm-planner-container {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.theme-dark .planner-sidebar {
+  background: #0f172a;
+  border-right-color: #334155;
+}
+
+.theme-dark .sidebar-header h2 {
+  color: #4ade80;
+}
+
+.theme-dark .sidebar-header p {
+  color: #94a3b8;
+}
+
+.theme-dark .tool-btn {
+  background: #1e293b;
+  border-color: #334155;
+  color: #f8fafc;
+}
+
+.theme-dark .tool-btn span {
+  color: #94a3b8;
+}
+
+.theme-dark .tool-btn.active {
+  background: rgba(34, 197, 94, 0.1);
+  border-color: #22c55e;
+  color: #22c55e;
+}
+
+.theme-dark .tool-btn.active span {
+  color: #22c55e;
+}
+
+.theme-dark .planner-info {
+  background: #334155;
+}
+
+.theme-dark .planner-info p {
+  color: #cbd5e1;
+}
+
+.theme-dark .planner-viewport {
+  background: #0f172a;
+}
+
+.theme-dark .stats-badge {
+  background: rgba(30, 41, 59, 0.9);
+  color: #4ade80;
+}

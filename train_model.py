@@ -4,6 +4,9 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
 import joblib
 import numpy as np
+import os
+import hmac
+import hashlib
 
 df = pd.read_csv("Train.csv")
 # Convert SDate to datetime
@@ -35,3 +38,15 @@ print("📊 RMSE:", rmse)
 
 # Save model
 joblib.dump(model, "yield_model.joblib")
+
+# Optionally sign the model if a signing key is available in environment
+signing_key = os.getenv("MODEL_SIGNING_KEY")
+if signing_key:
+    with open("yield_model.joblib", "rb") as f:
+        data = f.read()
+    sig = hmac.new(signing_key.encode("utf-8"), data, hashlib.sha256).hexdigest()
+    with open("yield_model.joblib.sig", "w", encoding="utf-8") as sf:
+        sf.write(sig)
+    print("Wrote signature to yield_model.joblib.sig")
+else:
+    print("MODEL_SIGNING_KEY not set; no signature file written for yield_model.joblib")

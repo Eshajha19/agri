@@ -96,16 +96,12 @@ export default function Feedback() {
       return;
     }
 
-    if (!isFirebaseConfigured()) {
-      setError("Firebase is not configured. Please check your .env file.");
-      return;
-    }
-
     setLoading(true);
     try {
       const user = auth?.currentUser;
-
-      await addDoc(collection(db, "feedback"), {
+      
+      // Prepare data for API submission
+      const feedbackData = {
         userId: user?.uid || "anonymous",
         userEmail: user?.email || "anonymous",
         name: form.name || (user?.displayName ?? "Anonymous"),
@@ -114,13 +110,46 @@ export default function Feedback() {
         category: form.category,
         message: form.message,
         rating: form.rating,
-        createdAt: new Date().toISOString(),
+      };
+
+      // Submit to secure backend API instead of direct Firestore write
+      const response = await fetch("/api/feedback", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(feedbackData),
       });
 
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.detail || result.error || "Failed to submit feedback");
+      }
+
+      if (!result.success) {
+        throw new Error(result.message || "Feedback submission failed");
+      }
+
+      console.log("Feedback submitted successfully. ID:", result.feedback_id);
       setSubmitted(true);
     } catch (err) {
       console.error("Feedback submit error:", err);
-      setError("Failed to submit feedback. Please try again: " + err.message);
+      
+      // User-friendly error messages
+      let errorMessage = "Failed to submit feedback. Please try again.";
+      
+      if (err.message.includes("Message is required")) {
+        errorMessage = "Please enter a valid feedback message.";
+      } else if (err.message.includes("Invalid data format")) {
+        errorMessage = "Your feedback contains invalid characters. Please remove any special symbols and try again.";
+      } else if (err.message.includes("rating")) {
+        errorMessage = "Please select a valid rating between 1 and 5 stars.";
+      } else {
+        errorMessage = err.message || "Failed to submit feedback. Please try again.";
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
