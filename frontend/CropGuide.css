@@ -545,13 +545,22 @@
 .modal-header-row {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 16px;
   margin-bottom: 20px;
+  flex-wrap: wrap;
 }
 
 .modal-header-row h2 {
   margin: 0;
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.modal-bookmark {
+  flex-shrink: 0;
+  margin-top: 22px;
 }
 
 /* 🚫 EMPTY STATE */

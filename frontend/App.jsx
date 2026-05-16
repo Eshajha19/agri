@@ -47,6 +47,7 @@ import How from "./How";
 import Home from "./Home";
 import MarketPrices from "./MarketPrices";
 import Community from "./Community";
+import Leaderboard from "./Leaderboard";
 import ContactUs from "./ContactUs";
 import AboutUs from "./AboutUs";
 import LanguageDropdown from "./LanguageDropdown";
@@ -58,6 +59,7 @@ import EquipmentManagement from "./EquipmentManagement";
 import Resources from "./Resources";
 import SeasonalCropPlanner from "./SeasonalCropPlanner";
 import SoilGuide from "./SoilGuide";
+import FeatureFlagDashboard from "./components/FeatureFlagDashboard/FeatureFlagDashboard";
 import CropDiseaseAwareness from "./CropDiseaseAwareness";
 import CropRotation from "./CropRotation";
 import Helpline from "./Helpline";
@@ -71,11 +73,12 @@ import NotFound from "./NotFound";
 import PrivacyPolicy from "./PrivacyPolicy";
 import Terms from "./Terms";
 import SoilAnalysis from "./SoilAnalysis";
- import SeedVerifier from "./SeedVerifier";
- import FarmFinance from "./FarmFinance";
- import YieldPredictor from "./YieldPredictor";
+import SeedVerifier from "./SeedVerifier";
+import FarmFinance from "./FarmFinance";
+import YieldPredictor from "./YieldPredictor";
+import SmartFarmAutopilot from "./SmartFarmAutopilot";
 
- // Keep critical components synchronous
+// Keep critical components synchronous
 import Loader from "./Loader";
 import useNotifications from "./Notifications";
 import Footer from "./components/Footer";
@@ -447,6 +450,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Home user={user} />} />
           <Route path="/advisor" element={<Advisor userData={userData} />} />
+          <Route path="/feature-flags" element={<FeatureFlagDashboard />} />
           <Route path="/how-it-works" element={<How />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/crop-guide" element={<CropGuide />} />
@@ -462,6 +466,7 @@ function App() {
           <Route path="/farming-map" element={<FarmingMap />} />
           <Route path="/profit-calculator" element={<CropProfitCalculator />} />
           <Route path="/community" element={<Community />} />
+          <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/soil-analysis" element={<SoilAnalysis />} />
           <Route path="/faq" element={<FAQ />} />
           <Route path="/terms" element={<Terms />} />
@@ -482,6 +487,7 @@ function App() {
           <Route path="/seed-verifier" element={<SeedVerifier />} />
           <Route path="/farm-finance" element={<FarmFinance />} />
           <Route path="/yield-predictor" element={<YieldPredictor />} />
+          <Route path="/smart-farm-autopilot" element={<SmartFarmAutopilot />} />
           <Route path="/blog" element={<Blog />} />
           <Route path="/blog/:id" element={<BlogDetail />} />
           <Route path="/farming-news" element={<FarmingNews />} />
