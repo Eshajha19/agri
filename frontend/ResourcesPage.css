@@ -251,6 +251,12 @@
 }
 
 /* BUTTON */
+.explore-link {
+  display: block;
+  text-decoration: none;
+  margin-top: 10px;
+}
+
 .explore-btn {
   padding: 10px;
   border-radius: 10px;
@@ -259,10 +265,17 @@
   color: white;
   cursor: pointer;
   transition: 0.3s;
+  width: 100%;
 }
 
 .explore-btn:hover {
   background: #15803d;
+}
+
+.explore-btn:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 /* ===== NO RESULTS ===== */
