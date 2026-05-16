@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Droplets, Info, ThermometerSun, Leaf,
-  Activity, ChevronRight, MapPin
+  Activity, ChevronRight, MapPin, X
 } from 'lucide-react';
 import './IrrigationGuidance.css';
 
@@ -175,7 +175,7 @@ export default function IrrigationGuidance({ onClose }) {
 
   return (
     <div className="irri-container fade-in">
-      <button className="irri-close-btn" onClick={onClose}>✕</button>
+      <button className="irri-close-btn" onClick={onClose}><X size={24} /></button>
 
       <div className="irri-header">
         <Droplets size={36} color="#0ea5e9" />
