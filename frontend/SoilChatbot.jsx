@@ -6,6 +6,11 @@ import {
   FaVolumeUp,
   FaPaperPlane,
   FaImage,
+  FaFlask,
+  FaCloudSun,
+  FaBug,
+  FaSeedling,
+  FaTimes
 } from "react-icons/fa";
 
 import { useChatbot } from "./hooks/useChatbot";
@@ -23,6 +28,7 @@ function SoilChatbot({ onClose }) {
     stopSpeaking,
     isLoading,
     handleSendMessage,
+    isGeminiConfigured,
   } = useChatbot();
 
   const messagesEndRef = useRef(null);
@@ -51,10 +57,10 @@ function SoilChatbot({ onClose }) {
   };
 
   const suggestions = [
-    "🌤️ Weather-based farming advice",
-    "🌾 Recommended crops for this month",
-    "🧪 How to improve my soil health?",
-    "🐛 Pest control for my crops",
+    { text: "Weather-based farming advice", icon: <FaCloudSun /> },
+    { text: "Recommended crops for this month", icon: <FaSeedling /> },
+    { text: "How to improve my soil health?", icon: <FaFlask /> },
+    { text: "Pest control for my crops", icon: <FaBug /> },
   ];
 
   return (
@@ -63,7 +69,7 @@ function SoilChatbot({ onClose }) {
       <div className="chat-header">
         <div className="header-info">
           <h2>
-            🌱 Agri Assistant
+            <FaSeedling className="inline-icon" /> Agri Assistant
             <FaVolumeUp
               style={{
                 fontSize: "0.9rem",
@@ -77,12 +83,20 @@ function SoilChatbot({ onClose }) {
         </div>
 
         <button className="close-btn" onClick={onClose}>
-          ✖
+          <FaTimes />
         </button>
       </div>
 
       {/* Chat Window */}
       <div className="chat-window">
+        {!isGeminiConfigured && (
+          <div className="chat-message bot">
+            <div className="message-content">
+              AI chat is temporarily unavailable. You can still use weather alerts, crop guides, and pest management tools for help.
+            </div>
+          </div>
+        )}
+
         {messages.map((msg, idx) => (
           <div key={idx} className={`chat-message ${msg.from}`}>
             <div className="message-content">{msg.text}</div>
@@ -97,7 +111,7 @@ function SoilChatbot({ onClose }) {
 
         {isListening && (
           <div className="chat-message user listening">
-            Listening... 🎤
+            Listening... <FaMicrophone />
           </div>
         )}
 
@@ -110,9 +124,10 @@ function SoilChatbot({ onClose }) {
           <button
             key={i}
             className="suggestion-chip"
-            onClick={() => handleSend(s)}
+            onClick={() => handleSend(s.text)}
+            disabled={!isGeminiConfigured}
           >
-            {s}
+            {s.icon} {s.text}
           </button>
         ))}
       </div>
@@ -155,6 +170,7 @@ function SoilChatbot({ onClose }) {
             value={userInput}
             onChange={(e) => setUserInput(e.target.value)}
             placeholder="Ask about crops, weather, soil..."
+            disabled={!isGeminiConfigured}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 handleSend();
@@ -172,6 +188,7 @@ function SoilChatbot({ onClose }) {
               aria-label="Toggle voice input"
               aria-pressed={isListening}
               title="Start / Stop Voice Input"
+              disabled={!isGeminiConfigured}
             >
               <FaMicrophone />
             </button>
@@ -192,6 +209,7 @@ function SoilChatbot({ onClose }) {
         <button
           className="send-btn"
           onClick={() => handleSend()}
+          disabled={!isGeminiConfigured}
         >
           <FaPaperPlane />
         </button>
