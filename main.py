@@ -112,6 +112,13 @@ from ml.adapters.xgboost_adapter import XGBoostAdapter
 from ml.router import ModelRouter
 from ml.preprocessing import UnknownCategoryError, MissingFeatureError
 
+# Persistence Layer
+from persistence.repositories import (
+    FinanceApplicationRepository,
+    NotificationRepository,
+    SupplyChainRepository,
+)
+
 # Other internal modules
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
@@ -499,14 +506,21 @@ _notification_store.append(
     message="🌧️ Heavy rainfall expected in your region today.",
 )
 
+# Initialize repositories for persistent storage
+_finance_repository = FinanceApplicationRepository()
+_notification_repository = NotificationRepository()
+_supply_chain_repository = SupplyChainRepository()
+
 # Initialize Crop Quality Grader
 _crop_quality_grader = CropQualityGrader()
 
-# Initialize Supply Chain Blockchain
-_supply_chain_blockchain = SupplyChainBlockchain()
+# Initialize Supply Chain Blockchain with persistent repository
+_supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
 
-# Initialize Farm Finance AI
-_farm_finance_ai = FarmFinanceAI()
+# Initialize Farm Finance AI with persistent repository
+_farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
+
+logger.info("Domain engines initialized with persistent repositories")
 
 # --- Routes ---
 
