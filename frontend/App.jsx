@@ -72,11 +72,12 @@ import NotFound from "./NotFound";
 import PrivacyPolicy from "./PrivacyPolicy";
 import Terms from "./Terms";
 import SoilAnalysis from "./SoilAnalysis";
- import SeedVerifier from "./SeedVerifier";
- import FarmFinance from "./FarmFinance";
- import YieldPredictor from "./YieldPredictor";
+import SeedVerifier from "./SeedVerifier";
+import FarmFinance from "./FarmFinance";
+import YieldPredictor from "./YieldPredictor";
+import SmartFarmAutopilot from "./SmartFarmAutopilot";
 
- // Keep critical components synchronous
+// Keep critical components synchronous
 import Loader from "./Loader";
 import useNotifications from "./Notifications";
 import Footer from "./components/Footer";
@@ -491,6 +492,7 @@ function App() {
           <Route path="/seed-verifier" element={<SeedVerifier />} />
           <Route path="/farm-finance" element={<FarmFinance />} />
           <Route path="/yield-predictor" element={<YieldPredictor />} />
+          <Route path="/smart-farm-autopilot" element={<SmartFarmAutopilot />} />
           <Route path="/blog" element={<Blog />} />
           <Route path="/blog/:id" element={<BlogDetail />} />
           <Route path="/farming-news" element={<FarmingNews />} />
