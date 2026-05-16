@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useCallback } from "react";
 import {
   FaBell,
   FaCrosshairs,
@@ -7,6 +7,18 @@ import {
   FaTemperatureHigh,
   FaTint,
   FaWind,
+  FaCloudRain,
+  FaCloud,
+  FaSun,
+  FaCloudSun,
+  FaBolt,
+  FaLeaf,
+  FaBrain,
+  FaSeedling,
+  FaExclamationTriangle,
+  FaThermometerHalf,
+  FaSnowflake,
+  FaTimes,
 } from "react-icons/fa";
 import "./WeatherCard.css";
 import {
@@ -20,16 +32,33 @@ import {
 import { useWeatherManagement } from "../hooks/useWeatherManagement";
 import LastUpdated from "../LastUpdated";
 
-const SENT_NOTIFICATION_KEY = "agri:weatherNotificationSignature";
+const SENT_NOTIFICATION_KEY = "agriWeatherNotificationSignature";
 
-/* 🌦️ Weather Icon Helper */
-const getWeatherIcon = (summary = "") => {
+/* Weather Icon Mapping */
+const WEATHER_ICONS = {
+  rain: <FaCloudRain />,
+  cloud: <FaCloud />,
+  storm: <FaBolt />,
+  sun: <FaSun />,
+  "cloud-sun": <FaCloudSun />,
+  heat: <FaTemperatureHigh />,
+  humidity: <FaTint />,
+  wind: <FaWind />,
+  warning: <FaExclamationTriangle />,
+  grain: <FaSeedling />,
+  leaf: <FaLeaf />,
+  brain: <FaBrain />,
+  snow: <FaSnowflake />,
+};
+
+const getWeatherIconKey = (summary = "") => {
   const s = summary.toLowerCase();
-  if (s.includes("rain")) return "🌧️";
-  if (s.includes("cloud")) return "☁️";
-  if (s.includes("storm")) return "⛈️";
-  if (s.includes("sun")) return "☀️";
-  return "🌤️";
+  if (s.includes("rain")) return "rain";
+  if (s.includes("cloud")) return "cloud";
+  if (s.includes("storm")) return "storm";
+  if (s.includes("sun")) return "sun";
+  if (s.includes("snow")) return "snow";
+  return "cloud-sun";
 };
 
 function formatSeverity(severity) {
@@ -63,7 +92,7 @@ export default function WeatherCard({
     [snapshot, selectedCrop]
   );
 
-  /* 🌾 Smart Farming Advice Engine */
+  /* Smart Farming Advice Engine */
   const getFarmingAdvice = () => {
     if (!snapshot) return [];
 
@@ -72,45 +101,58 @@ export default function WeatherCard({
     const humidity = snapshot.current?.relative_humidity_2m;
     const wind = snapshot.current?.wind_speed_10m;
 
-    if (temp > 35) advice.push("🌡️ Heat stress: Water crops early morning/evening.");
-    if (humidity > 80) advice.push("💧 High humidity: Watch for fungal infections.");
-    if (wind > 25) advice.push("🌬️ Strong winds: Avoid spraying pesticides.");
+    if (temp > 35) advice.push({ icon: "heat", text: "Heat stress: Water crops early morning/evening." });
+    if (humidity > 80) advice.push({ icon: "humidity", text: "High humidity: Watch for fungal infections." });
+    if (wind > 25) advice.push({ icon: "wind", text: "Strong winds: Avoid spraying pesticides." });
     if (snapshot.alerts?.some(a => a.type === "rain"))
-      advice.push("🌧️ Rain alert: Delay irrigation & fertilizer use.");
+      advice.push({ icon: "rain", text: "Rain alert: Delay irrigation & fertilizer use." });
 
     return advice;
   };
 
-  /* 📡 Auto location load */
+  /* Auto location load */
   useEffect(() => {
     if (!embedded || snapshot) return;
     handleUseMyLocation();
-  }, []);
+  }, [embedded, snapshot, handleUseMyLocation]);
 
-  /* 🔔 Smart Notifications */
+  /* Smart Notifications */
   useEffect(() => {
     if (!snapshot?.alerts?.length || notificationPermission !== "granted") return;
 
-    const topAlert = snapshot.alerts[0];
-    if (topAlert.severity === "info") return;
+    const topAlert = snapshot.alerts.find((alert) =>
+      ["watch", "warning", "critical"].includes(alert.severity)
+    );
+    const cropWarning = cropWarnings[0];
+    const alertToNotify = cropWarning || topAlert;
 
-    const signature = `${snapshot.location?.name}-${topAlert.type}-${topAlert.severity}`;
+    if (!alertToNotify) return;
+
+    const signature = [
+      snapshot.location?.name || "unknown-location",
+      selectedCrop || "no-crop",
+      alertToNotify.type || "alert",
+      alertToNotify.severity || "info",
+      alertToNotify.title || "",
+      alertToNotify.message || "",
+      cropWarning?.message || "",
+    ].join("|");
     const lastSent = localStorage.getItem(SENT_NOTIFICATION_KEY);
 
     if (lastSent === signature) return;
 
-    const warning = cropWarnings[0]?.message || topAlert.message;
+    const warning = cropWarning?.message || alertToNotify.message;
 
-    const notification = new Notification(`⚠️ ${topAlert.title}`, {
+    const notification = new Notification(alertToNotify.title, {
       body: `${warning}\nTake action immediately.`,
       tag: signature,
     });
 
     notification.onclick = () => window.focus();
     localStorage.setItem(SENT_NOTIFICATION_KEY, signature);
-  }, [snapshot, cropWarnings, notificationPermission]);
+  }, [snapshot, cropWarnings, notificationPermission, selectedCrop]);
 
-  const handleSearch = async () => {
+  const handleSearch = useCallback(async () => {
     if (!searchQuery.trim()) {
       setWeatherError("Enter a city or district name first.");
       return;
@@ -120,14 +162,14 @@ export default function WeatherCard({
       const location = await searchLocationByName(searchQuery);
       return fetchWeatherByLocation(location);
     });
-  };
+  }, [searchQuery, setWeatherError, loadWeather]);
 
-  const handleUseMyLocation = async () => {
+  const handleUseMyLocation = useCallback(async () => {
     await loadWeather(async () => {
       const location = await getCurrentPosition();
       return fetchWeatherByLocation(location);
     });
-  };
+  }, [loadWeather]);
 
   const topAlert = snapshot?.alerts?.[0];
   const units = snapshot?.units || {};
@@ -148,7 +190,7 @@ export default function WeatherCard({
 
       {/* CLOSE */}
       {!embedded && onClose && (
-        <button className="weather-card__close-btn" onClick={onClose}>×</button>
+        <button className="weather-card__close-btn" onClick={onClose}><FaTimes /></button>
       )}
 
       {/* HEADER */}
@@ -163,7 +205,7 @@ export default function WeatherCard({
         </div>
       ) : (
         <div className="weather-card__header">
-          <span className="weather-card__eyebrow">🌾 Real-time farm intelligence</span>
+          <span className="weather-card__eyebrow"><FaSeedling /> Real-time farm intelligence</span>
           <h2>{title}</h2>
           <p className="subtitle">{subtitle}</p>
           {snapshot?.fetchedAt && (
@@ -238,7 +280,7 @@ export default function WeatherCard({
                 </div>
 
                 <p className="weather-summary__status">
-                  {getWeatherIcon(snapshot.summary)} {snapshot.summary}
+                  {WEATHER_ICONS[getWeatherIconKey(snapshot.summary)]} {snapshot.summary}
                 </p>
               </div>
 
@@ -267,7 +309,7 @@ export default function WeatherCard({
                   <div key={i} className="forecast-day">
                     <p>{dayName}</p>
                     <p>{Math.round(snapshot.daily.temperature_2m_max[i])}° / {Math.round(snapshot.daily.temperature_2m_min[i])}°</p>
-                    <p>{getWeatherIcon(getWeatherLabel(snapshot.daily.weather_code[i]))}</p>
+                    <p>{WEATHER_ICONS[getWeatherIconKey(getWeatherLabel(snapshot.daily.weather_code[i]))]}</p>
                   </div>
                 );
               })
@@ -280,7 +322,7 @@ export default function WeatherCard({
 
             {/* ALERTS */}
             <section className="weather-panel">
-              <h3>⚠️ Extreme Alerts</h3>
+              <h3><FaExclamationTriangle /> Extreme Alerts</h3>
               {snapshot.alerts.map((a) => (
                 <div key={a.title} className={`alert-item severity-${a.severity}`}>
                   <h4>{a.title}</h4>
@@ -291,7 +333,7 @@ export default function WeatherCard({
 
             {/* CROP WARNINGS */}
             <section className="weather-panel">
-              <h3>🌾 Crop Warnings</h3>
+              <h3><FaLeaf /> Crop Warnings</h3>
 
               {cropWarnings.length ? cropWarnings.map((w) => (
                 <div key={w.message} className="alert-item severity-info">
@@ -305,11 +347,11 @@ export default function WeatherCard({
 
             {/* SMART ADVICE */}
             <section className="weather-panel">
-              <h3>🧠 Smart Farming Advice</h3>
+              <h3><FaBrain /> Smart Farming Advice</h3>
 
               {getFarmingAdvice().map((tip, i) => (
                 <div key={i} className="alert-item severity-info">
-                  <p>{tip}</p>
+                  <p>{WEATHER_ICONS[tip.icon]} {tip.text}</p>
                 </div>
               ))}
              </section>
@@ -319,7 +361,7 @@ export default function WeatherCard({
         </>
       ) : (
         <div className="weather-empty-state">
-          <h3>🌾 Live farm intelligence ready</h3>
+          <h3><FaSeedling /> Live farm intelligence ready</h3>
           <p>Search your location to unlock AI farming insights.</p>
         </div>
       )}
