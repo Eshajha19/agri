@@ -30,7 +30,7 @@ export default function ContactUs() {
     if (!form.name.trim()) e.name = "Name is required.";
     if (!form.email.trim()) e.email = "Email is required.";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = "Enter a valid email.";
-    if (form.phone && !/^\+?[\d\s\-]{7,15}$/.test(form.phone)) e.phone = "Enter a valid phone number.";
+    if (form.phone && !/^\+?[\d\s-]{7,15}$/.test(form.phone)) e.phone = "Enter a valid phone number.";
     if (!form.topic) e.topic = "Please select a topic.";
     if (!form.message.trim()) e.message = "Message is required.";
     else if (form.message.trim().length < 10) e.message = "Message must be at least 10 characters.";
