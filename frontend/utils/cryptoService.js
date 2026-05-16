@@ -179,6 +179,67 @@ async generateECDHKeyPair() {
   },
 
   // ---------------------------------------------------------------------------
+  // High-level lifecycle
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Ensures the user has a valid ECDH key pair.
+   * 1. Checks IndexedDB (Secure)
+   * 2. Checks localStorage (Legacy/Insecure) and migrates if found
+   * 3. Generates fresh non-extractable keys if none found
+   * 
+   * Returns the public JWK and the private CryptoKey handle.
+   */
+  async ensureKeys(uid) {
+    let privateKey = await this.loadPrivateKey(uid);
+    let publicJwk = null;
+
+    // 1. Try migration from legacy localStorage (different possible prefixes)
+    if (!privateKey) {
+      const legacyKeys = [
+        `agri:ecdh_private_${uid}`,
+        `ecdh_private_${uid}`
+      ];
+      const legacyPublicKeys = [
+        `agri:ecdh_public_${uid}`,
+        `ecdh_public_${uid}`
+      ];
+
+      for (let i = 0; i < legacyKeys.length; i++) {
+        const priv = localStorage.getItem(legacyKeys[i]);
+        const pub = localStorage.getItem(legacyPublicKeys[i]);
+        if (priv && pub) {
+          try {
+            // Import the plaintext JWK from localStorage as a NON-EXTRACTABLE CryptoKey
+            privateKey = await this.importPrivateKey(JSON.parse(priv));
+            await this.savePrivateKey(uid, privateKey);
+            publicJwk = JSON.parse(pub);
+
+            // Cleanup insecure storage
+            localStorage.removeItem(legacyKeys[i]);
+            localStorage.removeItem(legacyPublicKeys[i]);
+            console.info("Migrated ECDH keys from localStorage to IndexedDB.");
+            break;
+          } catch (e) {
+            console.error("Migration failed for key:", legacyKeys[i], e);
+          }
+        }
+      }
+    }
+
+    // 2. Generate fresh keys if still none
+    if (!privateKey) {
+      const keyPair = await this.generateECDHKeyPair();
+      // Store in IDB (it will be stored as an opaque object handle)
+      await this.savePrivateKey(uid, keyPair.privateKey);
+      privateKey = keyPair.privateKey;
+      publicJwk = await this.exportKey(keyPair.publicKey);
+    }
+
+    return { privateKey, publicJwk };
+  },
+
+  // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
 
@@ -200,3 +261,4 @@ async generateECDHKeyPair() {
     return bytes.buffer;
   },
 };
+

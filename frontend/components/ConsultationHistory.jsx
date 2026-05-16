@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import "./ExpertDirectory.css";
 import { useAdvisorStore } from "../stores/advisorStore";
 import { db, auth } from "../lib/firebase";
 import { collection, getDocs, query, where, orderBy } from "firebase/firestore";
@@ -125,8 +126,7 @@ function ConsultationHistory({ onClose, onStartConsultation: _onStartConsultatio
   };
 
   return (
-    <div className="consultation-history-overlay" onClick={onClose}>
-      <div className="consultation-history" onClick={(e) => e.stopPropagation()}>
+    <div className="consultation-history">
         <div className="history-header">
           <h2>
             <Calendar className="header-icon" /> Consultation History
@@ -284,7 +284,6 @@ function ConsultationHistory({ onClose, onStartConsultation: _onStartConsultatio
           </div>
         )}
       </div>
-    </div>
   );
 }
 

@@ -348,8 +348,7 @@ function ExpertDirectory({ onClose, onBookConsultation }) {
   }
 
   return (
-    <div className="expert-directory-overlay" onClick={onClose}>
-      <div className="expert-directory" onClick={(e) => e.stopPropagation()}>
+    <div className="expert-directory">
         <div className="directory-header">
           <h2>
             <User className="header-icon" /> Expert/KVK Directory
@@ -447,7 +446,6 @@ function ExpertDirectory({ onClose, onBookConsultation }) {
             ))
           )}
         </div>
-      </div>
     </div>
   );
 }
