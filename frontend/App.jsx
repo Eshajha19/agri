@@ -71,11 +71,12 @@ import NotFound from "./NotFound";
 import PrivacyPolicy from "./PrivacyPolicy";
 import Terms from "./Terms";
 import SoilAnalysis from "./SoilAnalysis";
- import SeedVerifier from "./SeedVerifier";
- import FarmFinance from "./FarmFinance";
- import YieldPredictor from "./YieldPredictor";
+import SeedVerifier from "./SeedVerifier";
+import FarmFinance from "./FarmFinance";
+import YieldPredictor from "./YieldPredictor";
+import SmartFarmAutopilot from "./SmartFarmAutopilot";
 
- // Keep critical components synchronous
+// Keep critical components synchronous
 import Loader from "./Loader";
 import useNotifications from "./Notifications";
 import Footer from "./components/Footer";
@@ -375,6 +376,7 @@ function App() {
                 <Link to="/disease-awareness" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaLeaf /> Awareness</Link>
                 <Link to="/risk-index" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Risk Index</Link>
                 <Link to="/farm-finance" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaFileInvoiceDollar /> Farm Finance</Link>
+                <Link to="/smart-farm-autopilot" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaBolt /> Farm Autopilot</Link>
                 <Link to="/glossary" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaBook /> Glossary</Link>
                 <Link to="/farming-news" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaNewspaper /> Farming News</Link>
                 <Link to="/about" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> About Us</Link>
@@ -492,6 +494,7 @@ function App() {
           <Route path="/seed-verifier" element={<SeedVerifier />} />
           <Route path="/farm-finance" element={<FarmFinance />} />
           <Route path="/yield-predictor" element={<YieldPredictor />} />
+          <Route path="/smart-farm-autopilot" element={<SmartFarmAutopilot />} />
           <Route path="/blog" element={<Blog />} />
           <Route path="/blog/:id" element={<BlogDetail />} />
           <Route path="/farming-news" element={<FarmingNews />} />

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # main.py
 import os
 import io
@@ -13,7 +14,7 @@ from typing import Optional, Dict, Any
 
 from fastapi import FastAPI, HTTPException, Request, Form, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 
 class SimulationRequest(BaseModel):
     crop_type: str
@@ -116,6 +117,8 @@ from whatsapp_store import subscriber_store
 from crop_quality_grading import CropQualityGrader
 from blockchain_supply_chain import SupplyChainBlockchain
 from farm_finance_ai import FarmFinanceAI
+from smart_farm_autopilot import generate_season_plan
+from weather_alerts import weather_service
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -312,6 +315,15 @@ class ReportRequest(BaseModel):
                 "Field value must not contain the '|' character."
             )
         return v
+
+class WeatherLocationRequest(BaseModel):
+    location: str
+
+class WeatherAlertRequest(BaseModel):
+    latitude: float
+    longitude: float
+    location: str
+    crop: Optional[str] = None
 
 class SeedVerifyRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=100)
@@ -535,7 +547,7 @@ def get_notifications(
         water_coverage=water_coverage,
         season=season
     )
-    return {"success": True, "data": _notification_store.get_recent() + dynamic_alerts}
+    return {"success": True, "data": static_notifications[-10:] + dynamic_alerts}
 
 @app.post("/api/finance/analyze")
 @limiter.limit("10/minute")
@@ -1897,6 +1909,37 @@ async def cancel_consultation(
         raise HTTPException(status_code=500, detail="Failed to cancel consultation")
 
 
+# --- Smart Farm Autopilot Endpoint ---
+
+class SeasonPlanRequest(BaseModel):
+    farm_name: str = Field(default="My Farm", max_length=100)
+    state: str = Field(..., min_length=2, max_length=50)
+    district: str = Field(default="", max_length=100)
+    area_acres: float = Field(..., gt=0, le=10000)
+    soil_type: str = Field(..., min_length=2, max_length=50)
+    season: str = Field(..., pattern="^(Kharif|Rabi|Zaid)$")
+    water_source: str = Field(default="Canal", max_length=50)
+    budget_inr: Optional[float] = Field(default=None, ge=0)
+
+
+@app.post("/api/autopilot/generate-plan")
+@limiter.limit("5/minute")
+async def generate_farm_plan(request: Request, data: SeasonPlanRequest):
+    """
+    Smart Farm Autopilot — generate a complete seasonal farming plan.
+
+    Returns crop selection, sowing schedule, irrigation plan,
+    fertilizer/pesticide timeline, and yield/profit projection.
+    """
+    try:
+        plan = generate_season_plan(data.dict())
+        return {"success": True, "plan": plan}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Autopilot plan generation failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate farm plan")
+
 
 if __name__ == "__main__":
     import uvicorn
@@ -1999,7 +2042,7 @@ async def execute_contract(request: Request, data: ExecuteContractRequest):
 
 @app.get("/api/blockchain/qr-code/{batch_id}")
 @limiter.limit("20/minute")
-async def get_qr_code(batch_id: str):
+async def get_qr_code(request: Request, batch_id: str):
     """Get QR code for batch"""
     try:
         qr_code = _supply_chain_blockchain.generate_qr_code(batch_id)
@@ -2012,7 +2055,7 @@ async def get_qr_code(batch_id: str):
 
 @app.get("/api/blockchain/verify/{batch_id}")
 @limiter.limit("20/minute")
-async def verify_batch(batch_id: str):
+async def verify_batch(request: Request, batch_id: str):
     """Verify batch authenticity"""
     try:
         verification = _supply_chain_blockchain.verify_batch(batch_id)
@@ -2023,7 +2066,7 @@ async def verify_batch(batch_id: str):
 
 @app.get("/api/blockchain/journey/{batch_id}")
 @limiter.limit("20/minute")
-async def get_journey(batch_id: str):
+async def get_journey(request: Request, batch_id: str):
     """Get supply chain journey"""
     try:
         journey = _supply_chain_blockchain.get_supply_chain_journey(batch_id)
@@ -2036,7 +2079,7 @@ async def get_journey(batch_id: str):
 
 @app.get("/api/blockchain/analytics/{batch_id}")
 @limiter.limit("20/minute")
-async def get_analytics(batch_id: str):
+async def get_analytics(request: Request, batch_id: str):
     """Get supply chain analytics"""
     try:
         analytics = _supply_chain_blockchain.get_supply_chain_analytics(batch_id)
@@ -2049,7 +2092,7 @@ async def get_analytics(batch_id: str):
 
 @app.get("/api/blockchain/marketplace")
 @limiter.limit("20/minute")
-async def get_marketplace():
+async def get_marketplace(request: Request):
     """Get certified products for marketplace"""
     try:
         certified = _supply_chain_blockchain.get_certified_products()
@@ -2060,7 +2103,7 @@ async def get_marketplace():
 
 @app.get("/api/blockchain/stats")
 @limiter.limit("20/minute")
-async def get_stats():
+async def get_stats(request: Request):
     """Get blockchain statistics"""
     try:
         stats = {
