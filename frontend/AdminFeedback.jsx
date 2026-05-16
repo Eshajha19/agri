@@ -1,13 +1,30 @@
 import React, { useState, useEffect } from "react";
-import { collection, getDocs, deleteDoc, doc, query, orderBy } from "firebase/firestore";
+import { collection, getDocs, deleteDoc, doc, query, orderBy, getDoc } from "firebase/firestore";
 import { db, auth } from "./lib/firebase";
 import { Star, Trash2, RefreshCw, MessageSquare, TrendingUp, Users, Award, ShieldAlert } from "lucide-react";
 import "./AdminFeedback.css";
 import Loader from "./Loader";
 
 // ── ADMIN ACCESS CONTROL ──────────────────────────────────────────────────────
-// Add your admin email(s) here. Only these emails can access the admin panel.
-const ADMIN_EMAILS = ["tushar.18246@gmail.com"];
+// Access is determined by the user's role field in their Firestore document,
+// NOT by a hardcoded email list.
+//
+// Why the email list was removed:
+//   1. It only controlled what the React component rendered — any authenticated
+//      user could bypass it by calling the Firestore SDK directly from the
+//      browser console with their own valid ID token.
+//   2. It created a false sense of security while the real gate (the Firestore
+//      security rule `allow read: if hasRole('admin')`) was doing the actual
+//      enforcement.
+//   3. Hardcoded emails are brittle — they require a code deploy to add or
+//      remove admins, leave no audit trail, and expose a specific email address
+//      in the client bundle.
+//
+// The component now reads the current user's own Firestore document and checks
+// role === "admin".  This mirrors exactly what the Firestore security rule
+// enforces, so the frontend check and the backend rule are always in sync.
+// Granting or revoking admin access requires only a Firestore document update —
+// no code change, no redeploy.
 
 const CATEGORY_LABELS = {
   general: "💬 General",
@@ -24,17 +41,34 @@ export default function AdminFeedback() {
   const [authChecking, setAuthChecking] = useState(true);
   const [filter, setFilter] = useState("all");
   const [sortBy, setSortBy] = useState("newest");
+  // null = not yet resolved, true = confirmed admin, false = not admin
+  const [isAdmin, setIsAdmin] = useState(null);
 
   useEffect(() => {
-    // Check if auth is resolved
-    const unsubscribe = auth.onAuthStateChanged(() => {
-      setAuthChecking(false);
+    // Wait for Firebase Auth to resolve, then read the user's Firestore
+    // document to check their role.  This mirrors the Firestore security rule
+    // `allow read: if hasRole('admin')` so the frontend check and the backend
+    // rule are always in sync.
+    const unsubscribe = auth.onAuthStateChanged(async (user) => {
+      if (!user) {
+        setIsAdmin(false);
+        setAuthChecking(false);
+        return;
+      }
+      try {
+        const userSnap = await getDoc(doc(db, "users", user.uid));
+        const role = userSnap.exists() ? userSnap.data()?.role : null;
+        setIsAdmin(role === "admin");
+      } catch (err) {
+        // If the read fails (e.g. Firestore unavailable), deny access — fail closed.
+        console.error("AdminFeedback: role check failed:", err);
+        setIsAdmin(false);
+      } finally {
+        setAuthChecking(false);
+      }
     });
     return () => unsubscribe();
   }, []);
-
-  const currentUserEmail = auth?.currentUser?.email;
-  const isAdmin = ADMIN_EMAILS.includes(currentUserEmail);
 
   const fetchFeedbacks = async () => {
     setLoading(true);
@@ -56,8 +90,8 @@ export default function AdminFeedback() {
     }
   }, [authChecking, isAdmin]);
 
-  // Block non-admins immediately, but wait for auth to check
-  if (authChecking) {
+  // Block non-admins immediately, but wait for auth + role check to complete
+  if (authChecking || isAdmin === null) {
     return (
       <Loader fullPage={true} message="Authenticating Admin..." />
     );
