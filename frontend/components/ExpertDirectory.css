@@ -1,0 +1,1065 @@
+.expert-directory-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+  backdrop-filter: blur(4px);
+}
+
+.expert-directory,
+.expert-booking-calendar,
+.consultation-history {
+  background: white;
+  border-radius: 20px;
+  width: 100%;
+  max-width: 900px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  position: relative;
+}
+
+.expert-directory {
+  max-width: 1000px;
+}
+
+.directory-header,
+.booking-header,
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid #e2e8f0;
+  position: sticky;
+  top: 0;
+  background: white;
+  z-index: 10;
+}
+
+.directory-header h2,
+.booking-header h2,
+.history-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 1.25rem;
+  color: #1e293b;
+}
+
+.header-icon {
+  color: #6366f1;
+}
+
+.close-btn {
+  background: #f1f5f9;
+  border: none;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #64748b;
+  transition: all 0.2s;
+}
+
+.close-btn:hover {
+  background: #e2e8f0;
+  color: #1e293b;
+}
+
+.directory-filters {
+  display: flex;
+  gap: 12px;
+  padding: 16px 24px;
+  border-bottom: 1px solid #e2e8f0;
+  flex-wrap: wrap;
+  background: #f8fafc;
+}
+
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: white;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  flex: 1;
+  min-width: 200px;
+}
+
+.search-box input {
+  border: none;
+  outline: none;
+  flex: 1;
+  font-size: 0.9rem;
+}
+
+.search-box svg {
+  color: #94a3b8;
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-group select {
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  font-size: 0.9rem;
+  background: white;
+  cursor: pointer;
+}
+
+.kvk-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: #475569;
+}
+
+.kvk-toggle input {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.experts-list {
+  padding: 16px 24px;
+}
+
+.no-results {
+  text-align: center;
+  padding: 48px;
+  color: #94a3b8;
+}
+
+.no-results svg {
+  margin-bottom: 12px;
+}
+
+.expert-card {
+  display: flex;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  margin-bottom: 12px;
+  transition: all 0.2s;
+}
+
+.expert-card:hover {
+  border-color: #6366f1;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1);
+}
+
+.expert-avatar-section {
+  position: relative;
+}
+
+.expert-avatar {
+  width: 80px;
+  height: 80px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+
+.kvk-badge {
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #10b981;
+  color: white;
+  font-size: 0.65rem;
+  font-weight: bold;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.expert-details {
+  flex: 1;
+}
+
+.expert-details h3 {
+  margin: 0 0 4px;
+  font-size: 1.1rem;
+  color: #1e293b;
+}
+
+.qualification {
+  color: #64748b;
+  font-size: 0.85rem;
+  margin: 0 0 8px;
+}
+
+.expert-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.bio {
+  font-size: 0.85rem;
+  color: #475569;
+  margin: 0 0 8px;
+}
+
+.specialization-tag {
+  display: inline-block;
+  background: #f1f5f9;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  color: #475569;
+}
+
+.expert-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+}
+
+.book-consultation-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: #6366f1;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.book-consultation-btn:hover {
+  background: #4f46e5;
+}
+
+.call-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.call-btn:hover {
+  background: #e2e8f0;
+}
+
+/* Booking Calendar Styles */
+.expert-booking-calendar {
+  max-width: 600px;
+  padding: 24px;
+}
+
+.booking-header {
+  margin-bottom: 20px;
+}
+
+.expert-info-mini {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.expert-avatar-small {
+  width: 50px;
+  height: 50px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.expert-info-mini h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.expert-info-mini p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.calendar-navigation {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.calendar-navigation h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.nav-btn {
+  background: #f1f5f9;
+  border: none;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #475569;
+}
+
+.nav-btn:hover {
+  background: #e2e8f0;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: 20px;
+}
+
+.calendar-day-name {
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  padding: 8px;
+}
+
+.calendar-day {
+  text-align: center;
+  padding: 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+}
+
+.calendar-day:not(.empty):not(.past):hover {
+  background: #e0e7ff;
+}
+
+.calendar-day.today {
+  background: #6366f1;
+  color: white;
+}
+
+.calendar-day.past {
+  color: #cbd5e1;
+  cursor: not-allowed;
+}
+
+.calendar-day.empty {
+  cursor: default;
+}
+
+.time-slots-section {
+  margin-bottom: 20px;
+}
+
+.time-slots-section h4 {
+  margin: 0 0 12px;
+  font-size: 0.95rem;
+}
+
+.time-slots-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.time-slot {
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: white;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s;
+}
+
+.time-slot:hover:not(.unavailable) {
+  border-color: #6366f1;
+  background: #e0e7ff;
+}
+
+.time-slot.selected {
+  background: #6366f1;
+  color: white;
+  border-color: #6366f1;
+}
+
+.time-slot.unavailable {
+  background: #f1f5f9;
+  color: #cbd5e1;
+  cursor: not-allowed;
+}
+
+.booking-form-section {
+  border-top: 1px solid #e2e8f0;
+  padding-top: 16px;
+}
+
+.booking-form-section h4 {
+  margin: 0 0 12px;
+  font-size: 0.95rem;
+}
+
+.booking-form-section textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  resize: vertical;
+  margin-bottom: 12px;
+}
+
+.booking-form-section textarea:focus {
+  outline: none;
+  border-color: #6366f1;
+}
+
+.consultation-type {
+  margin-bottom: 16px;
+}
+
+.consultation-type label {
+  display: block;
+  font-size: 0.85rem;
+  margin-bottom: 8px;
+  color: #475569;
+}
+
+.type-options {
+  display: flex;
+  gap: 8px;
+}
+
+.type-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: white;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.type-btn.active {
+  background: #e0e7ff;
+  border-color: #6366f1;
+  color: #6366f1;
+}
+
+.book-btn {
+  width: 100%;
+  padding: 14px;
+  background: #6366f1;
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.book-btn:hover {
+  background: #4f46e5;
+}
+
+.book-btn:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
+}
+
+/* Tele Consultation Styles */
+.tele-consultation-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #0f172a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.tele-consultation-container {
+  width: 100%;
+  max-width: 900px;
+  height: 100vh;
+  max-height: 700px;
+  display: flex;
+  flex-direction: column;
+  background: #1e293b;
+  border-radius: 0;
+}
+
+@media (min-width: 768px) {
+  .tele-consultation-container {
+    border-radius: 20px;
+    height: auto;
+  }
+}
+
+.call-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  background: #1e293b;
+  border-bottom: 1px solid #334155;
+}
+
+.expert-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.expert-video-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+
+.expert-info h3 {
+  margin: 0;
+  color: white;
+  font-size: 1.1rem;
+}
+
+.expert-info p {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+
+.call-timer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+.close-call-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.close-call-btn:hover {
+  background: #334155;
+  color: white;
+}
+
+.video-area {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0f172a;
+}
+
+.video-placeholder {
+  text-align: center;
+  color: #64748b;
+}
+
+.video-enabled,
+.video-disabled {
+  padding: 60px;
+}
+
+.video-enabled svg,
+.video-disabled svg {
+  margin-bottom: 12px;
+  color: #475569;
+}
+
+.demo-note {
+  font-size: 0.8rem;
+  color: #64748b;
+  margin-top: 8px;
+}
+
+.self-view {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  width: 120px;
+  height: 90px;
+  background: #1e293b;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #334155;
+}
+
+.self-video,
+.self-video-off {
+  color: #64748b;
+}
+
+.connecting-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(15, 23, 42, 0.9);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #334155;
+  border-top-color: #6366f1;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 16px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.call-controls {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  padding: 20px;
+  background: #1e293b;
+  border-top: 1px solid #334155;
+}
+
+.control-btn {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: #334155;
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.control-btn:hover {
+  background: #475569;
+}
+
+.control-btn.disabled {
+  background: #ef4444;
+}
+
+.control-btn.active {
+  background: #6366f1;
+}
+
+.control-btn.end-call {
+  background: #ef4444;
+}
+
+.control-btn.end-call:hover {
+  background: #dc2626;
+}
+
+.notes-panel {
+  padding: 16px;
+  background: #1e293b;
+  border-top: 1px solid #334155;
+}
+
+.notes-panel h4 {
+  margin: 0 0 12px;
+  color: white;
+  font-size: 0.95rem;
+}
+
+.notes-panel textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  background: #0f172a;
+  color: white;
+  font-size: 0.9rem;
+  resize: vertical;
+}
+
+.save-notes-btn {
+  margin-top: 12px;
+  padding: 8px 16px;
+  background: #6366f1;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.call-status-bar {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  padding: 12px;
+  background: #0f172a;
+  border-top: 1px solid #334155;
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #10b981;
+  font-size: 0.8rem;
+}
+
+/* Consultation History Styles */
+.consultation-history {
+  max-width: 800px;
+}
+
+.history-filters {
+  display: flex;
+  gap: 8px;
+  padding: 12px 24px;
+  border-bottom: 1px solid #e2e8f0;
+  overflow-x: auto;
+}
+
+.filter-btn {
+  padding: 8px 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  background: white;
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+
+.filter-btn.active {
+  background: #6366f1;
+  color: white;
+  border-color: #6366f1;
+}
+
+.filter-btn:hover:not(.active) {
+  background: #f1f5f9;
+}
+
+.loading-state,
+.empty-state {
+  text-align: center;
+  padding: 48px;
+  color: #64748b;
+}
+
+.empty-state svg {
+  margin-bottom: 12px;
+}
+
+.empty-state p {
+  margin: 0;
+  font-weight: 500;
+}
+
+.empty-state span {
+  font-size: 0.85rem;
+}
+
+.consultations-list {
+  padding: 16px 24px;
+}
+
+.consultation-card {
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  margin-bottom: 12px;
+}
+
+.consultation-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.expert-avatar-mini {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.consultation-header h4 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.consultation-header p {
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.status-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.status-badge.scheduled {
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.status-badge.completed {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.status-badge.cancelled {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.status-scheduled { color: #2563eb; }
+.status-completed { color: #16a34a; }
+.status-cancelled { color: #dc2626; }
+
+.consultation-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.detail-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.consultation-notes {
+  font-size: 0.85rem;
+  color: #475569;
+  padding: 8px 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+.consultation-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.start-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: #6366f1;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.start-btn:hover {
+  background: #4f46e5;
+}
+
+.reschedule-btn,
+.feedback-btn {
+  padding: 10px 16px;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.feedback-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.feedback-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+}
+
+.feedback-content {
+  background: white;
+  padding: 24px;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 400px;
+  text-align: center;
+}
+
+.feedback-content h3 {
+  margin: 0 0 8px;
+}
+
+.feedback-content p {
+  color: #64748b;
+  margin: 0 0 20px;
+}
+
+.rating-stars {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.star-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  color: #d1d5db;
+  transition: all 0.2s;
+}
+
+.star-btn.active {
+  color: #fbbf24;
+}
+
+.star-btn:hover {
+  transform: scale(1.1);
+}
+
+.feedback-content textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  resize: vertical;
+  margin-bottom: 16px;
+}
+
+.feedback-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.cancel-btn,
+.submit-btn {
+  flex: 1;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.cancel-btn {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+}
+
+.submit-btn {
+  background: #6366f1;
+  border: none;
+  color: white;
+}
+
+.submit-btn:hover {
+  background: #4f46e5;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .expert-card {
+    flex-direction: column;
+  }
+
+  .expert-actions {
+    flex-direction: row;
+  }
+
+  .time-slots-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .call-controls {
+    gap: 12px;
+  }
+
+  .control-btn {
+    width: 48px;
+    height: 48px;
+  }
+}

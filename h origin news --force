@@ -1,5 +1,0 @@
-[33md6be352[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mnews[m[33m, [m[1;31mupstream/main[m[33m, [m[1;31mupstream/HEAD[m[33m)[m fix(security): store ECDH private key in IndexedDB as non-extractable (#390)
-[33m029114b[m Harden Backend CORS Policy with Environment-Based Origin Validation (#393)
-[33ma2a61df[m Implemented the Sustainable Farming Carbon Intelligence & Credit Management (#391)
-[33m6700f05[m Updated (#380)
-[33m32da27a[m[33m ([m[1;31mupstream/backup-main[m[33m)[m fixed deployment issues

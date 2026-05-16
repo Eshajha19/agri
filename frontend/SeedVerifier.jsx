@@ -54,17 +54,32 @@ const SeedVerifier = ({ onClose }) => {
     }
   };
 
-  const verifyCode = (code) => {
-    setTimeout(() => {
-      const upperCode = code.toUpperCase();
-      if (upperCode.includes("FS-AUTH")) {
-        setStatus("authentic");
-      } else if (upperCode.includes("FS-INVALID")) {
-        setStatus("invalid");
+  const [metadata, setMetadata] = useState(null);
+
+  const verifyCode = async (code) => {
+    try {
+      const response = await fetch("/api/seeds/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        setStatus(result.status);
+        if (result.status === "authentic" || result.status === "invalid") {
+          setMetadata(result);
+        }
       } else {
-        setStatus("not_found");
+        setError("Verification failed. Please try again.");
+        setStatus("idle");
       }
-    }, 1500);
+    } catch (err) {
+      console.error("Verification error:", err);
+      setError("Network error. Could not connect to verification server.");
+      setStatus("idle");
+    }
   };
 
   const handleManualSubmit = (e) => {
@@ -80,6 +95,7 @@ const SeedVerifier = ({ onClose }) => {
   const handleReset = () => {
     stopScanner();
     setScannedData(null);
+    setMetadata(null);
     setStatus("idle");
     setError(null);
   };
@@ -138,10 +154,16 @@ const SeedVerifier = ({ onClose }) => {
           <div className="result-card authentic">
             <ShieldCheck className="result-icon success" />
             <h3 className="success-text">Authentic Seed!</h3>
-            <p>Verified & Safe for Use</p>
+            <p>Registry-verified &amp; safe for use</p>
             <div className="data-details">
               <p><span>Batch Code:</span> <strong>{scannedData}</strong></p>
-              <p><span>Status:</span> <strong className="success-text">REGISTERED</strong></p>
+              {metadata?.crop && <p><span>Crop:</span> <strong>{metadata.crop}</strong></p>}
+              {metadata?.batch && <p><span>Batch ID:</span> <strong>{metadata.batch}</strong></p>}
+              {metadata?.manufacturer && <p><span>Manufacturer:</span> <strong>{metadata.manufacturer}</strong></p>}
+              {metadata?.cert_body && <p><span>Certified By:</span> <strong>{metadata.cert_body}</strong></p>}
+              {metadata?.certified_on && <p><span>Certified On:</span> <strong>{metadata.certified_on}</strong></p>}
+              {metadata?.expires_on && <p><span>Valid Until:</span> <strong>{metadata.expires_on}</strong></p>}
+              <p><span>Registry Status:</span> <strong className="success-text">✔ REGISTERED &amp; VALID</strong></p>
             </div>
             <button className="action-btn" onClick={handleReset}>Scan Another</button>
           </div>
@@ -151,10 +173,13 @@ const SeedVerifier = ({ onClose }) => {
           <div className="result-card invalid">
             <ShieldAlert className="result-icon danger" />
             <h3 className="danger-text">Counterfeit Alert!</h3>
-            <p>This code is blacklisted or invalid.</p>
+            <p>This batch is blacklisted, expired, or invalid.</p>
             <div className="data-details">
               <p><span>Batch Code:</span> <strong>{scannedData}</strong></p>
-              <p><span>Status:</span> <strong className="danger-text">BLACKLISTED</strong></p>
+              {metadata?.crop && metadata.crop !== "Unknown" && <p><span>Crop:</span> <strong>{metadata.crop}</strong></p>}
+              {metadata?.manufacturer && metadata.manufacturer !== "Unknown" && <p><span>Manufacturer:</span> <strong>{metadata.manufacturer}</strong></p>}
+              {metadata?.reason && <p><span>Reason:</span> <strong className="danger-text">{metadata.reason}</strong></p>}
+              <p><span>Registry Status:</span> <strong className="danger-text">✗ INVALID / REJECTED</strong></p>
             </div>
             <button className="action-btn danger-btn" onClick={handleReset}>Scan Again</button>
           </div>
