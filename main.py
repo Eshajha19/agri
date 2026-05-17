@@ -59,6 +59,22 @@ from rbac import (
     print_rbac_matrix,
 )
 
+# Persistence Layer
+from persistence.repositories import (
+    FinanceApplicationRepository,
+    NotificationRepository,
+    SupplyChainRepository,
+)
+
+# RBAC (Role-Based Access Control)
+from rbac import (
+    RBACManager,
+    RBACMiddleware,
+    Permission,
+    require_permission,
+    print_rbac_matrix,
+)
+
 # ML Governance (Drift Detection, Shadow Evaluation, Rollback Safety)
 from ml.governance import (
     DriftDetector,
@@ -471,6 +487,22 @@ _farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
 
 logger.info("Domain engines initialized with persistent repositories")
 
+# Initialize repositories for persistent storage
+_finance_repository = FinanceApplicationRepository()
+_notification_repository = NotificationRepository()
+_supply_chain_repository = SupplyChainRepository()
+
+# Initialize Crop Quality Grader
+_crop_quality_grader = CropQualityGrader()
+
+# Initialize Supply Chain Blockchain with persistent repository
+_supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
+
+# Initialize Farm Finance AI with persistent repository
+_farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
+
+logger.info("Domain engines initialized with persistent repositories")
+
 # --- Routes ---
 
 @app.get("/")
@@ -498,6 +530,51 @@ async def get_alerts_history(request: Request):
             status_code=500,
             detail="Failed to retrieve alert history"
         ) from e
+
+@app.post("/api/finance/analyze")
+@limiter.limit("10/minute")
+async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest):
+    """Analyze farm finances and return loan recommendations."""
+    # Check permission: farmer can create finance requests
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
+    analysis = _farm_finance_ai.analyze_financial_profile(body.model_dump())
+    return {"success": True, "data": analysis}
+
+
+@app.post("/api/finance/applications")
+@limiter.limit("5/minute")
+async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
+    """Create a loan application from the current farm profile."""
+    # Check permission: farmer can create finance applications
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
+    application = _farm_finance_ai.create_application(body.model_dump())
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/applications/{application_id}")
+async def get_finance_application(application_id: str, request: Request):
+    # Check permission: user can read finance applications (own or all if expert/admin)
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_READ_OWN, Permission.FINANCE_READ_ALL], require_all=False
+    )
+    application = _farm_finance_ai.get_application(application_id)
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/products")
+def get_finance_products():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+
+@app.get("/api/finance/marketplace")
+def get_finance_marketplace():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
 
 @app.post("/api/finance/analyze")
 @limiter.limit("10/minute")
@@ -1576,10 +1653,6 @@ async def get_stats():
         return {"success": True, "stats": stats}
     except Exception as e:
         logger.error("Stats error: %s", str(e))
-
-        # ================================================================================
-        # ML GOVERNANCE ENDPOINTS (Issue #4)
-        # ================================================================================
 
         @app.post("/api/ml-governance/drift/baseline")
         @limiter.limit("5/minute")
