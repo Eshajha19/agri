@@ -26,7 +26,9 @@ import firebase_admin
 from firebase_admin import credentials, firestore, auth
 
 # Initialize Firebase with emulator
-if not firebase_admin.get_app(name="test-app", error_on_duplicate=False):
+try:
+    firebase_admin.get_app(name="test-app")
+except ValueError:
     try:
         cred = credentials.Certificate('firebase_credentials.json')
         app = firebase_admin.initialize_app(cred, name="test-app")

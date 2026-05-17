@@ -135,6 +135,7 @@ from whatsapp_store import subscriber_store
 from crop_quality_grading import CropQualityGrader
 from blockchain_supply_chain import SupplyChainBlockchain
 from farm_finance_ai import FarmFinanceAI
+from sustainability_analytics import SustainabilityAnalytics
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -626,6 +627,22 @@ class FinanceAssessmentRequest(BaseModel):
     selected_lender: Optional[str] = Field(default=None, max_length=100)
     farm_location: Optional[str] = Field(default=None, max_length=120)
     notes: Optional[str] = Field(default=None, max_length=500)
+
+
+class SustainabilityAnalyzeRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    season: str = Field(..., min_length=1, max_length=50)
+    acreage: float = Field(..., gt=0)
+    irrigation_type: str = Field(..., min_length=1, max_length=50)
+    irrigation_events: int = Field(default=0, ge=0)
+    fertilizer_n_kg: Optional[float] = Field(default=None, ge=0)
+    fertilizer_p_kg: Optional[float] = Field(default=None, ge=0)
+    fertilizer_k_kg: Optional[float] = Field(default=None, ge=0)
+    organic_amendments: float = Field(default=0.0, ge=0)
+    yield_kg: Optional[float] = Field(default=None, ge=0)
+    labor_hours: float = Field(default=0.0, ge=0)
+    machinery_hours: float = Field(default=0.0, ge=0)
+    transport_distance_km: float = Field(default=0.0, ge=0)
 
 # --- ML Pipeline Initialization ---
 router = ModelRouter(default_model="xgboost")
@@ -2458,7 +2475,7 @@ async def execute_contract(request: Request, data: ExecuteContractRequest):
 
 @app.get("/api/blockchain/qr-code/{batch_id}")
 @limiter.limit("20/minute")
-async def get_qr_code(batch_id: str):
+async def get_qr_code(request: Request, batch_id: str):
     """Get QR code for batch"""
     try:
         qr_code = _supply_chain_blockchain.generate_qr_code(batch_id)
@@ -2471,7 +2488,7 @@ async def get_qr_code(batch_id: str):
 
 @app.get("/api/blockchain/verify/{batch_id}")
 @limiter.limit("20/minute")
-async def verify_batch(batch_id: str):
+async def verify_batch(request: Request, batch_id: str):
     """Verify batch authenticity"""
     try:
         verification = _supply_chain_blockchain.verify_batch(batch_id)
@@ -2482,7 +2499,7 @@ async def verify_batch(batch_id: str):
 
 @app.get("/api/blockchain/journey/{batch_id}")
 @limiter.limit("20/minute")
-async def get_journey(batch_id: str):
+async def get_journey(request: Request, batch_id: str):
     """Get supply chain journey"""
     try:
         journey = _supply_chain_blockchain.get_supply_chain_journey(batch_id)
@@ -2495,7 +2512,7 @@ async def get_journey(batch_id: str):
 
 @app.get("/api/blockchain/analytics/{batch_id}")
 @limiter.limit("20/minute")
-async def get_analytics(batch_id: str):
+async def get_analytics(request: Request, batch_id: str):
     """Get supply chain analytics"""
     try:
         analytics = _supply_chain_blockchain.get_supply_chain_analytics(batch_id)
@@ -2508,7 +2525,7 @@ async def get_analytics(batch_id: str):
 
 @app.get("/api/blockchain/marketplace")
 @limiter.limit("20/minute")
-async def get_marketplace():
+async def get_marketplace(request: Request):
     """Get certified products for marketplace"""
     try:
         certified = _supply_chain_blockchain.get_certified_products()
@@ -2519,7 +2536,7 @@ async def get_marketplace():
 
 @app.get("/api/blockchain/stats")
 @limiter.limit("20/minute")
-async def get_stats():
+async def get_stats(request: Request):
     """Get blockchain statistics"""
     try:
         stats = {
