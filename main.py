@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import re
+import threading
 import joblib
 import hashlib
 import pandas as pd
@@ -136,6 +137,29 @@ except ImportError:
 
 app = FastAPI()
 app.include_router(flags_router)
+
+logger = logging.getLogger(__name__)
+
+# Server-side idempotency cache for deduplicating transactional POST requests.
+# In production, this should use a persistent store like Redis with a TTL.
+_IDEMPOTENCY_CACHE: Dict[str, Any] = {}
+_IDEMPOTENCY_LOCK = threading.Lock()
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
 
 logger = logging.getLogger(__name__)
 
@@ -598,9 +622,26 @@ async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest)
 @limiter.limit("5/minute")
 async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
     """Create a loan application from the current farm profile."""
+    # Idempotency check: prevent duplicate applications on retry
+    idem_key = request.headers.get("X-Idempotency-Key")
+    if idem_key:
+        with _IDEMPOTENCY_LOCK:
+            if idem_key in _IDEMPOTENCY_CACHE:
+                logger.info(f"Idempotency: Returning cached finance application for key {idem_key}")
+                return _IDEMPOTENCY_CACHE[idem_key]
+
     input_data = body.model_dump() if hasattr(body, "model_dump") else body.dict()
     application = _farm_finance_ai.create_application(input_data)
-    return {"success": True, "data": application}
+    result = {"success": True, "data": application}
+
+    if idem_key:
+        with _IDEMPOTENCY_LOCK:
+            # Basic eviction: clear cache if too large
+            if len(_IDEMPOTENCY_CACHE) > 1000:
+                _IDEMPOTENCY_CACHE.clear()
+            _IDEMPOTENCY_CACHE[idem_key] = result
+
+    return result
 
 
 @app.get("/api/finance/applications/{application_id}")
@@ -875,12 +916,11 @@ def get_signing_keys():
 
     if project_id:
         if not HAS_GCP_KMS:
-            if IS_PRODUCTION:
-                raise HTTPException(
-                    status_code=500,
-                    detail="google-cloud-secret-manager is not installed but is required in production"
-                )
-            print("KMS Warning: google-cloud-secret-manager not installed; skipping GCP path.")
+            logger.critical("CRITICAL SECURITY ALERT: google-cloud-secret-manager is not installed but GOOGLE_CLOUD_PROJECT is set. Halting to prevent insecure fallback.")
+            raise HTTPException(
+                status_code=500,
+                detail="KMS Initialization Error: google-cloud-secret-manager is required when GOOGLE_CLOUD_PROJECT is set. Halting to prevent insecure fallback."
+            )
         else:
             try:
                 client = secretmanager.SecretManagerServiceClient()
@@ -893,14 +933,13 @@ def get_signing_keys():
                 print(f"KMS: Loaded signing key from Secret Manager (secret: {secret_id})")
                 return _cached_private_key
             except Exception as e:
-                if IS_PRODUCTION:
-                    print(f"KMS Error: {e}")
-                    raise HTTPException(
-                        status_code=500,
-                        detail="Failed to retrieve signing key from Secret Manager"
-                    )
-                print(f"KMS Warning: Could not reach Secret Manager ({e}); falling back to local key.")
+                logger.critical(f"CRITICAL SECURITY ALERT: KMS Initialization Failed. Could not reach Secret Manager: {e}. Halting to prevent insecure fallback to local keys.")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"KMS Initialization Error: Failed to retrieve signing key from Secret Manager. Halting to prevent insecure fallback."
+                )
     elif IS_PRODUCTION:
+        logger.critical("CRITICAL SECURITY ALERT: GOOGLE_CLOUD_PROJECT is not set in production. Cannot retrieve secure signing key.")
         raise HTTPException(
             status_code=500,
             detail="GOOGLE_CLOUD_PROJECT is not set; cannot retrieve signing key in production"
@@ -1792,10 +1831,19 @@ async def get_expert_slots(expert_id: str, date: str):
 @app.post("/api/consultation/book")
 async def book_consultation(
     request: ConsultationBookRequest,
+    raw_request: Request,
     authorization: Optional[str] = None
 ):
     """
     Book a consultation with an expert.
+    """
+    # Idempotency check: prevent duplicate bookings on retry
+    idem_key = raw_request.headers.get("X-Idempotency-Key")
+    if idem_key:
+        with _IDEMPOTENCY_LOCK:
+            if idem_key in _IDEMPOTENCY_CACHE:
+                logger.info(f"Idempotency: Returning cached consultation for key {idem_key}")
+                return _IDEMPOTENCY_CACHE[idem_key]
     
     Request body:
     - expert_id: Expert's ID
@@ -1839,11 +1887,19 @@ async def book_consultation(
         doc_ref = db_firestore.collection("consultations").document()
         doc_ref.set(consultation_data)
 
-        return {
+        result = {
             "success": True,
             "consultation_id": doc_ref.id,
             "message": "Consultation booked successfully"
         }
+
+        if idem_key:
+            with _IDEMPOTENCY_LOCK:
+                if len(_IDEMPOTENCY_CACHE) > 1000:
+                    _IDEMPOTENCY_CACHE.clear()
+                _IDEMPOTENCY_CACHE[idem_key] = result
+
+        return result
     except Exception as e:
         logger.error(f"Error booking consultation: {e}")
         raise HTTPException(status_code=500, detail="Failed to book consultation")
