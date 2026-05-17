@@ -67,7 +67,6 @@ import {
   PestDetection,
   PrivacyPolicy,
   ProfileSetup,
-  ProfileSettings,
   QRTraceability,
   Resources,
   RiskIndex,
@@ -453,8 +452,8 @@ function App() {
       )}
 
       {/* PROFILE COMPLETION GUARD */}
-      {!loading && user && (user.isAnonymous || user.emailVerified) && !profileCompleted && location.pathname !== "/profile-setup" && location.pathname !== "/profile-settings" && (
-        <Navigate to="/profile-settings" />
+      {!loading && user && (user.isAnonymous || user.emailVerified) && !profileCompleted && location.pathname !== "/profile-setup" && (
+        <Navigate to="/profile-setup" />
       )}
 
       <main id="main-content" tabIndex="-1" style={{ outline: 'none' }}>
@@ -468,7 +467,6 @@ function App() {
           <Route path="/resources" element={<Resources />} />
           <Route path="/login" element={<Auth />} />
           <Route path="/profile-setup" element={<ProfileSetup user={user} profileCompleted={profileCompleted} />} />
-          <Route path="/profile-settings" element={<ProfileSettings />} />
           <Route path="/calendar" element={<Calendar />} />
           <Route path="/share-feedback" element={<Feedback />} />
           <Route path="/admin/feedback" element={<AdminFeedback />} />
@@ -484,6 +482,7 @@ function App() {
           <Route path="/contributors" element={<Contributors />} />
           <Route path="/trace/:id" element={<QRTraceability />} />
           <Route path="/contact" element={<ContactUs />} />
+          <Route path="/profile-settings" element={<ProfileSettings user={user} userData={userData} />} />
           <Route path="/about" element={<AboutUs />} />
           <Route path="/crop-planner" element={<SeasonalCropPlanner />} />
           <Route path="/soil-guide" element={<SoilGuide />} />

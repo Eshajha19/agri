@@ -11,7 +11,6 @@ export const Schemes = lazyPage(() => import('../GovernmentSchemes'));
 export const Resources = lazyPage(() => import('../Resources'));
 export const Auth = lazyPage(() => import('../Auth'));
 export const ProfileSetup = lazyPage(() => import('../ProfileSetup'));
-export const ProfileSettings = lazyPage(() => import('../ProfileSettings'));
 export const Calendar = lazyPage(() => import('../FarmingCalendar'));
 export const Feedback = lazyPage(() => import('../Feedback'));
 export const AdminFeedback = lazyPage(() => import('../AdminFeedback'));
