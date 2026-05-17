@@ -84,25 +84,25 @@ function getCropIcon(cropType) {
   return Leaf;
 }
 
-export default function PersonalizedRecommendations({ userProfile, weatherData }) {
+export default function PersonalizedRecommendations({ userData, weatherData }) {
 
   const resolvedSeason = useMemo(() => {
-    if (userProfile?.season) return userProfile.season;
+    if (userData?.season) return userData.season;
     return deriveSeasonFromCalendar();
-  }, [userProfile?.season]);
+  }, [userData?.season]);
 
   const recommendations = useMemo(() => {
-    if (!userProfile) return [];
+    if (!userData) return [];
 
     return generateRecommendations({
       weatherData,
-      cropType: userProfile.cropType,
+      cropType: userData.cropType,
       season: resolvedSeason,
     });
 
-  }, [userProfile, weatherData, resolvedSeason]);
+  }, [userData, weatherData, resolvedSeason]);
 
-  if (!userProfile) {
+  if (!userData) {
     return (
       <div className="personalized-section">
         <div className="section-header">
@@ -150,10 +150,10 @@ export default function PersonalizedRecommendations({ userProfile, weatherData }
           Recommendations for You
         </h2>
         <div className="recommendation-meta">
-          {userProfile.cropType && (
+          {userData.cropType && (
             <span className="crop-badge">
               <Wheat size={14} />
-              {userProfile.cropType}
+              {userData.cropType}
             </span>
           )}
           <span className="season-badge">
@@ -167,8 +167,8 @@ export default function PersonalizedRecommendations({ userProfile, weatherData }
         {sortedRecs.map((rec, index) => {
           const config = TYPE_CONFIG[rec.type];
           const IconComponent = config.icon;
-          const isCropType = rec.type === 'crop' && userProfile?.cropType;
-          const CropIcon = isCropType ? getCropIcon(userProfile.cropType) : null;
+          const isCropType = rec.type === 'crop' && userData?.cropType;
+          const CropIcon = isCropType ? getCropIcon(userData.cropType) : null;
 
           return (
             <div 
@@ -198,13 +198,13 @@ export default function PersonalizedRecommendations({ userProfile, weatherData }
                 </div>
               </div>
 
-              <h3 className="card-title">
-                {rec.type === 'warning' && '⚠️ '}
-                {rec.type === 'heat' && '☀️ '}
-                {rec.type === 'frost' && '❄️ '}
-                {rec.type === 'crop' && userProfile?.cropType ? `${userProfile.cropType}: ` : ''}
-                {rec.title || rec.type.charAt(0).toUpperCase() + rec.type.slice(1)}
-              </h3>
+<h3 className="card-title">
+                    {rec.type === 'warning' && '⚠️ '}
+                    {rec.type === 'heat' && '☀️ '}
+                    {rec.type === 'frost' && '❄️ '}
+                    {rec.type === 'crop' && userData?.cropType ? `${userData.cropType}: ` : ''}
+                    {rec.title || rec.type.charAt(0).toUpperCase() + rec.type.slice(1)}
+                  </h3>
 
               <p className="card-text">{rec.text}</p>
 
