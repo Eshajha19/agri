@@ -18,7 +18,7 @@ import {
   Star,
 } from "lucide-react";
 
-function ConsultationHistory({ onClose, onStartConsultation: _onStartConsultation }) {
+function ConsultationHistory({ userData, onClose, onStartConsultation: _onStartConsultation }) {
   const { setShowTeleConsultation, setActiveConsultation } = useAdvisorStore();
   const [consultations, setConsultations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -34,8 +34,7 @@ function ConsultationHistory({ onClose, onStartConsultation: _onStartConsultatio
 
   const loadConsultations = async () => {
     try {
-      const user = auth.currentUser;
-      if (!user) {
+      if (!userData) {
         setConsultations(MOCK_CONSULTATIONS);
         setLoading(false);
         return;
@@ -44,7 +43,7 @@ function ConsultationHistory({ onClose, onStartConsultation: _onStartConsultatio
       const consultationsRef = collection(db, "consultations");
       const q = query(
         consultationsRef,
-        where("userId", "==", user.uid),
+        where("userId", "==", userData.uid),
         orderBy("createdAt", "desc")
       );
 
