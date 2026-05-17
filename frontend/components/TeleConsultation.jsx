@@ -18,7 +18,7 @@ import {
   CheckCircle,
 } from "lucide-react";
 
-function TeleConsultation({ consultation, onEnd }) {
+function TeleConsultation({ userData, consultation, onEnd }) {
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [isMicEnabled, setIsMicEnabled] = useState(true);
   const [callDuration, setCallDuration] = useState(0);
