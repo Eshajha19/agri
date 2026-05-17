@@ -72,6 +72,8 @@ const SoilAnalysis = React.lazy(() => import("./SoilAnalysis"));
 const SeedVerifier = React.lazy(() => import("./SeedVerifier"));
 const Weather = React.lazy(() => import("./Weather"));
 const Leaderboard = React.lazy(() => import("./Leaderboard"));
+const PestDetection = React.lazy(() => import("./PestDetection"));
+const FarmFinance = React.lazy(() => import("./FarmFinance"));
 
 // Libs
 import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc } from "./lib/firebase";
@@ -479,6 +481,8 @@ function App() {
             <Route path="/risk-index" element={<RiskIndex />} />
             <Route path="/crop-rotation" element={<CropRotation />} />
             <Route path="/seed-verifier" element={<SeedVerifier />} />
+            <Route path="/pest-detection" element={<PestDetection />} />
+            <Route path="/farm-finance" element={<FarmFinance />} />
             <Route path="/blog" element={<Blog />} />
             <Route path="/blog/:id" element={<BlogDetail />} />
             <Route path="/weather" element={<Weather />} />
