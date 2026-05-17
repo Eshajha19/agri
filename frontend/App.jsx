@@ -30,8 +30,6 @@ import Loader from "./Loader";
 import LanguageDropdown from "./LanguageDropdown";
 import useNotifications from "./Notifications";
 import Footer from "./components/Footer";
-
-
 import { SkipLink } from "./NavigationManager";
 import { useTheme } from "./ThemeContext";
 
@@ -80,6 +78,8 @@ import {
   YieldPredictor,
   EquipmentManagement,
 } from "./routes/lazyPages";
+
+const Weather = React.lazy(() => import("./Weather"));
 
 // Libs
 import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc } from "./lib/firebase";
@@ -458,50 +458,53 @@ function App() {
       )}
 
       <main id="main-content" tabIndex="-1" style={{ outline: 'none' }}>
-        <Routes>
-          <Route path="/" element={<Home user={user} />} />
-          <Route path="/advisor" element={<Advisor userData={userData} />} />
-          <Route path="/how-it-works" element={<How />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/crop-guide" element={<CropGuide />} />
-          <Route path="/schemes" element={<Schemes />} />
-          <Route path="/resources" element={<Resources />} />
-          <Route path="/login" element={<Auth />} />
-          <Route path="/profile-setup" element={<ProfileSetup user={user} profileCompleted={profileCompleted} />} />
-          <Route path="/calendar" element={<Calendar />} />
-          <Route path="/share-feedback" element={<Feedback />} />
-          <Route path="/admin/feedback" element={<AdminFeedback />} />
-          <Route path="/market-prices" element={<MarketPrices />} />
-          <Route path="/farming-map" element={<FarmingMap />} />
-          <Route path="/profit-calculator" element={<CropProfitCalculator />} />
-          <Route path="/community" element={<Community />} />
-          <Route path="/leaderboard" element={<Leaderboard />} />
-          <Route path="/soil-analysis" element={<SoilAnalysis />} />
-          <Route path="/faq" element={<FAQ />} />
-          <Route path="/terms" element={<Terms />} />
-          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
-          <Route path="/contributors" element={<Contributors />} />
-          <Route path="/trace/:id" element={<QRTraceability />} />
-          <Route path="/contact" element={<ContactUs />} />
-          <Route path="/profile-settings" element={<ProfileSettings user={user} userData={userData} />} />
-          <Route path="/about" element={<AboutUs />} />
-          <Route path="/crop-planner" element={<SeasonalCropPlanner />} />
-          <Route path="/soil-guide" element={<SoilGuide />} />
-          <Route path="/disease-awareness" element={<CropDiseaseAwareness />} />
-          <Route path="/pest-detection" element={<PestDetection />} />
-          <Route path="/equipment-management" element={<EquipmentManagement />} />
-          <Route path="/helpline" element={<Helpline />} />
-          <Route path="/glossary" element={<Glossary />} />
-          <Route path="/risk-index" element={<RiskIndex />} />
-          <Route path="/crop-rotation" element={<CropRotation />} />
-          <Route path="/seed-verifier" element={<SeedVerifier />} />
-          <Route path="/farm-finance" element={<FarmFinance />} />
-          <Route path="/farming-news" element={<FarmingNews userData={userData} />} />
-          <Route path="/yield-predictor" element={<YieldPredictor />} />
-          <Route path="/blog" element={<Blog />} />
-          <Route path="/blog/:id" element={<BlogDetail />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <React.Suspense fallback={<Loader fullPage={true} message={<span className="notranslate">Loading route...</span>} />}>
+          <Routes>
+            <Route path="/" element={<Home user={user} />} />
+            <Route path="/advisor" element={<Advisor userData={userData} />} />
+            <Route path="/how-it-works" element={<How />} />
+            <Route path="/dashboard" element={<Dashboard userData={userData} />} />
+            <Route path="/crop-guide" element={<CropGuide />} />
+            <Route path="/schemes" element={<Schemes />} />
+            <Route path="/resources" element={<Resources />} />
+            <Route path="/login" element={<Auth />} />
+            <Route path="/profile-setup" element={<ProfileSetup user={user} profileCompleted={profileCompleted} />} />
+            <Route path="/calendar" element={<Calendar />} />
+            <Route path="/share-feedback" element={<Feedback />} />
+            <Route path="/admin/feedback" element={<AdminFeedback />} />
+            <Route path="/market-prices" element={<MarketPrices />} />
+            <Route path="/farming-map" element={<FarmingMap />} />
+            <Route path="/profit-calculator" element={<CropProfitCalculator />} />
+            <Route path="/community" element={<Community />} />
+            <Route path="/leaderboard" element={<Leaderboard />} />
+            <Route path="/soil-analysis" element={<SoilAnalysis />} />
+            <Route path="/faq" element={<FAQ />} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+            <Route path="/contributors" element={<Contributors />} />
+            <Route path="/trace/:id" element={<QRTraceability />} />
+            <Route path="/contact" element={<ContactUs />} />
+            <Route path="/profile-settings" element={<ProfileSettings user={user} userData={userData} />} />
+            <Route path="/about" element={<AboutUs />} />
+            <Route path="/crop-planner" element={<SeasonalCropPlanner />} />
+            <Route path="/soil-guide" element={<SoilGuide />} />
+            <Route path="/disease-awareness" element={<CropDiseaseAwareness />} />
+            <Route path="/pest-detection" element={<PestDetection />} />
+            <Route path="/equipment-management" element={<EquipmentManagement />} />
+            <Route path="/helpline" element={<Helpline />} />
+            <Route path="/glossary" element={<Glossary />} />
+            <Route path="/risk-index" element={<RiskIndex />} />
+            <Route path="/crop-rotation" element={<CropRotation />} />
+            <Route path="/seed-verifier" element={<SeedVerifier />} />
+            <Route path="/farm-finance" element={<FarmFinance />} />
+            <Route path="/farming-news" element={<FarmingNews userData={userData} />} />
+            <Route path="/yield-predictor" element={<YieldPredictor />} />
+            <Route path="/blog" element={<Blog />} />
+            <Route path="/blog/:id" element={<BlogDetail />} />
+            <Route path="/weather" element={<Weather />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </React.Suspense>
       </main>
 
       {/* Floating Buttons */}

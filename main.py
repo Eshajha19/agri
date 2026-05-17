@@ -15,6 +15,139 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field, validator
+from feature_flags.routes import router as flags_router
+
+class SimulationRequest(BaseModel):
+    crop_type: str
+    temp_delta: float = Field(..., ge=-5, le=5)
+    rain_delta: float = Field(..., ge=-100, le=100)
+
+class ClientErrorReport(BaseModel):
+    """
+    Typed, bounded schema for frontend error reports sent to /api/log-error.
+
+    Fields are intentionally narrow:
+    - message  : the human-readable error description (capped at 500 chars)
+    - source   : optional filename / module where the error originated
+    - stack    : optional stack trace (capped to prevent log flooding)
+    - level    : severity hint from the client; defaults to "error"
+
+    All string fields are stripped of ANSI escape sequences and ASCII
+    control characters before being written to the log, so a crafted
+    payload cannot inject terminal control codes or forge log lines.
+    """
+    message: str = Field(..., min_length=1, max_length=500)
+    source: Optional[str] = Field(default=None, max_length=200)
+    stack: Optional[str] = Field(default=None, max_length=2000)
+    level: str = Field(default="error", max_length=20)
+
+class RAGQuery(BaseModel):
+    query: str = Field(..., min_length=3, max_length=500)
+    top_k: int = Field(default=3, ge=1, le=5)
+
+    @validator("query")
+    def sanitize_and_normalize_query(cls, v):
+        if not v or not isinstance(v, str):
+            raise ValueError("Query must be a non-empty string.")
+        
+        # Strip script tags entirely to prevent XSS / Script Injection
+        v = re.sub(r'<script.*?>.*?</script>', '', v, flags=re.IGNORECASE)
+        v = re.sub(r'</?script.*?>', '', v, flags=re.IGNORECASE)
+        v = re.sub(r'on\w+\s*=', '', v, flags=re.IGNORECASE)
+        v = re.sub(r'javascript:', '', v, flags=re.IGNORECASE)
+        v = re.sub(r'data:', '', v, flags=re.IGNORECASE)
+        v = re.sub(r'vbscript:', '', v, flags=re.IGNORECASE)
+        
+        # Strip all other HTML tags entirely to prevent HTML injection in prompts or UI
+        v = re.sub(r'<[^>]*>', '', v)
+        
+        # Handle markdown injection: neutralize links [text](url) -> text (url)
+        v = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'\1 (\2)', v)
+        
+        # Neutralize common markdown styling syntax to avoid UI layout pollution
+        v = re.sub(r'[*_~`#]', '', v)
+        
+        # Strip leading/trailing whitespaces and normalize spaces after stripping HTML tags
+        v = v.strip()
+        v = re.sub(r'\s+', ' ', v)
+        
+        # Prompt Injection Mitigation: identify and reject typical instruction overrides
+        forbidden_patterns = [
+            r"ignore\s+(?:all\s+)?previous\s+instructions",
+            r"ignore\s+(?:the\s+)?system\s+prompt",
+            r"override\s+system\s+constraints",
+            r"developer\s+mode",
+            r"bypass\s+safety\s+filter"
+        ]
+        v_lower = v.lower()
+        for pattern in forbidden_patterns:
+            if re.search(pattern, v_lower):
+                raise ValueError("Query contains disallowed phrases or prompt injection attempts.")
+        
+        # Re-enforce validation after sanitization has cleaned the input
+        if len(v) < 3:
+            raise ValueError("Query must be at least 3 characters long after sanitization.")
+            
+        return v
+
+# Blockchain Supply Chain Models
+class RegisterActorRequest(BaseModel):
+    actor_id: str = Field(..., min_length=1, max_length=50)
+    name: str = Field(..., min_length=1, max_length=100)
+    actor_type: str = Field(..., min_length=1, max_length=50)
+    location: str = Field(..., min_length=1, max_length=100)
+
+class CreateProductBatchRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    farm_id: str = Field(..., min_length=1, max_length=50)
+    quantity: float = Field(..., gt=0)
+    unit: str = Field(..., min_length=1, max_length=20)
+    planting_date: str = Field(..., min_length=1)
+    harvesting_date: str = Field(..., min_length=1)
+    farmer_name: str = Field(..., min_length=1, max_length=100)
+
+class AddSupplyChainNodeRequest(BaseModel):
+    batch_id: str = Field(..., min_length=1)
+    node_type: str = Field(..., min_length=1, max_length=50)
+    actor_name: str = Field(..., min_length=1, max_length=100)
+    location: str = Field(..., min_length=1, max_length=100)
+    action: str = Field(..., min_length=1, max_length=50)
+    temperature: Optional[float] = None
+    humidity: Optional[float] = None
+    quality_check: Optional[str] = None
+    notes: str = Field(default="", max_length=500)
+
+class CreateSmartContractRequest(BaseModel):
+    batch_id: str = Field(..., min_length=1)
+    seller: str = Field(..., min_length=1, max_length=100)
+    buyer: str = Field(..., min_length=1, max_length=100)
+    price: float = Field(..., gt=0)
+    terms: Optional[Dict] = None
+
+class ExecuteContractRequest(BaseModel):
+    contract_id: str = Field(..., min_length=1)
+
+# Crop Quality Grading Models
+class CropQualityGradingRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    image_base64: str = Field(..., min_length=100)  # Base64 encoded image
+
+class CropQualityBatchRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    images_base64: list = Field(..., min_items=1, max_items=100)  # Multiple images
+
+class QualityTrendsRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    days: int = Field(default=7, ge=1, le=30)
+
+# Rate Limiting
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+# Firebase Admin SDK
+
 # Observability: tracing + metrics
 from prometheus_fastapi_instrumentator import Instrumentator
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
@@ -109,6 +242,63 @@ from backend.routers import ml, governance, alerts, finance, quality, blockchain
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Global Firebase and Firestore references
+db_firestore = None
+
+def get_firestore_client():
+    """
+    Safely retrieves the Firestore client. If Firebase is already initialized
+    by other modules but db_firestore is None, it attempts dynamic retrieval.
+    """
+    global db_firestore
+    if db_firestore is not None:
+        return db_firestore
+    
+    try:
+        # If not initialized, try standard initialization
+        if not firebase_admin._apps:
+            cred = None
+            if os.path.exists("serviceAccountKey.json"):
+                cred = credentials.Certificate("serviceAccountKey.json")
+            elif os.path.exists("firebase-credentials.json"):
+                cred = credentials.Certificate("firebase-credentials.json")
+            else:
+                cred_json = os.getenv("FIREBASE_CREDENTIALS_JSON")
+                if cred_json:
+                    import json
+                    cred_dict = json.loads(cred_json)
+                    cred = credentials.Certificate(cred_dict)
+            
+            try:
+                if cred:
+                    firebase_admin.initialize_app(cred)
+                else:
+                    firebase_admin.initialize_app()
+            except ValueError:
+                # App already exists
+                pass
+
+        if firebase_admin._apps:
+            db_firestore = firestore.client()
+            logger.info("Firestore client initialized/retrieved successfully")
+    except Exception as e:
+        logger.error(f"Failed to retrieve Firestore client: {e}")
+        db_firestore = None
+    return db_firestore
+
+def validate_firestore_ready():
+    """
+    Validates that the Firestore database is fully initialized and ready.
+    If not, raises an HTTP 503 Service Unavailable exception to prevent crashes.
+    """
+    client = get_firestore_client()
+    if client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Database service temporarily unavailable. Firestore was not initialized."
+        )
+    return client
+
 def sanitise_log_field(value: str) -> str:
     if not isinstance(value, str):
         return str(value)
@@ -121,10 +311,23 @@ async def verify_role(request: Request, required_roles: list = None, require_all
         raise HTTPException(status_code=401, detail="Missing auth token")
     token = auth_header.split(" ")[1]
     try:
-        decoded = auth.verify_id_token(token)
-        uid = decoded["uid"]
-        db = firestore.client()
-        user_doc = db.collection("users").document(uid).get()
+        try:
+            decoded = auth.verify_id_token(token)
+            uid = decoded["uid"]
+        except Exception as e:
+            logger.error(f"Token verification failed: {e}")
+            raise HTTPException(status_code=401, detail="Invalid or expired authorization token")
+
+        db = validate_firestore_ready()
+        try:
+            user_doc = db.collection("users").document(uid).get()
+        except Exception as e:
+            logger.error(f"Database lookup failed during role verification for user {uid}: {e}")
+            raise HTTPException(
+                status_code=503,
+                detail="Authentication database temporarily unavailable"
+            )
+
         user_roles = user_doc.get("roles", []) if user_doc.exists else []
         if required_roles:
             if require_all:
@@ -134,9 +337,11 @@ async def verify_role(request: Request, required_roles: list = None, require_all
             if not has_access:
                 raise HTTPException(status_code=403, detail="Insufficient permissions")
         return {"uid": uid, "roles": user_roles}
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Auth error: {e}")
-        raise HTTPException(status_code=401, detail="Invalid token")
+        logger.error(f"Unexpected authorization verification failure: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error during authorization")
 
 
 class NotificationStore:
@@ -164,13 +369,16 @@ class NotificationStore:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global db_firestore
     try:
-        if os.path.exists("serviceAccountKey.json"):
-            cred = credentials.Certificate("serviceAccountKey.json")
-            firebase_admin.initialize_app(cred)
-        logger.info("Firebase initialized")
+        logger.info("Starting up: initializing Firebase and services...")
+        get_firestore_client()
+        if db_firestore:
+            logger.info("Firebase/Firestore startup initialization verified successfully")
+        else:
+            logger.warning("Firebase/Firestore failed to initialize during startup diagnostics. Downstream database endpoints will return 503.")
     except Exception as e:
-        logger.error(f"Firebase init failed: {e}")
+        logger.error(f"Firebase init failed during startup: {e}")
     yield
     logger.info("App shutting down")
 
@@ -377,6 +585,8 @@ try:
 
     supply_chain = SupplyChainBlockchain()
     blockchain.init_blockchain(supply_chain)
+except Exception as e:
+    logger.warning(f"Dependency wiring failed: {e}")
 
 # ML Governance Request Models
 class StartShadowEvaluationRequest(BaseModel):
@@ -408,6 +618,7 @@ shadow_evaluator = ShadowEvaluator(
 )
 version_manager = ModelVersionManager(versions_dir="./model_versions")
 
+try:
     SEED_REGISTRY = {"TEST001": {"verified": True, "expiry": "2025-12-31"}}
     knowledge.init_knowledge(rag_generate_fn, rbac_mgr, Permission, SEED_REGISTRY, verify_role)
 
@@ -1478,6 +1689,533 @@ async def calculate_market_price(request: Request, data: CropQualityGradingReque
     except Exception as e:
         logger.error("Market price calculation error: %s", str(e))
         raise HTTPException(status_code=500, detail="Price calculation failed")
+
+class ConsultationBookRequest(BaseModel):
+    expert_id: str = Field(..., min_length=1, max_length=100)
+    expert_name: str = Field(..., min_length=1, max_length=200)
+    expert_specialization: str = Field(..., min_length=1, max_length=100)
+    date: str = Field(..., min_length=10, max_length=10)
+    time: str = Field(..., min_length=5, max_length=5)
+    notes: Optional[str] = Field(default="", max_length=1000)
+    consultation_type: str = Field(default="video", pattern=r'^(video|audio)$')
+
+class ConsultationUpdateRequest(BaseModel):
+    status: str = Field(..., pattern=r'^(scheduled|completed|cancelled|in-progress)$')
+    notes: Optional[str] = Field(default=None, max_length=1000)
+
+class ExpertSlotRequest(BaseModel):
+    expert_id: str = Field(..., min_length=1, max_length=100)
+    date: str = Field(..., min_length=10, max_length=10)
+
+# --- Expert Consultation APIs ---
+
+@app.get("/api/experts")
+async def get_experts(
+    specialization: Optional[str] = None,
+    kvk_only: bool = False,
+    search: Optional[str] = None
+):
+    """
+    Get list of available experts/KVK advisors.
+    
+    Query parameters:
+    - specialization: Filter by specialization (crop_disease, fertilizers, etc.)
+    - kvk_only: Return only KVK experts
+    - search: Search by name or location
+    """
+    try:
+        experts = []
+
+        db = get_firestore_client()
+        if db:
+            try:
+                experts_ref = db.collection("experts")
+                docs = experts_ref.get()
+
+                for doc in docs:
+                    expert_data = doc.to_dict()
+                    expert_data["id"] = doc.id
+                    experts.append(expert_data)
+            except Exception as e:
+                logger.warning(f"Firestore experts query failed: {e}")
+
+        if not experts:
+            experts = [
+                {
+                    "id": "exp1",
+                    "name": "Dr. Ramesh Kumar",
+                    "specialization": "crop_disease",
+                    "qualification": "Ph.D. in Plant Pathology",
+                    "location": "Madhya Pradesh",
+                    "phone": "+91 9876543210",
+                    "rating": 4.8,
+                    "experience": 15,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Jabalpur",
+                    "bio": "Specialist in crop disease diagnosis and organic treatment methods.",
+                    "avatar": "https://randomuser.me/api/portraits/men/32.jpg"
+                },
+                {
+                    "id": "exp2",
+                    "name": "Dr. Priya Sharma",
+                    "specialization": "fertilizers",
+                    "qualification": "M.Sc. Agricultural Chemistry",
+                    "location": "Maharashtra",
+                    "phone": "+91 9876543211",
+                    "rating": 4.9,
+                    "experience": 12,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Pune",
+                    "bio": "Expert in nano-fertilizers and sustainable nutrient management.",
+                    "avatar": "https://randomuser.me/api/portraits/women/44.jpg"
+                },
+                {
+                    "id": "exp3",
+                    "name": "Er. Suresh Patil",
+                    "specialization": "irrigation",
+                    "qualification": "B.Tech Agricultural Engineering",
+                    "location": "Karnataka",
+                    "phone": "+91 9876543212",
+                    "rating": 4.7,
+                    "experience": 10,
+                    "is_kvk": False,
+                    "bio": "Drip irrigation and water management specialist.",
+                    "avatar": "https://randomuser.me/api/portraits/men/45.jpg"
+                },
+                {
+                    "id": "exp4",
+                    "name": "Dr. Anjali Verma",
+                    "specialization": "pest_management",
+                    "qualification": "Ph.D. Entomology",
+                    "location": "Uttar Pradesh",
+                    "phone": "+91 9876543213",
+                    "rating": 4.6,
+                    "experience": 8,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Lucknow",
+                    "bio": "Integrated pest management and organic pest control expert.",
+                    "avatar": "https://randomuser.me/api/portraits/women/65.jpg"
+                },
+                {
+                    "id": "exp5",
+                    "name": "Dr. Mahendra Singh",
+                    "specialization": "soil_health",
+                    "qualification": "Ph.D. Soil Science",
+                    "location": "Rajasthan",
+                    "phone": "+91 9876543214",
+                    "rating": 4.9,
+                    "experience": 20,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Jaipur",
+                    "bio": "Soil health assessment and reclamation specialist.",
+                    "avatar": "https://randomuser.me/api/portraits/men/67.jpg"
+                },
+                {
+                    "id": "exp6",
+                    "name": "Dr. Kavita Desai",
+                    "specialization": "market_advisory",
+                    "qualification": "MBA Agriculture Business",
+                    "location": "Gujarat",
+                    "phone": "+91 9876543215",
+                    "rating": 4.8,
+                    "experience": 14,
+                    "is_kvk": False,
+                    "bio": "Market intelligence and price forecasting expert.",
+                    "avatar": "https://randomuser.me/api/portraits/women/28.jpg"
+                }
+            ]
+
+        if specialization:
+            experts = [e for e in experts if e.get("specialization") == specialization]
+        if kvk_only:
+            experts = [e for e in experts if e.get("is_kvk")]
+        if search:
+            search_lower = search.lower()
+            experts = [e for e in experts if search_lower in e.get("name", "").lower() or search_lower in e.get("location", "").lower()]
+
+        if not experts:
+            experts = [
+                {
+                    "id": "exp1",
+                    "name": "Dr. Ramesh Kumar",
+                    "specialization": "crop_disease",
+                    "qualification": "Ph.D. in Plant Pathology",
+                    "location": "Madhya Pradesh",
+                    "phone": "+91 9876543210",
+                    "rating": 4.8,
+                    "experience": 15,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Jabalpur",
+                    "bio": "Specialist in crop disease diagnosis and organic treatment methods.",
+                    "avatar": "https://randomuser.me/api/portraits/men/32.jpg"
+                },
+                {
+                    "id": "exp2",
+                    "name": "Dr. Priya Sharma",
+                    "specialization": "fertilizers",
+                    "qualification": "M.Sc. Agricultural Chemistry",
+                    "location": "Maharashtra",
+                    "phone": "+91 9876543211",
+                    "rating": 4.9,
+                    "experience": 12,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Pune",
+                    "bio": "Expert in nano-fertilizers and sustainable nutrient management.",
+                    "avatar": "https://randomuser.me/api/portraits/women/44.jpg"
+                },
+                {
+                    "id": "exp3",
+                    "name": "Er. Suresh Patil",
+                    "specialization": "irrigation",
+                    "qualification": "B.Tech Agricultural Engineering",
+                    "location": "Karnataka",
+                    "phone": "+91 9876543212",
+                    "rating": 4.7,
+                    "experience": 10,
+                    "is_kvk": False,
+                    "bio": "Drip irrigation and water management specialist.",
+                    "avatar": "https://randomuser.me/api/portraits/men/45.jpg"
+                },
+                {
+                    "id": "exp4",
+                    "name": "Dr. Anjali Verma",
+                    "specialization": "pest_management",
+                    "qualification": "Ph.D. Entomology",
+                    "location": "Uttar Pradesh",
+                    "phone": "+91 9876543213",
+                    "rating": 4.6,
+                    "experience": 8,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Lucknow",
+                    "bio": "Integrated pest management and organic pest control expert.",
+                    "avatar": "https://randomuser.me/api/portraits/women/65.jpg"
+                },
+                {
+                    "id": "exp5",
+                    "name": "Dr. Mahendra Singh",
+                    "specialization": "soil_health",
+                    "qualification": "Ph.D. Soil Science",
+                    "location": "Rajasthan",
+                    "phone": "+91 9876543214",
+                    "rating": 4.9,
+                    "experience": 20,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Jaipur",
+                    "bio": "Soil health assessment and reclamation specialist.",
+                    "avatar": "https://randomuser.me/api/portraits/men/67.jpg"
+                },
+                {
+                    "id": "exp6",
+                    "name": "Dr. Kavita Desai",
+                    "specialization": "market_advisory",
+                    "qualification": "MBA Agriculture Business",
+                    "location": "Gujarat",
+                    "phone": "+91 9876543215",
+                    "rating": 4.8,
+                    "experience": 14,
+                    "is_kvk": False,
+                    "bio": "Market intelligence and price forecasting expert.",
+                    "avatar": "https://randomuser.me/api/portraits/women/28.jpg"
+                }
+            ]
+
+            if specialization:
+                experts = [e for e in experts if e.get("specialization") == specialization]
+            if kvk_only:
+                experts = [e for e in experts if e.get("is_kvk")]
+            if search:
+                search_lower = search.lower()
+                experts = [e for e in experts if search_lower in e.get("name", "").lower() or search_lower in e.get("location", "").lower()]
+
+        return {"experts": experts, "count": len(experts)}
+    except Exception as e:
+        logger.error(f"Error fetching experts: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch experts")
+
+
+@app.get("/api/experts/{expert_id}/slots")
+async def get_expert_slots(expert_id: str, date: str):
+    """
+    Get available time slots for an expert on a specific date.
+    
+    Path parameters:
+    - expert_id: ID of the expert
+    
+    Query parameters:
+    - date: Date in YYYY-MM-DD format
+    """
+    try:
+        from datetime import datetime, timedelta
+
+        requested_date = datetime.strptime(date, "%Y-%m-%d")
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        if requested_date < today:
+            return {"slots": [], "message": "Cannot book slots for past dates"}
+
+        slots = []
+        for hour in range(9, 18):
+            for minute in [0, 30]:
+                time_str = f"{hour:02d}:{minute:02d}"
+                available = True
+
+                if requested_date.date() == today.date() and hour <= datetime.now().hour:
+                    available = False
+
+                if available:
+                    slots.append({
+                        "time": time_str,
+                        "display": f"{hour}:{minute:02d} {'AM' if hour < 12 else 'PM'}",
+                        "available": available
+                    })
+
+        return {"expert_id": expert_id, "date": date, "slots": slots}
+    except Exception as e:
+        logger.error(f"Error fetching slots: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch slots")
+
+
+@app.post("/api/consultation/book")
+async def book_consultation(
+    request: ConsultationBookRequest,
+    raw_request: Request,
+    authorization: Optional[str] = None
+):
+    """
+    Book a consultation with an expert.
+    """
+    # Idempotency check: prevent duplicate bookings on retry
+    idem_key = raw_request.headers.get("X-Idempotency-Key")
+    if idem_key:
+        with _IDEMPOTENCY_LOCK:
+            if idem_key in _IDEMPOTENCY_CACHE:
+                logger.info(f"Idempotency: Returning cached consultation for key {idem_key}")
+                return _IDEMPOTENCY_CACHE[idem_key]
+    
+    """
+    Request body:
+    - expert_id: Expert's ID
+    - expert_name: Expert's name
+    - expert_specialization: Expert's specialization
+    - date: Date in YYYY-MM-DD format
+    - time: Time in HH:MM format
+    - notes: Optional notes about the consultation
+    - consultation_type: "video" or "audio"
+    """
+    try:
+        db = validate_firestore_ready()
+        user_data = None
+
+        if authorization:
+            try:
+                token = authorization.replace("Bearer ", "")
+                decoded_token = firebase_auth.verify_id_token(token)
+                user_id = decoded_token.get("uid")
+
+                user_ref = db.collection("users").document(user_id)
+                user_doc = user_ref.get()
+                if user_doc.exists:
+                    user_data = user_doc.to_dict()
+            except Exception as e:
+                logger.warning(f"Auth verification failed: {e}")
+
+        consultation_data = {
+            "expert_id": request.expert_id,
+            "expert_name": request.expert_name,
+            "expert_specialization": request.expert_specialization,
+            "user_id": user_data.get("uid") if user_data else "anonymous",
+            "user_name": user_data.get("displayName") if user_data else "Guest Farmer",
+            "date": request.date,
+            "time": request.time,
+            "notes": request.notes,
+            "type": request.consultation_type,
+            "status": "scheduled",
+            "created_at": datetime.now().isoformat()
+        }
+
+        doc_ref = db.collection("consultations").document()
+        doc_ref.set(consultation_data)
+
+        result = {
+            "success": True,
+            "consultation_id": doc_ref.id,
+            "message": "Consultation booked successfully"
+        }
+
+        if idem_key:
+            with _IDEMPOTENCY_LOCK:
+                if len(_IDEMPOTENCY_CACHE) > 1000:
+                    _IDEMPOTENCY_CACHE.clear()
+                _IDEMPOTENCY_CACHE[idem_key] = result
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error booking consultation: {e}")
+        raise HTTPException(status_code=500, detail="Failed to book consultation")
+
+
+@app.put("/api/consultation/{consultation_id}")
+async def update_consultation(
+    consultation_id: str,
+    request: ConsultationUpdateRequest,
+    authorization: Optional[str] = None
+):
+    """
+    Update consultation status.
+    
+    Path parameters:
+    - consultation_id: ID of the consultation
+    
+    Request body:
+    - status: New status (scheduled, completed, cancelled, in-progress)
+    - notes: Optional notes
+    """
+    try:
+        db = validate_firestore_ready()
+        doc_ref = db.collection("consultations").document(consultation_id)
+        doc = doc_ref.get()
+
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Consultation not found")
+
+        update_data = {
+            "status": request.status,
+            "updated_at": datetime.now().isoformat()
+        }
+
+        if request.notes:
+            update_data["notes"] = request.notes
+
+        if request.status == "completed":
+            update_data["completed_at"] = datetime.now().isoformat()
+
+        doc_ref.update(update_data)
+
+        return {
+            "success": True,
+            "message": "Consultation updated successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating consultation: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update consultation")
+
+
+@app.get("/api/consultations")
+async def get_user_consultations(
+    user_id: Optional[str] = None,
+    status: Optional[str] = None,
+    authorization: Optional[str] = None
+):
+    """
+    Get user's consultation history.
+    
+    Query parameters:
+    - user_id: User ID (optional, will use auth if provided)
+    - status: Filter by status (scheduled, completed, cancelled)
+    """
+    try:
+        db = validate_firestore_ready()
+        consultations_ref = db.collection("consultations")
+        query = consultations_ref
+
+        if user_id:
+            query = query.where("user_id", "==", user_id)
+
+        docs = query.get()
+        consultations = []
+
+        for doc in docs:
+            consultation = doc.to_dict()
+            consultation["id"] = doc.id
+
+            if status and consultation.get("status") != status:
+                continue
+
+            consultations.append(consultation)
+
+        consultations.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+
+        return {
+            "consultations": consultations,
+            "count": len(consultations)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching consultations: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch consultations")
+
+
+@app.delete("/api/consultation/{consultation_id}")
+async def cancel_consultation(
+    consultation_id: str,
+    authorization: Optional[str] = None
+):
+    """
+    Cancel a consultation.
+    
+    Path parameters:
+    - consultation_id: ID of the consultation to cancel
+    """
+    try:
+        db = validate_firestore_ready()
+        doc_ref = db.collection("consultations").document(consultation_id)
+        doc = doc_ref.get()
+
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Consultation not found")
+
+        doc_ref.update({
+            "status": "cancelled",
+            "cancelled_at": datetime.now().isoformat()
+        })
+
+        return {
+            "success": True,
+            "message": "Consultation cancelled successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cancelling consultation: {e}")
+        raise HTTPException(status_code=500, detail="Failed to cancel consultation")
+
+
+# --- Smart Farm Autopilot Endpoint ---
+
+class SeasonPlanRequest(BaseModel):
+    farm_name: str = Field(default="My Farm", max_length=100)
+    state: str = Field(..., min_length=2, max_length=50)
+    district: str = Field(default="", max_length=100)
+    area_acres: float = Field(..., gt=0, le=10000)
+    soil_type: str = Field(..., min_length=2, max_length=50)
+    season: str = Field(..., pattern="^(Kharif|Rabi|Zaid)$")
+    water_source: str = Field(default="Canal", max_length=50)
+    budget_inr: Optional[float] = Field(default=None, ge=0)
+
+
+@app.post("/api/autopilot/generate-plan")
+@limiter.limit("5/minute")
+async def generate_farm_plan(request: Request, data: SeasonPlanRequest):
+    """
+    Smart Farm Autopilot — generate a complete seasonal farming plan.
+
+    Returns crop selection, sowing schedule, irrigation plan,
+    fertilizer/pesticide timeline, and yield/profit projection.
+    """
+    try:
+        plan = generate_season_plan(data.dict())
+        return {"success": True, "plan": plan}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Autopilot plan generation failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate farm plan")
+
 
 if __name__ == "__main__":
     import uvicorn
