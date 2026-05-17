@@ -61,13 +61,13 @@ function saveLocalHistory(userId, entry) {
   localStorage.setItem(key, JSON.stringify(next));
 }
 
-export default function SustainabilityAnalytics({ userProfile, onClose }) {
-  const userId = userProfile?.uid || userProfile?.id || "anonymous";
+export default function SustainabilityAnalytics({ userData, onClose }) {
+  const userId = userData?.uid || userData?.id || "anonymous";
 
   const [form, setForm] = useState({
-    crop_type: userProfile?.cropType || "Rice",
-    season: userProfile?.season || deriveSeason(),
-    acreage: userProfile?.landArea || "1",
+    crop_type: userData?.cropType || "Rice",
+    season: userData?.season || deriveSeason(),
+    acreage: userData?.landArea || "1",
     irrigation_type: "drip",
     irrigation_events: "12",
     fertilizer_n_kg: "",
@@ -173,7 +173,7 @@ export default function SustainabilityAnalytics({ userProfile, onClose }) {
     setExporting(true);
     try {
       const doc = new jsPDF();
-      const farmer = userProfile?.displayName || "Farmer";
+      const farmer = userData?.displayName || "Farmer";
       doc.setFontSize(16);
       doc.text("Fasal Saathi — Sustainability Report", 14, 20);
       doc.setFontSize(10);

@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import re
+import threading
 import joblib
 import hashlib
 import pandas as pd
@@ -151,6 +152,245 @@ except ImportError:
 
 app = FastAPI()
 app.include_router(flags_router)
+
+logger = logging.getLogger(__name__)
+
+# Server-side idempotency cache for deduplicating transactional POST requests.
+# In production, this should use a persistent store like Redis with a TTL.
+_IDEMPOTENCY_CACHE: Dict[str, Any] = {}
+_IDEMPOTENCY_LOCK = threading.Lock()
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
 
 logger = logging.getLogger(__name__)
 
@@ -322,22 +562,22 @@ class AlertTriggerRequest(BaseModel):
     message: str
 
 class ReportRequest(BaseModel):
-    name: str = Field(..., max_length=100)
-    crop: str = Field(..., max_length=50)
-    area: str = Field(..., max_length=50)
-    profit: str = Field(..., max_length=50)
-    season: str = Field(..., max_length=50)
+    name: str = Field(..., max_length=100, description="Full name of the farmer")
+    crop: str = Field(..., max_length=50, description="Primary crop type")
+    area: str = Field(..., max_length=50, description="Total farm area")
+    profit: str = Field(..., max_length=50, description="Estimated season profit")
+    season: str = Field(..., max_length=50, description="Farming season")
 
     @validator("name", "crop", "area", "profit", "season", pre=True)
-    def reject_pipe_characters(cls, v):
-        # Belt-and-suspenders guard: the signing payload now uses JSON (which
-        # is unambiguous regardless of field content), but we also reject pipe
-        # characters at the model level so legacy code paths or future changes
-        # cannot accidentally reintroduce a delimiter-injection vulnerability.
-        if isinstance(v, str) and "|" in v:
-            raise ValueError(
-                "Field value must not contain the '|' character."
-            )
+    def sanitize_and_validate_input(cls, v):
+        # Enforce robust input validation standards: ensure input is clean,
+        # printable text and strip leading/trailing whitespace.
+        # Primary security against injection is handled via canonical structured JSON
+        # serialization during report signing, completely eliminating delimiter-based risks.
+        if isinstance(v, str):
+            v = v.strip()
+            if "|" in v:
+                raise ValueError("Field value must not contain the '|' character.")
         return v
 
 class WeatherLocationRequest(BaseModel):
@@ -589,9 +829,26 @@ async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest)
 @limiter.limit("5/minute")
 async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
     """Create a loan application from the current farm profile."""
+    # Idempotency check: prevent duplicate applications on retry
+    idem_key = request.headers.get("X-Idempotency-Key")
+    if idem_key:
+        with _IDEMPOTENCY_LOCK:
+            if idem_key in _IDEMPOTENCY_CACHE:
+                logger.info(f"Idempotency: Returning cached finance application for key {idem_key}")
+                return _IDEMPOTENCY_CACHE[idem_key]
+
     input_data = body.model_dump() if hasattr(body, "model_dump") else body.dict()
     application = _farm_finance_ai.create_application(input_data)
-    return {"success": True, "data": application}
+    result = {"success": True, "data": application}
+
+    if idem_key:
+        with _IDEMPOTENCY_LOCK:
+            # Basic eviction: clear cache if too large
+            if len(_IDEMPOTENCY_CACHE) > 1000:
+                _IDEMPOTENCY_CACHE.clear()
+            _IDEMPOTENCY_CACHE[idem_key] = result
+
+    return result
 
 
 @app.get("/api/finance/applications/{application_id}")
@@ -911,12 +1168,11 @@ def get_signing_keys():
 
     if project_id:
         if not HAS_GCP_KMS:
-            if IS_PRODUCTION:
-                raise HTTPException(
-                    status_code=500,
-                    detail="google-cloud-secret-manager is not installed but is required in production"
-                )
-            print("KMS Warning: google-cloud-secret-manager not installed; skipping GCP path.")
+            logger.critical("CRITICAL SECURITY ALERT: google-cloud-secret-manager is not installed but GOOGLE_CLOUD_PROJECT is set. Halting to prevent insecure fallback.")
+            raise HTTPException(
+                status_code=500,
+                detail="KMS Initialization Error: google-cloud-secret-manager is required when GOOGLE_CLOUD_PROJECT is set. Halting to prevent insecure fallback."
+            )
         else:
             try:
                 client = secretmanager.SecretManagerServiceClient()
@@ -929,14 +1185,13 @@ def get_signing_keys():
                 print(f"KMS: Loaded signing key from Secret Manager (secret: {secret_id})")
                 return _cached_private_key
             except Exception as e:
-                if IS_PRODUCTION:
-                    print(f"KMS Error: {e}")
-                    raise HTTPException(
-                        status_code=500,
-                        detail="Failed to retrieve signing key from Secret Manager"
-                    )
-                print(f"KMS Warning: Could not reach Secret Manager ({e}); falling back to local key.")
+                logger.critical(f"CRITICAL SECURITY ALERT: KMS Initialization Failed. Could not reach Secret Manager: {e}. Halting to prevent insecure fallback to local keys.")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"KMS Initialization Error: Failed to retrieve signing key from Secret Manager. Halting to prevent insecure fallback."
+                )
     elif IS_PRODUCTION:
+        logger.critical("CRITICAL SECURITY ALERT: GOOGLE_CLOUD_PROJECT is not set in production. Cannot retrieve secure signing key.")
         raise HTTPException(
             status_code=500,
             detail="GOOGLE_CLOUD_PROJECT is not set; cannot retrieve signing key in production"
@@ -1028,9 +1283,18 @@ async def generate_signed_report(data: ReportRequest, request: Request):
         p.setStrokeColor(colors.black)
         p.rect(1*inch, y - 1.5*inch, width - 2*inch, 1.8*inch, stroke=1, fill=0)
         
-        # Data for signing
-        report_data_string = f"{data.name}|{data.crop}|{data.area}|{data.profit}|{datetime.now().date()}"
-        signature = private_key.sign(report_data_string.encode())
+        # Data for signing: migrate from fragile delimiter-separated strings
+        # to secure canonical structured JSON serialization
+        signing_payload = {
+            "name": data.name,
+            "crop": data.crop,
+            "area": data.area,
+            "profit": data.profit,
+            "season": data.season,
+            "date": datetime.now().date().isoformat()
+        }
+        report_data_string = json.dumps(signing_payload, sort_keys=True)
+        signature = private_key.sign(report_data_string.encode("utf-8"))
         sig_id = hashlib.sha256(signature).hexdigest()[:8].upper()
 
         p.setFont("Helvetica-Bold", 14)
@@ -1558,6 +1822,522 @@ async def calculate_market_price(request: Request, data: CropQualityGradingReque
     except Exception as e:
         logger.error("Market price calculation error: %s", str(e))
         raise HTTPException(status_code=500, detail="Price calculation failed")
+
+class ConsultationBookRequest(BaseModel):
+    expert_id: str = Field(..., min_length=1, max_length=100)
+    expert_name: str = Field(..., min_length=1, max_length=200)
+    expert_specialization: str = Field(..., min_length=1, max_length=100)
+    date: str = Field(..., min_length=10, max_length=10)
+    time: str = Field(..., min_length=5, max_length=5)
+    notes: Optional[str] = Field(default="", max_length=1000)
+    consultation_type: str = Field(default="video", pattern=r'^(video|audio)$')
+
+class ConsultationUpdateRequest(BaseModel):
+    status: str = Field(..., pattern=r'^(scheduled|completed|cancelled|in-progress)$')
+    notes: Optional[str] = Field(default=None, max_length=1000)
+
+class ExpertSlotRequest(BaseModel):
+    expert_id: str = Field(..., min_length=1, max_length=100)
+    date: str = Field(..., min_length=10, max_length=10)
+
+# --- Expert Consultation APIs ---
+
+@app.get("/api/experts")
+async def get_experts(
+    specialization: Optional[str] = None,
+    kvk_only: bool = False,
+    search: Optional[str] = None
+):
+    """
+    Get list of available experts/KVK advisors.
+    
+    Query parameters:
+    - specialization: Filter by specialization (crop_disease, fertilizers, etc.)
+    - kvk_only: Return only KVK experts
+    - search: Search by name or location
+    """
+    try:
+        experts = []
+
+        if db_firestore:
+            try:
+                experts_ref = db_firestore.collection("experts")
+                docs = experts_ref.get()
+
+                for doc in docs:
+                    expert_data = doc.to_dict()
+                    expert_data["id"] = doc.id
+                    experts.append(expert_data)
+            except Exception as e:
+                logger.warning(f"Firestore experts query failed: {e}")
+
+        if not experts:
+            experts = [
+                {
+                    "id": "exp1",
+                    "name": "Dr. Ramesh Kumar",
+                    "specialization": "crop_disease",
+                    "qualification": "Ph.D. in Plant Pathology",
+                    "location": "Madhya Pradesh",
+                    "phone": "+91 9876543210",
+                    "rating": 4.8,
+                    "experience": 15,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Jabalpur",
+                    "bio": "Specialist in crop disease diagnosis and organic treatment methods.",
+                    "avatar": "https://randomuser.me/api/portraits/men/32.jpg"
+                },
+                {
+                    "id": "exp2",
+                    "name": "Dr. Priya Sharma",
+                    "specialization": "fertilizers",
+                    "qualification": "M.Sc. Agricultural Chemistry",
+                    "location": "Maharashtra",
+                    "phone": "+91 9876543211",
+                    "rating": 4.9,
+                    "experience": 12,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Pune",
+                    "bio": "Expert in nano-fertilizers and sustainable nutrient management.",
+                    "avatar": "https://randomuser.me/api/portraits/women/44.jpg"
+                },
+                {
+                    "id": "exp3",
+                    "name": "Er. Suresh Patil",
+                    "specialization": "irrigation",
+                    "qualification": "B.Tech Agricultural Engineering",
+                    "location": "Karnataka",
+                    "phone": "+91 9876543212",
+                    "rating": 4.7,
+                    "experience": 10,
+                    "is_kvk": False,
+                    "bio": "Drip irrigation and water management specialist.",
+                    "avatar": "https://randomuser.me/api/portraits/men/45.jpg"
+                },
+                {
+                    "id": "exp4",
+                    "name": "Dr. Anjali Verma",
+                    "specialization": "pest_management",
+                    "qualification": "Ph.D. Entomology",
+                    "location": "Uttar Pradesh",
+                    "phone": "+91 9876543213",
+                    "rating": 4.6,
+                    "experience": 8,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Lucknow",
+                    "bio": "Integrated pest management and organic pest control expert.",
+                    "avatar": "https://randomuser.me/api/portraits/women/65.jpg"
+                },
+                {
+                    "id": "exp5",
+                    "name": "Dr. Mahendra Singh",
+                    "specialization": "soil_health",
+                    "qualification": "Ph.D. Soil Science",
+                    "location": "Rajasthan",
+                    "phone": "+91 9876543214",
+                    "rating": 4.9,
+                    "experience": 20,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Jaipur",
+                    "bio": "Soil health assessment and reclamation specialist.",
+                    "avatar": "https://randomuser.me/api/portraits/men/67.jpg"
+                },
+                {
+                    "id": "exp6",
+                    "name": "Dr. Kavita Desai",
+                    "specialization": "market_advisory",
+                    "qualification": "MBA Agriculture Business",
+                    "location": "Gujarat",
+                    "phone": "+91 9876543215",
+                    "rating": 4.8,
+                    "experience": 14,
+                    "is_kvk": False,
+                    "bio": "Market intelligence and price forecasting expert.",
+                    "avatar": "https://randomuser.me/api/portraits/women/28.jpg"
+                }
+            ]
+
+        if specialization:
+            experts = [e for e in experts if e.get("specialization") == specialization]
+        if kvk_only:
+            experts = [e for e in experts if e.get("is_kvk")]
+        if search:
+            search_lower = search.lower()
+            experts = [e for e in experts if search_lower in e.get("name", "").lower() or search_lower in e.get("location", "").lower()]
+
+        if not experts:
+            experts = [
+                {
+                    "id": "exp1",
+                    "name": "Dr. Ramesh Kumar",
+                    "specialization": "crop_disease",
+                    "qualification": "Ph.D. in Plant Pathology",
+                    "location": "Madhya Pradesh",
+                    "phone": "+91 9876543210",
+                    "rating": 4.8,
+                    "experience": 15,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Jabalpur",
+                    "bio": "Specialist in crop disease diagnosis and organic treatment methods.",
+                    "avatar": "https://randomuser.me/api/portraits/men/32.jpg"
+                },
+                {
+                    "id": "exp2",
+                    "name": "Dr. Priya Sharma",
+                    "specialization": "fertilizers",
+                    "qualification": "M.Sc. Agricultural Chemistry",
+                    "location": "Maharashtra",
+                    "phone": "+91 9876543211",
+                    "rating": 4.9,
+                    "experience": 12,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Pune",
+                    "bio": "Expert in nano-fertilizers and sustainable nutrient management.",
+                    "avatar": "https://randomuser.me/api/portraits/women/44.jpg"
+                },
+                {
+                    "id": "exp3",
+                    "name": "Er. Suresh Patil",
+                    "specialization": "irrigation",
+                    "qualification": "B.Tech Agricultural Engineering",
+                    "location": "Karnataka",
+                    "phone": "+91 9876543212",
+                    "rating": 4.7,
+                    "experience": 10,
+                    "is_kvk": False,
+                    "bio": "Drip irrigation and water management specialist.",
+                    "avatar": "https://randomuser.me/api/portraits/men/45.jpg"
+                },
+                {
+                    "id": "exp4",
+                    "name": "Dr. Anjali Verma",
+                    "specialization": "pest_management",
+                    "qualification": "Ph.D. Entomology",
+                    "location": "Uttar Pradesh",
+                    "phone": "+91 9876543213",
+                    "rating": 4.6,
+                    "experience": 8,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Lucknow",
+                    "bio": "Integrated pest management and organic pest control expert.",
+                    "avatar": "https://randomuser.me/api/portraits/women/65.jpg"
+                },
+                {
+                    "id": "exp5",
+                    "name": "Dr. Mahendra Singh",
+                    "specialization": "soil_health",
+                    "qualification": "Ph.D. Soil Science",
+                    "location": "Rajasthan",
+                    "phone": "+91 9876543214",
+                    "rating": 4.9,
+                    "experience": 20,
+                    "is_kvk": True,
+                    "kvk_name": "KVK Jaipur",
+                    "bio": "Soil health assessment and reclamation specialist.",
+                    "avatar": "https://randomuser.me/api/portraits/men/67.jpg"
+                },
+                {
+                    "id": "exp6",
+                    "name": "Dr. Kavita Desai",
+                    "specialization": "market_advisory",
+                    "qualification": "MBA Agriculture Business",
+                    "location": "Gujarat",
+                    "phone": "+91 9876543215",
+                    "rating": 4.8,
+                    "experience": 14,
+                    "is_kvk": False,
+                    "bio": "Market intelligence and price forecasting expert.",
+                    "avatar": "https://randomuser.me/api/portraits/women/28.jpg"
+                }
+            ]
+
+            if specialization:
+                experts = [e for e in experts if e.get("specialization") == specialization]
+            if kvk_only:
+                experts = [e for e in experts if e.get("is_kvk")]
+            if search:
+                search_lower = search.lower()
+                experts = [e for e in experts if search_lower in e.get("name", "").lower() or search_lower in e.get("location", "").lower()]
+
+        return {"experts": experts, "count": len(experts)}
+    except Exception as e:
+        logger.error(f"Error fetching experts: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch experts")
+
+
+@app.get("/api/experts/{expert_id}/slots")
+async def get_expert_slots(expert_id: str, date: str):
+    """
+    Get available time slots for an expert on a specific date.
+    
+    Path parameters:
+    - expert_id: ID of the expert
+    
+    Query parameters:
+    - date: Date in YYYY-MM-DD format
+    """
+    try:
+        from datetime import datetime, timedelta
+
+        requested_date = datetime.strptime(date, "%Y-%m-%d")
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        if requested_date < today:
+            return {"slots": [], "message": "Cannot book slots for past dates"}
+
+        slots = []
+        for hour in range(9, 18):
+            for minute in [0, 30]:
+                time_str = f"{hour:02d}:{minute:02d}"
+                available = True
+
+                if requested_date.date() == today.date() and hour <= datetime.now().hour:
+                    available = False
+
+                if available:
+                    slots.append({
+                        "time": time_str,
+                        "display": f"{hour}:{minute:02d} {'AM' if hour < 12 else 'PM'}",
+                        "available": available
+                    })
+
+        return {"expert_id": expert_id, "date": date, "slots": slots}
+    except Exception as e:
+        logger.error(f"Error fetching slots: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch slots")
+
+
+@app.post("/api/consultation/book")
+async def book_consultation(
+    request: ConsultationBookRequest,
+    raw_request: Request,
+    authorization: Optional[str] = None
+):
+    """
+    Book a consultation with an expert.
+
+    Request body:
+    - expert_id: Expert's ID
+    - expert_name: Expert's name
+    - expert_specialization: Expert's specialization
+    - date: Date in YYYY-MM-DD format
+    - time: Time in HH:MM format
+    - notes: Optional notes about the consultation
+    - consultation_type: "video" or "audio"
+    """
+    # Idempotency check: prevent duplicate bookings on retry
+    idem_key = raw_request.headers.get("X-Idempotency-Key")
+    if idem_key:
+        with _IDEMPOTENCY_LOCK:
+            if idem_key in _IDEMPOTENCY_CACHE:
+                logger.info(f"Idempotency: Returning cached consultation for key {idem_key}")
+                return _IDEMPOTENCY_CACHE[idem_key]
+    try:
+        user_data = None
+
+        if authorization:
+            try:
+                token = authorization.replace("Bearer ", "")
+                decoded_token = firebase_auth.verify_id_token(token)
+                user_id = decoded_token.get("uid")
+
+                user_ref = db_firestore.collection("users").document(user_id)
+                user_doc = user_ref.get()
+                if user_doc.exists:
+                    user_data = user_doc.to_dict()
+            except Exception as e:
+                logger.warning(f"Auth verification failed: {e}")
+
+        consultation_data = {
+            "expert_id": request.expert_id,
+            "expert_name": request.expert_name,
+            "expert_specialization": request.expert_specialization,
+            "user_id": user_data.get("uid") if user_data else "anonymous",
+            "user_name": user_data.get("displayName") if user_data else "Guest Farmer",
+            "date": request.date,
+            "time": request.time,
+            "notes": request.notes,
+            "type": request.consultation_type,
+            "status": "scheduled",
+            "created_at": datetime.now().isoformat()
+        }
+
+        doc_ref = db_firestore.collection("consultations").document()
+        doc_ref.set(consultation_data)
+
+        result = {
+            "success": True,
+            "consultation_id": doc_ref.id,
+            "message": "Consultation booked successfully"
+        }
+
+        if idem_key:
+            with _IDEMPOTENCY_LOCK:
+                if len(_IDEMPOTENCY_CACHE) > 1000:
+                    _IDEMPOTENCY_CACHE.clear()
+                _IDEMPOTENCY_CACHE[idem_key] = result
+
+        return result
+    except Exception as e:
+        logger.error(f"Error booking consultation: {e}")
+        raise HTTPException(status_code=500, detail="Failed to book consultation")
+
+
+@app.put("/api/consultation/{consultation_id}")
+async def update_consultation(
+    consultation_id: str,
+    request: ConsultationUpdateRequest,
+    authorization: Optional[str] = None
+):
+    """
+    Update consultation status.
+    
+    Path parameters:
+    - consultation_id: ID of the consultation
+    
+    Request body:
+    - status: New status (scheduled, completed, cancelled, in-progress)
+    - notes: Optional notes
+    """
+    try:
+        doc_ref = db_firestore.collection("consultations").document(consultation_id)
+        doc = doc_ref.get()
+
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Consultation not found")
+
+        update_data = {
+            "status": request.status,
+            "updated_at": datetime.now().isoformat()
+        }
+
+        if request.notes:
+            update_data["notes"] = request.notes
+
+        if request.status == "completed":
+            update_data["completed_at"] = datetime.now().isoformat()
+
+        doc_ref.update(update_data)
+
+        return {
+            "success": True,
+            "message": "Consultation updated successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating consultation: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update consultation")
+
+
+@app.get("/api/consultations")
+async def get_user_consultations(
+    user_id: Optional[str] = None,
+    status: Optional[str] = None,
+    authorization: Optional[str] = None
+):
+    """
+    Get user's consultation history.
+    
+    Query parameters:
+    - user_id: User ID (optional, will use auth if provided)
+    - status: Filter by status (scheduled, completed, cancelled)
+    """
+    try:
+        consultations_ref = db_firestore.collection("consultations")
+        query = consultations_ref
+
+        if user_id:
+            query = query.where("user_id", "==", user_id)
+
+        docs = query.get()
+        consultations = []
+
+        for doc in docs:
+            consultation = doc.to_dict()
+            consultation["id"] = doc.id
+
+            if status and consultation.get("status") != status:
+                continue
+
+            consultations.append(consultation)
+
+        consultations.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+
+        return {
+            "consultations": consultations,
+            "count": len(consultations)
+        }
+    except Exception as e:
+        logger.error(f"Error fetching consultations: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch consultations")
+
+
+@app.delete("/api/consultation/{consultation_id}")
+async def cancel_consultation(
+    consultation_id: str,
+    authorization: Optional[str] = None
+):
+    """
+    Cancel a consultation.
+    
+    Path parameters:
+    - consultation_id: ID of the consultation to cancel
+    """
+    try:
+        doc_ref = db_firestore.collection("consultations").document(consultation_id)
+        doc = doc_ref.get()
+
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Consultation not found")
+
+        doc_ref.update({
+            "status": "cancelled",
+            "cancelled_at": datetime.now().isoformat()
+        })
+
+        return {
+            "success": True,
+            "message": "Consultation cancelled successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cancelling consultation: {e}")
+        raise HTTPException(status_code=500, detail="Failed to cancel consultation")
+
+
+# --- Smart Farm Autopilot Endpoint ---
+
+class SeasonPlanRequest(BaseModel):
+    farm_name: str = Field(default="My Farm", max_length=100)
+    state: str = Field(..., min_length=2, max_length=50)
+    district: str = Field(default="", max_length=100)
+    area_acres: float = Field(..., gt=0, le=10000)
+    soil_type: str = Field(..., min_length=2, max_length=50)
+    season: str = Field(..., pattern="^(Kharif|Rabi|Zaid)$")
+    water_source: str = Field(default="Canal", max_length=50)
+    budget_inr: Optional[float] = Field(default=None, ge=0)
+
+
+@app.post("/api/autopilot/generate-plan")
+@limiter.limit("5/minute")
+async def generate_farm_plan(request: Request, data: SeasonPlanRequest):
+    """
+    Smart Farm Autopilot — generate a complete seasonal farming plan.
+
+    Returns crop selection, sowing schedule, irrigation plan,
+    fertilizer/pesticide timeline, and yield/profit projection.
+    """
+    try:
+        plan = generate_season_plan(data.dict())
+        return {"success": True, "plan": plan}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Autopilot plan generation failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate farm plan")
+
 
 if __name__ == "__main__":
     import uvicorn
