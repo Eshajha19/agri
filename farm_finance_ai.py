@@ -4,6 +4,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -38,7 +41,15 @@ class FinanceApplication:
 class FarmFinanceAI:
     """Deterministic finance-planning engine for farm loan recommendations."""
 
-    def __init__(self) -> None:
+    def __init__(self, repository: Any = None) -> None:
+        """
+        Initialize FarmFinanceAI with optional persistent repository.
+        
+        Parameters
+        ----------
+        repository : FinanceApplicationRepository, optional
+            Persistent repository for storing applications. If None, uses in-memory storage only.
+        """
         self.loan_products: List[LoanProduct] = [
             LoanProduct(
                 lender_name="Regional Cooperative Bank",
@@ -83,6 +94,8 @@ class FarmFinanceAI:
             ),
         ]
         self.applications: Dict[str, FinanceApplication] = {}
+        self.repository = repository
+        logger.info("FarmFinanceAI initialized with %s", "persistent repository" if repository else "in-memory storage")
 
     def analyze_financial_profile(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         data = self._normalize_payload(payload)
@@ -218,7 +231,30 @@ class FarmFinanceAI:
             required_documents=analysis["required_documents"],
             notes=analysis["action_plan"],
         )
+        # Store in-memory for backward compatibility
         self.applications[application_id] = application
+        
+        # Persist to repository if available
+        if self.repository:
+            try:
+                app_dict = {
+                    "application_id": application.application_id,
+                    "farmer_name": application.farmer_name,
+                    "crop_type": application.crop_type,
+                    "requested_amount": application.requested_amount,
+                    "recommended_amount": application.recommended_amount,
+                    "selected_lender": application.selected_lender,
+                    "status": application.status,
+                    "created_at": application.created_at,
+                    "assessment_score": application.assessment_score,
+                    "risk_level": application.risk_level,
+                    "required_documents": application.required_documents,
+                    "notes": application.notes,
+                }
+                self.repository.create(app_dict)
+                logger.info("Application %s persisted to repository.", application_id)
+            except Exception as exc:
+                logger.error("Failed to persist application %s: %s", application_id, exc)
 
         return {
             "application_id": application.application_id,
@@ -237,6 +273,29 @@ class FarmFinanceAI:
         }
 
     def get_application(self, application_id: str) -> Optional[Dict[str, Any]]:
+        # Try to retrieve from repository first if available
+        if self.repository:
+            try:
+                app_dict = self.repository.get(application_id)
+                if app_dict:
+                    return {
+                        "application_id": app_dict.get("application_id"),
+                        "farmer_name": app_dict.get("farmer_name"),
+                        "crop_type": app_dict.get("crop_type"),
+                        "requested_amount": round(app_dict.get("requested_amount", 0), 2),
+                        "recommended_amount": round(app_dict.get("recommended_amount", 0), 2),
+                        "selected_lender": app_dict.get("selected_lender"),
+                        "status": app_dict.get("status"),
+                        "created_at": app_dict.get("created_at"),
+                        "assessment_score": app_dict.get("assessment_score"),
+                        "risk_level": app_dict.get("risk_level"),
+                        "required_documents": app_dict.get("required_documents", []),
+                        "notes": app_dict.get("notes", []),
+                    }
+            except Exception as exc:
+                logger.warning("Failed to retrieve application from repository: %s", exc)
+        
+        # Fall back to in-memory storage
         application = self.applications.get(application_id)
         if not application:
             return None

@@ -7,12 +7,15 @@ import hashlib
 import json
 import time
 import uuid
+import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, asdict, field
 import qrcode
 import io
 import base64
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -96,13 +99,23 @@ class SmartContract:
 class SupplyChainBlockchain:
     """Blockchain for agricultural supply chain"""
 
-    def __init__(self):
+    def __init__(self, repository: Any = None):
+        """
+        Initialize Supply Chain Blockchain with optional persistent repository.
+        
+        Parameters
+        ----------
+        repository : SupplyChainRepository, optional
+            Persistent repository for storing supply chain records. If None, uses in-memory storage only.
+        """
         self.chain: List[BlockchainRecord] = []
         self.pending_records: List[BlockchainRecord] = []
         self.products: Dict[str, ProductBatch] = {}
         self.supply_chain_nodes: Dict[str, List[SupplyChainNode]] = {}
         self.smart_contracts: Dict[str, SmartContract] = {}
         self.verified_actors: Dict[str, Dict] = {}
+        self.repository = repository
+        logger.info("SupplyChainBlockchain initialized with %s", "persistent repository" if repository else "in-memory storage")
 
     def register_actor(self, actor_id: str, name: str, actor_type: str, location: str) -> Dict:
         """Register supply chain participant"""
@@ -157,6 +170,15 @@ class SupplyChainBlockchain:
         record.hash = record.calculate_hash()
         self.chain.append(record)
         batch.blockchain_records.append(asdict(record))
+        
+        # Persist to repository if available
+        if self.repository:
+            try:
+                batch_dict = asdict(batch)
+                self.repository.db.collection("supply_chain_batches").document(batch_id).set(batch_dict)
+                logger.info("Product batch %s persisted to repository.", batch_id)
+            except Exception as exc:
+                logger.error("Failed to persist product batch %s: %s", batch_id, exc)
 
         return batch
 
@@ -204,6 +226,15 @@ class SupplyChainBlockchain:
         record.hash = record.calculate_hash()
         self.chain.append(record)
         self.products[batch_id].blockchain_records.append(asdict(record))
+        
+        # Persist to repository if available
+        if self.repository:
+            try:
+                node_dict = asdict(node)
+                self.repository.create(node_dict)
+                logger.info("Supply chain node %s (batch: %s) persisted to repository.", node_id, batch_id)
+            except Exception as exc:
+                logger.error("Failed to persist supply chain node %s: %s", node_id, exc)
 
         return node
 
