@@ -55,12 +55,6 @@ export const useUiStore = create((set) => ({
   toggleNav: () => set((state) => ({ isNavOpen: !state.isNavOpen })),
   setNavOpen: (isOpen) => set({ isNavOpen: isOpen }),
 
-  // Farmer profile
-  farmerName: localStorage.getItem('agri:farmerName') || '',
-  setFarmerName: (name) => {
-    localStorage.setItem('agri:farmerName', name);
-    set({ farmerName: name });
-  },
   inputName: '',
   setInputName: (name) => set({ inputName: name }),
 
