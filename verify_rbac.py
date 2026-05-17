@@ -152,7 +152,7 @@ print("\n[TEST 7] Verifying main.py imports RBAC...")
 try:
     # Try to import main (this will fail if RBAC is not properly imported)
     # We'll just check if main.py has the imports
-    with open('d:/OneDrive/Desktop/OpenSCon/NSoC/agri/main.py', 'r') as f:
+    with open('agri/main.py', 'r', encoding='utf-8', errors='ignore') as f:
         main_content = f.read()
     
     required_imports = [
@@ -187,7 +187,7 @@ except Exception as e:
 # Test 8: Verify firestore.rules has security rules
 print("\n[TEST 8] Verifying firestore.rules has security rules...")
 try:
-    with open('d:/OneDrive/Desktop/OpenSCon/NSoC/agri/firestore.rules', 'r') as f:
+    with open('agri/firestore.rules', 'r', encoding='utf-8', errors='ignore') as f:
         rules_content = f.read()
     
     required_rules = [
@@ -220,7 +220,7 @@ except Exception as e:
 # Test 10: Verify all critical routes have protection
 print("\n[TEST 10] Verifying critical routes have RBAC protection...")
 try:
-    with open('d:/OneDrive/Desktop/OpenSCon/NSoC/agri/main.py', 'r') as f:
+    with open('agri/main.py', 'r', encoding='utf-8', errors='ignore') as f:
         main_content = f.read()
     
     critical_routes = {

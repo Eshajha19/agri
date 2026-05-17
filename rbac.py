@@ -220,8 +220,10 @@ class RBACManager:
         try:
             # Get token from Authorization header
             auth_header = request.headers.get("Authorization", "")
+            if not auth_header:
+                return Role.GUEST
             if not auth_header.startswith("Bearer "):
-                logger.warning("Missing or invalid Authorization header")
+                logger.warning("Missing or invalid Authorization header format")
                 return Role.GUEST
 
             token = auth_header.split(" ")[1]
@@ -232,15 +234,29 @@ class RBACManager:
                 uid = decoded_token.get("uid")
             except Exception as exc:
                 logger.error("Token verification failed: %s", exc)
-                return Role.GUEST
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid or expired authorization token"
+                )
 
             # Get user role from Firestore
             db = RBACManager.get_db()
             if db is None:
-                logger.warning("Firestore not available; cannot retrieve user role")
-                return Role.GUEST
+                logger.error("Firestore not available; cannot retrieve user role")
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Authentication database service temporarily unavailable"
+                )
 
-            user_doc = db.collection("users").document(uid).get()
+            try:
+                user_doc = db.collection("users").document(uid).get()
+            except Exception as exc:
+                logger.error("Firestore query failed for user %s: %s", uid, exc)
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Authentication database lookup failed"
+                )
+
             if not user_doc.exists:
                 logger.warning("User %s not found in Firestore", uid)
                 return Role.GUEST
@@ -252,9 +268,14 @@ class RBACManager:
                 logger.warning("Invalid role for user %s: %s", uid, role_str)
                 return Role.GUEST
 
+        except HTTPException:
+            raise
         except Exception as exc:
-            logger.error("Error getting user role: %s", exc)
-            return Role.GUEST
+            logger.error("Unexpected error getting user role: %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Internal server error during authorization verification"
+            )
 
     @staticmethod
     async def verify_permission(

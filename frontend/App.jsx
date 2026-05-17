@@ -170,9 +170,20 @@ function App() {
   /* ---------------- LANGUAGE AUTO-TRANS ---------------- */
   useEffect(() => {
     if (applyGoogleTranslate(preferredLang)) return;
+    
+    let retries = 0;
+    const MAX_RETRIES = 20; // Try for ~6 seconds
+    
     const id = setInterval(() => {
-      if (applyGoogleTranslate(preferredLang)) clearInterval(id);
+      retries++;
+      if (applyGoogleTranslate(preferredLang)) {
+        clearInterval(id);
+      } else if (retries >= MAX_RETRIES) {
+        clearInterval(id);
+        console.warn("Google Translate widget initialization timed out or was blocked. Graceful fallback applied.");
+      }
     }, 300);
+    
     return () => clearInterval(id);
   }, [preferredLang]);
 
@@ -449,8 +460,8 @@ function App() {
       )}
 
       {/* PROFILE COMPLETION GUARD */}
-      {!loading && user && (user.isAnonymous || user.emailVerified) && !profileCompleted && location.pathname !== "/profile-settings" && (
-        <Navigate to="/profile-settings" />
+      {!loading && user && (user.isAnonymous || user.emailVerified) && !profileCompleted && location.pathname !== "/profile-setup" && (
+        <Navigate to="/profile-setup" />
       )}
 
       <main id="main-content" tabIndex="-1" style={{ outline: 'none' }}>
@@ -472,6 +483,7 @@ function App() {
             <Route path="/farming-map" element={<FarmingMap />} />
             <Route path="/profit-calculator" element={<CropProfitCalculator />} />
             <Route path="/community" element={<Community />} />
+            <Route path="/leaderboard" element={<Leaderboard />} />
             <Route path="/soil-analysis" element={<SoilAnalysis />} />
             <Route path="/faq" element={<FAQ />} />
             <Route path="/terms" element={<Terms />} />
@@ -479,6 +491,7 @@ function App() {
             <Route path="/contributors" element={<Contributors />} />
             <Route path="/trace/:id" element={<QRTraceability />} />
             <Route path="/contact" element={<ContactUs />} />
+            <Route path="/profile-settings" element={<ProfileSettings user={user} userData={userData} />} />
             <Route path="/about" element={<AboutUs />} />
             <Route path="/crop-planner" element={<SeasonalCropPlanner />} />
             <Route path="/soil-guide" element={<SoilGuide />} />
