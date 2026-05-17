@@ -67,6 +67,7 @@ import {
   PestDetection,
   PrivacyPolicy,
   ProfileSetup,
+  ProfileSettings,
   QRTraceability,
   Resources,
   RiskIndex,

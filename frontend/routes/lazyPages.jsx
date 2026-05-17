@@ -42,4 +42,5 @@ export const YieldPredictor = lazyPage(() => import('../YieldPredictor'));
 export const Leaderboard = lazyPage(() => import('../Leaderboard'));
 export const Blog = lazyPage(() => import('../Blog'));
 export const BlogDetail = lazyPage(() => import('../BlogDetail'));
+export const ProfileSettings = lazyPage(() => import('../ProfileSettings'));
 export const NotFound = lazyPage(() => import('../NotFound'));
