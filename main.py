@@ -6,6 +6,7 @@ This refactored file preserves API routes while delegating domain routes to
 and non-destructive so upstream changes can be rebased safely.
 """
 import os
+import re
 import logging
 import collections
 import threading

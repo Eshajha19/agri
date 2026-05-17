@@ -125,9 +125,12 @@ const RAGAdvisor = ({ isOpen, onClose }) => {
 
       if (!res.ok) throw new Error("Backend unavailable");
       const data = await res.json();
+      // Sanitize AI-generated answer before rendering to prevent injection
+      // from malformed or unexpected LLM output
+      const safeAnswer = sanitizeText(data.answer);
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", text: data.answer, citations: data.citations },
+        { role: "assistant", text: safeAnswer, citations: data.citations },
       ]);
     } catch {
       // Fallback: client-side answer using local knowledge
