@@ -453,7 +453,7 @@ function App() {
           <Route path="/advisor" element={<Advisor userData={userData} />} />
           <Route path="/feature-flags" element={<FeatureFlagDashboard />} />
           <Route path="/how-it-works" element={<How />} />
-          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/dashboard" element={<Dashboard userData={userData} />} />
           <Route path="/crop-guide" element={<CropGuide />} />
           <Route path="/schemes" element={<Schemes />} />
           <Route path="/resources" element={<Resources />} />
