@@ -17,12 +17,12 @@ const isErrorLoggingEndpoint = (url) => String(url || '').includes('/api/log-err
 
 const canRetryRequest = (error, config) => {
   // Prevent automatic retries on non-idempotent HTTP methods (like POST)
-  // to avoid side-effects such as creating duplicate database entries
-  // (e.g. submitting the same feedback multiple times on a timeout).
+  // unless they have an idempotency key to prevent duplicate records.
   const method = (config.method || 'get').toLowerCase();
   const isIdempotent = ['get', 'head', 'options', 'put', 'delete'].includes(method);
+  const hasIdempotencyKey = !!config.headers?.['X-Idempotency-Key'];
   
-  if (!isIdempotent && !config.retryNonIdempotent) {
+  if (!isIdempotent && !config.retryNonIdempotent && !hasIdempotencyKey) {
     return false;
   }
 
@@ -98,6 +98,21 @@ const apiClient = axios.create({
 apiClient.interceptors.request.use(
   async (config) => {
     const nextConfig = { ...config };
+    const method = (nextConfig.method || 'get').toLowerCase();
+
+    // Automatically attach idempotency keys to non-idempotent requests (POST)
+    // to allow safe retries and prevent duplicate records on the backend.
+    if (method === 'post' && !nextConfig.headers?.['X-Idempotency-Key']) {
+      // Generate a unique ID for this request session
+      const idempotencyKey = typeof crypto !== 'undefined' && crypto.randomUUID 
+        ? crypto.randomUUID() 
+        : `idemp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        
+      nextConfig.headers = {
+        ...nextConfig.headers,
+        'X-Idempotency-Key': idempotencyKey,
+      };
+    }
 
     // Only inject the token when the caller has not already set one.
     if (!nextConfig.headers?.Authorization) {
