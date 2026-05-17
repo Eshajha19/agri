@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { Suspense, useEffect, useState, useRef } from "react";
 import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ToastContainer } from "react-toastify";
@@ -24,6 +24,7 @@ import {
   FaCog
 } from "react-icons/fa";
 import { usePerformanceStore } from "./stores/performanceStore";
+import { useBrowserCacheBudget } from "./lib/cacheBudget";
 
 // Components
 import Loader from "./Loader";
@@ -33,47 +34,48 @@ import Footer from "./components/Footer";
 import { SkipLink } from "./NavigationManager";
 import { useTheme } from "./ThemeContext";
 
-// Lazy-loaded Route Components
-const AdminFeedback = React.lazy(() => import("./AdminFeedback"));
-const Advisor = React.lazy(() => import("./Advisor"));
-const Auth = React.lazy(() => import("./Auth"));
-const Calendar = React.lazy(() => import("./FarmingCalendar"));
-const Contributors = React.lazy(() => import("./Contributors"));
-const CropGuide = React.lazy(() => import("./CropGuide"));
-const CropProfitCalculator = React.lazy(() => import("./CropProfitCalculator"));
-const Dashboard = React.lazy(() => import("./Dashboard"));
-const Feedback = React.lazy(() => import("./Feedback"));
-const FarmingMap = React.lazy(() => import("./FarmingMap"));
-const Schemes = React.lazy(() => import("./GovernmentSchemes"));
-const How = React.lazy(() => import("./How"));
-const Home = React.lazy(() => import("./Home"));
-const MarketPrices = React.lazy(() => import("./MarketPrices"));
-const Community = React.lazy(() => import("./Community"));
-const ContactUs = React.lazy(() => import("./ContactUs"));
-const AboutUs = React.lazy(() => import("./AboutUs"));
-const ProfileSetup = React.lazy(() => import("./ProfileSetup"));
-const ProfileSettings = React.lazy(() => import("./ProfileSettings"));
-const QRTraceability = React.lazy(() => import("./QRTraceability"));
-const Resources = React.lazy(() => import("./Resources"));
-const SeasonalCropPlanner = React.lazy(() => import("./SeasonalCropPlanner"));
-const SoilGuide = React.lazy(() => import("./SoilGuide"));
-const CropDiseaseAwareness = React.lazy(() => import("./CropDiseaseAwareness"));
-const CropRotation = React.lazy(() => import("./CropRotation"));
-const Helpline = React.lazy(() => import("./Helpline"));
-const Glossary = React.lazy(() => import("./Glossary"));
-const RiskIndex = React.lazy(() => import("./RiskIndex"));
-const Blog = React.lazy(() => import("./Blog"));
-const BlogDetail = React.lazy(() => import("./BlogDetail"));
-const FAQ = React.lazy(() => import("./FAQ"));
-const NotFound = React.lazy(() => import("./NotFound"));
-const PrivacyPolicy = React.lazy(() => import("./PrivacyPolicy"));
-const Terms = React.lazy(() => import("./Terms"));
-const SoilAnalysis = React.lazy(() => import("./SoilAnalysis"));
-const SeedVerifier = React.lazy(() => import("./SeedVerifier"));
-const Weather = React.lazy(() => import("./Weather"));
-const Leaderboard = React.lazy(() => import("./Leaderboard"));
-const PestDetection = React.lazy(() => import("./PestDetection"));
-const FarmFinance = React.lazy(() => import("./FarmFinance"));
+// Route-level code splitting
+import {
+  AdminFeedback,
+  Advisor,
+  Auth,
+  AboutUs,
+  Blog,
+  BlogDetail,
+  Calendar,
+  Community,
+  Contributors,
+  ContactUs,
+  CropDiseaseAwareness,
+  CropGuide,
+  CropProfitCalculator,
+  CropRotation,
+  Dashboard,
+  FAQ,
+  FarmFinance,
+  FarmingMap,
+  Feedback,
+  Glossary,
+  Helpline,
+  Home,
+  How,
+  MarketPrices,
+  NotFound,
+  PestDetection,
+  PrivacyPolicy,
+  ProfileSetup,
+  QRTraceability,
+  Resources,
+  RiskIndex,
+  Schemes,
+  SeasonalCropPlanner,
+  SeedVerifier,
+  SoilAnalysis,
+  SoilGuide,
+  Terms,
+  YieldPredictor,
+  EquipmentManagement,
+} from "./routes/lazyPages";
 
 // Libs
 import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc } from "./lib/firebase";
@@ -158,6 +160,10 @@ function App() {
   const location = useLocation();
 
   useNotifications();
+  useBrowserCacheBudget({
+    enabled: true,
+    usageRatioLimit: liteMode ? 0.72 : 0.85,
+  });
 
   /* ---------------- THEME SYSTEM (Moved to ThemeProvider) ---------------- */
 
@@ -370,6 +376,7 @@ function App() {
                 <Link to="/community" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaComments /> Community</Link>
                 <Link to="/leaderboard" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaTrophy />Leaderboard</Link>
                 <Link to="/risk-index" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Risk Index</Link>
+                <Link to="/farm-finance" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaFileInvoiceDollar /> Farm Finance</Link>
                 <Link to="/glossary" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaBook /> Glossary</Link>
                 <Link to="/about" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> About Us</Link>
                 <Link to="/contact" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> Contact</Link>
@@ -447,17 +454,17 @@ function App() {
       )}
 
       <main id="main-content" tabIndex="-1" style={{ outline: 'none' }}>
-        <React.Suspense fallback={<Loader fullPage={true} message={<span className="notranslate">Loading route...</span>} />}>
+        <Suspense fallback={<Loader fullPage={true} message={<span className="notranslate">Loading route...</span>} />}>
           <Routes>
             <Route path="/" element={<Home user={user} />} />
             <Route path="/advisor" element={<Advisor userData={userData} />} />
             <Route path="/how-it-works" element={<How />} />
-            <Route path="/dashboard" element={<Dashboard userData={userData} />} />
+            <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/crop-guide" element={<CropGuide />} />
             <Route path="/schemes" element={<Schemes />} />
             <Route path="/resources" element={<Resources />} />
             <Route path="/login" element={<Auth />} />
-            <Route path="/profile-settings" element={<ProfileSettings user={user} userData={userData} />} />
+            <Route path="/profile-setup" element={<ProfileSetup user={user} profileCompleted={profileCompleted} />} />
             <Route path="/calendar" element={<Calendar />} />
             <Route path="/share-feedback" element={<Feedback />} />
             <Route path="/admin/feedback" element={<AdminFeedback />} />
@@ -476,20 +483,20 @@ function App() {
             <Route path="/crop-planner" element={<SeasonalCropPlanner />} />
             <Route path="/soil-guide" element={<SoilGuide />} />
             <Route path="/disease-awareness" element={<CropDiseaseAwareness />} />
+            <Route path="/pest-detection" element={<PestDetection />} />
+            <Route path="/equipment-management" element={<EquipmentManagement />} />
             <Route path="/helpline" element={<Helpline />} />
             <Route path="/glossary" element={<Glossary />} />
             <Route path="/risk-index" element={<RiskIndex />} />
             <Route path="/crop-rotation" element={<CropRotation />} />
             <Route path="/seed-verifier" element={<SeedVerifier />} />
-            <Route path="/pest-detection" element={<PestDetection />} />
             <Route path="/farm-finance" element={<FarmFinance />} />
+            <Route path="/yield-predictor" element={<YieldPredictor />} />
             <Route path="/blog" element={<Blog />} />
             <Route path="/blog/:id" element={<BlogDetail />} />
-            <Route path="/weather" element={<Weather />} />
-            <Route path="/leaderboard" element={<Leaderboard />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
-        </React.Suspense>
+        </Suspense>
       </main>
 
       {/* Floating Buttons */}
