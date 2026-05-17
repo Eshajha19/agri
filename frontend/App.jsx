@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { Suspense, useEffect, useState, useRef } from "react";
 import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ToastContainer } from "react-toastify";
@@ -24,6 +24,7 @@ import {
   FaCog
 } from "react-icons/fa";
 import { usePerformanceStore } from "./stores/performanceStore";
+import { useBrowserCacheBudget } from "./lib/cacheBudget";
 
 // Components
 import Loader from "./Loader";
@@ -55,47 +56,48 @@ import Footer from "./components/Footer";
 import { SkipLink } from "./NavigationManager";
 import { useTheme } from "./ThemeContext";
 
-// Lazy-loaded Route Components
-const AdminFeedback = React.lazy(() => import("./AdminFeedback"));
-const Advisor = React.lazy(() => import("./Advisor"));
-const Auth = React.lazy(() => import("./Auth"));
-const Calendar = React.lazy(() => import("./FarmingCalendar"));
-const Contributors = React.lazy(() => import("./Contributors"));
-const CropGuide = React.lazy(() => import("./CropGuide"));
-const CropProfitCalculator = React.lazy(() => import("./CropProfitCalculator"));
-const Dashboard = React.lazy(() => import("./Dashboard"));
-const Feedback = React.lazy(() => import("./Feedback"));
-const FarmingMap = React.lazy(() => import("./FarmingMap"));
-const Schemes = React.lazy(() => import("./GovernmentSchemes"));
-const How = React.lazy(() => import("./How"));
-const Home = React.lazy(() => import("./Home"));
-const MarketPrices = React.lazy(() => import("./MarketPrices"));
-const Community = React.lazy(() => import("./Community"));
-const ContactUs = React.lazy(() => import("./ContactUs"));
-const AboutUs = React.lazy(() => import("./AboutUs"));
-const ProfileSetup = React.lazy(() => import("./ProfileSetup"));
-const ProfileSettings = React.lazy(() => import("./ProfileSettings"));
-const QRTraceability = React.lazy(() => import("./QRTraceability"));
-const Resources = React.lazy(() => import("./Resources"));
-const SeasonalCropPlanner = React.lazy(() => import("./SeasonalCropPlanner"));
-const SoilGuide = React.lazy(() => import("./SoilGuide"));
-const CropDiseaseAwareness = React.lazy(() => import("./CropDiseaseAwareness"));
-const CropRotation = React.lazy(() => import("./CropRotation"));
-const Helpline = React.lazy(() => import("./Helpline"));
-const Glossary = React.lazy(() => import("./Glossary"));
-const RiskIndex = React.lazy(() => import("./RiskIndex"));
-const Blog = React.lazy(() => import("./Blog"));
-const BlogDetail = React.lazy(() => import("./BlogDetail"));
-const FAQ = React.lazy(() => import("./FAQ"));
-const NotFound = React.lazy(() => import("./NotFound"));
-const PrivacyPolicy = React.lazy(() => import("./PrivacyPolicy"));
-const Terms = React.lazy(() => import("./Terms"));
-const SoilAnalysis = React.lazy(() => import("./SoilAnalysis"));
-const SeedVerifier = React.lazy(() => import("./SeedVerifier"));
-const Weather = React.lazy(() => import("./Weather"));
-const Leaderboard = React.lazy(() => import("./Leaderboard"));
-const PestDetection = React.lazy(() => import("./PestDetection"));
-const FarmFinance = React.lazy(() => import("./FarmFinance"));
+// Route-level code splitting
+import {
+  AdminFeedback,
+  Advisor,
+  Auth,
+  AboutUs,
+  Blog,
+  BlogDetail,
+  Calendar,
+  Community,
+  Contributors,
+  ContactUs,
+  CropDiseaseAwareness,
+  CropGuide,
+  CropProfitCalculator,
+  CropRotation,
+  Dashboard,
+  FAQ,
+  FarmFinance,
+  FarmingMap,
+  Feedback,
+  Glossary,
+  Helpline,
+  Home,
+  How,
+  MarketPrices,
+  NotFound,
+  PestDetection,
+  PrivacyPolicy,
+  ProfileSetup,
+  QRTraceability,
+  Resources,
+  RiskIndex,
+  Schemes,
+  SeasonalCropPlanner,
+  SeedVerifier,
+  SoilAnalysis,
+  SoilGuide,
+  Terms,
+  YieldPredictor,
+  EquipmentManagement,
+} from "./routes/lazyPages";
 
 // Libs
 import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc } from "./lib/firebase";
@@ -180,6 +182,10 @@ function App() {
   const location = useLocation();
 
   useNotifications();
+  useBrowserCacheBudget({
+    enabled: true,
+    usageRatioLimit: liteMode ? 0.72 : 0.85,
+  });
 
   /* ---------------- THEME SYSTEM (Moved to ThemeProvider) ---------------- */
 
