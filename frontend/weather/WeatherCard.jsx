@@ -120,24 +120,37 @@ export default function WeatherCard({
   useEffect(() => {
     if (!snapshot?.alerts?.length || notificationPermission !== "granted") return;
 
-    const topAlert = snapshot.alerts[0];
-    if (topAlert.severity === "info") return;
+    const topAlert = snapshot.alerts.find((alert) =>
+      ["watch", "warning", "critical"].includes(alert.severity)
+    );
+    const cropWarning = cropWarnings[0];
+    const alertToNotify = cropWarning || topAlert;
 
-    const signature = `${snapshot.location?.name}-${topAlert.type}-${topAlert.severity}`;
+    if (!alertToNotify) return;
+
+    const signature = [
+      snapshot.location?.name || "unknown-location",
+      selectedCrop || "no-crop",
+      alertToNotify.type || "alert",
+      alertToNotify.severity || "info",
+      alertToNotify.title || "",
+      alertToNotify.message || "",
+      cropWarning?.message || "",
+    ].join("|");
     const lastSent = localStorage.getItem(SENT_NOTIFICATION_KEY);
 
     if (lastSent === signature) return;
 
-    const warning = cropWarnings[0]?.message || topAlert.message;
+    const warning = cropWarning?.message || alertToNotify.message;
 
-    const notification = new Notification(topAlert.title, {
+    const notification = new Notification(alertToNotify.title, {
       body: `${warning}\nTake action immediately.`,
       tag: signature,
     });
 
     notification.onclick = () => window.focus();
     localStorage.setItem(SENT_NOTIFICATION_KEY, signature);
-  }, [snapshot, cropWarnings, notificationPermission]);
+  }, [snapshot, cropWarnings, notificationPermission, selectedCrop]);
 
   const handleSearch = useCallback(async () => {
     if (!searchQuery.trim()) {
