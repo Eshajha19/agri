@@ -174,9 +174,20 @@ function App() {
   /* ---------------- LANGUAGE AUTO-TRANS ---------------- */
   useEffect(() => {
     if (applyGoogleTranslate(preferredLang)) return;
+    
+    let retries = 0;
+    const MAX_RETRIES = 20; // Try for ~6 seconds
+    
     const id = setInterval(() => {
-      if (applyGoogleTranslate(preferredLang)) clearInterval(id);
+      retries++;
+      if (applyGoogleTranslate(preferredLang)) {
+        clearInterval(id);
+      } else if (retries >= MAX_RETRIES) {
+        clearInterval(id);
+        console.warn("Google Translate widget initialization timed out or was blocked. Graceful fallback applied.");
+      }
     }, 300);
+    
     return () => clearInterval(id);
   }, [preferredLang]);
 
