@@ -136,7 +136,7 @@ function generateTimeSlots() {
   return slots;
 }
 
-function ExpertDirectory({ onClose, onBookConsultation }) {
+function ExpertDirectory({ userData, onClose, onBookConsultation }) {
   const { setSelectedExpert } = useAdvisorStore();
   const [experts] = useState(MOCK_EXPERTS);
   const [searchQuery, setSearchQuery] = useState("");
@@ -211,13 +211,9 @@ function ExpertDirectory({ onClose, onBookConsultation }) {
     setBookingLoading(true);
 
     try {
-      const user = auth.currentUser;
       const consultationData = {
-        expertId: selectedExpert.id,
-        expertName: selectedExpert.name,
-        expertSpecialization: selectedExpert.specialization,
-        userId: user?.uid || "anonymous",
-        userName: user?.displayName || "Guest Farmer",
+        userId: userData?.uid || "anonymous",
+        userName: userData?.displayName || "Guest Farmer",
         date: currentDate.toISOString().split("T")[0],
         time: selectedSlot.time,
         notes: bookingNotes,
