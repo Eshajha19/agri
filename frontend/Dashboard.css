@@ -755,12 +755,41 @@
   text-decoration: none;
 }
 
-.sunlight .dashboard-hero {
-  background: #000 !important;
-}
+  .saved-items-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+  }
 
-.sunlight .stat-card,
-.sunlight .dashboard-section-card {
+  .saved-items-block h3 {
+    margin-bottom: 12px;
+    font-size: 1rem;
+    color: #166534;
+  }
+
+  .saved-items-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: 10px;
+  }
+
+  .saved-items-list li {
+    padding: 12px 14px;
+    background: #f8faf8;
+    border-radius: 12px;
+    color: #14532d;
+    font-size: 0.95rem;
+    border: 1px solid #d1fae5;
+  }
+
+  .saved-empty {
+    color: #6b7280;
+    font-size: 0.9rem;
+    line-height: 1.6;
+  }
+
   border: 3px solid #000 !important;
   box-shadow: none !important;
 }

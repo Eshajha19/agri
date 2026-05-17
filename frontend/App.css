@@ -1443,25 +1443,37 @@ html body {
 /* Scroll to Top Button */
 .scroll-to-top {
   position: fixed;
-  bottom: calc(190px + constant(safe-area-inset-bottom));
-  bottom: calc(190px + env(safe-area-inset-bottom));
-  right: 30px;
-  right: calc(30px + constant(safe-area-inset-right));
-  right: calc(30px + env(safe-area-inset-right));
-  width: 60px;
-  height: 60px;
-  background: var(--brand-primary, #2e7d32);
-  color: white;
-  border: none;
+  bottom: 2rem;
+  right: 2rem;
+  width: 3rem;
+  height: 3rem;
   border-radius: 50%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  background: var(--brand-primary);
+  color: #ffffff;
+  border: none;
   cursor: pointer;
-  z-index: 2000;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  animation: scroll-to-top-fade-in 0.3s ease-in-out;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  transition: all 0.3s ease;
+  z-index: 100;
+}
+
+.scroll-to-top:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 30px rgba(0, 0, 0, 0.2);
+}
+
+/* Scroll Progress Bar */
+.scroll-progress-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--brand-primary), var(--accent-color));
+  z-index: 9999;
+  transition: width 0.1s ease-out;
 }
 
 .scroll-to-top:hover {
