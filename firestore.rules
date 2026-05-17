@@ -118,19 +118,32 @@ service cloud.firestore {
       allow write: if hasRole('vendor') || hasRole('admin');
     }
 
-    // Farming Calendar activities — owner only.
-    match /activities/{activityId} {
-      allow read, write: if isAuthed() && request.auth.uid == resource.data.userId;
-      allow create: if isAuthed() && request.resource.data.userId == request.auth.uid;
+    // Finance Applications: farmers can read their own; admins can read all
+    match /finance_applications/{applicationId} {
+      allow read: if isAuthed() && (hasRole('admin') || hasRole('expert'));
+      allow create: if isAuthed();
+      allow update: if isAuthed() && (hasRole('admin') || hasRole('expert'));
+      allow delete: if hasRole('admin');
     }
 
-    // Government scheme applications — owner only.
-    match /scheme_applications/{appId} {
-      allow read, update, delete: if isAuthed() && request.auth.uid == resource.data.userId;
-      allow create: if isAuthed()
-        && request.resource.data.userId == request.auth.uid
-        && request.resource.data.schemeId is int
-        && request.resource.data.status is string;
+    // Notifications: authenticated users can read; system can write
+    match /notifications/{notificationId} {
+      allow read: if isAuthed();
+      allow write: if hasRole('admin') || hasRole('system');
+    }
+
+    // Supply Chain Records: nested structure for traceability
+    match /supply_chain_batches/{batchId} {
+      allow read: if isAuthed();
+      allow create, update: if isAuthed() && (hasRole('farmer') || hasRole('vendor') || hasRole('admin'));
+      allow delete: if hasRole('admin');
+
+      // Supply chain nodes within each batch
+      match /nodes/{nodeId} {
+        allow read: if isAuthed();
+        allow create, update: if isAuthed() && (hasRole('farmer') || hasRole('vendor') || hasRole('admin'));
+        allow delete: if hasRole('admin');
+      }
     }
 
   }
