@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import re
+import threading
 import joblib
 import hashlib
 import pandas as pd
@@ -111,6 +112,22 @@ from ml.router import ModelRouter
 from ml.preprocessing import UnknownCategoryError, MissingFeatureError
 from ml.security import verify_and_load_joblib
 
+# Persistence Layer
+from persistence.repositories import (
+    FinanceApplicationRepository,
+    NotificationRepository,
+    SupplyChainRepository,
+)
+
+# RBAC (Role-Based Access Control)
+from rbac import (
+    RBACManager,
+    RBACMiddleware,
+    Permission,
+    require_permission,
+    print_rbac_matrix,
+)
+
 # Other internal modules
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
@@ -118,7 +135,6 @@ from whatsapp_store import subscriber_store
 from crop_quality_grading import CropQualityGrader
 from blockchain_supply_chain import SupplyChainBlockchain
 from farm_finance_ai import FarmFinanceAI
-from sustainability_analytics import SustainabilityAnalytics
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -136,6 +152,245 @@ except ImportError:
 
 app = FastAPI()
 app.include_router(flags_router)
+
+logger = logging.getLogger(__name__)
+
+# Server-side idempotency cache for deduplicating transactional POST requests.
+# In production, this should use a persistent store like Redis with a TTL.
+_IDEMPOTENCY_CACHE: Dict[str, Any] = {}
+_IDEMPOTENCY_LOCK = threading.Lock()
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
 
 logger = logging.getLogger(__name__)
 
@@ -288,6 +543,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add RBAC middleware for access logging
+app.add_middleware(RBACMiddleware)
+
+# Log RBAC matrix on startup
+logger.info(print_rbac_matrix())
+
 # --- Models ---
 
 class PredictRequest(BaseModel):
@@ -319,22 +580,22 @@ class AlertTriggerRequest(BaseModel):
     message: str
 
 class ReportRequest(BaseModel):
-    name: str = Field(..., max_length=100)
-    crop: str = Field(..., max_length=50)
-    area: str = Field(..., max_length=50)
-    profit: str = Field(..., max_length=50)
-    season: str = Field(..., max_length=50)
+    name: str = Field(..., max_length=100, description="Full name of the farmer")
+    crop: str = Field(..., max_length=50, description="Primary crop type")
+    area: str = Field(..., max_length=50, description="Total farm area")
+    profit: str = Field(..., max_length=50, description="Estimated season profit")
+    season: str = Field(..., max_length=50, description="Farming season")
 
     @validator("name", "crop", "area", "profit", "season", pre=True)
-    def reject_pipe_characters(cls, v):
-        # Belt-and-suspenders guard: the signing payload now uses JSON (which
-        # is unambiguous regardless of field content), but we also reject pipe
-        # characters at the model level so legacy code paths or future changes
-        # cannot accidentally reintroduce a delimiter-injection vulnerability.
-        if isinstance(v, str) and "|" in v:
-            raise ValueError(
-                "Field value must not contain the '|' character."
-            )
+    def sanitize_and_validate_input(cls, v):
+        # Enforce robust input validation standards: ensure input is clean,
+        # printable text and strip leading/trailing whitespace.
+        # Primary security against injection is handled via canonical structured JSON
+        # serialization during report signing, completely eliminating delimiter-based risks.
+        if isinstance(v, str):
+            v = v.strip()
+            if "|" in v:
+                raise ValueError("Field value must not contain the '|' character.")
         return v
 
 class WeatherLocationRequest(BaseModel):
@@ -348,32 +609,6 @@ class WeatherAlertRequest(BaseModel):
 
 class SeedVerifyRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=100)
-
-# Whitelist of commodities the price forecaster supports.
-# Restricting to this set prevents an attacker from submitting arbitrary
-# strings that each trigger a new LSTM training run and grow the model
-# cache without bound.
-_FORECASTABLE_COMMODITIES = frozenset([
-    "Wheat",
-    "Paddy (Dhan)",
-    "Cotton",
-    "Onion",
-    "Soybean",
-    "Maize",
-])
-
-class MarketForecastRequest(BaseModel):
-    commodity: str = Field(..., min_length=1, max_length=60)
-    days: int = Field(default=14, ge=1, le=30)
-
-    @validator("commodity")
-    def commodity_must_be_supported(cls, v):
-        if v not in _FORECASTABLE_COMMODITIES:
-            raise ValueError(
-                f"Unsupported commodity '{v}'. "
-                f"Supported values: {sorted(_FORECASTABLE_COMMODITIES)}"
-            )
-        return v
 
 class FinanceAssessmentRequest(BaseModel):
     farmer_name: str = Field(..., min_length=1, max_length=100)
@@ -391,20 +626,6 @@ class FinanceAssessmentRequest(BaseModel):
     selected_lender: Optional[str] = Field(default=None, max_length=100)
     farm_location: Optional[str] = Field(default=None, max_length=120)
     notes: Optional[str] = Field(default=None, max_length=500)
-
-class SustainabilityAnalyzeRequest(BaseModel):
-    crop_type: str = Field(..., min_length=1, max_length=50)
-    season: str = Field(default="Kharif", max_length=20)
-    acreage: float = Field(..., gt=0, le=5000)
-    irrigation_type: str = Field(default="drip")
-    irrigation_events: int = Field(default=10, ge=0, le=200)
-    fertilizer_n_kg: Optional[float] = Field(default=None, ge=0, le=50000)
-    fertilizer_p_kg: Optional[float] = Field(default=None, ge=0, le=50000)
-    fertilizer_k_kg: Optional[float] = Field(default=None, ge=0, le=50000)
-    machinery_hours: Optional[float] = Field(default=None, ge=0, le=10000)
-    diesel_liters: Optional[float] = Field(default=None, ge=0, le=50000)
-    organic_practices: bool = Field(default=False)
-    user_id: Optional[str] = Field(default=None, max_length=128)
 
 # --- ML Pipeline Initialization ---
 router = ModelRouter(default_model="xgboost")
@@ -465,6 +686,22 @@ _supply_chain_blockchain = SupplyChainBlockchain()
 # Initialize Farm Finance AI
 _farm_finance_ai = FarmFinanceAI()
 _sustainability_analytics = SustainabilityAnalytics()
+
+# Initialize repositories for persistent storage
+_finance_repository = FinanceApplicationRepository()
+_notification_repository = NotificationRepository()
+_supply_chain_repository = SupplyChainRepository()
+
+# Initialize Crop Quality Grader
+_crop_quality_grader = CropQualityGrader()
+
+# Initialize Supply Chain Blockchain with persistent repository
+_supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
+
+# Initialize Farm Finance AI with persistent repository
+_farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
+
+logger.info("Domain engines initialized with persistent repositories")
 
 # --- Routes ---
 
@@ -570,13 +807,25 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
 @app.get("/api/notifications")
-def get_notifications(
+async def get_notifications(
+    request: Request,
     crop: str = Query(default=None),
     irrigation_count: int = Query(default=None, ge=0),
     water_coverage: int = Query(default=None, ge=0, le=100),
     season: str = Query(default=None)
 ):
-    """Generate dynamic farm advisory alerts + static ones."""
+    """
+    Return recent triggered-alert notifications combined with dynamic
+    farm advisory alerts generated from the query parameters.
+
+    Only notifications newer than the store's TTL window are included,
+    so the response payload stays small regardless of how long the
+    process has been running.
+    """
+    # Check permission: user can read notifications
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.NOTIFICATIONS_READ], require_all=False
+    )
     dynamic_alerts = generate_alerts(
         crop=crop,
         irrigation_count=irrigation_count,
@@ -598,9 +847,26 @@ async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest)
 @limiter.limit("5/minute")
 async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
     """Create a loan application from the current farm profile."""
+    # Idempotency check: prevent duplicate applications on retry
+    idem_key = request.headers.get("X-Idempotency-Key")
+    if idem_key:
+        with _IDEMPOTENCY_LOCK:
+            if idem_key in _IDEMPOTENCY_CACHE:
+                logger.info(f"Idempotency: Returning cached finance application for key {idem_key}")
+                return _IDEMPOTENCY_CACHE[idem_key]
+
     input_data = body.model_dump() if hasattr(body, "model_dump") else body.dict()
     application = _farm_finance_ai.create_application(input_data)
-    return {"success": True, "data": application}
+    result = {"success": True, "data": application}
+
+    if idem_key:
+        with _IDEMPOTENCY_LOCK:
+            # Basic eviction: clear cache if too large
+            if len(_IDEMPOTENCY_CACHE) > 1000:
+                _IDEMPOTENCY_CACHE.clear()
+            _IDEMPOTENCY_CACHE[idem_key] = result
+
+    return result
 
 
 @app.get("/api/finance/applications/{application_id}")
@@ -762,6 +1028,51 @@ async def get_alerts_history(request: Request):
             detail="Failed to retrieve alert history"
         ) from e
 
+@app.post("/api/finance/analyze")
+@limiter.limit("10/minute")
+async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest):
+    """Analyze farm finances and return loan recommendations."""
+    # Check permission: farmer can create finance requests
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
+    analysis = _farm_finance_ai.analyze_financial_profile(body.model_dump())
+    return {"success": True, "data": analysis}
+
+
+@app.post("/api/finance/applications")
+@limiter.limit("5/minute")
+async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
+    """Create a loan application from the current farm profile."""
+    # Check permission: farmer can create finance applications
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
+    application = _farm_finance_ai.create_application(body.model_dump())
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/applications/{application_id}")
+async def get_finance_application(application_id: str, request: Request):
+    # Check permission: user can read finance applications (own or all if expert/admin)
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_READ_OWN, Permission.FINANCE_READ_ALL], require_all=False
+    )
+    application = _farm_finance_ai.get_application(application_id)
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/products")
+def get_finance_products():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+
+@app.get("/api/finance/marketplace")
+def get_finance_marketplace():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
 # --- WhatsApp Service Endpoints ---
 #
 # Subscriber persistence is handled by whatsapp_store.SubscriberStore, which
@@ -875,12 +1186,11 @@ def get_signing_keys():
 
     if project_id:
         if not HAS_GCP_KMS:
-            if IS_PRODUCTION:
-                raise HTTPException(
-                    status_code=500,
-                    detail="google-cloud-secret-manager is not installed but is required in production"
-                )
-            print("KMS Warning: google-cloud-secret-manager not installed; skipping GCP path.")
+            logger.critical("CRITICAL SECURITY ALERT: google-cloud-secret-manager is not installed but GOOGLE_CLOUD_PROJECT is set. Halting to prevent insecure fallback.")
+            raise HTTPException(
+                status_code=500,
+                detail="KMS Initialization Error: google-cloud-secret-manager is required when GOOGLE_CLOUD_PROJECT is set. Halting to prevent insecure fallback."
+            )
         else:
             try:
                 client = secretmanager.SecretManagerServiceClient()
@@ -893,14 +1203,13 @@ def get_signing_keys():
                 print(f"KMS: Loaded signing key from Secret Manager (secret: {secret_id})")
                 return _cached_private_key
             except Exception as e:
-                if IS_PRODUCTION:
-                    print(f"KMS Error: {e}")
-                    raise HTTPException(
-                        status_code=500,
-                        detail="Failed to retrieve signing key from Secret Manager"
-                    )
-                print(f"KMS Warning: Could not reach Secret Manager ({e}); falling back to local key.")
+                logger.critical(f"CRITICAL SECURITY ALERT: KMS Initialization Failed. Could not reach Secret Manager: {e}. Halting to prevent insecure fallback to local keys.")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"KMS Initialization Error: Failed to retrieve signing key from Secret Manager. Halting to prevent insecure fallback."
+                )
     elif IS_PRODUCTION:
+        logger.critical("CRITICAL SECURITY ALERT: GOOGLE_CLOUD_PROJECT is not set in production. Cannot retrieve secure signing key.")
         raise HTTPException(
             status_code=500,
             detail="GOOGLE_CLOUD_PROJECT is not set; cannot retrieve signing key in production"
@@ -992,9 +1301,18 @@ async def generate_signed_report(data: ReportRequest, request: Request):
         p.setStrokeColor(colors.black)
         p.rect(1*inch, y - 1.5*inch, width - 2*inch, 1.8*inch, stroke=1, fill=0)
         
-        # Data for signing
-        report_data_string = f"{data.name}|{data.crop}|{data.area}|{data.profit}|{datetime.now().date()}"
-        signature = private_key.sign(report_data_string.encode())
+        # Data for signing: migrate from fragile delimiter-separated strings
+        # to secure canonical structured JSON serialization
+        signing_payload = {
+            "name": data.name,
+            "crop": data.crop,
+            "area": data.area,
+            "profit": data.profit,
+            "season": data.season,
+            "date": datetime.now().date().isoformat()
+        }
+        report_data_string = json.dumps(signing_payload, sort_keys=True)
+        signature = private_key.sign(report_data_string.encode("utf-8"))
         sig_id = hashlib.sha256(signature).hexdigest()[:8].upper()
 
         p.setFont("Helvetica-Bold", 14)
@@ -1146,7 +1464,15 @@ async def simulate_climate(request: Request, data: SimulationRequest):
 async def verify_seed(data: SeedVerifyRequest, request: Request):
     """
     Verifies seed authenticity against the trusted batch registry.
+    
+    Requires authentication and appropriate role.
+    """
+    # RBAC: user can verify seeds
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.SEEDS_VERIFY], require_all=False
+    )
 
+    """
     Registry lookup logic
     ---------------------
     Each entry in SEED_REGISTRY is keyed by the canonical batch code
@@ -1351,6 +1677,11 @@ async def assess_single_crop(request: Request, data: CropQualityGradingRequest):
         "image_base64": "<base64_encoded_image>"
     }
     """
+    # RBAC: user can assess crop quality
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.QUALITY_ASSESS], require_all=False
+    )
+    
     try:
         # Decode base64 image
         import base64
@@ -1389,6 +1720,11 @@ async def assess_batch_crops(request: Request, data: CropQualityBatchRequest):
         "images_base64": ["<base64_image1>", "<base64_image2>", ...]
     }
     """
+    # RBAC: user can assess crop quality
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.QUALITY_ASSESS], require_all=False
+    )
+    
     try:
         import base64
         
@@ -1792,11 +2128,12 @@ async def get_expert_slots(expert_id: str, date: str):
 @app.post("/api/consultation/book")
 async def book_consultation(
     request: ConsultationBookRequest,
+    raw_request: Request,
     authorization: Optional[str] = None
 ):
     """
     Book a consultation with an expert.
-    
+
     Request body:
     - expert_id: Expert's ID
     - expert_name: Expert's name
@@ -1806,6 +2143,13 @@ async def book_consultation(
     - notes: Optional notes about the consultation
     - consultation_type: "video" or "audio"
     """
+    # Idempotency check: prevent duplicate bookings on retry
+    idem_key = raw_request.headers.get("X-Idempotency-Key")
+    if idem_key:
+        with _IDEMPOTENCY_LOCK:
+            if idem_key in _IDEMPOTENCY_CACHE:
+                logger.info(f"Idempotency: Returning cached consultation for key {idem_key}")
+                return _IDEMPOTENCY_CACHE[idem_key]
     try:
         user_data = None
 
@@ -1839,11 +2183,19 @@ async def book_consultation(
         doc_ref = db_firestore.collection("consultations").document()
         doc_ref.set(consultation_data)
 
-        return {
+        result = {
             "success": True,
             "consultation_id": doc_ref.id,
             "message": "Consultation booked successfully"
         }
+
+        if idem_key:
+            with _IDEMPOTENCY_LOCK:
+                if len(_IDEMPOTENCY_CACHE) > 1000:
+                    _IDEMPOTENCY_CACHE.clear()
+                _IDEMPOTENCY_CACHE[idem_key] = result
+
+        return result
     except Exception as e:
         logger.error(f"Error booking consultation: {e}")
         raise HTTPException(status_code=500, detail="Failed to book consultation")
@@ -2106,7 +2458,7 @@ async def execute_contract(request: Request, data: ExecuteContractRequest):
 
 @app.get("/api/blockchain/qr-code/{batch_id}")
 @limiter.limit("20/minute")
-async def get_qr_code(request: Request, batch_id: str):
+async def get_qr_code(batch_id: str):
     """Get QR code for batch"""
     try:
         qr_code = _supply_chain_blockchain.generate_qr_code(batch_id)
@@ -2119,7 +2471,7 @@ async def get_qr_code(request: Request, batch_id: str):
 
 @app.get("/api/blockchain/verify/{batch_id}")
 @limiter.limit("20/minute")
-async def verify_batch(request: Request, batch_id: str):
+async def verify_batch(batch_id: str):
     """Verify batch authenticity"""
     try:
         verification = _supply_chain_blockchain.verify_batch(batch_id)
@@ -2130,7 +2482,7 @@ async def verify_batch(request: Request, batch_id: str):
 
 @app.get("/api/blockchain/journey/{batch_id}")
 @limiter.limit("20/minute")
-async def get_journey(request: Request, batch_id: str):
+async def get_journey(batch_id: str):
     """Get supply chain journey"""
     try:
         journey = _supply_chain_blockchain.get_supply_chain_journey(batch_id)
@@ -2143,7 +2495,7 @@ async def get_journey(request: Request, batch_id: str):
 
 @app.get("/api/blockchain/analytics/{batch_id}")
 @limiter.limit("20/minute")
-async def get_analytics(request: Request, batch_id: str):
+async def get_analytics(batch_id: str):
     """Get supply chain analytics"""
     try:
         analytics = _supply_chain_blockchain.get_supply_chain_analytics(batch_id)
@@ -2156,7 +2508,7 @@ async def get_analytics(request: Request, batch_id: str):
 
 @app.get("/api/blockchain/marketplace")
 @limiter.limit("20/minute")
-async def get_marketplace(request: Request):
+async def get_marketplace():
     """Get certified products for marketplace"""
     try:
         certified = _supply_chain_blockchain.get_certified_products()
@@ -2167,7 +2519,7 @@ async def get_marketplace(request: Request):
 
 @app.get("/api/blockchain/stats")
 @limiter.limit("20/minute")
-async def get_stats(request: Request):
+async def get_stats():
     """Get blockchain statistics"""
     try:
         stats = {
@@ -2180,63 +2532,3 @@ async def get_stats(request: Request):
     except Exception as e:
         logger.error("Stats error: %s", str(e))
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# ── Market Price Forecasting ──────────────────────────────────────────────────
-
-@app.post("/api/market/forecast")
-@limiter.limit("10/minute")
-async def market_price_forecast(data: MarketForecastRequest, request: Request):
-    """
-    Generate an LSTM-based price forecast for a supported commodity.
-
-    Authentication required — any logged-in user may call this endpoint.
-
-    The forecasting engine (ml/price_forecaster.py) trains a lightweight
-    LSTM on embedded 2-year historical mandi price data at first request
-    per commodity and caches the model in memory.  Subsequent requests
-    for the same commodity are served from the cache with no retraining.
-
-    Security hardening applied:
-    - verify_role() requires a valid Firebase ID token (any role).
-    - MarketForecastRequest.commodity is validated against a whitelist of
-      the 6 supported commodities.  Unknown strings are rejected with 422
-      before the forecaster is called, preventing an attacker from
-      submitting thousands of unique strings that each trigger a new
-      30-epoch LSTM training run and grow the model cache without bound.
-
-    Request body
-    ------------
-    - commodity : str  — one of: Wheat, Paddy (Dhan), Cotton, Onion,
-                         Soybean, Maize
-    - days      : int  — forecast horizon in days (1–30, default 14)
-
-    Response
-    --------
-    - commodity          : str
-    - forecast_days      : int
-    - forecast           : list[{date, price, lower_bound, upper_bound}]
-    - best_sell_date     : str   — ISO date of forecast price peak
-    - best_sell_price    : float — predicted peak price (₹/quintal)
-    - recommendation     : str   — human-readable selling advice
-    - model_type         : str   — "LSTM" or "Statistical" (fallback)
-    - generated_at       : str   — ISO UTC timestamp
-    """
-    await verify_role(request)   # any authenticated user; no role restriction
-
-    try:
-        from ml.price_forecaster import price_forecaster
-        result = price_forecaster.forecast(
-            commodity=data.commodity,
-            days=data.days,
-        )
-        return result
-    except Exception as exc:
-        logger.error(
-            "Market forecast error for commodity='%s': %s",
-            data.commodity, exc,
-        )
-        raise HTTPException(
-            status_code=500,
-            detail="Price forecast temporarily unavailable. Please try again later.",
-        )

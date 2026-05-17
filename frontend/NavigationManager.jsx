@@ -91,22 +91,7 @@ export const SkipLink = () => {
     <a 
       href="#main-content" 
       className="skip-link"
-      style={{
-        position: 'absolute',
-        top: '-100px', // Hide it off-screen
-        left: '0',
-        background: '#2ecc71',
-        color: 'white',
-        padding: '10px 20px',
-        zIndex: '10000',
-        transition: 'top 0.3s',
-        textDecoration: 'none',
-        fontWeight: 'bold',
-        borderRadius: '0 0 5px 0'
-      }}
-      // Show it when it receives focus via Tab key
-      onFocus={(e) => e.target.style.top = '0'}
-      onBlur={(e) => e.target.style.top = '-100px'}
+      aria-label="Skip to main content"
     >
       Skip to Main Content
     </a>

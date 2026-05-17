@@ -22,4 +22,3 @@ google-generativeai
 opencv-python
 pillow
 qrcode
-python-dotenv
