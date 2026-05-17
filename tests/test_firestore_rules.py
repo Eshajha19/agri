@@ -28,7 +28,7 @@ from firebase_admin import credentials, firestore, auth
 # Initialize Firebase with emulator
 if not firebase_admin.get_app(name="test-app", error_on_duplicate=False):
     try:
-        cred = credentials.Certificate('firebase.json')
+        cred = credentials.Certificate('firebase_credentials.json')
         app = firebase_admin.initialize_app(cred, name="test-app")
     except Exception as e:
         logger.warning(f"Could not load credentials: {e}, using emulator only")
