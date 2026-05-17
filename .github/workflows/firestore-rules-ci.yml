@@ -37,20 +37,23 @@ jobs:
         run: |
           curl -sL https://firebase.tools | bash
           sudo mv firebase /usr/local/bin/
-       
+          # Firebase emulator requires Java
+          sudo apt-get update
+          sudo apt-get install -y default-jre
+        
       - name: Start Firestore Emulator
         run: |
-          firebase emulators:exec --only firestore --project test-project \
+          mkdir -p /tmp/firebase-emulator
+          nohup firebase emulators:start --only firestore --project test-project \
             --import /tmp/firebase-emulator \
-            --export-on-exit \
-            --timeout 60000 \
             --host 0.0.0.0 \
             --port 8080 \
-            "sleep 60" &
-          sleep 10
+            > /tmp/emulator.log 2>&1 &
+          echo "Emulator PID: $!"
+          sleep 15
         env:
           FIRESTORE_EMULATOR_HOST: localhost:8080
-       
+        
       - name: Wait for Firestore Emulator
         run: |
           for i in {1..30}; do
