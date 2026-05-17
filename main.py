@@ -6,6 +6,7 @@ This refactored file preserves API routes while delegating domain routes to
 and non-destructive so upstream changes can be rebased safely.
 """
 import os
+import re
 import logging
 import collections
 import threading
@@ -50,45 +51,54 @@ class RAGQuery(BaseModel):
     def sanitize_and_normalize_query(cls, v):
         if not v or not isinstance(v, str):
             raise ValueError("Query must be a non-empty string.")
-        
-        # Strip script tags entirely to prevent XSS / Script Injection
-        v = re.sub(r'<script.*?>.*?</script>', '', v, flags=re.IGNORECASE)
+
+        # Strip script tags entirely to prevent XSS / script injection
+        v = re.sub(r'<script.*?>.*?</script>', '', v, flags=re.IGNORECASE | re.DOTALL)
         v = re.sub(r'</?script.*?>', '', v, flags=re.IGNORECASE)
+
+        # Strip event handler attributes (onclick=, onload=, etc.)
         v = re.sub(r'on\w+\s*=', '', v, flags=re.IGNORECASE)
+
+        # Strip dangerous URI schemes
         v = re.sub(r'javascript:', '', v, flags=re.IGNORECASE)
         v = re.sub(r'data:', '', v, flags=re.IGNORECASE)
         v = re.sub(r'vbscript:', '', v, flags=re.IGNORECASE)
-        
+
         # Strip all other HTML tags entirely to prevent HTML injection in prompts or UI
         v = re.sub(r'<[^>]*>', '', v)
-        
-        # Handle markdown injection: neutralize links [text](url) -> text (url)
+
+        # Neutralize markdown links [text](url) -> text (url)
         v = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'\1 (\2)', v)
-        
-        # Neutralize common markdown styling syntax to avoid UI layout pollution
+
+        # Neutralize markdown styling syntax (bold, italic, code, headers)
         v = re.sub(r'[*_~`#]', '', v)
-        
-        # Strip leading/trailing whitespaces and normalize spaces after stripping HTML tags
+
+        # Normalize whitespace
         v = v.strip()
         v = re.sub(r'\s+', ' ', v)
-        
-        # Prompt Injection Mitigation: identify and reject typical instruction overrides
+
+        # Prompt injection mitigation: reject known instruction-override phrases
         forbidden_patterns = [
             r"ignore\s+(?:all\s+)?previous\s+instructions",
             r"ignore\s+(?:the\s+)?system\s+prompt",
             r"override\s+system\s+constraints",
             r"developer\s+mode",
-            r"bypass\s+safety\s+filter"
+            r"bypass\s+safety\s+filter",
+            r"disregard\s+(?:all\s+)?prior\s+instructions",
+            r"act\s+as\s+(?:a\s+)?(?:different|unrestricted|unfiltered)\s+(?:ai|model|assistant)",
+            r"pretend\s+(?:you\s+are|to\s+be)\s+(?:a\s+)?(?:different|unrestricted)",
+            r"jailbreak",
+            r"prompt\s+injection",
         ]
         v_lower = v.lower()
         for pattern in forbidden_patterns:
             if re.search(pattern, v_lower):
                 raise ValueError("Query contains disallowed phrases or prompt injection attempts.")
-        
-        # Re-enforce validation after sanitization has cleaned the input
+
+        # Re-enforce minimum length after sanitization has stripped content
         if len(v) < 3:
             raise ValueError("Query must be at least 3 characters long after sanitization.")
-            
+
         return v
 
 # Blockchain Supply Chain Models
