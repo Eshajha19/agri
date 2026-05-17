@@ -114,6 +114,26 @@ html {
   border-width: 0;
 }
 
+.skip-link {
+  position: absolute;
+  top: -100px;
+  left: 0;
+  background: #2ecc71;
+  color: #ffffff;
+  padding: 12px 24px;
+  z-index: 10000;
+  transition: top 0.3s ease;
+  text-decoration: none;
+  font-weight: bold;
+  border-radius: 0 0 8px 0;
+}
+
+.skip-link:focus {
+  top: 0;
+  outline: 3px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
 #root {
   width: 100%;
 }
