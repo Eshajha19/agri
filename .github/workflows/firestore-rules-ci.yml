@@ -16,27 +16,16 @@ jobs:
   firestore-rules-tests:
     runs-on: ubuntu-latest
     
-    services:
-      firestore-emulator:
-        image: google/cloud-sdk:emulator
-        options: >-
-          --health-cmd "curl -f http://localhost:8080 || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 8080:8080
-        env:
-          FIRESTORE_EMULATOR_HOST: localhost:8080
-    
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-      
+        with:
+          fetch-depth: 0
+       
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: 3.13
+          python-version: '3.12'
           cache: 'pip'
       
       - name: Install dependencies
@@ -44,6 +33,27 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest pytest-cov firebase-admin pydantic fastapi uvicorn slowapi
       
+      - name: Install Firebase CLI
+        run: |
+          curl -sL https://firebase.tools | bash
+          sudo mv firebase /usr/local/bin/
+          # Firebase emulator requires Java
+          sudo apt-get update
+          sudo apt-get install -y default-jre
+        
+      - name: Start Firestore Emulator
+        run: |
+          mkdir -p /tmp/firebase-emulator
+          nohup firebase emulators:start --only firestore --project test-project \
+            --import /tmp/firebase-emulator \
+            --host 0.0.0.0 \
+            --port 8080 \
+            > /tmp/emulator.log 2>&1 &
+          echo "Emulator PID: $!"
+          sleep 15
+        env:
+          FIRESTORE_EMULATOR_HOST: localhost:8080
+        
       - name: Wait for Firestore Emulator
         run: |
           for i in {1..30}; do
@@ -61,7 +71,6 @@ jobs:
         env:
           FIRESTORE_EMULATOR_HOST: localhost:8080
         run: |
-          pytest tests/test_firestore_rules.py -v --tb=short --co
           pytest tests/test_firestore_rules.py -v --tb=short
       
       - name: Generate coverage report
