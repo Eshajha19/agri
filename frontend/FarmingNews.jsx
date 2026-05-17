@@ -1,17 +1,34 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { FaSearch, FaClock, FaUser, FaLeaf, FaSpinner, FaExclamationCircle } from 'react-icons/fa';
 import { useTheme } from './ThemeContext';
 import { fetchFarmingNews, getNewsCategories, formatNewsDate } from './services/newsApi';
 import './FarmingNews.css';
 
-export default function FarmingNews() {
+export default function FarmingNews({ userData }) {
   const { theme } = useTheme();
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize] = useState(10);
-  const [selectedCategory, setSelectedCategory] = useState('All');
+
+  const cropSpecificCategory = useMemo(() => {
+    if (!userData?.cropType) return null;
+    const crop = userData.cropType.toLowerCase();
+    if (crop.includes('rice') || crop.includes('paddy') || crop.includes('wheat') || crop.includes('cotton') || crop.includes('maize') || crop.includes('sugarcane') || crop.includes('vegetables') || crop.includes('fruits') || crop.includes('soybean') || crop.includes('potato') || crop.includes('onion') || crop.includes('tomato')) {
+      return 'Crop Management';
+    }
+    return null;
+  }, [userData?.cropType]);
+
+  const initialCategory = cropSpecificCategory || 'All';
+  const [selectedCategory, setSelectedCategory] = useState(initialCategory);
+
+  useEffect(() => {
+    setSelectedCategory(cropSpecificCategory || 'All');
+    setCurrentPage(1);
+  }, [cropSpecificCategory]);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [totalCount, setTotalCount] = useState(0);
   const [hasMore, setHasMore] = useState(false);
