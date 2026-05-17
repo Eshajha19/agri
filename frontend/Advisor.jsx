@@ -113,11 +113,11 @@ export default function Advisor({ userData }) {
      setShowSoilAnalysis,
      showSoilGuide,
      setShowSoilGuide,
-     showFertilizerPopup,
-     setShowFertilizerPopup,
-     showComingSoon,
-     setShowComingSoon,
-     showIrrigation,
+      showFertilizerPopup,
+      setShowFertilizerPopup,
+      showOfflineStatus,
+      setShowOfflineStatus,
+      showIrrigation,
      setShowIrrigation,
      showProfitCalculator,
      setShowProfitCalculator,
@@ -187,7 +187,6 @@ showGreenPractices,
 
   const [weatherStatus, setWeatherStatus] = useState("idle");
   const [weatherError, setWeatherError] = useState("");
-  const [userProfile, setUserProfile] = useState(null);
   const [weatherSnapshot, setWeatherSnapshot] = useState(() => getStoredWeatherSnapshot());
   const [showYieldHistory, setShowYieldHistory] = useState(false);
   const [locationQuery, setLocationQuery] = useState("");
@@ -311,25 +310,7 @@ showGreenPractices,
   const weatherLocation = weatherSnapshot?.location?.name || weatherSnapshot?.location?.city || "";
   const weatherLastUpdated = weatherSnapshot?.fetchedAt ? new Date(weatherSnapshot.fetchedAt).getTime() : null;
 
-   useEffect(() => {
-     // Check if Firebase is configured
-     if (!auth || !db) {
-       console.warn("Firebase not configured - skipping user profile subscription");
-       return;
-     }
-     
-     // Priority: auth.currentUser, then fallback to localStorage
-     const uid = auth.currentUser?.uid || localStorage.getItem("userId");
-     
-     if (uid) {
-       const unsubscribe = onSnapshot(doc(db, "users", uid), (doc) => {
-         if (doc.exists()) {
-           setUserProfile(doc.data());
-         }
-       });
-       return () => unsubscribe();
-     }
-   }, []); // Run once on mount — rAF loop manages its own lifecycle internally.
+
 
   /**
    * Architecture
@@ -449,7 +430,7 @@ showGreenPractices,
     return { threshold: points, name: "Maximum Rank", icon: <Gem size={16} style={{ color: '#4facfe' }} /> };
   };
 
-  const currentReputation = userProfile?.reputation || 0;
+  const currentReputation = userData?.reputation || 0;
   const nextBadge = getNextBadgeThreshold(currentReputation);
   const progressPercent = Math.min((currentReputation / nextBadge.threshold) * 100, 100);
 
@@ -501,7 +482,7 @@ showGreenPractices,
       </div>
 
 <PersonalizedAdvisory
-         userProfile={userProfile}
+         userData={userData}
          weatherData={weatherSnapshot}
        />
 
@@ -653,12 +634,12 @@ showGreenPractices,
             <p>Get a crop-aware fertilizer plan based on soil pH and nutrient status.</p>
           </div>
 
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowComingSoon(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowComingSoon(true); }} aria-label="Offline Access: Use anytime">
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowOfflineStatus(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowOfflineStatus(true); }} aria-label="Offline Access: PWA Enabled">
             <div className="icon" aria-hidden="true">
               <WifiOff size={32} strokeWidth={2} />
             </div>
             <h3><span className="notranslate">Offline Access</span></h3>
-            <p>Use the app anytime, even without internet connectivity.</p>
+            <p>Fasal Saathi works offline! You can use the app anytime, even without internet connectivity.</p>
           </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowPestManagement(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowPestManagement(true); }} aria-label="Pest Management: Early warnings">
@@ -988,37 +969,21 @@ showGreenPractices,
           </div>
         </div>
         
-        <div
-          className="weather-dashboard"
-          style={{
-            marginTop: "36px",
-            padding: "24px",
-            borderRadius: "18px",
-            background: "linear-gradient(135deg, rgba(255,255,255,0.96), rgba(239,253,245,0.98))",
-            boxShadow: "0 18px 45px rgba(15, 23, 42, 0.08)",
-          }}
-        >
-          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px" }}>
+        <div className="weather-dashboard">
+          <div className="weather-dashboard-header">
             <h2 style={{ margin: 0 }}><CloudRain className="inline-icon" /> Live Weather & Advisories</h2>
             {weatherLastUpdated && (
               <LastUpdated timestamp={weatherLastUpdated} />
             )}
           </div>
 
-          <p style={{ marginTop: "8px", color: "#0f172a" }}>
+          <p className="weather-dashboard-desc">
             Get real-time conditions, 7-day forecasts, and actionable crop guidance directly in the advisor view.
           </p>
 
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "12px",
-              marginTop: "16px",
-            }}
-          >
+          <div className="weather-dashboard-controls">
             <button
-              className="action-btn"
+              className="weather-btn"
               type="button"
               onClick={handleUseMyLocation}
             >
@@ -1026,7 +991,7 @@ showGreenPractices,
             </button>
             <form
               onSubmit={handleLocationSearch}
-              style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}
+              className="weather-search-form"
             >
               <input
                 type="text"
@@ -1034,19 +999,14 @@ showGreenPractices,
                 onChange={(event) => setLocationQuery(event.target.value)}
                 placeholder="Search by city or district"
                 aria-label="Search weather by city or district"
-                style={{
-                  minWidth: "240px",
-                  padding: "10px 12px",
-                  borderRadius: "10px",
-                  border: "1px solid #cbd5f5",
-                }}
+                className="weather-search-input"
               />
-              <button className="action-btn secondary" type="submit">
+              <button className="weather-btn secondary" type="submit">
                 Search
               </button>
             </form>
             <button
-              className="action-btn secondary"
+              className="weather-btn secondary"
               type="button"
               onClick={() => {
                 if (weatherSnapshot?.location) {
@@ -1063,46 +1023,24 @@ showGreenPractices,
           </div>
           
           {weatherLocation && (
-            <p style={{ marginTop: "12px" }}>
+            <p className="weather-location-text">
               <strong>Location:</strong> {weatherLocation}
             </p>
           )}
 
           {weatherStatus === "loading" && (
-            <p style={{ marginTop: "12px" }}>Loading weather data...</p>
+            <p className="weather-status-text">Loading weather data...</p>
           )}
 
           {weatherStatus === "error" && (
-            <div
-              style={{
-                marginTop: "12px",
-                padding: "12px",
-                borderRadius: "10px",
-                background: "#fef2f2",
-                color: "#b91c1c",
-              }}
-            >
+            <div className="weather-error-box">
               {weatherError}
             </div>
           )}
 
           {weatherStatus === "ready" && weatherSnapshot?.current && (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: "16px",
-                marginTop: "16px",
-              }}
-            >
-              <div
-                style={{
-                  padding: "16px",
-                  borderRadius: "14px",
-                  background: "white",
-                  boxShadow: "0 12px 24px rgba(15, 23, 42, 0.08)",
-                }}
-              >
+            <div className="weather-cards-grid">
+              <div className="weather-dashboard-card">
                 <h3 style={{ marginTop: 0 }}>Now</h3>
                 <p style={{ fontSize: "28px", margin: "8px 0" }}>
                   {formatTemp(weatherSnapshot.current.temperature_2m)}
@@ -1118,14 +1056,7 @@ showGreenPractices,
                 </p>
               </div>
 
-              <div
-                style={{
-                  padding: "16px",
-                  borderRadius: "14px",
-                  background: "white",
-                  boxShadow: "0 12px 24px rgba(15, 23, 42, 0.08)",
-                }}
-              >
+              <div className="weather-dashboard-card">
                 <h3 style={{ marginTop: 0 }}>Alerts</h3>
                 {advisories.length === 0 ? (
                   <p style={{ margin: 0 }}>No severe alerts expected this week.</p>
@@ -1141,30 +1072,17 @@ showGreenPractices,
           )}
 
           {weatherStatus === "ready" && dailyForecast.length > 0 && (
-            <div
-              style={{
-                marginTop: "18px",
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-                gap: "12px",
-              }}
-            >
+            <div className="weather-forecast-grid">
               {dailyForecast.map((day) => (
                 <div
                   key={day.date}
-                  style={{
-                    background: "white",
-                    borderRadius: "14px",
-                    padding: "12px",
-                    textAlign: "center",
-                    boxShadow: "0 10px 20px rgba(15, 23, 42, 0.06)",
-                  }}
+                  className="weather-forecast-card"
                 >
                   <p style={{ margin: "0 0 6px" }}>{formatDay(day.date)}</p>
                   <p style={{ margin: "0 0 6px", fontSize: "18px" }}>
                     {formatTemp(day.maxTemp)} / {formatTemp(day.minTemp)}
                   </p>
-                  <p style={{ margin: 0, fontSize: "12px", color: "#475569" }}>
+                  <p className="forecast-rain">
                     Rain: {Math.round(day.rain)} mm
                   </p>
                 </div>
@@ -1287,15 +1205,15 @@ showGreenPractices,
               <div className="preview-body">
                 <div className="preview-row">
                   <span>Farmer:</span>
-                  <strong>{userProfile?.displayName || "Farmer"}</strong>
+                  <strong>{userData?.displayName || "Farmer"}</strong>
                 </div>
                 <div className="preview-row">
                   <span>Primary Crop:</span>
-                  <strong>{userProfile?.cropType || "Not set"}</strong>
+                  <strong>{userData?.cropType || "Not set"}</strong>
                 </div>
                 <div className="preview-row">
                   <span>Location:</span>
-                  <strong>{userProfile?.address || userProfile?.location || "India"}</strong>
+                  <strong>{userData?.address || userData?.location || "India"}</strong>
                 </div>
                 <div className="preview-divider"></div>
                 <div className="preview-row">
@@ -1307,15 +1225,15 @@ showGreenPractices,
 
             <div className="export-actions-grid">
               <button className="export-btn pdf" onClick={() => generateBankPDF({
-                farmerName: userProfile?.displayName || "Farmer",
-                cropType: userProfile?.cropType || "N/A",
-                landArea: userProfile?.landArea || "N/A",
-                season: userProfile?.season || "N/A",
-                location: userProfile?.address || userProfile?.location || "India",
-                estimatedRevenue: userProfile?.estimatedRevenue || 0,
-                estimatedCost: userProfile?.estimatedCost || 0,
-                netProfit: userProfile?.netProfit || 0,
-                riskLevel: userProfile?.riskLevel || "Moderate",
+                farmerName: userData?.displayName || "Farmer",
+                cropType: userData?.cropType || "N/A",
+                landArea: userData?.landArea || "N/A",
+                season: userData?.season || "N/A",
+                location: userData?.address || userData?.location || "India",
+                estimatedRevenue: userData?.estimatedRevenue || 0,
+                estimatedCost: userData?.estimatedCost || 0,
+                netProfit: userData?.netProfit || 0,
+                riskLevel: userData?.riskLevel || "Moderate",
                 date: new Date().toLocaleDateString("en-IN"),
               })}>
                 <div className="btn-icon"><FileText size={20} /></div>
@@ -1326,15 +1244,15 @@ showGreenPractices,
               </button>
 
               <button className="export-btn csv" onClick={() => generateCSV({
-                farmerName: userProfile?.displayName || "Farmer",
-                cropType: userProfile?.cropType || "N/A",
-                landArea: userProfile?.landArea || "N/A",
-                season: userProfile?.season || "N/A",
-                location: userProfile?.address || userProfile?.location || "India",
-                estimatedRevenue: userProfile?.estimatedRevenue || 0,
-                estimatedCost: userProfile?.estimatedCost || 0,
-                netProfit: userProfile?.netProfit || 0,
-                riskLevel: userProfile?.riskLevel || "Moderate",
+                farmerName: userData?.displayName || "Farmer",
+                cropType: userData?.cropType || "N/A",
+                landArea: userData?.landArea || "N/A",
+                season: userData?.season || "N/A",
+                location: userData?.address || userData?.location || "India",
+                estimatedRevenue: userData?.estimatedRevenue || 0,
+                estimatedCost: userData?.estimatedCost || 0,
+                netProfit: userData?.netProfit || 0,
+                riskLevel: userData?.riskLevel || "Moderate",
                 date: new Date().toLocaleDateString("en-IN"),
               })}>
                 <div className="btn-icon"><BarChart3 size={20} /></div>
@@ -1353,7 +1271,7 @@ showGreenPractices,
               <p style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '1.5rem' }}>
                 Generate a cryptographically signed, tamper-proof report for official bank applications.
               </p>
-              <BankReports userData={userProfile} />
+              <BankReports userData={userData} />
             </div>
 
             <p className="report-disclaimer">
@@ -1367,7 +1285,7 @@ showGreenPractices,
         <div className="weather-overlay" onClick={() => setShowSoilAnalysis(false)}>
           <div className="soil-analysis-popup" onClick={(e)=>e.stopPropagation()}>
             <button className="close-btn" onClick={() => setShowSoilAnalysis(false)} style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 10 }}><X /></button>
-            <SoilAnalysis />
+            <SoilAnalysis userData={userData} />
           </div>
         </div>
       )}
@@ -1376,7 +1294,7 @@ showGreenPractices,
         <div className="weather-overlay" onClick={() => setShowSoilGuide(false)}>
           <div className="soil-analysis-popup" onClick={(e) => e.stopPropagation()}>
             <button className="close-btn" onClick={() => setShowSoilGuide(false)} style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 10 }}><X /></button>
-            <SoilGuide />
+            <SoilGuide userData={userData} />
           </div>
         </div>
       )}
@@ -1384,7 +1302,7 @@ showGreenPractices,
       {showIrrigation && (
         <div className="weather-overlay" onClick={()=>setShowIrrigation(false)}>
           <div onClick={(e)=>e.stopPropagation()}>
-            <IrrigationGuidance onClose={() => setShowIrrigation(false)} />
+            <IrrigationGuidance userData={userData} onClose={() => setShowIrrigation(false)} />
           </div>
         </div>
       )}
@@ -1395,7 +1313,7 @@ showGreenPractices,
             <button className="close-btn" onClick={closeYieldPopup} aria-label="Close yield prediction">
               <X />
             </button>
-            <YieldPredictorForm onClose={closeYieldPopup} />
+            <YieldPredictorForm userData={userData} onClose={closeYieldPopup} />
           </div>
         </div>
       )}
@@ -1414,7 +1332,7 @@ showGreenPractices,
       {showProfitCalculator && (
         <div className="weather-overlay" onClick={()=>setShowProfitCalculator(false)}>
           <div className="weather-popup profit-popup" onClick={(e)=>e.stopPropagation()}>
-            <CropProfitCalculator />
+            <CropProfitCalculator userData={userData} />
             <button className="close-btn" onClick={() => setShowProfitCalculator(false)}>Close</button>
           </div>
         </div>
@@ -1423,7 +1341,7 @@ showGreenPractices,
       {showFertilizerPopup && (
         <div className="weather-overlay" onClick={() => setShowFertilizerPopup(false)}>
           <div className="weather-popup fertilizer-popup-shell" onClick={(e) => e.stopPropagation()}>
-            <FertilizerRecommendation onClose={() => setShowFertilizerPopup(false)} />
+            <FertilizerRecommendation userData={userData} onClose={() => setShowFertilizerPopup(false)} />
           </div>
         </div>
       )}
@@ -1440,7 +1358,7 @@ showGreenPractices,
       {showCropDiseaseDetection && (
         <div className="weather-overlay" onClick={() => setShowCropDiseaseDetection(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
-            <CropDiseaseDetection onClose={() => setShowCropDiseaseDetection(false)} />
+            <CropDiseaseDetection userData={userData} onClose={() => setShowCropDiseaseDetection(false)} />
           </div>
         </div>
       )}
@@ -1448,7 +1366,7 @@ showGreenPractices,
       {showPestManagement && (
         <div className="weather-overlay" onClick={() => setShowPestManagement(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ padding: 0, background: 'transparent', boxShadow: 'none' }}>
-            <PestManagement onClose={() => setShowPestManagement(false)} />
+            <PestManagement userData={userData} onClose={() => setShowPestManagement(false)} />
           </div>
         </div>
       )}
@@ -1456,7 +1374,7 @@ showGreenPractices,
       {showSprayReminder && (
         <div className="weather-overlay" onClick={() => setShowSprayReminder(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ padding: 0, background: 'transparent', boxShadow: 'none' }}>
-            <SprayReminder onClose={() => setShowSprayReminder(false)} />
+            <SprayReminder userData={userData} onClose={() => setShowSprayReminder(false)} />
           </div>
         </div>
       )}
@@ -1465,7 +1383,7 @@ showGreenPractices,
         <div className="weather-overlay" onClick={() => setShowAgriMarketplace(false)}>
           <div className="agri-modal-wrapper" onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowAgriMarketplace(false)}><X /></button>
-            <AgriMarketplace onClose={() => setShowAgriMarketplace(false)} />
+            <AgriMarketplace userData={userData} onClose={() => setShowAgriMarketplace(false)} />
           </div>
         </div>
       )}
@@ -1474,7 +1392,7 @@ showGreenPractices,
         <div className="weather-overlay" onClick={() => setShowAgriLMS(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowAgriLMS(false)}><X /></button>
-            <AgriLMS />
+            <AgriLMS userData={userData} />
           </div>
         </div>
       )}
@@ -1483,7 +1401,7 @@ showGreenPractices,
         <div className="weather-overlay" onClick={() => setShowQRTraceability(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowQRTraceability(false)}><X /></button>
-            <QRTraceability />
+            <QRTraceability userData={userData} />
           </div>
         </div>
       )}
@@ -1492,17 +1410,28 @@ showGreenPractices,
         <div className="weather-overlay" onClick={() => setShowFarmPlanner3D(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowFarmPlanner3D(false)}><X /></button>
-            <FarmPlanner3D />
+            <FarmPlanner3D userData={userData} />
           </div>
         </div>
       )}
 
-      {showComingSoon && (
-        <div className="weather-overlay" onClick={()=>setShowComingSoon(false)}>
+      {showOfflineStatus && (
+        <div className="weather-overlay" onClick={()=>setShowOfflineStatus(false)}>
           <div className="weather-popup coming-soon" onClick={(e)=>e.stopPropagation()}>
-            <h2><Construction className="inline-icon" /> Coming Soon</h2>
-            <p>This feature is under development. Stay tuned!</p>
-            <button className="close-btn" onClick={() => setShowComingSoon(false)}>Close</button>
+            <h2>
+              <WifiOff className="inline-icon" /> 
+              {(!navigator.onLine || window.matchMedia('(display-mode: standalone)').matches) ? "Offline Mode Active" : "Offline Ready"}
+            </h2>
+            <p>
+              {(!navigator.onLine || window.matchMedia('(display-mode: standalone)').matches)
+                ? "You are currently using Fasal Saathi in offline/PWA mode. Core features are fully functional without an internet connection."
+                : "Fasal Saathi is available as a Progressive Web App (PWA). You can use it even when you don't have internet access!"
+              }
+            </p>
+            {navigator.onLine && !window.matchMedia('(display-mode: standalone)').matches && (
+              <p style={{marginTop: "8px", fontSize: "14px", color: "#475569"}}>Tip: Add this app to your home screen for the best offline experience.</p>
+            )}
+            <button className="close-btn" onClick={() => setShowOfflineStatus(false)}>Close</button>
           </div>
         </div>
       )}
@@ -1511,7 +1440,7 @@ showGreenPractices,
         <div className="weather-overlay" onClick={() => setShowFarmDiary(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowFarmDiary(false)}><X /></button>
-            <FarmDiary onClose={() => setShowFarmDiary(false)} />
+            <FarmDiary userData={userData} onClose={() => setShowFarmDiary(false)} />
           </div>
         </div>
       )}
@@ -1520,7 +1449,7 @@ showGreenPractices,
         <div className="weather-overlay" onClick={() => setShowCropRotation(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowCropRotation(false)}>✕</button>
-            <CropRotation />
+            <CropRotation userData={userData} />
           </div>
         </div>
       )}
@@ -1531,6 +1460,7 @@ showGreenPractices,
             <P2PChat 
               recipient={{ userId: "advisor", userName: "AI Farming Advisor" }} 
               onClose={() => setShowP2PChat(false)} 
+              userData={userData}
             />
           </div>
         </div>
@@ -1538,14 +1468,14 @@ showGreenPractices,
 
       {showGeoAlerts && (
         <div className="weather-overlay" onClick={() => setShowGeoAlerts(false)}>
-          <GeoAlertMesh onClose={() => setShowGeoAlerts(false)} />
+          <GeoAlertMesh userData={userData} onClose={() => setShowGeoAlerts(false)} />
         </div>
       )}
 
       {showSmartCropRecommendation && (
         <div className="weather-overlay" onClick={() => setShowSmartCropRecommendation(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
-            <SmartCropRecommendation />
+            <SmartCropRecommendation userData={userData} />
             <button
               className="close-btn"
               onClick={() => setShowSmartCropRecommendation(false)}
@@ -1559,7 +1489,7 @@ showGreenPractices,
       {showCropRecommendationAdvisor && (
         <div className="weather-overlay" onClick={() => setShowCropRecommendationAdvisor(false)}>
           <div className="weather-popup crop-advisor-popup" onClick={(e) => e.stopPropagation()}>
-            <CropRecommendationAdvisor onClose={() => setShowCropRecommendationAdvisor(false)} />
+            <CropRecommendationAdvisor userData={userData} onClose={() => setShowCropRecommendationAdvisor(false)} />
           </div>
         </div>
       )}
@@ -1567,7 +1497,7 @@ showGreenPractices,
       {showSeedVerifier && (
         <div className="weather-overlay" onClick={() => setShowSeedVerifier(false)}>
           <div className="weather-popup" style={{ width: '90%', maxWidth: '450px', padding: 0, overflowY: 'auto', maxHeight: '90vh' }} onClick={(e) => e.stopPropagation()}>
-            <SeedVerifier onClose={() => setShowSeedVerifier(false)} />
+            <SeedVerifier userData={userData} onClose={() => setShowSeedVerifier(false)} />
           </div>
         </div>
       )}
@@ -1582,13 +1512,14 @@ showGreenPractices,
       <RAGAdvisor
         isOpen={showRAGAdvisor}
         onClose={() => setShowRAGAdvisor(false)}
+        userData={userData}
       />
 
 {showGreenPractices && (
          <div className="weather-overlay" onClick={() => setShowGreenPractices(false)}>
            <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
              <GreenPractices 
-               userProfile={userProfile} 
+               userData={userData} 
                onClose={() => setShowGreenPractices(false)} 
              />
            </div>
@@ -1607,7 +1538,7 @@ showGreenPractices,
         <div className="weather-overlay" onClick={() => setShowSustainabilityAnalytics(false)}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
             <SustainabilityAnalytics
-              userProfile={userProfile}
+              userData={userData}
               onClose={() => setShowSustainabilityAnalytics(false)}
             />
           </div>
@@ -1619,6 +1550,7 @@ showGreenPractices,
           <div onClick={(e) => e.stopPropagation()}>
             <ExpertDirectory 
               onClose={() => setShowExpertDirectory(false)}
+              userData={userData}
               onBookConsultation={(consultation) => {
                 setShowExpertDirectory(false);
                 setShowConsultationHistory(true);
@@ -1633,6 +1565,7 @@ showGreenPractices,
           <div onClick={(e) => e.stopPropagation()}>
             <ConsultationHistory 
               onClose={() => setShowConsultationHistory(false)}
+              userData={userData}
               onStartConsultation={(consultation) => {
                 setActiveConsultation(consultation);
                 setShowTeleConsultation(true);
@@ -1647,6 +1580,7 @@ showGreenPractices,
           <div onClick={(e) => e.stopPropagation()}>
             <TeleConsultation 
               consultation={activeConsultation}
+              userData={userData}
               onEnd={() => {
                 setShowTeleConsultation(false);
                 setActiveConsultation(null);
