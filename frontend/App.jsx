@@ -19,6 +19,9 @@ import {
   FaUserSecret,
   FaFileInvoiceDollar,
   FaHome,
+  FaTrophy,
+  FaMedal,
+  FaCog
 } from "react-icons/fa";
 import { usePerformanceStore } from "./stores/performanceStore";
 
@@ -49,6 +52,7 @@ const Community = React.lazy(() => import("./Community"));
 const ContactUs = React.lazy(() => import("./ContactUs"));
 const AboutUs = React.lazy(() => import("./AboutUs"));
 const ProfileSetup = React.lazy(() => import("./ProfileSetup"));
+const ProfileSettings = React.lazy(() => import("./ProfileSettings"));
 const QRTraceability = React.lazy(() => import("./QRTraceability"));
 const Resources = React.lazy(() => import("./Resources"));
 const SeasonalCropPlanner = React.lazy(() => import("./SeasonalCropPlanner"));
@@ -272,8 +276,7 @@ function App() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleNavToggle = () => setIsOpen(!isOpen);
-  const handleThemeToggle = toggleTheme;
+   const handleThemeToggle = toggleTheme;
   const handleLogout = async () => {
     try {
       await signOut(auth);
@@ -302,15 +305,14 @@ function App() {
 
       <nav className={`navbar ${isOpen ? "menu-open" : ""}`} role="navigation" aria-label="Main Navigation">
         <div className="nav-left">
-          <FaLeaf className="icon" />
           <Link to="/" className="brand">Fasal Saathi</Link>
         </div>
 
         <ul className={`nav-center ${isOpen ? "active" : ""}`}>
           <li><Link to="/" onClick={() => setIsOpen(false)}><FaHome /> Home</Link></li>
-          <li><Link to="/advisor" onClick={() => setIsOpen(false)}><FaComments /> Chat</Link></li>
+          <li><Link to="/about" onClick={() => setIsOpen(false)}><FaInfoCircle /> About</Link></li>
           <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}><FaInfoCircle /> How It Works</Link></li>
-          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}><FaLeaf className="icon" /> Crop Guide</Link></li>
+          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}> Crop Guide</Link></li>
           <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
         </ul>
 
@@ -362,8 +364,9 @@ function App() {
                 {userData?.role === "admin" && (
                   <Link to="/admin/feedback" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Feedback Admin</Link>
                 )}
+                <Link to="/profile-settings" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaCog /> Profile settings</Link>
                 <Link to="/community" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaComments /> Community</Link>
-                <Link to="/disease-awareness" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaLeaf /> Awareness</Link>
+                <Link to="/leaderboard" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaTrophy />Leaderboard</Link>
                 <Link to="/risk-index" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Risk Index</Link>
                 <Link to="/glossary" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaBook /> Glossary</Link>
                 <Link to="/about" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> About Us</Link>
@@ -437,8 +440,8 @@ function App() {
       )}
 
       {/* PROFILE COMPLETION GUARD */}
-      {!loading && user && (user.isAnonymous || user.emailVerified) && !profileCompleted && location.pathname !== "/profile-setup" && (
-        <Navigate to="/profile-setup" />
+      {!loading && user && (user.isAnonymous || user.emailVerified) && !profileCompleted && location.pathname !== "/profile-settings" && (
+        <Navigate to="/profile-settings" />
       )}
 
       <main id="main-content" tabIndex="-1" style={{ outline: 'none' }}>
@@ -452,7 +455,7 @@ function App() {
             <Route path="/schemes" element={<Schemes />} />
             <Route path="/resources" element={<Resources />} />
             <Route path="/login" element={<Auth />} />
-            <Route path="/profile-setup" element={<ProfileSetup user={user} profileCompleted={profileCompleted} />} />
+            <Route path="/profile-settings" element={<ProfileSettings user={user} userData={userData} />} />
             <Route path="/calendar" element={<Calendar />} />
             <Route path="/share-feedback" element={<Feedback />} />
             <Route path="/admin/feedback" element={<AdminFeedback />} />
