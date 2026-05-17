@@ -15,6 +15,15 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+# Observability: tracing + metrics
+from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from opentelemetry import trace
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor, ConsoleSpanExporter
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 import firebase_admin
 from firebase_admin import credentials, auth, firestore
 
@@ -97,6 +106,32 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
+
+# ----- OpenTelemetry Tracing Setup -----
+try:
+    service_name = os.environ.get("OTEL_SERVICE_NAME", "fasal-saathi-backend")
+    resource = Resource.create({"service.name": service_name})
+    provider = TracerProvider(resource=resource)
+    trace.set_tracer_provider(provider)
+    otlp_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+    if otlp_endpoint:
+        otlp_exporter = OTLPSpanExporter(endpoint=otlp_endpoint)
+        provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+    else:
+        # fallback to console exporter for local dev / CI
+        provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
+    # instrument FastAPI
+    FastAPIInstrumentor().instrument_app(app)
+    logger.info("OpenTelemetry tracing initialized")
+except Exception as e:
+    logger.warning(f"OpenTelemetry init skipped: {e}")
+
+# ----- Prometheus Metrics -----
+try:
+    Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+    logger.info("Prometheus instrumentation enabled at /metrics")
+except Exception as e:
+    logger.warning(f"Prometheus instrumentation skipped: {e}")
 
 # CORS
 app.add_middleware(
