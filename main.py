@@ -128,6 +128,13 @@ from rbac import (
     print_rbac_matrix,
 )
 
+# ML Governance (Drift Detection, Shadow Evaluation, Rollback Safety)
+from ml.governance import (
+    DriftDetector,
+    ShadowEvaluator,
+    ModelVersionManager,
+)
+
 # Other internal modules
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
@@ -383,6 +390,36 @@ class FinanceAssessmentRequest(BaseModel):
     selected_lender: Optional[str] = Field(default=None, max_length=100)
     farm_location: Optional[str] = Field(default=None, max_length=120)
     notes: Optional[str] = Field(default=None, max_length=500)
+
+# ML Governance Request Models
+class StartShadowEvaluationRequest(BaseModel):
+    production_model: str = Field(..., min_length=1, max_length=50)
+    candidate_model: str = Field(..., min_length=1, max_length=50)
+
+class RecordPredictionRequest(BaseModel):
+    eval_id: str = Field(..., min_length=1)
+    production_prediction: float
+    candidate_prediction: float
+    actual_value: float
+
+class RegisterModelVersionRequest(BaseModel):
+    model_name: str = Field(..., min_length=1, max_length=50)
+    model_path: str = Field(..., min_length=1)
+    rmse: float = Field(..., gt=0)
+    r2_score: float = Field(default=0, ge=-1, le=1)
+    metadata: Optional[Dict[str, Any]] = None
+
+# --- ML Governance Initialization ---
+drift_detector = DriftDetector(
+    window_size=100,
+    prediction_drift_threshold=0.2,
+    input_drift_threshold=0.15,
+)
+shadow_evaluator = ShadowEvaluator(
+    min_samples=50,
+    error_improvement_threshold=0.05,
+)
+version_manager = ModelVersionManager(versions_dir="./model_versions")
 
 # --- ML Pipeline Initialization ---
 # init_ml_pipeline() is called inside the FastAPI lifespan context manager
@@ -1696,4 +1733,345 @@ async def get_stats():
         return {"success": True, "stats": stats}
     except Exception as e:
         logger.error("Stats error: %s", str(e))
+
+        # ================================================================================
+        # ML GOVERNANCE ENDPOINTS (Issue #4)
+        # ================================================================================
+
+        @app.post("/api/ml-governance/drift/baseline")
+        @limiter.limit("5/minute")
+        async def set_drift_baseline(request: Request, model_name: str, predictions: list):
+            """
+            Set baseline statistics for drift detection on a model
+    
+            Query params:
+                model_name: Name of the model (e.g., 'xgboost')
+    
+            Body:
+                predictions: List of baseline prediction values
+            """
+            try:
+                if not predictions or len(predictions) < 10:
+                    raise ValueError("Need at least 10 baseline predictions")
+        
+                drift_detector.set_baseline(model_name, predictions)
+        
+                return {
+                    "success": True,
+                    "message": f"Baseline set for model '{model_name}' with {len(predictions)} samples",
+                    "model_name": model_name
+                }
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                logger.error("Drift baseline error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to set baseline")
+
+        @app.post("/api/ml-governance/drift/check")
+        @limiter.limit("100/minute")
+        async def check_drift(request: Request, model_name: str, prediction: float, actual_value: float = None):
+            """
+            Check if a prediction indicates drift
+    
+            Query params:
+                model_name: Name of the model
+                prediction: Current prediction value
+                actual_value: Optional actual observed value
+            """
+            try:
+                is_drift, alert = drift_detector.check_prediction_drift(
+                    model_name, prediction, actual_value
+                )
+        
+                response = {
+                    "drift_detected": is_drift,
+                    "model_name": model_name,
+                    "prediction": prediction
+                }
+        
+                if alert:
+                    response["alert"] = alert.to_dict()
+        
+                return response
+            except Exception as e:
+                logger.error("Drift check error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to check drift")
+
+        @app.get("/api/ml-governance/drift/alerts")
+        @limiter.limit("20/minute")
+        async def get_drift_alerts(request: Request, model_name: str = None, limit: int = 10):
+            """Get recent drift alerts"""
+            try:
+                alerts = drift_detector.get_alerts(model_name, limit)
+                return {"success": True, "alerts": alerts, "count": len(alerts)}
+            except Exception as e:
+                logger.error("Get alerts error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to retrieve alerts")
+
+        @app.post("/api/ml-governance/shadow/start")
+        @limiter.limit("10/minute")
+        async def start_shadow_evaluation(request: Request, data: StartShadowEvaluationRequest):
+            """
+            Start shadow evaluation comparing production and candidate models
+    
+            Request body:
+            {
+                "production_model": "xgboost_v1",
+                "candidate_model": "xgboost_v2"
+            }
+            """
+            try:
+                eval_id = shadow_evaluator.start_shadow_evaluation(
+                    data.production_model,
+                    data.candidate_model
+                )
+        
+                return {
+                    "success": True,
+                    "eval_id": eval_id,
+                    "production_model": data.production_model,
+                    "candidate_model": data.candidate_model
+                }
+            except Exception as e:
+                logger.error("Shadow eval start error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to start shadow evaluation")
+
+        @app.post("/api/ml-governance/shadow/record")
+        @limiter.limit("200/minute")
+        async def record_shadow_predictions(request: Request, data: RecordPredictionRequest):
+            """
+            Record predictions from both models during shadow evaluation
+    
+            Request body:
+            {
+                "eval_id": "eval_20250516_120000",
+                "production_prediction": 100.5,
+                "candidate_prediction": 101.2,
+                "actual_value": 102.0
+            }
+            """
+            try:
+                shadow_evaluator.record_predictions(
+                    data.eval_id,
+                    data.production_prediction,
+                    data.candidate_prediction,
+                    data.actual_value
+                )
+        
+                status = shadow_evaluator.get_evaluation_status(data.eval_id)
+        
+                return {
+                    "success": True,
+                    "eval_id": data.eval_id,
+                    "status": status
+                }
+            except Exception as e:
+                logger.error("Record predictions error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to record predictions")
+
+        @app.post("/api/ml-governance/shadow/evaluate")
+        @limiter.limit("10/minute")
+        async def evaluate_candidate_model(request: Request, eval_id: str):
+            """Evaluate candidate model performance"""
+            try:
+                result = shadow_evaluator.evaluate_candidate(eval_id)
+        
+                if result is None:
+                    status = shadow_evaluator.get_evaluation_status(eval_id)
+                    return {
+                        "success": False,
+                        "message": "Not enough samples for evaluation",
+                        "status": status
+                    }
+        
+                return {
+                    "success": True,
+                    "evaluation": result.to_dict()
+                }
+            except Exception as e:
+                logger.error("Evaluate candidate error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to evaluate candidate")
+
+        @app.get("/api/ml-governance/shadow/status/{eval_id}")
+        @limiter.limit("50/minute")
+        async def get_shadow_eval_status(request: Request, eval_id: str):
+            """Get status of shadow evaluation"""
+            try:
+                status = shadow_evaluator.get_evaluation_status(eval_id)
+                return {"success": True, "status": status}
+            except Exception as e:
+                logger.error("Get shadow status error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to get status")
+
+        @app.post("/api/ml-governance/versions/register")
+        @limiter.limit("5/minute")
+        async def register_model_version(request: Request, data: RegisterModelVersionRequest):
+            """
+            Register a new model version
+    
+            Request body:
+            {
+                "model_name": "xgboost",
+                "model_path": "/path/to/model.joblib",
+                "rmse": 0.15,
+                "r2_score": 0.85,
+                "metadata": {"author": "ml-team"}
+            }
+            """
+            try:
+                performance_metrics = {
+                    'rmse': data.rmse,
+                    'r2_score': data.r2_score,
+                }
+        
+                version_id = version_manager.register_version(
+                    data.model_name,
+                    data.model_path,
+                    performance_metrics,
+                    data.metadata
+                )
+        
+                return {
+                    "success": True,
+                    "version_id": version_id,
+                    "model_name": data.model_name
+                }
+            except Exception as e:
+                logger.error("Register version error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to register version")
+
+        @app.post("/api/ml-governance/versions/promote")
+        @limiter.limit("5/minute")
+        async def promote_model_version(request: Request, version_id: str):
+            """Promote a model version to production"""
+            try:
+                success = version_manager.promote_version(version_id)
+        
+                if not success:
+                    raise ValueError("Failed to promote version")
+        
+                prod_version = version_manager.get_production_version()
+        
+                return {
+                    "success": True,
+                    "message": f"Promoted {version_id} to production",
+                    "production_version": prod_version.to_dict() if prod_version else None
+                }
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                logger.error("Promote version error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to promote version")
+
+        @app.post("/api/ml-governance/versions/rollback")
+        @limiter.limit("5/minute")
+        async def rollback_model_version(request: Request, version_id: str):
+            """Rollback to a previous model version (emergency only)"""
+            try:
+                success = version_manager.rollback_to_version(version_id)
+        
+                if not success:
+                    raise ValueError("Rollback failed")
+        
+                prod_version = version_manager.get_production_version()
+        
+                return {
+                    "success": True,
+                    "message": f"Rolled back to {version_id}",
+                    "production_version": prod_version.to_dict() if prod_version else None
+                }
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                logger.error("Rollback version error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to rollback")
+
+        @app.get("/api/ml-governance/versions/production")
+        @limiter.limit("50/minute")
+        async def get_production_version(request: Request):
+            """Get current production model version"""
+            try:
+                prod_version = version_manager.get_production_version()
+        
+                if not prod_version:
+                    return {
+                        "success": True,
+                        "production_version": None,
+                        "message": "No production version set"
+                    }
+        
+                return {
+                    "success": True,
+                    "production_version": prod_version.to_dict()
+                }
+            except Exception as e:
+                logger.error("Get production version error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to get production version")
+
+        @app.get("/api/ml-governance/versions/list")
+        @limiter.limit("20/minute")
+        async def list_model_versions(request: Request, model_name: str = None):
+            """List all model versions"""
+            try:
+                versions = version_manager.list_versions(model_name)
+        
+                return {
+                    "success": True,
+                    "versions": versions,
+                    "total": len(versions)
+                }
+            except Exception as e:
+                logger.error("List versions error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to list versions")
+
+        @app.get("/api/ml-governance/versions/compare")
+        @limiter.limit("20/minute")
+        async def compare_model_versions(request: Request, v1: str, v2: str):
+            """Compare two model versions"""
+            try:
+                comparison = version_manager.compare_versions(v1, v2)
+        
+                if 'error' in comparison:
+                    raise ValueError(comparison['error'])
+        
+                return {
+                    "success": True,
+                    "comparison": comparison
+                }
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                logger.error("Compare versions error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to compare versions")
+
+        @app.get("/api/ml-governance/status")
+        @limiter.limit("20/minute")
+        async def get_governance_status(request: Request):
+            """Get overall ML governance status"""
+            try:
+                prod_version = version_manager.get_production_version()
+                recent_alerts = drift_detector.get_alerts(limit=5)
+                recent_evals = shadow_evaluator.get_evaluations(limit=5)
+        
+                return {
+                    "success": True,
+                    "governance_status": {
+                        "drift_detection": {
+                            "recent_alerts": recent_alerts,
+                            "alert_count": len(drift_detector.alerts)
+                        },
+                        "shadow_evaluation": {
+                            "active_evaluations": len(shadow_evaluator.active_evaluations),
+                            "completed_evaluations": len(shadow_evaluator.evaluations),
+                            "recent_evaluations": recent_evals
+                        },
+                        "model_versioning": {
+                            "production_version": prod_version.to_dict() if prod_version else None,
+                            "total_versions": len(version_manager.versions)
+                        }
+                    }
+                }
+            except Exception as e:
+                logger.error("Get governance status error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to get governance status")
         raise HTTPException(status_code=500, detail=str(e))
