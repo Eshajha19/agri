@@ -167,16 +167,12 @@ function App() {
       return;
     }
 
-    // Safety timeout — if Firebase auth never responds (revoked key, network issue),
-    // force loading=false so the app doesn't hang forever on the spinner.
-    const safetyTimer = setTimeout(() => {
-      setLoading(false);
-    }, 5000);
-
+    // Deterministic auth-readiness sync
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
-      clearTimeout(safetyTimer);
       setUser(currentUser);
+      
       if (currentUser) {
+        // Wait for profile data sync before hiding loader
         const unsubscribeDoc = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
           if (userDoc.exists()) {
             const data = userDoc.data();
@@ -192,6 +188,7 @@ function App() {
           setLoading(false);
         }, (error) => {
           console.error("Firestore sync error:", error);
+          // Still disable loading to avoid hanging, but only after deterministic failure
           setLoading(false);
         });
         return () => unsubscribeDoc();
@@ -201,7 +198,8 @@ function App() {
         setLoading(false);
       }
     });
-    return () => { clearTimeout(safetyTimer); unsubscribeAuth(); };
+
+    return () => unsubscribeAuth();
   }, []);
 
   // E2EE Key Generation Sync
@@ -437,7 +435,7 @@ function App() {
           <Route path="/" element={<Home user={user} />} />
           <Route path="/advisor" element={<Advisor userData={userData} />} />
           <Route path="/how-it-works" element={<How />} />
-          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/dashboard" element={<Dashboard userData={userData} />} />
           <Route path="/crop-guide" element={<CropGuide />} />
           <Route path="/schemes" element={<Schemes />} />
           <Route path="/resources" element={<Resources />} />
