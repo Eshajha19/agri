@@ -139,6 +139,28 @@ app.include_router(flags_router)
 
 logger = logging.getLogger(__name__)
 
+@app.on_event("startup")
+async def startup_check_kms():
+    """
+    Validate KMS configuration on startup to prevent silent fallback and ensure
+    cryptographic integrity. Enforces fail-fast behavior in production.
+    """
+    project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+    is_prod = os.getenv("ENV", "").lower() == "production"
+    
+    if project_id:
+        if not HAS_GCP_KMS:
+            logger.critical("CRITICAL SECURITY ALERT: google-cloud-secret-manager library missing but GOOGLE_CLOUD_PROJECT is set. Halting to prevent insecure fallback.")
+            if is_prod:
+                raise RuntimeError("Production failure: KMS library missing but GOOGLE_CLOUD_PROJECT is set.")
+        else:
+            logger.info(f"Security: KMS integration enabled and validated (Project: {project_id})")
+    elif is_prod:
+        logger.critical("CRITICAL SECURITY ALERT: Running in PRODUCTION mode without GOOGLE_CLOUD_PROJECT set. Halting execution to prevent insecure local signing.")
+        raise RuntimeError("Production failure: GOOGLE_CLOUD_PROJECT environment variable must be set in production.")
+    else:
+        logger.warning("Security Warning: Running in non-production mode. System will use local signing keys if KMS is not configured.")
+
 # Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
 # ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
 # Used to sanitise client-supplied strings before they reach the log, so a
@@ -857,12 +879,11 @@ def get_signing_keys():
 
     if project_id:
         if not HAS_GCP_KMS:
-            if IS_PRODUCTION:
-                raise HTTPException(
-                    status_code=500,
-                    detail="google-cloud-secret-manager is not installed but is required in production"
-                )
-            print("KMS Warning: google-cloud-secret-manager not installed; skipping GCP path.")
+            logger.critical("CRITICAL SECURITY ALERT: google-cloud-secret-manager is not installed but GOOGLE_CLOUD_PROJECT is set. Halting to prevent insecure fallback.")
+            raise HTTPException(
+                status_code=500,
+                detail="KMS Initialization Error: google-cloud-secret-manager is required when GOOGLE_CLOUD_PROJECT is set. Halting to prevent insecure fallback."
+            )
         else:
             try:
                 client = secretmanager.SecretManagerServiceClient()
@@ -875,14 +896,13 @@ def get_signing_keys():
                 print(f"KMS: Loaded signing key from Secret Manager (secret: {secret_id})")
                 return _cached_private_key
             except Exception as e:
-                if IS_PRODUCTION:
-                    print(f"KMS Error: {e}")
-                    raise HTTPException(
-                        status_code=500,
-                        detail="Failed to retrieve signing key from Secret Manager"
-                    )
-                print(f"KMS Warning: Could not reach Secret Manager ({e}); falling back to local key.")
+                logger.critical(f"CRITICAL SECURITY ALERT: KMS Initialization Failed. Could not reach Secret Manager: {e}. Halting to prevent insecure fallback to local keys.")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"KMS Initialization Error: Failed to retrieve signing key from Secret Manager. Halting to prevent insecure fallback."
+                )
     elif IS_PRODUCTION:
+        logger.critical("CRITICAL SECURITY ALERT: GOOGLE_CLOUD_PROJECT is not set in production. Cannot retrieve secure signing key.")
         raise HTTPException(
             status_code=500,
             detail="GOOGLE_CLOUD_PROJECT is not set; cannot retrieve signing key in production"
