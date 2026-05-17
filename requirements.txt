@@ -19,3 +19,12 @@ google-cloud-secret-manager
 slowapi
 firebase-admin
 google-generativeai
+opencv-python
+pillow
+qrcode
+prometheus-client
+prometheus-fastapi-instrumentator
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-instrumentation-fastapi
+opentelemetry-exporter-otlp

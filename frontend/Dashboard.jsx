@@ -21,6 +21,7 @@ import {
   FaShieldAlt,
   FaFileInvoiceDollar,
   FaChartBar,
+  FaTrophy,
 } from "react-icons/fa";
 import "./Dashboard.css";
 import {
@@ -30,21 +31,36 @@ import {
 import { getHistoricalWeatherData } from "./weather/weatherService";
 import ErrorBoundary from "./ErrorBoundary";
 import apiClient from "./lib/apiClient";
+import { getBookmarks } from "./utils/bookmarkStorage";
 
-export default function Dashboard() {
-  const name = localStorage.getItem("farmerName") || "Farmer";
-  const preferredLang = localStorage.getItem("preferredLanguage") || "en";
+export default function Dashboard({ userData }) {
+  const name = userData?.displayName || "Farmer";
+  const preferredLang = userData?.language || "en";
 
   const [currentTime, setCurrentTime] = useState(new Date());
   const [historicalWeather, setHistoricalWeather] = useState([]);
-  const [phoneNumber, setPhoneNumber] = useState(localStorage.getItem("farmerPhone") || "");
-  const [whatsappAlerts, setWhatsappAlerts] = useState(localStorage.getItem("whatsappAlerts") === "true");
+  const [phoneNumber, setPhoneNumber] = useState(userData?.phoneNumber || "");
+  const [whatsappAlerts, setWhatsappAlerts] = useState(!!userData?.whatsappAlerts);
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateMsg, setUpdateMsg] = useState("");
   const [yieldData, setYieldData] = useState([]);
   const [selectedCrop, setSelectedCrop] = useState("");
   const [selectedRegion, setSelectedRegion] = useState("");
   const [selectedSeason, setSelectedSeason] = useState("");
+  const [savedCrops, setSavedCrops] = useState([]);
+  const [savedArticles, setSavedArticles] = useState([]);
+
+  useEffect(() => {
+    if (userData) {
+      setPhoneNumber(userData.phoneNumber || "");
+      setWhatsappAlerts(!!userData.whatsappAlerts);
+    }
+  }, [userData]);
+
+  useEffect(() => {
+    setSavedCrops(getBookmarks("crops"));
+    setSavedArticles(getBookmarks("articles"));
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
@@ -81,8 +97,6 @@ export default function Dashboard() {
         name: name,
       });
       if (response.data?.success) {
-        localStorage.setItem("farmerPhone", phoneNumber);
-        localStorage.setItem("whatsappAlerts", whatsappAlerts.toString());
         setUpdateMsg("Settings saved successfully!");
         setTimeout(() => setUpdateMsg(""), 3000);
       }
@@ -193,6 +207,7 @@ export default function Dashboard() {
     { label: "Yield Predictor", icon: <FaChartBar />, link: "/yield-predictor" },
     { label: "Crop Planner", icon: <FaCalendarAlt />, link: "/crop-planner" },
     { label: "Community", icon: <FaComments />, link: "/community" },
+    { label: "Leaderboard", icon: <FaTrophy />, link: "/leaderboard" },
     { label: "Diseases", icon: <FaBug />, link: "/disease-awareness" },
     { label: "Helpline", icon: <FaPhoneAlt />, link: "/helpline" },
     { label: "Glossary", icon: <FaBook />, link: "/glossary" },
@@ -305,6 +320,39 @@ export default function Dashboard() {
                    <FaArrowRight className="rec-arrow" aria-hidden="true" />
                  </div>
               ))}
+            </div>
+          </div>
+
+          <div className="dashboard-section-card saved-items-card">
+            <div className="section-card-header">
+              <h2>Saved Items</h2>
+              <span className="section-badge">{savedCrops.length + savedArticles.length} saved</span>
+            </div>
+            <div className="saved-items-grid">
+              <div className="saved-items-block">
+                <h3>Bookmarked Crops</h3>
+                {savedCrops.length > 0 ? (
+                  <ul className="saved-items-list">
+                    {savedCrops.slice(0, 4).map((crop) => (
+                      <li key={crop.id}>{crop.name}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="saved-empty">Save crops from the Crop Guide to see them here.</p>
+                )}
+              </div>
+              <div className="saved-items-block">
+                <h3>Bookmarked Articles</h3>
+                {savedArticles.length > 0 ? (
+                  <ul className="saved-items-list">
+                    {savedArticles.slice(0, 4).map((article) => (
+                      <li key={article.id}>{article.title}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="saved-empty">Save articles from the Knowledge Hub to see them here.</p>
+                )}
+              </div>
             </div>
           </div>
 
