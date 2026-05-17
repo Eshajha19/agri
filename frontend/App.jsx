@@ -25,34 +25,13 @@ import {
 } from "react-icons/fa";
 import { usePerformanceStore } from "./stores/performanceStore";
 import { useBrowserCacheBudget } from "./lib/cacheBudget";
-
 // Components
 import Loader from "./Loader";
 import LanguageDropdown from "./LanguageDropdown";
 import useNotifications from "./Notifications";
-import ProfileSetup from "./ProfileSetup";
-import QRTraceability from "./QRTraceability";
-import PestDetection from "./PestDetection";
-import EquipmentManagement from "./EquipmentManagement";
-import Resources from "./Resources";
-import SeasonalCropPlanner from "./SeasonalCropPlanner";
-import SoilGuide from "./SoilGuide";
-import CropDiseaseAwareness from "./CropDiseaseAwareness";
-import CropRotation from "./CropRotation";
-import Helpline from "./Helpline";
-import Glossary from "./Glossary";
-import RiskIndex from "./RiskIndex";
-import Blog from "./Blog";
-import BlogDetail from "./BlogDetail";
-import FAQ from "./FAQ";
-import NotFound from "./NotFound";
-import PrivacyPolicy from "./PrivacyPolicy";
-import Terms from "./Terms";
-import SoilAnalysis from "./SoilAnalysis";
-import SeedVerifier from "./SeedVerifier";
-import FarmFinance from "./FarmFinance";
-import YieldPredictor from "./YieldPredictor";
 import Footer from "./components/Footer";
+
+
 import { SkipLink } from "./NavigationManager";
 import { useTheme } from "./ThemeContext";
 
@@ -76,16 +55,19 @@ import {
   FAQ,
   FarmFinance,
   FarmingMap,
+  FarmingNews,
   Feedback,
   Glossary,
   Helpline,
   Home,
   How,
+  Leaderboard,
   MarketPrices,
   NotFound,
   PestDetection,
   PrivacyPolicy,
   ProfileSetup,
+  ProfileSettings,
   QRTraceability,
   Resources,
   RiskIndex,
@@ -471,7 +453,7 @@ function App() {
       )}
 
       {/* PROFILE COMPLETION GUARD */}
-      {!loading && user && (user.isAnonymous || user.emailVerified) && !profileCompleted && location.pathname !== "/profile-settings" && (
+      {!loading && user && (user.isAnonymous || user.emailVerified) && !profileCompleted && location.pathname !== "/profile-setup" && location.pathname !== "/profile-settings" && (
         <Navigate to="/profile-settings" />
       )}
 
@@ -486,6 +468,7 @@ function App() {
           <Route path="/resources" element={<Resources />} />
           <Route path="/login" element={<Auth />} />
           <Route path="/profile-setup" element={<ProfileSetup user={user} profileCompleted={profileCompleted} />} />
+          <Route path="/profile-settings" element={<ProfileSettings />} />
           <Route path="/calendar" element={<Calendar />} />
           <Route path="/share-feedback" element={<Feedback />} />
           <Route path="/admin/feedback" element={<AdminFeedback />} />
@@ -493,6 +476,7 @@ function App() {
           <Route path="/farming-map" element={<FarmingMap />} />
           <Route path="/profit-calculator" element={<CropProfitCalculator />} />
           <Route path="/community" element={<Community />} />
+          <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/soil-analysis" element={<SoilAnalysis />} />
           <Route path="/faq" element={<FAQ />} />
           <Route path="/terms" element={<Terms />} />
@@ -512,6 +496,7 @@ function App() {
           <Route path="/crop-rotation" element={<CropRotation />} />
           <Route path="/seed-verifier" element={<SeedVerifier />} />
           <Route path="/farm-finance" element={<FarmFinance />} />
+          <Route path="/farming-news" element={<FarmingNews userData={userData} />} />
           <Route path="/yield-predictor" element={<YieldPredictor />} />
           <Route path="/blog" element={<Blog />} />
           <Route path="/blog/:id" element={<BlogDetail />} />
