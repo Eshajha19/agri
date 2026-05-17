@@ -311,10 +311,23 @@ async def verify_role(request: Request, required_roles: list = None, require_all
         raise HTTPException(status_code=401, detail="Missing auth token")
     token = auth_header.split(" ")[1]
     try:
-        decoded = auth.verify_id_token(token)
-        uid = decoded["uid"]
+        try:
+            decoded = auth.verify_id_token(token)
+            uid = decoded["uid"]
+        except Exception as e:
+            logger.error(f"Token verification failed: {e}")
+            raise HTTPException(status_code=401, detail="Invalid or expired authorization token")
+
         db = validate_firestore_ready()
-        user_doc = db.collection("users").document(uid).get()
+        try:
+            user_doc = db.collection("users").document(uid).get()
+        except Exception as e:
+            logger.error(f"Database lookup failed during role verification for user {uid}: {e}")
+            raise HTTPException(
+                status_code=503,
+                detail="Authentication database temporarily unavailable"
+            )
+
         user_roles = user_doc.get("roles", []) if user_doc.exists else []
         if required_roles:
             if require_all:
@@ -327,8 +340,8 @@ async def verify_role(request: Request, required_roles: list = None, require_all
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Auth error: {e}")
-        raise HTTPException(status_code=401, detail="Invalid token")
+        logger.error(f"Unexpected authorization verification failure: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error during authorization")
 
 
 class NotificationStore:
