@@ -484,6 +484,17 @@ class WeatherAlertRequest(BaseModel):
 class SeedVerifyRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=100)
 
+class GeminiImageRequest(BaseModel):
+    """
+    Request body for the server-side Gemini image analysis proxy.
+    The frontend sends the base64-encoded image and a prompt; the backend
+    forwards the request to Google using the server-side GEMINI_API_KEY so
+    the key is never exposed in the compiled JavaScript bundle.
+    """
+    image_base64: str = Field(..., min_length=10, description="Base64-encoded image data")
+    mime_type: str = Field(..., pattern=r"^image/(jpeg|png|gif|webp)$", description="MIME type of the image")
+    prompt: str = Field(..., min_length=10, max_length=2000, description="Analysis prompt")
+
 class FinanceAssessmentRequest(BaseModel):
     farmer_name: str = Field(..., min_length=1, max_length=100)
     crop_type: str = Field(..., min_length=1, max_length=50)
@@ -1260,6 +1271,79 @@ async def rag_query(request: Request, body: RAGQuery):
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/gemini/analyze-image")
+@limiter.limit("10/minute")
+async def gemini_analyze_image(request: Request, body: GeminiImageRequest):
+    """
+    Server-side proxy for Gemini multimodal image analysis.
+
+    Keeps GEMINI_API_KEY on the server — it is never bundled into the
+    frontend JavaScript. Frontend components (PestDetection, CropDiseaseDetection)
+    send the base64 image and prompt here; this endpoint forwards the request
+    to Google and returns the raw text response.
+
+    Rate-limited to 10 requests/minute per IP to protect billing.
+    Authentication is intentionally not required so unauthenticated users
+    can still use the detection features, but the key stays server-side.
+    """
+    import httpx
+
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="AI analysis service is not configured"
+        )
+
+    gemini_url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"gemini-2.0-flash:generateContent?key={api_key}"
+    )
+
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": body.prompt},
+                    {
+                        "inline_data": {
+                            "mime_type": body.mime_type,
+                            "data": body.image_base64,
+                        }
+                    },
+                ]
+            }
+        ]
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(gemini_url, json=payload)
+
+        if resp.status_code != 200:
+            logger.warning("Gemini API returned %s: %s", resp.status_code, resp.text[:200])
+            raise HTTPException(
+                status_code=502,
+                detail="AI analysis service returned an error"
+            )
+
+        data = resp.json()
+        text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+
+        if not text:
+            raise HTTPException(status_code=502, detail="Empty response from AI analysis service")
+
+        return {"text": text}
+
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="AI analysis service timed out")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Gemini proxy error: %s", str(e))
+        raise HTTPException(status_code=500, detail="AI analysis service unavailable")
 
 @app.post("/api/simulate-climate")
 @limiter.limit("5/minute")

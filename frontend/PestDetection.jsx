@@ -87,11 +87,6 @@ export default function PestDetection({ onClose }) {
     if (!image) return null;
 
     try {
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-      if (!apiKey) {
-        throw new Error("⚠️ API key not configured.");
-      }
-
       const toBase64 = (file) =>
         new Promise((res, rej) => {
           const reader = new FileReader();
@@ -115,35 +110,25 @@ export default function PestDetection({ onClose }) {
   "organic": ["organic1", "organic2"]
 }`;
 
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  { text: prompt },
-                  {
-                    inline_data: {
-                      mime_type: image.type,
-                      data: base64,
-                    },
-                  },
-                ],
-              },
-            ],
-          }),
-        }
-      );
+      // Call the backend proxy — the Gemini API key stays server-side and is
+      // never bundled into the compiled JavaScript.
+      const apiBase = import.meta.env.VITE_API_BASE_URL || "";
+      const response = await fetch(`${apiBase}/api/gemini/analyze-image`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image_base64: base64,
+          mime_type: image.type,
+          prompt,
+        }),
+      });
 
       if (!response.ok) {
         throw new Error(`API Error (${response.status})`);
       }
 
       const data = await response.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      const text = data.text;
 
       if (!text) throw new Error("Empty response from AI");
 
