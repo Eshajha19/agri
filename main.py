@@ -6,6 +6,7 @@ This refactored file preserves API routes while delegating domain routes to
 and non-destructive so upstream changes can be rebased safely.
 """
 import os
+import re
 import logging
 import collections
 import threading
@@ -50,45 +51,54 @@ class RAGQuery(BaseModel):
     def sanitize_and_normalize_query(cls, v):
         if not v or not isinstance(v, str):
             raise ValueError("Query must be a non-empty string.")
-        
-        # Strip script tags entirely to prevent XSS / Script Injection
-        v = re.sub(r'<script.*?>.*?</script>', '', v, flags=re.IGNORECASE)
+
+        # Strip script tags entirely to prevent XSS / script injection
+        v = re.sub(r'<script.*?>.*?</script>', '', v, flags=re.IGNORECASE | re.DOTALL)
         v = re.sub(r'</?script.*?>', '', v, flags=re.IGNORECASE)
+
+        # Strip event handler attributes (onclick=, onload=, etc.)
         v = re.sub(r'on\w+\s*=', '', v, flags=re.IGNORECASE)
+
+        # Strip dangerous URI schemes
         v = re.sub(r'javascript:', '', v, flags=re.IGNORECASE)
         v = re.sub(r'data:', '', v, flags=re.IGNORECASE)
         v = re.sub(r'vbscript:', '', v, flags=re.IGNORECASE)
-        
+
         # Strip all other HTML tags entirely to prevent HTML injection in prompts or UI
         v = re.sub(r'<[^>]*>', '', v)
-        
-        # Handle markdown injection: neutralize links [text](url) -> text (url)
+
+        # Neutralize markdown links [text](url) -> text (url)
         v = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'\1 (\2)', v)
-        
-        # Neutralize common markdown styling syntax to avoid UI layout pollution
+
+        # Neutralize markdown styling syntax (bold, italic, code, headers)
         v = re.sub(r'[*_~`#]', '', v)
-        
-        # Strip leading/trailing whitespaces and normalize spaces after stripping HTML tags
+
+        # Normalize whitespace
         v = v.strip()
         v = re.sub(r'\s+', ' ', v)
-        
-        # Prompt Injection Mitigation: identify and reject typical instruction overrides
+
+        # Prompt injection mitigation: reject known instruction-override phrases
         forbidden_patterns = [
             r"ignore\s+(?:all\s+)?previous\s+instructions",
             r"ignore\s+(?:the\s+)?system\s+prompt",
             r"override\s+system\s+constraints",
             r"developer\s+mode",
-            r"bypass\s+safety\s+filter"
+            r"bypass\s+safety\s+filter",
+            r"disregard\s+(?:all\s+)?prior\s+instructions",
+            r"act\s+as\s+(?:a\s+)?(?:different|unrestricted|unfiltered)\s+(?:ai|model|assistant)",
+            r"pretend\s+(?:you\s+are|to\s+be)\s+(?:a\s+)?(?:different|unrestricted)",
+            r"jailbreak",
+            r"prompt\s+injection",
         ]
         v_lower = v.lower()
         for pattern in forbidden_patterns:
             if re.search(pattern, v_lower):
                 raise ValueError("Query contains disallowed phrases or prompt injection attempts.")
-        
-        # Re-enforce validation after sanitization has cleaned the input
+
+        # Re-enforce minimum length after sanitization has stripped content
         if len(v) < 3:
             raise ValueError("Query must be at least 3 characters long after sanitization.")
-            
+
         return v
 
 # Blockchain Supply Chain Models
@@ -2047,6 +2057,7 @@ async def get_expert_slots(expert_id: str, date: str):
 
 
 @app.post("/api/consultation/book")
+@limiter.limit("5/minute")
 async def book_consultation(
     request: ConsultationBookRequest,
     raw_request: Request,
@@ -2054,6 +2065,10 @@ async def book_consultation(
 ):
     """
     Book a consultation with an expert.
+
+    Authentication required — any logged-in user may book.
+    The caller's identity is derived from the verified Firebase token;
+    the client-supplied user_id is never trusted.
     """
     # Idempotency check: prevent duplicate bookings on retry
     idem_key = raw_request.headers.get("X-Idempotency-Key")
@@ -2062,7 +2077,7 @@ async def book_consultation(
             if idem_key in _IDEMPOTENCY_CACHE:
                 logger.info(f"Idempotency: Returning cached consultation for key {idem_key}")
                 return _IDEMPOTENCY_CACHE[idem_key]
-    
+
     """
     Request body:
     - expert_id: Expert's ID
@@ -2075,27 +2090,29 @@ async def book_consultation(
     """
     try:
         db = validate_firestore_ready()
-        user_data = None
 
-        if authorization:
-            try:
-                token = authorization.replace("Bearer ", "")
-                decoded_token = firebase_auth.verify_id_token(token)
-                user_id = decoded_token.get("uid")
+        # Require authentication — derive identity from the verified token,
+        # never from the request body.  Previously authorization was Optional
+        # and the entire auth block was wrapped in a try/except that silently
+        # fell through, writing bookings with user_id="anonymous".
+        token_data = await verify_role(raw_request)
+        uid = token_data["uid"]
 
-                user_ref = db.collection("users").document(user_id)
-                user_doc = user_ref.get()
-                if user_doc.exists:
-                    user_data = user_doc.to_dict()
-            except Exception as e:
-                logger.warning(f"Auth verification failed: {e}")
+        # Fetch the user's display name from Firestore for the booking record.
+        user_name = "Farmer"
+        try:
+            user_doc = db.collection("users").document(uid).get()
+            if user_doc.exists:
+                user_name = user_doc.to_dict().get("displayName", "Farmer") or "Farmer"
+        except Exception as e:
+            logger.warning("Could not fetch display name for uid=%s: %s", uid, e)
 
         consultation_data = {
             "expert_id": request.expert_id,
             "expert_name": request.expert_name,
             "expert_specialization": request.expert_specialization,
-            "user_id": user_data.get("uid") if user_data else "anonymous",
-            "user_name": user_data.get("displayName") if user_data else "Guest Farmer",
+            "user_id": uid,
+            "user_name": user_name,
             "date": request.date,
             "time": request.time,
             "notes": request.notes,
@@ -2131,25 +2148,33 @@ async def book_consultation(
 async def update_consultation(
     consultation_id: str,
     request: ConsultationUpdateRequest,
+    raw_request: Request,
     authorization: Optional[str] = None
 ):
     """
     Update consultation status.
-    
-    Path parameters:
-    - consultation_id: ID of the consultation
-    
-    Request body:
-    - status: New status (scheduled, completed, cancelled, in-progress)
-    - notes: Optional notes
+    Only the owner of the consultation may update it.
     """
     try:
         db = validate_firestore_ready()
+
+        # Require authentication and verify ownership.
+        token_data = await verify_role(raw_request)
+        uid = token_data["uid"]
+
         doc_ref = db.collection("consultations").document(consultation_id)
         doc = doc_ref.get()
 
         if not doc.exists:
             raise HTTPException(status_code=404, detail="Consultation not found")
+
+        # Prevent one user from updating another user's consultation.
+        owner_uid = doc.to_dict().get("user_id")
+        if owner_uid != uid and token_data.get("role") not in ("admin", "expert"):
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to update this consultation"
+            )
 
         update_data = {
             "status": request.status,
@@ -2177,24 +2202,27 @@ async def update_consultation(
 
 @app.get("/api/consultations")
 async def get_user_consultations(
+    raw_request: Request,
     user_id: Optional[str] = None,
     status: Optional[str] = None,
     authorization: Optional[str] = None
 ):
     """
-    Get user's consultation history.
-    
-    Query parameters:
-    - user_id: User ID (optional, will use auth if provided)
-    - status: Filter by status (scheduled, completed, cancelled)
+    Get the authenticated user's consultation history.
+    Results are always scoped to the caller's own uid — the client-supplied
+    user_id parameter is ignored to prevent IDOR enumeration.
     """
     try:
         db = validate_firestore_ready()
-        consultations_ref = db.collection("consultations")
-        query = consultations_ref
 
-        if user_id:
-            query = query.where("user_id", "==", user_id)
+        # Require authentication and scope results to the caller's own uid.
+        # Previously user_id was accepted from the query string with no auth
+        # check, allowing any caller to read any user's consultation history.
+        token_data = await verify_role(raw_request)
+        uid = token_data["uid"]
+
+        consultations_ref = db.collection("consultations")
+        query = consultations_ref.where("user_id", "==", uid)
 
         docs = query.get()
         consultations = []
@@ -2224,21 +2252,32 @@ async def get_user_consultations(
 @app.delete("/api/consultation/{consultation_id}")
 async def cancel_consultation(
     consultation_id: str,
+    raw_request: Request,
     authorization: Optional[str] = None
 ):
     """
     Cancel a consultation.
-    
-    Path parameters:
-    - consultation_id: ID of the consultation to cancel
+    Only the owner of the consultation may cancel it.
     """
     try:
         db = validate_firestore_ready()
+
+        # Require authentication and verify ownership.
+        token_data = await verify_role(raw_request)
+        uid = token_data["uid"]
+
         doc_ref = db.collection("consultations").document(consultation_id)
         doc = doc_ref.get()
 
         if not doc.exists:
             raise HTTPException(status_code=404, detail="Consultation not found")
+
+        owner_uid = doc.to_dict().get("user_id")
+        if owner_uid != uid and token_data.get("role") not in ("admin", "expert"):
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to cancel this consultation"
+            )
 
         doc_ref.update({
             "status": "cancelled",
