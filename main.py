@@ -327,8 +327,8 @@ async def verify_role(request: Request, required_roles: list = None, require_all
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Auth error: {e}")
-        raise HTTPException(status_code=401, detail="Invalid token")
+        logger.error(f"Unexpected authorization verification failure: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error during authorization")
 
 
 class NotificationStore:
