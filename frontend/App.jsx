@@ -61,6 +61,7 @@ import PrivacyPolicy from "./PrivacyPolicy";
 import Terms from "./Terms";
 import SoilAnalysis from "./SoilAnalysis";
 import SeedVerifier from "./SeedVerifier";
+import Leaderboard from "./Leaderboard";
 import Footer from "./components/Footer";
 import Weather from "./Weather";
 import { SkipLink } from "./NavigationManager";
@@ -137,6 +138,7 @@ function App() {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [scrollProgress, setScrollProgress] = useState(0);
   
   const { liteMode, setLiteMode, detectAndSetLiteMode } = usePerformanceStore();
 
@@ -167,16 +169,12 @@ function App() {
       return;
     }
 
-    // Safety timeout — if Firebase auth never responds (revoked key, network issue),
-    // force loading=false so the app doesn't hang forever on the spinner.
-    const safetyTimer = setTimeout(() => {
-      setLoading(false);
-    }, 5000);
-
+    // Deterministic auth-readiness sync
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
-      clearTimeout(safetyTimer);
       setUser(currentUser);
+      
       if (currentUser) {
+        // Wait for profile data sync before hiding loader
         const unsubscribeDoc = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
           if (userDoc.exists()) {
             const data = userDoc.data();
@@ -192,6 +190,7 @@ function App() {
           setLoading(false);
         }, (error) => {
           console.error("Firestore sync error:", error);
+          // Still disable loading to avoid hanging, but only after deterministic failure
           setLoading(false);
         });
         return () => unsubscribeDoc();
@@ -201,7 +200,8 @@ function App() {
         setLoading(false);
       }
     });
-    return () => { clearTimeout(safetyTimer); unsubscribeAuth(); };
+
+    return () => unsubscribeAuth();
   }, []);
 
   // E2EE Key Generation Sync
@@ -250,6 +250,10 @@ function App() {
   useEffect(() => {
     const handleScroll = () => {
       setShowScrollTop(window.scrollY > 300);
+      // Calculate scroll progress
+      const totalHeight = document.documentElement.scrollHeight - window.innerHeight;
+      const progress = totalHeight > 0 ? (window.scrollY / totalHeight) * 100 : 0;
+      setScrollProgress(progress);
     };
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
@@ -290,6 +294,9 @@ function App() {
           You are currently offline. Running in offline mode using local data.
         </div>
       )}
+
+      {/* Scroll Progress Bar */}
+      <div className="scroll-progress-bar" style={{ width: `${scrollProgress}%` }} aria-hidden="true" />
 
       <nav className={`navbar ${isOpen ? "menu-open" : ""}`} role="navigation" aria-label="Main Navigation">
         <div className="nav-left">
@@ -437,7 +444,7 @@ function App() {
           <Route path="/" element={<Home user={user} />} />
           <Route path="/advisor" element={<Advisor userData={userData} />} />
           <Route path="/how-it-works" element={<How />} />
-          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/dashboard" element={<Dashboard userData={userData} />} />
           <Route path="/crop-guide" element={<CropGuide />} />
           <Route path="/schemes" element={<Schemes />} />
           <Route path="/resources" element={<Resources />} />
@@ -469,6 +476,7 @@ function App() {
           <Route path="/blog" element={<Blog />} />
           <Route path="/blog/:id" element={<BlogDetail />} />
           <Route path="/weather" element={<Weather />} />
+          <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
