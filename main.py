@@ -242,6 +242,63 @@ from backend.routers import ml, governance, alerts, finance, quality, blockchain
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Global Firebase and Firestore references
+db_firestore = None
+
+def get_firestore_client():
+    """
+    Safely retrieves the Firestore client. If Firebase is already initialized
+    by other modules but db_firestore is None, it attempts dynamic retrieval.
+    """
+    global db_firestore
+    if db_firestore is not None:
+        return db_firestore
+    
+    try:
+        # If not initialized, try standard initialization
+        if not firebase_admin._apps:
+            cred = None
+            if os.path.exists("serviceAccountKey.json"):
+                cred = credentials.Certificate("serviceAccountKey.json")
+            elif os.path.exists("firebase-credentials.json"):
+                cred = credentials.Certificate("firebase-credentials.json")
+            else:
+                cred_json = os.getenv("FIREBASE_CREDENTIALS_JSON")
+                if cred_json:
+                    import json
+                    cred_dict = json.loads(cred_json)
+                    cred = credentials.Certificate(cred_dict)
+            
+            try:
+                if cred:
+                    firebase_admin.initialize_app(cred)
+                else:
+                    firebase_admin.initialize_app()
+            except ValueError:
+                # App already exists
+                pass
+
+        if firebase_admin._apps:
+            db_firestore = firestore.client()
+            logger.info("Firestore client initialized/retrieved successfully")
+    except Exception as e:
+        logger.error(f"Failed to retrieve Firestore client: {e}")
+        db_firestore = None
+    return db_firestore
+
+def validate_firestore_ready():
+    """
+    Validates that the Firestore database is fully initialized and ready.
+    If not, raises an HTTP 503 Service Unavailable exception to prevent crashes.
+    """
+    client = get_firestore_client()
+    if client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Database service temporarily unavailable. Firestore was not initialized."
+        )
+    return client
+
 def sanitise_log_field(value: str) -> str:
     if not isinstance(value, str):
         return str(value)
@@ -256,7 +313,7 @@ async def verify_role(request: Request, required_roles: list = None, require_all
     try:
         decoded = auth.verify_id_token(token)
         uid = decoded["uid"]
-        db = firestore.client()
+        db = validate_firestore_ready()
         user_doc = db.collection("users").document(uid).get()
         user_roles = user_doc.get("roles", []) if user_doc.exists else []
         if required_roles:
@@ -267,6 +324,8 @@ async def verify_role(request: Request, required_roles: list = None, require_all
             if not has_access:
                 raise HTTPException(status_code=403, detail="Insufficient permissions")
         return {"uid": uid, "roles": user_roles}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Auth error: {e}")
         raise HTTPException(status_code=401, detail="Invalid token")
@@ -297,13 +356,16 @@ class NotificationStore:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global db_firestore
     try:
-        if os.path.exists("serviceAccountKey.json"):
-            cred = credentials.Certificate("serviceAccountKey.json")
-            firebase_admin.initialize_app(cred)
-        logger.info("Firebase initialized")
+        logger.info("Starting up: initializing Firebase and services...")
+        get_firestore_client()
+        if db_firestore:
+            logger.info("Firebase/Firestore startup initialization verified successfully")
+        else:
+            logger.warning("Firebase/Firestore failed to initialize during startup diagnostics. Downstream database endpoints will return 503.")
     except Exception as e:
-        logger.error(f"Firebase init failed: {e}")
+        logger.error(f"Firebase init failed during startup: {e}")
     yield
     logger.info("App shutting down")
 
@@ -510,6 +572,8 @@ try:
 
     supply_chain = SupplyChainBlockchain()
     blockchain.init_blockchain(supply_chain)
+except Exception as e:
+    logger.warning(f"Dependency wiring failed: {e}")
 
 # ML Governance Request Models
 class StartShadowEvaluationRequest(BaseModel):
@@ -541,6 +605,7 @@ shadow_evaluator = ShadowEvaluator(
 )
 version_manager = ModelVersionManager(versions_dir="./model_versions")
 
+try:
     SEED_REGISTRY = {"TEST001": {"verified": True, "expiry": "2025-12-31"}}
     knowledge.init_knowledge(rag_generate_fn, rbac_mgr, Permission, SEED_REGISTRY, verify_role)
 
@@ -1648,9 +1713,10 @@ async def get_experts(
     try:
         experts = []
 
-        if db_firestore:
+        db = get_firestore_client()
+        if db:
             try:
-                experts_ref = db_firestore.collection("experts")
+                experts_ref = db.collection("experts")
                 docs = experts_ref.get()
 
                 for doc in docs:
@@ -1924,6 +1990,7 @@ async def book_consultation(
     - consultation_type: "video" or "audio"
     """
     try:
+        db = validate_firestore_ready()
         user_data = None
 
         if authorization:
@@ -1932,7 +1999,7 @@ async def book_consultation(
                 decoded_token = firebase_auth.verify_id_token(token)
                 user_id = decoded_token.get("uid")
 
-                user_ref = db_firestore.collection("users").document(user_id)
+                user_ref = db.collection("users").document(user_id)
                 user_doc = user_ref.get()
                 if user_doc.exists:
                     user_data = user_doc.to_dict()
@@ -1953,7 +2020,7 @@ async def book_consultation(
             "created_at": datetime.now().isoformat()
         }
 
-        doc_ref = db_firestore.collection("consultations").document()
+        doc_ref = db.collection("consultations").document()
         doc_ref.set(consultation_data)
 
         result = {
@@ -1969,6 +2036,8 @@ async def book_consultation(
                 _IDEMPOTENCY_CACHE[idem_key] = result
 
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error booking consultation: {e}")
         raise HTTPException(status_code=500, detail="Failed to book consultation")
@@ -1991,7 +2060,8 @@ async def update_consultation(
     - notes: Optional notes
     """
     try:
-        doc_ref = db_firestore.collection("consultations").document(consultation_id)
+        db = validate_firestore_ready()
+        doc_ref = db.collection("consultations").document(consultation_id)
         doc = doc_ref.get()
 
         if not doc.exists:
@@ -2035,7 +2105,8 @@ async def get_user_consultations(
     - status: Filter by status (scheduled, completed, cancelled)
     """
     try:
-        consultations_ref = db_firestore.collection("consultations")
+        db = validate_firestore_ready()
+        consultations_ref = db.collection("consultations")
         query = consultations_ref
 
         if user_id:
@@ -2059,6 +2130,8 @@ async def get_user_consultations(
             "consultations": consultations,
             "count": len(consultations)
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching consultations: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch consultations")
@@ -2076,7 +2149,8 @@ async def cancel_consultation(
     - consultation_id: ID of the consultation to cancel
     """
     try:
-        doc_ref = db_firestore.collection("consultations").document(consultation_id)
+        db = validate_firestore_ready()
+        doc_ref = db.collection("consultations").document(consultation_id)
         doc = doc_ref.get()
 
         if not doc.exists:
