@@ -67,6 +67,8 @@ jobs:
       - name: Generate coverage report
         if: always()
         run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov
           pytest tests/test_firestore_rules.py --cov=. --cov-report=xml --cov-report=term
       
       - name: Upload coverage to Codecov
