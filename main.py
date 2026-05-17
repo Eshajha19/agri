@@ -161,6 +161,24 @@ def _sanitise_log_field(value: str) -> str:
         return ""
     return _CONTROL_CHAR_RE.sub("", value)
 
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
 # Initialize Limiter
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
