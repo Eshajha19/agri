@@ -311,23 +311,10 @@ async def verify_role(request: Request, required_roles: list = None, require_all
         raise HTTPException(status_code=401, detail="Missing auth token")
     token = auth_header.split(" ")[1]
     try:
-        try:
-            decoded = auth.verify_id_token(token)
-            uid = decoded["uid"]
-        except Exception as e:
-            logger.error(f"Token verification failed: {e}")
-            raise HTTPException(status_code=401, detail="Invalid or expired authorization token")
-
+        decoded = auth.verify_id_token(token)
+        uid = decoded["uid"]
         db = validate_firestore_ready()
-        try:
-            user_doc = db.collection("users").document(uid).get()
-        except Exception as e:
-            logger.error(f"Database lookup failed during role verification for user {uid}: {e}")
-            raise HTTPException(
-                status_code=503,
-                detail="Authentication database temporarily unavailable"
-            )
-
+        user_doc = db.collection("users").document(uid).get()
         user_roles = user_doc.get("roles", []) if user_doc.exists else []
         if required_roles:
             if require_all:
