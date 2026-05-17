@@ -113,7 +113,7 @@ export default function PersonalizedRecommendations({ userProfile, weatherData }
           <p>Complete your profile to get personalized farming advice</p>
           <button 
             className="complete-profile-btn"
-            onClick={() => window.location.href = '/profile-setup'}
+            onClick={() => window.location.href = '/profile-settings'}
           >
             Complete Profile
           </button>
