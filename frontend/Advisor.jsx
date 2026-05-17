@@ -187,7 +187,6 @@ showGreenPractices,
 
   const [weatherStatus, setWeatherStatus] = useState("idle");
   const [weatherError, setWeatherError] = useState("");
-  const [userProfile, setUserProfile] = useState(null);
   const [weatherSnapshot, setWeatherSnapshot] = useState(() => getStoredWeatherSnapshot());
   const [showYieldHistory, setShowYieldHistory] = useState(false);
   const [locationQuery, setLocationQuery] = useState("");
@@ -311,25 +310,7 @@ showGreenPractices,
   const weatherLocation = weatherSnapshot?.location?.name || weatherSnapshot?.location?.city || "";
   const weatherLastUpdated = weatherSnapshot?.fetchedAt ? new Date(weatherSnapshot.fetchedAt).getTime() : null;
 
-   useEffect(() => {
-     // Check if Firebase is configured
-     if (!auth || !db) {
-       console.warn("Firebase not configured - skipping user profile subscription");
-       return;
-     }
-     
-     // Priority: auth.currentUser, then fallback to localStorage
-     const uid = auth.currentUser?.uid || localStorage.getItem("userId");
-     
-     if (uid) {
-       const unsubscribe = onSnapshot(doc(db, "users", uid), (doc) => {
-         if (doc.exists()) {
-           setUserProfile(doc.data());
-         }
-       });
-       return () => unsubscribe();
-     }
-   }, []); // Run once on mount — rAF loop manages its own lifecycle internally.
+
 
   /**
    * Architecture
@@ -449,7 +430,7 @@ showGreenPractices,
     return { threshold: points, name: "Maximum Rank", icon: <Gem size={16} style={{ color: '#4facfe' }} /> };
   };
 
-  const currentReputation = userProfile?.reputation || 0;
+  const currentReputation = userData?.reputation || 0;
   const nextBadge = getNextBadgeThreshold(currentReputation);
   const progressPercent = Math.min((currentReputation / nextBadge.threshold) * 100, 100);
 
@@ -501,7 +482,7 @@ showGreenPractices,
       </div>
 
 <PersonalizedAdvisory
-         userProfile={userProfile}
+         userData={userData}
          weatherData={weatherSnapshot}
        />
 
@@ -1216,15 +1197,15 @@ showGreenPractices,
               <div className="preview-body">
                 <div className="preview-row">
                   <span>Farmer:</span>
-                  <strong>{userProfile?.displayName || "Farmer"}</strong>
+                  <strong>{userData?.displayName || "Farmer"}</strong>
                 </div>
                 <div className="preview-row">
                   <span>Primary Crop:</span>
-                  <strong>{userProfile?.cropType || "Not set"}</strong>
+                  <strong>{userData?.cropType || "Not set"}</strong>
                 </div>
                 <div className="preview-row">
                   <span>Location:</span>
-                  <strong>{userProfile?.address || userProfile?.location || "India"}</strong>
+                  <strong>{userData?.address || userData?.location || "India"}</strong>
                 </div>
                 <div className="preview-divider"></div>
                 <div className="preview-row">
@@ -1236,15 +1217,15 @@ showGreenPractices,
 
             <div className="export-actions-grid">
               <button className="export-btn pdf" onClick={() => generateBankPDF({
-                farmerName: userProfile?.displayName || "Farmer",
-                cropType: userProfile?.cropType || "N/A",
-                landArea: userProfile?.landArea || "N/A",
-                season: userProfile?.season || "N/A",
-                location: userProfile?.address || userProfile?.location || "India",
-                estimatedRevenue: userProfile?.estimatedRevenue || 0,
-                estimatedCost: userProfile?.estimatedCost || 0,
-                netProfit: userProfile?.netProfit || 0,
-                riskLevel: userProfile?.riskLevel || "Moderate",
+                farmerName: userData?.displayName || "Farmer",
+                cropType: userData?.cropType || "N/A",
+                landArea: userData?.landArea || "N/A",
+                season: userData?.season || "N/A",
+                location: userData?.address || userData?.location || "India",
+                estimatedRevenue: userData?.estimatedRevenue || 0,
+                estimatedCost: userData?.estimatedCost || 0,
+                netProfit: userData?.netProfit || 0,
+                riskLevel: userData?.riskLevel || "Moderate",
                 date: new Date().toLocaleDateString("en-IN"),
               })}>
                 <div className="btn-icon"><FileText size={20} /></div>
@@ -1255,15 +1236,15 @@ showGreenPractices,
               </button>
 
               <button className="export-btn csv" onClick={() => generateCSV({
-                farmerName: userProfile?.displayName || "Farmer",
-                cropType: userProfile?.cropType || "N/A",
-                landArea: userProfile?.landArea || "N/A",
-                season: userProfile?.season || "N/A",
-                location: userProfile?.address || userProfile?.location || "India",
-                estimatedRevenue: userProfile?.estimatedRevenue || 0,
-                estimatedCost: userProfile?.estimatedCost || 0,
-                netProfit: userProfile?.netProfit || 0,
-                riskLevel: userProfile?.riskLevel || "Moderate",
+                farmerName: userData?.displayName || "Farmer",
+                cropType: userData?.cropType || "N/A",
+                landArea: userData?.landArea || "N/A",
+                season: userData?.season || "N/A",
+                location: userData?.address || userData?.location || "India",
+                estimatedRevenue: userData?.estimatedRevenue || 0,
+                estimatedCost: userData?.estimatedCost || 0,
+                netProfit: userData?.netProfit || 0,
+                riskLevel: userData?.riskLevel || "Moderate",
                 date: new Date().toLocaleDateString("en-IN"),
               })}>
                 <div className="btn-icon"><BarChart3 size={20} /></div>
@@ -1282,7 +1263,7 @@ showGreenPractices,
               <p style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '1.5rem' }}>
                 Generate a cryptographically signed, tamper-proof report for official bank applications.
               </p>
-              <BankReports userData={userProfile} />
+              <BankReports userData={userData} />
             </div>
 
             <p className="report-disclaimer">
@@ -1296,7 +1277,7 @@ showGreenPractices,
         <div className="weather-overlay" onClick={() => setShowSoilAnalysis(false)}>
           <div className="soil-analysis-popup" onClick={(e)=>e.stopPropagation()}>
             <button className="close-btn" onClick={() => setShowSoilAnalysis(false)} style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 10 }}><X /></button>
-            <SoilAnalysis />
+            <SoilAnalysis userData={userData} />
           </div>
         </div>
       )}
@@ -1305,7 +1286,7 @@ showGreenPractices,
         <div className="weather-overlay" onClick={() => setShowSoilGuide(false)}>
           <div className="soil-analysis-popup" onClick={(e) => e.stopPropagation()}>
             <button className="close-btn" onClick={() => setShowSoilGuide(false)} style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 10 }}><X /></button>
-            <SoilGuide />
+            <SoilGuide userData={userData} />
           </div>
         </div>
       )}
@@ -1313,7 +1294,7 @@ showGreenPractices,
       {showIrrigation && (
         <div className="weather-overlay" onClick={()=>setShowIrrigation(false)}>
           <div onClick={(e)=>e.stopPropagation()}>
-            <IrrigationGuidance onClose={() => setShowIrrigation(false)} />
+            <IrrigationGuidance userData={userData} onClose={() => setShowIrrigation(false)} />
           </div>
         </div>
       )}
@@ -1324,7 +1305,7 @@ showGreenPractices,
             <button className="close-btn" onClick={closeYieldPopup} aria-label="Close yield prediction">
               <X />
             </button>
-            <YieldPredictorForm onClose={closeYieldPopup} />
+            <YieldPredictorForm userData={userData} onClose={closeYieldPopup} />
           </div>
         </div>
       )}
@@ -1343,7 +1324,7 @@ showGreenPractices,
       {showProfitCalculator && (
         <div className="weather-overlay" onClick={()=>setShowProfitCalculator(false)}>
           <div className="weather-popup profit-popup" onClick={(e)=>e.stopPropagation()}>
-            <CropProfitCalculator />
+            <CropProfitCalculator userData={userData} />
             <button className="close-btn" onClick={() => setShowProfitCalculator(false)}>Close</button>
           </div>
         </div>
@@ -1352,7 +1333,7 @@ showGreenPractices,
       {showFertilizerPopup && (
         <div className="weather-overlay" onClick={() => setShowFertilizerPopup(false)}>
           <div className="weather-popup fertilizer-popup-shell" onClick={(e) => e.stopPropagation()}>
-            <FertilizerRecommendation onClose={() => setShowFertilizerPopup(false)} />
+            <FertilizerRecommendation userData={userData} onClose={() => setShowFertilizerPopup(false)} />
           </div>
         </div>
       )}
@@ -1369,7 +1350,7 @@ showGreenPractices,
       {showCropDiseaseDetection && (
         <div className="weather-overlay" onClick={() => setShowCropDiseaseDetection(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
-            <CropDiseaseDetection onClose={() => setShowCropDiseaseDetection(false)} />
+            <CropDiseaseDetection userData={userData} onClose={() => setShowCropDiseaseDetection(false)} />
           </div>
         </div>
       )}
@@ -1377,7 +1358,7 @@ showGreenPractices,
       {showPestManagement && (
         <div className="weather-overlay" onClick={() => setShowPestManagement(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ padding: 0, background: 'transparent', boxShadow: 'none' }}>
-            <PestManagement onClose={() => setShowPestManagement(false)} />
+            <PestManagement userData={userData} onClose={() => setShowPestManagement(false)} />
           </div>
         </div>
       )}
@@ -1385,7 +1366,7 @@ showGreenPractices,
       {showSprayReminder && (
         <div className="weather-overlay" onClick={() => setShowSprayReminder(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ padding: 0, background: 'transparent', boxShadow: 'none' }}>
-            <SprayReminder onClose={() => setShowSprayReminder(false)} />
+            <SprayReminder userData={userData} onClose={() => setShowSprayReminder(false)} />
           </div>
         </div>
       )}
@@ -1394,7 +1375,7 @@ showGreenPractices,
         <div className="weather-overlay" onClick={() => setShowAgriMarketplace(false)}>
           <div className="agri-modal-wrapper" onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowAgriMarketplace(false)}><X /></button>
-            <AgriMarketplace onClose={() => setShowAgriMarketplace(false)} />
+            <AgriMarketplace userData={userData} onClose={() => setShowAgriMarketplace(false)} />
           </div>
         </div>
       )}
@@ -1403,7 +1384,7 @@ showGreenPractices,
         <div className="weather-overlay" onClick={() => setShowAgriLMS(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowAgriLMS(false)}><X /></button>
-            <AgriLMS />
+            <AgriLMS userData={userData} />
           </div>
         </div>
       )}
@@ -1412,7 +1393,7 @@ showGreenPractices,
         <div className="weather-overlay" onClick={() => setShowQRTraceability(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowQRTraceability(false)}><X /></button>
-            <QRTraceability />
+            <QRTraceability userData={userData} />
           </div>
         </div>
       )}
@@ -1421,7 +1402,7 @@ showGreenPractices,
         <div className="weather-overlay" onClick={() => setShowFarmPlanner3D(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowFarmPlanner3D(false)}><X /></button>
-            <FarmPlanner3D />
+            <FarmPlanner3D userData={userData} />
           </div>
         </div>
       )}
@@ -1451,7 +1432,7 @@ showGreenPractices,
         <div className="weather-overlay" onClick={() => setShowFarmDiary(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowFarmDiary(false)}><X /></button>
-            <FarmDiary onClose={() => setShowFarmDiary(false)} />
+            <FarmDiary userData={userData} onClose={() => setShowFarmDiary(false)} />
           </div>
         </div>
       )}
@@ -1460,7 +1441,7 @@ showGreenPractices,
         <div className="weather-overlay" onClick={() => setShowCropRotation(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowCropRotation(false)}>✕</button>
-            <CropRotation />
+            <CropRotation userData={userData} />
           </div>
         </div>
       )}
@@ -1471,6 +1452,7 @@ showGreenPractices,
             <P2PChat 
               recipient={{ userId: "advisor", userName: "AI Farming Advisor" }} 
               onClose={() => setShowP2PChat(false)} 
+              userData={userData}
             />
           </div>
         </div>
@@ -1478,14 +1460,14 @@ showGreenPractices,
 
       {showGeoAlerts && (
         <div className="weather-overlay" onClick={() => setShowGeoAlerts(false)}>
-          <GeoAlertMesh onClose={() => setShowGeoAlerts(false)} />
+          <GeoAlertMesh userData={userData} onClose={() => setShowGeoAlerts(false)} />
         </div>
       )}
 
       {showSmartCropRecommendation && (
         <div className="weather-overlay" onClick={() => setShowSmartCropRecommendation(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
-            <SmartCropRecommendation />
+            <SmartCropRecommendation userData={userData} />
             <button
               className="close-btn"
               onClick={() => setShowSmartCropRecommendation(false)}
@@ -1499,7 +1481,7 @@ showGreenPractices,
       {showCropRecommendationAdvisor && (
         <div className="weather-overlay" onClick={() => setShowCropRecommendationAdvisor(false)}>
           <div className="weather-popup crop-advisor-popup" onClick={(e) => e.stopPropagation()}>
-            <CropRecommendationAdvisor onClose={() => setShowCropRecommendationAdvisor(false)} />
+            <CropRecommendationAdvisor userData={userData} onClose={() => setShowCropRecommendationAdvisor(false)} />
           </div>
         </div>
       )}
@@ -1507,7 +1489,7 @@ showGreenPractices,
       {showSeedVerifier && (
         <div className="weather-overlay" onClick={() => setShowSeedVerifier(false)}>
           <div className="weather-popup" style={{ width: '90%', maxWidth: '450px', padding: 0, overflowY: 'auto', maxHeight: '90vh' }} onClick={(e) => e.stopPropagation()}>
-            <SeedVerifier onClose={() => setShowSeedVerifier(false)} />
+            <SeedVerifier userData={userData} onClose={() => setShowSeedVerifier(false)} />
           </div>
         </div>
       )}
@@ -1522,13 +1504,14 @@ showGreenPractices,
       <RAGAdvisor
         isOpen={showRAGAdvisor}
         onClose={() => setShowRAGAdvisor(false)}
+        userData={userData}
       />
 
 {showGreenPractices && (
          <div className="weather-overlay" onClick={() => setShowGreenPractices(false)}>
            <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
              <GreenPractices 
-               userProfile={userProfile} 
+               userData={userData} 
                onClose={() => setShowGreenPractices(false)} 
              />
            </div>
@@ -1547,7 +1530,7 @@ showGreenPractices,
         <div className="weather-overlay" onClick={() => setShowSustainabilityAnalytics(false)}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
             <SustainabilityAnalytics
-              userProfile={userProfile}
+              userData={userData}
               onClose={() => setShowSustainabilityAnalytics(false)}
             />
           </div>
@@ -1559,6 +1542,7 @@ showGreenPractices,
           <div onClick={(e) => e.stopPropagation()}>
             <ExpertDirectory 
               onClose={() => setShowExpertDirectory(false)}
+              userData={userData}
               onBookConsultation={(consultation) => {
                 setShowExpertDirectory(false);
                 setShowConsultationHistory(true);
@@ -1573,6 +1557,7 @@ showGreenPractices,
           <div onClick={(e) => e.stopPropagation()}>
             <ConsultationHistory 
               onClose={() => setShowConsultationHistory(false)}
+              userData={userData}
               onStartConsultation={(consultation) => {
                 setActiveConsultation(consultation);
                 setShowTeleConsultation(true);
@@ -1587,6 +1572,7 @@ showGreenPractices,
           <div onClick={(e) => e.stopPropagation()}>
             <TeleConsultation 
               consultation={activeConsultation}
+              userData={userData}
               onEnd={() => {
                 setShowTeleConsultation(false);
                 setActiveConsultation(null);
