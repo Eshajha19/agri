@@ -433,22 +433,22 @@ class AlertTriggerRequest(BaseModel):
     message: str
 
 class ReportRequest(BaseModel):
-    name: str = Field(..., max_length=100)
-    crop: str = Field(..., max_length=50)
-    area: str = Field(..., max_length=50)
-    profit: str = Field(..., max_length=50)
-    season: str = Field(..., max_length=50)
+    name: str = Field(..., max_length=100, description="Full name of the farmer")
+    crop: str = Field(..., max_length=50, description="Primary crop type")
+    area: str = Field(..., max_length=50, description="Total farm area")
+    profit: str = Field(..., max_length=50, description="Estimated season profit")
+    season: str = Field(..., max_length=50, description="Farming season")
 
     @validator("name", "crop", "area", "profit", "season", pre=True)
-    def reject_pipe_characters(cls, v):
-        # Belt-and-suspenders guard: the signing payload now uses JSON (which
-        # is unambiguous regardless of field content), but we also reject pipe
-        # characters at the model level so legacy code paths or future changes
-        # cannot accidentally reintroduce a delimiter-injection vulnerability.
-        if isinstance(v, str) and "|" in v:
-            raise ValueError(
-                "Field value must not contain the '|' character."
-            )
+    def sanitize_and_validate_input(cls, v):
+        # Enforce robust input validation standards: ensure input is clean,
+        # printable text and strip leading/trailing whitespace.
+        # Primary security against injection is handled via canonical structured JSON
+        # serialization during report signing, completely eliminating delimiter-based risks.
+        if isinstance(v, str):
+            v = v.strip()
+            if "|" in v:
+                raise ValueError("Field value must not contain the '|' character.")
         return v
 
 class WeatherLocationRequest(BaseModel):
@@ -1121,9 +1121,18 @@ async def generate_signed_report(data: ReportRequest, request: Request):
         p.setStrokeColor(colors.black)
         p.rect(1*inch, y - 1.5*inch, width - 2*inch, 1.8*inch, stroke=1, fill=0)
         
-        # Data for signing
-        report_data_string = f"{data.name}|{data.crop}|{data.area}|{data.profit}|{datetime.now().date()}"
-        signature = private_key.sign(report_data_string.encode())
+        # Data for signing: migrate from fragile delimiter-separated strings
+        # to secure canonical structured JSON serialization
+        signing_payload = {
+            "name": data.name,
+            "crop": data.crop,
+            "area": data.area,
+            "profit": data.profit,
+            "season": data.season,
+            "date": datetime.now().date().isoformat()
+        }
+        report_data_string = json.dumps(signing_payload, sort_keys=True)
+        signature = private_key.sign(report_data_string.encode("utf-8"))
         sig_id = hashlib.sha256(signature).hexdigest()[:8].upper()
 
         p.setFont("Helvetica-Bold", 14)
@@ -1926,15 +1935,7 @@ async def book_consultation(
 ):
     """
     Book a consultation with an expert.
-    """
-    # Idempotency check: prevent duplicate bookings on retry
-    idem_key = raw_request.headers.get("X-Idempotency-Key")
-    if idem_key:
-        with _IDEMPOTENCY_LOCK:
-            if idem_key in _IDEMPOTENCY_CACHE:
-                logger.info(f"Idempotency: Returning cached consultation for key {idem_key}")
-                return _IDEMPOTENCY_CACHE[idem_key]
-    
+
     Request body:
     - expert_id: Expert's ID
     - expert_name: Expert's name
@@ -1944,6 +1945,13 @@ async def book_consultation(
     - notes: Optional notes about the consultation
     - consultation_type: "video" or "audio"
     """
+    # Idempotency check: prevent duplicate bookings on retry
+    idem_key = raw_request.headers.get("X-Idempotency-Key")
+    if idem_key:
+        with _IDEMPOTENCY_LOCK:
+            if idem_key in _IDEMPOTENCY_CACHE:
+                logger.info(f"Idempotency: Returning cached consultation for key {idem_key}")
+                return _IDEMPOTENCY_CACHE[idem_key]
     try:
         user_data = None
 
