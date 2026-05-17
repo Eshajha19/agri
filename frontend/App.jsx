@@ -23,49 +23,51 @@ import {
 import { usePerformanceStore } from "./stores/performanceStore";
 
 // Components
-import AdminFeedback from "./AdminFeedback";
-import Advisor from "./Advisor";
-import Auth from "./Auth";
-import Calendar from "./FarmingCalendar";
-import Contributors from "./Contributors";
-import CropGuide from "./CropGuide";
-import CropProfitCalculator from "./CropProfitCalculator";
-import Dashboard from "./Dashboard";
-import Feedback from "./Feedback";
-import FarmingMap from "./FarmingMap";
-import Schemes from "./GovernmentSchemes";
-import How from "./How";
-import Home from "./Home";
-import MarketPrices from "./MarketPrices";
 import Loader from "./Loader";
-import Community from "./Community";
-import ContactUs from "./ContactUs";
-import AboutUs from "./AboutUs";
 import LanguageDropdown from "./LanguageDropdown";
 import useNotifications from "./Notifications";
-import ProfileSetup from "./ProfileSetup";
-import QRTraceability from "./QRTraceability";
-import Resources from "./Resources";
-import SeasonalCropPlanner from "./SeasonalCropPlanner";
-import SoilGuide from "./SoilGuide";
-import CropDiseaseAwareness from "./CropDiseaseAwareness";
-import CropRotation from "./CropRotation";
-import Helpline from "./Helpline";
-import Glossary from "./Glossary";
-import RiskIndex from "./RiskIndex";
-import Blog from "./Blog";
-import BlogDetail from "./BlogDetail";
-import FAQ from "./FAQ";
-import NotFound from "./NotFound";
-import PrivacyPolicy from "./PrivacyPolicy";
-import Terms from "./Terms";
-import SoilAnalysis from "./SoilAnalysis";
-import SeedVerifier from "./SeedVerifier";
-import Leaderboard from "./Leaderboard";
 import Footer from "./components/Footer";
-import Weather from "./Weather";
 import { SkipLink } from "./NavigationManager";
 import { useTheme } from "./ThemeContext";
+
+// Lazy-loaded Route Components
+const AdminFeedback = React.lazy(() => import("./AdminFeedback"));
+const Advisor = React.lazy(() => import("./Advisor"));
+const Auth = React.lazy(() => import("./Auth"));
+const Calendar = React.lazy(() => import("./FarmingCalendar"));
+const Contributors = React.lazy(() => import("./Contributors"));
+const CropGuide = React.lazy(() => import("./CropGuide"));
+const CropProfitCalculator = React.lazy(() => import("./CropProfitCalculator"));
+const Dashboard = React.lazy(() => import("./Dashboard"));
+const Feedback = React.lazy(() => import("./Feedback"));
+const FarmingMap = React.lazy(() => import("./FarmingMap"));
+const Schemes = React.lazy(() => import("./GovernmentSchemes"));
+const How = React.lazy(() => import("./How"));
+const Home = React.lazy(() => import("./Home"));
+const MarketPrices = React.lazy(() => import("./MarketPrices"));
+const Community = React.lazy(() => import("./Community"));
+const ContactUs = React.lazy(() => import("./ContactUs"));
+const AboutUs = React.lazy(() => import("./AboutUs"));
+const ProfileSetup = React.lazy(() => import("./ProfileSetup"));
+const QRTraceability = React.lazy(() => import("./QRTraceability"));
+const Resources = React.lazy(() => import("./Resources"));
+const SeasonalCropPlanner = React.lazy(() => import("./SeasonalCropPlanner"));
+const SoilGuide = React.lazy(() => import("./SoilGuide"));
+const CropDiseaseAwareness = React.lazy(() => import("./CropDiseaseAwareness"));
+const CropRotation = React.lazy(() => import("./CropRotation"));
+const Helpline = React.lazy(() => import("./Helpline"));
+const Glossary = React.lazy(() => import("./Glossary"));
+const RiskIndex = React.lazy(() => import("./RiskIndex"));
+const Blog = React.lazy(() => import("./Blog"));
+const BlogDetail = React.lazy(() => import("./BlogDetail"));
+const FAQ = React.lazy(() => import("./FAQ"));
+const NotFound = React.lazy(() => import("./NotFound"));
+const PrivacyPolicy = React.lazy(() => import("./PrivacyPolicy"));
+const Terms = React.lazy(() => import("./Terms"));
+const SoilAnalysis = React.lazy(() => import("./SoilAnalysis"));
+const SeedVerifier = React.lazy(() => import("./SeedVerifier"));
+const Weather = React.lazy(() => import("./Weather"));
+const Leaderboard = React.lazy(() => import("./Leaderboard"));
 
 // Libs
 import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc } from "./lib/firebase";
@@ -440,45 +442,47 @@ function App() {
       )}
 
       <main id="main-content" tabIndex="-1" style={{ outline: 'none' }}>
-        <Routes>
-          <Route path="/" element={<Home user={user} />} />
-          <Route path="/advisor" element={<Advisor userData={userData} />} />
-          <Route path="/how-it-works" element={<How />} />
-          <Route path="/dashboard" element={<Dashboard userData={userData} />} />
-          <Route path="/crop-guide" element={<CropGuide />} />
-          <Route path="/schemes" element={<Schemes />} />
-          <Route path="/resources" element={<Resources />} />
-          <Route path="/login" element={<Auth />} />
-          <Route path="/profile-setup" element={<ProfileSetup user={user} profileCompleted={profileCompleted} />} />
-          <Route path="/calendar" element={<Calendar />} />
-          <Route path="/share-feedback" element={<Feedback />} />
-          <Route path="/admin/feedback" element={<AdminFeedback />} />
-          <Route path="/market-prices" element={<MarketPrices />} />
-          <Route path="/farming-map" element={<FarmingMap />} />
-          <Route path="/profit-calculator" element={<CropProfitCalculator />} />
-          <Route path="/community" element={<Community />} />
-          <Route path="/soil-analysis" element={<SoilAnalysis />} />
-          <Route path="/faq" element={<FAQ />} />
-          <Route path="/terms" element={<Terms />} />
-          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
-          <Route path="/contributors" element={<Contributors />} />
-          <Route path="/trace/:id" element={<QRTraceability />} />
-          <Route path="/contact" element={<ContactUs />} />
-          <Route path="/about" element={<AboutUs />} />
-          <Route path="/crop-planner" element={<SeasonalCropPlanner />} />
-          <Route path="/soil-guide" element={<SoilGuide />} />
-          <Route path="/disease-awareness" element={<CropDiseaseAwareness />} />
-          <Route path="/helpline" element={<Helpline />} />
-          <Route path="/glossary" element={<Glossary />} />
-          <Route path="/risk-index" element={<RiskIndex />} />
-          <Route path="/crop-rotation" element={<CropRotation />} />
-          <Route path="/seed-verifier" element={<SeedVerifier />} />
-          <Route path="/blog" element={<Blog />} />
-          <Route path="/blog/:id" element={<BlogDetail />} />
-          <Route path="/weather" element={<Weather />} />
-          <Route path="/leaderboard" element={<Leaderboard />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <React.Suspense fallback={<Loader fullPage={true} message={<span className="notranslate">Loading route...</span>} />}>
+          <Routes>
+            <Route path="/" element={<Home user={user} />} />
+            <Route path="/advisor" element={<Advisor userData={userData} />} />
+            <Route path="/how-it-works" element={<How />} />
+            <Route path="/dashboard" element={<Dashboard userData={userData} />} />
+            <Route path="/crop-guide" element={<CropGuide />} />
+            <Route path="/schemes" element={<Schemes />} />
+            <Route path="/resources" element={<Resources />} />
+            <Route path="/login" element={<Auth />} />
+            <Route path="/profile-setup" element={<ProfileSetup user={user} profileCompleted={profileCompleted} />} />
+            <Route path="/calendar" element={<Calendar />} />
+            <Route path="/share-feedback" element={<Feedback />} />
+            <Route path="/admin/feedback" element={<AdminFeedback />} />
+            <Route path="/market-prices" element={<MarketPrices />} />
+            <Route path="/farming-map" element={<FarmingMap />} />
+            <Route path="/profit-calculator" element={<CropProfitCalculator />} />
+            <Route path="/community" element={<Community />} />
+            <Route path="/soil-analysis" element={<SoilAnalysis />} />
+            <Route path="/faq" element={<FAQ />} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+            <Route path="/contributors" element={<Contributors />} />
+            <Route path="/trace/:id" element={<QRTraceability />} />
+            <Route path="/contact" element={<ContactUs />} />
+            <Route path="/about" element={<AboutUs />} />
+            <Route path="/crop-planner" element={<SeasonalCropPlanner />} />
+            <Route path="/soil-guide" element={<SoilGuide />} />
+            <Route path="/disease-awareness" element={<CropDiseaseAwareness />} />
+            <Route path="/helpline" element={<Helpline />} />
+            <Route path="/glossary" element={<Glossary />} />
+            <Route path="/risk-index" element={<RiskIndex />} />
+            <Route path="/crop-rotation" element={<CropRotation />} />
+            <Route path="/seed-verifier" element={<SeedVerifier />} />
+            <Route path="/blog" element={<Blog />} />
+            <Route path="/blog/:id" element={<BlogDetail />} />
+            <Route path="/weather" element={<Weather />} />
+            <Route path="/leaderboard" element={<Leaderboard />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </React.Suspense>
       </main>
 
       {/* Floating Buttons */}
