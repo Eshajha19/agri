@@ -27,6 +27,9 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 import firebase_admin
 from firebase_admin import credentials, auth, firestore
 
+# Import resilience layer
+from firestore_resilience import get_resilient_client
+
 # keep upstream feature-flags router if present
 try:
     from feature_flags.routes import router as flags_router
@@ -53,9 +56,12 @@ async def verify_role(request: Request, required_roles: list = None, require_all
     try:
         decoded = auth.verify_id_token(token)
         uid = decoded["uid"]
-        db = firestore.client()
-        user_doc = db.collection("users").document(uid).get()
-        user_roles = user_doc.get("roles", []) if user_doc.exists else []
+        
+        # Use resilient client for Firestore access
+        resilient_db = get_resilient_client()
+        user_data = resilient_db.get("users", uid)
+        user_roles = user_data.get("roles", []) if user_data else []
+        
         if required_roles:
             if require_all:
                 has_access = all(role in user_roles for role in required_roles)
@@ -222,6 +228,37 @@ def health_check():
 @app.get("/health")
 def health():
     return {"ok": True}
+
+
+@app.get("/health/detailed")
+def detailed_health():
+    """Comprehensive health check including Firestore resilience status"""
+    resilient_db = get_resilient_client()
+    health_status = resilient_db.get_health_status()
+    
+    return {
+        "service": "Fasal Saathi Backend",
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "firestore": health_status,
+        "queue_status": {
+            "pending_writes": len(resilient_db.write_queue),
+            "circuit_breaker_state": resilient_db.circuit_breaker.state.value
+        }
+    }
+
+
+@app.post("/health/flush-queue")
+def flush_queue():
+    """Manually flush offline write queue"""
+    resilient_db = get_resilient_client()
+    flushed = resilient_db.flush_queue()
+    
+    return {
+        "flushed": flushed,
+        "pending": len(resilient_db.write_queue),
+        "timestamp": datetime.now().isoformat()
+    }
 
 
 @app.exception_handler(HTTPException)

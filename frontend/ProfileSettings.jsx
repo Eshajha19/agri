@@ -3,6 +3,7 @@ import { auth, db, isFirebaseConfigured } from "./lib/firebase";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import { FaUser, FaGlobe, FaMapMarkerAlt, FaSeedling, FaArrowRight } from "react-icons/fa";
+import { firestoreService } from "./services/firestoreResilientService";
 import "./ProfileSetup.css";
 
 const LANGUAGE_OPTIONS = [
@@ -211,8 +212,10 @@ const ProfileSettings = ({ user, userData }) => {
         return;
       }
 
-      await setDoc(
-        doc(db, "users", currentUser.uid),
+      // Use resilient service with offline support
+      await firestoreService.setDoc(
+        "users",
+        currentUser.uid,
         {
           displayName: name.trim(),
           language,
@@ -229,15 +232,14 @@ const ProfileSettings = ({ user, userData }) => {
           whatsappAlerts,
           profileCompleted: true,
           updatedAt: new Date().toISOString(),
-        },
-        { merge: true }
+        }
       );
 
       setSuccess("Profile updated successfully.");
       setTimeout(() => navigate("/"), 1200);
     } catch (err) {
       console.error("Save profile error:", err);
-      setError("Failed to update profile. Please try again.");
+      setError("Failed to update profile. Changes saved offline - will sync when connected.");
     } finally {
       setLoading(false);
     }
