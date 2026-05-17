@@ -43,6 +43,22 @@ from rbac import (
     print_rbac_matrix,
 )
 
+# Persistence Layer
+from persistence.repositories import (
+    FinanceApplicationRepository,
+    NotificationRepository,
+    SupplyChainRepository,
+)
+
+# RBAC (Role-Based Access Control)
+from rbac import (
+    RBACManager,
+    RBACMiddleware,
+    Permission,
+    require_permission,
+    print_rbac_matrix,
+)
+
 # ML Governance (Drift Detection, Shadow Evaluation, Rollback Safety)
 from ml.governance import (
     DriftDetector,
@@ -180,9 +196,140 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# include flags router if available
-if flags_router is not None:
-    app.include_router(flags_router)
+# Add RBAC middleware for access logging
+app.add_middleware(RBACMiddleware)
+
+# Log RBAC matrix on startup
+logger.info(print_rbac_matrix())
+
+# --- Models ---
+
+class PredictRequest(BaseModel):
+    Crop: str = Field(..., max_length=50)
+    CropCoveredArea: float = Field(..., gt=0)
+    CHeight: int = Field(..., ge=0)
+    CNext: str = Field(..., max_length=50)
+    CLast: str = Field(..., max_length=50)
+    CTransp: str = Field(..., max_length=50)
+    IrriType: str = Field(..., max_length=50)
+    IrriSource: str = Field(..., max_length=50)
+    IrriCount: int = Field(..., ge=1)
+    WaterCov: int = Field(..., ge=0, le=100)
+    Season: str = Field(..., max_length=50)
+
+class PredictResponse(BaseModel):
+    predicted_ExpYield: float
+
+class WhatsAppSubscribeRequest(BaseModel):
+    phone_number: str
+    user_id: str
+    name: str
+
+class YieldInput(BaseModel):
+    data: list[float]
+
+class AlertTriggerRequest(BaseModel):
+    alert_type: str  # 'weather', 'pest', 'advisory'
+    message: str
+
+class ReportRequest(BaseModel):
+    name: str = Field(..., max_length=100, description="Full name of the farmer")
+    crop: str = Field(..., max_length=50, description="Primary crop type")
+    area: str = Field(..., max_length=50, description="Total farm area")
+    profit: str = Field(..., max_length=50, description="Estimated season profit")
+    season: str = Field(..., max_length=50, description="Farming season")
+
+    @validator("name", "crop", "area", "profit", "season", pre=True)
+    def sanitize_and_validate_input(cls, v):
+        # Enforce robust input validation standards: ensure input is clean,
+        # printable text and strip leading/trailing whitespace.
+        # Primary security against injection is handled via canonical structured JSON
+        # serialization during report signing, completely eliminating delimiter-based risks.
+        if isinstance(v, str):
+            v = v.strip()
+            if "|" in v:
+                raise ValueError("Field value must not contain the '|' character.")
+        return v
+
+class WeatherLocationRequest(BaseModel):
+    location: str
+
+class WeatherAlertRequest(BaseModel):
+    latitude: float
+    longitude: float
+    location: str
+    crop: Optional[str] = None
+
+class SeedVerifyRequest(BaseModel):
+    code: str = Field(..., min_length=4, max_length=100)
+
+class FinanceAssessmentRequest(BaseModel):
+    farmer_name: str = Field(..., min_length=1, max_length=100)
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    acreage: float = Field(default=0, ge=0)
+    annual_revenue: float = Field(default=0, ge=0)
+    annual_operating_cost: float = Field(default=0, ge=0)
+    existing_debt: float = Field(default=0, ge=0)
+    emergency_fund: float = Field(default=0, ge=0)
+    credit_score: int = Field(default=650, ge=300, le=900)
+    requested_loan_amount: float = Field(default=0, ge=0)
+    loan_tenure_months: int = Field(default=36, ge=6, le=120)
+    irrigation_cost: float = Field(default=0, ge=0)
+    labor_cost: float = Field(default=0, ge=0)
+    selected_lender: Optional[str] = Field(default=None, max_length=100)
+    farm_location: Optional[str] = Field(default=None, max_length=120)
+    notes: Optional[str] = Field(default=None, max_length=500)
+
+# ML Governance Request Models
+class StartShadowEvaluationRequest(BaseModel):
+    production_model: str = Field(..., min_length=1, max_length=50)
+    candidate_model: str = Field(..., min_length=1, max_length=50)
+
+class RecordPredictionRequest(BaseModel):
+    eval_id: str = Field(..., min_length=1)
+    production_prediction: float
+    candidate_prediction: float
+    actual_value: float
+
+class RegisterModelVersionRequest(BaseModel):
+    model_name: str = Field(..., min_length=1, max_length=50)
+    model_path: str = Field(..., min_length=1)
+    rmse: float = Field(..., gt=0)
+    r2_score: float = Field(default=0, ge=-1, le=1)
+    metadata: Optional[Dict[str, Any]] = None
+
+# --- ML Governance Initialization ---
+drift_detector = DriftDetector(
+    window_size=100,
+    prediction_drift_threshold=0.2,
+    input_drift_threshold=0.15,
+)
+shadow_evaluator = ShadowEvaluator(
+    min_samples=50,
+    error_improvement_threshold=0.05,
+)
+version_manager = ModelVersionManager(versions_dir="./model_versions")
+
+# --- ML Pipeline Initialization ---
+router = ModelRouter(default_model="xgboost")
+
+def init_ml_pipeline():
+    try:
+        # Register XGBoost Adapter
+        xgb_adapter = XGBoostAdapter()
+        model_path = "yield_model.joblib"
+        if os.path.exists(model_path):
+            xgb_adapter.load(model_path)
+            ModelRegistry.register("xgboost", xgb_adapter)
+            print("ML Pipeline: Registered XGBoost model.")
+        else:
+            print(f"ML Pipeline Warning: {model_path} not found.")
+            
+        # You can register other models here (e.g., LSTM) as they become available
+        # ModelRegistry.register("lstm", LSTMAdapter("lstm_model.h5"))
+        
+    except Exception as e:
+        print(f"ML Pipeline Error: {e}")
 
 notification_store = NotificationStore()
 
@@ -308,6 +455,22 @@ _farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
 
 logger.info("Domain engines initialized with persistent repositories")
 
+# Initialize repositories for persistent storage
+_finance_repository = FinanceApplicationRepository()
+_notification_repository = NotificationRepository()
+_supply_chain_repository = SupplyChainRepository()
+
+# Initialize Crop Quality Grader
+_crop_quality_grader = CropQualityGrader()
+
+# Initialize Supply Chain Blockchain with persistent repository
+_supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
+
+# Initialize Farm Finance AI with persistent repository
+_farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
+
+logger.info("Domain engines initialized with persistent repositories")
+
 # --- Routes ---
 
 @app.get("/")
@@ -335,6 +498,51 @@ async def get_alerts_history(request: Request):
             status_code=500,
             detail="Failed to retrieve alert history"
         ) from e
+
+@app.post("/api/finance/analyze")
+@limiter.limit("10/minute")
+async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest):
+    """Analyze farm finances and return loan recommendations."""
+    # Check permission: farmer can create finance requests
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
+    analysis = _farm_finance_ai.analyze_financial_profile(body.model_dump())
+    return {"success": True, "data": analysis}
+
+
+@app.post("/api/finance/applications")
+@limiter.limit("5/minute")
+async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
+    """Create a loan application from the current farm profile."""
+    # Check permission: farmer can create finance applications
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
+    application = _farm_finance_ai.create_application(body.model_dump())
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/applications/{application_id}")
+async def get_finance_application(application_id: str, request: Request):
+    # Check permission: user can read finance applications (own or all if expert/admin)
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_READ_OWN, Permission.FINANCE_READ_ALL], require_all=False
+    )
+    application = _farm_finance_ai.get_application(application_id)
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/products")
+def get_finance_products():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+
+@app.get("/api/finance/marketplace")
+def get_finance_marketplace():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
 
 @app.post("/api/finance/analyze")
 @limiter.limit("10/minute")
