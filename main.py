@@ -880,12 +880,11 @@ def get_signing_keys():
 
     if project_id:
         if not HAS_GCP_KMS:
-            if IS_PRODUCTION:
-                raise HTTPException(
-                    status_code=500,
-                    detail="google-cloud-secret-manager is not installed but is required in production"
-                )
-            print("KMS Warning: google-cloud-secret-manager not installed; skipping GCP path.")
+            logger.critical("CRITICAL SECURITY ALERT: google-cloud-secret-manager is not installed but GOOGLE_CLOUD_PROJECT is set. Halting to prevent insecure fallback.")
+            raise HTTPException(
+                status_code=500,
+                detail="KMS Initialization Error: google-cloud-secret-manager is required when GOOGLE_CLOUD_PROJECT is set. Halting to prevent insecure fallback."
+            )
         else:
             try:
                 client = secretmanager.SecretManagerServiceClient()
@@ -898,14 +897,13 @@ def get_signing_keys():
                 print(f"KMS: Loaded signing key from Secret Manager (secret: {secret_id})")
                 return _cached_private_key
             except Exception as e:
-                if IS_PRODUCTION:
-                    print(f"KMS Error: {e}")
-                    raise HTTPException(
-                        status_code=500,
-                        detail="Failed to retrieve signing key from Secret Manager"
-                    )
-                print(f"KMS Warning: Could not reach Secret Manager ({e}); falling back to local key.")
+                logger.critical(f"CRITICAL SECURITY ALERT: KMS Initialization Failed. Could not reach Secret Manager: {e}. Halting to prevent insecure fallback to local keys.")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"KMS Initialization Error: Failed to retrieve signing key from Secret Manager. Halting to prevent insecure fallback."
+                )
     elif IS_PRODUCTION:
+        logger.critical("CRITICAL SECURITY ALERT: GOOGLE_CLOUD_PROJECT is not set in production. Cannot retrieve secure signing key.")
         raise HTTPException(
             status_code=500,
             detail="GOOGLE_CLOUD_PROJECT is not set; cannot retrieve signing key in production"
