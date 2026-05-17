@@ -980,37 +980,21 @@ showGreenPractices,
           </div>
         </div>
         
-        <div
-          className="weather-dashboard"
-          style={{
-            marginTop: "36px",
-            padding: "24px",
-            borderRadius: "18px",
-            background: "linear-gradient(135deg, rgba(255,255,255,0.96), rgba(239,253,245,0.98))",
-            boxShadow: "0 18px 45px rgba(15, 23, 42, 0.08)",
-          }}
-        >
-          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px" }}>
+        <div className="weather-dashboard">
+          <div className="weather-dashboard-header">
             <h2 style={{ margin: 0 }}><CloudRain className="inline-icon" /> Live Weather & Advisories</h2>
             {weatherLastUpdated && (
               <LastUpdated timestamp={weatherLastUpdated} />
             )}
           </div>
 
-          <p style={{ marginTop: "8px", color: "#0f172a" }}>
+          <p className="weather-dashboard-desc">
             Get real-time conditions, 7-day forecasts, and actionable crop guidance directly in the advisor view.
           </p>
 
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "12px",
-              marginTop: "16px",
-            }}
-          >
+          <div className="weather-dashboard-controls">
             <button
-              className="action-btn"
+              className="weather-btn"
               type="button"
               onClick={handleUseMyLocation}
             >
@@ -1018,7 +1002,7 @@ showGreenPractices,
             </button>
             <form
               onSubmit={handleLocationSearch}
-              style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}
+              className="weather-search-form"
             >
               <input
                 type="text"
@@ -1026,19 +1010,14 @@ showGreenPractices,
                 onChange={(event) => setLocationQuery(event.target.value)}
                 placeholder="Search by city or district"
                 aria-label="Search weather by city or district"
-                style={{
-                  minWidth: "240px",
-                  padding: "10px 12px",
-                  borderRadius: "10px",
-                  border: "1px solid #cbd5f5",
-                }}
+                className="weather-search-input"
               />
-              <button className="action-btn secondary" type="submit">
+              <button className="weather-btn secondary" type="submit">
                 Search
               </button>
             </form>
             <button
-              className="action-btn secondary"
+              className="weather-btn secondary"
               type="button"
               onClick={() => {
                 if (weatherSnapshot?.location) {
@@ -1055,46 +1034,24 @@ showGreenPractices,
           </div>
           
           {weatherLocation && (
-            <p style={{ marginTop: "12px" }}>
+            <p className="weather-location-text">
               <strong>Location:</strong> {weatherLocation}
             </p>
           )}
 
           {weatherStatus === "loading" && (
-            <p style={{ marginTop: "12px" }}>Loading weather data...</p>
+            <p className="weather-status-text">Loading weather data...</p>
           )}
 
           {weatherStatus === "error" && (
-            <div
-              style={{
-                marginTop: "12px",
-                padding: "12px",
-                borderRadius: "10px",
-                background: "#fef2f2",
-                color: "#b91c1c",
-              }}
-            >
+            <div className="weather-error-box">
               {weatherError}
             </div>
           )}
 
           {weatherStatus === "ready" && weatherSnapshot?.current && (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: "16px",
-                marginTop: "16px",
-              }}
-            >
-              <div
-                style={{
-                  padding: "16px",
-                  borderRadius: "14px",
-                  background: "white",
-                  boxShadow: "0 12px 24px rgba(15, 23, 42, 0.08)",
-                }}
-              >
+            <div className="weather-cards-grid">
+              <div className="weather-dashboard-card">
                 <h3 style={{ marginTop: 0 }}>Now</h3>
                 <p style={{ fontSize: "28px", margin: "8px 0" }}>
                   {formatTemp(weatherSnapshot.current.temperature_2m)}
@@ -1110,14 +1067,7 @@ showGreenPractices,
                 </p>
               </div>
 
-              <div
-                style={{
-                  padding: "16px",
-                  borderRadius: "14px",
-                  background: "white",
-                  boxShadow: "0 12px 24px rgba(15, 23, 42, 0.08)",
-                }}
-              >
+              <div className="weather-dashboard-card">
                 <h3 style={{ marginTop: 0 }}>Alerts</h3>
                 {advisories.length === 0 ? (
                   <p style={{ margin: 0 }}>No severe alerts expected this week.</p>
@@ -1133,30 +1083,17 @@ showGreenPractices,
           )}
 
           {weatherStatus === "ready" && dailyForecast.length > 0 && (
-            <div
-              style={{
-                marginTop: "18px",
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-                gap: "12px",
-              }}
-            >
+            <div className="weather-forecast-grid">
               {dailyForecast.map((day) => (
                 <div
                   key={day.date}
-                  style={{
-                    background: "white",
-                    borderRadius: "14px",
-                    padding: "12px",
-                    textAlign: "center",
-                    boxShadow: "0 10px 20px rgba(15, 23, 42, 0.06)",
-                  }}
+                  className="weather-forecast-card"
                 >
                   <p style={{ margin: "0 0 6px" }}>{formatDay(day.date)}</p>
                   <p style={{ margin: "0 0 6px", fontSize: "18px" }}>
                     {formatTemp(day.maxTemp)} / {formatTemp(day.minTemp)}
                   </p>
-                  <p style={{ margin: 0, fontSize: "12px", color: "#475569" }}>
+                  <p className="forecast-rain">
                     Rain: {Math.round(day.rain)} mm
                   </p>
                 </div>
