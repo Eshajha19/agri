@@ -146,5 +146,33 @@ service cloud.firestore {
       }
     }
 
+    // Disaster alerts (GeoAlertMesh): authenticated users can read and create;
+    // only the reporter or an admin may delete.
+    // Field validation enforced here so direct SDK calls cannot bypass the
+    // frontend whitelist on type, severity, and notes length.
+    match /disaster_alerts/{alertId} {
+      allow read: if isAuthed();
+
+      allow create: if isAuthed()
+        // Caller must be the reporter — prevents impersonation.
+        && request.resource.data.reporterId == request.auth.uid
+        // type must be one of the three known values.
+        && request.resource.data.type in ["Pest Outbreak", "Wildfire", "Extreme Weather"]
+        // severity must be High or Medium.
+        && request.resource.data.severity in ["High", "Medium"]
+        // notes must be a string no longer than 100 characters.
+        && request.resource.data.notes is string
+        && request.resource.data.notes.size() <= 100
+        // geohash, lat, lng must be present and correctly typed.
+        && request.resource.data.geohash is string
+        && request.resource.data.lat is number
+        && request.resource.data.lng is number
+        // createdAt must be a server-generated timestamp.
+        && hasServerTimestamp('createdAt');
+
+      // Only the original reporter or an admin may delete an alert.
+      allow delete: if isOwner(resource.data.reporterId) || hasRole('admin');
+    }
+
   }
 }
