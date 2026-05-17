@@ -46,6 +46,51 @@ class RAGQuery(BaseModel):
     query: str = Field(..., min_length=3, max_length=500)
     top_k: int = Field(default=3, ge=1, le=5)
 
+    @validator("query")
+    def sanitize_and_normalize_query(cls, v):
+        if not v or not isinstance(v, str):
+            raise ValueError("Query must be a non-empty string.")
+        
+        # Strip script tags entirely to prevent XSS / Script Injection
+        v = re.sub(r'<script.*?>.*?</script>', '', v, flags=re.IGNORECASE)
+        v = re.sub(r'</?script.*?>', '', v, flags=re.IGNORECASE)
+        v = re.sub(r'on\w+\s*=', '', v, flags=re.IGNORECASE)
+        v = re.sub(r'javascript:', '', v, flags=re.IGNORECASE)
+        v = re.sub(r'data:', '', v, flags=re.IGNORECASE)
+        v = re.sub(r'vbscript:', '', v, flags=re.IGNORECASE)
+        
+        # Strip all other HTML tags entirely to prevent HTML injection in prompts or UI
+        v = re.sub(r'<[^>]*>', '', v)
+        
+        # Handle markdown injection: neutralize links [text](url) -> text (url)
+        v = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'\1 (\2)', v)
+        
+        # Neutralize common markdown styling syntax to avoid UI layout pollution
+        v = re.sub(r'[*_~`#]', '', v)
+        
+        # Strip leading/trailing whitespaces and normalize spaces after stripping HTML tags
+        v = v.strip()
+        v = re.sub(r'\s+', ' ', v)
+        
+        # Prompt Injection Mitigation: identify and reject typical instruction overrides
+        forbidden_patterns = [
+            r"ignore\s+(?:all\s+)?previous\s+instructions",
+            r"ignore\s+(?:the\s+)?system\s+prompt",
+            r"override\s+system\s+constraints",
+            r"developer\s+mode",
+            r"bypass\s+safety\s+filter"
+        ]
+        v_lower = v.lower()
+        for pattern in forbidden_patterns:
+            if re.search(pattern, v_lower):
+                raise ValueError("Query contains disallowed phrases or prompt injection attempts.")
+        
+        # Re-enforce validation after sanitization has cleaned the input
+        if len(v) < 3:
+            raise ValueError("Query must be at least 3 characters long after sanitization.")
+            
+        return v
+
 # Blockchain Supply Chain Models
 class RegisterActorRequest(BaseModel):
     actor_id: str = Field(..., min_length=1, max_length=50)
@@ -2025,6 +2070,7 @@ async def book_consultation(
                 logger.info(f"Idempotency: Returning cached consultation for key {idem_key}")
                 return _IDEMPOTENCY_CACHE[idem_key]
     
+    """
     Request body:
     - expert_id: Expert's ID
     - expert_name: Expert's name
