@@ -11,7 +11,7 @@ import logging
 import collections
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, Tuple
 from contextlib import asynccontextmanager
 
@@ -2064,12 +2064,77 @@ async def book_consultation(
     The caller's identity is derived from the verified Firebase token;
     the client-supplied user_id is never trusted.
     """
-    # Idempotency check: prevent duplicate bookings on retry
     idem_key = raw_request.headers.get("X-Idempotency-Key")
+    use_firestore = False
+    db = None
+
     if idem_key:
+        try:
+            db = get_firestore_client()
+            if db is not None:
+                use_firestore = True
+        except Exception:
+            pass
+
+    if idem_key and use_firestore:
+        try:
+            doc_ref = db.collection("idempotency_keys").document(idem_key)
+            transaction = db.transaction()
+
+            @firestore.transactional
+            def get_or_lock(tx, ref):
+                snap = ref.get(transaction=tx)
+                if snap.exists:
+                    return snap.to_dict()
+                tx.set(ref, {
+                    "status": "pending",
+                    "created_at": datetime.utcnow().isoformat(),
+                    "response": None
+                })
+                return None
+
+            state = get_or_lock(transaction, doc_ref)
+
+            if state is not None:
+                for _ in range(20):  # Wait up to 10 seconds
+                    if state.get("status") == "completed":
+                        logger.info(f"Idempotency: Returning cached consultation for key {idem_key} from Firestore")
+                        return state.get("response")
+
+                    if state.get("status") == "pending":
+                        created_at_str = state.get("created_at")
+                        if created_at_str:
+                            try:
+                                created_at = datetime.fromisoformat(created_at_str)
+                                if datetime.utcnow() - created_at > timedelta(seconds=60):
+                                    logger.warning(f"Idempotency: Pending key {idem_key} timed out. Releasing lock.")
+                                    break
+                            except Exception:
+                                break
+
+                        time.sleep(0.5)
+                        state_snap = doc_ref.get()
+                        if state_snap.exists:
+                            state = state_snap.to_dict()
+                        else:
+                            state = None
+                            break
+                    else:
+                        break
+
+                if state and state.get("status") == "pending":
+                    raise HTTPException(status_code=409, detail="A request with this idempotency key is already in progress.")
+                elif state and state.get("status") == "completed":
+                    return state.get("response")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Idempotency validation error: {e}")
+            raise HTTPException(status_code=500, detail="Idempotency check failed")
+    elif idem_key:
         with _IDEMPOTENCY_LOCK:
             if idem_key in _IDEMPOTENCY_CACHE:
-                logger.info(f"Idempotency: Returning cached consultation for key {idem_key}")
+                logger.info(f"Idempotency (Fallback): Returning cached consultation for key {idem_key}")
                 return _IDEMPOTENCY_CACHE[idem_key]
 
     """
@@ -2083,7 +2148,8 @@ async def book_consultation(
     - consultation_type: "video" or "audio"
     """
     try:
-        db = validate_firestore_ready()
+        if db is None:
+            db = validate_firestore_ready()
 
         # Require authentication — derive identity from the verified token,
         # never from the request body.  Previously authorization was Optional
@@ -2125,15 +2191,49 @@ async def book_consultation(
         }
 
         if idem_key:
-            with _IDEMPOTENCY_LOCK:
-                if len(_IDEMPOTENCY_CACHE) > 1000:
-                    _IDEMPOTENCY_CACHE.clear()
-                _IDEMPOTENCY_CACHE[idem_key] = result
+            if use_firestore:
+                try:
+                    db.collection("idempotency_keys").document(idem_key).set({
+                        "status": "completed",
+                        "created_at": datetime.utcnow().isoformat(),
+                        "response": result
+                    })
+                    # Asynchronously trigger cleanup of expired keys in Firestore
+                    def run_cleanup():
+                        try:
+                            now = datetime.utcnow()
+                            day_ago = (now - timedelta(days=1)).isoformat()
+                            expired_docs = db.collection("idempotency_keys").where("created_at", "<", day_ago).limit(100).get()
+                            if expired_docs:
+                                batch = db.batch()
+                                for d in expired_docs:
+                                    batch.delete(d.reference)
+                                batch.commit()
+                        except Exception as ex:
+                            logger.error(f"Idempotency database cleanup error: {ex}")
+                    threading.Thread(target=run_cleanup, daemon=True).start()
+                except Exception as e:
+                    logger.error(f"Failed to update idempotency key {idem_key}: {e}")
+            else:
+                with _IDEMPOTENCY_LOCK:
+                    if len(_IDEMPOTENCY_CACHE) > 1000:
+                        _IDEMPOTENCY_CACHE.clear()
+                    _IDEMPOTENCY_CACHE[idem_key] = result
 
         return result
-    except HTTPException:
-        raise
+    except HTTPException as he:
+        if idem_key and use_firestore:
+            try:
+                db.collection("idempotency_keys").document(idem_key).delete()
+            except Exception as e:
+                logger.error(f"Failed to clean up idempotency key {idem_key} on failure: {e}")
+        raise he
     except Exception as e:
+        if idem_key and use_firestore:
+            try:
+                db.collection("idempotency_keys").document(idem_key).delete()
+            except Exception as e:
+                logger.error(f"Failed to clean up idempotency key {idem_key} on failure: {e}")
         logger.error(f"Error booking consultation: {e}")
         raise HTTPException(status_code=500, detail="Failed to book consultation")
 
