@@ -3,6 +3,10 @@ import './AgriLMS.css';
 import { Play, CheckCircle, Award, BookOpen, Clock, Download, ChevronRight, MessageCircle } from 'lucide-react';
 import jsPDF from 'jspdf';
 import SoilChatbot from './SoilChatbot';
+import { loadVersionedObject, saveVersionedObject } from './utils/versionedStorage';
+
+const PROGRESS_STORAGE_KEY = 'agriLmsProgress';
+const PROGRESS_STORAGE_VERSION = 1;
 
 const COURSES = [
   {
@@ -42,13 +46,17 @@ export default function AgriLMS() {
   const [activeCourse, setActiveCourse] = useState(null);
   const [activeLesson, setActiveLesson] = useState(null);
   const [progress, setProgress] = useState(() => {
-    const saved = localStorage.getItem('agriLmsProgress');
-    return saved ? JSON.parse(saved) : {};
+    return loadVersionedObject(PROGRESS_STORAGE_KEY, {
+      version: PROGRESS_STORAGE_VERSION,
+      fallback: {},
+    });
   });
   const [showAdvisor, setShowAdvisor] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem('agriLmsProgress', JSON.stringify(progress));
+    saveVersionedObject(PROGRESS_STORAGE_KEY, progress, {
+      version: PROGRESS_STORAGE_VERSION,
+    });
   }, [progress]);
 
   const markAsComplete = (lessonId) => {

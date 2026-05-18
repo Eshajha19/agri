@@ -1,23 +1,74 @@
-# main.py
-import os
-import io
-import json
-import collections
-import itertools
-import threading
-import logging
-import re
-import joblib
-import hashlib
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+"""
+Main API entrypoint — modular router registration
 
-from fastapi import FastAPI, HTTPException, Request, Form, Query, Response
-from fastapi.middleware.cors import CORSMiddleware
+This refactored file preserves API routes while delegating domain routes to
+`backend.routers.*` modules. It intentionally keeps initialization lightweight
+and non-destructive so upstream changes can be rebased safely.
+"""
+import os
+import re
+import logging
+import collections
+import threading
+import time
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any, Tuple
 from contextlib import asynccontextmanager
+
+class IdempotencyCache:
+    def __init__(self, max_size: int = 1000, ttl_seconds: int = 86400):
+        self.max_size = max_size
+        self.ttl_seconds = ttl_seconds
+        self.cache: Dict[str, Tuple[Any, float]] = {}
+
+    def _evict_expired(self):
+        now = time.time()
+        expired_keys = [k for k, (_, ts) in self.cache.items() if now - ts >= self.ttl_seconds]
+        for k in expired_keys:
+            del self.cache[k]
+
+    def __contains__(self, key: str) -> bool:
+        self._evict_expired()
+        if key in self.cache:
+            val, ts = self.cache[key]
+            if time.time() - ts < self.ttl_seconds:
+                return True
+            else:
+                del self.cache[key]
+        return False
+
+    def __getitem__(self, key: str) -> Any:
+        self._evict_expired()
+        if key in self.cache:
+            val, ts = self.cache[key]
+            if time.time() - ts < self.ttl_seconds:
+                return val
+            else:
+                del self.cache[key]
+        raise KeyError(key)
+
+    def __setitem__(self, key: str, value: Any):
+        self._evict_expired()
+        if len(self.cache) >= self.max_size and key not in self.cache:
+            oldest_key = min(self.cache.keys(), key=lambda k: self.cache[k][1])
+            del self.cache[oldest_key]
+        self.cache[key] = (value, time.time())
+
+    def __len__(self) -> int:
+        self._evict_expired()
+        return len(self.cache)
+
+    def clear(self):
+        self.cache.clear()
+
+_IDEMPOTENCY_LOCK = threading.Lock()
+_IDEMPOTENCY_CACHE = IdempotencyCache(max_size=1000, ttl_seconds=86400)
+
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, validator
+from feature_flags.routes import router as flags_router
 
 class SimulationRequest(BaseModel):
     crop_type: str
@@ -47,25 +98,216 @@ class RAGQuery(BaseModel):
     query: str = Field(..., min_length=3, max_length=500)
     top_k: int = Field(default=3, ge=1, le=5)
 
+    @validator("query")
+    def sanitize_and_normalize_query(cls, v):
+        if not v or not isinstance(v, str):
+            raise ValueError("Query must be a non-empty string.")
+
+        # Strip script tags entirely to prevent XSS / script injection
+        v = re.sub(r'<script.*?>.*?</script>', '', v, flags=re.IGNORECASE | re.DOTALL)
+        v = re.sub(r'</?script.*?>', '', v, flags=re.IGNORECASE)
+
+        # Strip event handler attributes (onclick=, onload=, etc.)
+        v = re.sub(r'on\w+\s*=', '', v, flags=re.IGNORECASE)
+
+        # Strip dangerous URI schemes
+        v = re.sub(r'javascript:', '', v, flags=re.IGNORECASE)
+        v = re.sub(r'data:', '', v, flags=re.IGNORECASE)
+        v = re.sub(r'vbscript:', '', v, flags=re.IGNORECASE)
+
+        # Strip all other HTML tags entirely to prevent HTML injection in prompts or UI
+        v = re.sub(r'<[^>]*>', '', v)
+
+        # Neutralize markdown links [text](url) -> text (url)
+        v = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'\1 (\2)', v)
+
+        # Neutralize markdown styling syntax (bold, italic, code, headers)
+        v = re.sub(r'[*_~`#]', '', v)
+
+        # Normalize whitespace
+        v = v.strip()
+        v = re.sub(r'\s+', ' ', v)
+
+        # Prompt injection mitigation: reject known instruction-override phrases
+        forbidden_patterns = [
+            r"ignore\s+(?:all\s+)?previous\s+instructions",
+            r"ignore\s+(?:the\s+)?system\s+prompt",
+            r"override\s+system\s+constraints",
+            r"developer\s+mode",
+            r"bypass\s+safety\s+filter",
+            r"disregard\s+(?:all\s+)?prior\s+instructions",
+            r"act\s+as\s+(?:a\s+)?(?:different|unrestricted|unfiltered)\s+(?:ai|model|assistant)",
+            r"pretend\s+(?:you\s+are|to\s+be)\s+(?:a\s+)?(?:different|unrestricted)",
+            r"jailbreak",
+            r"prompt\s+injection",
+        ]
+        v_lower = v.lower()
+        for pattern in forbidden_patterns:
+            if re.search(pattern, v_lower):
+                raise ValueError("Query contains disallowed phrases or prompt injection attempts.")
+
+        # Re-enforce minimum length after sanitization has stripped content
+        if len(v) < 3:
+            raise ValueError("Query must be at least 3 characters long after sanitization.")
+
+        return v
+
+# Blockchain Supply Chain Models
+class RegisterActorRequest(BaseModel):
+    actor_id: str = Field(..., min_length=1, max_length=50)
+    name: str = Field(..., min_length=1, max_length=100)
+    actor_type: str = Field(..., min_length=1, max_length=50)
+    location: str = Field(..., min_length=1, max_length=100)
+
+class CreateProductBatchRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    farm_id: str = Field(..., min_length=1, max_length=50)
+    quantity: float = Field(..., gt=0)
+    unit: str = Field(..., min_length=1, max_length=20)
+    planting_date: str = Field(..., min_length=1)
+    harvesting_date: str = Field(..., min_length=1)
+    farmer_name: str = Field(..., min_length=1, max_length=100)
+
+class AddSupplyChainNodeRequest(BaseModel):
+    batch_id: str = Field(..., min_length=1)
+    node_type: str = Field(..., min_length=1, max_length=50)
+    actor_name: str = Field(..., min_length=1, max_length=100)
+    location: str = Field(..., min_length=1, max_length=100)
+    action: str = Field(..., min_length=1, max_length=50)
+    temperature: Optional[float] = None
+    humidity: Optional[float] = None
+    quality_check: Optional[str] = None
+    notes: str = Field(default="", max_length=500)
+
+class CreateSmartContractRequest(BaseModel):
+    batch_id: str = Field(..., min_length=1)
+    seller: str = Field(..., min_length=1, max_length=100)
+    buyer: str = Field(..., min_length=1, max_length=100)
+    price: float = Field(..., gt=0)
+    terms: Optional[Dict] = None
+
+class ExecuteContractRequest(BaseModel):
+    contract_id: str = Field(..., min_length=1)
+
+# Crop Quality Grading Models
+class CropQualityGradingRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    image_base64: str = Field(..., min_length=100)  # Base64 encoded image
+
+    @validator("image_base64")
+    def validate_image_size(cls, v):
+        # 10MB maximum payload size for Base64 (10 * 1024 * 1024 * 4 / 3 ≈ 13981013 chars)
+        # Cap at 14,000,000 characters to prevent Memory Exhaustion DoS
+        MAX_BASE64_SIZE = 14000000
+        if len(v) > MAX_BASE64_SIZE:
+            raise ValueError("Image payload size exceeds the maximum limit of 10MB")
+        return v
+
+class CropQualityBatchRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    images_base64: list = Field(..., min_items=1, max_items=100)  # Multiple images
+
+    @validator("images_base64")
+    def validate_batch_images_size(cls, v):
+        # 10MB limit per image, 50MB total batch size limit
+        MAX_BASE64_SIZE = 14000000
+        MAX_TOTAL_SIZE = 70000000
+        total_size = 0
+        for img in v:
+            if not isinstance(img, str):
+                raise ValueError("Each image in the batch must be a base64 encoded string")
+            if len(img) > MAX_BASE64_SIZE:
+                raise ValueError("An image payload in the batch exceeds the maximum limit of 10MB")
+            total_size += len(img)
+        if total_size > MAX_TOTAL_SIZE:
+            raise ValueError("Total batch payload size exceeds the maximum limit of 50MB")
+        return v
+
+class QualityTrendsRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    days: int = Field(default=7, ge=1, le=30)
+
 # Rate Limiting
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 # Firebase Admin SDK
-import firebase_admin
-from firebase_admin import credentials, auth as firebase_auth, firestore
 
-# ML Ops Imports
-from ml.registry import ModelRegistry
-from ml.adapters.xgboost_adapter import XGBoostAdapter
-from ml.router import ModelRouter
-from ml.preprocessing import UnknownCategoryError, MissingFeatureError
+# Observability: tracing + metrics
+from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from opentelemetry import trace
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor, ConsoleSpanExporter
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+import firebase_admin
+from firebase_admin import credentials, auth, firestore
+
+# Persistence Layer
+from persistence.repositories import (
+    FinanceApplicationRepository,
+    NotificationRepository,
+    SupplyChainRepository,
+)
+
+# RBAC (Role-Based Access Control)
+from rbac import (
+    RBACManager,
+    RBACMiddleware,
+    Permission,
+    require_permission,
+    print_rbac_matrix,
+)
+
+# Persistence Layer
+from persistence.repositories import (
+    FinanceApplicationRepository,
+    NotificationRepository,
+    SupplyChainRepository,
+)
+
+# RBAC (Role-Based Access Control)
+from rbac import (
+    RBACManager,
+    RBACMiddleware,
+    Permission,
+    require_permission,
+    print_rbac_matrix,
+)
+
+# Persistence Layer
+from persistence.repositories import (
+    FinanceApplicationRepository,
+    NotificationRepository,
+    SupplyChainRepository,
+)
+
+# RBAC (Role-Based Access Control)
+from rbac import (
+    RBACManager,
+    RBACMiddleware,
+    Permission,
+    require_permission,
+    print_rbac_matrix,
+)
+
+# ML Governance (Drift Detection, Shadow Evaluation, Rollback Safety)
+from ml.governance import (
+    DriftDetector,
+    ShadowEvaluator,
+    ModelVersionManager,
+)
 
 # Other internal modules
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
+from crop_quality_grading import CropQualityGrader
+from blockchain_supply_chain import SupplyChainBlockchain
+from farm_finance_ai import FarmFinanceAI
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -76,166 +318,186 @@ from cryptography.hazmat.primitives import serialization
 
 # KMS Support
 try:
-    from google.cloud import secretmanager
-    HAS_GCP_KMS = True
-except ImportError:
-    HAS_GCP_KMS = False
+    from feature_flags.routes import router as flags_router
+except Exception:
+    flags_router = None
+
+# Import modular routers
+from backend.routers import ml, governance, alerts, finance, quality, blockchain, reports, knowledge, community, voice_assistant
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Global Firebase and Firestore references
+db_firestore = None
+
+def get_firestore_client():
+    """
+    Safely retrieves the Firestore client. If Firebase is already initialized
+    by other modules but db_firestore is None, it attempts dynamic retrieval.
+    """
+    global db_firestore
+    if db_firestore is not None:
+        return db_firestore
+    
+    try:
+        # If not initialized, try standard initialization
+        if not firebase_admin._apps:
+            cred = None
+            if os.path.exists("serviceAccountKey.json"):
+                cred = credentials.Certificate("serviceAccountKey.json")
+            elif os.path.exists("firebase-credentials.json"):
+                cred = credentials.Certificate("firebase-credentials.json")
+            else:
+                cred_json = os.getenv("FIREBASE_CREDENTIALS_JSON")
+                if cred_json:
+                    import json
+                    cred_dict = json.loads(cred_json)
+                    cred = credentials.Certificate(cred_dict)
+            
+            try:
+                if cred:
+                    firebase_admin.initialize_app(cred)
+                else:
+                    firebase_admin.initialize_app()
+            except ValueError:
+                # App already exists
+                pass
+
+        if firebase_admin._apps:
+            db_firestore = firestore.client()
+            logger.info("Firestore client initialized/retrieved successfully")
+    except Exception as e:
+        logger.error(f"Failed to retrieve Firestore client: {e}")
+        db_firestore = None
+    return db_firestore
+
+def validate_firestore_ready():
+    """
+    Validates that the Firestore database is fully initialized and ready.
+    If not, raises an HTTP 503 Service Unavailable exception to prevent crashes.
+    """
+    client = get_firestore_client()
+    if client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Database service temporarily unavailable. Firestore was not initialized."
+        )
+    return client
+
+def sanitise_log_field(value: str) -> str:
+    if not isinstance(value, str):
+        return str(value)
+    sanitised = ''.join(c if ord(c) >= 32 or c in '\n\t' else f'\\x{ord(c):02x}' for c in value)
+    return sanitised[:1000]
+
+async def verify_role(request: Request, required_roles: list = None, require_all: bool = False):
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing auth token")
+    token = auth_header.split(" ")[1]
+    try:
+        decoded = auth.verify_id_token(token)
+        uid = decoded["uid"]
+        db = validate_firestore_ready()
+        user_doc = db.collection("users").document(uid).get()
+        user_roles = user_doc.get("roles", []) if user_doc.exists else []
+        if required_roles:
+            if require_all:
+                has_access = all(role in user_roles for role in required_roles)
+            else:
+                has_access = any(role in user_roles for role in required_roles)
+            if not has_access:
+                raise HTTPException(status_code=403, detail="Insufficient permissions")
+        return {"uid": uid, "roles": user_roles}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected authorization verification failure: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error during authorization")
+
+
+class NotificationStore:
+    def __init__(self, max_size=1000, ttl_hours=24):
+        self.notifications = collections.deque(maxlen=max_size)
+        self.ttl_hours = ttl_hours
+        self.lock = threading.Lock()
+        self.id_counter = 0
+
+    def append(self, alert_type: str, message: str):
+        with self.lock:
+            self.id_counter += 1
+            self.notifications.append({
+                "id": self.id_counter,
+                "alert_type": alert_type,
+                "message": message,
+                "timestamp": datetime.now().isoformat(),
+                "ttl": datetime.now().isoformat()
+            })
+
+    def get_recent(self, count=10):
+        with self.lock:
+            return list(reversed([n for n in list(self.notifications)[-count:]]))
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    FastAPI lifespan context manager.
-
-    Runs inside **every** Uvicorn/Gunicorn worker process on startup, so the
-    ML pipeline is always initialised regardless of how many workers are
-    spawned.  This replaces the previous bare ``init_ml_pipeline()`` call at
-    module level, which only ran reliably in single-worker deployments.
-
-    Multi-worker guarantee
-    ----------------------
-    When Uvicorn is started with ``--workers N``, each worker forks/spawns
-    from the main process and imports ``main.py`` independently.  The
-    ``lifespan`` hook is invoked by FastAPI in every worker's event loop,
-    ensuring ``ModelRegistry`` is populated in every process before the
-    first request is served.
-    """
-    init_ml_pipeline()
+    global db_firestore
+    try:
+        logger.info("Starting up: initializing Firebase and services...")
+        get_firestore_client()
+        if db_firestore:
+            logger.info("Firebase/Firestore startup initialization verified successfully")
+        else:
+            logger.warning("Firebase/Firestore failed to initialize during startup diagnostics. Downstream database endpoints will return 503.")
+    except Exception as e:
+        logger.error(f"Firebase init failed during startup: {e}")
     yield
-    # Shutdown: nothing to clean up for in-memory models.
+    logger.info("App shutting down")
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
 
-logger = logging.getLogger(__name__)
+# ----- OpenTelemetry Tracing Setup -----
+try:
+    service_name = os.environ.get("OTEL_SERVICE_NAME", "fasal-saathi-backend")
+    resource = Resource.create({"service.name": service_name})
+    provider = TracerProvider(resource=resource)
+    trace.set_tracer_provider(provider)
+    otlp_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+    if otlp_endpoint:
+        otlp_exporter = OTLPSpanExporter(endpoint=otlp_endpoint)
+        provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+    else:
+        # fallback to console exporter for local dev / CI
+        provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
+    # instrument FastAPI
+    FastAPIInstrumentor().instrument_app(app)
+    logger.info("OpenTelemetry tracing initialized")
+except Exception as e:
+    logger.warning(f"OpenTelemetry init skipped: {e}")
 
-# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
-# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
-# Used to sanitise client-supplied strings before they reach the log, so a
-# crafted payload cannot inject terminal control codes or forge log lines.
-_CONTROL_CHAR_RE = re.compile(
-    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
-    r"|\x1B[@-_]"                          # other ESC sequences
-    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
-)
+# ----- Prometheus Metrics -----
+try:
+    Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+    logger.info("Prometheus instrumentation enabled at /metrics")
+except Exception as e:
+    logger.warning(f"Prometheus instrumentation skipped: {e}")
 
-def _sanitise_log_field(value: str) -> str:
-    """Strip ANSI escape sequences and ASCII control characters from *value*."""
-    if not isinstance(value, str):
-        return ""
-    return _CONTROL_CHAR_RE.sub("", value)
-
-# Initialize Limiter
-limiter = Limiter(key_func=get_remote_address)
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-# Initialize Firebase Admin
-import logging as _logging
-_firebase_logger = _logging.getLogger(__name__)
-
-# Explicitly set to None before the try block so db_firestore is always
-# defined at module level, even if an exception is raised mid-init.
-db_firestore = None
-
-if not firebase_admin._apps:
-    try:
-        # In a GCP environment this picks up Application Default Credentials
-        # automatically.  For local dev set GOOGLE_APPLICATION_CREDENTIALS to
-        # the path of a service-account key file.
-        firebase_admin.initialize_app()
-        db_firestore = firestore.client()
-        _firebase_logger.info("Firebase Admin: successfully initialized")
-    except Exception as e:
-        _firebase_logger.warning(
-            "Firebase Admin: could not initialize — role-gated endpoints will "
-            "return 503 until Firestore is reachable. Reason: %s", e
-        )
-
-async def verify_role(request: Request, required_roles: list = None):
-    """
-    Verify the Firebase ID token and check the caller's role against Firestore.
-    Expects 'Authorization: Bearer <ID_TOKEN>' header.
-
-    Fail-closed design:
-    - If Firestore is unavailable the request is rejected with 503.
-    - If the user document does not exist the request is rejected with 403.
-    - The function never grants a role that was not explicitly stored in Firestore.
-    """
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
-
-    # Use a slice instead of split()[1] to avoid IndexError when the header
-    # is exactly "Bearer " with no token following it.
-    id_token = auth_header[7:].strip()
-    if not id_token:
-        raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
-
-    # Verify the token signature with Firebase — raises on invalid/expired tokens.
-    try:
-        decoded_token = firebase_auth.verify_id_token(id_token)
-    except Exception:
-        raise HTTPException(status_code=401, detail="Authentication failed")
-
-    uid = decoded_token["uid"]
-
-    # Firestore must be available to resolve the caller's role.
-    # Failing open (granting admin when Firestore is down) is a security bug,
-    # so we reject the request instead.
-    if not db_firestore:
-        raise HTTPException(
-            status_code=503,
-            detail="Authorization service temporarily unavailable"
-        )
-
-    # Wrap the Firestore fetch so a transient network error (timeout, reset)
-    # returns the same clean 503 as a missing db_firestore, rather than an
-    # unhandled exception that leaks internal details as a raw 500.
-    try:
-        user_doc = db_firestore.collection("users").document(uid).get()
-    except Exception as e:
-        _firebase_logger.error(
-            "Firestore fetch failed for uid=%s during role check: %s", uid, e
-        )
-        raise HTTPException(
-            status_code=503,
-            detail="Authorization service temporarily unavailable"
-        )
-
-    if not user_doc.exists:
-        raise HTTPException(status_code=403, detail="User profile not found")
-
-    user_role = user_doc.to_dict().get("role", "farmer")
-
-    if required_roles and user_role not in required_roles:
-        raise HTTPException(status_code=403, detail="Access denied: insufficient permissions")
-
-    return {"uid": uid, "role": user_role}
-
-# --- Secure CORS Configuration ---
-frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
-trusted_origins = [
-    "http://localhost:5173",     # Local development
-    "http://127.0.0.1:5173",     # Local development alternative
-    "https://yourfrontend.com",  # Production domain placeholder
-]
-
-# Add any custom frontend URLs from environment
-if frontend_url and frontend_url not in trusted_origins:
-    trusted_origins.append(frontend_url)
-
-# Support comma-separated list of additional origins
-extra_origins = os.getenv("ADDITIONAL_ALLOWED_ORIGINS")
-if extra_origins:
-    trusted_origins.extend([origin.strip() for origin in extra_origins.split(",")])
-
+# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=trusted_origins,
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
+
+# Add RBAC middleware for access logging
+app.add_middleware(RBACMiddleware)
+
+# Log RBAC matrix on startup
+logger.info(print_rbac_matrix())
 
 # --- Models ---
 
@@ -257,47 +519,115 @@ class PredictResponse(BaseModel):
 
 class WhatsAppSubscribeRequest(BaseModel):
     phone_number: str
+    user_id: str
     name: str
-    # user_id is accepted for backward compatibility but is IGNORED by the
-    # endpoint — the authoritative user identity is always derived from the
-    # verified Firebase ID token, never from client-supplied data.
-    user_id: Optional[str] = None
 
 class YieldInput(BaseModel):
     data: list[float]
 
 class AlertTriggerRequest(BaseModel):
-    alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
-    message: str = Field(..., min_length=1, max_length=500)
+    alert_type: str  # 'weather', 'pest', 'advisory'
+    message: str
 
 class ReportRequest(BaseModel):
-    name: str = Field(..., max_length=100)
-    crop: str = Field(..., max_length=50)
-    area: str = Field(..., max_length=50)
-    profit: str = Field(..., max_length=50)
-    season: str = Field(..., max_length=50)
+    name: str = Field(..., max_length=100, description="Full name of the farmer")
+    crop: str = Field(..., max_length=50, description="Primary crop type")
+    area: str = Field(..., max_length=50, description="Total farm area")
+    profit: str = Field(..., max_length=50, description="Estimated season profit")
+    season: str = Field(..., max_length=50, description="Farming season")
 
     @validator("name", "crop", "area", "profit", "season", pre=True)
-    def reject_pipe_characters(cls, v):
-        # Belt-and-suspenders guard: the signing payload now uses JSON (which
-        # is unambiguous regardless of field content), but we also reject pipe
-        # characters at the model level so legacy code paths or future changes
-        # cannot accidentally reintroduce a delimiter-injection vulnerability.
-        if isinstance(v, str) and "|" in v:
-            raise ValueError(
-                "Field value must not contain the '|' character."
-            )
+    def sanitize_and_validate_input(cls, v):
+        # Enforce robust input validation standards: ensure input is clean,
+        # printable text and strip leading/trailing whitespace.
+        # Primary security against injection is handled via canonical structured JSON
+        # serialization during report signing, completely eliminating delimiter-based risks.
+        if isinstance(v, str):
+            v = v.strip()
+            if "|" in v:
+                raise ValueError("Field value must not contain the '|' character.")
         return v
+
+class WeatherLocationRequest(BaseModel):
+    location: str
+
+class WeatherAlertRequest(BaseModel):
+    latitude: float
+    longitude: float
+    location: str
+    crop: Optional[str] = None
 
 class SeedVerifyRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=100)
 
+class GeminiImageRequest(BaseModel):
+    """
+    Request body for the server-side Gemini image analysis proxy.
+    The frontend sends the base64-encoded image and a prompt; the backend
+    forwards the request to Google using the server-side GEMINI_API_KEY so
+    the key is never exposed in the compiled JavaScript bundle.
+    """
+    image_base64: str = Field(..., min_length=10, description="Base64-encoded image data")
+    mime_type: str = Field(..., pattern=r"^image/(jpeg|png|gif|webp)$", description="MIME type of the image")
+    prompt: str = Field(..., min_length=10, max_length=2000, description="Analysis prompt")
+
+    @validator("image_base64")
+    def validate_image_size(cls, v):
+        # 10MB maximum payload size for Base64 (10 * 1024 * 1024 * 4 / 3 ≈ 13981013 chars)
+        # Cap at 14,000,000 characters to prevent Memory Exhaustion DoS
+        MAX_BASE64_SIZE = 14000000
+        if len(v) > MAX_BASE64_SIZE:
+            raise ValueError("Image payload size exceeds the maximum limit of 10MB")
+        return v
+
+class FinanceAssessmentRequest(BaseModel):
+    farmer_name: str = Field(..., min_length=1, max_length=100)
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    acreage: float = Field(default=0, ge=0)
+    annual_revenue: float = Field(default=0, ge=0)
+    annual_operating_cost: float = Field(default=0, ge=0)
+    existing_debt: float = Field(default=0, ge=0)
+    emergency_fund: float = Field(default=0, ge=0)
+    credit_score: int = Field(default=650, ge=300, le=900)
+    requested_loan_amount: float = Field(default=0, ge=0)
+    loan_tenure_months: int = Field(default=36, ge=6, le=120)
+    irrigation_cost: float = Field(default=0, ge=0)
+    labor_cost: float = Field(default=0, ge=0)
+    selected_lender: Optional[str] = Field(default=None, max_length=100)
+    farm_location: Optional[str] = Field(default=None, max_length=120)
+    notes: Optional[str] = Field(default=None, max_length=500)
+
+# ML Governance Request Models
+class StartShadowEvaluationRequest(BaseModel):
+    production_model: str = Field(..., min_length=1, max_length=50)
+    candidate_model: str = Field(..., min_length=1, max_length=50)
+
+class RecordPredictionRequest(BaseModel):
+    eval_id: str = Field(..., min_length=1)
+    production_prediction: float
+    candidate_prediction: float
+    actual_value: float
+
+class RegisterModelVersionRequest(BaseModel):
+    model_name: str = Field(..., min_length=1, max_length=50)
+    model_path: str = Field(..., min_length=1)
+    rmse: float = Field(..., gt=0)
+    r2_score: float = Field(default=0, ge=-1, le=1)
+    metadata: Optional[Dict[str, Any]] = None
+
+# --- ML Governance Initialization ---
+drift_detector = DriftDetector(
+    window_size=100,
+    prediction_drift_threshold=0.2,
+    input_drift_threshold=0.15,
+)
+shadow_evaluator = ShadowEvaluator(
+    min_samples=50,
+    error_improvement_threshold=0.05,
+)
+version_manager = ModelVersionManager(versions_dir="./model_versions")
+
 # --- ML Pipeline Initialization ---
-# init_ml_pipeline() is called inside the FastAPI lifespan context manager
-# (defined above app = FastAPI(...)) so it runs in every Uvicorn worker
-# process on startup.  Do NOT call it here at module level — doing so would
-# run it in the main process only and leave additional workers with empty
-# registries in multi-worker deployments.
 router = ModelRouter(default_model="xgboost")
 
 def init_ml_pipeline():
@@ -318,242 +648,380 @@ def init_ml_pipeline():
     except Exception as e:
         print(f"ML Pipeline Error: {e}")
 
-init_ml_pipeline()
+notification_store = NotificationStore()
 
-# Load model directly for backward compatibility or simple use cases if needed
+# Initialize and wire dependencies (best-effort; non-blocking)
 try:
-    model = joblib.load("yield_model.joblib")
-    model_lag = joblib.load("sklearn_yield_model.pkl")
-    print("Models loaded successfully")
+    from ml.governance import DriftDetector, ShadowEvaluator, ModelVersionManager
+    from whatsapp_service import send_whatsapp_notification, format_alert_message
+    from rbac import RBACManager, Permission
+    from farm_finance_ai import FarmFinanceAI
+    from crop_quality_grading import CropQualityGrader
+    from blockchain_supply_chain import SupplyChainBlockchain
+
+    drift_detector = DriftDetector()
+    shadow_evaluator = ShadowEvaluator()
+    version_manager = ModelVersionManager()
+    governance.init_governance(drift_detector, shadow_evaluator, version_manager)
+
+    def generate_alerts_fn(crop=None, irrigation_count=None, water_coverage=None, season=None):
+        return []
+
+    alerts.init_alerts(notification_store, {}, generate_alerts_fn, send_whatsapp_notification, format_alert_message, verify_role)
+
+    farm_finance = FarmFinanceAI()
+    rbac_mgr = RBACManager()
+    finance.init_finance(farm_finance, rbac_mgr, Permission)
+
+    crop_quality = CropQualityGrader()
+    quality.init_quality(crop_quality, rbac_mgr, Permission)
+
+    supply_chain = SupplyChainBlockchain()
+    blockchain.init_blockchain(supply_chain)
+
+    # Initialize Voice Assistant for Farmers
+    from voice_assistant import VoiceAssistant, OfflineCacheManager
+    voice_asst = VoiceAssistant(offline_mode=True)
+    cache_mgr = OfflineCacheManager(cache_dir="./voice_assistant_cache")
+    voice_assistant.init_voice_assistant(voice_asst, cache_mgr)
 except Exception as e:
-    print(f"Error loading models: {e}")
-    model = None
-    model_lag = None
+    logger.warning(f"Dependency wiring failed: {e}")
 
-# --- Static Notifications Storage ---
-#
-# Problems with the original bare list:
-#
-# 1. Unbounded growth — every trigger_whatsapp_alert call appended an entry
-#    that was never removed.  After weeks in production the list could hold
-#    thousands of entries, all serialised and sent to every client on every
-#    GET /api/notifications poll.
-#
-# 2. Duplicate IDs under concurrency — `len(list) + 1` is not atomic.  Two
-#    concurrent trigger-alert requests could both read the same length and
-#    produce entries with identical IDs, silently corrupting any client-side
-#    deduplication keyed on id.
-#
-# Fix — NotificationStore:
-#
-# • collections.deque(maxlen=MAX_NOTIFICATIONS) caps memory at a fixed
-#   ceiling.  When the deque is full, the oldest entry is automatically
-#   evicted before the new one is appended — no manual cleanup needed.
-#
-# • itertools.count() produces a strictly monotonically increasing integer
-#   sequence.  In CPython, next() on a count object is effectively atomic
-#   for the GIL-protected use case here, so two concurrent appends always
-#   get distinct IDs.
-#
-# • threading.Lock() serialises append() so the read-then-increment
-#   sequence is never interleaved across threads.
-#
-# • get_recent() filters by a TTL window so the response payload stays
-#   small even when the deque is at capacity.
+# ML Governance Request Models
+class StartShadowEvaluationRequest(BaseModel):
+    production_model: str = Field(..., min_length=1, max_length=50)
+    candidate_model: str = Field(..., min_length=1, max_length=50)
 
-# Maximum number of triggered-alert entries kept in memory at any time.
-# Oldest entries are evicted automatically when this ceiling is reached.
-_MAX_NOTIFICATIONS = 200
+class RecordPredictionRequest(BaseModel):
+    eval_id: str = Field(..., min_length=1)
+    production_prediction: float
+    candidate_prediction: float
+    actual_value: float
 
-# How long a triggered-alert entry remains visible to clients.
-_NOTIFICATION_TTL_HOURS = 24
+class RegisterModelVersionRequest(BaseModel):
+    model_name: str = Field(..., min_length=1, max_length=50)
+    model_path: str = Field(..., min_length=1)
+    rmse: float = Field(..., gt=0)
+    r2_score: float = Field(default=0, ge=-1, le=1)
+    metadata: Optional[Dict[str, Any]] = None
 
-
-class NotificationStore:
-    """
-    Thread-safe, bounded, TTL-aware store for in-process notifications.
-
-    Parameters
-    ----------
-    maxlen : int
-        Hard cap on the number of entries held in memory.  When full,
-        the oldest entry is evicted before the new one is appended.
-    ttl_hours : int
-        Entries older than this many hours are excluded from get_recent().
-    """
-
-    def __init__(self, maxlen: int = _MAX_NOTIFICATIONS, ttl_hours: int = _NOTIFICATION_TTL_HOURS):
-        self._deque: collections.deque = collections.deque(maxlen=maxlen)
-        self._lock = threading.Lock()
-        self._counter = itertools.count(start=1)
-        self._ttl = timedelta(hours=ttl_hours)
-
-    def append(self, alert_type: str, message: str) -> dict:
-        """
-        Add a new notification entry and return it.
-
-        The ID is assigned from a monotonically increasing counter so
-        concurrent calls always produce distinct values.
-        """
-        with self._lock:
-            entry = {
-                "id": next(self._counter),
-                "type": alert_type,
-                "message": message,
-                "time": datetime.now().isoformat(),
-            }
-            self._deque.append(entry)
-        return entry
-
-    def get_recent(self) -> list:
-        """
-        Return all entries newer than the configured TTL, oldest first.
-
-        Takes a snapshot under the lock so callers always see a consistent
-        view even if append() is running concurrently.
-        """
-        cutoff = datetime.now() - self._ttl
-        with self._lock:
-            snapshot = list(self._deque)
-        return [
-            e for e in snapshot
-            if datetime.fromisoformat(e["time"]) >= cutoff
-        ]
-
-
-# Seed the store with the initial weather advisory that was previously
-# hard-coded in the bare list.
-_notification_store = NotificationStore()
-_notification_store.append(
-    alert_type="weather",
-    message="🌧️ Heavy rainfall expected in your region today.",
+# --- ML Governance Initialization ---
+drift_detector = DriftDetector(
+    window_size=100,
+    prediction_drift_threshold=0.2,
+    input_drift_threshold=0.15,
 )
+shadow_evaluator = ShadowEvaluator(
+    min_samples=50,
+    error_improvement_threshold=0.05,
+)
+version_manager = ModelVersionManager(versions_dir="./model_versions")
+
+try:
+    SEED_REGISTRY = {"TEST001": {"verified": True, "expiry": "2025-12-31"}}
+    knowledge.init_knowledge(rag_generate_fn, rbac_mgr, Permission, SEED_REGISTRY, verify_role)
+
+    try:
+        import joblib
+        import numpy as np
+        model_lag = joblib.load("sklearn_yield_model.joblib")
+        class ModelRouter:
+            def predict(self, data, context):
+                feature_array = np.array([data.get(k, 0) for k in ['CropCoveredArea', 'CHeight', 'IrriCount', 'WaterCov']])
+                feature_array = feature_array.reshape(1, -1)
+                return float(model_lag.predict(feature_array)[0])
+        model_router_instance = ModelRouter()
+        ml.init_router(model_router_instance, model_lag)
+    except Exception:
+        logger.warning("ML model not loaded")
+
+except Exception as e:
+    logger.warning(f"Dependency initialization skipped: {e}")
+
+
+# Register routers
+app.include_router(ml.router, prefix="/api/yield", tags=["ML Prediction"])
+app.include_router(governance.router, prefix="/api/ml-governance", tags=["ML Governance"])
+app.include_router(alerts.router, prefix="/api/notifications", tags=["Alerts"])
+app.include_router(finance.router, prefix="/api/farm-finance", tags=["Finance"])
+app.include_router(quality.router, prefix="/api/crop-quality", tags=["Quality"])
+app.include_router(blockchain.router, prefix="/api/supply-chain", tags=["Blockchain"])
+app.include_router(reports.router, prefix="/api/admin", tags=["Reports"])
+app.include_router(knowledge.router, prefix="/api/knowledge", tags=["Knowledge"])
+app.include_router(community.router, prefix="/api/community", tags=["Community"])
+app.include_router(voice_assistant.router, prefix="/api/voice", tags=["Voice Assistant"])
+
+# Initialize repositories for persistent storage
+_finance_repository = FinanceApplicationRepository()
+_notification_repository = NotificationRepository()
+_supply_chain_repository = SupplyChainRepository()
+
+# Initialize Crop Quality Grader
+_crop_quality_grader = CropQualityGrader()
+
+# Initialize Supply Chain Blockchain with persistent repository
+_supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
+
+# Initialize Farm Finance AI with persistent repository
+_farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
+
+logger.info("Domain engines initialized with persistent repositories")
+
+# Initialize repositories for persistent storage
+_finance_repository = FinanceApplicationRepository()
+_notification_repository = NotificationRepository()
+_supply_chain_repository = SupplyChainRepository()
+
+# Initialize Crop Quality Grader
+_crop_quality_grader = CropQualityGrader()
+
+# Initialize Supply Chain Blockchain with persistent repository
+_supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
+
+# Initialize Farm Finance AI with persistent repository
+_farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
+
+logger.info("Domain engines initialized with persistent repositories")
+
+# Initialize repositories for persistent storage
+_finance_repository = FinanceApplicationRepository()
+_notification_repository = NotificationRepository()
+_supply_chain_repository = SupplyChainRepository()
+
+# Initialize Crop Quality Grader
+_crop_quality_grader = CropQualityGrader()
+
+# Initialize Supply Chain Blockchain with persistent repository
+_supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
+
+# Initialize Farm Finance AI with persistent repository
+_farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
+
+logger.info("Domain engines initialized with persistent repositories")
+
+# Initialize repositories for persistent storage
+_finance_repository = FinanceApplicationRepository()
+_notification_repository = NotificationRepository()
+_supply_chain_repository = SupplyChainRepository()
+
+# Initialize Crop Quality Grader
+_crop_quality_grader = CropQualityGrader()
+
+# Initialize Supply Chain Blockchain with persistent repository
+_supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
+
+# Initialize Farm Finance AI with persistent repository
+_farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
+
+logger.info("Domain engines initialized with persistent repositories")
 
 # --- Routes ---
 
 @app.get("/")
-def root():
-    return {"message": "Fasal Saathi API", "status": "running"}
+def health_check():
+    return {"status": "healthy", "service": "Fasal Saathi Backend", "version": "2.0"}
 
-@app.get("/predict")
-def predict_get():
-    return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
-
-@app.post("/predict", response_model=PredictResponse)
+@app.get("/api/weather/alerts/history")
 @limiter.limit("5/minute")
-def predict_yield(data: PredictRequest, request: Request):
+async def get_alerts_history(request: Request):
     """
-    Standardised prediction endpoint using ML Router for dynamic model selection.
-
-    Returns HTTP 422 when the input contains an unknown categorical value or a
-    missing required feature, so callers receive an actionable error message
-    rather than a silently corrupted prediction.
+    Get recent weather alerts history.
+    Useful for reviewing past alerts and trends.
     """
     try:
-        input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
-
-        context = {
-            "location": request.headers.get("X-User-Location", "Unknown"),
-            "crop": data.Crop,
-        }
-
-        predicted_yield = router.predict(input_data, context)
-        return {"predicted_ExpYield": float(predicted_yield)}
-
-    except UnknownCategoryError as e:
-        # The submitted categorical value was not in the training vocabulary.
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "unknown_category",
-                "field": e.column,
-                "value": str(e.value),
-                "message": str(e),
-            },
-        )
-    except MissingFeatureError as e:
-        # Required feature columns are absent after encoding.
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "missing_features",
-                "missing": e.missing_columns,
-                "message": str(e),
-            },
-        )
-    except Exception as e:
-        print(f"Prediction Error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.post("/predict-yield-lag")
-@limiter.limit("5/minute")
-async def predict_yield_lag(payload: YieldInput, request: Request):
-    if model_lag is None:
-        raise HTTPException(status_code=500, detail="Model not loaded")
-    try:
-        data = payload.data
-        if len(data) != 5:
-            raise ValueError("Exactly 5 values are required")
-        data = np.array(data).reshape(1, -1)
-        prediction = model_lag.predict(data)
+        # Get recent alerts from the service history
+        recent_alerts = weather_service.alert_history[-50:]  # Last 50 alerts
         return {
-            "prediction": round(float(prediction[0]), 2),
-            "model": "RandomForest Time Series (Lag Features)"
+            "success": True,
+            "total_alerts": len(weather_service.alert_history),
+            "recent_alerts": [alert.to_dict() for alert in recent_alerts],
         }
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Internal Server Error") from e
+        logger.error(f"Alert history error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retrieve alert history"
+        ) from e
 
-@app.post("/predict-yield-trend")
-@limiter.limit("5/minute")
-async def predict_yield_trend(payload: YieldInput, request: Request):
-    if model_lag is None:
-        raise HTTPException(status_code=500, detail="Model not loaded")
-    try:
-        data = payload.data
-        if len(data) != 5:
-            raise ValueError("Exactly 5 values are required")
-        temp = list(data)
-        trend = []
-        for _ in range(5):
-            features = temp[:5]
-            pred = model_lag.predict([features])[0]
-            pred_value = round(float(pred), 2)
-            trend.append(pred_value)
-            temp = [pred_value] + temp
-        return {
-            "trend": trend,
-            "prediction": trend[-1],
-            "model": "RandomForest Trend Forecast (Lag Features)"
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Internal Server Error") from e
-
-@app.get("/api/notifications")
-def get_notifications(
-    crop: str = Query(default=None),
-    irrigation_count: int = Query(default=None, ge=0),
-    water_coverage: int = Query(default=None, ge=0, le=100),
-    season: str = Query(default=None)
-):
-    """
-    Return recent triggered-alert notifications combined with dynamic
-    farm advisory alerts generated from the query parameters.
-
-    Only notifications newer than the store's TTL window are included,
-    so the response payload stays small regardless of how long the
-    process has been running.
-    """
-    dynamic_alerts = generate_alerts(
-        crop=crop,
-        irrigation_count=irrigation_count,
-        water_coverage=water_coverage,
-        season=season
+@app.post("/api/finance/analyze")
+@limiter.limit("10/minute")
+async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest):
+    """Analyze farm finances and return loan recommendations."""
+    # Check permission: farmer can create finance requests
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
     )
-    return {"success": True, "data": _notification_store.get_recent() + dynamic_alerts}
+    analysis = _farm_finance_ai.analyze_financial_profile(body.model_dump())
+    return {"success": True, "data": analysis}
+
+
+@app.post("/api/finance/applications")
+@limiter.limit("5/minute")
+async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
+    """Create a loan application from the current farm profile."""
+    # Check permission: farmer can create finance applications
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
+    application = _farm_finance_ai.create_application(body.model_dump())
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/applications/{application_id}")
+async def get_finance_application(application_id: str, request: Request):
+    # Check permission: user can read finance applications (own or all if expert/admin)
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_READ_OWN, Permission.FINANCE_READ_ALL], require_all=False
+    )
+    application = _farm_finance_ai.get_application(application_id)
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/products")
+def get_finance_products():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+
+@app.get("/api/finance/marketplace")
+def get_finance_marketplace():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+@app.post("/api/finance/analyze")
+@limiter.limit("10/minute")
+async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest):
+    """Analyze farm finances and return loan recommendations."""
+    # Check permission: farmer can create finance requests
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
+    analysis = _farm_finance_ai.analyze_financial_profile(body.model_dump())
+    return {"success": True, "data": analysis}
+
+
+@app.post("/api/finance/applications")
+@limiter.limit("5/minute")
+async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
+    """Create a loan application from the current farm profile."""
+    # Check permission: farmer can create finance applications
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
+    application = _farm_finance_ai.create_application(body.model_dump())
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/applications/{application_id}")
+async def get_finance_application(application_id: str, request: Request):
+    # Check permission: user can read finance applications (own or all if expert/admin)
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_READ_OWN, Permission.FINANCE_READ_ALL], require_all=False
+    )
+    application = _farm_finance_ai.get_application(application_id)
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/products")
+def get_finance_products():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+
+@app.get("/api/finance/marketplace")
+def get_finance_marketplace():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+@app.post("/api/finance/analyze")
+@limiter.limit("10/minute")
+async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest):
+    """Analyze farm finances and return loan recommendations."""
+    # Check permission: farmer can create finance requests
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
+    analysis = _farm_finance_ai.analyze_financial_profile(body.model_dump())
+    return {"success": True, "data": analysis}
+
+
+@app.post("/api/finance/applications")
+@limiter.limit("5/minute")
+async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
+    """Create a loan application from the current farm profile."""
+    # Check permission: farmer can create finance applications
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
+    application = _farm_finance_ai.create_application(body.model_dump())
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/applications/{application_id}")
+async def get_finance_application(application_id: str, request: Request):
+    # Check permission: user can read finance applications (own or all if expert/admin)
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_READ_OWN, Permission.FINANCE_READ_ALL], require_all=False
+    )
+    application = _farm_finance_ai.get_application(application_id)
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/products")
+def get_finance_products():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+
+@app.get("/api/finance/marketplace")
+def get_finance_marketplace():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+@app.post("/api/finance/analyze")
+@limiter.limit("10/minute")
+async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest):
+    """Analyze farm finances and return loan recommendations."""
+    # Check permission: farmer can create finance requests
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
+    analysis = _farm_finance_ai.analyze_financial_profile(body.model_dump())
+    return {"success": True, "data": analysis}
+
+
+@app.post("/api/finance/applications")
+@limiter.limit("5/minute")
+async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
+    """Create a loan application from the current farm profile."""
+    # Check permission: farmer can create finance applications
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
+    application = _farm_finance_ai.create_application(body.model_dump())
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/applications/{application_id}")
+async def get_finance_application(application_id: str, request: Request):
+    # Check permission: user can read finance applications (own or all if expert/admin)
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_READ_OWN, Permission.FINANCE_READ_ALL], require_all=False
+    )
+    application = _farm_finance_ai.get_application(application_id)
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/products")
+def get_finance_products():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+
+@app.get("/api/finance/marketplace")
+def get_finance_marketplace():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
 
 # --- WhatsApp Service Endpoints ---
 #
@@ -567,21 +1035,14 @@ def get_notifications(
 @app.post("/api/whatsapp/subscribe")
 @limiter.limit("2/minute")
 async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
-    # Require authentication so the subscriber's identity is always derived
-    # from the verified Firebase token — never from client-supplied data.
-    # Previously the endpoint accepted user_id from the request body, which
-    # allowed any caller to overwrite another user's subscription by sending
-    # a known user_id with an attacker-controlled phone number.
-    token_data = await verify_role(request)
-    uid = token_data["uid"]
-
+    user_id = data.user_id if data.user_id else str(datetime.now().timestamp())
     subscriber = {
         "phone_number": data.phone_number,
         "name": data.name,
         "subscribed_at": datetime.now().isoformat(),
     }
     try:
-        subscriber_store.upsert(uid, subscriber)
+        subscriber_store.upsert(user_id, subscriber)
     except OSError as exc:
         raise HTTPException(
             status_code=500,
@@ -597,22 +1058,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     return {"success": True, "message": "Successfully subscribed"}
 
 @app.post("/api/whatsapp/trigger-alert")
-@limiter.limit("10/minute")
-async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
-    """
-    Broadcast a WhatsApp alert to all subscribers.
-
-    Requires authentication — admin or expert role only.
-
-    Previously this endpoint had no authentication check, no rate limit,
-    and no input constraints.  Any unauthenticated caller could send
-    arbitrary messages to every subscribed farmer, enabling social
-    engineering attacks (fake market alerts, fake pest warnings) and
-    consuming Twilio API credits at the attacker's discretion.
-    """
-    # RBAC: only admins and experts may broadcast alerts to all farmers.
-    await verify_role(request, required_roles=["admin", "expert"])
-
+async def trigger_whatsapp_alert(data: AlertTriggerRequest):
     # get_all() acquires the lock and returns a stable snapshot, so this read
     # cannot race with a concurrent subscription write.
     subscribers = subscriber_store.get_all()
@@ -621,17 +1067,16 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
 
     for user_id, info in subscribers.items():
         res = send_whatsapp_message(info["phone_number"], formatted_msg)
-        results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})
+        results.append({"user_id": user_id, "success": res.get("success", False)})
 
-    # Use the bounded, thread-safe NotificationStore instead of the bare
-    # static_notifications list (which had no size cap and racy ID generation).
-    _notification_store.append(
-        alert_type=data.alert_type,
-        message=data.message,
-    )
+    static_notifications.append({
+        "id": len(static_notifications) + 1,
+        "type": data.alert_type,
+        "message": data.message,
+        "time": datetime.now().isoformat(),
+    })
 
-    delivered = sum(1 for r in results if r["success"])
-    return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
+    return {"success": True, "results": results}
 
 @app.post("/api/whatsapp/webhook")
 async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
@@ -691,12 +1136,11 @@ def get_signing_keys():
 
     if project_id:
         if not HAS_GCP_KMS:
-            if IS_PRODUCTION:
-                raise HTTPException(
-                    status_code=500,
-                    detail="google-cloud-secret-manager is not installed but is required in production"
-                )
-            print("KMS Warning: google-cloud-secret-manager not installed; skipping GCP path.")
+            logger.critical("CRITICAL SECURITY ALERT: google-cloud-secret-manager is not installed but GOOGLE_CLOUD_PROJECT is set. Halting to prevent insecure fallback.")
+            raise HTTPException(
+                status_code=500,
+                detail="KMS Initialization Error: google-cloud-secret-manager is required when GOOGLE_CLOUD_PROJECT is set. Halting to prevent insecure fallback."
+            )
         else:
             try:
                 client = secretmanager.SecretManagerServiceClient()
@@ -709,14 +1153,13 @@ def get_signing_keys():
                 print(f"KMS: Loaded signing key from Secret Manager (secret: {secret_id})")
                 return _cached_private_key
             except Exception as e:
-                if IS_PRODUCTION:
-                    print(f"KMS Error: {e}")
-                    raise HTTPException(
-                        status_code=500,
-                        detail="Failed to retrieve signing key from Secret Manager"
-                    )
-                print(f"KMS Warning: Could not reach Secret Manager ({e}); falling back to local key.")
+                logger.critical(f"CRITICAL SECURITY ALERT: KMS Initialization Failed. Could not reach Secret Manager: {e}. Halting to prevent insecure fallback to local keys.")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"KMS Initialization Error: Failed to retrieve signing key from Secret Manager. Halting to prevent insecure fallback."
+                )
     elif IS_PRODUCTION:
+        logger.critical("CRITICAL SECURITY ALERT: GOOGLE_CLOUD_PROJECT is not set in production. Cannot retrieve secure signing key.")
         raise HTTPException(
             status_code=500,
             detail="GOOGLE_CLOUD_PROJECT is not set; cannot retrieve signing key in production"
@@ -808,35 +1251,19 @@ async def generate_signed_report(data: ReportRequest, request: Request):
         p.setStrokeColor(colors.black)
         p.rect(1*inch, y - 1.5*inch, width - 2*inch, 1.8*inch, stroke=1, fill=0)
         
-        # Data for signing — use a JSON object with explicit field keys so
-        # every field is unambiguously bound to its name.  The old pipe-
-        # delimited format ("Alice|Wheat|5 Acres|...") allowed two different
-        # inputs to produce the same string:
-        #   name="Alice|Wheat", crop="5 Acres"  →  "Alice|Wheat|5 Acres|..."
-        #   name="Alice",       crop="Wheat|5 Acres" →  "Alice|Wheat|5 Acres|..."
-        # With JSON, {"name": "Alice|Wheat", "crop": "5 Acres"} and
-        # {"name": "Alice", "crop": "Wheat|5 Acres"} are distinct byte strings,
-        # so the signature binds unambiguously to the exact field values.
-        # sort_keys=True ensures the serialisation is deterministic regardless
-        # of Python dict insertion order.
-        report_payload = {
-            "name":   data.name,
-            "crop":   data.crop,
-            "area":   data.area,
+        # Data for signing: migrate from fragile delimiter-separated strings
+        # to secure canonical structured JSON serialization
+        signing_payload = {
+            "name": data.name,
+            "crop": data.crop,
+            "area": data.area,
             "profit": data.profit,
             "season": data.season,
-            "date":   datetime.now().date().isoformat(),
+            "date": datetime.now().date().isoformat()
         }
-        report_data_bytes = json.dumps(report_payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
-        signature = private_key.sign(report_data_bytes)
-
-        # Use the full 64-char SHA-256 hex digest as the canonical signature
-        # fingerprint, then display the first 16 chars (64 bits) on the PDF.
-        # The old 8-char (32-bit) truncation had a ~1-in-4-billion collision
-        # probability per pair — not negligible for a document presented to a
-        # bank.  16 hex chars gives ~1-in-18-quintillion, which is negligible.
-        sig_full = hashlib.sha256(signature).hexdigest().upper()
-        sig_id = sig_full[:16]
+        report_data_string = json.dumps(signing_payload, sort_keys=True)
+        signature = private_key.sign(report_data_string.encode("utf-8"))
+        sig_id = hashlib.sha256(signature).hexdigest()[:8].upper()
 
         p.setFont("Helvetica-Bold", 14)
         p.drawString(1.2*inch, y - 0.3*inch, "DIGITAL CRYPTOGRAPHIC SIGNATURE")
@@ -938,6 +1365,79 @@ async def rag_query(request: Request, body: RAGQuery):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.post("/api/gemini/analyze-image")
+@limiter.limit("10/minute")
+async def gemini_analyze_image(request: Request, body: GeminiImageRequest):
+    """
+    Server-side proxy for Gemini multimodal image analysis.
+
+    Keeps GEMINI_API_KEY on the server — it is never bundled into the
+    frontend JavaScript. Frontend components (PestDetection, CropDiseaseDetection)
+    send the base64 image and prompt here; this endpoint forwards the request
+    to Google and returns the raw text response.
+
+    Rate-limited to 10 requests/minute per IP to protect billing.
+    Authentication is intentionally not required so unauthenticated users
+    can still use the detection features, but the key stays server-side.
+    """
+    import httpx
+
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="AI analysis service is not configured"
+        )
+
+    gemini_url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"gemini-2.0-flash:generateContent?key={api_key}"
+    )
+
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": body.prompt},
+                    {
+                        "inline_data": {
+                            "mime_type": body.mime_type,
+                            "data": body.image_base64,
+                        }
+                    },
+                ]
+            }
+        ]
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(gemini_url, json=payload)
+
+        if resp.status_code != 200:
+            logger.warning("Gemini API returned %s: %s", resp.status_code, resp.text[:200])
+            raise HTTPException(
+                status_code=502,
+                detail="AI analysis service returned an error"
+            )
+
+        data = resp.json()
+        text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+
+        if not text:
+            raise HTTPException(status_code=502, detail="Empty response from AI analysis service")
+
+        return {"text": text}
+
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="AI analysis service timed out")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Gemini proxy error: %s", str(e))
+        raise HTTPException(status_code=500, detail="AI analysis service unavailable")
+
 @app.post("/api/simulate-climate")
 @limiter.limit("5/minute")
 async def simulate_climate(request: Request, data: SimulationRequest):
@@ -987,7 +1487,15 @@ async def simulate_climate(request: Request, data: SimulationRequest):
 async def verify_seed(data: SeedVerifyRequest, request: Request):
     """
     Verifies seed authenticity against the trusted batch registry.
+    
+    Requires authentication and appropriate role.
+    """
+    # RBAC: user can verify seeds
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.SEEDS_VERIFY], require_all=False
+    )
 
+    """
     Registry lookup logic
     ---------------------
     Each entry in SEED_REGISTRY is keyed by the canonical batch code

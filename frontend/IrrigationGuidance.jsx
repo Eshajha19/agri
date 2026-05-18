@@ -3,6 +3,7 @@ import {
   Droplets, Info, ThermometerSun, Leaf,
   Activity, ChevronRight, MapPin, X
 } from 'lucide-react';
+import { fetchWeatherByLocation, getCurrentPosition } from './weather/weatherService';
 import './IrrigationGuidance.css';
 
 export default function IrrigationGuidance({ onClose }) {
@@ -34,26 +35,33 @@ export default function IrrigationGuidance({ onClose }) {
 
   // OPTIONAL: Auto-fetch weather (replace API key)
   useEffect(() => {
-    navigator.geolocation.getCurrentPosition(async (pos) => {
+    let cancelled = false;
+
+    const hydrateWeather = async () => {
       try {
-        const { latitude, longitude } = pos.coords;
+        const location = await getCurrentPosition();
+        const snapshot = await fetchWeatherByLocation(location);
 
-        // Replace with real API
-        const res = await fetch(
-          `https://api.openweathermap.org/data/2.5/weather?lat=${latitude}&lon=${longitude}&units=metric&appid=YOUR_API_KEY`
-        );
-        const data = await res.json();
+        if (cancelled) {
+          return;
+        }
 
-        setFormData(prev => ({
+        setFormData((prev) => ({
           ...prev,
-          temperature: data.main?.temp || prev.temperature,
-          humidity: data.main?.humidity || prev.humidity,
-          rainfall: data.rain?.['1h'] || 0
+          temperature: snapshot.current?.temperature_2m ?? prev.temperature,
+          humidity: snapshot.current?.relative_humidity_2m ?? prev.humidity,
+          rainfall: snapshot.daily?.precipitation_sum?.[0] ?? snapshot.current?.precipitation ?? 0,
         }));
-      } catch (err) {
-        console.log("Weather fetch failed");
+      } catch {
+        // Keep the planner usable with manually entered values.
       }
-    });
+    };
+
+    void hydrateWeather();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleChange = (e) => {
