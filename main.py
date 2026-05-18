@@ -247,7 +247,7 @@ except Exception:
     flags_router = None
 
 # Import modular routers
-from backend.routers import ml, governance, alerts, finance, quality, blockchain, reports, knowledge
+from backend.routers import ml, governance, alerts, finance, quality, blockchain, reports, knowledge, community
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -657,6 +657,7 @@ app.include_router(quality.router, prefix="/api/crop-quality", tags=["Quality"])
 app.include_router(blockchain.router, prefix="/api/supply-chain", tags=["Blockchain"])
 app.include_router(reports.router, prefix="/api/admin", tags=["Reports"])
 app.include_router(knowledge.router, prefix="/api/knowledge", tags=["Knowledge"])
+app.include_router(community.router, prefix="/api/community", tags=["Community"])
 
 # Initialize repositories for persistent storage
 _finance_repository = FinanceApplicationRepository()
