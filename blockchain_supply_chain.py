@@ -27,6 +27,7 @@ class BlockchainRecord:
     location: str
     data: Dict
     hash: str = ""
+    previous_hash: str = ""
 
     def calculate_hash(self) -> str:
         """Calculate SHA256 hash of record"""
@@ -35,7 +36,8 @@ class BlockchainRecord:
             "actor": self.actor,
             "action": self.action,
             "location": self.location,
-            "data": self.data
+            "data": self.data,
+            "previous_hash": self.previous_hash
         }, sort_keys=True)
         return hashlib.sha256(record_string.encode()).hexdigest()
 
@@ -167,6 +169,8 @@ class SupplyChainBlockchain:
             location=farm_id,
             data=asdict(batch)
         )
+        if self.chain:
+            record.previous_hash = self.chain[-1].hash
         record.hash = record.calculate_hash()
         self.chain.append(record)
         batch.blockchain_records.append(asdict(record))
@@ -223,6 +227,8 @@ class SupplyChainBlockchain:
             location=location,
             data=asdict(node)
         )
+        if self.chain:
+            record.previous_hash = self.chain[-1].hash
         record.hash = record.calculate_hash()
         self.chain.append(record)
         self.products[batch_id].blockchain_records.append(asdict(record))
@@ -270,6 +276,8 @@ class SupplyChainBlockchain:
             location="contract",
             data=asdict(contract)
         )
+        if self.chain:
+            record.previous_hash = self.chain[-1].hash
         record.hash = record.calculate_hash()
         self.chain.append(record)
 
@@ -300,6 +308,8 @@ class SupplyChainBlockchain:
                 "currency": contract.currency
             }
         )
+        if self.chain:
+            record.previous_hash = self.chain[-1].hash
         record.hash = record.calculate_hash()
         self.chain.append(record)
 
@@ -459,8 +469,10 @@ class SupplyChainBlockchain:
 
     def _verify_blockchain_integrity(self) -> bool:
         """Verify blockchain hasn't been tampered with"""
-        for record in self.chain:
+        for i, record in enumerate(self.chain):
             if record.hash != record.calculate_hash():
+                return False
+            if i > 0 and record.previous_hash != self.chain[i - 1].hash:
                 return False
         return True
 
