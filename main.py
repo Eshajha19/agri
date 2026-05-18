@@ -247,7 +247,7 @@ except Exception:
     flags_router = None
 
 # Import modular routers
-from backend.routers import ml, governance, alerts, finance, quality, blockchain, reports, knowledge, community
+from backend.routers import ml, governance, alerts, finance, quality, blockchain, reports, knowledge, community, voice_assistant
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -593,6 +593,12 @@ try:
 
     supply_chain = SupplyChainBlockchain()
     blockchain.init_blockchain(supply_chain)
+
+    # Initialize Voice Assistant for Farmers
+    from voice_assistant import VoiceAssistant, OfflineCacheManager
+    voice_asst = VoiceAssistant(offline_mode=True)
+    cache_mgr = OfflineCacheManager(cache_dir="./voice_assistant_cache")
+    voice_assistant.init_voice_assistant(voice_asst, cache_mgr)
 except Exception as e:
     logger.warning(f"Dependency wiring failed: {e}")
 
@@ -658,6 +664,7 @@ app.include_router(blockchain.router, prefix="/api/supply-chain", tags=["Blockch
 app.include_router(reports.router, prefix="/api/admin", tags=["Reports"])
 app.include_router(knowledge.router, prefix="/api/knowledge", tags=["Knowledge"])
 app.include_router(community.router, prefix="/api/community", tags=["Community"])
+app.include_router(voice_assistant.router, prefix="/api/voice", tags=["Voice Assistant"])
 
 # Initialize repositories for persistent storage
 _finance_repository = FinanceApplicationRepository()

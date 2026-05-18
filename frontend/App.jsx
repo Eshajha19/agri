@@ -21,7 +21,8 @@ import {
   FaHome,
   FaTrophy,
   FaMedal,
-  FaCog
+  FaCog,
+  FaMicrophone
 } from "react-icons/fa";
 import { usePerformanceStore } from "./stores/performanceStore";
 import { useBrowserCacheBudget } from "./lib/cacheBudget";
@@ -81,6 +82,7 @@ import {
 } from "./routes/lazyPages";
 
 const Weather = React.lazy(() => import("./Weather"));
+import VoiceAssistant from "./VoiceAssistant";
 
 // Libs
 import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc, getDoc } from "./lib/firebase";
@@ -369,6 +371,7 @@ function App() {
                     }}
                   />
                 </div>
+                <Link to="/voice-assistant" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMicrophone /> Voice Assistant</Link>
                 <div className="performance-toggle-section">
                   <button
                     className={`lite-mode-toggle ${liteMode ? 'active' : ''}`}
@@ -514,6 +517,7 @@ function App() {
             <Route path="/blog" element={<Blog />} />
             <Route path="/blog/:id" element={<BlogDetail />} />
             <Route path="/weather" element={<Weather />} />
+            <Route path="/voice-assistant" element={<VoiceAssistant />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </React.Suspense>
