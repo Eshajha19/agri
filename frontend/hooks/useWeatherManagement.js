@@ -1,6 +1,7 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useWeatherStore } from '../stores/weatherStore';
 import { useErrorHandler } from './useErrorHandler';
+import { WEATHER_SNAPSHOT_EVENT } from '../weather/weatherService';
 
 export const useWeatherManagement = () => {
   const { handleSilentError } = useErrorHandler();
@@ -74,6 +75,24 @@ export const useWeatherManagement = () => {
       handleSilentError(error, 'notification-permission');
     }
   }, [handleSilentError]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const handleWeatherUpdate = (event) => {
+      const latestSnapshot = event.detail;
+      if (latestSnapshot?.location) {
+        setSnapshot(latestSnapshot);
+      }
+    };
+
+    window.addEventListener(WEATHER_SNAPSHOT_EVENT, handleWeatherUpdate);
+    return () => {
+      window.removeEventListener(WEATHER_SNAPSHOT_EVENT, handleWeatherUpdate);
+    };
+  }, [setSnapshot]);
 
   return {
     snapshot,

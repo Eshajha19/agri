@@ -209,13 +209,56 @@ showGreenPractices,
   }, []);
 
   // On mount: if a valid cached snapshot already exists (written by
-  // WeatherAlertBar on the Home page), use it immediately — no fetch needed.
+  // WeatherAlertBar on the Home page), use it immediately and refresh it in
+  // the background; otherwise fall back to a live IP-based snapshot so the
+  // weather dashboard is never left idle on a cold start.
   useEffect(() => {
-    const cached = getStoredWeatherSnapshot();
-    if (cached?.location) {
-      setWeatherSnapshot(cached);
-      setWeatherStatus("ready");
-    }
+    let cancelled = false;
+
+    const hydrateWeather = async () => {
+      const cached = getStoredWeatherSnapshot();
+
+      if (cached?.location) {
+        setWeatherSnapshot(cached);
+        setWeatherStatus("ready");
+
+        try {
+          const refreshed = await fetchWeatherByLocation(cached.location);
+          if (!cancelled) {
+            setWeatherSnapshot(refreshed);
+            setWeatherStatus("ready");
+            setWeatherError("");
+          }
+        } catch (error) {
+          if (!cancelled) {
+            setWeatherError(error?.message || "Unable to refresh weather data.");
+          }
+        }
+
+        return;
+      }
+
+      setWeatherStatus("loading");
+      try {
+        const liveSnapshot = await fetchWeatherByIP();
+        if (!cancelled) {
+          setWeatherSnapshot(liveSnapshot);
+          setWeatherStatus("ready");
+          setWeatherError("");
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setWeatherStatus("error");
+          setWeatherError(error?.message || "Unable to load weather data.");
+        }
+      }
+    };
+
+    void hydrateWeather();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Derive advisories from the open-meteo snapshot alerts array.
