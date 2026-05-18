@@ -25,6 +25,7 @@ import {
   FaTrophy,
 } from "react-icons/fa";
 import { usePerformanceStore } from "./stores/performanceStore";
+import { cryptoService } from "./utils/cryptoService";
 
 // Components
 import AdminFeedback from "./AdminFeedback";
@@ -216,19 +217,19 @@ function App() {
 
     const ensurePublicKey = async () => {
       try {
-        let privateJwk = localStorage.getItem(`agri:ecdh_private_${user.uid}`);
+        let privateKey = await cryptoService.loadPrivateKey(user.uid);
         let publicJwk = localStorage.getItem(`agri:ecdh_public_${user.uid}`);
-        
-        if (!privateJwk || !publicJwk) {
-          const { cryptoService } = await import("./utils/cryptoService");
+
+        if (!privateKey || !publicJwk) {
           const keyPair = await cryptoService.generateECDHKeyPair();
-          privateJwk = await cryptoService.exportKey(keyPair.privateKey);
+          privateKey = keyPair.privateKey;
           publicJwk = await cryptoService.exportKey(keyPair.publicKey);
-          localStorage.setItem(`agri:ecdh_private_${user.uid}`, JSON.stringify(privateJwk));
+
+          await cryptoService.savePrivateKey(user.uid, privateKey);
           localStorage.setItem(`agri:ecdh_public_${user.uid}`, JSON.stringify(publicJwk));
-        } else {
-          publicJwk = JSON.parse(publicJwk);
         }
+
+        localStorage.removeItem(`agri:ecdh_private_${user.uid}`);
 
         const pubKeyRef = doc(db, "public_keys", user.uid);
         await setDoc(pubKeyRef, { jwk: publicJwk }, { merge: true });

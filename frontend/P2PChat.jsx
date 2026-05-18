@@ -59,8 +59,8 @@ const P2PChat = ({ recipient, onClose }) => {
 
         if (!privateKey) {
           // Check for a legacy key in localStorage and migrate it
-          const legacyPrivateJwk = localStorage.getItem(`ecdh_private_${currentUser.uid}`);
-          const legacyPublicJwk  = localStorage.getItem(`ecdh_public_${currentUser.uid}`);
+          const legacyPrivateJwk = localStorage.getItem(`ecdh_private_${currentUser.uid}`) || localStorage.getItem(`agri:ecdh_private_${currentUser.uid}`);
+          const legacyPublicJwk  = localStorage.getItem(`ecdh_public_${currentUser.uid}`) || localStorage.getItem(`agri:ecdh_public_${currentUser.uid}`);
 
           if (legacyPrivateJwk && legacyPublicJwk) {
             // Re-import as non-extractable and persist to IndexedDB
@@ -70,6 +70,8 @@ const P2PChat = ({ recipient, onClose }) => {
             // Remove plaintext key material from localStorage
             localStorage.removeItem(`ecdh_private_${currentUser.uid}`);
             localStorage.removeItem(`ecdh_public_${currentUser.uid}`);
+            localStorage.removeItem(`agri:ecdh_private_${currentUser.uid}`);
+            localStorage.removeItem(`agri:ecdh_public_${currentUser.uid}`);
           } else {
             // Generate a fresh key pair
             const keyPair = await cryptoService.generateECDHKeyPair();
