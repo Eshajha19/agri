@@ -1,40 +1,35 @@
 import React, { useState, useEffect } from "react";
 import { FaGithub, FaLinkedin, FaTwitter, FaCrown, FaCode, FaStar } from "react-icons/fa";
-import apiClient from "./services/api";
 import "./Contributors.css";
 
 export default function Contributors() {
   const [contributors, setContributors] = useState([]);
   const [filter, setFilter] = useState("All");
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
 
   // Fetch contributors from GitHub API
   useEffect(() => {
     const fetchContributors = async () => {
       setLoading(true);
-      setError("");
       try {
-        const response = await apiClient.get("/api/community/contributors", {
-          skipGlobalLoader: true,
-          suppressToast: true,
-          logError: false,
-        });
-
-        const data = response.data?.contributors || [];
-        const mappedContributors = data.map((contributor) => ({
-          id: contributor.id,
-          name: contributor.login,
-          role: contributor.login.toLowerCase() === 'eshajha19' ? 'Owner & Founder' : 'Contributor',
-          image: contributor.avatar_url,
-          github: contributor.html_url,
-          contributions: contributor.contributions,
-          isOwner: contributor.login.toLowerCase() === 'eshajha19',
-        }));
-        setContributors(mappedContributors);
+         const response = await fetch(
+           "https://api.github.com/repos/Eshajha19/agri/contributors?per_page=100"
+         );
+         if (response.ok) {
+           const data = await response.json();
+           const mappedContributors = data.map((contributor) => ({
+             id: contributor.id,
+             name: contributor.login,
+             role: contributor.login.toLowerCase() === 'eshajha19' ? 'Owner & Founder' : 'Contributor',
+             image: contributor.avatar_url,
+             github: contributor.html_url,
+             contributions: contributor.contributions,
+             isOwner: contributor.login.toLowerCase() === 'eshajha19',
+           }));
+           setContributors(mappedContributors);
+         }
       } catch (error) {
         console.error("Error fetching GitHub contributors:", error);
-        setError(error?.response?.data?.detail || "Unable to load contributors right now.");
       } finally {
         setLoading(false);
       }
@@ -129,11 +124,6 @@ export default function Contributors() {
 
       {/* CONTRIBUTORS GRID */}
       <div className="contributors-grid">
-        {error && !loading && (
-          <div className="no-contributors">
-            {error}
-          </div>
-        )}
         {loading ? (
           <div className="loading">Loading contributors...</div>
         ) : filteredContributors.length > 0 ? (
