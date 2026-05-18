@@ -1791,19 +1791,120 @@ class ExpertSlotRequest(BaseModel):
 
 # --- Expert Consultation APIs ---
 
+# ---------------------------------------------------------------------------
+# Expert directory — fallback data used when Firestore is unavailable.
+#
+# IMPORTANT: This list must never contain real phone numbers, email addresses,
+# or any other PII. Phone numbers are omitted entirely (null) so that even if
+# this fallback is served, no contact details are exposed to unauthenticated
+# callers. Avatar images use a local placeholder path instead of a third-party
+# service (randomuser.me) that would log every request.
+# ---------------------------------------------------------------------------
+_FALLBACK_EXPERTS = [
+    {
+        "id": "exp1",
+        "name": "Dr. Ramesh Kumar",
+        "specialization": "crop_disease",
+        "qualification": "Ph.D. in Plant Pathology",
+        "location": "Madhya Pradesh",
+        "phone": None,
+        "rating": 4.8,
+        "experience": 15,
+        "is_kvk": True,
+        "kvk_name": "KVK Jabalpur",
+        "bio": "Specialist in crop disease diagnosis and organic treatment methods.",
+        "avatar": "/assets/avatars/placeholder.svg"
+    },
+    {
+        "id": "exp2",
+        "name": "Dr. Priya Sharma",
+        "specialization": "fertilizers",
+        "qualification": "M.Sc. Agricultural Chemistry",
+        "location": "Maharashtra",
+        "phone": None,
+        "rating": 4.9,
+        "experience": 12,
+        "is_kvk": True,
+        "kvk_name": "KVK Pune",
+        "bio": "Expert in nano-fertilizers and sustainable nutrient management.",
+        "avatar": "/assets/avatars/placeholder.svg"
+    },
+    {
+        "id": "exp3",
+        "name": "Er. Suresh Patil",
+        "specialization": "irrigation",
+        "qualification": "B.Tech Agricultural Engineering",
+        "location": "Karnataka",
+        "phone": None,
+        "rating": 4.7,
+        "experience": 10,
+        "is_kvk": False,
+        "bio": "Drip irrigation and water management specialist.",
+        "avatar": "/assets/avatars/placeholder.svg"
+    },
+    {
+        "id": "exp4",
+        "name": "Dr. Anjali Verma",
+        "specialization": "pest_management",
+        "qualification": "Ph.D. Entomology",
+        "location": "Uttar Pradesh",
+        "phone": None,
+        "rating": 4.6,
+        "experience": 8,
+        "is_kvk": True,
+        "kvk_name": "KVK Lucknow",
+        "bio": "Integrated pest management and organic pest control expert.",
+        "avatar": "/assets/avatars/placeholder.svg"
+    },
+    {
+        "id": "exp5",
+        "name": "Dr. Mahendra Singh",
+        "specialization": "soil_health",
+        "qualification": "Ph.D. Soil Science",
+        "location": "Rajasthan",
+        "phone": None,
+        "rating": 4.9,
+        "experience": 20,
+        "is_kvk": True,
+        "kvk_name": "KVK Jaipur",
+        "bio": "Soil health assessment and reclamation specialist.",
+        "avatar": "/assets/avatars/placeholder.svg"
+    },
+    {
+        "id": "exp6",
+        "name": "Dr. Kavita Desai",
+        "specialization": "market_advisory",
+        "qualification": "MBA Agriculture Business",
+        "location": "Gujarat",
+        "phone": None,
+        "rating": 4.8,
+        "experience": 14,
+        "is_kvk": False,
+        "bio": "Market intelligence and price forecasting expert.",
+        "avatar": "/assets/avatars/placeholder.svg"
+    },
+]
+
+
 @app.get("/api/experts")
+@limiter.limit("20/minute")
 async def get_experts(
+    request: Request,
     specialization: Optional[str] = None,
     kvk_only: bool = False,
     search: Optional[str] = None
 ):
     """
     Get list of available experts/KVK advisors.
-    
+
     Query parameters:
     - specialization: Filter by specialization (crop_disease, fertilizers, etc.)
     - kvk_only: Return only KVK experts
     - search: Search by name or location
+
+    Phone numbers are never included in the response — contact details are
+    only accessible to authenticated users through the consultation booking
+    flow, which enforces its own RBAC check.
     """
     try:
         experts = []
@@ -1813,205 +1914,39 @@ async def get_experts(
             try:
                 experts_ref = db.collection("experts")
                 docs = experts_ref.get()
-
                 for doc in docs:
                     expert_data = doc.to_dict()
                     expert_data["id"] = doc.id
+                    # Strip phone numbers from Firestore records too — callers
+                    # must go through the authenticated booking flow to get them.
+                    expert_data.pop("phone", None)
+                    expert_data.pop("email", None)
                     experts.append(expert_data)
             except Exception as e:
-                logger.warning(f"Firestore experts query failed: {e}")
+                logger.warning("Firestore experts query failed: %s", e)
 
+        # Fall back to the static list when Firestore is unavailable or empty.
+        # The static list already has phone=None so no PII is exposed.
         if not experts:
-            experts = [
-                {
-                    "id": "exp1",
-                    "name": "Dr. Ramesh Kumar",
-                    "specialization": "crop_disease",
-                    "qualification": "Ph.D. in Plant Pathology",
-                    "location": "Madhya Pradesh",
-                    "phone": "+91 9876543210",
-                    "rating": 4.8,
-                    "experience": 15,
-                    "is_kvk": True,
-                    "kvk_name": "KVK Jabalpur",
-                    "bio": "Specialist in crop disease diagnosis and organic treatment methods.",
-                    "avatar": "https://randomuser.me/api/portraits/men/32.jpg"
-                },
-                {
-                    "id": "exp2",
-                    "name": "Dr. Priya Sharma",
-                    "specialization": "fertilizers",
-                    "qualification": "M.Sc. Agricultural Chemistry",
-                    "location": "Maharashtra",
-                    "phone": "+91 9876543211",
-                    "rating": 4.9,
-                    "experience": 12,
-                    "is_kvk": True,
-                    "kvk_name": "KVK Pune",
-                    "bio": "Expert in nano-fertilizers and sustainable nutrient management.",
-                    "avatar": "https://randomuser.me/api/portraits/women/44.jpg"
-                },
-                {
-                    "id": "exp3",
-                    "name": "Er. Suresh Patil",
-                    "specialization": "irrigation",
-                    "qualification": "B.Tech Agricultural Engineering",
-                    "location": "Karnataka",
-                    "phone": "+91 9876543212",
-                    "rating": 4.7,
-                    "experience": 10,
-                    "is_kvk": False,
-                    "bio": "Drip irrigation and water management specialist.",
-                    "avatar": "https://randomuser.me/api/portraits/men/45.jpg"
-                },
-                {
-                    "id": "exp4",
-                    "name": "Dr. Anjali Verma",
-                    "specialization": "pest_management",
-                    "qualification": "Ph.D. Entomology",
-                    "location": "Uttar Pradesh",
-                    "phone": "+91 9876543213",
-                    "rating": 4.6,
-                    "experience": 8,
-                    "is_kvk": True,
-                    "kvk_name": "KVK Lucknow",
-                    "bio": "Integrated pest management and organic pest control expert.",
-                    "avatar": "https://randomuser.me/api/portraits/women/65.jpg"
-                },
-                {
-                    "id": "exp5",
-                    "name": "Dr. Mahendra Singh",
-                    "specialization": "soil_health",
-                    "qualification": "Ph.D. Soil Science",
-                    "location": "Rajasthan",
-                    "phone": "+91 9876543214",
-                    "rating": 4.9,
-                    "experience": 20,
-                    "is_kvk": True,
-                    "kvk_name": "KVK Jaipur",
-                    "bio": "Soil health assessment and reclamation specialist.",
-                    "avatar": "https://randomuser.me/api/portraits/men/67.jpg"
-                },
-                {
-                    "id": "exp6",
-                    "name": "Dr. Kavita Desai",
-                    "specialization": "market_advisory",
-                    "qualification": "MBA Agriculture Business",
-                    "location": "Gujarat",
-                    "phone": "+91 9876543215",
-                    "rating": 4.8,
-                    "experience": 14,
-                    "is_kvk": False,
-                    "bio": "Market intelligence and price forecasting expert.",
-                    "avatar": "https://randomuser.me/api/portraits/women/28.jpg"
-                }
-            ]
+            experts = list(_FALLBACK_EXPERTS)
 
+        # Apply filters once, after the source has been resolved
         if specialization:
             experts = [e for e in experts if e.get("specialization") == specialization]
         if kvk_only:
             experts = [e for e in experts if e.get("is_kvk")]
         if search:
             search_lower = search.lower()
-            experts = [e for e in experts if search_lower in e.get("name", "").lower() or search_lower in e.get("location", "").lower()]
-
-        if not experts:
             experts = [
-                {
-                    "id": "exp1",
-                    "name": "Dr. Ramesh Kumar",
-                    "specialization": "crop_disease",
-                    "qualification": "Ph.D. in Plant Pathology",
-                    "location": "Madhya Pradesh",
-                    "phone": "+91 9876543210",
-                    "rating": 4.8,
-                    "experience": 15,
-                    "is_kvk": True,
-                    "kvk_name": "KVK Jabalpur",
-                    "bio": "Specialist in crop disease diagnosis and organic treatment methods.",
-                    "avatar": "https://randomuser.me/api/portraits/men/32.jpg"
-                },
-                {
-                    "id": "exp2",
-                    "name": "Dr. Priya Sharma",
-                    "specialization": "fertilizers",
-                    "qualification": "M.Sc. Agricultural Chemistry",
-                    "location": "Maharashtra",
-                    "phone": "+91 9876543211",
-                    "rating": 4.9,
-                    "experience": 12,
-                    "is_kvk": True,
-                    "kvk_name": "KVK Pune",
-                    "bio": "Expert in nano-fertilizers and sustainable nutrient management.",
-                    "avatar": "https://randomuser.me/api/portraits/women/44.jpg"
-                },
-                {
-                    "id": "exp3",
-                    "name": "Er. Suresh Patil",
-                    "specialization": "irrigation",
-                    "qualification": "B.Tech Agricultural Engineering",
-                    "location": "Karnataka",
-                    "phone": "+91 9876543212",
-                    "rating": 4.7,
-                    "experience": 10,
-                    "is_kvk": False,
-                    "bio": "Drip irrigation and water management specialist.",
-                    "avatar": "https://randomuser.me/api/portraits/men/45.jpg"
-                },
-                {
-                    "id": "exp4",
-                    "name": "Dr. Anjali Verma",
-                    "specialization": "pest_management",
-                    "qualification": "Ph.D. Entomology",
-                    "location": "Uttar Pradesh",
-                    "phone": "+91 9876543213",
-                    "rating": 4.6,
-                    "experience": 8,
-                    "is_kvk": True,
-                    "kvk_name": "KVK Lucknow",
-                    "bio": "Integrated pest management and organic pest control expert.",
-                    "avatar": "https://randomuser.me/api/portraits/women/65.jpg"
-                },
-                {
-                    "id": "exp5",
-                    "name": "Dr. Mahendra Singh",
-                    "specialization": "soil_health",
-                    "qualification": "Ph.D. Soil Science",
-                    "location": "Rajasthan",
-                    "phone": "+91 9876543214",
-                    "rating": 4.9,
-                    "experience": 20,
-                    "is_kvk": True,
-                    "kvk_name": "KVK Jaipur",
-                    "bio": "Soil health assessment and reclamation specialist.",
-                    "avatar": "https://randomuser.me/api/portraits/men/67.jpg"
-                },
-                {
-                    "id": "exp6",
-                    "name": "Dr. Kavita Desai",
-                    "specialization": "market_advisory",
-                    "qualification": "MBA Agriculture Business",
-                    "location": "Gujarat",
-                    "phone": "+91 9876543215",
-                    "rating": 4.8,
-                    "experience": 14,
-                    "is_kvk": False,
-                    "bio": "Market intelligence and price forecasting expert.",
-                    "avatar": "https://randomuser.me/api/portraits/women/28.jpg"
-                }
+                e for e in experts
+                if search_lower in e.get("name", "").lower()
+                or search_lower in e.get("location", "").lower()
             ]
 
-            if specialization:
-                experts = [e for e in experts if e.get("specialization") == specialization]
-            if kvk_only:
-                experts = [e for e in experts if e.get("is_kvk")]
-            if search:
-                search_lower = search.lower()
-                experts = [e for e in experts if search_lower in e.get("name", "").lower() or search_lower in e.get("location", "").lower()]
-
         return {"experts": experts, "count": len(experts)}
+
     except Exception as e:
-        logger.error(f"Error fetching experts: {e}")
+        logger.error("Error fetching experts: %s", e)
         raise HTTPException(status_code=500, detail="Failed to fetch experts")
 
 
