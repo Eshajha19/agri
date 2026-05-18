@@ -1,11 +1,9 @@
-import { useState, useEffect, useRef } from "react";
-import { useTranslation } from 'react-i18next';
-import { getEquipmentInfo, getMaintenanceSchedule, evaluateEquipmentHealth, generateMaintenanceReport, getAllEquipmentData, saveEquipmentData } from './utils/equipmentDatabase';
+import { useState, useEffect, useRef, useCallback } from "react";
+import { getEquipmentInfo, evaluateEquipmentHealth } from './utils/equipmentDatabase';
 import EquipmentService from './services/equipmentApi';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
 
 export default function EquipmentManagement({ onClose }) {
-  const { t, i18n } = useTranslation();
   const [equipment, setEquipment] = useState([]);
   const [selectedEquipment, setSelectedEquipment] = useState(null);
   const [sensorData, setSensorData] = useState({});
@@ -15,23 +13,26 @@ export default function EquipmentManagement({ onClose }) {
   const [alerts, setAlerts] = useState([]);
   const [showAddEquipment, setShowAddEquipment] = useState(false);
   const [showMaintenance, setShowMaintenance] = useState(false);
-  const [showAnalytics, setShowAnalytics] = useState(false);
   const [loading, setLoading] = useState(false);
   const [realTimeMode, setRealTimeMode] = useState(true);
   const [timeRange, setTimeRange] = useState('7d');
   const equipmentService = useRef(new EquipmentService());
+  const selectedIdRef = useRef(null);
 
-  // Load equipment data
+   // Load equipment data – runs once on mount; `loadEquipmentData` and
+   // `updateSensorData` are intentionally excluded from the dep array.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     loadEquipmentData();
     const interval = setInterval(() => {
-      if (realTimeMode && selectedEquipment) {
+      if (realTimeMode && selectedIdRef.current) {
         updateSensorData();
       }
-    }, 5000); // Update every 5 seconds
+    }, 5000);
 
     return () => clearInterval(interval);
-  }, [realTimeMode, selectedEquipment]);
+  }, [realTimeMode]);
+
 
   const loadEquipmentData = async () => {
     setLoading(true);
@@ -39,7 +40,6 @@ export default function EquipmentManagement({ onClose }) {
       const equipmentList = await equipmentService.current.getEquipmentList();
       setEquipment(equipmentList);
       
-      // Load first equipment by default
       if (equipmentList.length > 0 && !selectedEquipment) {
         selectEquipment(equipmentList[0]);
       }
@@ -50,87 +50,74 @@ export default function EquipmentManagement({ onClose }) {
     }
   };
 
+  // Keep the ref in sync as a derived value
+  useEffect(() => {
+    selectedIdRef.current = selectedEquipment?.id ?? null;
+  }, [selectedEquipment]);
+
   const selectEquipment = async (eq) => {
     setSelectedEquipment(eq);
+    selectedIdRef.current = eq?.id ?? null;
     if (eq) {
-      updateSensorData();
-      updateHealthData();
-      loadMaintenanceHistory(eq.id);
-      loadAnalytics(eq.id);
-      loadAlerts(eq.id);
+      await updateSensorData();
+      await updateHealthData();
+      await loadMaintenanceHistory(eq.id);
+      await loadAnalytics(eq.id);
+      await loadAlerts(eq.id);
     }
   };
 
-  const updateSensorData = async () => {
-    if (!selectedEquipment) return;
+  const updateSensorData = useCallback(async () => {
+    const id = selectedIdRef.current;
+    if (!id) return;
     
     try {
-      const data = await equipmentService.current.getSensorData(selectedEquipment.id);
+      const data = await equipmentService.current.getSensorData(id);
       setSensorData(data);
     } catch (error) {
       console.error('Failed to update sensor data:', error);
     }
-  };
+  }, []);
 
-  const updateHealthData = () => {
-    if (!selectedEquipment || Object.keys(sensorData).length === 0) return;
+  const updateHealthData = useCallback(async () => {
+    const id = selectedIdRef.current;
+    if (!id || !selectedEquipment) return;
     
-    const health = evaluateEquipmentHealth(selectedEquipment.type, sensorData);
-    setHealthData(health);
-  };
+    try {
+      const data = await equipmentService.current.getSensorData(id);
+      const health = evaluateEquipmentHealth(selectedEquipment.type, data);
+      setHealthData(health);
+    } catch (error) {
+      console.error('Failed to update health data:', error);
+    }
+  }, [selectedEquipment]);
 
-  const loadMaintenanceHistory = async (equipmentId) => {
+  const loadMaintenanceHistory = useCallback(async (equipmentId) => {
     try {
       const history = await equipmentService.current.getMaintenanceHistory(equipmentId);
       setMaintenanceHistory(history);
     } catch (error) {
       console.error('Failed to load maintenance history:', error);
     }
-  };
+  }, []);
 
-  const loadAnalytics = async (equipmentId) => {
+  const loadAnalytics = useCallback(async (equipmentId, range) => {
     try {
-      const data = await equipmentService.current.getEquipmentAnalytics(equipmentId, timeRange);
+      const data = await equipmentService.current.getEquipmentAnalytics(equipmentId, range || timeRange);
       setAnalytics(data);
     } catch (error) {
       console.error('Failed to load analytics:', error);
     }
-  };
+  }, [timeRange]);
 
-  const loadAlerts = async (equipmentId) => {
+  const loadAlerts = useCallback(async (equipmentId) => {
     try {
       const alertData = await equipmentService.current.getPredictiveAlerts(equipmentId);
       setAlerts(alertData);
     } catch (error) {
       console.error('Failed to load alerts:', error);
     }
-  };
-
-  const handleAddEquipment = async (equipmentData) => {
-    try {
-      const result = await equipmentService.current.updateEquipment(equipmentData.id, equipmentData);
-      if (result.success) {
-        await loadEquipmentData();
-        setShowAddEquipment(false);
-      }
-    } catch (error) {
-      console.error('Failed to add equipment:', error);
-    }
-  };
-
-  const handleScheduleMaintenance = async (maintenanceData) => {
-    if (!selectedEquipment) return;
-    
-    try {
-      const result = await equipmentService.current.scheduleMaintenance(selectedEquipment.id, maintenanceData);
-      if (result.success) {
-        await loadMaintenanceHistory(selectedEquipment.id);
-        setShowMaintenance(false);
-      }
-    } catch (error) {
-      console.error('Failed to schedule maintenance:', error);
-    }
-  };
+  }, []);
 
   const getHealthColor = (score) => {
     if (score >= 90) return '#16a34a';
