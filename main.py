@@ -14,6 +14,8 @@ import time
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, Tuple
 from contextlib import asynccontextmanager
+import firebase_admin
+from firebase_admin import credentials, auth, firestore, storage
 
 class IdempotencyCache:
     def __init__(self, max_size: int = 1000, ttl_seconds: int = 86400):
@@ -244,8 +246,6 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcess
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 import firebase_admin
-from firebase_admin import credentials, auth, firestore
-
 # Persistence Layer
 from persistence.repositories import (
     FinanceApplicationRepository,
@@ -390,6 +390,62 @@ def sanitise_log_field(value: str) -> str:
         return str(value)
     sanitised = ''.join(c if ord(c) >= 32 or c in '\n\t' else f'\\x{ord(c):02x}' for c in value)
     return sanitised[:1000]
+
+
+def _delete_user_documents(db, collection_name: str, uid: str, field_name: str = "user_id") -> int:
+    deleted_count = 0
+    try:
+        query = db.collection(collection_name).where(field_name, "==", uid)
+        batch = db.batch()
+        batch_ops = 0
+
+        for doc_snapshot in query.stream():
+            batch.delete(doc_snapshot.reference)
+            deleted_count += 1
+            batch_ops += 1
+
+            if batch_ops >= 400:
+                batch.commit()
+                batch = db.batch()
+                batch_ops = 0
+
+        if batch_ops:
+            batch.commit()
+    except Exception as exc:
+        logger.warning("Failed to delete %s records for uid=%s: %s", collection_name, uid, exc)
+
+    return deleted_count
+
+
+def _delete_user_storage_assets(uid: str) -> int:
+    prefixes = (
+        f"users/{uid}/",
+        f"user_uploads/{uid}/",
+        f"uploads/{uid}/",
+        f"profile_images/{uid}/",
+        f"documents/{uid}/",
+        f"consultations/{uid}/",
+    )
+    deleted = 0
+
+    try:
+        bucket = storage.bucket()
+        seen = set()
+
+        for prefix in prefixes:
+            for blob in bucket.list_blobs(prefix=prefix):
+                if blob.name in seen:
+                    continue
+                seen.add(blob.name)
+                try:
+                    blob.delete()
+                    deleted += 1
+                except Exception as exc:
+                    logger.warning("Failed to delete storage blob %s for uid=%s: %s", blob.name, uid, exc)
+    except Exception as exc:
+        logger.warning("Storage cleanup skipped for uid=%s: %s", uid, exc)
+
+    return deleted
 
 async def verify_role(request: Request, required_roles: list = None, require_all: bool = False):
     auth_header = request.headers.get("Authorization", "")
@@ -563,6 +619,7 @@ class SeedVerifyRequest(BaseModel):
 class GeminiImageRequest(BaseModel):
     """
     Request body for the server-side Gemini image analysis proxy.
+
     The frontend sends the base64-encoded image and a prompt; the backend
     forwards the request to Google using the server-side GEMINI_API_KEY so
     the key is never exposed in the compiled JavaScript bundle.
@@ -1877,6 +1934,11 @@ class ConsultationUpdateRequest(BaseModel):
     status: str = Field(..., pattern=r'^(scheduled|completed|cancelled|in-progress)$')
     notes: Optional[str] = Field(default=None, max_length=1000)
 
+
+class DeleteAccountRequest(BaseModel):
+    confirmation_text: str = Field(..., pattern=r'(?i)^DELETE$')
+    reason: Optional[str] = Field(default=None, max_length=500)
+
 class ExpertSlotRequest(BaseModel):
     expert_id: str = Field(..., min_length=1, max_length=100)
     date: str = Field(..., min_length=10, max_length=10)
@@ -2421,6 +2483,93 @@ async def cancel_consultation(
     except Exception as e:
         logger.error(f"Error cancelling consultation: {e}")
         raise HTTPException(status_code=500, detail="Failed to cancel consultation")
+
+
+@app.post("/api/account/delete")
+async def delete_account(
+    raw_request: Request,
+    payload: DeleteAccountRequest,
+    authorization: Optional[str] = None
+):
+    """
+    Permanently remove the authenticated user's account data.
+
+    The client must first reauthenticate the Firebase session, then submit the
+    verified bearer token to this endpoint so the backend can remove Firestore
+    data, storage assets, and subscriber records before the auth account is
+    deleted on the client.
+    """
+    try:
+        db = validate_firestore_ready()
+        token_data = await verify_role(raw_request)
+        uid = token_data["uid"]
+
+        audit_doc = db.collection("audit_logs").document()
+        audit_doc.set({
+            "action": "account_delete_requested",
+            "uid": uid,
+            "reason": payload.reason or "user_requested",
+            "created_at": datetime.now().isoformat(),
+            "source": "frontend",
+            "status": "initiated",
+        })
+
+        cleanup_summary = {
+            "user_profile_deleted": 0,
+            "consultations_deleted": 0,
+            "storage_objects_deleted": 0,
+            "whatsapp_subscription_removed": False,
+            "refresh_tokens_revoked": False,
+        }
+
+        try:
+            auth.revoke_refresh_tokens(uid)
+            cleanup_summary["refresh_tokens_revoked"] = True
+        except Exception as exc:
+            logger.warning("Failed to revoke refresh tokens for uid=%s: %s", uid, exc)
+
+        cleanup_summary["consultations_deleted"] = _delete_user_documents(db, "consultations", uid)
+
+        try:
+            db.collection("public_keys").document(uid).delete()
+        except Exception as exc:
+            logger.warning("Failed to delete public_keys/%s: %s", uid, exc)
+
+        try:
+            db.collection("users").document(uid).delete()
+            cleanup_summary["user_profile_deleted"] = 1
+        except Exception as exc:
+            logger.warning("Failed to delete user profile for uid=%s: %s", uid, exc)
+
+        cleanup_summary["storage_objects_deleted"] = _delete_user_storage_assets(uid)
+
+        try:
+            cleanup_summary["whatsapp_subscription_removed"] = subscriber_store.remove(uid)
+        except Exception as exc:
+            logger.warning("Failed to remove WhatsApp subscriber for uid=%s: %s", uid, exc)
+
+        try:
+            audit_doc.set({
+                "action": "account_delete_completed",
+                "uid": uid,
+                "reason": payload.reason or "user_requested",
+                "created_at": datetime.now().isoformat(),
+                "status": "completed",
+                "summary": cleanup_summary,
+            }, merge=True)
+        except Exception as exc:
+            logger.warning("Failed to update deletion audit log for uid=%s: %s", uid, exc)
+
+        return {
+            "success": True,
+            "message": "Account data removed. Delete the Firebase auth user from the client to finish.",
+            "summary": cleanup_summary,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error deleting account: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to delete account")
 
 
 # --- Smart Farm Autopilot Endpoint ---
