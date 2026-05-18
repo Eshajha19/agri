@@ -21,6 +21,7 @@ import {
   FaShieldAlt,
   FaFileInvoiceDollar,
   FaChartBar,
+  FaTrophy,
 } from "react-icons/fa";
 import "./Dashboard.css";
 import {
@@ -32,14 +33,14 @@ import ErrorBoundary from "./ErrorBoundary";
 import apiClient from "./lib/apiClient";
 import { getBookmarks } from "./utils/bookmarkStorage";
 
-export default function Dashboard() {
-  const name = localStorage.getItem("farmerName") || "Farmer";
-  const preferredLang = localStorage.getItem("preferredLanguage") || "en";
+export default function Dashboard({ userData }) {
+  const name = userData?.displayName || "Farmer";
+  const preferredLang = userData?.language || "en";
 
   const [currentTime, setCurrentTime] = useState(new Date());
   const [historicalWeather, setHistoricalWeather] = useState([]);
-  const [phoneNumber, setPhoneNumber] = useState(localStorage.getItem("farmerPhone") || "");
-  const [whatsappAlerts, setWhatsappAlerts] = useState(localStorage.getItem("whatsappAlerts") === "true");
+  const [phoneNumber, setPhoneNumber] = useState(userData?.phoneNumber || "");
+  const [whatsappAlerts, setWhatsappAlerts] = useState(!!userData?.whatsappAlerts);
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateMsg, setUpdateMsg] = useState("");
   const [yieldData, setYieldData] = useState([]);
@@ -48,6 +49,13 @@ export default function Dashboard() {
   const [selectedSeason, setSelectedSeason] = useState("");
   const [savedCrops, setSavedCrops] = useState([]);
   const [savedArticles, setSavedArticles] = useState([]);
+
+  useEffect(() => {
+    if (userData) {
+      setPhoneNumber(userData.phoneNumber || "");
+      setWhatsappAlerts(!!userData.whatsappAlerts);
+    }
+  }, [userData]);
 
   useEffect(() => {
     setSavedCrops(getBookmarks("crops"));
@@ -89,8 +97,6 @@ export default function Dashboard() {
         name: name,
       });
       if (response.data?.success) {
-        localStorage.setItem("farmerPhone", phoneNumber);
-        localStorage.setItem("whatsappAlerts", whatsappAlerts.toString());
         setUpdateMsg("Settings saved successfully!");
         setTimeout(() => setUpdateMsg(""), 3000);
       }
@@ -201,6 +207,7 @@ export default function Dashboard() {
     { label: "Yield Predictor", icon: <FaChartBar />, link: "/yield-predictor" },
     { label: "Crop Planner", icon: <FaCalendarAlt />, link: "/crop-planner" },
     { label: "Community", icon: <FaComments />, link: "/community" },
+    { label: "Leaderboard", icon: <FaTrophy />, link: "/leaderboard" },
     { label: "Diseases", icon: <FaBug />, link: "/disease-awareness" },
     { label: "Helpline", icon: <FaPhoneAlt />, link: "/helpline" },
     { label: "Glossary", icon: <FaBook />, link: "/glossary" },

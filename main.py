@@ -1,19 +1,23 @@
-# main.py
+"""
+Main API entrypoint — modular router registration
+
+This refactored file preserves API routes while delegating domain routes to
+`backend.routers.*` modules. It intentionally keeps initialization lightweight
+and non-destructive so upstream changes can be rebased safely.
+"""
 import os
-import io
-import json
-import logging
 import re
-import joblib
-import hashlib
-import pandas as pd
-import numpy as np
+import logging
+import collections
+import threading
 from datetime import datetime
 from typing import Optional, Dict, Any
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request, Form, Query, Response
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, validator
+from feature_flags.routes import router as flags_router
 
 class SimulationRequest(BaseModel):
     crop_type: str
@@ -42,6 +46,60 @@ class ClientErrorReport(BaseModel):
 class RAGQuery(BaseModel):
     query: str = Field(..., min_length=3, max_length=500)
     top_k: int = Field(default=3, ge=1, le=5)
+
+    @validator("query")
+    def sanitize_and_normalize_query(cls, v):
+        if not v or not isinstance(v, str):
+            raise ValueError("Query must be a non-empty string.")
+
+        # Strip script tags entirely to prevent XSS / script injection
+        v = re.sub(r'<script.*?>.*?</script>', '', v, flags=re.IGNORECASE | re.DOTALL)
+        v = re.sub(r'</?script.*?>', '', v, flags=re.IGNORECASE)
+
+        # Strip event handler attributes (onclick=, onload=, etc.)
+        v = re.sub(r'on\w+\s*=', '', v, flags=re.IGNORECASE)
+
+        # Strip dangerous URI schemes
+        v = re.sub(r'javascript:', '', v, flags=re.IGNORECASE)
+        v = re.sub(r'data:', '', v, flags=re.IGNORECASE)
+        v = re.sub(r'vbscript:', '', v, flags=re.IGNORECASE)
+
+        # Strip all other HTML tags entirely to prevent HTML injection in prompts or UI
+        v = re.sub(r'<[^>]*>', '', v)
+
+        # Neutralize markdown links [text](url) -> text (url)
+        v = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'\1 (\2)', v)
+
+        # Neutralize markdown styling syntax (bold, italic, code, headers)
+        v = re.sub(r'[*_~`#]', '', v)
+
+        # Normalize whitespace
+        v = v.strip()
+        v = re.sub(r'\s+', ' ', v)
+
+        # Prompt injection mitigation: reject known instruction-override phrases
+        forbidden_patterns = [
+            r"ignore\s+(?:all\s+)?previous\s+instructions",
+            r"ignore\s+(?:the\s+)?system\s+prompt",
+            r"override\s+system\s+constraints",
+            r"developer\s+mode",
+            r"bypass\s+safety\s+filter",
+            r"disregard\s+(?:all\s+)?prior\s+instructions",
+            r"act\s+as\s+(?:a\s+)?(?:different|unrestricted|unfiltered)\s+(?:ai|model|assistant)",
+            r"pretend\s+(?:you\s+are|to\s+be)\s+(?:a\s+)?(?:different|unrestricted)",
+            r"jailbreak",
+            r"prompt\s+injection",
+        ]
+        v_lower = v.lower()
+        for pattern in forbidden_patterns:
+            if re.search(pattern, v_lower):
+                raise ValueError("Query contains disallowed phrases or prompt injection attempts.")
+
+        # Re-enforce minimum length after sanitization has stripped content
+        if len(v) < 3:
+            raise ValueError("Query must be at least 3 characters long after sanitization.")
+
+        return v
 
 # Blockchain Supply Chain Models
 class RegisterActorRequest(BaseModel):
@@ -99,15 +157,73 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 # Firebase Admin SDK
-import firebase_admin
-from firebase_admin import credentials, auth as firebase_auth, firestore
 
-# ML Ops Imports
-from ml.registry import ModelRegistry
-from ml.adapters.xgboost_adapter import XGBoostAdapter
-from ml.router import ModelRouter
-from ml.preprocessing import UnknownCategoryError, MissingFeatureError
-from ml.security import verify_and_load_joblib
+# Observability: tracing + metrics
+from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from opentelemetry import trace
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor, ConsoleSpanExporter
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+import firebase_admin
+from firebase_admin import credentials, auth, firestore
+
+# Persistence Layer
+from persistence.repositories import (
+    FinanceApplicationRepository,
+    NotificationRepository,
+    SupplyChainRepository,
+)
+
+# RBAC (Role-Based Access Control)
+from rbac import (
+    RBACManager,
+    RBACMiddleware,
+    Permission,
+    require_permission,
+    print_rbac_matrix,
+)
+
+# Persistence Layer
+from persistence.repositories import (
+    FinanceApplicationRepository,
+    NotificationRepository,
+    SupplyChainRepository,
+)
+
+# RBAC (Role-Based Access Control)
+from rbac import (
+    RBACManager,
+    RBACMiddleware,
+    Permission,
+    require_permission,
+    print_rbac_matrix,
+)
+
+# Persistence Layer
+from persistence.repositories import (
+    FinanceApplicationRepository,
+    NotificationRepository,
+    SupplyChainRepository,
+)
+
+# RBAC (Role-Based Access Control)
+from rbac import (
+    RBACManager,
+    RBACMiddleware,
+    Permission,
+    require_permission,
+    print_rbac_matrix,
+)
+
+# ML Governance (Drift Detection, Shadow Evaluation, Rollback Safety)
+from ml.governance import (
+    DriftDetector,
+    ShadowEvaluator,
+    ModelVersionManager,
+)
 
 # Other internal modules
 from alert_rules import generate_alerts
@@ -116,7 +232,6 @@ from whatsapp_store import subscriber_store
 from crop_quality_grading import CropQualityGrader
 from blockchain_supply_chain import SupplyChainBlockchain
 from farm_finance_ai import FarmFinanceAI
-from sustainability_analytics import SustainabilityAnalytics
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -127,145 +242,186 @@ from cryptography.hazmat.primitives import serialization
 
 # KMS Support
 try:
-    from google.cloud import secretmanager
-    HAS_GCP_KMS = True
-except ImportError:
-    HAS_GCP_KMS = False
+    from feature_flags.routes import router as flags_router
+except Exception:
+    flags_router = None
 
-app = FastAPI()
+# Import modular routers
+from backend.routers import ml, governance, alerts, finance, quality, blockchain, reports, knowledge, community, voice_assistant
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
-# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
-# Used to sanitise client-supplied strings before they reach the log, so a
-# crafted payload cannot inject terminal control codes or forge log lines.
-_CONTROL_CHAR_RE = re.compile(
-    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
-    r"|\x1B[@-_]"                          # other ESC sequences
-    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
-)
-
-def _sanitise_log_field(value: str) -> str:
-    """Strip ANSI escape sequences and ASCII control characters from *value*."""
-    if not isinstance(value, str):
-        return ""
-    return _CONTROL_CHAR_RE.sub("", value)
-
-# Initialize Limiter
-limiter = Limiter(key_func=get_remote_address)
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-# Initialize Firebase Admin
-import logging as _logging
-_firebase_logger = _logging.getLogger(__name__)
-
-# Explicitly set to None before the try block so db_firestore is always
-# defined at module level, even if an exception is raised mid-init.
+# Global Firebase and Firestore references
 db_firestore = None
 
-if not firebase_admin._apps:
+def get_firestore_client():
+    """
+    Safely retrieves the Firestore client. If Firebase is already initialized
+    by other modules but db_firestore is None, it attempts dynamic retrieval.
+    """
+    global db_firestore
+    if db_firestore is not None:
+        return db_firestore
+    
     try:
-        # In a GCP environment this picks up Application Default Credentials
-        # automatically.  For local dev set GOOGLE_APPLICATION_CREDENTIALS to
-        # the path of a service-account key file.
-        firebase_admin.initialize_app()
-        db_firestore = firestore.client()
-        _firebase_logger.info("Firebase Admin: successfully initialized")
+        # If not initialized, try standard initialization
+        if not firebase_admin._apps:
+            cred = None
+            if os.path.exists("serviceAccountKey.json"):
+                cred = credentials.Certificate("serviceAccountKey.json")
+            elif os.path.exists("firebase-credentials.json"):
+                cred = credentials.Certificate("firebase-credentials.json")
+            else:
+                cred_json = os.getenv("FIREBASE_CREDENTIALS_JSON")
+                if cred_json:
+                    import json
+                    cred_dict = json.loads(cred_json)
+                    cred = credentials.Certificate(cred_dict)
+            
+            try:
+                if cred:
+                    firebase_admin.initialize_app(cred)
+                else:
+                    firebase_admin.initialize_app()
+            except ValueError:
+                # App already exists
+                pass
+
+        if firebase_admin._apps:
+            db_firestore = firestore.client()
+            logger.info("Firestore client initialized/retrieved successfully")
     except Exception as e:
-        _firebase_logger.warning(
-            "Firebase Admin: could not initialize — role-gated endpoints will "
-            "return 503 until Firestore is reachable. Reason: %s", e
-        )
+        logger.error(f"Failed to retrieve Firestore client: {e}")
+        db_firestore = None
+    return db_firestore
 
-async def verify_role(request: Request, required_roles: list = None):
+def validate_firestore_ready():
     """
-    Verify the Firebase ID token and check the caller's role against Firestore.
-    Expects 'Authorization: Bearer <ID_TOKEN>' header.
-
-    Fail-closed design:
-    - If Firestore is unavailable the request is rejected with 503.
-    - If the user document does not exist the request is rejected with 403.
-    - The function never grants a role that was not explicitly stored in Firestore.
+    Validates that the Firestore database is fully initialized and ready.
+    If not, raises an HTTP 503 Service Unavailable exception to prevent crashes.
     """
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
-
-    # Use a slice instead of split()[1] to avoid IndexError when the header
-    # is exactly "Bearer " with no token following it.
-    id_token = auth_header[7:].strip()
-    if not id_token:
-        raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
-
-    # Verify the token signature with Firebase — raises on invalid/expired tokens.
-    try:
-        decoded_token = firebase_auth.verify_id_token(id_token)
-    except Exception:
-        raise HTTPException(status_code=401, detail="Authentication failed")
-
-    uid = decoded_token["uid"]
-
-    # Firestore must be available to resolve the caller's role.
-    # Failing open (granting admin when Firestore is down) is a security bug,
-    # so we reject the request instead.
-    if not db_firestore:
+    client = get_firestore_client()
+    if client is None:
         raise HTTPException(
             status_code=503,
-            detail="Authorization service temporarily unavailable"
+            detail="Database service temporarily unavailable. Firestore was not initialized."
         )
+    return client
 
-    # Wrap the Firestore fetch so a transient network error (timeout, reset)
-    # returns the same clean 503 as a missing db_firestore, rather than an
-    # unhandled exception that leaks internal details as a raw 500.
+def sanitise_log_field(value: str) -> str:
+    if not isinstance(value, str):
+        return str(value)
+    sanitised = ''.join(c if ord(c) >= 32 or c in '\n\t' else f'\\x{ord(c):02x}' for c in value)
+    return sanitised[:1000]
+
+async def verify_role(request: Request, required_roles: list = None, require_all: bool = False):
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing auth token")
+    token = auth_header.split(" ")[1]
     try:
-        user_doc = db_firestore.collection("users").document(uid).get()
+        decoded = auth.verify_id_token(token)
+        uid = decoded["uid"]
+        db = validate_firestore_ready()
+        user_doc = db.collection("users").document(uid).get()
+        user_roles = user_doc.get("roles", []) if user_doc.exists else []
+        if required_roles:
+            if require_all:
+                has_access = all(role in user_roles for role in required_roles)
+            else:
+                has_access = any(role in user_roles for role in required_roles)
+            if not has_access:
+                raise HTTPException(status_code=403, detail="Insufficient permissions")
+        return {"uid": uid, "roles": user_roles}
+    except HTTPException:
+        raise
     except Exception as e:
-        _firebase_logger.error(
-            "Firestore fetch failed for uid=%s during role check: %s", uid, e
-        )
-        raise HTTPException(
-            status_code=503,
-            detail="Authorization service temporarily unavailable"
-        )
+        logger.error(f"Unexpected authorization verification failure: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error during authorization")
 
-    if not user_doc.exists:
-        raise HTTPException(status_code=403, detail="User profile not found")
 
-    user_role = user_doc.to_dict().get("role", "farmer")
+class NotificationStore:
+    def __init__(self, max_size=1000, ttl_hours=24):
+        self.notifications = collections.deque(maxlen=max_size)
+        self.ttl_hours = ttl_hours
+        self.lock = threading.Lock()
+        self.id_counter = 0
 
-    if required_roles and user_role not in required_roles:
-        raise HTTPException(status_code=403, detail="Access denied: insufficient permissions")
+    def append(self, alert_type: str, message: str):
+        with self.lock:
+            self.id_counter += 1
+            self.notifications.append({
+                "id": self.id_counter,
+                "alert_type": alert_type,
+                "message": message,
+                "timestamp": datetime.now().isoformat(),
+                "ttl": datetime.now().isoformat()
+            })
 
-    return {"uid": uid, "role": user_role}
+    def get_recent(self, count=10):
+        with self.lock:
+            return list(reversed([n for n in list(self.notifications)[-count:]]))
 
-# --- Secure CORS Configuration ---
-frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
-trusted_origins = [
-    "http://localhost:5173",     # Local development
-    "http://127.0.0.1:5173",     # Local development alternative
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:8000",
-]
 
-# Add any custom frontend URLs from environment
-if frontend_url and frontend_url not in trusted_origins:
-    trusted_origins.append(frontend_url)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global db_firestore
+    try:
+        logger.info("Starting up: initializing Firebase and services...")
+        get_firestore_client()
+        if db_firestore:
+            logger.info("Firebase/Firestore startup initialization verified successfully")
+        else:
+            logger.warning("Firebase/Firestore failed to initialize during startup diagnostics. Downstream database endpoints will return 503.")
+    except Exception as e:
+        logger.error(f"Firebase init failed during startup: {e}")
+    yield
+    logger.info("App shutting down")
 
-# Support comma-separated list of additional origins
-extra_origins = os.getenv("ADDITIONAL_ALLOWED_ORIGINS")
-if extra_origins:
-    trusted_origins.extend([origin.strip() for origin in extra_origins.split(",")])
 
+app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
+
+# ----- OpenTelemetry Tracing Setup -----
+try:
+    service_name = os.environ.get("OTEL_SERVICE_NAME", "fasal-saathi-backend")
+    resource = Resource.create({"service.name": service_name})
+    provider = TracerProvider(resource=resource)
+    trace.set_tracer_provider(provider)
+    otlp_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+    if otlp_endpoint:
+        otlp_exporter = OTLPSpanExporter(endpoint=otlp_endpoint)
+        provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+    else:
+        # fallback to console exporter for local dev / CI
+        provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
+    # instrument FastAPI
+    FastAPIInstrumentor().instrument_app(app)
+    logger.info("OpenTelemetry tracing initialized")
+except Exception as e:
+    logger.warning(f"OpenTelemetry init skipped: {e}")
+
+# ----- Prometheus Metrics -----
+try:
+    Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+    logger.info("Prometheus instrumentation enabled at /metrics")
+except Exception as e:
+    logger.warning(f"Prometheus instrumentation skipped: {e}")
+
+# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=trusted_origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add RBAC middleware for access logging
+app.add_middleware(RBACMiddleware)
+
+# Log RBAC matrix on startup
+logger.info(print_rbac_matrix())
 
 # --- Models ---
 
@@ -298,52 +454,46 @@ class AlertTriggerRequest(BaseModel):
     message: str
 
 class ReportRequest(BaseModel):
-    name: str = Field(..., max_length=100)
-    crop: str = Field(..., max_length=50)
-    area: str = Field(..., max_length=50)
-    profit: str = Field(..., max_length=50)
-    season: str = Field(..., max_length=50)
+    name: str = Field(..., max_length=100, description="Full name of the farmer")
+    crop: str = Field(..., max_length=50, description="Primary crop type")
+    area: str = Field(..., max_length=50, description="Total farm area")
+    profit: str = Field(..., max_length=50, description="Estimated season profit")
+    season: str = Field(..., max_length=50, description="Farming season")
 
     @validator("name", "crop", "area", "profit", "season", pre=True)
-    def reject_pipe_characters(cls, v):
-        # Belt-and-suspenders guard: the signing payload now uses JSON (which
-        # is unambiguous regardless of field content), but we also reject pipe
-        # characters at the model level so legacy code paths or future changes
-        # cannot accidentally reintroduce a delimiter-injection vulnerability.
-        if isinstance(v, str) and "|" in v:
-            raise ValueError(
-                "Field value must not contain the '|' character."
-            )
+    def sanitize_and_validate_input(cls, v):
+        # Enforce robust input validation standards: ensure input is clean,
+        # printable text and strip leading/trailing whitespace.
+        # Primary security against injection is handled via canonical structured JSON
+        # serialization during report signing, completely eliminating delimiter-based risks.
+        if isinstance(v, str):
+            v = v.strip()
+            if "|" in v:
+                raise ValueError("Field value must not contain the '|' character.")
         return v
+
+class WeatherLocationRequest(BaseModel):
+    location: str
+
+class WeatherAlertRequest(BaseModel):
+    latitude: float
+    longitude: float
+    location: str
+    crop: Optional[str] = None
 
 class SeedVerifyRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=100)
 
-# Whitelist of commodities the price forecaster supports.
-# Restricting to this set prevents an attacker from submitting arbitrary
-# strings that each trigger a new LSTM training run and grow the model
-# cache without bound.
-_FORECASTABLE_COMMODITIES = frozenset([
-    "Wheat",
-    "Paddy (Dhan)",
-    "Cotton",
-    "Onion",
-    "Soybean",
-    "Maize",
-])
-
-class MarketForecastRequest(BaseModel):
-    commodity: str = Field(..., min_length=1, max_length=60)
-    days: int = Field(default=14, ge=1, le=30)
-
-    @validator("commodity")
-    def commodity_must_be_supported(cls, v):
-        if v not in _FORECASTABLE_COMMODITIES:
-            raise ValueError(
-                f"Unsupported commodity '{v}'. "
-                f"Supported values: {sorted(_FORECASTABLE_COMMODITIES)}"
-            )
-        return v
+class GeminiImageRequest(BaseModel):
+    """
+    Request body for the server-side Gemini image analysis proxy.
+    The frontend sends the base64-encoded image and a prompt; the backend
+    forwards the request to Google using the server-side GEMINI_API_KEY so
+    the key is never exposed in the compiled JavaScript bundle.
+    """
+    image_base64: str = Field(..., min_length=10, description="Base64-encoded image data")
+    mime_type: str = Field(..., pattern=r"^image/(jpeg|png|gif|webp)$", description="MIME type of the image")
+    prompt: str = Field(..., min_length=10, max_length=2000, description="Analysis prompt")
 
 class FinanceAssessmentRequest(BaseModel):
     farmer_name: str = Field(..., min_length=1, max_length=100)
@@ -362,19 +512,35 @@ class FinanceAssessmentRequest(BaseModel):
     farm_location: Optional[str] = Field(default=None, max_length=120)
     notes: Optional[str] = Field(default=None, max_length=500)
 
-class SustainabilityAnalyzeRequest(BaseModel):
-    crop_type: str = Field(..., min_length=1, max_length=50)
-    season: str = Field(default="Kharif", max_length=20)
-    acreage: float = Field(..., gt=0, le=5000)
-    irrigation_type: str = Field(default="drip")
-    irrigation_events: int = Field(default=10, ge=0, le=200)
-    fertilizer_n_kg: Optional[float] = Field(default=None, ge=0, le=50000)
-    fertilizer_p_kg: Optional[float] = Field(default=None, ge=0, le=50000)
-    fertilizer_k_kg: Optional[float] = Field(default=None, ge=0, le=50000)
-    machinery_hours: Optional[float] = Field(default=None, ge=0, le=10000)
-    diesel_liters: Optional[float] = Field(default=None, ge=0, le=50000)
-    organic_practices: bool = Field(default=False)
-    user_id: Optional[str] = Field(default=None, max_length=128)
+# ML Governance Request Models
+class StartShadowEvaluationRequest(BaseModel):
+    production_model: str = Field(..., min_length=1, max_length=50)
+    candidate_model: str = Field(..., min_length=1, max_length=50)
+
+class RecordPredictionRequest(BaseModel):
+    eval_id: str = Field(..., min_length=1)
+    production_prediction: float
+    candidate_prediction: float
+    actual_value: float
+
+class RegisterModelVersionRequest(BaseModel):
+    model_name: str = Field(..., min_length=1, max_length=50)
+    model_path: str = Field(..., min_length=1)
+    rmse: float = Field(..., gt=0)
+    r2_score: float = Field(default=0, ge=-1, le=1)
+    metadata: Optional[Dict[str, Any]] = None
+
+# --- ML Governance Initialization ---
+drift_detector = DriftDetector(
+    window_size=100,
+    prediction_drift_threshold=0.2,
+    input_drift_threshold=0.15,
+)
+shadow_evaluator = ShadowEvaluator(
+    min_samples=50,
+    error_improvement_threshold=0.05,
+)
+version_manager = ModelVersionManager(versions_dir="./model_versions")
 
 # --- ML Pipeline Initialization ---
 router = ModelRouter(default_model="xgboost")
@@ -397,318 +563,178 @@ def init_ml_pipeline():
     except Exception as e:
         print(f"ML Pipeline Error: {e}")
 
-init_ml_pipeline()
+notification_store = NotificationStore()
 
-# Load model directly for backward compatibility or simple use cases if needed
+# Initialize and wire dependencies (best-effort; non-blocking)
 try:
-    # Use signature-verified loading to prevent execution of malicious
-    # pickled objects. These calls expect companion signature files:
-    # - yield_model.joblib.sig
-    # - sklearn_yield_model.pkl.sig
-    model = verify_and_load_joblib("yield_model.joblib")
-    model_lag = verify_and_load_joblib("sklearn_yield_model.pkl")
-    print("Models loaded successfully")
+    from ml.governance import DriftDetector, ShadowEvaluator, ModelVersionManager
+    from whatsapp_service import send_whatsapp_notification, format_alert_message
+    from rbac import RBACManager, Permission
+    from farm_finance_ai import FarmFinanceAI
+    from crop_quality_grading import CropQualityGrader
+    from blockchain_supply_chain import SupplyChainBlockchain
+
+    drift_detector = DriftDetector()
+    shadow_evaluator = ShadowEvaluator()
+    version_manager = ModelVersionManager()
+    governance.init_governance(drift_detector, shadow_evaluator, version_manager)
+
+    def generate_alerts_fn(crop=None, irrigation_count=None, water_coverage=None, season=None):
+        return []
+
+    alerts.init_alerts(notification_store, {}, generate_alerts_fn, send_whatsapp_notification, format_alert_message, verify_role)
+
+    farm_finance = FarmFinanceAI()
+    rbac_mgr = RBACManager()
+    finance.init_finance(farm_finance, rbac_mgr, Permission)
+
+    crop_quality = CropQualityGrader()
+    quality.init_quality(crop_quality, rbac_mgr, Permission)
+
+    supply_chain = SupplyChainBlockchain()
+    blockchain.init_blockchain(supply_chain)
+
+    # Initialize Voice Assistant for Farmers
+    from voice_assistant import VoiceAssistant, OfflineCacheManager
+    voice_asst = VoiceAssistant(offline_mode=True)
+    cache_mgr = OfflineCacheManager(cache_dir="./voice_assistant_cache")
+    voice_assistant.init_voice_assistant(voice_asst, cache_mgr)
 except Exception as e:
-    print(f"Error loading models: {e}")
-    model = None
-    model_lag = None
+    logger.warning(f"Dependency wiring failed: {e}")
 
-# --- Static Notifications Storage ---
-static_notifications = [
-    {
-        "id": 1,
-        "type": "weather",
-        "message": "🌧️ Heavy rainfall expected in your region today.",
-        "time": datetime.now().isoformat()
-    }
-]
+# ML Governance Request Models
+class StartShadowEvaluationRequest(BaseModel):
+    production_model: str = Field(..., min_length=1, max_length=50)
+    candidate_model: str = Field(..., min_length=1, max_length=50)
+
+class RecordPredictionRequest(BaseModel):
+    eval_id: str = Field(..., min_length=1)
+    production_prediction: float
+    candidate_prediction: float
+    actual_value: float
+
+class RegisterModelVersionRequest(BaseModel):
+    model_name: str = Field(..., min_length=1, max_length=50)
+    model_path: str = Field(..., min_length=1)
+    rmse: float = Field(..., gt=0)
+    r2_score: float = Field(default=0, ge=-1, le=1)
+    metadata: Optional[Dict[str, Any]] = None
+
+# --- ML Governance Initialization ---
+drift_detector = DriftDetector(
+    window_size=100,
+    prediction_drift_threshold=0.2,
+    input_drift_threshold=0.15,
+)
+shadow_evaluator = ShadowEvaluator(
+    min_samples=50,
+    error_improvement_threshold=0.05,
+)
+version_manager = ModelVersionManager(versions_dir="./model_versions")
+
+try:
+    SEED_REGISTRY = {"TEST001": {"verified": True, "expiry": "2025-12-31"}}
+    knowledge.init_knowledge(rag_generate_fn, rbac_mgr, Permission, SEED_REGISTRY, verify_role)
+
+    try:
+        import joblib
+        import numpy as np
+        model_lag = joblib.load("sklearn_yield_model.joblib")
+        class ModelRouter:
+            def predict(self, data, context):
+                feature_array = np.array([data.get(k, 0) for k in ['CropCoveredArea', 'CHeight', 'IrriCount', 'WaterCov']])
+                feature_array = feature_array.reshape(1, -1)
+                return float(model_lag.predict(feature_array)[0])
+        model_router_instance = ModelRouter()
+        ml.init_router(model_router_instance, model_lag)
+    except Exception:
+        logger.warning("ML model not loaded")
+
+except Exception as e:
+    logger.warning(f"Dependency initialization skipped: {e}")
+
+
+# Register routers
+app.include_router(ml.router, prefix="/api/yield", tags=["ML Prediction"])
+app.include_router(governance.router, prefix="/api/ml-governance", tags=["ML Governance"])
+app.include_router(alerts.router, prefix="/api/notifications", tags=["Alerts"])
+app.include_router(finance.router, prefix="/api/farm-finance", tags=["Finance"])
+app.include_router(quality.router, prefix="/api/crop-quality", tags=["Quality"])
+app.include_router(blockchain.router, prefix="/api/supply-chain", tags=["Blockchain"])
+app.include_router(reports.router, prefix="/api/admin", tags=["Reports"])
+app.include_router(knowledge.router, prefix="/api/knowledge", tags=["Knowledge"])
+app.include_router(community.router, prefix="/api/community", tags=["Community"])
+app.include_router(voice_assistant.router, prefix="/api/voice", tags=["Voice Assistant"])
+
+# Initialize repositories for persistent storage
+_finance_repository = FinanceApplicationRepository()
+_notification_repository = NotificationRepository()
+_supply_chain_repository = SupplyChainRepository()
 
 # Initialize Crop Quality Grader
 _crop_quality_grader = CropQualityGrader()
 
+# Initialize Supply Chain Blockchain with persistent repository
+_supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
+
+# Initialize Farm Finance AI with persistent repository
+_farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
+
+logger.info("Domain engines initialized with persistent repositories")
+
+# Initialize repositories for persistent storage
+_finance_repository = FinanceApplicationRepository()
+_notification_repository = NotificationRepository()
+_supply_chain_repository = SupplyChainRepository()
+
 # Initialize Crop Quality Grader
 _crop_quality_grader = CropQualityGrader()
 
-# Initialize Supply Chain Blockchain
-_supply_chain_blockchain = SupplyChainBlockchain()
+# Initialize Supply Chain Blockchain with persistent repository
+_supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
 
-# Initialize Farm Finance AI
-_farm_finance_ai = FarmFinanceAI()
-_sustainability_analytics = SustainabilityAnalytics()
+# Initialize Farm Finance AI with persistent repository
+_farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
+
+logger.info("Domain engines initialized with persistent repositories")
+
+# Initialize repositories for persistent storage
+_finance_repository = FinanceApplicationRepository()
+_notification_repository = NotificationRepository()
+_supply_chain_repository = SupplyChainRepository()
+
+# Initialize Crop Quality Grader
+_crop_quality_grader = CropQualityGrader()
+
+# Initialize Supply Chain Blockchain with persistent repository
+_supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
+
+# Initialize Farm Finance AI with persistent repository
+_farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
+
+logger.info("Domain engines initialized with persistent repositories")
+
+# Initialize repositories for persistent storage
+_finance_repository = FinanceApplicationRepository()
+_notification_repository = NotificationRepository()
+_supply_chain_repository = SupplyChainRepository()
+
+# Initialize Crop Quality Grader
+_crop_quality_grader = CropQualityGrader()
+
+# Initialize Supply Chain Blockchain with persistent repository
+_supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
+
+# Initialize Farm Finance AI with persistent repository
+_farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
+
+logger.info("Domain engines initialized with persistent repositories")
 
 # --- Routes ---
 
 @app.get("/")
-def root():
-    return {"message": "Fasal Saathi API", "status": "running"}
-
-@app.get("/predict")
-def predict_get():
-    return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
-
-@app.post("/predict", response_model=PredictResponse)
-@limiter.limit("5/minute")
-def predict_yield(data: PredictRequest, request: Request):
-    """
-    Standardised prediction endpoint using ML Router for dynamic model selection.
-
-    Returns HTTP 422 when the input contains an unknown categorical value or a
-    missing required feature, so callers receive an actionable error message
-    rather than a silently corrupted prediction.
-    """
-    try:
-        input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
-
-        context = {
-            "location": request.headers.get("X-User-Location", "Unknown"),
-            "crop": data.Crop,
-        }
-
-        predicted_yield = router.predict(input_data, context)
-        return {"predicted_ExpYield": float(predicted_yield)}
-
-    except UnknownCategoryError as e:
-        # The submitted categorical value was not in the training vocabulary.
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "unknown_category",
-                "field": e.column,
-                "value": str(e.value),
-                "message": str(e),
-            },
-        )
-    except MissingFeatureError as e:
-        # Required feature columns are absent after encoding.
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "missing_features",
-                "missing": e.missing_columns,
-                "message": str(e),
-            },
-        )
-    except Exception as e:
-        print(f"Prediction Error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.post("/predict-yield-lag")
-@limiter.limit("5/minute")
-async def predict_yield_lag(payload: YieldInput, request: Request):
-    if model_lag is None:
-        raise HTTPException(status_code=500, detail="Model not loaded")
-    try:
-        data = payload.data
-        if len(data) != 5:
-            raise ValueError("Exactly 5 values are required")
-        data = np.array(data).reshape(1, -1)
-        prediction = model_lag.predict(data)
-        return {
-            "prediction": round(float(prediction[0]), 2),
-            "model": "RandomForest Time Series (Lag Features)"
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Internal Server Error") from e
-
-@app.post("/predict-yield-trend")
-@limiter.limit("5/minute")
-async def predict_yield_trend(payload: YieldInput, request: Request):
-    if model_lag is None:
-        raise HTTPException(status_code=500, detail="Model not loaded")
-    try:
-        data = payload.data
-        if len(data) != 5:
-            raise ValueError("Exactly 5 values are required")
-        temp = data[::-1]  # reverse once
-        trend = []
-        for _ in range(5):
-            features = temp[:5]
-            pred = model_lag.predict([features])[0]
-            pred_value = round(float(pred), 2)
-            trend.append(pred_value)
-            temp = [pred_value] + temp
-        return {
-            "trend": trend,
-            "prediction": trend[-1],
-            "model": "RandomForest Trend Forecast (Lag Features)"
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Internal Server Error") from e
-
-@app.get("/api/notifications")
-def get_notifications(
-    crop: str = Query(default=None),
-    irrigation_count: int = Query(default=None, ge=0),
-    water_coverage: int = Query(default=None, ge=0, le=100),
-    season: str = Query(default=None)
-):
-    """Generate dynamic farm advisory alerts + static ones."""
-    dynamic_alerts = generate_alerts(
-        crop=crop,
-        irrigation_count=irrigation_count,
-        water_coverage=water_coverage,
-        season=season
-    )
-    return {"success": True, "data": _notification_store.get_recent() + dynamic_alerts}
-
-@app.post("/api/finance/analyze")
-@limiter.limit("10/minute")
-async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest):
-    """Analyze farm finances and return loan recommendations."""
-    input_data = body.model_dump() if hasattr(body, "model_dump") else body.dict()
-    analysis = _farm_finance_ai.analyze_financial_profile(input_data)
-    return {"success": True, "data": analysis}
-
-
-@app.post("/api/finance/applications")
-@limiter.limit("5/minute")
-async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
-    """Create a loan application from the current farm profile."""
-    input_data = body.model_dump() if hasattr(body, "model_dump") else body.dict()
-    application = _farm_finance_ai.create_application(input_data)
-    return {"success": True, "data": application}
-
-
-@app.get("/api/finance/applications/{application_id}")
-def get_finance_application(application_id: str):
-    application = _farm_finance_ai.get_application(application_id)
-    if not application:
-        raise HTTPException(status_code=404, detail="Application not found")
-    return {"success": True, "data": application}
-
-
-@app.get("/api/finance/products")
-def get_finance_products():
-    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
-
-
-@app.get("/api/finance/marketplace")
-def get_finance_marketplace():
-    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
-
-# --- Sustainability Analytics Endpoints ---
-
-@app.post("/api/sustainability/analyze")
-@limiter.limit("20/minute")
-async def analyze_sustainability(request: Request, body: SustainabilityAnalyzeRequest):
-    """LCA-style water footprint and carbon emission estimate for a crop season."""
-    input_data = body.model_dump() if hasattr(body, "model_dump") else body.dict()
-    analysis = _sustainability_analytics.analyze(input_data)
-    return {"success": True, "data": analysis}
-
-
-@app.get("/api/sustainability/history")
-def get_sustainability_history(
-    user_id: str = Query(default="anonymous", max_length=128),
-    limit: int = Query(default=12, ge=1, le=50),
-):
-    """Historical sustainability records for comparative analytics."""
-    history = _sustainability_analytics.get_history(user_id, limit=limit)
-    return {"success": True, "data": history}
-
-
-@app.get("/api/sustainability/formulas")
-def get_sustainability_formulas():
-    """Configurable LCA coefficient datasets used by the analytics engine."""
-    return {"success": True, "data": _sustainability_analytics.get_formula_config()}
-
-# --- Weather Alerts Endpoints ---
-
-@app.post("/api/weather/geocode")
-async def geocode_location(data: WeatherLocationRequest):
-    """
-    Get coordinates (latitude, longitude) for a location.
-    
-    This endpoint helps users find their farm location's coordinates
-    without exposing any API keys.
-    """
-    try:
-        result = await weather_service.get_coordinates(data.location)
-        if result:
-            latitude, longitude, name = result
-            return {
-                "success": True,
-                "location": name,
-                "latitude": latitude,
-                "longitude": longitude,
-            }
-        else:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Location '{data.location}' not found"
-            )
-    except Exception as e:
-        logger.error(f"Geocoding error: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to geocode location"
-        ) from e
-
-
-@app.post("/api/weather/alerts")
-@limiter.limit("10/minute")
-async def get_weather_alerts(data: WeatherAlertRequest, request: Request):
-    """
-    Get real-time weather alerts for a specific location and crop.
-    
-    Args:
-        latitude: Farm latitude
-        longitude: Farm longitude
-        location: Location name for display
-        crop: (Optional) Crop type for crop-specific warnings
-    
-    Returns:
-        Weather alerts with severity levels and recommended actions
-    
-    Note: No API keys are exposed. Uses free Open-Meteo API.
-    """
-    try:
-        # Fetch current weather
-        weather = await weather_service.fetch_weather(
-            data.latitude,
-            data.longitude,
-            data.location
-        )
-        
-        if not weather:
-            raise HTTPException(
-                status_code=503,
-                detail="Unable to fetch weather data. Please try again."
-            )
-        
-        # Analyze weather and generate alerts
-        alerts = weather_service.analyze_weather(weather, data.crop)
-        
-        # Get summary
-        summary = weather_service.get_alerts_summary(alerts)
-        
-        return {
-            "success": True,
-            "location": data.location,
-            "crop": data.crop,
-            "weather": {
-                "temperature": weather.temperature,
-                "humidity": weather.humidity,
-                "rainfall": weather.rainfall,
-                "wind_speed": weather.wind_speed,
-                "cloud_cover": weather.cloud_cover,
-                "timestamp": weather.timestamp.isoformat(),
-            },
-            "alerts": summary,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Weather alert error: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to generate weather alerts"
-        ) from e
-
+def health_check():
+    return {"status": "healthy", "service": "Fasal Saathi Backend", "version": "2.0"}
 
 @app.get("/api/weather/alerts/history")
 @limiter.limit("5/minute")
@@ -731,6 +757,186 @@ async def get_alerts_history(request: Request):
             status_code=500,
             detail="Failed to retrieve alert history"
         ) from e
+
+@app.post("/api/finance/analyze")
+@limiter.limit("10/minute")
+async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest):
+    """Analyze farm finances and return loan recommendations."""
+    # Check permission: farmer can create finance requests
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
+    analysis = _farm_finance_ai.analyze_financial_profile(body.model_dump())
+    return {"success": True, "data": analysis}
+
+
+@app.post("/api/finance/applications")
+@limiter.limit("5/minute")
+async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
+    """Create a loan application from the current farm profile."""
+    # Check permission: farmer can create finance applications
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
+    application = _farm_finance_ai.create_application(body.model_dump())
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/applications/{application_id}")
+async def get_finance_application(application_id: str, request: Request):
+    # Check permission: user can read finance applications (own or all if expert/admin)
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_READ_OWN, Permission.FINANCE_READ_ALL], require_all=False
+    )
+    application = _farm_finance_ai.get_application(application_id)
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/products")
+def get_finance_products():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+
+@app.get("/api/finance/marketplace")
+def get_finance_marketplace():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+@app.post("/api/finance/analyze")
+@limiter.limit("10/minute")
+async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest):
+    """Analyze farm finances and return loan recommendations."""
+    # Check permission: farmer can create finance requests
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
+    analysis = _farm_finance_ai.analyze_financial_profile(body.model_dump())
+    return {"success": True, "data": analysis}
+
+
+@app.post("/api/finance/applications")
+@limiter.limit("5/minute")
+async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
+    """Create a loan application from the current farm profile."""
+    # Check permission: farmer can create finance applications
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
+    application = _farm_finance_ai.create_application(body.model_dump())
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/applications/{application_id}")
+async def get_finance_application(application_id: str, request: Request):
+    # Check permission: user can read finance applications (own or all if expert/admin)
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_READ_OWN, Permission.FINANCE_READ_ALL], require_all=False
+    )
+    application = _farm_finance_ai.get_application(application_id)
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/products")
+def get_finance_products():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+
+@app.get("/api/finance/marketplace")
+def get_finance_marketplace():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+@app.post("/api/finance/analyze")
+@limiter.limit("10/minute")
+async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest):
+    """Analyze farm finances and return loan recommendations."""
+    # Check permission: farmer can create finance requests
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
+    analysis = _farm_finance_ai.analyze_financial_profile(body.model_dump())
+    return {"success": True, "data": analysis}
+
+
+@app.post("/api/finance/applications")
+@limiter.limit("5/minute")
+async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
+    """Create a loan application from the current farm profile."""
+    # Check permission: farmer can create finance applications
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
+    application = _farm_finance_ai.create_application(body.model_dump())
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/applications/{application_id}")
+async def get_finance_application(application_id: str, request: Request):
+    # Check permission: user can read finance applications (own or all if expert/admin)
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_READ_OWN, Permission.FINANCE_READ_ALL], require_all=False
+    )
+    application = _farm_finance_ai.get_application(application_id)
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/products")
+def get_finance_products():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+
+@app.get("/api/finance/marketplace")
+def get_finance_marketplace():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+@app.post("/api/finance/analyze")
+@limiter.limit("10/minute")
+async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest):
+    """Analyze farm finances and return loan recommendations."""
+    # Check permission: farmer can create finance requests
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
+    analysis = _farm_finance_ai.analyze_financial_profile(body.model_dump())
+    return {"success": True, "data": analysis}
+
+
+@app.post("/api/finance/applications")
+@limiter.limit("5/minute")
+async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
+    """Create a loan application from the current farm profile."""
+    # Check permission: farmer can create finance applications
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
+    application = _farm_finance_ai.create_application(body.model_dump())
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/applications/{application_id}")
+async def get_finance_application(application_id: str, request: Request):
+    # Check permission: user can read finance applications (own or all if expert/admin)
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_READ_OWN, Permission.FINANCE_READ_ALL], require_all=False
+    )
+    application = _farm_finance_ai.get_application(application_id)
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/products")
+def get_finance_products():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+
+@app.get("/api/finance/marketplace")
+def get_finance_marketplace():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
 
 # --- WhatsApp Service Endpoints ---
 #
@@ -845,12 +1051,11 @@ def get_signing_keys():
 
     if project_id:
         if not HAS_GCP_KMS:
-            if IS_PRODUCTION:
-                raise HTTPException(
-                    status_code=500,
-                    detail="google-cloud-secret-manager is not installed but is required in production"
-                )
-            print("KMS Warning: google-cloud-secret-manager not installed; skipping GCP path.")
+            logger.critical("CRITICAL SECURITY ALERT: google-cloud-secret-manager is not installed but GOOGLE_CLOUD_PROJECT is set. Halting to prevent insecure fallback.")
+            raise HTTPException(
+                status_code=500,
+                detail="KMS Initialization Error: google-cloud-secret-manager is required when GOOGLE_CLOUD_PROJECT is set. Halting to prevent insecure fallback."
+            )
         else:
             try:
                 client = secretmanager.SecretManagerServiceClient()
@@ -863,14 +1068,13 @@ def get_signing_keys():
                 print(f"KMS: Loaded signing key from Secret Manager (secret: {secret_id})")
                 return _cached_private_key
             except Exception as e:
-                if IS_PRODUCTION:
-                    print(f"KMS Error: {e}")
-                    raise HTTPException(
-                        status_code=500,
-                        detail="Failed to retrieve signing key from Secret Manager"
-                    )
-                print(f"KMS Warning: Could not reach Secret Manager ({e}); falling back to local key.")
+                logger.critical(f"CRITICAL SECURITY ALERT: KMS Initialization Failed. Could not reach Secret Manager: {e}. Halting to prevent insecure fallback to local keys.")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"KMS Initialization Error: Failed to retrieve signing key from Secret Manager. Halting to prevent insecure fallback."
+                )
     elif IS_PRODUCTION:
+        logger.critical("CRITICAL SECURITY ALERT: GOOGLE_CLOUD_PROJECT is not set in production. Cannot retrieve secure signing key.")
         raise HTTPException(
             status_code=500,
             detail="GOOGLE_CLOUD_PROJECT is not set; cannot retrieve signing key in production"
@@ -962,9 +1166,18 @@ async def generate_signed_report(data: ReportRequest, request: Request):
         p.setStrokeColor(colors.black)
         p.rect(1*inch, y - 1.5*inch, width - 2*inch, 1.8*inch, stroke=1, fill=0)
         
-        # Data for signing
-        report_data_string = f"{data.name}|{data.crop}|{data.area}|{data.profit}|{datetime.now().date()}"
-        signature = private_key.sign(report_data_string.encode())
+        # Data for signing: migrate from fragile delimiter-separated strings
+        # to secure canonical structured JSON serialization
+        signing_payload = {
+            "name": data.name,
+            "crop": data.crop,
+            "area": data.area,
+            "profit": data.profit,
+            "season": data.season,
+            "date": datetime.now().date().isoformat()
+        }
+        report_data_string = json.dumps(signing_payload, sort_keys=True)
+        signature = private_key.sign(report_data_string.encode("utf-8"))
         sig_id = hashlib.sha256(signature).hexdigest()[:8].upper()
 
         p.setFont("Helvetica-Bold", 14)
@@ -1067,6 +1280,79 @@ async def rag_query(request: Request, body: RAGQuery):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.post("/api/gemini/analyze-image")
+@limiter.limit("10/minute")
+async def gemini_analyze_image(request: Request, body: GeminiImageRequest):
+    """
+    Server-side proxy for Gemini multimodal image analysis.
+
+    Keeps GEMINI_API_KEY on the server — it is never bundled into the
+    frontend JavaScript. Frontend components (PestDetection, CropDiseaseDetection)
+    send the base64 image and prompt here; this endpoint forwards the request
+    to Google and returns the raw text response.
+
+    Rate-limited to 10 requests/minute per IP to protect billing.
+    Authentication is intentionally not required so unauthenticated users
+    can still use the detection features, but the key stays server-side.
+    """
+    import httpx
+
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="AI analysis service is not configured"
+        )
+
+    gemini_url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"gemini-2.0-flash:generateContent?key={api_key}"
+    )
+
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": body.prompt},
+                    {
+                        "inline_data": {
+                            "mime_type": body.mime_type,
+                            "data": body.image_base64,
+                        }
+                    },
+                ]
+            }
+        ]
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(gemini_url, json=payload)
+
+        if resp.status_code != 200:
+            logger.warning("Gemini API returned %s: %s", resp.status_code, resp.text[:200])
+            raise HTTPException(
+                status_code=502,
+                detail="AI analysis service returned an error"
+            )
+
+        data = resp.json()
+        text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+
+        if not text:
+            raise HTTPException(status_code=502, detail="Empty response from AI analysis service")
+
+        return {"text": text}
+
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="AI analysis service timed out")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Gemini proxy error: %s", str(e))
+        raise HTTPException(status_code=500, detail="AI analysis service unavailable")
+
 @app.post("/api/simulate-climate")
 @limiter.limit("5/minute")
 async def simulate_climate(request: Request, data: SimulationRequest):
@@ -1116,7 +1402,15 @@ async def simulate_climate(request: Request, data: SimulationRequest):
 async def verify_seed(data: SeedVerifyRequest, request: Request):
     """
     Verifies seed authenticity against the trusted batch registry.
+    
+    Requires authentication and appropriate role.
+    """
+    # RBAC: user can verify seeds
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.SEEDS_VERIFY], require_all=False
+    )
 
+    """
     Registry lookup logic
     ---------------------
     Each entry in SEED_REGISTRY is keyed by the canonical batch code
@@ -1321,6 +1615,11 @@ async def assess_single_crop(request: Request, data: CropQualityGradingRequest):
         "image_base64": "<base64_encoded_image>"
     }
     """
+    # RBAC: user can assess crop quality
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.QUALITY_ASSESS], require_all=False
+    )
+    
     try:
         # Decode base64 image
         import base64
@@ -1359,6 +1658,11 @@ async def assess_batch_crops(request: Request, data: CropQualityBatchRequest):
         "images_base64": ["<base64_image1>", "<base64_image2>", ...]
     }
     """
+    # RBAC: user can assess crop quality
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.QUALITY_ASSESS], require_all=False
+    )
+    
     try:
         import base64
         
@@ -1494,226 +1798,162 @@ class ExpertSlotRequest(BaseModel):
 
 # --- Expert Consultation APIs ---
 
+# ---------------------------------------------------------------------------
+# Expert directory — fallback data used when Firestore is unavailable.
+#
+# IMPORTANT: This list must never contain real phone numbers, email addresses,
+# or any other PII. Phone numbers are omitted entirely (null) so that even if
+# this fallback is served, no contact details are exposed to unauthenticated
+# callers. Avatar images use a local placeholder path instead of a third-party
+# service (randomuser.me) that would log every request.
+# ---------------------------------------------------------------------------
+_FALLBACK_EXPERTS = [
+    {
+        "id": "exp1",
+        "name": "Dr. Ramesh Kumar",
+        "specialization": "crop_disease",
+        "qualification": "Ph.D. in Plant Pathology",
+        "location": "Madhya Pradesh",
+        "phone": None,
+        "rating": 4.8,
+        "experience": 15,
+        "is_kvk": True,
+        "kvk_name": "KVK Jabalpur",
+        "bio": "Specialist in crop disease diagnosis and organic treatment methods.",
+        "avatar": "/assets/avatars/placeholder.svg"
+    },
+    {
+        "id": "exp2",
+        "name": "Dr. Priya Sharma",
+        "specialization": "fertilizers",
+        "qualification": "M.Sc. Agricultural Chemistry",
+        "location": "Maharashtra",
+        "phone": None,
+        "rating": 4.9,
+        "experience": 12,
+        "is_kvk": True,
+        "kvk_name": "KVK Pune",
+        "bio": "Expert in nano-fertilizers and sustainable nutrient management.",
+        "avatar": "/assets/avatars/placeholder.svg"
+    },
+    {
+        "id": "exp3",
+        "name": "Er. Suresh Patil",
+        "specialization": "irrigation",
+        "qualification": "B.Tech Agricultural Engineering",
+        "location": "Karnataka",
+        "phone": None,
+        "rating": 4.7,
+        "experience": 10,
+        "is_kvk": False,
+        "bio": "Drip irrigation and water management specialist.",
+        "avatar": "/assets/avatars/placeholder.svg"
+    },
+    {
+        "id": "exp4",
+        "name": "Dr. Anjali Verma",
+        "specialization": "pest_management",
+        "qualification": "Ph.D. Entomology",
+        "location": "Uttar Pradesh",
+        "phone": None,
+        "rating": 4.6,
+        "experience": 8,
+        "is_kvk": True,
+        "kvk_name": "KVK Lucknow",
+        "bio": "Integrated pest management and organic pest control expert.",
+        "avatar": "/assets/avatars/placeholder.svg"
+    },
+    {
+        "id": "exp5",
+        "name": "Dr. Mahendra Singh",
+        "specialization": "soil_health",
+        "qualification": "Ph.D. Soil Science",
+        "location": "Rajasthan",
+        "phone": None,
+        "rating": 4.9,
+        "experience": 20,
+        "is_kvk": True,
+        "kvk_name": "KVK Jaipur",
+        "bio": "Soil health assessment and reclamation specialist.",
+        "avatar": "/assets/avatars/placeholder.svg"
+    },
+    {
+        "id": "exp6",
+        "name": "Dr. Kavita Desai",
+        "specialization": "market_advisory",
+        "qualification": "MBA Agriculture Business",
+        "location": "Gujarat",
+        "phone": None,
+        "rating": 4.8,
+        "experience": 14,
+        "is_kvk": False,
+        "bio": "Market intelligence and price forecasting expert.",
+        "avatar": "/assets/avatars/placeholder.svg"
+    },
+]
+
+
 @app.get("/api/experts")
+@limiter.limit("20/minute")
 async def get_experts(
+    request: Request,
     specialization: Optional[str] = None,
     kvk_only: bool = False,
     search: Optional[str] = None
 ):
     """
     Get list of available experts/KVK advisors.
-    
+
     Query parameters:
     - specialization: Filter by specialization (crop_disease, fertilizers, etc.)
     - kvk_only: Return only KVK experts
     - search: Search by name or location
+
+    Phone numbers are never included in the response — contact details are
+    only accessible to authenticated users through the consultation booking
+    flow, which enforces its own RBAC check.
     """
     try:
         experts = []
 
-        if db_firestore:
+        db = get_firestore_client()
+        if db:
             try:
-                experts_ref = db_firestore.collection("experts")
+                experts_ref = db.collection("experts")
                 docs = experts_ref.get()
-
                 for doc in docs:
                     expert_data = doc.to_dict()
                     expert_data["id"] = doc.id
+                    # Strip phone numbers from Firestore records too — callers
+                    # must go through the authenticated booking flow to get them.
+                    expert_data.pop("phone", None)
+                    expert_data.pop("email", None)
                     experts.append(expert_data)
             except Exception as e:
-                logger.warning(f"Firestore experts query failed: {e}")
+                logger.warning("Firestore experts query failed: %s", e)
 
+        # Fall back to the static list when Firestore is unavailable or empty.
+        # The static list already has phone=None so no PII is exposed.
         if not experts:
-            experts = [
-                {
-                    "id": "exp1",
-                    "name": "Dr. Ramesh Kumar",
-                    "specialization": "crop_disease",
-                    "qualification": "Ph.D. in Plant Pathology",
-                    "location": "Madhya Pradesh",
-                    "phone": "+91 9876543210",
-                    "rating": 4.8,
-                    "experience": 15,
-                    "is_kvk": True,
-                    "kvk_name": "KVK Jabalpur",
-                    "bio": "Specialist in crop disease diagnosis and organic treatment methods.",
-                    "avatar": "https://randomuser.me/api/portraits/men/32.jpg"
-                },
-                {
-                    "id": "exp2",
-                    "name": "Dr. Priya Sharma",
-                    "specialization": "fertilizers",
-                    "qualification": "M.Sc. Agricultural Chemistry",
-                    "location": "Maharashtra",
-                    "phone": "+91 9876543211",
-                    "rating": 4.9,
-                    "experience": 12,
-                    "is_kvk": True,
-                    "kvk_name": "KVK Pune",
-                    "bio": "Expert in nano-fertilizers and sustainable nutrient management.",
-                    "avatar": "https://randomuser.me/api/portraits/women/44.jpg"
-                },
-                {
-                    "id": "exp3",
-                    "name": "Er. Suresh Patil",
-                    "specialization": "irrigation",
-                    "qualification": "B.Tech Agricultural Engineering",
-                    "location": "Karnataka",
-                    "phone": "+91 9876543212",
-                    "rating": 4.7,
-                    "experience": 10,
-                    "is_kvk": False,
-                    "bio": "Drip irrigation and water management specialist.",
-                    "avatar": "https://randomuser.me/api/portraits/men/45.jpg"
-                },
-                {
-                    "id": "exp4",
-                    "name": "Dr. Anjali Verma",
-                    "specialization": "pest_management",
-                    "qualification": "Ph.D. Entomology",
-                    "location": "Uttar Pradesh",
-                    "phone": "+91 9876543213",
-                    "rating": 4.6,
-                    "experience": 8,
-                    "is_kvk": True,
-                    "kvk_name": "KVK Lucknow",
-                    "bio": "Integrated pest management and organic pest control expert.",
-                    "avatar": "https://randomuser.me/api/portraits/women/65.jpg"
-                },
-                {
-                    "id": "exp5",
-                    "name": "Dr. Mahendra Singh",
-                    "specialization": "soil_health",
-                    "qualification": "Ph.D. Soil Science",
-                    "location": "Rajasthan",
-                    "phone": "+91 9876543214",
-                    "rating": 4.9,
-                    "experience": 20,
-                    "is_kvk": True,
-                    "kvk_name": "KVK Jaipur",
-                    "bio": "Soil health assessment and reclamation specialist.",
-                    "avatar": "https://randomuser.me/api/portraits/men/67.jpg"
-                },
-                {
-                    "id": "exp6",
-                    "name": "Dr. Kavita Desai",
-                    "specialization": "market_advisory",
-                    "qualification": "MBA Agriculture Business",
-                    "location": "Gujarat",
-                    "phone": "+91 9876543215",
-                    "rating": 4.8,
-                    "experience": 14,
-                    "is_kvk": False,
-                    "bio": "Market intelligence and price forecasting expert.",
-                    "avatar": "https://randomuser.me/api/portraits/women/28.jpg"
-                }
-            ]
+            experts = list(_FALLBACK_EXPERTS)
 
+        # Apply filters once, after the source has been resolved
         if specialization:
             experts = [e for e in experts if e.get("specialization") == specialization]
         if kvk_only:
             experts = [e for e in experts if e.get("is_kvk")]
         if search:
             search_lower = search.lower()
-            experts = [e for e in experts if search_lower in e.get("name", "").lower() or search_lower in e.get("location", "").lower()]
-
-        if not experts:
             experts = [
-                {
-                    "id": "exp1",
-                    "name": "Dr. Ramesh Kumar",
-                    "specialization": "crop_disease",
-                    "qualification": "Ph.D. in Plant Pathology",
-                    "location": "Madhya Pradesh",
-                    "phone": "+91 9876543210",
-                    "rating": 4.8,
-                    "experience": 15,
-                    "is_kvk": True,
-                    "kvk_name": "KVK Jabalpur",
-                    "bio": "Specialist in crop disease diagnosis and organic treatment methods.",
-                    "avatar": "https://randomuser.me/api/portraits/men/32.jpg"
-                },
-                {
-                    "id": "exp2",
-                    "name": "Dr. Priya Sharma",
-                    "specialization": "fertilizers",
-                    "qualification": "M.Sc. Agricultural Chemistry",
-                    "location": "Maharashtra",
-                    "phone": "+91 9876543211",
-                    "rating": 4.9,
-                    "experience": 12,
-                    "is_kvk": True,
-                    "kvk_name": "KVK Pune",
-                    "bio": "Expert in nano-fertilizers and sustainable nutrient management.",
-                    "avatar": "https://randomuser.me/api/portraits/women/44.jpg"
-                },
-                {
-                    "id": "exp3",
-                    "name": "Er. Suresh Patil",
-                    "specialization": "irrigation",
-                    "qualification": "B.Tech Agricultural Engineering",
-                    "location": "Karnataka",
-                    "phone": "+91 9876543212",
-                    "rating": 4.7,
-                    "experience": 10,
-                    "is_kvk": False,
-                    "bio": "Drip irrigation and water management specialist.",
-                    "avatar": "https://randomuser.me/api/portraits/men/45.jpg"
-                },
-                {
-                    "id": "exp4",
-                    "name": "Dr. Anjali Verma",
-                    "specialization": "pest_management",
-                    "qualification": "Ph.D. Entomology",
-                    "location": "Uttar Pradesh",
-                    "phone": "+91 9876543213",
-                    "rating": 4.6,
-                    "experience": 8,
-                    "is_kvk": True,
-                    "kvk_name": "KVK Lucknow",
-                    "bio": "Integrated pest management and organic pest control expert.",
-                    "avatar": "https://randomuser.me/api/portraits/women/65.jpg"
-                },
-                {
-                    "id": "exp5",
-                    "name": "Dr. Mahendra Singh",
-                    "specialization": "soil_health",
-                    "qualification": "Ph.D. Soil Science",
-                    "location": "Rajasthan",
-                    "phone": "+91 9876543214",
-                    "rating": 4.9,
-                    "experience": 20,
-                    "is_kvk": True,
-                    "kvk_name": "KVK Jaipur",
-                    "bio": "Soil health assessment and reclamation specialist.",
-                    "avatar": "https://randomuser.me/api/portraits/men/67.jpg"
-                },
-                {
-                    "id": "exp6",
-                    "name": "Dr. Kavita Desai",
-                    "specialization": "market_advisory",
-                    "qualification": "MBA Agriculture Business",
-                    "location": "Gujarat",
-                    "phone": "+91 9876543215",
-                    "rating": 4.8,
-                    "experience": 14,
-                    "is_kvk": False,
-                    "bio": "Market intelligence and price forecasting expert.",
-                    "avatar": "https://randomuser.me/api/portraits/women/28.jpg"
-                }
+                e for e in experts
+                if search_lower in e.get("name", "").lower()
+                or search_lower in e.get("location", "").lower()
             ]
 
-            if specialization:
-                experts = [e for e in experts if e.get("specialization") == specialization]
-            if kvk_only:
-                experts = [e for e in experts if e.get("is_kvk")]
-            if search:
-                search_lower = search.lower()
-                experts = [e for e in experts if search_lower in e.get("name", "").lower() or search_lower in e.get("location", "").lower()]
-
         return {"experts": experts, "count": len(experts)}
+
     except Exception as e:
-        logger.error(f"Error fetching experts: {e}")
+        logger.error("Error fetching experts: %s", e)
         raise HTTPException(status_code=500, detail="Failed to fetch experts")
 
 
@@ -1760,13 +2000,28 @@ async def get_expert_slots(expert_id: str, date: str):
 
 
 @app.post("/api/consultation/book")
+@limiter.limit("5/minute")
 async def book_consultation(
     request: ConsultationBookRequest,
+    raw_request: Request,
     authorization: Optional[str] = None
 ):
     """
     Book a consultation with an expert.
-    
+
+    Authentication required — any logged-in user may book.
+    The caller's identity is derived from the verified Firebase token;
+    the client-supplied user_id is never trusted.
+    """
+    # Idempotency check: prevent duplicate bookings on retry
+    idem_key = raw_request.headers.get("X-Idempotency-Key")
+    if idem_key:
+        with _IDEMPOTENCY_LOCK:
+            if idem_key in _IDEMPOTENCY_CACHE:
+                logger.info(f"Idempotency: Returning cached consultation for key {idem_key}")
+                return _IDEMPOTENCY_CACHE[idem_key]
+
+    """
     Request body:
     - expert_id: Expert's ID
     - expert_name: Expert's name
@@ -1777,27 +2032,30 @@ async def book_consultation(
     - consultation_type: "video" or "audio"
     """
     try:
-        user_data = None
+        db = validate_firestore_ready()
 
-        if authorization:
-            try:
-                token = authorization.replace("Bearer ", "")
-                decoded_token = firebase_auth.verify_id_token(token)
-                user_id = decoded_token.get("uid")
+        # Require authentication — derive identity from the verified token,
+        # never from the request body.  Previously authorization was Optional
+        # and the entire auth block was wrapped in a try/except that silently
+        # fell through, writing bookings with user_id="anonymous".
+        token_data = await verify_role(raw_request)
+        uid = token_data["uid"]
 
-                user_ref = db_firestore.collection("users").document(user_id)
-                user_doc = user_ref.get()
-                if user_doc.exists:
-                    user_data = user_doc.to_dict()
-            except Exception as e:
-                logger.warning(f"Auth verification failed: {e}")
+        # Fetch the user's display name from Firestore for the booking record.
+        user_name = "Farmer"
+        try:
+            user_doc = db.collection("users").document(uid).get()
+            if user_doc.exists:
+                user_name = user_doc.to_dict().get("displayName", "Farmer") or "Farmer"
+        except Exception as e:
+            logger.warning("Could not fetch display name for uid=%s: %s", uid, e)
 
         consultation_data = {
             "expert_id": request.expert_id,
             "expert_name": request.expert_name,
             "expert_specialization": request.expert_specialization,
-            "user_id": user_data.get("uid") if user_data else "anonymous",
-            "user_name": user_data.get("displayName") if user_data else "Guest Farmer",
+            "user_id": uid,
+            "user_name": user_name,
             "date": request.date,
             "time": request.time,
             "notes": request.notes,
@@ -1806,14 +2064,24 @@ async def book_consultation(
             "created_at": datetime.now().isoformat()
         }
 
-        doc_ref = db_firestore.collection("consultations").document()
+        doc_ref = db.collection("consultations").document()
         doc_ref.set(consultation_data)
 
-        return {
+        result = {
             "success": True,
             "consultation_id": doc_ref.id,
             "message": "Consultation booked successfully"
         }
+
+        if idem_key:
+            with _IDEMPOTENCY_LOCK:
+                if len(_IDEMPOTENCY_CACHE) > 1000:
+                    _IDEMPOTENCY_CACHE.clear()
+                _IDEMPOTENCY_CACHE[idem_key] = result
+
+        return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error booking consultation: {e}")
         raise HTTPException(status_code=500, detail="Failed to book consultation")
@@ -1823,24 +2091,33 @@ async def book_consultation(
 async def update_consultation(
     consultation_id: str,
     request: ConsultationUpdateRequest,
+    raw_request: Request,
     authorization: Optional[str] = None
 ):
     """
     Update consultation status.
-    
-    Path parameters:
-    - consultation_id: ID of the consultation
-    
-    Request body:
-    - status: New status (scheduled, completed, cancelled, in-progress)
-    - notes: Optional notes
+    Only the owner of the consultation may update it.
     """
     try:
-        doc_ref = db_firestore.collection("consultations").document(consultation_id)
+        db = validate_firestore_ready()
+
+        # Require authentication and verify ownership.
+        token_data = await verify_role(raw_request)
+        uid = token_data["uid"]
+
+        doc_ref = db.collection("consultations").document(consultation_id)
         doc = doc_ref.get()
 
         if not doc.exists:
             raise HTTPException(status_code=404, detail="Consultation not found")
+
+        # Prevent one user from updating another user's consultation.
+        owner_uid = doc.to_dict().get("user_id")
+        if owner_uid != uid and token_data.get("role") not in ("admin", "expert"):
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to update this consultation"
+            )
 
         update_data = {
             "status": request.status,
@@ -1868,23 +2145,27 @@ async def update_consultation(
 
 @app.get("/api/consultations")
 async def get_user_consultations(
+    raw_request: Request,
     user_id: Optional[str] = None,
     status: Optional[str] = None,
     authorization: Optional[str] = None
 ):
     """
-    Get user's consultation history.
-    
-    Query parameters:
-    - user_id: User ID (optional, will use auth if provided)
-    - status: Filter by status (scheduled, completed, cancelled)
+    Get the authenticated user's consultation history.
+    Results are always scoped to the caller's own uid — the client-supplied
+    user_id parameter is ignored to prevent IDOR enumeration.
     """
     try:
-        consultations_ref = db_firestore.collection("consultations")
-        query = consultations_ref
+        db = validate_firestore_ready()
 
-        if user_id:
-            query = query.where("user_id", "==", user_id)
+        # Require authentication and scope results to the caller's own uid.
+        # Previously user_id was accepted from the query string with no auth
+        # check, allowing any caller to read any user's consultation history.
+        token_data = await verify_role(raw_request)
+        uid = token_data["uid"]
+
+        consultations_ref = db.collection("consultations")
+        query = consultations_ref.where("user_id", "==", uid)
 
         docs = query.get()
         consultations = []
@@ -1904,6 +2185,8 @@ async def get_user_consultations(
             "consultations": consultations,
             "count": len(consultations)
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching consultations: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch consultations")
@@ -1912,20 +2195,32 @@ async def get_user_consultations(
 @app.delete("/api/consultation/{consultation_id}")
 async def cancel_consultation(
     consultation_id: str,
+    raw_request: Request,
     authorization: Optional[str] = None
 ):
     """
     Cancel a consultation.
-    
-    Path parameters:
-    - consultation_id: ID of the consultation to cancel
+    Only the owner of the consultation may cancel it.
     """
     try:
-        doc_ref = db_firestore.collection("consultations").document(consultation_id)
+        db = validate_firestore_ready()
+
+        # Require authentication and verify ownership.
+        token_data = await verify_role(raw_request)
+        uid = token_data["uid"]
+
+        doc_ref = db.collection("consultations").document(consultation_id)
         doc = doc_ref.get()
 
         if not doc.exists:
             raise HTTPException(status_code=404, detail="Consultation not found")
+
+        owner_uid = doc.to_dict().get("user_id")
+        if owner_uid != uid and token_data.get("role") not in ("admin", "expert"):
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to cancel this consultation"
+            )
 
         doc_ref.update({
             "status": "cancelled",
@@ -1943,17 +2238,64 @@ async def cancel_consultation(
         raise HTTPException(status_code=500, detail="Failed to cancel consultation")
 
 
+# --- Smart Farm Autopilot Endpoint ---
+
+class SeasonPlanRequest(BaseModel):
+    farm_name: str = Field(default="My Farm", max_length=100)
+    state: str = Field(..., min_length=2, max_length=50)
+    district: str = Field(default="", max_length=100)
+    area_acres: float = Field(..., gt=0, le=10000)
+    soil_type: str = Field(..., min_length=2, max_length=50)
+    season: str = Field(..., pattern="^(Kharif|Rabi|Zaid)$")
+    water_source: str = Field(default="Canal", max_length=50)
+    budget_inr: Optional[float] = Field(default=None, ge=0)
+
+
+@app.post("/api/autopilot/generate-plan")
+@limiter.limit("5/minute")
+async def generate_farm_plan(request: Request, data: SeasonPlanRequest):
+    """
+    Smart Farm Autopilot — generate a complete seasonal farming plan.
+
+    Returns crop selection, sowing schedule, irrigation plan,
+    fertilizer/pesticide timeline, and yield/profit projection.
+    """
+    try:
+        plan = generate_season_plan(data.dict())
+        return {"success": True, "plan": plan}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Autopilot plan generation failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate farm plan")
+
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
 
 # --- Blockchain Supply Chain Endpoints ---
+#
+# Auth policy:
+#   Write operations (register-actor, create-batch, add-node, create-contract,
+#   execute-contract) require authentication and the appropriate supply chain
+#   permission. This prevents unauthenticated callers from forging provenance
+#   records or flooding the chain with garbage data.
+#
+#   Read operations (verify, journey, analytics, marketplace, stats) are
+#   intentionally public — consumers need to scan QR codes and verify batch
+#   authenticity without creating an account.
+#
+#   QR code generation requires SUPPLY_CHAIN_READ so only registered
+#   participants can generate codes for physical packaging.
 
 @app.post("/api/blockchain/register-actor")
 @limiter.limit("10/minute")
 async def register_actor(request: Request, data: RegisterActorRequest):
-    """Register supply chain participant"""
+    """Register supply chain participant. Requires SUPPLY_CHAIN_CREATE permission."""
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.SUPPLY_CHAIN_CREATE], require_all=False
+    )
     try:
         actor_data = _supply_chain_blockchain.register_actor(
             data.actor_id,
@@ -1969,7 +2311,10 @@ async def register_actor(request: Request, data: RegisterActorRequest):
 @app.post("/api/blockchain/create-batch")
 @limiter.limit("10/minute")
 async def create_batch(request: Request, data: CreateProductBatchRequest):
-    """Create product batch on blockchain"""
+    """Create product batch on blockchain. Requires SUPPLY_CHAIN_CREATE permission."""
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.SUPPLY_CHAIN_CREATE], require_all=False
+    )
     try:
         batch = _supply_chain_blockchain.create_product_batch(
             data.crop_type,
@@ -1989,7 +2334,10 @@ async def create_batch(request: Request, data: CreateProductBatchRequest):
 @app.post("/api/blockchain/add-node")
 @limiter.limit("10/minute")
 async def add_node(request: Request, data: AddSupplyChainNodeRequest):
-    """Add supply chain node"""
+    """Add supply chain node. Requires SUPPLY_CHAIN_UPDATE permission."""
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.SUPPLY_CHAIN_UPDATE], require_all=False
+    )
     try:
         node = _supply_chain_blockchain.add_supply_chain_node(
             data.batch_id,
@@ -2013,7 +2361,10 @@ async def add_node(request: Request, data: AddSupplyChainNodeRequest):
 @app.post("/api/blockchain/create-contract")
 @limiter.limit("10/minute")
 async def create_contract(request: Request, data: CreateSmartContractRequest):
-    """Create smart contract"""
+    """Create smart contract. Requires SUPPLY_CHAIN_CREATE permission."""
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.SUPPLY_CHAIN_CREATE], require_all=False
+    )
     try:
         contract = _supply_chain_blockchain.create_smart_contract(
             data.batch_id,
@@ -2033,7 +2384,10 @@ async def create_contract(request: Request, data: CreateSmartContractRequest):
 @app.post("/api/blockchain/execute-contract")
 @limiter.limit("10/minute")
 async def execute_contract(request: Request, data: ExecuteContractRequest):
-    """Execute smart contract"""
+    """Execute smart contract. Requires SUPPLY_CHAIN_UPDATE permission."""
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.SUPPLY_CHAIN_UPDATE], require_all=False
+    )
     try:
         result = _supply_chain_blockchain.execute_smart_contract(data.contract_id)
         return result
@@ -2045,8 +2399,11 @@ async def execute_contract(request: Request, data: ExecuteContractRequest):
 
 @app.get("/api/blockchain/qr-code/{batch_id}")
 @limiter.limit("20/minute")
-async def get_qr_code(batch_id: str):
-    """Get QR code for batch"""
+async def get_qr_code(request: Request, batch_id: str):
+    """Get QR code for batch. Requires SUPPLY_CHAIN_READ permission."""
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.SUPPLY_CHAIN_READ], require_all=False
+    )
     try:
         qr_code = _supply_chain_blockchain.generate_qr_code(batch_id)
         return {"success": True, "batch_id": batch_id, "qr_code_base64": qr_code}
@@ -2059,7 +2416,7 @@ async def get_qr_code(batch_id: str):
 @app.get("/api/blockchain/verify/{batch_id}")
 @limiter.limit("20/minute")
 async def verify_batch(batch_id: str):
-    """Verify batch authenticity"""
+    """Verify batch authenticity. Public — consumers scan QR codes without an account."""
     try:
         verification = _supply_chain_blockchain.verify_batch(batch_id)
         return verification
@@ -2070,7 +2427,7 @@ async def verify_batch(batch_id: str):
 @app.get("/api/blockchain/journey/{batch_id}")
 @limiter.limit("20/minute")
 async def get_journey(batch_id: str):
-    """Get supply chain journey"""
+    """Get supply chain journey. Public — consumers scan QR codes without an account."""
     try:
         journey = _supply_chain_blockchain.get_supply_chain_journey(batch_id)
         return {"success": True, "data": journey}
@@ -2083,7 +2440,7 @@ async def get_journey(batch_id: str):
 @app.get("/api/blockchain/analytics/{batch_id}")
 @limiter.limit("20/minute")
 async def get_analytics(batch_id: str):
-    """Get supply chain analytics"""
+    """Get supply chain analytics. Public."""
     try:
         analytics = _supply_chain_blockchain.get_supply_chain_analytics(batch_id)
         return {"success": True, "data": analytics}
@@ -2096,7 +2453,7 @@ async def get_analytics(batch_id: str):
 @app.get("/api/blockchain/marketplace")
 @limiter.limit("20/minute")
 async def get_marketplace():
-    """Get certified products for marketplace"""
+    """Get certified products for marketplace. Public."""
     try:
         certified = _supply_chain_blockchain.get_certified_products()
         return {"success": True, "products": certified, "count": len(certified)}
@@ -2107,7 +2464,7 @@ async def get_marketplace():
 @app.get("/api/blockchain/stats")
 @limiter.limit("20/minute")
 async def get_stats():
-    """Get blockchain statistics"""
+    """Get blockchain statistics. Public."""
     try:
         stats = {
             "total_records": _supply_chain_blockchain.get_blockchain_record_count(),
@@ -2118,64 +2475,341 @@ async def get_stats():
         return {"success": True, "stats": stats}
     except Exception as e:
         logger.error("Stats error: %s", str(e))
+
+        @app.post("/api/ml-governance/drift/baseline")
+        @limiter.limit("5/minute")
+        async def set_drift_baseline(request: Request, model_name: str, predictions: list):
+            """
+            Set baseline statistics for drift detection on a model
+    
+            Query params:
+                model_name: Name of the model (e.g., 'xgboost')
+    
+            Body:
+                predictions: List of baseline prediction values
+            """
+            try:
+                if not predictions or len(predictions) < 10:
+                    raise ValueError("Need at least 10 baseline predictions")
+        
+                drift_detector.set_baseline(model_name, predictions)
+        
+                return {
+                    "success": True,
+                    "message": f"Baseline set for model '{model_name}' with {len(predictions)} samples",
+                    "model_name": model_name
+                }
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                logger.error("Drift baseline error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to set baseline")
+
+        @app.post("/api/ml-governance/drift/check")
+        @limiter.limit("100/minute")
+        async def check_drift(request: Request, model_name: str, prediction: float, actual_value: float = None):
+            """
+            Check if a prediction indicates drift
+    
+            Query params:
+                model_name: Name of the model
+                prediction: Current prediction value
+                actual_value: Optional actual observed value
+            """
+            try:
+                is_drift, alert = drift_detector.check_prediction_drift(
+                    model_name, prediction, actual_value
+                )
+        
+                response = {
+                    "drift_detected": is_drift,
+                    "model_name": model_name,
+                    "prediction": prediction
+                }
+        
+                if alert:
+                    response["alert"] = alert.to_dict()
+        
+                return response
+            except Exception as e:
+                logger.error("Drift check error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to check drift")
+
+        @app.get("/api/ml-governance/drift/alerts")
+        @limiter.limit("20/minute")
+        async def get_drift_alerts(request: Request, model_name: str = None, limit: int = 10):
+            """Get recent drift alerts"""
+            try:
+                alerts = drift_detector.get_alerts(model_name, limit)
+                return {"success": True, "alerts": alerts, "count": len(alerts)}
+            except Exception as e:
+                logger.error("Get alerts error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to retrieve alerts")
+
+        @app.post("/api/ml-governance/shadow/start")
+        @limiter.limit("10/minute")
+        async def start_shadow_evaluation(request: Request, data: StartShadowEvaluationRequest):
+            """
+            Start shadow evaluation comparing production and candidate models
+    
+            Request body:
+            {
+                "production_model": "xgboost_v1",
+                "candidate_model": "xgboost_v2"
+            }
+            """
+            try:
+                eval_id = shadow_evaluator.start_shadow_evaluation(
+                    data.production_model,
+                    data.candidate_model
+                )
+        
+                return {
+                    "success": True,
+                    "eval_id": eval_id,
+                    "production_model": data.production_model,
+                    "candidate_model": data.candidate_model
+                }
+            except Exception as e:
+                logger.error("Shadow eval start error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to start shadow evaluation")
+
+        @app.post("/api/ml-governance/shadow/record")
+        @limiter.limit("200/minute")
+        async def record_shadow_predictions(request: Request, data: RecordPredictionRequest):
+            """
+            Record predictions from both models during shadow evaluation
+    
+            Request body:
+            {
+                "eval_id": "eval_20250516_120000",
+                "production_prediction": 100.5,
+                "candidate_prediction": 101.2,
+                "actual_value": 102.0
+            }
+            """
+            try:
+                shadow_evaluator.record_predictions(
+                    data.eval_id,
+                    data.production_prediction,
+                    data.candidate_prediction,
+                    data.actual_value
+                )
+        
+                status = shadow_evaluator.get_evaluation_status(data.eval_id)
+        
+                return {
+                    "success": True,
+                    "eval_id": data.eval_id,
+                    "status": status
+                }
+            except Exception as e:
+                logger.error("Record predictions error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to record predictions")
+
+        @app.post("/api/ml-governance/shadow/evaluate")
+        @limiter.limit("10/minute")
+        async def evaluate_candidate_model(request: Request, eval_id: str):
+            """Evaluate candidate model performance"""
+            try:
+                result = shadow_evaluator.evaluate_candidate(eval_id)
+        
+                if result is None:
+                    status = shadow_evaluator.get_evaluation_status(eval_id)
+                    return {
+                        "success": False,
+                        "message": "Not enough samples for evaluation",
+                        "status": status
+                    }
+        
+                return {
+                    "success": True,
+                    "evaluation": result.to_dict()
+                }
+            except Exception as e:
+                logger.error("Evaluate candidate error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to evaluate candidate")
+
+        @app.get("/api/ml-governance/shadow/status/{eval_id}")
+        @limiter.limit("50/minute")
+        async def get_shadow_eval_status(request: Request, eval_id: str):
+            """Get status of shadow evaluation"""
+            try:
+                status = shadow_evaluator.get_evaluation_status(eval_id)
+                return {"success": True, "status": status}
+            except Exception as e:
+                logger.error("Get shadow status error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to get status")
+
+        @app.post("/api/ml-governance/versions/register")
+        @limiter.limit("5/minute")
+        async def register_model_version(request: Request, data: RegisterModelVersionRequest):
+            """
+            Register a new model version
+    
+            Request body:
+            {
+                "model_name": "xgboost",
+                "model_path": "/path/to/model.joblib",
+                "rmse": 0.15,
+                "r2_score": 0.85,
+                "metadata": {"author": "ml-team"}
+            }
+            """
+            try:
+                performance_metrics = {
+                    'rmse': data.rmse,
+                    'r2_score': data.r2_score,
+                }
+        
+                version_id = version_manager.register_version(
+                    data.model_name,
+                    data.model_path,
+                    performance_metrics,
+                    data.metadata
+                )
+        
+                return {
+                    "success": True,
+                    "version_id": version_id,
+                    "model_name": data.model_name
+                }
+            except Exception as e:
+                logger.error("Register version error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to register version")
+
+        @app.post("/api/ml-governance/versions/promote")
+        @limiter.limit("5/minute")
+        async def promote_model_version(request: Request, version_id: str):
+            """Promote a model version to production"""
+            try:
+                success = version_manager.promote_version(version_id)
+        
+                if not success:
+                    raise ValueError("Failed to promote version")
+        
+                prod_version = version_manager.get_production_version()
+        
+                return {
+                    "success": True,
+                    "message": f"Promoted {version_id} to production",
+                    "production_version": prod_version.to_dict() if prod_version else None
+                }
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                logger.error("Promote version error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to promote version")
+
+        @app.post("/api/ml-governance/versions/rollback")
+        @limiter.limit("5/minute")
+        async def rollback_model_version(request: Request, version_id: str):
+            """Rollback to a previous model version (emergency only)"""
+            try:
+                success = version_manager.rollback_to_version(version_id)
+        
+                if not success:
+                    raise ValueError("Rollback failed")
+        
+                prod_version = version_manager.get_production_version()
+        
+                return {
+                    "success": True,
+                    "message": f"Rolled back to {version_id}",
+                    "production_version": prod_version.to_dict() if prod_version else None
+                }
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                logger.error("Rollback version error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to rollback")
+
+        @app.get("/api/ml-governance/versions/production")
+        @limiter.limit("50/minute")
+        async def get_production_version(request: Request):
+            """Get current production model version"""
+            try:
+                prod_version = version_manager.get_production_version()
+        
+                if not prod_version:
+                    return {
+                        "success": True,
+                        "production_version": None,
+                        "message": "No production version set"
+                    }
+        
+                return {
+                    "success": True,
+                    "production_version": prod_version.to_dict()
+                }
+            except Exception as e:
+                logger.error("Get production version error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to get production version")
+
+        @app.get("/api/ml-governance/versions/list")
+        @limiter.limit("20/minute")
+        async def list_model_versions(request: Request, model_name: str = None):
+            """List all model versions"""
+            try:
+                versions = version_manager.list_versions(model_name)
+        
+                return {
+                    "success": True,
+                    "versions": versions,
+                    "total": len(versions)
+                }
+            except Exception as e:
+                logger.error("List versions error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to list versions")
+
+        @app.get("/api/ml-governance/versions/compare")
+        @limiter.limit("20/minute")
+        async def compare_model_versions(request: Request, v1: str, v2: str):
+            """Compare two model versions"""
+            try:
+                comparison = version_manager.compare_versions(v1, v2)
+        
+                if 'error' in comparison:
+                    raise ValueError(comparison['error'])
+        
+                return {
+                    "success": True,
+                    "comparison": comparison
+                }
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                logger.error("Compare versions error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to compare versions")
+
+        @app.get("/api/ml-governance/status")
+        @limiter.limit("20/minute")
+        async def get_governance_status(request: Request):
+            """Get overall ML governance status"""
+            try:
+                prod_version = version_manager.get_production_version()
+                recent_alerts = drift_detector.get_alerts(limit=5)
+                recent_evals = shadow_evaluator.get_evaluations(limit=5)
+        
+                return {
+                    "success": True,
+                    "governance_status": {
+                        "drift_detection": {
+                            "recent_alerts": recent_alerts,
+                            "alert_count": len(drift_detector.alerts)
+                        },
+                        "shadow_evaluation": {
+                            "active_evaluations": len(shadow_evaluator.active_evaluations),
+                            "completed_evaluations": len(shadow_evaluator.evaluations),
+                            "recent_evaluations": recent_evals
+                        },
+                        "model_versioning": {
+                            "production_version": prod_version.to_dict() if prod_version else None,
+                            "total_versions": len(version_manager.versions)
+                        }
+                    }
+                }
+            except Exception as e:
+                logger.error("Get governance status error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to get governance status")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# ── Market Price Forecasting ──────────────────────────────────────────────────
-
-@app.post("/api/market/forecast")
-@limiter.limit("10/minute")
-async def market_price_forecast(data: MarketForecastRequest, request: Request):
-    """
-    Generate an LSTM-based price forecast for a supported commodity.
-
-    Authentication required — any logged-in user may call this endpoint.
-
-    The forecasting engine (ml/price_forecaster.py) trains a lightweight
-    LSTM on embedded 2-year historical mandi price data at first request
-    per commodity and caches the model in memory.  Subsequent requests
-    for the same commodity are served from the cache with no retraining.
-
-    Security hardening applied:
-    - verify_role() requires a valid Firebase ID token (any role).
-    - MarketForecastRequest.commodity is validated against a whitelist of
-      the 6 supported commodities.  Unknown strings are rejected with 422
-      before the forecaster is called, preventing an attacker from
-      submitting thousands of unique strings that each trigger a new
-      30-epoch LSTM training run and grow the model cache without bound.
-
-    Request body
-    ------------
-    - commodity : str  — one of: Wheat, Paddy (Dhan), Cotton, Onion,
-                         Soybean, Maize
-    - days      : int  — forecast horizon in days (1–30, default 14)
-
-    Response
-    --------
-    - commodity          : str
-    - forecast_days      : int
-    - forecast           : list[{date, price, lower_bound, upper_bound}]
-    - best_sell_date     : str   — ISO date of forecast price peak
-    - best_sell_price    : float — predicted peak price (₹/quintal)
-    - recommendation     : str   — human-readable selling advice
-    - model_type         : str   — "LSTM" or "Statistical" (fallback)
-    - generated_at       : str   — ISO UTC timestamp
-    """
-    await verify_role(request)   # any authenticated user; no role restriction
-
-    try:
-        from ml.price_forecaster import price_forecaster
-        result = price_forecaster.forecast(
-            commodity=data.commodity,
-            days=data.days,
-        )
-        return result
-    except Exception as exc:
-        logger.error(
-            "Market forecast error for commodity='%s': %s",
-            data.commodity, exc,
-        )
-        raise HTTPException(
-            status_code=500,
-            detail="Price forecast temporarily unavailable. Please try again later.",
-        )

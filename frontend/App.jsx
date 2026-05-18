@@ -1,9 +1,8 @@
-import React, { useEffect, useState, useRef } from "react";
-import { Routes, Route, Link, Navigate, useLocation, useNavigate } from "react-router-dom";
+import React, { Suspense, useEffect, useState, useRef } from "react";
+import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import { useFloating, flip, shift, offset, autoUpdate } from "@floating-ui/react";
 import {
   FaComments,
   FaLeaf,
@@ -16,77 +15,78 @@ import {
   FaInfoCircle,
   FaBook,
   FaShieldAlt,
-FaBolt,
-  FaFileInvoiceDollar,
+  FaBolt,
   FaUserSecret,
+  FaFileInvoiceDollar,
   FaHome,
-  FaSun,
-  FaMoon,
-  FaUser,
-  FaNewspaper,
+  FaTrophy,
+  FaMedal,
+  FaCog,
+  FaMicrophone
 } from "react-icons/fa";
-import { 
-  GiThreeLeaves,
-} from "react-icons/gi";
-import { GrResources } from "react-icons/gr";
 import { usePerformanceStore } from "./stores/performanceStore";
-
-// Components - Static imports (lazy loading removed for faster feature access)
-import AdminFeedback from "./AdminFeedback";
-import Advisor from "./Advisor";
-import Auth from "./Auth";
-import Calendar from "./FarmingCalendar";
-import Contributors from "./Contributors";
-import CropGuide from "./CropGuide";
-import CropProfitCalculator from "./CropProfitCalculator";
-import Dashboard from "./Dashboard";
-import Feedback from "./Feedback";
-import FarmingMap from "./FarmingMap";
-import Schemes from "./GovernmentSchemes";
-import How from "./How";
-import Home from "./Home";
-import MarketPrices from "./MarketPrices";
-import Community from "./Community";
-import ContactUs from "./ContactUs";
-import AboutUs from "./AboutUs";
-import LanguageDropdown from "./LanguageDropdown";
-import ProfileSetup from "./ProfileSetup";
-import ProfileSettings from "./ProfileSettings";
-import QRTraceability from "./QRTraceability";
-import PestDetection from "./PestDetection";
-import EquipmentManagement from "./EquipmentManagement";
-import Resources from "./Resources";
-import SeasonalCropPlanner from "./SeasonalCropPlanner";
-import SoilGuide from "./SoilGuide";
-import CropDiseaseAwareness from "./CropDiseaseAwareness";
-import CropRotation from "./CropRotation";
-import Helpline from "./Helpline";
-import Glossary from "./Glossary";
-import RiskIndex from "./RiskIndex";
-import Blog from "./Blog";
-import BlogDetail from "./BlogDetail";
-import FarmingNews from "./FarmingNews";
-import FAQ from "./FAQ";
-import NotFound from "./NotFound";
-import PrivacyPolicy from "./PrivacyPolicy";
-import Terms from "./Terms";
-import SoilAnalysis from "./SoilAnalysis";
- import SeedVerifier from "./SeedVerifier";
- import FarmFinance from "./FarmFinance";
- import YieldPredictor from "./YieldPredictor";
-
- // Keep critical components synchronous
+import { useBrowserCacheBudget } from "./lib/cacheBudget";
+import { cryptoService } from "./utils/cryptoService";
+// Components
 import Loader from "./Loader";
+import LanguageDropdown from "./LanguageDropdown";
 import useNotifications from "./Notifications";
 import Footer from "./components/Footer";
 import { SkipLink } from "./NavigationManager";
 import { useTheme } from "./ThemeContext";
-import ErrorBoundary from "./ErrorBoundary";
+
+// Route-level code splitting
+import {
+  AdminFeedback,
+  Advisor,
+  Auth,
+  AboutUs,
+  Blog,
+  BlogDetail,
+  Calendar,
+  Community,
+  Contributors,
+  ContactUs,
+  CropDiseaseAwareness,
+  CropGuide,
+  CropProfitCalculator,
+  CropRotation,
+  Dashboard,
+  FAQ,
+  FarmFinance,
+  FarmingMap,
+  FarmingNews,
+  Feedback,
+  Glossary,
+  Helpline,
+  Home,
+  How,
+  Leaderboard,
+  MarketPrices,
+  NotFound,
+  PestDetection,
+  PrivacyPolicy,
+  ProfileSetup,
+  ProfileSettings,
+  QRTraceability,
+  Resources,
+  RiskIndex,
+  Schemes,
+  SeasonalCropPlanner,
+  SeedVerifier,
+  SoilAnalysis,
+  SoilGuide,
+  Terms,
+  YieldPredictor,
+  EquipmentManagement,
+} from "./routes/lazyPages";
+
+const Weather = React.lazy(() => import("./Weather"));
+import VoiceAssistant from "./VoiceAssistant";
 
 // Libs
-import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc } from "./lib/firebase";
+import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc, getDoc } from "./lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { cryptoService } from "./utils/cryptoService";
 
 // CSS
 import "./App.css";
@@ -130,7 +130,7 @@ const applyGoogleTranslate = (langCode) => {
   return false;
 };
 
-const GuestBanner = ({ onSignUp }) => (
+const GuestBanner = () => (
   <div className="guest-banner">
     <div className="guest-banner-content">
       <FaUserSecret className="banner-icon" />
@@ -143,7 +143,6 @@ const GuestBanner = ({ onSignUp }) => (
 );
 
 function App() {
-  const navigate = useNavigate();
   const scorecardRef = useRef(null);
   const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
   const [isOpen, setIsOpen] = useState(false);
@@ -156,6 +155,7 @@ function App() {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [scrollProgress, setScrollProgress] = useState(0);
   
   const { liteMode, setLiteMode, detectAndSetLiteMode } = usePerformanceStore();
 
@@ -167,15 +167,30 @@ function App() {
   const location = useLocation();
 
   useNotifications();
+  useBrowserCacheBudget({
+    enabled: true,
+    usageRatioLimit: liteMode ? 0.72 : 0.85,
+  });
 
   /* ---------------- THEME SYSTEM (Moved to ThemeProvider) ---------------- */
 
   /* ---------------- LANGUAGE AUTO-TRANS ---------------- */
   useEffect(() => {
     if (applyGoogleTranslate(preferredLang)) return;
+    
+    let retries = 0;
+    const MAX_RETRIES = 20; // Try for ~6 seconds
+    
     const id = setInterval(() => {
-      if (applyGoogleTranslate(preferredLang)) clearInterval(id);
+      retries++;
+      if (applyGoogleTranslate(preferredLang)) {
+        clearInterval(id);
+      } else if (retries >= MAX_RETRIES) {
+        clearInterval(id);
+        console.warn("Google Translate widget initialization timed out or was blocked. Graceful fallback applied.");
+      }
     }, 300);
+    
     return () => clearInterval(id);
   }, [preferredLang]);
 
@@ -186,16 +201,12 @@ function App() {
       return;
     }
 
-    // Safety timeout — if Firebase auth never responds (revoked key, network issue),
-    // force loading=false so the app doesn't hang forever on the spinner.
-    const safetyTimer = setTimeout(() => {
-      setLoading(false);
-    }, 5000);
-
+    // Deterministic auth-readiness sync
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
-      clearTimeout(safetyTimer);
       setUser(currentUser);
+      
       if (currentUser) {
+        // Wait for profile data sync before hiding loader
         const unsubscribeDoc = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
           if (userDoc.exists()) {
             const data = userDoc.data();
@@ -211,6 +222,7 @@ function App() {
           setLoading(false);
         }, (error) => {
           console.error("Firestore sync error:", error);
+          // Still disable loading to avoid hanging, but only after deterministic failure
           setLoading(false);
         });
         return () => unsubscribeDoc();
@@ -220,7 +232,8 @@ function App() {
         setLoading(false);
       }
     });
-    return () => { clearTimeout(safetyTimer); unsubscribeAuth(); };
+
+    return () => unsubscribeAuth();
   }, []);
 
   // E2EE Key Generation Sync
@@ -229,17 +242,18 @@ function App() {
 
     const ensurePublicKey = async () => {
       try {
-        let privateJwk = localStorage.getItem(`agri:ecdh_private_${user.uid}`);
-        let publicJwk = localStorage.getItem(`agri:ecdh_public_${user.uid}`);
-        
-        if (!privateJwk || !publicJwk) {
-          const keyPair = await cryptoService.generateECDHKeyPair();
-          privateJwk = await cryptoService.exportKey(keyPair.privateKey);
-          publicJwk = await cryptoService.exportKey(keyPair.publicKey);
-          localStorage.setItem(`agri:ecdh_private_${user.uid}`, JSON.stringify(privateJwk));
-          localStorage.setItem(`agri:ecdh_public_${user.uid}`, JSON.stringify(publicJwk));
-        } else {
-          publicJwk = JSON.parse(publicJwk);
+        let { publicJwk } = await cryptoService.ensureKeys(user.uid);
+
+        if (!publicJwk) {
+          const publicKeySnap = await getDoc(doc(db, "public_keys", user.uid));
+          if (publicKeySnap.exists()) {
+            publicJwk = publicKeySnap.data().jwk;
+            await cryptoService.savePublicKey(user.uid, publicJwk);
+          }
+        }
+
+        if (!publicJwk) {
+          throw new Error("ECDH public key unavailable after initialization");
         }
 
         const pubKeyRef = doc(db, "public_keys", user.uid);
@@ -268,6 +282,10 @@ function App() {
   useEffect(() => {
     const handleScroll = () => {
       setShowScrollTop(window.scrollY > 300);
+      // Calculate scroll progress
+      const totalHeight = document.documentElement.scrollHeight - window.innerHeight;
+      const progress = totalHeight > 0 ? (window.scrollY / totalHeight) * 100 : 0;
+      setScrollProgress(progress);
     };
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
@@ -284,8 +302,7 @@ function App() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleNavToggle = () => setIsOpen(!isOpen);
-  const handleThemeToggle = toggleTheme;
+   const handleThemeToggle = toggleTheme;
   const handleLogout = async () => {
     try {
       await signOut(auth);
@@ -309,6 +326,9 @@ function App() {
         </div>
       )}
 
+      {/* Scroll Progress Bar */}
+      <div className="scroll-progress-bar" style={{ width: `${scrollProgress}%` }} aria-hidden="true" />
+
       <nav className={`navbar ${isOpen ? "menu-open" : ""}`} role="navigation" aria-label="Main Navigation">
         <div className="nav-left">
           <Link to="/" className="brand">Fasal Saathi</Link>
@@ -318,13 +338,13 @@ function App() {
           <li><Link to="/" onClick={() => setIsOpen(false)}><FaHome /> Home</Link></li>
           <li><Link to="/about" onClick={() => setIsOpen(false)}><FaInfoCircle /> About</Link></li>
           <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}><FaInfoCircle /> How It Works</Link></li>
-          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}><GiThreeLeaves />Crop Guide</Link></li>
-          <li><Link to="/resources" onClick={() => setIsOpen(false)}><GrResources />Resources</Link></li>
+          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}> Crop Guide</Link></li>
+          <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
         </ul>
 
         <div className="nav-right">
           <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Toggle Theme">
-            {theme === "dark" ? <FaSun className="theme-toggle-icon" /> : <FaMoon className="theme-toggle-icon" />}
+            {theme === "dark" ? "☀️" : "🌙"}
           </button>
 
           <button
@@ -351,6 +371,7 @@ function App() {
                     }}
                   />
                 </div>
+                <Link to="/voice-assistant" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMicrophone /> Voice Assistant</Link>
                 <div className="performance-toggle-section">
                   <button
                     className={`lite-mode-toggle ${liteMode ? 'active' : ''}`}
@@ -367,12 +388,14 @@ function App() {
                   </button>
                 </div>
                 <Link to="/dashboard" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaTachometerAlt /> Dashboard</Link>
-                <Link to="/profile-settings" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaUser /> Profile Settings</Link>
                 {userData?.role === "admin" && (
                   <Link to="/admin/feedback" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Feedback Admin</Link>
                 )}
+                <Link to="/profile-settings" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaCog /> Profile settings</Link>
                 <Link to="/community" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaComments /> Community</Link>
+                <Link to="/leaderboard" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaTrophy />Leaderboard</Link>
                 <Link to="/risk-index" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Risk Index</Link>
+                <Link to="/farm-finance" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaFileInvoiceDollar /> Farm Finance</Link>
                 <Link to="/glossary" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaBook /> Glossary</Link>
                 <Link to="/about" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> About Us</Link>
                 <Link to="/contact" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> Contact</Link>
@@ -408,7 +431,6 @@ function App() {
                       ))}
                     </div>
                     <div className="scorecard-footer">
-                      <button onClick={() => { navigate("/profile-settings"); setShowScorecard(false); }} className="btn-logout-alt">Edit Profile</button>
                       <button onClick={handleLogout} className="btn-logout-alt">Sign Out</button>
                     </div>
                   </div>
@@ -451,49 +473,54 @@ function App() {
       )}
 
       <main id="main-content" tabIndex="-1" style={{ outline: 'none' }}>
-        <Routes>
-          <Route path="/" element={<Home user={user} />} />
-          <Route path="/advisor" element={<Advisor userData={userData} />} />
-          <Route path="/how-it-works" element={<How />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/crop-guide" element={<CropGuide />} />
-          <Route path="/schemes" element={<Schemes />} />
-          <Route path="/resources" element={<Resources />} />
-          <Route path="/login" element={<Auth />} />
-          <Route path="/profile-setup" element={<ProfileSetup user={user} profileCompleted={profileCompleted} />} />
-          <Route path="/profile-settings" element={<ProfileSettings user={user} userData={userData} />} />
-          <Route path="/calendar" element={<Calendar />} />
-          <Route path="/share-feedback" element={<Feedback />} />
-          <Route path="/admin/feedback" element={<AdminFeedback />} />
-          <Route path="/market-prices" element={<MarketPrices />} />
-          <Route path="/farming-map" element={<FarmingMap />} />
-          <Route path="/profit-calculator" element={<CropProfitCalculator />} />
-          <Route path="/community" element={<Community />} />
-          <Route path="/soil-analysis" element={<SoilAnalysis />} />
-          <Route path="/faq" element={<FAQ />} />
-          <Route path="/terms" element={<Terms />} />
-          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
-          <Route path="/contributors" element={<Contributors />} />
-          <Route path="/trace/:id" element={<QRTraceability />} />
-          <Route path="/contact" element={<ContactUs />} />
-          <Route path="/about" element={<AboutUs />} />
-          <Route path="/crop-planner" element={<SeasonalCropPlanner />} />
-          <Route path="/soil-guide" element={<SoilGuide />} />
-          <Route path="/disease-awareness" element={<CropDiseaseAwareness />} />
-          <Route path="/pest-detection" element={<PestDetection />} />
-          <Route path="/equipment-management" element={<EquipmentManagement />} />
-          <Route path="/helpline" element={<Helpline />} />
-          <Route path="/glossary" element={<Glossary />} />
-          <Route path="/risk-index" element={<RiskIndex />} />
-          <Route path="/crop-rotation" element={<CropRotation />} />
-          <Route path="/seed-verifier" element={<SeedVerifier />} />
-          <Route path="/farm-finance" element={<FarmFinance />} />
-          <Route path="/yield-predictor" element={<YieldPredictor />} />
-          <Route path="/blog" element={<Blog />} />
-          <Route path="/blog/:id" element={<BlogDetail />} />
-          <Route path="/farming-news" element={<FarmingNews />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <React.Suspense fallback={<Loader fullPage={true} message={<span className="notranslate">Loading route...</span>} />}>
+          <Routes>
+            <Route path="/" element={<Home user={user} />} />
+            <Route path="/advisor" element={<Advisor userData={userData} />} />
+            <Route path="/how-it-works" element={<How />} />
+            <Route path="/dashboard" element={<Dashboard userData={userData} />} />
+            <Route path="/crop-guide" element={<CropGuide />} />
+            <Route path="/schemes" element={<Schemes />} />
+            <Route path="/resources" element={<Resources />} />
+            <Route path="/login" element={<Auth />} />
+            <Route path="/profile-setup" element={<ProfileSetup user={user} profileCompleted={profileCompleted} />} />
+            <Route path="/calendar" element={<Calendar />} />
+            <Route path="/share-feedback" element={<Feedback />} />
+            <Route path="/admin/feedback" element={<AdminFeedback />} />
+            <Route path="/market-prices" element={<MarketPrices />} />
+            <Route path="/farming-map" element={<FarmingMap />} />
+            <Route path="/profit-calculator" element={<CropProfitCalculator />} />
+            <Route path="/community" element={<Community />} />
+            <Route path="/leaderboard" element={<Leaderboard />} />
+            <Route path="/soil-analysis" element={<SoilAnalysis />} />
+            <Route path="/faq" element={<FAQ />} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+            <Route path="/contributors" element={<Contributors />} />
+            <Route path="/trace/:id" element={<QRTraceability />} />
+            <Route path="/contact" element={<ContactUs />} />
+            <Route path="/profile-settings" element={<ProfileSettings user={user} userData={userData} />} />
+            <Route path="/about" element={<AboutUs />} />
+            <Route path="/crop-planner" element={<SeasonalCropPlanner />} />
+            <Route path="/soil-guide" element={<SoilGuide />} />
+            <Route path="/disease-awareness" element={<CropDiseaseAwareness />} />
+            <Route path="/pest-detection" element={<PestDetection />} />
+            <Route path="/equipment-management" element={<EquipmentManagement />} />
+            <Route path="/helpline" element={<Helpline />} />
+            <Route path="/glossary" element={<Glossary />} />
+            <Route path="/risk-index" element={<RiskIndex />} />
+            <Route path="/crop-rotation" element={<CropRotation />} />
+            <Route path="/seed-verifier" element={<SeedVerifier />} />
+            <Route path="/farm-finance" element={<FarmFinance />} />
+            <Route path="/farming-news" element={<FarmingNews userData={userData} />} />
+            <Route path="/yield-predictor" element={<YieldPredictor />} />
+            <Route path="/blog" element={<Blog />} />
+            <Route path="/blog/:id" element={<BlogDetail />} />
+            <Route path="/weather" element={<Weather />} />
+            <Route path="/voice-assistant" element={<VoiceAssistant />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </React.Suspense>
       </main>
 
       {/* Floating Buttons */}

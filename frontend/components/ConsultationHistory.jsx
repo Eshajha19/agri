@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import "./ExpertDirectory.css";
 import { useAdvisorStore } from "../stores/advisorStore";
 import { db, auth } from "../lib/firebase";
 import { collection, getDocs, query, where, orderBy } from "firebase/firestore";
@@ -17,7 +18,7 @@ import {
   Star,
 } from "lucide-react";
 
-function ConsultationHistory({ onClose, onStartConsultation: _onStartConsultation }) {
+function ConsultationHistory({ userData, onClose, onStartConsultation: _onStartConsultation }) {
   const { setShowTeleConsultation, setActiveConsultation } = useAdvisorStore();
   const [consultations, setConsultations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -33,8 +34,7 @@ function ConsultationHistory({ onClose, onStartConsultation: _onStartConsultatio
 
   const loadConsultations = async () => {
     try {
-      const user = auth.currentUser;
-      if (!user) {
+      if (!userData) {
         setConsultations(MOCK_CONSULTATIONS);
         setLoading(false);
         return;
@@ -43,7 +43,7 @@ function ConsultationHistory({ onClose, onStartConsultation: _onStartConsultatio
       const consultationsRef = collection(db, "consultations");
       const q = query(
         consultationsRef,
-        where("userId", "==", user.uid),
+        where("userId", "==", userData.uid),
         orderBy("createdAt", "desc")
       );
 
@@ -125,8 +125,7 @@ function ConsultationHistory({ onClose, onStartConsultation: _onStartConsultatio
   };
 
   return (
-    <div className="consultation-history-overlay" onClick={onClose}>
-      <div className="consultation-history" onClick={(e) => e.stopPropagation()}>
+    <div className="consultation-history">
         <div className="history-header">
           <h2>
             <Calendar className="header-icon" /> Consultation History
@@ -284,7 +283,6 @@ function ConsultationHistory({ onClose, onStartConsultation: _onStartConsultatio
           </div>
         )}
       </div>
-    </div>
   );
 }
 

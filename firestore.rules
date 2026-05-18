@@ -118,19 +118,60 @@ service cloud.firestore {
       allow write: if hasRole('vendor') || hasRole('admin');
     }
 
-    // Farming Calendar activities — owner only.
-    match /activities/{activityId} {
-      allow read, write: if isAuthed() && request.auth.uid == resource.data.userId;
-      allow create: if isAuthed() && request.resource.data.userId == request.auth.uid;
+    // Finance Applications: farmers can read their own; admins can read all
+    match /finance_applications/{applicationId} {
+      allow read: if isAuthed() && (hasRole('admin') || hasRole('expert'));
+      allow create: if isAuthed();
+      allow update: if isAuthed() && (hasRole('admin') || hasRole('expert'));
+      allow delete: if hasRole('admin');
     }
 
-    // Government scheme applications — owner only.
-    match /scheme_applications/{appId} {
-      allow read, update, delete: if isAuthed() && request.auth.uid == resource.data.userId;
+    // Notifications: authenticated users can read; system can write
+    match /notifications/{notificationId} {
+      allow read: if isAuthed();
+      allow write: if hasRole('admin') || hasRole('system');
+    }
+
+    // Supply Chain Records: nested structure for traceability
+    match /supply_chain_batches/{batchId} {
+      allow read: if isAuthed();
+      allow create, update: if isAuthed() && (hasRole('farmer') || hasRole('vendor') || hasRole('admin'));
+      allow delete: if hasRole('admin');
+
+      // Supply chain nodes within each batch
+      match /nodes/{nodeId} {
+        allow read: if isAuthed();
+        allow create, update: if isAuthed() && (hasRole('farmer') || hasRole('vendor') || hasRole('admin'));
+        allow delete: if hasRole('admin');
+      }
+    }
+
+    // Disaster alerts (GeoAlertMesh): authenticated users can read and create;
+    // only the reporter or an admin may delete.
+    // Field validation enforced here so direct SDK calls cannot bypass the
+    // frontend whitelist on type, severity, and notes length.
+    match /disaster_alerts/{alertId} {
+      allow read: if isAuthed();
+
       allow create: if isAuthed()
-        && request.resource.data.userId == request.auth.uid
-        && request.resource.data.schemeId is int
-        && request.resource.data.status is string;
+        // Caller must be the reporter — prevents impersonation.
+        && request.resource.data.reporterId == request.auth.uid
+        // type must be one of the three known values.
+        && request.resource.data.type in ["Pest Outbreak", "Wildfire", "Extreme Weather"]
+        // severity must be High or Medium.
+        && request.resource.data.severity in ["High", "Medium"]
+        // notes must be a string no longer than 100 characters.
+        && request.resource.data.notes is string
+        && request.resource.data.notes.size() <= 100
+        // geohash, lat, lng must be present and correctly typed.
+        && request.resource.data.geohash is string
+        && request.resource.data.lat is number
+        && request.resource.data.lng is number
+        // createdAt must be a server-generated timestamp.
+        && hasServerTimestamp('createdAt');
+
+      // Only the original reporter or an admin may delete an alert.
+      allow delete: if isOwner(resource.data.reporterId) || hasRole('admin');
     }
 
   }

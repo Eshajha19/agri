@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import "./ExpertDirectory.css";
 import { db } from "../lib/firebase";
 import { collection, getDocs, updateDoc, doc, query, where } from "firebase/firestore";
 import { toast } from "react-toastify";
@@ -17,7 +18,7 @@ import {
   CheckCircle,
 } from "lucide-react";
 
-function TeleConsultation({ consultation, onEnd }) {
+function TeleConsultation({ userData, consultation, onEnd }) {
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [isMicEnabled, setIsMicEnabled] = useState(true);
   const [callDuration, setCallDuration] = useState(0);
@@ -76,8 +77,7 @@ function TeleConsultation({ consultation, onEnd }) {
   const toggleMic = () => setIsMicEnabled(!isMicEnabled);
 
   return (
-    <div className="tele-consultation-overlay">
-      <div className="tele-consultation-container">
+    <div className="tele-consultation-container">
         <div className="call-header">
           <div className="expert-info">
             <img src={consultation.avatar || "https://randomuser.me/api/portraits/men/32.jpg"} alt="Expert" className="expert-video-avatar" />
@@ -195,7 +195,6 @@ function TeleConsultation({ consultation, onEnd }) {
             <span>{isMicEnabled ? "Mic On" : "Mic Off"}</span>
           </div>
         </div>
-      </div>
     </div>
   );
 }

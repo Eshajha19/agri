@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { toast } from 'react-toastify';
+import { loadVersionedArray, saveVersionedArray } from './utils/versionedStorage';
 import { 
   Book, 
   Plus, 
@@ -20,6 +21,9 @@ import {
 import './FarmDiary.css';
 
 const ACTIVITY_TYPES = ['Sowing', 'Irrigation', 'Fertilizer', 'Harvest', 'Pesticide', 'Other'];
+const DIARY_STORAGE_KEY = 'fasalSaathiDiary';
+const DIARY_STORAGE_VERSION = 1;
+const MAX_DIARY_ENTRIES = 250;
 
 export default function FarmDiary({ onClose }) {
   const [entries, setEntries] = useState([]);
@@ -36,22 +40,26 @@ export default function FarmDiary({ onClose }) {
 
   // Load entries from localStorage on mount
   useEffect(() => {
-    const saved = localStorage.getItem('fasalSaathiDiary');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        // Sort by date descending
-        parsed.sort((a, b) => new Date(b.date) - new Date(a.date));
-        setEntries(parsed);
-      } catch (e) {
-        console.error('Error loading diary entries', e);
-      }
-    }
+    const saved = loadVersionedArray(DIARY_STORAGE_KEY, {
+      version: DIARY_STORAGE_VERSION,
+      fallback: [],
+      maxItems: MAX_DIARY_ENTRIES,
+    });
+
+    setEntries(saved.sort((a, b) => new Date(b.date) - new Date(a.date)));
   }, []);
 
   // Save to localStorage whenever entries change
   useEffect(() => {
-    localStorage.setItem('fasalSaathiDiary', JSON.stringify(entries));
+    const sortedEntries = [...entries].sort((a, b) => new Date(b.date) - new Date(a.date));
+    const saved = saveVersionedArray(DIARY_STORAGE_KEY, sortedEntries, {
+      version: DIARY_STORAGE_VERSION,
+      maxItems: MAX_DIARY_ENTRIES,
+    });
+
+    if (!saved) {
+      console.warn('Diary persistence skipped because localStorage quota is full.');
+    }
   }, [entries]);
 
   const handleInputChange = (e) => {

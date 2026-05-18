@@ -68,12 +68,12 @@ def _build_prompt(query: str, docs: list[dict]) -> str:
 
     prompt = (
         "You are Fasal Sathi, an expert agricultural advisor for Indian farmers. "
-        "Answer the farmer's question using ONLY the research-backed context provided below. "
+        "Answer the farmer's question enclosed inside the `<question>` tag using ONLY the research-backed context provided below. "
         "Be concise, practical, and use simple language. "
         "Cite sources by their [Source N] number where relevant. "
         "If the context does not fully address the question, say so and suggest consulting "
         "a local Krishi Vigyan Kendra (KVK) or agricultural extension officer.\n\n"
-        f"### Farmer's Question\n{query}\n\n"
+        f"### Farmer's Question\n<question>\n{query}\n</question>\n\n"
         f"### Research Context\n{context_text}\n\n"
         "### Answer"
     )
