@@ -10,9 +10,60 @@ import re
 import logging
 import collections
 import threading
+import time
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from contextlib import asynccontextmanager
+
+class IdempotencyCache:
+    def __init__(self, max_size: int = 1000, ttl_seconds: int = 86400):
+        self.max_size = max_size
+        self.ttl_seconds = ttl_seconds
+        self.cache: Dict[str, Tuple[Any, float]] = {}
+
+    def _evict_expired(self):
+        now = time.time()
+        expired_keys = [k for k, (_, ts) in self.cache.items() if now - ts >= self.ttl_seconds]
+        for k in expired_keys:
+            del self.cache[k]
+
+    def __contains__(self, key: str) -> bool:
+        self._evict_expired()
+        if key in self.cache:
+            val, ts = self.cache[key]
+            if time.time() - ts < self.ttl_seconds:
+                return True
+            else:
+                del self.cache[key]
+        return False
+
+    def __getitem__(self, key: str) -> Any:
+        self._evict_expired()
+        if key in self.cache:
+            val, ts = self.cache[key]
+            if time.time() - ts < self.ttl_seconds:
+                return val
+            else:
+                del self.cache[key]
+        raise KeyError(key)
+
+    def __setitem__(self, key: str, value: Any):
+        self._evict_expired()
+        if len(self.cache) >= self.max_size and key not in self.cache:
+            oldest_key = min(self.cache.keys(), key=lambda k: self.cache[k][1])
+            del self.cache[oldest_key]
+        self.cache[key] = (value, time.time())
+
+    def __len__(self) -> int:
+        self._evict_expired()
+        return len(self.cache)
+
+    def clear(self):
+        self.cache.clear()
+
+_IDEMPOTENCY_LOCK = threading.Lock()
+_IDEMPOTENCY_CACHE = IdempotencyCache(max_size=1000, ttl_seconds=86400)
+
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
