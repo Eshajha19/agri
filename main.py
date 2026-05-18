@@ -1178,6 +1178,14 @@ async def verify_seed(data: SeedVerifyRequest, request: Request):
         "expires_on": entry["expires_on"],
     }
 
+# Include ML Model Management Router
+try:
+    from routers.ml_models import router as ml_router
+    app.include_router(ml_router)
+    logger.info("ML Model Management API loaded successfully")
+except Exception as e:
+    logger.warning(f"Could not load ML Model Management API: {e}")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
