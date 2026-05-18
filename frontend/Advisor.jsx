@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import "./Advisor.css";
+// Components - Static imports (lazy loading removed for faster feature access)
 import WeatherCard from "./weather/WeatherCard";
 import Forecast from "./Forecast";
 import SoilChatbot from "./SoilChatbot";
@@ -10,7 +11,6 @@ import IrrigationGuidance from "./IrrigationGuidance";
 import CropProfitCalculator from "./CropProfitCalculator";
 import FarmingMap from "./FarmingMap";
 import FertilizerRecommendation from "./FertilizerRecommendation";
-import LastUpdated from "./LastUpdated";
 import AgriMarketplace from "./AgriMarketplace";
 import AgriLMS from "./AgriLMS";
 import BankReports from "./BankReports";
@@ -18,6 +18,7 @@ import QRTraceability from "./QRTraceability";
 import FarmPlanner3D from "./FarmPlanner3D";
 import FarmDiary from "./FarmDiary";
 import CropDiseaseDetection from "./CropDiseaseDetection";
+import PestDetection from "./PestDetection";
 import PestManagement from "./PestManagement";
 import SprayReminder from "./SprayReminder";
 import SeedVerifier from "./SeedVerifier";
@@ -25,14 +26,21 @@ import ClimateSimulator from "./ClimateSimulator";
 import RAGAdvisor from "./RAGAdvisor";
 import GreenPractices from "./GreenPractices";
 import YieldPredictorForm from "./YieldPredictorForm";
-import { Leaf } from "lucide-react";
-
 import CropRotation from "./CropRotation";
 import P2PChat from "./P2PChat";
 import GeoAlertMesh from "./GeoAlertMesh";
 import SmartCropRecommendation from "./SmartCropRecommendation";
 import CropRecommendationAdvisor from "./CropRecommendationAdvisor";
 import PersonalizedAdvisory from "./PersonalizedAdvisory";
+import YieldHistory from "./YieldHistory";
+import EquipmentManagement from "./EquipmentManagement";
+import CropQualityGrading from "./CropQualityGrading";
+import SustainabilityAnalytics from "./SustainabilityAnalytics";
+import LastUpdated from "./LastUpdated";
+import ExpertDirectory from "./components/ExpertDirectory";
+import TeleConsultation from "./components/TeleConsultation";
+import ConsultationHistory from "./components/ConsultationHistory";
+import { Leaf } from "lucide-react";
 import {
   Sun,
   Droplets,
@@ -62,11 +70,15 @@ import {
   Rocket,
   Trophy,
   Medal,
-  Gem,
-  FileText,
-  Construction,
-  CloudRain,
-} from "lucide-react";
+   Gem,
+   FileText,
+   Construction,
+   CloudRain,
+   Settings,
+   Video,
+   Phone,
+   Users,
+ } from "lucide-react";
 import { FaSync } from "react-icons/fa";
 import { useAdvisorStore } from "./stores/advisorStore";
 
@@ -74,76 +86,96 @@ import { useYieldPrediction } from "./hooks/useYieldPrediction";
 import { auth, db } from "./lib/firebase";
 import { generateBankPDF, generateCSV } from "./utils/exportService";
 import { doc, onSnapshot } from "firebase/firestore";
+import {
+  WEATHER_SNAPSHOT_EVENT,
+  getStoredWeatherSnapshot,
+  fetchWeatherByLocation,
+  getCurrentPosition,
+  fetchWeatherByIP,
+  searchLocationByName,
+} from "./weather/weatherService";
 
 export default function Advisor({ userData }) {
   const navigate = useNavigate();
-  const WEATHER_API_KEY = import.meta.env.VITE_OPENWEATHER_API_KEY;
-  const WEATHER_CACHE_KEY = "advisorWeatherCache";
   
-  const {
-    farmers,
-    setFarmers,
-    crops,
-    setCrops,
-    languages,
-    setLanguages,
-    showWeather,
-    setShowWeather,
-    showSoilChatbot,
-    setShowSoilChatbot,
-    showSoilAnalysis,
-    setShowSoilAnalysis,
-    showSoilGuide,
-    setShowSoilGuide,
-    showFertilizerPopup,
-    setShowFertilizerPopup,
-    showComingSoon,
-    setShowComingSoon,
-    showIrrigation,
-    setShowIrrigation,
-    showProfitCalculator,
-    setShowProfitCalculator,
-    showFarmingMap,
-    setShowFarmingMap,
-    showCropDiseaseDetection,
-    setShowCropDiseaseDetection,
-    showPestManagement,
-    setShowPestManagement,
-    showSprayReminder,
-    setShowSprayReminder,
-    showAgriMarketplace,
-    setShowAgriMarketplace,
-    showAgriLMS,
-    setShowAgriLMS,
-    showQRTraceability,
-    setShowQRTraceability,
-    showFarmPlanner3D,
-    setShowFarmPlanner3D,
-    showFarmDiary,
-    setShowFarmDiary,
-    showCropRotation,
-    setShowCropRotation,
-    showForecast,
-    setShowForecast,
-    showExpertStatus,
-    setShowExpertStatus,
-    showBankReport,
-    setShowBankReport,
-    showP2PChat,
-    setShowP2PChat,
-    showSmartCropRecommendation,
-    setShowSmartCropRecommendation,
-    showSeedVerifier,
-    setShowSeedVerifier,
-    showGeoAlerts,
-    setShowGeoAlerts,
-    showClimateSimulator,
-    setShowClimateSimulator,
-    showRAGAdvisor,
-    setShowRAGAdvisor,
-    showGreenPractices,
-    setShowGreenPractices,
-  } = useAdvisorStore();
+   const {
+     farmers,
+     setFarmers,
+     crops,
+     setCrops,
+     languages,
+     setLanguages,
+     showWeather,
+     setShowWeather,
+     showSoilChatbot,
+     setShowSoilChatbot,
+     showSoilAnalysis,
+     setShowSoilAnalysis,
+     showSoilGuide,
+     setShowSoilGuide,
+      showFertilizerPopup,
+      setShowFertilizerPopup,
+      showOfflineStatus,
+      setShowOfflineStatus,
+      showIrrigation,
+     setShowIrrigation,
+     showProfitCalculator,
+     setShowProfitCalculator,
+     showFarmingMap,
+     setShowFarmingMap,
+     showCropDiseaseDetection,
+     setShowCropDiseaseDetection,
+     showPestManagement,
+     setShowPestManagement,
+     showSprayReminder,
+     setShowSprayReminder,
+     showAgriMarketplace,
+     setShowAgriMarketplace,
+     showAgriLMS,
+     setShowAgriLMS,
+     showQRTraceability,
+     setShowQRTraceability,
+     showFarmPlanner3D,
+     setShowFarmPlanner3D,
+     showFarmDiary,
+     setShowFarmDiary,
+     showCropRotation,
+     setShowCropRotation,
+     showForecast,
+     setShowForecast,
+     showExpertStatus,
+     setShowExpertStatus,
+     showBankReport,
+     setShowBankReport,
+     showP2PChat,
+     setShowP2PChat,
+     showSmartCropRecommendation,
+     setShowSmartCropRecommendation,
+     showSeedVerifier,
+     setShowSeedVerifier,
+     showGeoAlerts,
+     setShowGeoAlerts,
+     showClimateSimulator,
+     setShowClimateSimulator,
+     showRAGAdvisor,
+     setShowRAGAdvisor,
+showGreenPractices,
+      setShowGreenPractices,
+      showCropRecommendationAdvisor,
+      setShowCropRecommendationAdvisor,
+       showCropGrading,
+       setShowCropGrading,
+       showSustainabilityAnalytics,
+       setShowSustainabilityAnalytics,
+       showExpertDirectory,
+       setShowExpertDirectory,
+       showTeleConsultation,
+       setShowTeleConsultation,
+       activeConsultation,
+       setActiveConsultation,
+       showConsultationHistory,
+       setShowConsultationHistory,
+    } = useAdvisorStore();
 
 
 
@@ -155,220 +187,241 @@ export default function Advisor({ userData }) {
 
   const [weatherStatus, setWeatherStatus] = useState("idle");
   const [weatherError, setWeatherError] = useState("");
-  const [weatherData, setWeatherData] = useState(null);
-  const [weatherLocation, setWeatherLocation] = useState("");
-  const [weatherLastUpdated, setWeatherLastUpdated] = useState(null);
+  const [weatherSnapshot, setWeatherSnapshot] = useState(() => getStoredWeatherSnapshot());
+  const [showYieldHistory, setShowYieldHistory] = useState(false);
   const [locationQuery, setLocationQuery] = useState("");
-  const [coords, setCoords] = useState(null);
-  const [userProfile, setUserProfile] = useState(null);
-  const [showCropRecommendationAdvisor, setShowCropRecommendationAdvisor] = useState(false);
 
+  // ── Shared weather snapshot integration ──────────────────────────────────
+  // Subscribe to the global WEATHER_SNAPSHOT_EVENT so any fetch by
+  // WeatherAlertBar or WeatherQuickWidget is immediately reflected here —
+  // no duplicate API call needed.
   useEffect(() => {
-    // Priority: auth.currentUser, then fallback to localStorage
-    const uid = auth?.currentUser?.uid || localStorage.getItem("userId");
-    
-    if (uid) {
-      const unsubscribe = onSnapshot(doc(db, "users", uid), (doc) => {
-        if (doc.exists()) {
-          setUserProfile(doc.data());
-        }
-      });
-      return () => unsubscribe();
-    }
-  }, [auth?.currentUser]);
-
-  /* Animate stats on mount */
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const state = useAdvisorStore.getState();
-      if (state.farmers < 50000) setFarmers(state.farmers + 500);
-      if (state.crops < 120) setCrops(state.crops + 2);
-      if (state.languages < 12) setLanguages(state.languages + 1);
-    }, 50);
-    return () => clearInterval(interval);
-  }, [setFarmers, setCrops, setLanguages]);
-
-  useEffect(() => {
-    try {
-      const cached = localStorage.getItem(WEATHER_CACHE_KEY);
-      if (!cached) return;
-      const parsed = JSON.parse(cached);
-      if (!parsed?.timestamp || !parsed?.data) return;
-      const ageMinutes = (Date.now() - parsed.timestamp) / 60000;
-      if (ageMinutes <= 30) {
-        setWeatherData(parsed.data);
-        setWeatherLocation(parsed.location || "");
-        setWeatherLastUpdated(parsed.timestamp);
+    const handleSnapshot = (event) => {
+      const snap = event.detail;
+      if (snap?.location) {
+        setWeatherSnapshot(snap);
         setWeatherStatus("ready");
+        setWeatherError("");
       }
-    } catch {
-      localStorage.removeItem(WEATHER_CACHE_KEY);
+    };
+    window.addEventListener(WEATHER_SNAPSHOT_EVENT, handleSnapshot);
+    return () => window.removeEventListener(WEATHER_SNAPSHOT_EVENT, handleSnapshot);
+  }, []);
+
+  // On mount: if a valid cached snapshot already exists (written by
+  // WeatherAlertBar on the Home page), use it immediately — no fetch needed.
+  useEffect(() => {
+    const cached = getStoredWeatherSnapshot();
+    if (cached?.location) {
+      setWeatherSnapshot(cached);
+      setWeatherStatus("ready");
     }
   }, []);
 
+  // Derive advisories from the open-meteo snapshot alerts array.
+  // weatherService.js already computes these via deriveAlerts() — we just
+  // map them to the shape the existing JSX expects.
   const advisories = useMemo(() => {
-    if (!weatherData?.daily?.length) return [];
-    const daily = weatherData.daily.slice(0, 7);
-    const advisoriesList = [];
+    if (!weatherSnapshot?.alerts?.length) return [];
+    return weatherSnapshot.alerts
+      .filter(a => a.type !== "stable")
+      .map(a => ({ type: a.type, title: a.title, message: a.message }));
+  }, [weatherSnapshot]);
 
-    const heatDays = daily.filter((day) => day?.temp?.max >= 38);
-    if (heatDays.length >= 2) {
-      advisoriesList.push({
-        type: "heat",
-        title: "Heatwave risk",
-        message: "Plan irrigation during early hours and protect seedlings with shade nets.",
-      });
-    }
-
-    const frostDays = daily.filter((day) => day?.temp?.min <= 4);
-    if (frostDays.length > 0) {
-      advisoriesList.push({
-        type: "frost",
-        title: "Frost risk",
-        message: "Cover sensitive crops at night and avoid late evening irrigation.",
-      });
-    }
-
-    const heavyRainDays = daily.filter((day) =>
-      day?.pop >= 0.7 && ["Rain", "Thunderstorm"].includes(day?.weather?.[0]?.main)
-    );
-    if (heavyRainDays.length > 0) {
-      advisoriesList.push({
-        type: "rain",
-        title: "Heavy rain alert",
-        message: "Delay fertilizer application and ensure proper field drainage.",
-      });
-    }
-
-    const dryStretch = daily.filter((day) => day?.pop <= 0.2).length >= 3;
-    if (dryStretch) {
-      advisoriesList.push({
-        type: "dry",
-        title: "Dry spell likely",
-        message: "Consider light irrigation cycles and mulch to retain soil moisture.",
-      });
-    }
-
-    return advisoriesList;
-  }, [weatherData]);
-
+  // Fetch weather via the shared service (writes to the shared cache and
+  // broadcasts WEATHER_SNAPSHOT_EVENT so all components stay in sync).
   const fetchWeather = async ({ latitude, longitude, label }) => {
-    if (!WEATHER_API_KEY) {
-      setWeatherStatus("error");
-      setWeatherError("Weather API key is missing. Add VITE_OPENWEATHER_API_KEY to your env.");
-      return;
-    }
-
     setWeatherStatus("loading");
     setWeatherError("");
-    const controller = new AbortController();
-    const { signal } = controller;
-
     try {
-      const url = new URL("https://api.openweathermap.org/data/2.5/onecall");
-      url.searchParams.set("lat", latitude);
-      url.searchParams.set("lon", longitude);
-      url.searchParams.set("exclude", "minutely,hourly,alerts");
-      url.searchParams.set("units", "metric");
-      url.searchParams.set("appid", WEATHER_API_KEY);
-
-      const response = await fetch(url.toString(), { signal });
-      if (!response.ok) {
-        throw new Error(`Weather API error (${response.status})`);
-      }
-
-      const data = await response.json();
-      const timestamp = Date.now();
-      setWeatherData(data);
-      setWeatherLocation(label || weatherLocation);
-      setWeatherLastUpdated(timestamp);
+      const snap = await fetchWeatherByLocation({
+        latitude, longitude,
+        city: label || "Your area",
+        name: label || "Your area",
+        source: "manual",
+      });
+      setWeatherSnapshot(snap);
       setWeatherStatus("ready");
-
-      localStorage.setItem(
-        WEATHER_CACHE_KEY,
-        JSON.stringify({
-          timestamp,
-          data,
-          location: label || weatherLocation,
-        })
-      );
-    } catch (error) {
-      if (error?.name === "AbortError") return;
+    } catch (err) {
       setWeatherStatus("error");
-      setWeatherError(error?.message || "Failed to load weather data.");
+      setWeatherError(err?.message || "Failed to load weather data.");
     }
   };
 
-  const handleUseMyLocation = () => {
-    if (!navigator.geolocation) {
-      setWeatherStatus("error");
-      setWeatherError("Geolocation is not supported in this browser.");
-      return;
-    }
-
+  const handleUseMyLocation = async () => {
     setWeatherStatus("loading");
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        setCoords({ latitude, longitude });
-        fetchWeather({
-          latitude,
-          longitude,
-          label: "Current location",
-        });
-      },
-      () => {
+    setWeatherError("");
+    try {
+      const location = await getCurrentPosition();
+      const snap = await fetchWeatherByLocation(location);
+      setWeatherSnapshot(snap);
+      setWeatherStatus("ready");
+    } catch {
+      // GPS failed — fall back to IP-based location
+      try {
+        const snap = await fetchWeatherByIP();
+        setWeatherSnapshot(snap);
+        setWeatherStatus("ready");
+      } catch (err) {
         setWeatherStatus("error");
-        setWeatherError("Unable to access your location. Please search manually.");
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+        setWeatherError(err?.message || "Unable to access your location. Please search manually.");
+      }
+    }
   };
 
   const handleLocationSearch = async (event) => {
     event.preventDefault();
     if (!locationQuery.trim()) return;
-    if (!WEATHER_API_KEY) {
-      setWeatherStatus("error");
-      setWeatherError("Weather API key is missing. Add VITE_OPENWEATHER_API_KEY to your env.");
-      return;
-    }
-
     setWeatherStatus("loading");
     setWeatherError("");
     try {
-      const geoUrl = new URL("https://api.openweathermap.org/geo/1.0/direct");
-      geoUrl.searchParams.set("q", locationQuery);
-      geoUrl.searchParams.set("limit", "1");
-      geoUrl.searchParams.set("appid", WEATHER_API_KEY);
-
-      const response = await fetch(geoUrl.toString());
-      if (!response.ok) {
-        throw new Error(`Location lookup failed (${response.status})`);
-      }
-
-      const results = await response.json();
-      if (!results?.length) {
-        throw new Error("Location not found. Try a nearby city or district.");
-      }
-
-      const match = results[0];
-      const label = [match.name, match.state, match.country].filter(Boolean).join(", ");
-      setCoords({ latitude: match.lat, longitude: match.lon });
-      fetchWeather({ latitude: match.lat, longitude: match.lon, label });
-    } catch (error) {
+      const location = await searchLocationByName(locationQuery.trim());
+      const snap = await fetchWeatherByLocation(location);
+      setWeatherSnapshot(snap);
+      setWeatherStatus("ready");
+    } catch (err) {
       setWeatherStatus("error");
-      setWeatherError(error?.message || "Failed to search location.");
+      setWeatherError(err?.message || "Location not found. Try a nearby city or district.");
     }
   };
 
-  const formatTemp = (value) => `${Math.round(value)}°C`;
-  const formatDay = (timestamp) =>
-    new Date(timestamp * 1000).toLocaleDateString(undefined, {
-      weekday: "short",
-      day: "numeric",
-      month: "short",
+  // Helpers to format open-meteo data for the weather dashboard JSX.
+  // open-meteo daily arrays are indexed by day (0 = today).
+  const formatTemp = (value) => `${Math.round(value ?? 0)}°C`;
+  const formatDay = (isoDate) =>
+    new Date(isoDate).toLocaleDateString(undefined, {
+      weekday: "short", day: "numeric", month: "short",
     });
+
+  // Build a normalised daily array from the open-meteo snapshot so the
+  // existing JSX can iterate it without changes to the template.
+  const dailyForecast = useMemo(() => {
+    const d = weatherSnapshot?.daily;
+    if (!d?.time?.length) return [];
+    return d.time.slice(0, 7).map((date, i) => ({
+      date,
+      maxTemp: d.temperature_2m_max?.[i] ?? null,
+      minTemp: d.temperature_2m_min?.[i] ?? null,
+      rain:    d.precipitation_sum?.[i] ?? 0,
+      code:    d.weather_code?.[i] ?? 0,
+    }));
+  }, [weatherSnapshot]);
+
+  const weatherLocation = weatherSnapshot?.location?.name || weatherSnapshot?.location?.city || "";
+  const weatherLastUpdated = weatherSnapshot?.fetchedAt ? new Date(weatherSnapshot.fetchedAt).getTime() : null;
+
+
+
+  /**
+   * Architecture
+   * ------------
+   * The animation runs entirely in local component state using
+   * requestAnimationFrame (rAF) rather than setInterval + global store writes.
+   *
+   * Why this is better than the previous setInterval approach:
+   *
+   * 1. No global store thrashing — the previous implementation wrote to the
+   *    Zustand store on every tick (every 50 ms = ~200 writes to reach the
+   *    targets), causing the entire component tree subscribed to those values
+   *    to re-render on each write.  Local state confines re-renders to this
+   *    component only.
+   *
+   * 2. No stale-closure / rapid create-destroy cycle — the previous fix put
+   *    [farmers, crops, languages] in the dependency array, which caused the
+   *    effect to tear down and recreate the interval on every store update,
+   *    resulting in a rapid create/destroy cycle that was worse than the
+   *    original bug.
+   *
+   * 3. rAF is frame-rate aware — it fires at most once per display frame
+   *    (~16 ms at 60 fps) and is automatically paused by the browser when
+   *    the tab is hidden, saving CPU on background tabs.
+   *
+   * 4. Single global store write — the store is updated exactly once when
+   *    all counters reach their targets, so the final values are persisted
+   *    for when the user navigates back to this page.
+   *
+   * 5. Clean unmount — cancelling the rAF handle in the cleanup function
+   *    guarantees the animation stops immediately when the component unmounts,
+   *    with no background updates.
+   */
+  const TARGETS = { farmers: 50000, crops: 120, languages: 12 };
+  const STEPS   = { farmers: 500,   crops: 2,   languages: 1  };
+
+  // Local display counters — drive the rendered numbers without touching
+  // the global store on every frame.
+  const [displayFarmers,   setDisplayFarmers]   = useState(farmers);
+  const [displayCrops,     setDisplayCrops]     = useState(crops);
+  const [displayLanguages, setDisplayLanguages] = useState(languages);
+
+  // Stable refs so the rAF callback always reads the latest values without
+  // being listed as effect dependencies (avoids the stale-closure trap).
+  const displayRef = useRef({ farmers, crops, languages });
+  const rafRef     = useRef(null);
+
+  useEffect(() => {
+    // If the store already holds the final values (e.g. user navigated back),
+    // sync local display state and skip the animation entirely.
+    if (
+      farmers  >= TARGETS.farmers  &&
+      crops    >= TARGETS.crops    &&
+      languages >= TARGETS.languages
+    ) {
+      setDisplayFarmers(TARGETS.farmers);
+      setDisplayCrops(TARGETS.crops);
+      setDisplayLanguages(TARGETS.languages);
+      return;
+    }
+
+    // Reset local counters to 0 so the animation always plays from the start
+    // when the component mounts fresh.
+    displayRef.current = { farmers: 0, crops: 0, languages: 0 };
+    setDisplayFarmers(0);
+    setDisplayCrops(0);
+    setDisplayLanguages(0);
+
+    const tick = () => {
+      const cur = displayRef.current;
+      const nextFarmers   = Math.min(cur.farmers   + STEPS.farmers,   TARGETS.farmers);
+      const nextCrops     = Math.min(cur.crops     + STEPS.crops,     TARGETS.crops);
+      const nextLanguages = Math.min(cur.languages + STEPS.languages, TARGETS.languages);
+
+      displayRef.current = {
+        farmers:   nextFarmers,
+        crops:     nextCrops,
+        languages: nextLanguages,
+      };
+
+      setDisplayFarmers(nextFarmers);
+      setDisplayCrops(nextCrops);
+      setDisplayLanguages(nextLanguages);
+
+      const done =
+        nextFarmers   >= TARGETS.farmers  &&
+        nextCrops     >= TARGETS.crops    &&
+        nextLanguages >= TARGETS.languages;
+
+      if (done) {
+        // Write final values to the global store exactly once so they are
+        // persisted if the user navigates away and returns.
+        setFarmers(TARGETS.farmers);
+        setCrops(TARGETS.crops);
+        setLanguages(TARGETS.languages);
+      } else {
+        rafRef.current = requestAnimationFrame(tick);
+      }
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+
+    // Cancel the animation immediately on unmount — no background updates.
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run once on mount — rAF loop manages its own lifecycle internally.
 
   const getNextBadgeThreshold = (points) => {
     if (points < 50) return { threshold: 50, name: "Active Contributor", icon: <Medal size={16} style={{ color: '#cd7f32' }} /> };
@@ -377,7 +430,7 @@ export default function Advisor({ userData }) {
     return { threshold: points, name: "Maximum Rank", icon: <Gem size={16} style={{ color: '#4facfe' }} /> };
   };
 
-  const currentReputation = userProfile?.reputation || 0;
+  const currentReputation = userData?.reputation || 0;
   const nextBadge = getNextBadgeThreshold(currentReputation);
   const progressPercent = Math.min((currentReputation / nextBadge.threshold) * 100, 100);
 
@@ -415,23 +468,23 @@ export default function Advisor({ userData }) {
 
       <div className="advisor-stats">
         <div className="stat">
-          <h2><span className="stat-number">{farmers.toLocaleString()}</span>{farmers >= 50000 && <span className="stat-plus">+</span>}</h2>
+          <h2><span className="stat-number">{displayFarmers.toLocaleString()}</span>{displayFarmers >= 50000 && <span className="stat-plus">+</span>}</h2>
           <p><span className="notranslate">Farmers Connected</span></p>
         </div>
         <div className="stat">
-          <h2><span className="stat-number">{crops}</span>{crops >= 120 && <span className="stat-plus">+</span>}</h2>
+          <h2><span className="stat-number">{displayCrops}</span>{displayCrops >= 120 && <span className="stat-plus">+</span>}</h2>
           <p><span className="notranslate">Crops Analyzed</span></p>
         </div>
         <div className="stat">
-          <h2><span className="stat-number">{languages}</span>{languages >= 12 && <span className="stat-plus">+</span>}</h2>
+          <h2><span className="stat-number">{displayLanguages}</span>{displayLanguages >= 12 && <span className="stat-plus">+</span>}</h2>
           <p><span className="notranslate">Languages Available</span></p>
         </div>
       </div>
 
-      <PersonalizedAdvisory
-        userProfile={userProfile}
-        weatherData={weatherData}
-      />
+<PersonalizedAdvisory
+         userData={userData}
+         weatherData={weatherSnapshot}
+       />
 
       <br />
       <br />
@@ -457,35 +510,7 @@ export default function Advisor({ userData }) {
             <p>Plan your crops throughout the year with seasonal recommendations and crop rotation cycles.</p>
           </div>
 
-          <div
-            className="card reveal"
-            role="button"
-            tabIndex={0}
-            onClick={() => setShowWeather(true)}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowWeather(true); }}
-            aria-label="Weather Intelligence: Hyperlocal weather forecasts and alerts"
-          >
-            <div className="icon" aria-hidden="true">
-              <Sun size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">Weather Intelligence</span></h3>
-            <p>Get hyperlocal weather forecasts, alerts, and crop-specific advisories.</p>
-          </div>
           
-          <div
-            className="card reveal"
-            role="button"
-            tabIndex={0}
-            onClick={() => setShowForecast(true)}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowForecast(true); }}
-            aria-label="7-Day Forecast: Detailed weekly weather outlook"
-          >
-            <div className="icon" aria-hidden="true">
-              <CloudSun size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">7-Day Forecast</span></h3>
-            <p>Detailed weekly weather outlook to plan your farming activities.</p>
-          </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/community")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/community"); }} aria-label="Farmer Community: Connect and share tips">
             <div className="icon" aria-hidden="true">
@@ -507,15 +532,15 @@ export default function Advisor({ userData }) {
             </p>
           </div>
 
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/blog")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/blog"); }} aria-label="Knowledge Blog: Farming articles">
-            <div className="icon" aria-hidden="true">
-              <Book size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">Knowledge Blog</span></h3>
-            <p>
-              Read articles on crop management, weather, and farming best practices.
-            </p>
-          </div>
+           <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/blog")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/blog"); }} aria-label="Knowledge Blog: Farming articles">
+             <div className="icon" aria-hidden="true">
+               <Book size={32} strokeWidth={2} />
+             </div>
+             <h3><span className="notranslate">Knowledge Blog</span></h3>
+             <p>
+               Read articles on crop management, weather, and farming best practices.
+             </p>
+           </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/disease-awareness")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/disease-awareness"); }} aria-label="Crop Disease Awareness: Learn remedies">
             <div className="icon" aria-hidden="true">
@@ -524,6 +549,16 @@ export default function Advisor({ userData }) {
             <h3><span className="notranslate">Crop Disease Awareness</span></h3>
             <p>
               Learn about crop diseases and remedies for better farming.
+            </p>
+          </div>
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/pest-detection")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/pest-detection"); }} aria-label="Pest Detection: Identify pests and get treatment">
+            <div className="icon" aria-hidden="true">
+              <Bug size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Pest Detection</span></h3>
+            <p>
+              AI-powered pest identification with real-time alerts and treatment recommendations.
             </p>
           </div>
 
@@ -599,12 +634,12 @@ export default function Advisor({ userData }) {
             <p>Get a crop-aware fertilizer plan based on soil pH and nutrient status.</p>
           </div>
 
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowComingSoon(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowComingSoon(true); }} aria-label="Offline Access: Use anytime">
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowOfflineStatus(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowOfflineStatus(true); }} aria-label="Offline Access: PWA Enabled">
             <div className="icon" aria-hidden="true">
               <WifiOff size={32} strokeWidth={2} />
             </div>
             <h3><span className="notranslate">Offline Access</span></h3>
-            <p>Use the app anytime, even without internet connectivity.</p>
+            <p>Fasal Saathi works offline! You can use the app anytime, even without internet connectivity.</p>
           </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowPestManagement(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowPestManagement(true); }} aria-label="Pest Management: Early warnings">
@@ -632,6 +667,12 @@ export default function Advisor({ userData }) {
             </button>
           </div>
 
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowYieldHistory(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowYieldHistory(true); }} aria-label="Yield History: Track past predictions and accuracy">
+            <div className="icon" aria-hidden="true"><BarChart3 size={32} /></div>
+            <h3><span className="notranslate">Yield History</span></h3>
+            <p>Track past yield predictions, record actual harvests, and monitor model accuracy.</p>
+          </div>
+
           <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/schemes")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/schemes"); }} aria-label="Govt Schemes: Financial support">
             <div className="icon" aria-hidden="true">
               <Landmark size={32} strokeWidth={2} />
@@ -654,28 +695,28 @@ export default function Advisor({ userData }) {
             <p>Access video tutorials on modern farming and earn completion certificates.</p>
           </div>
 
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowQRTraceability(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowQRTraceability(true); }} aria-label="QR-Farm Traceability: Trace your produce">
-            <div className="icon" aria-hidden="true"><QrCode size={32} /></div>
-            <h3><span className="notranslate">QR-Farm Traceability</span></h3>
-            <p>Generate QR codes for your produce. Let customers trace their food from farm to table.</p>
-          </div>
+           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowQRTraceability(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowQRTraceability(true); }} aria-label="QR-Farm Traceability: Trace your produce">
+             <div className="icon" aria-hidden="true"><QrCode size={32} /></div>
+             <h3><span className="notranslate">QR-Farm Traceability</span></h3>
+             <p>Generate QR codes for your produce. Let customers trace their food from farm to table.</p>
+           </div>
 
-          {(userData?.role === "vendor" || userData?.role === "admin") && (
-            <div 
-              className="card reveal" 
-              role="button" 
-              tabIndex={0} 
-              onClick={() => setShowSeedVerifier(true)} 
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSeedVerifier(true); }} 
-              aria-label="Vision-Lite: Seed Authenticity Verifier"
-            >
-              <div className="icon" aria-hidden="true">
-                <QrCode size={32} strokeWidth={2} />
-              </div>
-              <h3><span className="notranslate">Vision-Lite: Seed Verifier</span></h3>
-              <p>Scan seed packets to verify authenticity and prevent counterfeit usage.</p>
-            </div>
-          )}
+           {(userData?.role === "vendor" || userData?.role === "admin") && (
+             <div 
+               className="card reveal" 
+               role="button" 
+               tabIndex={0} 
+               onClick={() => setShowSeedVerifier(true)} 
+               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSeedVerifier(true); }} 
+               aria-label="Vision-Lite: Seed Authenticity Verifier"
+             >
+               <div className="icon" aria-hidden="true">
+                 <QrCode size={32} strokeWidth={2} />
+               </div>
+               <h3><span className="notranslate">Vision-Lite: Seed Verifier</span></h3>
+               <p>Scan seed packets to verify authenticity and prevent counterfeit usage.</p>
+             </div>
+           )}
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFarmPlanner3D(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFarmPlanner3D(true); }} aria-label="3D Farm Planner: Interactive design">
             <div className="icon" aria-hidden="true"><Map size={32} /></div>
@@ -790,15 +831,13 @@ export default function Advisor({ userData }) {
             <p>Report and receive highly localized (5km radius) real-time disaster alerts.</p>
           </div>
 
-          {(userData?.role === "expert" || userData?.role === "admin") && (
-            <div className="card reveal bank-report-card" role="button" tabIndex={0} onClick={() => setShowBankReport(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowBankReport(true); }} aria-label="Bank Reports: Export financial data">
-              <div className="icon" aria-hidden="true">
-                <Landmark size={32} strokeWidth={2} />
-              </div>
-              <h3><span className="notranslate">Bank Reports & Export</span></h3>
-              <p>Generate professional PDF/CSV reports for bank loans and financial records.</p>
-            </div>
-          )}
+<div className="card reveal bank-report-card" role="button" tabIndex={0} onClick={() => setShowBankReport(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowBankReport(true); }} aria-label="Bank Reports: Export financial data">
+  <div className="icon" aria-hidden="true">
+    <Landmark size={32} strokeWidth={2} />
+  </div>
+  <h3><span className="notranslate">Bank Reports & Export</span></h3>
+  <p>Generate professional PDF/CSV reports for bank loans and financial records.</p>
+</div>
 
           <div 
             className="card reveal" 
@@ -832,6 +871,46 @@ export default function Advisor({ userData }) {
 
           <div 
             className="card reveal" 
+            style={{ border: '2px solid #6366f1', background: 'rgba(99, 102, 241, 0.02)' }}
+            role="button" 
+            tabIndex={0} 
+            onClick={() => setShowExpertDirectory(true)} 
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowExpertDirectory(true); }} 
+            aria-label="Expert/KVK Booking: Schedule consultations"
+          >
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(99, 102, 241, 0.1)', color: '#6366f1' }}>
+              <Video size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Expert/KVK Booking</span></h3>
+            <p>Book consultations with agricultural experts and KVK advisors via video or audio call.</p>
+          </div>
+
+          <div 
+            className="card reveal" 
+            role="button" 
+            tabIndex={0} 
+            onClick={() => setShowConsultationHistory(true)} 
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowConsultationHistory(true); }} 
+            aria-label="Consultation History: View past sessions"
+          >
+            <div className="icon" aria-hidden="true">
+              <Users size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">My Consultations</span></h3>
+            <p>View your past and upcoming consultation history with experts.</p>
+          </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/farming-news")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/farming-news"); }} aria-label="Farming News: Latest agricultural updates">
+              <div className="icon" aria-hidden="true">
+                <Book size={32} strokeWidth={2} />
+              </div>
+              <h3><span className="notranslate">Farming News</span></h3>
+              <p>
+                Stay updated with the latest agricultural news, weather alerts, and policy changes.
+              </p>
+            </div>
+
+          <div 
+            className="card reveal" 
             style={{ border: '2px solid #10b981', background: 'rgba(16, 185, 129, 0.02)' }}
             role="button" 
             tabIndex={0} 
@@ -846,39 +925,57 @@ export default function Advisor({ userData }) {
             <h3><span className="notranslate">Green Practices & Carbon</span></h3>
             <p>Track eco-friendly practices, calculate carbon impact, and monetize sustainability.</p>
           </div>
-        </div>
 
-        <div
-          className="weather-dashboard"
-          style={{
-            marginTop: "36px",
-            padding: "24px",
-            borderRadius: "18px",
-            background: "linear-gradient(135deg, rgba(255,255,255,0.96), rgba(239,253,245,0.98))",
-            boxShadow: "0 18px 45px rgba(15, 23, 42, 0.08)",
-          }}
-        >
-          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px" }}>
+          <div
+            className="card reveal"
+            style={{ border: '2px solid #0d9488', background: 'rgba(13, 148, 136, 0.04)' }}
+            role="button"
+            tabIndex={0}
+            onClick={() => setShowSustainabilityAnalytics(true)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSustainabilityAnalytics(true); }}
+            aria-label="Sustainability Analytics: Water footprint and carbon emissions"
+          >
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(13, 148, 136, 0.12)', color: '#0d9488' }}>
+              <Droplets size={32} strokeWidth={2} />
+            </div>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#0d9488', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>LCA</div>
+            <h3><span className="notranslate">Sustainability Analytics</span></h3>
+            <p>Estimate water footprint and carbon emissions per crop season with LCA-style insights.</p>
+          </div>
+
+          <div
+            className="card reveal"
+            style={{ border: '2px solid #f59e0b', background: 'rgba(245, 158, 11, 0.02)' }}
+            role="button"
+            tabIndex={0}
+            onClick={() => setShowCropGrading(true)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowCropGrading(true); }}
+            aria-label="Crop Grading: Grade your harvest quality"
+          >
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b' }}>
+              <BarChart3 size={32} strokeWidth={2} />
+            </div>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#f59e0b', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>NEW</div>
+            <h3><span className="notranslate">Crop Grading</span></h3>
+            <p>Analyze crop quality metrics, get grading recommendations, and estimate market value.</p>
+          </div>
+        </div>
+        
+        <div className="weather-dashboard">
+          <div className="weather-dashboard-header">
             <h2 style={{ margin: 0 }}><CloudRain className="inline-icon" /> Live Weather & Advisories</h2>
             {weatherLastUpdated && (
               <LastUpdated timestamp={weatherLastUpdated} />
             )}
           </div>
 
-          <p style={{ marginTop: "8px", color: "#0f172a" }}>
+          <p className="weather-dashboard-desc">
             Get real-time conditions, 7-day forecasts, and actionable crop guidance directly in the advisor view.
           </p>
 
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "12px",
-              marginTop: "16px",
-            }}
-          >
+          <div className="weather-dashboard-controls">
             <button
-              className="action-btn"
+              className="weather-btn"
               type="button"
               onClick={handleUseMyLocation}
             >
@@ -886,7 +983,7 @@ export default function Advisor({ userData }) {
             </button>
             <form
               onSubmit={handleLocationSearch}
-              style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}
+              className="weather-search-form"
             >
               <input
                 type="text"
@@ -894,25 +991,20 @@ export default function Advisor({ userData }) {
                 onChange={(event) => setLocationQuery(event.target.value)}
                 placeholder="Search by city or district"
                 aria-label="Search weather by city or district"
-                style={{
-                  minWidth: "240px",
-                  padding: "10px 12px",
-                  borderRadius: "10px",
-                  border: "1px solid #cbd5f5",
-                }}
+                className="weather-search-input"
               />
-              <button className="action-btn secondary" type="submit">
+              <button className="weather-btn secondary" type="submit">
                 Search
               </button>
             </form>
             <button
-              className="action-btn secondary"
+              className="weather-btn secondary"
               type="button"
               onClick={() => {
-                if (coords) {
+                if (weatherSnapshot?.location) {
                   fetchWeather({
-                    latitude: coords.latitude,
-                    longitude: coords.longitude,
+                    latitude: weatherSnapshot.location.latitude,
+                    longitude: weatherSnapshot.location.longitude,
                     label: weatherLocation,
                   });
                 }
@@ -923,69 +1015,40 @@ export default function Advisor({ userData }) {
           </div>
           
           {weatherLocation && (
-            <p style={{ marginTop: "12px" }}>
+            <p className="weather-location-text">
               <strong>Location:</strong> {weatherLocation}
             </p>
           )}
 
           {weatherStatus === "loading" && (
-            <p style={{ marginTop: "12px" }}>Loading weather data...</p>
+            <p className="weather-status-text">Loading weather data...</p>
           )}
 
           {weatherStatus === "error" && (
-            <div
-              style={{
-                marginTop: "12px",
-                padding: "12px",
-                borderRadius: "10px",
-                background: "#fef2f2",
-                color: "#b91c1c",
-              }}
-            >
+            <div className="weather-error-box">
               {weatherError}
             </div>
           )}
 
-          {weatherStatus === "ready" && weatherData?.current && (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: "16px",
-                marginTop: "16px",
-              }}
-            >
-              <div
-                style={{
-                  padding: "16px",
-                  borderRadius: "14px",
-                  background: "white",
-                  boxShadow: "0 12px 24px rgba(15, 23, 42, 0.08)",
-                }}
-              >
+          {weatherStatus === "ready" && weatherSnapshot?.current && (
+            <div className="weather-cards-grid">
+              <div className="weather-dashboard-card">
                 <h3 style={{ marginTop: 0 }}>Now</h3>
                 <p style={{ fontSize: "28px", margin: "8px 0" }}>
-                  {formatTemp(weatherData.current.temp)}
+                  {formatTemp(weatherSnapshot.current.temperature_2m)}
                 </p>
                 <p style={{ margin: 0 }}>
-                  {weatherData.current.weather?.[0]?.description}
+                  {weatherSnapshot.summary || "Current conditions"}
                 </p>
                 <p style={{ margin: "8px 0 0" }}>
-                  Humidity: {weatherData.current.humidity}%
+                  Humidity: {weatherSnapshot.current.relative_humidity_2m}%
                 </p>
                 <p style={{ margin: 0 }}>
-                  Wind: {Math.round(weatherData.current.wind_speed)} m/s
+                  Wind: {Math.round(weatherSnapshot.current.wind_speed_10m)} m/s
                 </p>
               </div>
 
-              <div
-                style={{
-                  padding: "16px",
-                  borderRadius: "14px",
-                  background: "white",
-                  boxShadow: "0 12px 24px rgba(15, 23, 42, 0.08)",
-                }}
-              >
+              <div className="weather-dashboard-card">
                 <h3 style={{ marginTop: 0 }}>Alerts</h3>
                 {advisories.length === 0 ? (
                   <p style={{ margin: 0 }}>No severe alerts expected this week.</p>
@@ -1000,32 +1063,19 @@ export default function Advisor({ userData }) {
             </div>
           )}
 
-          {weatherStatus === "ready" && weatherData?.daily?.length > 0 && (
-            <div
-              style={{
-                marginTop: "18px",
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-                gap: "12px",
-              }}
-            >
-              {weatherData.daily.slice(0, 7).map((day) => (
+          {weatherStatus === "ready" && dailyForecast.length > 0 && (
+            <div className="weather-forecast-grid">
+              {dailyForecast.map((day) => (
                 <div
-                  key={day.dt}
-                  style={{
-                    background: "white",
-                    borderRadius: "14px",
-                    padding: "12px",
-                    textAlign: "center",
-                    boxShadow: "0 10px 20px rgba(15, 23, 42, 0.06)",
-                  }}
+                  key={day.date}
+                  className="weather-forecast-card"
                 >
-                  <p style={{ margin: "0 0 6px" }}>{formatDay(day.dt)}</p>
+                  <p style={{ margin: "0 0 6px" }}>{formatDay(day.date)}</p>
                   <p style={{ margin: "0 0 6px", fontSize: "18px" }}>
-                    {formatTemp(day.temp.max)} / {formatTemp(day.temp.min)}
+                    {formatTemp(day.maxTemp)} / {formatTemp(day.minTemp)}
                   </p>
-                  <p style={{ margin: 0, fontSize: "12px", color: "#475569" }}>
-                    {day.weather?.[0]?.main} · {Math.round(day.pop * 100)}% rain
+                  <p className="forecast-rain">
+                    Rain: {Math.round(day.rain)} mm
                   </p>
                 </div>
               ))}
@@ -1147,15 +1197,15 @@ export default function Advisor({ userData }) {
               <div className="preview-body">
                 <div className="preview-row">
                   <span>Farmer:</span>
-                  <strong>{userProfile?.displayName || "Farmer"}</strong>
+                  <strong>{userData?.displayName || "Farmer"}</strong>
                 </div>
                 <div className="preview-row">
                   <span>Primary Crop:</span>
-                  <strong>{userProfile?.cropType || "Not set"}</strong>
+                  <strong>{userData?.cropType || "Not set"}</strong>
                 </div>
                 <div className="preview-row">
                   <span>Location:</span>
-                  <strong>{userProfile?.address || userProfile?.location || "India"}</strong>
+                  <strong>{userData?.address || userData?.location || "India"}</strong>
                 </div>
                 <div className="preview-divider"></div>
                 <div className="preview-row">
@@ -1167,15 +1217,15 @@ export default function Advisor({ userData }) {
 
             <div className="export-actions-grid">
               <button className="export-btn pdf" onClick={() => generateBankPDF({
-                farmerName: userProfile?.displayName || "Farmer",
-                cropType: userProfile?.cropType || "N/A",
-                landArea: userProfile?.landArea || "N/A",
-                season: userProfile?.season || "N/A",
-                location: userProfile?.address || userProfile?.location || "India",
-                estimatedRevenue: userProfile?.estimatedRevenue || 0,
-                estimatedCost: userProfile?.estimatedCost || 0,
-                netProfit: userProfile?.netProfit || 0,
-                riskLevel: userProfile?.riskLevel || "Moderate",
+                farmerName: userData?.displayName || "Farmer",
+                cropType: userData?.cropType || "N/A",
+                landArea: userData?.landArea || "N/A",
+                season: userData?.season || "N/A",
+                location: userData?.address || userData?.location || "India",
+                estimatedRevenue: userData?.estimatedRevenue || 0,
+                estimatedCost: userData?.estimatedCost || 0,
+                netProfit: userData?.netProfit || 0,
+                riskLevel: userData?.riskLevel || "Moderate",
                 date: new Date().toLocaleDateString("en-IN"),
               })}>
                 <div className="btn-icon"><FileText size={20} /></div>
@@ -1186,15 +1236,15 @@ export default function Advisor({ userData }) {
               </button>
 
               <button className="export-btn csv" onClick={() => generateCSV({
-                farmerName: userProfile?.displayName || "Farmer",
-                cropType: userProfile?.cropType || "N/A",
-                landArea: userProfile?.landArea || "N/A",
-                season: userProfile?.season || "N/A",
-                location: userProfile?.address || userProfile?.location || "India",
-                estimatedRevenue: userProfile?.estimatedRevenue || 0,
-                estimatedCost: userProfile?.estimatedCost || 0,
-                netProfit: userProfile?.netProfit || 0,
-                riskLevel: userProfile?.riskLevel || "Moderate",
+                farmerName: userData?.displayName || "Farmer",
+                cropType: userData?.cropType || "N/A",
+                landArea: userData?.landArea || "N/A",
+                season: userData?.season || "N/A",
+                location: userData?.address || userData?.location || "India",
+                estimatedRevenue: userData?.estimatedRevenue || 0,
+                estimatedCost: userData?.estimatedCost || 0,
+                netProfit: userData?.netProfit || 0,
+                riskLevel: userData?.riskLevel || "Moderate",
                 date: new Date().toLocaleDateString("en-IN"),
               })}>
                 <div className="btn-icon"><BarChart3 size={20} /></div>
@@ -1213,7 +1263,7 @@ export default function Advisor({ userData }) {
               <p style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '1.5rem' }}>
                 Generate a cryptographically signed, tamper-proof report for official bank applications.
               </p>
-              <BankReports userData={userProfile} />
+              <BankReports userData={userData} />
             </div>
 
             <p className="report-disclaimer">
@@ -1227,7 +1277,7 @@ export default function Advisor({ userData }) {
         <div className="weather-overlay" onClick={() => setShowSoilAnalysis(false)}>
           <div className="soil-analysis-popup" onClick={(e)=>e.stopPropagation()}>
             <button className="close-btn" onClick={() => setShowSoilAnalysis(false)} style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 10 }}><X /></button>
-            <SoilAnalysis />
+            <SoilAnalysis userData={userData} />
           </div>
         </div>
       )}
@@ -1236,7 +1286,7 @@ export default function Advisor({ userData }) {
         <div className="weather-overlay" onClick={() => setShowSoilGuide(false)}>
           <div className="soil-analysis-popup" onClick={(e) => e.stopPropagation()}>
             <button className="close-btn" onClick={() => setShowSoilGuide(false)} style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 10 }}><X /></button>
-            <SoilGuide />
+            <SoilGuide userData={userData} />
           </div>
         </div>
       )}
@@ -1244,7 +1294,7 @@ export default function Advisor({ userData }) {
       {showIrrigation && (
         <div className="weather-overlay" onClick={()=>setShowIrrigation(false)}>
           <div onClick={(e)=>e.stopPropagation()}>
-            <IrrigationGuidance onClose={() => setShowIrrigation(false)} />
+            <IrrigationGuidance userData={userData} onClose={() => setShowIrrigation(false)} />
           </div>
         </div>
       )}
@@ -1255,7 +1305,18 @@ export default function Advisor({ userData }) {
             <button className="close-btn" onClick={closeYieldPopup} aria-label="Close yield prediction">
               <X />
             </button>
-            <YieldPredictorForm onClose={closeYieldPopup} />
+            <YieldPredictorForm userData={userData} onClose={closeYieldPopup} />
+          </div>
+        </div>
+      )}
+
+      {showYieldHistory && (
+        <div className="weather-overlay" onClick={() => setShowYieldHistory(false)}>
+          <div className="weather-popup" style={{ maxWidth: "900px", width: "95vw", maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+            <button className="close-btn" onClick={() => setShowYieldHistory(false)} aria-label="Close yield history">
+              <X />
+            </button>
+            <YieldHistory />
           </div>
         </div>
       )}
@@ -1263,7 +1324,7 @@ export default function Advisor({ userData }) {
       {showProfitCalculator && (
         <div className="weather-overlay" onClick={()=>setShowProfitCalculator(false)}>
           <div className="weather-popup profit-popup" onClick={(e)=>e.stopPropagation()}>
-            <CropProfitCalculator />
+            <CropProfitCalculator userData={userData} />
             <button className="close-btn" onClick={() => setShowProfitCalculator(false)}>Close</button>
           </div>
         </div>
@@ -1272,7 +1333,7 @@ export default function Advisor({ userData }) {
       {showFertilizerPopup && (
         <div className="weather-overlay" onClick={() => setShowFertilizerPopup(false)}>
           <div className="weather-popup fertilizer-popup-shell" onClick={(e) => e.stopPropagation()}>
-            <FertilizerRecommendation onClose={() => setShowFertilizerPopup(false)} />
+            <FertilizerRecommendation userData={userData} onClose={() => setShowFertilizerPopup(false)} />
           </div>
         </div>
       )}
@@ -1289,7 +1350,7 @@ export default function Advisor({ userData }) {
       {showCropDiseaseDetection && (
         <div className="weather-overlay" onClick={() => setShowCropDiseaseDetection(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
-            <CropDiseaseDetection onClose={() => setShowCropDiseaseDetection(false)} />
+            <CropDiseaseDetection userData={userData} onClose={() => setShowCropDiseaseDetection(false)} />
           </div>
         </div>
       )}
@@ -1297,7 +1358,15 @@ export default function Advisor({ userData }) {
       {showPestManagement && (
         <div className="weather-overlay" onClick={() => setShowPestManagement(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ padding: 0, background: 'transparent', boxShadow: 'none' }}>
-            <PestManagement onClose={() => setShowPestManagement(false)} />
+            <PestManagement userData={userData} onClose={() => setShowPestManagement(false)} />
+          </div>
+        </div>
+      )}
+
+      {showSprayReminder && (
+        <div className="weather-overlay" onClick={() => setShowSprayReminder(false)}>
+          <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ padding: 0, background: 'transparent', boxShadow: 'none' }}>
+            <SprayReminder userData={userData} onClose={() => setShowSprayReminder(false)} />
           </div>
         </div>
       )}
@@ -1314,7 +1383,7 @@ export default function Advisor({ userData }) {
         <div className="weather-overlay" onClick={() => setShowAgriMarketplace(false)}>
           <div className="agri-modal-wrapper" onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowAgriMarketplace(false)}><X /></button>
-            <AgriMarketplace onClose={() => setShowAgriMarketplace(false)} />
+            <AgriMarketplace userData={userData} onClose={() => setShowAgriMarketplace(false)} />
           </div>
         </div>
       )}
@@ -1323,7 +1392,7 @@ export default function Advisor({ userData }) {
         <div className="weather-overlay" onClick={() => setShowAgriLMS(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowAgriLMS(false)}><X /></button>
-            <AgriLMS />
+            <AgriLMS userData={userData} />
           </div>
         </div>
       )}
@@ -1332,7 +1401,7 @@ export default function Advisor({ userData }) {
         <div className="weather-overlay" onClick={() => setShowQRTraceability(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowQRTraceability(false)}><X /></button>
-            <QRTraceability />
+            <QRTraceability userData={userData} />
           </div>
         </div>
       )}
@@ -1341,17 +1410,28 @@ export default function Advisor({ userData }) {
         <div className="weather-overlay" onClick={() => setShowFarmPlanner3D(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowFarmPlanner3D(false)}><X /></button>
-            <FarmPlanner3D />
+            <FarmPlanner3D userData={userData} />
           </div>
         </div>
       )}
 
-      {showComingSoon && (
-        <div className="weather-overlay" onClick={()=>setShowComingSoon(false)}>
+      {showOfflineStatus && (
+        <div className="weather-overlay" onClick={()=>setShowOfflineStatus(false)}>
           <div className="weather-popup coming-soon" onClick={(e)=>e.stopPropagation()}>
-            <h2><Construction className="inline-icon" /> Coming Soon</h2>
-            <p>This feature is under development. Stay tuned!</p>
-            <button className="close-btn" onClick={() => setShowComingSoon(false)}>Close</button>
+            <h2>
+              <WifiOff className="inline-icon" /> 
+              {(!navigator.onLine || window.matchMedia('(display-mode: standalone)').matches) ? "Offline Mode Active" : "Offline Ready"}
+            </h2>
+            <p>
+              {(!navigator.onLine || window.matchMedia('(display-mode: standalone)').matches)
+                ? "You are currently using Fasal Saathi in offline/PWA mode. Core features are fully functional without an internet connection."
+                : "Fasal Saathi is available as a Progressive Web App (PWA). You can use it even when you don't have internet access!"
+              }
+            </p>
+            {navigator.onLine && !window.matchMedia('(display-mode: standalone)').matches && (
+              <p style={{marginTop: "8px", fontSize: "14px", color: "#475569"}}>Tip: Add this app to your home screen for the best offline experience.</p>
+            )}
+            <button className="close-btn" onClick={() => setShowOfflineStatus(false)}>Close</button>
           </div>
         </div>
       )}
@@ -1360,7 +1440,7 @@ export default function Advisor({ userData }) {
         <div className="weather-overlay" onClick={() => setShowFarmDiary(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowFarmDiary(false)}><X /></button>
-            <FarmDiary onClose={() => setShowFarmDiary(false)} />
+            <FarmDiary userData={userData} onClose={() => setShowFarmDiary(false)} />
           </div>
         </div>
       )}
@@ -1369,7 +1449,7 @@ export default function Advisor({ userData }) {
         <div className="weather-overlay" onClick={() => setShowCropRotation(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowCropRotation(false)}>✕</button>
-            <CropRotation />
+            <CropRotation userData={userData} />
           </div>
         </div>
       )}
@@ -1380,6 +1460,7 @@ export default function Advisor({ userData }) {
             <P2PChat 
               recipient={{ userId: "advisor", userName: "AI Farming Advisor" }} 
               onClose={() => setShowP2PChat(false)} 
+              userData={userData}
             />
           </div>
         </div>
@@ -1387,14 +1468,14 @@ export default function Advisor({ userData }) {
 
       {showGeoAlerts && (
         <div className="weather-overlay" onClick={() => setShowGeoAlerts(false)}>
-          <GeoAlertMesh onClose={() => setShowGeoAlerts(false)} />
+          <GeoAlertMesh userData={userData} onClose={() => setShowGeoAlerts(false)} />
         </div>
       )}
 
       {showSmartCropRecommendation && (
         <div className="weather-overlay" onClick={() => setShowSmartCropRecommendation(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
-            <SmartCropRecommendation />
+            <SmartCropRecommendation userData={userData} />
             <button
               className="close-btn"
               onClick={() => setShowSmartCropRecommendation(false)}
@@ -1408,7 +1489,7 @@ export default function Advisor({ userData }) {
       {showCropRecommendationAdvisor && (
         <div className="weather-overlay" onClick={() => setShowCropRecommendationAdvisor(false)}>
           <div className="weather-popup crop-advisor-popup" onClick={(e) => e.stopPropagation()}>
-            <CropRecommendationAdvisor onClose={() => setShowCropRecommendationAdvisor(false)} />
+            <CropRecommendationAdvisor userData={userData} onClose={() => setShowCropRecommendationAdvisor(false)} />
           </div>
         </div>
       )}
@@ -1416,7 +1497,7 @@ export default function Advisor({ userData }) {
       {showSeedVerifier && (
         <div className="weather-overlay" onClick={() => setShowSeedVerifier(false)}>
           <div className="weather-popup" style={{ width: '90%', maxWidth: '450px', padding: 0, overflowY: 'auto', maxHeight: '90vh' }} onClick={(e) => e.stopPropagation()}>
-            <SeedVerifier onClose={() => setShowSeedVerifier(false)} />
+            <SeedVerifier userData={userData} onClose={() => setShowSeedVerifier(false)} />
           </div>
         </div>
       )}
@@ -1431,18 +1512,83 @@ export default function Advisor({ userData }) {
       <RAGAdvisor
         isOpen={showRAGAdvisor}
         onClose={() => setShowRAGAdvisor(false)}
+        userData={userData}
       />
 
-      {showGreenPractices && (
-        <div className="weather-overlay" onClick={() => setShowGreenPractices(false)}>
+{showGreenPractices && (
+         <div className="weather-overlay" onClick={() => setShowGreenPractices(false)}>
+           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+             <GreenPractices 
+               userData={userData} 
+               onClose={() => setShowGreenPractices(false)} 
+             />
+           </div>
+         </div>
+       )}
+
+        {showCropGrading && (
+          <div className="weather-overlay" onClick={() => setShowCropGrading(false)}>
+            <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
+              <CropQualityGrading onClose={() => setShowCropGrading(false)} />
+            </div>
+          </div>
+        )}
+
+      {showSustainabilityAnalytics && (
+        <div className="weather-overlay" onClick={() => setShowSustainabilityAnalytics(false)}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
-            <GreenPractices 
-              userProfile={userProfile} 
-              onClose={() => setShowGreenPractices(false)} 
+            <SustainabilityAnalytics
+              userData={userData}
+              onClose={() => setShowSustainabilityAnalytics(false)}
             />
           </div>
         </div>
       )}
-    </section>
-  );
-}
+
+      {showExpertDirectory && (
+        <div className="weather-overlay" onClick={() => setShowExpertDirectory(false)}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <ExpertDirectory 
+              onClose={() => setShowExpertDirectory(false)}
+              userData={userData}
+              onBookConsultation={(consultation) => {
+                setShowExpertDirectory(false);
+                setShowConsultationHistory(true);
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {showConsultationHistory && (
+        <div className="weather-overlay" onClick={() => setShowConsultationHistory(false)}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <ConsultationHistory 
+              onClose={() => setShowConsultationHistory(false)}
+              userData={userData}
+              onStartConsultation={(consultation) => {
+                setActiveConsultation(consultation);
+                setShowTeleConsultation(true);
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {showTeleConsultation && activeConsultation && (
+        <div className="weather-overlay" onClick={() => setShowTeleConsultation(false)}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <TeleConsultation 
+              consultation={activeConsultation}
+              userData={userData}
+              onEnd={() => {
+                setShowTeleConsultation(false);
+                setActiveConsultation(null);
+              }}
+            />
+          </div>
+        </div>
+      )}
+     </section>
+   );
+ }

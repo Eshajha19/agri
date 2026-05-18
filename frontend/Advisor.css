@@ -2185,3 +2185,197 @@
   50% { opacity: 1; }
   100% { opacity: 0.4; }
 }
+ 
+ /* Weather Dashboard Styles */
+.weather-dashboard {
+  margin-top: 36px;
+  padding: 24px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.96), rgba(239,253,245,0.98));
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+}
+
+.theme-dark .weather-dashboard {
+  background: var(--card-bg, #252525);
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border-color, #404040);
+}
+
+.weather-dashboard-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.weather-dashboard-desc {
+  margin-top: 8px;
+  color: #0f172a;
+}
+
+.theme-dark .weather-dashboard-desc {
+  color: var(--text-secondary, #d0d0d0);
+}
+
+.weather-dashboard-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.weather-search-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.weather-search-input {
+  min-width: 240px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #cbd5f5;
+  background: #fff;
+  color: #0f172a;
+}
+
+.theme-dark .weather-search-input {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: var(--text-primary, #f5f5f5);
+}
+
+.weather-location-text, .weather-status-text {
+  margin-top: 12px;
+  color: #0f172a;
+}
+
+.theme-dark .weather-location-text, 
+.theme-dark .weather-status-text {
+  color: var(--text-primary, #f5f5f5);
+}
+
+.weather-error-box {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.theme-dark .weather-error-box {
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.weather-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.weather-dashboard-card {
+  padding: 16px;
+  border-radius: 14px;
+  background: white;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+  color: #0f172a;
+}
+
+.theme-dark .weather-dashboard-card {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary, #f5f5f5);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.weather-forecast-grid {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.weather-forecast-card {
+  background: white;
+  border-radius: 14px;
+  padding: 12px;
+  text-align: center;
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.06);
+  color: #0f172a;
+}
+
+.theme-dark .weather-forecast-card {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary, #f5f5f5);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.forecast-rain {
+  margin: 0;
+  font-size: 12px;
+  color: #475569;
+}
+
+.theme-dark .forecast-rain {
+  color: #94a3b8;
+}
+
+/* Additional fixes for weather dashboard layout and buttons */
+.weather-dashboard {
+  margin-top: 60px !important; /* Prevent collisions with cards above */
+  clear: both;
+}
+
+.weather-search-form {
+  flex-wrap: nowrap !important;
+}
+
+.weather-search-input {
+  min-width: 0 !important;
+  width: 240px !important;
+}
+
+.weather-dashboard-controls {
+  align-items: center;
+}
+
+.weather-btn {
+  background: #22c55e;
+  color: white;
+  border: none;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.weather-btn:hover {
+  background: #16a34a;
+}
+
+.weather-btn.secondary {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.weather-btn.secondary:hover {
+  background: #e2e8f0;
+}
+
+.theme-dark .weather-btn.secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+}
+
+.theme-dark .weather-btn.secondary:hover {
+  background: rgba(255, 255, 255, 0.15);
+}

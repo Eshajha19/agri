@@ -51,61 +51,18 @@ const P2PChat = ({ recipient, onClose }) => {
       
       try {
         if (isMounted) setKeyStatus("generating_keys");
-        // A. Load or generate our ECDH key pair
-        // Private key is stored as a non-extractable CryptoKey in IndexedDB —
-        // its raw bytes are never accessible to JavaScript.
-        let privateKey = await cryptoService.loadPrivateKey(currentUser.uid);
-        let publicJwk = null;
-
-        if (!privateKey) {
-          // Check for a legacy key in localStorage and migrate it
-          const legacyPrivateJwk = localStorage.getItem(`ecdh_private_${currentUser.uid}`) || localStorage.getItem(`agri:ecdh_private_${currentUser.uid}`);
-          const legacyPublicJwk  = localStorage.getItem(`ecdh_public_${currentUser.uid}`) || localStorage.getItem(`agri:ecdh_public_${currentUser.uid}`);
-
-          if (legacyPrivateJwk && legacyPublicJwk) {
-            // Re-import as non-extractable and persist to IndexedDB
-            privateKey = await cryptoService.importPrivateKey(JSON.parse(legacyPrivateJwk));
-            await cryptoService.savePrivateKey(currentUser.uid, privateKey);
-            publicJwk = JSON.parse(legacyPublicJwk);
-            // Remove plaintext key material from localStorage
-            localStorage.removeItem(`ecdh_private_${currentUser.uid}`);
-            localStorage.removeItem(`ecdh_public_${currentUser.uid}`);
-            localStorage.removeItem(`agri:ecdh_private_${currentUser.uid}`);
-            localStorage.removeItem(`agri:ecdh_public_${currentUser.uid}`);
-          } else {
-            // Generate a fresh key pair
-            const keyPair = await cryptoService.generateECDHKeyPair();
-            await cryptoService.savePrivateKey(currentUser.uid, keyPair.privateKey);
-            privateKey = keyPair.privateKey;
-            publicJwk = await cryptoService.exportKey(keyPair.publicKey);
-          }
-        } else {
-          // Private key already in IndexedDB — retrieve public JWK from Firebase
-          if (isFirebaseConfigured()) {
-            const pubKeyRef = doc(db, "public_keys", currentUser.uid);
-            const snap = await getDoc(pubKeyRef);
-            if (snap.exists()) {
-              publicJwk = snap.data().jwk;
-            } else {
-              // Public key missing — regenerate pair
-              const keyPair = await cryptoService.generateECDHKeyPair();
-              await cryptoService.savePrivateKey(currentUser.uid, keyPair.privateKey);
-              privateKey = keyPair.privateKey;
-              publicJwk = await cryptoService.exportKey(keyPair.publicKey);
-            }
-          }
-        }
+        // Load or generate our ECDH key pair securely.
+        // Private key is stored in IndexedDB as a non-extractable object.
+        const { privateKey, publicJwk } = await cryptoService.ensureKeys(currentUser.uid);
 
         if (isMounted) setKeyStatus("publishing_key");
-        // B. Publish our public key to Firestore for peers to find
-        if (isFirebaseConfigured()) {
-          if (publicJwk) {
+        // Publish our public key to Firestore for peers to find
+        if (publicJwk) {
+          if (isFirebaseConfigured()) {
             const pubKeyRef = doc(db, "public_keys", currentUser.uid);
             await setDoc(pubKeyRef, { jwk: publicJwk }, { merge: true });
-          }
-        } else {
-          // Local test fallback — public key only (never the private key)
-          if (publicJwk) {
+          } else {
+            // Local fallback (development only)
             localStorage.setItem(`remote_ecdh_public_${currentUser.uid}`, JSON.stringify(publicJwk));
           }
         }
@@ -164,26 +121,41 @@ const P2PChat = ({ recipient, onClose }) => {
         orderBy("createdAt", "asc")
       );
 
-      const unsubscribe = onSnapshot(q, async (snapshot) => {
-        const decryptedDocs = await Promise.all(snapshot.docs.map(async (doc) => {
-          const data = doc.data();
-          try {
-            if (data.encryptedContent && data.encryptedContent.iv) {
-              const decryptedText = await cryptoService.decryptMessage(data.encryptedContent, sharedKey);
-              return { id: doc.id, ...data, content: decryptedText };
-            } else {
-              return { id: doc.id, ...data, content: "[Legacy Insecure Format]" };
+      const unsubscribe = onSnapshot(
+        q,
+        async (snapshot) => {
+          const decryptedDocs = await Promise.all(snapshot.docs.map(async (doc) => {
+            const data = doc.data();
+            try {
+              if (data.encryptedContent && data.encryptedContent.iv) {
+                const decryptedText = await cryptoService.decryptMessage(data.encryptedContent, sharedKey);
+                return { id: doc.id, ...data, content: decryptedText };
+              } else {
+                return { id: doc.id, ...data, content: "[Legacy Insecure Format]" };
+              }
+            } catch (e) {
+              return { id: doc.id, ...data, content: "[Decryption Failed]" };
             }
-          } catch (e) {
-            return { id: doc.id, ...data, content: "[Decryption Failed]" };
+          }));
+
+          if (isMounted) {
+            setMessages(decryptedDocs);
+            setTimeout(scrollToBottom, 100);
           }
-        }));
-        
-        if (isMounted) {
-          setMessages(decryptedDocs);
-          setTimeout(scrollToBottom, 100);
+        },
+        (error) => {
+          // Surface Firestore query errors (e.g. missing composite index in
+          // production) so they are visible in logs rather than silently
+          // leaving the chat empty.
+          console.error(
+            "P2PChat: Firestore query failed for chatId=%s — %s\n" +
+            "If this is a 'requires an index' error, ensure firestore.indexes.json " +
+            "has been deployed via: firebase deploy --only firestore:indexes",
+            chatId,
+            error.message
+          );
         }
-      });
+      );
 
       return () => {
         isMounted = false;
