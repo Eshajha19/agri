@@ -3,8 +3,8 @@
  * Implements Elliptic Curve Diffie-Hellman (ECDH) and AES-GCM encryption
  *
  * Private keys are stored in IndexedDB as non-extractable CryptoKey objects.
- * This means the raw key material can never be read by JavaScript — not by
- * this code, not by third-party scripts, and not by an XSS attacker.
+ * Public keys are cached alongside them for reuse, but the private key raw
+ * material never leaves the Web Crypto subsystem.
  */
 
 // ---------------------------------------------------------------------------
@@ -89,11 +89,25 @@ async generateECDHKeyPair() {
   },
 
   /**
+   * Persist the public JWK for a user in IndexedDB.
+   */
+  async savePublicKey(uid, publicJwk) {
+    await idbSet(`ecdh_public_${uid}`, publicJwk);
+  },
+
+  /**
    * Load the private CryptoKey for a user from IndexedDB.
    * Returns null if no key exists yet.
    */
   async loadPrivateKey(uid) {
     return await idbGet(`ecdh_private_${uid}`);
+  },
+
+  /**
+   * Load the public JWK for a user from IndexedDB.
+   */
+  async loadPublicKey(uid) {
+    return await idbGet(`ecdh_public_${uid}`);
   },
 
   // ---------------------------------------------------------------------------
@@ -192,34 +206,40 @@ async generateECDHKeyPair() {
    */
   async ensureKeys(uid) {
     let privateKey = await this.loadPrivateKey(uid);
-    let publicJwk = null;
+    let publicJwk = await this.loadPublicKey(uid);
 
     // 1. Try migration from legacy localStorage (different possible prefixes)
-    if (!privateKey) {
-      const legacyKeys = [
-        `agri:ecdh_private_${uid}`,
-        `ecdh_private_${uid}`
-      ];
-      const legacyPublicKeys = [
-        `agri:ecdh_public_${uid}`,
-        `ecdh_public_${uid}`
-      ];
+    const legacyKeys = [
+      `agri:ecdh_private_${uid}`,
+      `ecdh_private_${uid}`
+    ];
+    const legacyPublicKeys = [
+      `agri:ecdh_public_${uid}`,
+      `ecdh_public_${uid}`
+    ];
 
+    if (!privateKey || !publicJwk) {
       for (let i = 0; i < legacyKeys.length; i++) {
         const priv = localStorage.getItem(legacyKeys[i]);
         const pub = localStorage.getItem(legacyPublicKeys[i]);
-        if (priv && pub) {
+        if (priv) {
           try {
             // Import the plaintext JWK from localStorage as a NON-EXTRACTABLE CryptoKey
-            privateKey = await this.importPrivateKey(JSON.parse(priv));
+            privateKey = privateKey || await this.importPrivateKey(JSON.parse(priv));
             await this.savePrivateKey(uid, privateKey);
-            publicJwk = JSON.parse(pub);
+
+            if (pub) {
+              publicJwk = publicJwk || JSON.parse(pub);
+              await this.savePublicKey(uid, publicJwk);
+            }
 
             // Cleanup insecure storage
             localStorage.removeItem(legacyKeys[i]);
             localStorage.removeItem(legacyPublicKeys[i]);
             console.info("Migrated ECDH keys from localStorage to IndexedDB.");
-            break;
+            if (privateKey && publicJwk) {
+              break;
+            }
           } catch (e) {
             console.error("Migration failed for key:", legacyKeys[i], e);
           }
@@ -232,8 +252,21 @@ async generateECDHKeyPair() {
       const keyPair = await this.generateECDHKeyPair();
       // Store in IDB (it will be stored as an opaque object handle)
       await this.savePrivateKey(uid, keyPair.privateKey);
-      privateKey = keyPair.privateKey;
       publicJwk = await this.exportKey(keyPair.publicKey);
+      await this.savePublicKey(uid, publicJwk);
+      privateKey = keyPair.privateKey;
+    } else if (!publicJwk) {
+      // Existing private keys from older app versions may not have a cached
+      // public JWK yet. Reconstruct it from legacy storage if possible.
+      for (let i = 0; i < legacyPublicKeys.length; i++) {
+        const pub = localStorage.getItem(legacyPublicKeys[i]);
+        if (pub) {
+          publicJwk = JSON.parse(pub);
+          await this.savePublicKey(uid, publicJwk);
+          localStorage.removeItem(legacyPublicKeys[i]);
+          break;
+        }
+      }
     }
 
     return { privateKey, publicJwk };

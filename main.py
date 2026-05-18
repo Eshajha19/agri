@@ -298,7 +298,7 @@ except Exception:
     flags_router = None
 
 # Import modular routers
-from backend.routers import ml, governance, alerts, finance, quality, blockchain, reports, knowledge
+from backend.routers import ml, governance, alerts, finance, quality, blockchain, reports, knowledge, community, voice_assistant
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -535,6 +535,17 @@ class WeatherAlertRequest(BaseModel):
 class SeedVerifyRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=100)
 
+class GeminiImageRequest(BaseModel):
+    """
+    Request body for the server-side Gemini image analysis proxy.
+    The frontend sends the base64-encoded image and a prompt; the backend
+    forwards the request to Google using the server-side GEMINI_API_KEY so
+    the key is never exposed in the compiled JavaScript bundle.
+    """
+    image_base64: str = Field(..., min_length=10, description="Base64-encoded image data")
+    mime_type: str = Field(..., pattern=r"^image/(jpeg|png|gif|webp)$", description="MIME type of the image")
+    prompt: str = Field(..., min_length=10, max_length=2000, description="Analysis prompt")
+
 class FinanceAssessmentRequest(BaseModel):
     farmer_name: str = Field(..., min_length=1, max_length=100)
     crop_type: str = Field(..., min_length=1, max_length=50)
@@ -633,6 +644,12 @@ try:
 
     supply_chain = SupplyChainBlockchain()
     blockchain.init_blockchain(supply_chain)
+
+    # Initialize Voice Assistant for Farmers
+    from voice_assistant import VoiceAssistant, OfflineCacheManager
+    voice_asst = VoiceAssistant(offline_mode=True)
+    cache_mgr = OfflineCacheManager(cache_dir="./voice_assistant_cache")
+    voice_assistant.init_voice_assistant(voice_asst, cache_mgr)
 except Exception as e:
     logger.warning(f"Dependency wiring failed: {e}")
 
@@ -697,6 +714,8 @@ app.include_router(quality.router, prefix="/api/crop-quality", tags=["Quality"])
 app.include_router(blockchain.router, prefix="/api/supply-chain", tags=["Blockchain"])
 app.include_router(reports.router, prefix="/api/admin", tags=["Reports"])
 app.include_router(knowledge.router, prefix="/api/knowledge", tags=["Knowledge"])
+app.include_router(community.router, prefix="/api/community", tags=["Community"])
+app.include_router(voice_assistant.router, prefix="/api/voice", tags=["Voice Assistant"])
 
 # Initialize repositories for persistent storage
 _finance_repository = FinanceApplicationRepository()
@@ -1312,6 +1331,79 @@ async def rag_query(request: Request, body: RAGQuery):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.post("/api/gemini/analyze-image")
+@limiter.limit("10/minute")
+async def gemini_analyze_image(request: Request, body: GeminiImageRequest):
+    """
+    Server-side proxy for Gemini multimodal image analysis.
+
+    Keeps GEMINI_API_KEY on the server — it is never bundled into the
+    frontend JavaScript. Frontend components (PestDetection, CropDiseaseDetection)
+    send the base64 image and prompt here; this endpoint forwards the request
+    to Google and returns the raw text response.
+
+    Rate-limited to 10 requests/minute per IP to protect billing.
+    Authentication is intentionally not required so unauthenticated users
+    can still use the detection features, but the key stays server-side.
+    """
+    import httpx
+
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="AI analysis service is not configured"
+        )
+
+    gemini_url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"gemini-2.0-flash:generateContent?key={api_key}"
+    )
+
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": body.prompt},
+                    {
+                        "inline_data": {
+                            "mime_type": body.mime_type,
+                            "data": body.image_base64,
+                        }
+                    },
+                ]
+            }
+        ]
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(gemini_url, json=payload)
+
+        if resp.status_code != 200:
+            logger.warning("Gemini API returned %s: %s", resp.status_code, resp.text[:200])
+            raise HTTPException(
+                status_code=502,
+                detail="AI analysis service returned an error"
+            )
+
+        data = resp.json()
+        text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+
+        if not text:
+            raise HTTPException(status_code=502, detail="Empty response from AI analysis service")
+
+        return {"text": text}
+
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="AI analysis service timed out")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Gemini proxy error: %s", str(e))
+        raise HTTPException(status_code=500, detail="AI analysis service unavailable")
+
 @app.post("/api/simulate-climate")
 @limiter.limit("5/minute")
 async def simulate_climate(request: Request, data: SimulationRequest):
@@ -1757,19 +1849,120 @@ class ExpertSlotRequest(BaseModel):
 
 # --- Expert Consultation APIs ---
 
+# ---------------------------------------------------------------------------
+# Expert directory — fallback data used when Firestore is unavailable.
+#
+# IMPORTANT: This list must never contain real phone numbers, email addresses,
+# or any other PII. Phone numbers are omitted entirely (null) so that even if
+# this fallback is served, no contact details are exposed to unauthenticated
+# callers. Avatar images use a local placeholder path instead of a third-party
+# service (randomuser.me) that would log every request.
+# ---------------------------------------------------------------------------
+_FALLBACK_EXPERTS = [
+    {
+        "id": "exp1",
+        "name": "Dr. Ramesh Kumar",
+        "specialization": "crop_disease",
+        "qualification": "Ph.D. in Plant Pathology",
+        "location": "Madhya Pradesh",
+        "phone": None,
+        "rating": 4.8,
+        "experience": 15,
+        "is_kvk": True,
+        "kvk_name": "KVK Jabalpur",
+        "bio": "Specialist in crop disease diagnosis and organic treatment methods.",
+        "avatar": "/assets/avatars/placeholder.svg"
+    },
+    {
+        "id": "exp2",
+        "name": "Dr. Priya Sharma",
+        "specialization": "fertilizers",
+        "qualification": "M.Sc. Agricultural Chemistry",
+        "location": "Maharashtra",
+        "phone": None,
+        "rating": 4.9,
+        "experience": 12,
+        "is_kvk": True,
+        "kvk_name": "KVK Pune",
+        "bio": "Expert in nano-fertilizers and sustainable nutrient management.",
+        "avatar": "/assets/avatars/placeholder.svg"
+    },
+    {
+        "id": "exp3",
+        "name": "Er. Suresh Patil",
+        "specialization": "irrigation",
+        "qualification": "B.Tech Agricultural Engineering",
+        "location": "Karnataka",
+        "phone": None,
+        "rating": 4.7,
+        "experience": 10,
+        "is_kvk": False,
+        "bio": "Drip irrigation and water management specialist.",
+        "avatar": "/assets/avatars/placeholder.svg"
+    },
+    {
+        "id": "exp4",
+        "name": "Dr. Anjali Verma",
+        "specialization": "pest_management",
+        "qualification": "Ph.D. Entomology",
+        "location": "Uttar Pradesh",
+        "phone": None,
+        "rating": 4.6,
+        "experience": 8,
+        "is_kvk": True,
+        "kvk_name": "KVK Lucknow",
+        "bio": "Integrated pest management and organic pest control expert.",
+        "avatar": "/assets/avatars/placeholder.svg"
+    },
+    {
+        "id": "exp5",
+        "name": "Dr. Mahendra Singh",
+        "specialization": "soil_health",
+        "qualification": "Ph.D. Soil Science",
+        "location": "Rajasthan",
+        "phone": None,
+        "rating": 4.9,
+        "experience": 20,
+        "is_kvk": True,
+        "kvk_name": "KVK Jaipur",
+        "bio": "Soil health assessment and reclamation specialist.",
+        "avatar": "/assets/avatars/placeholder.svg"
+    },
+    {
+        "id": "exp6",
+        "name": "Dr. Kavita Desai",
+        "specialization": "market_advisory",
+        "qualification": "MBA Agriculture Business",
+        "location": "Gujarat",
+        "phone": None,
+        "rating": 4.8,
+        "experience": 14,
+        "is_kvk": False,
+        "bio": "Market intelligence and price forecasting expert.",
+        "avatar": "/assets/avatars/placeholder.svg"
+    },
+]
+
+
 @app.get("/api/experts")
+@limiter.limit("20/minute")
 async def get_experts(
+    request: Request,
     specialization: Optional[str] = None,
     kvk_only: bool = False,
     search: Optional[str] = None
 ):
     """
     Get list of available experts/KVK advisors.
-    
+
     Query parameters:
     - specialization: Filter by specialization (crop_disease, fertilizers, etc.)
     - kvk_only: Return only KVK experts
     - search: Search by name or location
+
+    Phone numbers are never included in the response — contact details are
+    only accessible to authenticated users through the consultation booking
+    flow, which enforces its own RBAC check.
     """
     try:
         experts = []
@@ -1779,205 +1972,39 @@ async def get_experts(
             try:
                 experts_ref = db.collection("experts")
                 docs = experts_ref.get()
-
                 for doc in docs:
                     expert_data = doc.to_dict()
                     expert_data["id"] = doc.id
+                    # Strip phone numbers from Firestore records too — callers
+                    # must go through the authenticated booking flow to get them.
+                    expert_data.pop("phone", None)
+                    expert_data.pop("email", None)
                     experts.append(expert_data)
             except Exception as e:
-                logger.warning(f"Firestore experts query failed: {e}")
+                logger.warning("Firestore experts query failed: %s", e)
 
+        # Fall back to the static list when Firestore is unavailable or empty.
+        # The static list already has phone=None so no PII is exposed.
         if not experts:
-            experts = [
-                {
-                    "id": "exp1",
-                    "name": "Dr. Ramesh Kumar",
-                    "specialization": "crop_disease",
-                    "qualification": "Ph.D. in Plant Pathology",
-                    "location": "Madhya Pradesh",
-                    "phone": "+91 9876543210",
-                    "rating": 4.8,
-                    "experience": 15,
-                    "is_kvk": True,
-                    "kvk_name": "KVK Jabalpur",
-                    "bio": "Specialist in crop disease diagnosis and organic treatment methods.",
-                    "avatar": "https://randomuser.me/api/portraits/men/32.jpg"
-                },
-                {
-                    "id": "exp2",
-                    "name": "Dr. Priya Sharma",
-                    "specialization": "fertilizers",
-                    "qualification": "M.Sc. Agricultural Chemistry",
-                    "location": "Maharashtra",
-                    "phone": "+91 9876543211",
-                    "rating": 4.9,
-                    "experience": 12,
-                    "is_kvk": True,
-                    "kvk_name": "KVK Pune",
-                    "bio": "Expert in nano-fertilizers and sustainable nutrient management.",
-                    "avatar": "https://randomuser.me/api/portraits/women/44.jpg"
-                },
-                {
-                    "id": "exp3",
-                    "name": "Er. Suresh Patil",
-                    "specialization": "irrigation",
-                    "qualification": "B.Tech Agricultural Engineering",
-                    "location": "Karnataka",
-                    "phone": "+91 9876543212",
-                    "rating": 4.7,
-                    "experience": 10,
-                    "is_kvk": False,
-                    "bio": "Drip irrigation and water management specialist.",
-                    "avatar": "https://randomuser.me/api/portraits/men/45.jpg"
-                },
-                {
-                    "id": "exp4",
-                    "name": "Dr. Anjali Verma",
-                    "specialization": "pest_management",
-                    "qualification": "Ph.D. Entomology",
-                    "location": "Uttar Pradesh",
-                    "phone": "+91 9876543213",
-                    "rating": 4.6,
-                    "experience": 8,
-                    "is_kvk": True,
-                    "kvk_name": "KVK Lucknow",
-                    "bio": "Integrated pest management and organic pest control expert.",
-                    "avatar": "https://randomuser.me/api/portraits/women/65.jpg"
-                },
-                {
-                    "id": "exp5",
-                    "name": "Dr. Mahendra Singh",
-                    "specialization": "soil_health",
-                    "qualification": "Ph.D. Soil Science",
-                    "location": "Rajasthan",
-                    "phone": "+91 9876543214",
-                    "rating": 4.9,
-                    "experience": 20,
-                    "is_kvk": True,
-                    "kvk_name": "KVK Jaipur",
-                    "bio": "Soil health assessment and reclamation specialist.",
-                    "avatar": "https://randomuser.me/api/portraits/men/67.jpg"
-                },
-                {
-                    "id": "exp6",
-                    "name": "Dr. Kavita Desai",
-                    "specialization": "market_advisory",
-                    "qualification": "MBA Agriculture Business",
-                    "location": "Gujarat",
-                    "phone": "+91 9876543215",
-                    "rating": 4.8,
-                    "experience": 14,
-                    "is_kvk": False,
-                    "bio": "Market intelligence and price forecasting expert.",
-                    "avatar": "https://randomuser.me/api/portraits/women/28.jpg"
-                }
-            ]
+            experts = list(_FALLBACK_EXPERTS)
 
+        # Apply filters once, after the source has been resolved
         if specialization:
             experts = [e for e in experts if e.get("specialization") == specialization]
         if kvk_only:
             experts = [e for e in experts if e.get("is_kvk")]
         if search:
             search_lower = search.lower()
-            experts = [e for e in experts if search_lower in e.get("name", "").lower() or search_lower in e.get("location", "").lower()]
-
-        if not experts:
             experts = [
-                {
-                    "id": "exp1",
-                    "name": "Dr. Ramesh Kumar",
-                    "specialization": "crop_disease",
-                    "qualification": "Ph.D. in Plant Pathology",
-                    "location": "Madhya Pradesh",
-                    "phone": "+91 9876543210",
-                    "rating": 4.8,
-                    "experience": 15,
-                    "is_kvk": True,
-                    "kvk_name": "KVK Jabalpur",
-                    "bio": "Specialist in crop disease diagnosis and organic treatment methods.",
-                    "avatar": "https://randomuser.me/api/portraits/men/32.jpg"
-                },
-                {
-                    "id": "exp2",
-                    "name": "Dr. Priya Sharma",
-                    "specialization": "fertilizers",
-                    "qualification": "M.Sc. Agricultural Chemistry",
-                    "location": "Maharashtra",
-                    "phone": "+91 9876543211",
-                    "rating": 4.9,
-                    "experience": 12,
-                    "is_kvk": True,
-                    "kvk_name": "KVK Pune",
-                    "bio": "Expert in nano-fertilizers and sustainable nutrient management.",
-                    "avatar": "https://randomuser.me/api/portraits/women/44.jpg"
-                },
-                {
-                    "id": "exp3",
-                    "name": "Er. Suresh Patil",
-                    "specialization": "irrigation",
-                    "qualification": "B.Tech Agricultural Engineering",
-                    "location": "Karnataka",
-                    "phone": "+91 9876543212",
-                    "rating": 4.7,
-                    "experience": 10,
-                    "is_kvk": False,
-                    "bio": "Drip irrigation and water management specialist.",
-                    "avatar": "https://randomuser.me/api/portraits/men/45.jpg"
-                },
-                {
-                    "id": "exp4",
-                    "name": "Dr. Anjali Verma",
-                    "specialization": "pest_management",
-                    "qualification": "Ph.D. Entomology",
-                    "location": "Uttar Pradesh",
-                    "phone": "+91 9876543213",
-                    "rating": 4.6,
-                    "experience": 8,
-                    "is_kvk": True,
-                    "kvk_name": "KVK Lucknow",
-                    "bio": "Integrated pest management and organic pest control expert.",
-                    "avatar": "https://randomuser.me/api/portraits/women/65.jpg"
-                },
-                {
-                    "id": "exp5",
-                    "name": "Dr. Mahendra Singh",
-                    "specialization": "soil_health",
-                    "qualification": "Ph.D. Soil Science",
-                    "location": "Rajasthan",
-                    "phone": "+91 9876543214",
-                    "rating": 4.9,
-                    "experience": 20,
-                    "is_kvk": True,
-                    "kvk_name": "KVK Jaipur",
-                    "bio": "Soil health assessment and reclamation specialist.",
-                    "avatar": "https://randomuser.me/api/portraits/men/67.jpg"
-                },
-                {
-                    "id": "exp6",
-                    "name": "Dr. Kavita Desai",
-                    "specialization": "market_advisory",
-                    "qualification": "MBA Agriculture Business",
-                    "location": "Gujarat",
-                    "phone": "+91 9876543215",
-                    "rating": 4.8,
-                    "experience": 14,
-                    "is_kvk": False,
-                    "bio": "Market intelligence and price forecasting expert.",
-                    "avatar": "https://randomuser.me/api/portraits/women/28.jpg"
-                }
+                e for e in experts
+                if search_lower in e.get("name", "").lower()
+                or search_lower in e.get("location", "").lower()
             ]
 
-            if specialization:
-                experts = [e for e in experts if e.get("specialization") == specialization]
-            if kvk_only:
-                experts = [e for e in experts if e.get("is_kvk")]
-            if search:
-                search_lower = search.lower()
-                experts = [e for e in experts if search_lower in e.get("name", "").lower() or search_lower in e.get("location", "").lower()]
-
         return {"experts": experts, "count": len(experts)}
+
     except Exception as e:
-        logger.error(f"Error fetching experts: {e}")
+        logger.error("Error fetching experts: %s", e)
         raise HTTPException(status_code=500, detail="Failed to fetch experts")
 
 
@@ -2024,6 +2051,7 @@ async def get_expert_slots(expert_id: str, date: str):
 
 
 @app.post("/api/consultation/book")
+@limiter.limit("5/minute")
 async def book_consultation(
     request: ConsultationBookRequest,
     raw_request: Request,
@@ -2031,6 +2059,10 @@ async def book_consultation(
 ):
     """
     Book a consultation with an expert.
+
+    Authentication required — any logged-in user may book.
+    The caller's identity is derived from the verified Firebase token;
+    the client-supplied user_id is never trusted.
     """
     idem_key = raw_request.headers.get("X-Idempotency-Key")
     use_firestore = False
@@ -2118,28 +2150,29 @@ async def book_consultation(
     try:
         if db is None:
             db = validate_firestore_ready()
-        
-        user_data = None
 
-        if authorization:
-            try:
-                token = authorization.replace("Bearer ", "")
-                decoded_token = firebase_auth.verify_id_token(token)
-                user_id = decoded_token.get("uid")
+        # Require authentication — derive identity from the verified token,
+        # never from the request body.  Previously authorization was Optional
+        # and the entire auth block was wrapped in a try/except that silently
+        # fell through, writing bookings with user_id="anonymous".
+        token_data = await verify_role(raw_request)
+        uid = token_data["uid"]
 
-                user_ref = db.collection("users").document(user_id)
-                user_doc = user_ref.get()
-                if user_doc.exists:
-                    user_data = user_doc.to_dict()
-            except Exception as e:
-                logger.warning(f"Auth verification failed: {e}")
+        # Fetch the user's display name from Firestore for the booking record.
+        user_name = "Farmer"
+        try:
+            user_doc = db.collection("users").document(uid).get()
+            if user_doc.exists:
+                user_name = user_doc.to_dict().get("displayName", "Farmer") or "Farmer"
+        except Exception as e:
+            logger.warning("Could not fetch display name for uid=%s: %s", uid, e)
 
         consultation_data = {
             "expert_id": request.expert_id,
             "expert_name": request.expert_name,
             "expert_specialization": request.expert_specialization,
-            "user_id": user_data.get("uid") if user_data else "anonymous",
-            "user_name": user_data.get("displayName") if user_data else "Guest Farmer",
+            "user_id": uid,
+            "user_name": user_name,
             "date": request.date,
             "time": request.time,
             "notes": request.notes,
@@ -2209,25 +2242,33 @@ async def book_consultation(
 async def update_consultation(
     consultation_id: str,
     request: ConsultationUpdateRequest,
+    raw_request: Request,
     authorization: Optional[str] = None
 ):
     """
     Update consultation status.
-    
-    Path parameters:
-    - consultation_id: ID of the consultation
-    
-    Request body:
-    - status: New status (scheduled, completed, cancelled, in-progress)
-    - notes: Optional notes
+    Only the owner of the consultation may update it.
     """
     try:
         db = validate_firestore_ready()
+
+        # Require authentication and verify ownership.
+        token_data = await verify_role(raw_request)
+        uid = token_data["uid"]
+
         doc_ref = db.collection("consultations").document(consultation_id)
         doc = doc_ref.get()
 
         if not doc.exists:
             raise HTTPException(status_code=404, detail="Consultation not found")
+
+        # Prevent one user from updating another user's consultation.
+        owner_uid = doc.to_dict().get("user_id")
+        if owner_uid != uid and token_data.get("role") not in ("admin", "expert"):
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to update this consultation"
+            )
 
         update_data = {
             "status": request.status,
@@ -2255,24 +2296,27 @@ async def update_consultation(
 
 @app.get("/api/consultations")
 async def get_user_consultations(
+    raw_request: Request,
     user_id: Optional[str] = None,
     status: Optional[str] = None,
     authorization: Optional[str] = None
 ):
     """
-    Get user's consultation history.
-    
-    Query parameters:
-    - user_id: User ID (optional, will use auth if provided)
-    - status: Filter by status (scheduled, completed, cancelled)
+    Get the authenticated user's consultation history.
+    Results are always scoped to the caller's own uid — the client-supplied
+    user_id parameter is ignored to prevent IDOR enumeration.
     """
     try:
         db = validate_firestore_ready()
-        consultations_ref = db.collection("consultations")
-        query = consultations_ref
 
-        if user_id:
-            query = query.where("user_id", "==", user_id)
+        # Require authentication and scope results to the caller's own uid.
+        # Previously user_id was accepted from the query string with no auth
+        # check, allowing any caller to read any user's consultation history.
+        token_data = await verify_role(raw_request)
+        uid = token_data["uid"]
+
+        consultations_ref = db.collection("consultations")
+        query = consultations_ref.where("user_id", "==", uid)
 
         docs = query.get()
         consultations = []
@@ -2302,21 +2346,32 @@ async def get_user_consultations(
 @app.delete("/api/consultation/{consultation_id}")
 async def cancel_consultation(
     consultation_id: str,
+    raw_request: Request,
     authorization: Optional[str] = None
 ):
     """
     Cancel a consultation.
-    
-    Path parameters:
-    - consultation_id: ID of the consultation to cancel
+    Only the owner of the consultation may cancel it.
     """
     try:
         db = validate_firestore_ready()
+
+        # Require authentication and verify ownership.
+        token_data = await verify_role(raw_request)
+        uid = token_data["uid"]
+
         doc_ref = db.collection("consultations").document(consultation_id)
         doc = doc_ref.get()
 
         if not doc.exists:
             raise HTTPException(status_code=404, detail="Consultation not found")
+
+        owner_uid = doc.to_dict().get("user_id")
+        if owner_uid != uid and token_data.get("role") not in ("admin", "expert"):
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to cancel this consultation"
+            )
 
         doc_ref.update({
             "status": "cancelled",
@@ -2371,11 +2426,27 @@ if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
 
 # --- Blockchain Supply Chain Endpoints ---
+#
+# Auth policy:
+#   Write operations (register-actor, create-batch, add-node, create-contract,
+#   execute-contract) require authentication and the appropriate supply chain
+#   permission. This prevents unauthenticated callers from forging provenance
+#   records or flooding the chain with garbage data.
+#
+#   Read operations (verify, journey, analytics, marketplace, stats) are
+#   intentionally public — consumers need to scan QR codes and verify batch
+#   authenticity without creating an account.
+#
+#   QR code generation requires SUPPLY_CHAIN_READ so only registered
+#   participants can generate codes for physical packaging.
 
 @app.post("/api/blockchain/register-actor")
 @limiter.limit("10/minute")
 async def register_actor(request: Request, data: RegisterActorRequest):
-    """Register supply chain participant"""
+    """Register supply chain participant. Requires SUPPLY_CHAIN_CREATE permission."""
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.SUPPLY_CHAIN_CREATE], require_all=False
+    )
     try:
         actor_data = _supply_chain_blockchain.register_actor(
             data.actor_id,
@@ -2391,7 +2462,10 @@ async def register_actor(request: Request, data: RegisterActorRequest):
 @app.post("/api/blockchain/create-batch")
 @limiter.limit("10/minute")
 async def create_batch(request: Request, data: CreateProductBatchRequest):
-    """Create product batch on blockchain"""
+    """Create product batch on blockchain. Requires SUPPLY_CHAIN_CREATE permission."""
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.SUPPLY_CHAIN_CREATE], require_all=False
+    )
     try:
         batch = _supply_chain_blockchain.create_product_batch(
             data.crop_type,
@@ -2411,7 +2485,10 @@ async def create_batch(request: Request, data: CreateProductBatchRequest):
 @app.post("/api/blockchain/add-node")
 @limiter.limit("10/minute")
 async def add_node(request: Request, data: AddSupplyChainNodeRequest):
-    """Add supply chain node"""
+    """Add supply chain node. Requires SUPPLY_CHAIN_UPDATE permission."""
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.SUPPLY_CHAIN_UPDATE], require_all=False
+    )
     try:
         node = _supply_chain_blockchain.add_supply_chain_node(
             data.batch_id,
@@ -2435,7 +2512,10 @@ async def add_node(request: Request, data: AddSupplyChainNodeRequest):
 @app.post("/api/blockchain/create-contract")
 @limiter.limit("10/minute")
 async def create_contract(request: Request, data: CreateSmartContractRequest):
-    """Create smart contract"""
+    """Create smart contract. Requires SUPPLY_CHAIN_CREATE permission."""
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.SUPPLY_CHAIN_CREATE], require_all=False
+    )
     try:
         contract = _supply_chain_blockchain.create_smart_contract(
             data.batch_id,
@@ -2455,7 +2535,10 @@ async def create_contract(request: Request, data: CreateSmartContractRequest):
 @app.post("/api/blockchain/execute-contract")
 @limiter.limit("10/minute")
 async def execute_contract(request: Request, data: ExecuteContractRequest):
-    """Execute smart contract"""
+    """Execute smart contract. Requires SUPPLY_CHAIN_UPDATE permission."""
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.SUPPLY_CHAIN_UPDATE], require_all=False
+    )
     try:
         result = _supply_chain_blockchain.execute_smart_contract(data.contract_id)
         return result
@@ -2467,8 +2550,11 @@ async def execute_contract(request: Request, data: ExecuteContractRequest):
 
 @app.get("/api/blockchain/qr-code/{batch_id}")
 @limiter.limit("20/minute")
-async def get_qr_code(batch_id: str):
-    """Get QR code for batch"""
+async def get_qr_code(request: Request, batch_id: str):
+    """Get QR code for batch. Requires SUPPLY_CHAIN_READ permission."""
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.SUPPLY_CHAIN_READ], require_all=False
+    )
     try:
         qr_code = _supply_chain_blockchain.generate_qr_code(batch_id)
         return {"success": True, "batch_id": batch_id, "qr_code_base64": qr_code}
@@ -2481,7 +2567,7 @@ async def get_qr_code(batch_id: str):
 @app.get("/api/blockchain/verify/{batch_id}")
 @limiter.limit("20/minute")
 async def verify_batch(batch_id: str):
-    """Verify batch authenticity"""
+    """Verify batch authenticity. Public — consumers scan QR codes without an account."""
     try:
         verification = _supply_chain_blockchain.verify_batch(batch_id)
         return verification
@@ -2492,7 +2578,7 @@ async def verify_batch(batch_id: str):
 @app.get("/api/blockchain/journey/{batch_id}")
 @limiter.limit("20/minute")
 async def get_journey(batch_id: str):
-    """Get supply chain journey"""
+    """Get supply chain journey. Public — consumers scan QR codes without an account."""
     try:
         journey = _supply_chain_blockchain.get_supply_chain_journey(batch_id)
         return {"success": True, "data": journey}
@@ -2505,7 +2591,7 @@ async def get_journey(batch_id: str):
 @app.get("/api/blockchain/analytics/{batch_id}")
 @limiter.limit("20/minute")
 async def get_analytics(batch_id: str):
-    """Get supply chain analytics"""
+    """Get supply chain analytics. Public."""
     try:
         analytics = _supply_chain_blockchain.get_supply_chain_analytics(batch_id)
         return {"success": True, "data": analytics}
@@ -2518,7 +2604,7 @@ async def get_analytics(batch_id: str):
 @app.get("/api/blockchain/marketplace")
 @limiter.limit("20/minute")
 async def get_marketplace():
-    """Get certified products for marketplace"""
+    """Get certified products for marketplace. Public."""
     try:
         certified = _supply_chain_blockchain.get_certified_products()
         return {"success": True, "products": certified, "count": len(certified)}
@@ -2529,7 +2615,7 @@ async def get_marketplace():
 @app.get("/api/blockchain/stats")
 @limiter.limit("20/minute")
 async def get_stats():
-    """Get blockchain statistics"""
+    """Get blockchain statistics. Public."""
     try:
         stats = {
             "total_records": _supply_chain_blockchain.get_blockchain_record_count(),

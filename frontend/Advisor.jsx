@@ -209,13 +209,56 @@ showGreenPractices,
   }, []);
 
   // On mount: if a valid cached snapshot already exists (written by
-  // WeatherAlertBar on the Home page), use it immediately — no fetch needed.
+  // WeatherAlertBar on the Home page), use it immediately and refresh it in
+  // the background; otherwise fall back to a live IP-based snapshot so the
+  // weather dashboard is never left idle on a cold start.
   useEffect(() => {
-    const cached = getStoredWeatherSnapshot();
-    if (cached?.location) {
-      setWeatherSnapshot(cached);
-      setWeatherStatus("ready");
-    }
+    let cancelled = false;
+
+    const hydrateWeather = async () => {
+      const cached = getStoredWeatherSnapshot();
+
+      if (cached?.location) {
+        setWeatherSnapshot(cached);
+        setWeatherStatus("ready");
+
+        try {
+          const refreshed = await fetchWeatherByLocation(cached.location);
+          if (!cancelled) {
+            setWeatherSnapshot(refreshed);
+            setWeatherStatus("ready");
+            setWeatherError("");
+          }
+        } catch (error) {
+          if (!cancelled) {
+            setWeatherError(error?.message || "Unable to refresh weather data.");
+          }
+        }
+
+        return;
+      }
+
+      setWeatherStatus("loading");
+      try {
+        const liveSnapshot = await fetchWeatherByIP();
+        if (!cancelled) {
+          setWeatherSnapshot(liveSnapshot);
+          setWeatherStatus("ready");
+          setWeatherError("");
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setWeatherStatus("error");
+          setWeatherError(error?.message || "Unable to load weather data.");
+        }
+      }
+    };
+
+    void hydrateWeather();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Derive advisories from the open-meteo snapshot alerts array.
@@ -686,14 +729,6 @@ showGreenPractices,
               <div className="icon" aria-hidden="true"><ShoppingCart size={32} /></div>
               <h3><span className="notranslate">Agri Marketplace</span></h3>
               <p>Rent or list farm equipment locally. Save costs and earn extra.</p>
-            </div>
-          )}
-
-          {(userData?.role === "farmer" || userData?.role === "admin") && (
-            <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/equipment-management")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/equipment-management"); }} aria-label="Equipment Management: Monitor and maintain farm equipment">
-              <div className="icon" aria-hidden="true"><Settings size={32} /></div>
-              <h3><span className="notranslate">Equipment Management</span></h3>
-              <p>Real-time monitoring and predictive maintenance for all farm equipment.</p>
             </div>
           )}
 
