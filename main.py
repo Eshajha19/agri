@@ -2333,11 +2333,27 @@ if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
 
 # --- Blockchain Supply Chain Endpoints ---
+#
+# Auth policy:
+#   Write operations (register-actor, create-batch, add-node, create-contract,
+#   execute-contract) require authentication and the appropriate supply chain
+#   permission. This prevents unauthenticated callers from forging provenance
+#   records or flooding the chain with garbage data.
+#
+#   Read operations (verify, journey, analytics, marketplace, stats) are
+#   intentionally public — consumers need to scan QR codes and verify batch
+#   authenticity without creating an account.
+#
+#   QR code generation requires SUPPLY_CHAIN_READ so only registered
+#   participants can generate codes for physical packaging.
 
 @app.post("/api/blockchain/register-actor")
 @limiter.limit("10/minute")
 async def register_actor(request: Request, data: RegisterActorRequest):
-    """Register supply chain participant"""
+    """Register supply chain participant. Requires SUPPLY_CHAIN_CREATE permission."""
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.SUPPLY_CHAIN_CREATE], require_all=False
+    )
     try:
         actor_data = _supply_chain_blockchain.register_actor(
             data.actor_id,
@@ -2353,7 +2369,10 @@ async def register_actor(request: Request, data: RegisterActorRequest):
 @app.post("/api/blockchain/create-batch")
 @limiter.limit("10/minute")
 async def create_batch(request: Request, data: CreateProductBatchRequest):
-    """Create product batch on blockchain"""
+    """Create product batch on blockchain. Requires SUPPLY_CHAIN_CREATE permission."""
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.SUPPLY_CHAIN_CREATE], require_all=False
+    )
     try:
         batch = _supply_chain_blockchain.create_product_batch(
             data.crop_type,
@@ -2373,7 +2392,10 @@ async def create_batch(request: Request, data: CreateProductBatchRequest):
 @app.post("/api/blockchain/add-node")
 @limiter.limit("10/minute")
 async def add_node(request: Request, data: AddSupplyChainNodeRequest):
-    """Add supply chain node"""
+    """Add supply chain node. Requires SUPPLY_CHAIN_UPDATE permission."""
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.SUPPLY_CHAIN_UPDATE], require_all=False
+    )
     try:
         node = _supply_chain_blockchain.add_supply_chain_node(
             data.batch_id,
@@ -2397,7 +2419,10 @@ async def add_node(request: Request, data: AddSupplyChainNodeRequest):
 @app.post("/api/blockchain/create-contract")
 @limiter.limit("10/minute")
 async def create_contract(request: Request, data: CreateSmartContractRequest):
-    """Create smart contract"""
+    """Create smart contract. Requires SUPPLY_CHAIN_CREATE permission."""
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.SUPPLY_CHAIN_CREATE], require_all=False
+    )
     try:
         contract = _supply_chain_blockchain.create_smart_contract(
             data.batch_id,
@@ -2417,7 +2442,10 @@ async def create_contract(request: Request, data: CreateSmartContractRequest):
 @app.post("/api/blockchain/execute-contract")
 @limiter.limit("10/minute")
 async def execute_contract(request: Request, data: ExecuteContractRequest):
-    """Execute smart contract"""
+    """Execute smart contract. Requires SUPPLY_CHAIN_UPDATE permission."""
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.SUPPLY_CHAIN_UPDATE], require_all=False
+    )
     try:
         result = _supply_chain_blockchain.execute_smart_contract(data.contract_id)
         return result
@@ -2429,8 +2457,11 @@ async def execute_contract(request: Request, data: ExecuteContractRequest):
 
 @app.get("/api/blockchain/qr-code/{batch_id}")
 @limiter.limit("20/minute")
-async def get_qr_code(batch_id: str):
-    """Get QR code for batch"""
+async def get_qr_code(request: Request, batch_id: str):
+    """Get QR code for batch. Requires SUPPLY_CHAIN_READ permission."""
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.SUPPLY_CHAIN_READ], require_all=False
+    )
     try:
         qr_code = _supply_chain_blockchain.generate_qr_code(batch_id)
         return {"success": True, "batch_id": batch_id, "qr_code_base64": qr_code}
@@ -2443,7 +2474,7 @@ async def get_qr_code(batch_id: str):
 @app.get("/api/blockchain/verify/{batch_id}")
 @limiter.limit("20/minute")
 async def verify_batch(batch_id: str):
-    """Verify batch authenticity"""
+    """Verify batch authenticity. Public — consumers scan QR codes without an account."""
     try:
         verification = _supply_chain_blockchain.verify_batch(batch_id)
         return verification
@@ -2454,7 +2485,7 @@ async def verify_batch(batch_id: str):
 @app.get("/api/blockchain/journey/{batch_id}")
 @limiter.limit("20/minute")
 async def get_journey(batch_id: str):
-    """Get supply chain journey"""
+    """Get supply chain journey. Public — consumers scan QR codes without an account."""
     try:
         journey = _supply_chain_blockchain.get_supply_chain_journey(batch_id)
         return {"success": True, "data": journey}
@@ -2467,7 +2498,7 @@ async def get_journey(batch_id: str):
 @app.get("/api/blockchain/analytics/{batch_id}")
 @limiter.limit("20/minute")
 async def get_analytics(batch_id: str):
-    """Get supply chain analytics"""
+    """Get supply chain analytics. Public."""
     try:
         analytics = _supply_chain_blockchain.get_supply_chain_analytics(batch_id)
         return {"success": True, "data": analytics}
@@ -2480,7 +2511,7 @@ async def get_analytics(batch_id: str):
 @app.get("/api/blockchain/marketplace")
 @limiter.limit("20/minute")
 async def get_marketplace():
-    """Get certified products for marketplace"""
+    """Get certified products for marketplace. Public."""
     try:
         certified = _supply_chain_blockchain.get_certified_products()
         return {"success": True, "products": certified, "count": len(certified)}
@@ -2491,7 +2522,7 @@ async def get_marketplace():
 @app.get("/api/blockchain/stats")
 @limiter.limit("20/minute")
 async def get_stats():
-    """Get blockchain statistics"""
+    """Get blockchain statistics. Public."""
     try:
         stats = {
             "total_records": _supply_chain_blockchain.get_blockchain_record_count(),
