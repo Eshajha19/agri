@@ -194,9 +194,34 @@ class CropQualityGradingRequest(BaseModel):
     crop_type: str = Field(..., min_length=1, max_length=50)
     image_base64: str = Field(..., min_length=100)  # Base64 encoded image
 
+    @validator("image_base64")
+    def validate_image_size(cls, v):
+        # 10MB maximum payload size for Base64 (10 * 1024 * 1024 * 4 / 3 ≈ 13981013 chars)
+        # Cap at 14,000,000 characters to prevent Memory Exhaustion DoS
+        MAX_BASE64_SIZE = 14000000
+        if len(v) > MAX_BASE64_SIZE:
+            raise ValueError("Image payload size exceeds the maximum limit of 10MB")
+        return v
+
 class CropQualityBatchRequest(BaseModel):
     crop_type: str = Field(..., min_length=1, max_length=50)
     images_base64: list = Field(..., min_items=1, max_items=100)  # Multiple images
+
+    @validator("images_base64")
+    def validate_batch_images_size(cls, v):
+        # 10MB limit per image, 50MB total batch size limit
+        MAX_BASE64_SIZE = 14000000
+        MAX_TOTAL_SIZE = 70000000
+        total_size = 0
+        for img in v:
+            if not isinstance(img, str):
+                raise ValueError("Each image in the batch must be a base64 encoded string")
+            if len(img) > MAX_BASE64_SIZE:
+                raise ValueError("An image payload in the batch exceeds the maximum limit of 10MB")
+            total_size += len(img)
+        if total_size > MAX_TOTAL_SIZE:
+            raise ValueError("Total batch payload size exceeds the maximum limit of 50MB")
+        return v
 
 class QualityTrendsRequest(BaseModel):
     crop_type: str = Field(..., min_length=1, max_length=50)
@@ -545,6 +570,15 @@ class GeminiImageRequest(BaseModel):
     image_base64: str = Field(..., min_length=10, description="Base64-encoded image data")
     mime_type: str = Field(..., pattern=r"^image/(jpeg|png|gif|webp)$", description="MIME type of the image")
     prompt: str = Field(..., min_length=10, max_length=2000, description="Analysis prompt")
+
+    @validator("image_base64")
+    def validate_image_size(cls, v):
+        # 10MB maximum payload size for Base64 (10 * 1024 * 1024 * 4 / 3 ≈ 13981013 chars)
+        # Cap at 14,000,000 characters to prevent Memory Exhaustion DoS
+        MAX_BASE64_SIZE = 14000000
+        if len(v) > MAX_BASE64_SIZE:
+            raise ValueError("Image payload size exceeds the maximum limit of 10MB")
+        return v
 
 class FinanceAssessmentRequest(BaseModel):
     farmer_name: str = Field(..., min_length=1, max_length=100)
