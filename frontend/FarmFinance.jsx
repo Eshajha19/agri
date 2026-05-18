@@ -36,6 +36,12 @@ import {
   YAxis,
 } from 'recharts';
 import './FarmFinance.css';
+import { loadVersionedArray, saveVersionedArray } from './utils/versionedStorage';
+
+const INCOME_STORAGE_KEY = 'fasalSaathiIncome';
+const EXPENSE_STORAGE_KEY = 'fasalSaathiDiary';
+const FINANCE_STORAGE_VERSION = 1;
+const MAX_FINANCE_ENTRIES = 250;
 
 export default function FarmFinance() {
   const [incomeEntries, setIncomeEntries] = useState([]);
@@ -87,30 +93,36 @@ export default function FarmFinance() {
   const formatCurrency = (value) => currencyFormatter.format(Number(value) || 0);
 
   useEffect(() => {
-    const savedIncome = localStorage.getItem('fasalSaathiIncome');
-    if (savedIncome) {
-      try {
-        setIncomeEntries(JSON.parse(savedIncome));
-      } catch (error) {
-        // eslint-disable-next-line no-console
-        console.error('Error loading income data', error);
-      }
-    }
+    setIncomeEntries(loadVersionedArray(INCOME_STORAGE_KEY, {
+      version: FINANCE_STORAGE_VERSION,
+      fallback: [],
+      maxItems: MAX_FINANCE_ENTRIES,
+    }));
 
-    const savedExpenses = localStorage.getItem('fasalSaathiDiary');
-    if (savedExpenses) {
-      try {
-        setExpenseEntries(JSON.parse(savedExpenses));
-      } catch (error) {
-        // eslint-disable-next-line no-console
-        console.error('Error loading expense data', error);
-      }
-    }
+    setExpenseEntries(loadVersionedArray(EXPENSE_STORAGE_KEY, {
+      version: FINANCE_STORAGE_VERSION,
+      fallback: [],
+      maxItems: MAX_FINANCE_ENTRIES,
+    }));
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('fasalSaathiIncome', JSON.stringify(incomeEntries));
+    const saved = saveVersionedArray(INCOME_STORAGE_KEY, incomeEntries, {
+      version: FINANCE_STORAGE_VERSION,
+      maxItems: MAX_FINANCE_ENTRIES,
+    });
+
+    if (!saved) {
+      setFinanceNotice('Income history is temporarily full. Older records were retained in memory only.');
+    }
   }, [incomeEntries]);
+
+  useEffect(() => {
+    saveVersionedArray(EXPENSE_STORAGE_KEY, expenseEntries, {
+      version: FINANCE_STORAGE_VERSION,
+      maxItems: MAX_FINANCE_ENTRIES,
+    });
+  }, [expenseEntries]);
 
   const totalIncome = useMemo(() => {
     return incomeEntries.reduce(

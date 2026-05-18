@@ -4,6 +4,11 @@ import { QRCodeSVG } from 'qrcode.react';
 import { QrCode, Sprout, MapPin, Calendar, CheckCircle, ShieldCheck, ArrowRight, Share2, Download, MessageCircle } from 'lucide-react';
 import './QRTraceability.css';
 import SoilChatbot from './SoilChatbot';
+import { loadVersionedArray, saveVersionedArray } from './utils/versionedStorage';
+
+const BATCH_STORAGE_KEY = 'qrFarmBatches';
+const BATCH_STORAGE_VERSION = 1;
+const MAX_BATCHES = 100;
 
 const MOCK_BATCHES = [
   {
@@ -38,8 +43,11 @@ const MOCK_BATCHES = [
 export default function QRTraceability() {
   const { id: routeId } = useParams();
   const [batches, setBatches] = useState(() => {
-    const saved = localStorage.getItem('qrFarmBatches');
-    return saved ? JSON.parse(saved) : MOCK_BATCHES;
+    return loadVersionedArray(BATCH_STORAGE_KEY, {
+      version: BATCH_STORAGE_VERSION,
+      fallback: MOCK_BATCHES,
+      maxItems: MAX_BATCHES,
+    });
   });
   const [selectedBatch, setSelectedBatch] = useState(null);
   const [viewMode, setViewMode] = useState('list'); // 'list', 'details', 'viewer'
@@ -56,7 +64,10 @@ export default function QRTraceability() {
   }, [routeId, batches]);
 
   useEffect(() => {
-    localStorage.setItem('qrFarmBatches', JSON.stringify(batches));
+    saveVersionedArray(BATCH_STORAGE_KEY, batches, {
+      version: BATCH_STORAGE_VERSION,
+      maxItems: MAX_BATCHES,
+    });
   }, [batches]);
 
   const generateNewBatch = (e) => {
