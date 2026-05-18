@@ -21,11 +21,12 @@ import {
   FaHome,
   FaTrophy,
   FaMedal,
-  FaCog
+  FaCog,
+  FaMicrophone
 } from "react-icons/fa";
 import { usePerformanceStore } from "./stores/performanceStore";
 import { useBrowserCacheBudget } from "./lib/cacheBudget";
-
+import { cryptoService } from "./utils/cryptoService";
 // Components
 import Loader from "./Loader";
 import LanguageDropdown from "./LanguageDropdown";
@@ -77,8 +78,11 @@ import {
   EquipmentManagement,
 } from "./routes/lazyPages";
 
+const Weather = React.lazy(() => import("./Weather"));
+import VoiceAssistant from "./VoiceAssistant";
+
 // Libs
-import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc } from "./lib/firebase";
+import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc, getDoc } from "./lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 
 // CSS
@@ -235,18 +239,18 @@ function App() {
 
     const ensurePublicKey = async () => {
       try {
-        let privateJwk = localStorage.getItem(`agri:ecdh_private_${user.uid}`);
-        let publicJwk = localStorage.getItem(`agri:ecdh_public_${user.uid}`);
-        
-        if (!privateJwk || !publicJwk) {
-          const { cryptoService } = await import("./utils/cryptoService");
-          const keyPair = await cryptoService.generateECDHKeyPair();
-          privateJwk = await cryptoService.exportKey(keyPair.privateKey);
-          publicJwk = await cryptoService.exportKey(keyPair.publicKey);
-          localStorage.setItem(`agri:ecdh_private_${user.uid}`, JSON.stringify(privateJwk));
-          localStorage.setItem(`agri:ecdh_public_${user.uid}`, JSON.stringify(publicJwk));
-        } else {
-          publicJwk = JSON.parse(publicJwk);
+        let { publicJwk } = await cryptoService.ensureKeys(user.uid);
+
+        if (!publicJwk) {
+          const publicKeySnap = await getDoc(doc(db, "public_keys", user.uid));
+          if (publicKeySnap.exists()) {
+            publicJwk = publicKeySnap.data().jwk;
+            await cryptoService.savePublicKey(user.uid, publicJwk);
+          }
+        }
+
+        if (!publicJwk) {
+          throw new Error("ECDH public key unavailable after initialization");
         }
 
         const pubKeyRef = doc(db, "public_keys", user.uid);
@@ -364,6 +368,7 @@ function App() {
                     }}
                   />
                 </div>
+                <Link to="/voice-assistant" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMicrophone /> Voice Assistant</Link>
                 <div className="performance-toggle-section">
                   <button
                     className={`lite-mode-toggle ${liteMode ? 'active' : ''}`}
@@ -507,6 +512,8 @@ function App() {
             <Route path="/yield-predictor" element={<YieldPredictor />} />
             <Route path="/blog" element={<Blog />} />
             <Route path="/blog/:id" element={<BlogDetail />} />
+            <Route path="/weather" element={<Weather />} />
+            <Route path="/voice-assistant" element={<VoiceAssistant />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
