@@ -48,9 +48,9 @@ class RAGQuery(BaseModel):
     top_k: int = Field(default=3, ge=1, le=5)
 
 # Rate Limiting
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
+from rate_limit_config import build_limiter, rate_limit_exceeded_handler
 
 # Firebase Admin SDK
 import firebase_admin
@@ -126,9 +126,9 @@ def _sanitise_log_field(value: str) -> str:
     return _CONTROL_CHAR_RE.sub("", value)
 
 # Initialize Limiter
-limiter = Limiter(key_func=get_remote_address)
+limiter = build_limiter(default_limits=["120/minute"])
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 # Initialize Firebase Admin
 import logging as _logging
@@ -435,10 +435,12 @@ _notification_store.append(
 # --- Routes ---
 
 @app.get("/")
+@limiter.limit("60/minute")
 def root():
     return {"message": "Fasal Saathi API", "status": "running"}
 
 @app.get("/predict")
+@limiter.limit("30/minute")
 def predict_get():
     return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
 
@@ -536,6 +538,7 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
 @app.get("/api/notifications")
+@limiter.limit("30/minute")
 def get_notifications(
     crop: str = Query(default=None),
     irrigation_count: int = Query(default=None, ge=0),
@@ -637,6 +640,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
 
 @app.post("/api/whatsapp/webhook")
+@limiter.limit("20/minute")
 async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
     incoming_msg = Body.lower().strip()
     sender_number = From.replace("whatsapp:", "")
