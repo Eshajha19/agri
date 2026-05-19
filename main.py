@@ -197,55 +197,9 @@ except Exception:
     HAS_GCP_KMS = False
 
 
-def _cache_signing_key(private_key):
-    global _cached_private_key
-    _cached_private_key = private_key
-    return private_key
-
-
-def _load_key_from_secret_manager(project_id: str, secret_id: str):
-    if not HAS_GCP_KMS:
-        raise HTTPException(status_code=500, detail="KMS is required when GOOGLE_CLOUD_PROJECT is set")
-
-    client = secretmanager.SecretManagerServiceClient()
-    name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
-    response = client.access_secret_version(request={"name": name})
-    payload = response.payload.data.decode("UTF-8")
-    return serialization.load_pem_private_key(payload.encode(), password=None)
-
-
-def _load_key_from_file(private_key_path: str):
-    with open(private_key_path, "rb") as key_file:
-        return serialization.load_pem_private_key(key_file.read(), password=None)
-
-
-def _persist_keypair(private_key, private_key_path: str, public_key_path: str):
-    os.makedirs(os.path.dirname(private_key_path), exist_ok=True)
-    with open(private_key_path, "wb") as private_file:
-        private_file.write(
-            private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.NoEncryption(),
-            )
-        )
-
-    with open(public_key_path, "wb") as public_file:
-        public_file.write(
-            private_key.public_key().public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo,
-            )
-        )
-
-
-def _generate_and_persist_keypair(private_key_path: str, public_key_path: str):
-    private_key = ed25519.Ed25519PrivateKey.generate()
-    _persist_keypair(private_key, private_key_path, public_key_path)
-    return private_key
-
-
 def get_signing_keys():
+    global _cached_private_key
+
     if _cached_private_key is not None:
         return _cached_private_key
 
@@ -253,12 +207,40 @@ def get_signing_keys():
     secret_id = os.getenv("REPORT_SIGNING_SECRET_NAME", "report-signing-key")
 
     if project_id:
-        return _cache_signing_key(_load_key_from_secret_manager(project_id, secret_id))
+        if not HAS_GCP_KMS:
+            raise HTTPException(status_code=500, detail="KMS is required when GOOGLE_CLOUD_PROJECT is set")
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
+        response = client.access_secret_version(request={"name": name})
+        payload = response.payload.data.decode("UTF-8")
+        _cached_private_key = serialization.load_pem_private_key(payload.encode(), password=None)
+        return _cached_private_key
 
     if os.path.exists(PRIVATE_KEY_PATH):
-        return _cache_signing_key(_load_key_from_file(PRIVATE_KEY_PATH))
+        with open(PRIVATE_KEY_PATH, "rb") as key_file:
+            _cached_private_key = serialization.load_pem_private_key(key_file.read(), password=None)
+        return _cached_private_key
 
-    return _cache_signing_key(_generate_and_persist_keypair(PRIVATE_KEY_PATH, PUBLIC_KEY_PATH))
+    private_key = ed25519.Ed25519PrivateKey.generate()
+    os.makedirs(KEYS_DIR, exist_ok=True)
+    with open(PRIVATE_KEY_PATH, "wb") as private_file:
+        private_file.write(
+            private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
+        )
+    with open(PUBLIC_KEY_PATH, "wb") as public_file:
+        public_file.write(
+            private_key.public_key().public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            )
+        )
+
+    _cached_private_key = private_key
+    return private_key
 
 
 def init_ml_pipeline() -> None:
