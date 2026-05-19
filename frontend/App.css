@@ -1232,50 +1232,57 @@ html body {
   color: #1f2937;
 }
 
-.theme-night .verification-card {
-  background: #2a1d12;
-  color: #fff3e4;
-}
 .lang-dropdown-item--selected {
   background-color: #ecfdf5;
   color: #059669;
   font-weight: 600;
-.theme-night .verification-card h2 {
-  color: #f8c27d;
-}
 }
 
 .lang-dropdown-item--selected:hover {
-.theme-night .verification-card p {
-  color: #d8c3ad;
-}
   background-color: #d1fae5;
 }
 
-.theme-night .btn-refresh {
-  background: linear-gradient(135deg, #d67b32, #b95f22);
-}
 .lang-dropdown-check {
   color: #10b981;
   font-weight: 700;
-.theme-night .offline-banner {
-  background: #b45309;
-}
   font-size: 1.1rem;
 }
 
 .lang-dropdown-empty {
   padding: 16px;
-.theme-night .login-page {
-  background: radial-gradient(circle at 20% 20%, rgba(248, 194, 125, 0.16), transparent 42%),
-    radial-gradient(circle at 75% 30%, rgba(214, 123, 50, 0.12), transparent 45%),
-    linear-gradient(180deg, #1a120c 0%, #100a07 100%);
-}
   text-align: center;
   color: #9ca3af;
   font-size: 0.9rem;
   font-style: italic;
 }
+
+.theme-night .verification-card {
+  background: #2a1d12;
+  color: #fff3e4;
+}
+
+.theme-night .verification-card h2 {
+  color: #f8c27d;
+}
+
+.theme-night .verification-card p {
+  color: #d8c3ad;
+}
+
+.theme-night .btn-refresh {
+  background: linear-gradient(135deg, #d67b32, #b95f22);
+}
+
+.theme-night .offline-banner {
+  background: #b45309;
+}
+
+.theme-night .login-page {
+  background: radial-gradient(circle at 20% 20%, rgba(248, 194, 125, 0.16), transparent 42%),
+    radial-gradient(circle at 75% 30%, rgba(214, 123, 50, 0.12), transparent 45%),
+    linear-gradient(180deg, #1a120c 0%, #100a07 100%);
+}
+
 .theme-night .login-card input,
 .theme-night .login-card select {
   background: rgba(255, 255, 255, 0.04);
@@ -1287,10 +1294,11 @@ html body {
 .theme-dark .lang-dropdown-btn {
   background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%);
   color: #1a1a1a;
+  box-shadow: 0 3px 8px rgba(245, 158, 11, 0.3);
+}
+
 .theme-night .login-card button {
   background: linear-gradient(135deg, #d67b32, #b95f22);
-}
-  box-shadow: 0 3px 8px rgba(245, 158, 11, 0.3);
 }
 
 .theme-dark .lang-dropdown-panel {
