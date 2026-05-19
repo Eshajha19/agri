@@ -1,5 +1,5 @@
 import React, { Suspense, useEffect, useState, useRef } from "react";
-import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
+import { Routes, Route, Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -74,8 +74,10 @@ import {
   Schemes,
   SeasonalCropPlanner,
   SeedVerifier,
+  SmartFarmAutopilot,
   SoilAnalysis,
   SoilGuide,
+  SustainabilityAnalytics,
   Terms,
   YieldPredictor,
   EquipmentManagement,
@@ -83,6 +85,15 @@ import {
 
 const Weather = React.lazy(() => import("./Weather"));
 import VoiceAssistant from "./VoiceAssistant";
+
+/**
+ * Thin wrapper so SustainabilityAnalytics (designed as a modal) works as a
+ * full standalone route. The onClose prop navigates the user back.
+ */
+function SustainabilityAnalyticsPage({ userData }) {
+  const navigate = useNavigate();
+  return <SustainabilityAnalytics userData={userData} onClose={() => navigate(-1)} />
+}
 
 // Libs
 import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc, getDoc } from "./lib/firebase";
@@ -514,6 +525,11 @@ function App() {
             <Route path="/farm-finance" element={<FarmFinance />} />
             <Route path="/farming-news" element={<FarmingNews userData={userData} />} />
             <Route path="/yield-predictor" element={<YieldPredictor />} />
+            <Route path="/smart-farm-autopilot" element={<SmartFarmAutopilot />} />
+            <Route
+              path="/sustainability-analytics"
+              element={<SustainabilityAnalyticsPage userData={userData} />}
+            />
             <Route path="/blog" element={<Blog />} />
             <Route path="/blog/:id" element={<BlogDetail />} />
             <Route path="/weather" element={<Weather />} />
