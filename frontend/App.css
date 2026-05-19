@@ -1283,6 +1283,40 @@ html body {
   border-color: rgba(248, 194, 125, 0.18);
 }
 
+.theme-night .verification-card {
+  background: #2a1d12;
+  color: #fff3e4;
+}
+
+.theme-night .verification-card h2 {
+  color: #f8c27d;
+}
+
+.theme-night .verification-card p {
+  color: #d8c3ad;
+}
+
+.theme-night .btn-refresh {
+  background: linear-gradient(135deg, #d67b32, #b95f22);
+}
+
+.theme-night .offline-banner {
+  background: #b45309;
+}
+
+.theme-night .login-page {
+  background: radial-gradient(circle at 20% 20%, rgba(248, 194, 125, 0.16), transparent 42%),
+    radial-gradient(circle at 75% 30%, rgba(214, 123, 50, 0.12), transparent 45%),
+    linear-gradient(180deg, #1a120c 0%, #100a07 100%);
+}
+
+.theme-night .login-card input,
+.theme-night .login-card select {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  border-color: rgba(248, 194, 125, 0.18);
+}
+
 /* Dark theme */
 .theme-dark .lang-dropdown-btn {
   background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%);
@@ -1291,6 +1325,10 @@ html body {
   background: linear-gradient(135deg, #d67b32, #b95f22);
 }
   box-shadow: 0 3px 8px rgba(245, 158, 11, 0.3);
+}
+
+.theme-night .login-card button {
+  background: linear-gradient(135deg, #d67b32, #b95f22);
 }
 
 .theme-dark .lang-dropdown-panel {
