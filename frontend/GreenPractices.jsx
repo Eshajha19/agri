@@ -26,7 +26,7 @@ const PRACTICES = [
   { id: "reduced_chemicals", label: "Reduced Chemical Usage", impact: 20, description: "Minimizes synthetic fertilizer and pesticide runoff into ecosystems.", icon: <ThermometerSun size={20} /> }
 ];
 
-export default function GreenPractices({ userProfile, onClose }) {
+export default function GreenPractices({ userData, onClose }) {
   const [activePractices, setActivePractices] = useState({});
   const [isExporting, setIsExporting] = useState(false);
 
@@ -45,9 +45,9 @@ export default function GreenPractices({ userProfile, onClose }) {
 
   // Rough estimation: 1 score point = 0.05 mtCO2e per acre (simplified for demo)
   const carbonCredits = useMemo(() => {
-    const area = userProfile?.landArea || 1;
+    const area = userData?.landArea || 1;
     return (totalScore * 0.05 * area);
-  }, [totalScore, userProfile]);
+  }, [totalScore, userData]);
 
   const chartData = useMemo(() => [
     { name: "Sustainability Progress", value: totalScore },
@@ -59,7 +59,7 @@ export default function GreenPractices({ userProfile, onClose }) {
   const handleExport = () => {
     setIsExporting(true);
     const data = {
-      farmerName: userProfile?.name || "Farmer",
+      farmerName: userData?.name || "Farmer",
       practices: PRACTICES.map(p => ({
         practice: p.label,
         status: !!activePractices[p.id],

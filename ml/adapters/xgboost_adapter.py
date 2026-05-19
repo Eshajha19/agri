@@ -1,6 +1,6 @@
-import joblib
 import pandas as pd
 from ml.base import YieldModel
+from ml.security import verify_and_load_joblib
 
 class XGBoostAdapter(YieldModel):
     """
@@ -13,7 +13,12 @@ class XGBoostAdapter(YieldModel):
 
     def load(self, model_path: str):
         try:
-            self.model = joblib.load(model_path)
+            # Verify model signature before loading to avoid executing
+            # arbitrary pickled code. The signature file is expected to be
+            # alongside the model at `model_path + '.sig'` and the signing
+            # key must be provided via the `MODEL_SIGNING_KEY` environment
+            # variable.
+            self.model = verify_and_load_joblib(model_path)
             # Try to extract feature names if it's an XGBoost model
             if hasattr(self.model, 'get_booster'):
                 self._feature_names = list(self.model.get_booster().feature_names)

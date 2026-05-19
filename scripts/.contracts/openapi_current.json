@@ -1,0 +1,3326 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Fasal Saathi Backend",
+    "version": "2.0"
+  },
+  "paths": {
+    "/api/flags": {
+      "get": {
+        "tags": [
+          "feature-flags"
+        ],
+        "summary": "List all feature flags",
+        "operationId": "list_flags_api_flags_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/flags/{flag_id}": {
+      "get": {
+        "tags": [
+          "feature-flags"
+        ],
+        "summary": "Get a single feature flag",
+        "operationId": "get_flag_api_flags__flag_id__get",
+        "parameters": [
+          {
+            "name": "flag_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Flag Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "feature-flags"
+        ],
+        "summary": "Create or update a feature flag",
+        "operationId": "upsert_flag_api_flags__flag_id__post",
+        "parameters": [
+          {
+            "name": "flag_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Flag Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FlagUpsertRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "feature-flags"
+        ],
+        "summary": "Delete a feature flag",
+        "operationId": "delete_flag_api_flags__flag_id__delete",
+        "parameters": [
+          {
+            "name": "flag_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Flag Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/flags/{flag_id}/rollback": {
+      "post": {
+        "tags": [
+          "feature-flags"
+        ],
+        "summary": "Rollback — disable flag, reset rollout to 0%",
+        "operationId": "rollback_flag_api_flags__flag_id__rollback_post",
+        "parameters": [
+          {
+            "name": "flag_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Flag Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/experiments": {
+      "get": {
+        "tags": [
+          "feature-flags"
+        ],
+        "summary": "List all experiments",
+        "operationId": "list_experiments_api_experiments_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "feature-flags"
+        ],
+        "summary": "Create a new experiment",
+        "operationId": "create_experiment_api_experiments_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExperimentCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/experiments/assign": {
+      "post": {
+        "tags": [
+          "feature-flags"
+        ],
+        "summary": "Assign user to experiment variant",
+        "operationId": "assign_user_api_experiments_assign_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/experiments/{exp_id}/status": {
+      "patch": {
+        "tags": [
+          "feature-flags"
+        ],
+        "summary": "Update experiment status",
+        "operationId": "update_status_api_experiments__exp_id__status_patch",
+        "parameters": [
+          {
+            "name": "exp_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Exp Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StatusUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/experiments/{exp_id}/metrics": {
+      "get": {
+        "tags": [
+          "feature-flags"
+        ],
+        "summary": "Get aggregated experiment metrics",
+        "operationId": "get_metrics_api_experiments__exp_id__metrics_get",
+        "parameters": [
+          {
+            "name": "exp_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Exp Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/experiments/events": {
+      "post": {
+        "tags": [
+          "feature-flags"
+        ],
+        "summary": "Log a single experiment event",
+        "operationId": "log_event_api_experiments_events_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/experiments/events/batch": {
+      "post": {
+        "tags": [
+          "feature-flags"
+        ],
+        "summary": "Batch-log experiment events",
+        "operationId": "log_events_batch_api_experiments_events_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/yield": {
+      "get": {
+        "tags": [
+          "ML Prediction"
+        ],
+        "summary": "Predict Get",
+        "operationId": "predict_get_api_yield_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "ML Prediction"
+        ],
+        "summary": "Predict Yield",
+        "description": "Yield prediction using ML router",
+        "operationId": "predict_yield_api_yield_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PredictRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PredictResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/yield/predict-yield-lag": {
+      "post": {
+        "tags": [
+          "ML Prediction"
+        ],
+        "summary": "Predict Yield Lag",
+        "operationId": "predict_yield_lag_api_yield_predict_yield_lag_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/YieldInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/yield/predict-yield-trend": {
+      "post": {
+        "tags": [
+          "ML Prediction"
+        ],
+        "summary": "Predict Yield Trend",
+        "operationId": "predict_yield_trend_api_yield_predict_yield_trend_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/YieldInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ml-governance/drift/baseline": {
+      "post": {
+        "tags": [
+          "ML Governance"
+        ],
+        "summary": "Set Drift Baseline",
+        "operationId": "set_drift_baseline_api_ml_governance_drift_baseline_post",
+        "parameters": [
+          {
+            "name": "model_name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "title": "Predictions"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ml-governance/drift/check": {
+      "post": {
+        "tags": [
+          "ML Governance"
+        ],
+        "summary": "Check Drift",
+        "operationId": "check_drift_api_ml_governance_drift_check_post",
+        "parameters": [
+          {
+            "name": "model_name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model Name"
+            }
+          },
+          {
+            "name": "prediction",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "title": "Prediction"
+            }
+          },
+          {
+            "name": "actual_value",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "title": "Actual Value"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ml-governance/drift/alerts": {
+      "get": {
+        "tags": [
+          "ML Governance"
+        ],
+        "summary": "Get Drift Alerts",
+        "operationId": "get_drift_alerts_api_ml_governance_drift_alerts_get",
+        "parameters": [
+          {
+            "name": "model_name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Model Name"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 10,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ml-governance/shadow/start": {
+      "post": {
+        "tags": [
+          "ML Governance"
+        ],
+        "summary": "Start Shadow Evaluation",
+        "operationId": "start_shadow_evaluation_api_ml_governance_shadow_start_post",
+        "parameters": [
+          {
+            "name": "production_model",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Production Model"
+            }
+          },
+          {
+            "name": "candidate_model",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Candidate Model"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ml-governance/shadow/record": {
+      "post": {
+        "tags": [
+          "ML Governance"
+        ],
+        "summary": "Record Shadow Predictions",
+        "operationId": "record_shadow_predictions_api_ml_governance_shadow_record_post",
+        "parameters": [
+          {
+            "name": "eval_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Eval Id"
+            }
+          },
+          {
+            "name": "production_prediction",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "title": "Production Prediction"
+            }
+          },
+          {
+            "name": "candidate_prediction",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "title": "Candidate Prediction"
+            }
+          },
+          {
+            "name": "actual_value",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "title": "Actual Value"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ml-governance/shadow/evaluate": {
+      "post": {
+        "tags": [
+          "ML Governance"
+        ],
+        "summary": "Evaluate Candidate Model",
+        "operationId": "evaluate_candidate_model_api_ml_governance_shadow_evaluate_post",
+        "parameters": [
+          {
+            "name": "eval_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Eval Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ml-governance/shadow/status/{eval_id}": {
+      "get": {
+        "tags": [
+          "ML Governance"
+        ],
+        "summary": "Get Shadow Eval Status",
+        "operationId": "get_shadow_eval_status_api_ml_governance_shadow_status__eval_id__get",
+        "parameters": [
+          {
+            "name": "eval_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Eval Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ml-governance/versions/register": {
+      "post": {
+        "tags": [
+          "ML Governance"
+        ],
+        "summary": "Register Model Version",
+        "operationId": "register_model_version_api_ml_governance_versions_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterModelVersionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ml-governance/versions/promote": {
+      "post": {
+        "tags": [
+          "ML Governance"
+        ],
+        "summary": "Promote Model Version",
+        "operationId": "promote_model_version_api_ml_governance_versions_promote_post",
+        "parameters": [
+          {
+            "name": "version_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Version Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ml-governance/versions/rollback": {
+      "post": {
+        "tags": [
+          "ML Governance"
+        ],
+        "summary": "Rollback Model Version",
+        "operationId": "rollback_model_version_api_ml_governance_versions_rollback_post",
+        "parameters": [
+          {
+            "name": "version_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Version Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ml-governance/versions/production": {
+      "get": {
+        "tags": [
+          "ML Governance"
+        ],
+        "summary": "Get Production Version",
+        "operationId": "get_production_version_api_ml_governance_versions_production_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ml-governance/versions/list": {
+      "get": {
+        "tags": [
+          "ML Governance"
+        ],
+        "summary": "List Model Versions",
+        "operationId": "list_model_versions_api_ml_governance_versions_list_get",
+        "parameters": [
+          {
+            "name": "model_name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Model Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ml-governance/versions/compare": {
+      "get": {
+        "tags": [
+          "ML Governance"
+        ],
+        "summary": "Compare Model Versions",
+        "operationId": "compare_model_versions_api_ml_governance_versions_compare_get",
+        "parameters": [
+          {
+            "name": "v1",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "V1"
+            }
+          },
+          {
+            "name": "v2",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "V2"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ml-governance/status": {
+      "get": {
+        "tags": [
+          "ML Governance"
+        ],
+        "summary": "Get Governance Status",
+        "operationId": "get_governance_status_api_ml_governance_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/notifications/notifications": {
+      "get": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Get Notifications",
+        "operationId": "get_notifications_api_notifications_notifications_get",
+        "parameters": [
+          {
+            "name": "crop",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Crop"
+            }
+          },
+          {
+            "name": "irrigation_count",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "title": "Irrigation Count"
+            }
+          },
+          {
+            "name": "water_coverage",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 0,
+              "title": "Water Coverage"
+            }
+          },
+          {
+            "name": "season",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Season"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/notifications/whatsapp/subscribe": {
+      "post": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Subscribe Whatsapp",
+        "operationId": "subscribe_whatsapp_api_notifications_whatsapp_subscribe_post",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_subscribe_whatsapp_api_notifications_whatsapp_subscribe_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/notifications/whatsapp/trigger-alert": {
+      "post": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Trigger Whatsapp Alert",
+        "operationId": "trigger_whatsapp_alert_api_notifications_whatsapp_trigger_alert_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertTriggerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/notifications/whatsapp/webhook": {
+      "post": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Whatsapp Webhook",
+        "operationId": "whatsapp_webhook_api_notifications_whatsapp_webhook_post",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_whatsapp_webhook_api_notifications_whatsapp_webhook_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/farm-finance/analyze": {
+      "post": {
+        "tags": [
+          "Finance"
+        ],
+        "summary": "Analyze Farm Finance",
+        "operationId": "analyze_farm_finance_api_farm_finance_analyze_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinanceAssessmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/farm-finance/applications": {
+      "post": {
+        "tags": [
+          "Finance"
+        ],
+        "summary": "Create Finance Application",
+        "operationId": "create_finance_application_api_farm_finance_applications_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinanceAssessmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/farm-finance/applications/{application_id}": {
+      "get": {
+        "tags": [
+          "Finance"
+        ],
+        "summary": "Get Finance Application",
+        "operationId": "get_finance_application_api_farm_finance_applications__application_id__get",
+        "parameters": [
+          {
+            "name": "application_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Application Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/farm-finance/products": {
+      "get": {
+        "tags": [
+          "Finance"
+        ],
+        "summary": "Get Finance Products",
+        "operationId": "get_finance_products_api_farm_finance_products_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/farm-finance/marketplace": {
+      "get": {
+        "tags": [
+          "Finance"
+        ],
+        "summary": "Get Finance Marketplace",
+        "operationId": "get_finance_marketplace_api_farm_finance_marketplace_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/crop-quality/assess-single": {
+      "post": {
+        "tags": [
+          "Quality"
+        ],
+        "summary": "Assess Single Crop",
+        "operationId": "assess_single_crop_api_crop_quality_assess_single_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CropQualityGradingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/crop-quality/assess-batch": {
+      "post": {
+        "tags": [
+          "Quality"
+        ],
+        "summary": "Assess Batch Crops",
+        "operationId": "assess_batch_crops_api_crop_quality_assess_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CropQualityBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/crop-quality/trends": {
+      "post": {
+        "tags": [
+          "Quality"
+        ],
+        "summary": "Get Quality Trends",
+        "operationId": "get_quality_trends_api_crop_quality_trends_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QualityTrendsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/crop-quality/supported-crops": {
+      "get": {
+        "tags": [
+          "Quality"
+        ],
+        "summary": "Get Supported Crops",
+        "operationId": "get_supported_crops_api_crop_quality_supported_crops_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/crop-quality/market-price": {
+      "post": {
+        "tags": [
+          "Quality"
+        ],
+        "summary": "Calculate Market Price",
+        "operationId": "calculate_market_price_api_crop_quality_market_price_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CropQualityGradingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supply-chain/register-actor": {
+      "post": {
+        "tags": [
+          "Blockchain"
+        ],
+        "summary": "Register Actor",
+        "operationId": "register_actor_api_supply_chain_register_actor_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterActorRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supply-chain/create-batch": {
+      "post": {
+        "tags": [
+          "Blockchain"
+        ],
+        "summary": "Create Batch",
+        "operationId": "create_batch_api_supply_chain_create_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProductBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supply-chain/add-node": {
+      "post": {
+        "tags": [
+          "Blockchain"
+        ],
+        "summary": "Add Node",
+        "operationId": "add_node_api_supply_chain_add_node_post",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Batch Id"
+            }
+          },
+          {
+            "name": "node_type",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Node Type"
+            }
+          },
+          {
+            "name": "actor_name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Actor Name"
+            }
+          },
+          {
+            "name": "location",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Location"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Action"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supply-chain/create-contract": {
+      "post": {
+        "tags": [
+          "Blockchain"
+        ],
+        "summary": "Create Contract",
+        "operationId": "create_contract_api_supply_chain_create_contract_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSmartContractRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supply-chain/execute-contract": {
+      "post": {
+        "tags": [
+          "Blockchain"
+        ],
+        "summary": "Execute Contract",
+        "operationId": "execute_contract_api_supply_chain_execute_contract_post",
+        "parameters": [
+          {
+            "name": "contract_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Contract Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supply-chain/qr-code/{batch_id}": {
+      "get": {
+        "tags": [
+          "Blockchain"
+        ],
+        "summary": "Get Qr Code",
+        "operationId": "get_qr_code_api_supply_chain_qr_code__batch_id__get",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Batch Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supply-chain/verify/{batch_id}": {
+      "get": {
+        "tags": [
+          "Blockchain"
+        ],
+        "summary": "Verify Batch",
+        "operationId": "verify_batch_api_supply_chain_verify__batch_id__get",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Batch Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supply-chain/journey/{batch_id}": {
+      "get": {
+        "tags": [
+          "Blockchain"
+        ],
+        "summary": "Get Journey",
+        "operationId": "get_journey_api_supply_chain_journey__batch_id__get",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Batch Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supply-chain/analytics/{batch_id}": {
+      "get": {
+        "tags": [
+          "Blockchain"
+        ],
+        "summary": "Get Analytics",
+        "operationId": "get_analytics_api_supply_chain_analytics__batch_id__get",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Batch Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supply-chain/marketplace": {
+      "get": {
+        "tags": [
+          "Blockchain"
+        ],
+        "summary": "Get Marketplace",
+        "operationId": "get_marketplace_api_supply_chain_marketplace_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supply-chain/stats": {
+      "get": {
+        "tags": [
+          "Blockchain"
+        ],
+        "summary": "Get Stats",
+        "operationId": "get_stats_api_supply_chain_stats_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/reports/generate": {
+      "post": {
+        "tags": [
+          "Reports"
+        ],
+        "summary": "Generate Signed Report",
+        "operationId": "generate_signed_report_api_admin_reports_generate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/log-error": {
+      "post": {
+        "tags": [
+          "Reports"
+        ],
+        "summary": "Log Error",
+        "operationId": "log_error_api_admin_log_error_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientErrorReport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/knowledge/rag/query": {
+      "post": {
+        "tags": [
+          "Knowledge"
+        ],
+        "summary": "Rag Query",
+        "operationId": "rag_query_api_knowledge_rag_query_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RAGQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/knowledge/simulate-climate": {
+      "post": {
+        "tags": [
+          "Knowledge"
+        ],
+        "summary": "Simulate Climate",
+        "operationId": "simulate_climate_api_knowledge_simulate_climate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimulationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/knowledge/seeds/verify": {
+      "post": {
+        "tags": [
+          "Knowledge"
+        ],
+        "summary": "Verify Seed",
+        "operationId": "verify_seed_api_knowledge_seeds_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeedVerifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "summary": "Health Check",
+        "operationId": "health_check__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AlertTriggerRequest": {
+        "properties": {
+          "alert_type": {
+            "type": "string",
+            "pattern": "^(weather|pest|advisory)$",
+            "title": "Alert Type"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "alert_type",
+          "message"
+        ],
+        "title": "AlertTriggerRequest"
+      },
+      "AssignRequest": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "title": "User Id"
+          },
+          "experiment_id": {
+            "type": "string",
+            "title": "Experiment Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "experiment_id"
+        ],
+        "title": "AssignRequest"
+      },
+      "Body_subscribe_whatsapp_api_notifications_whatsapp_subscribe_post": {
+        "properties": {
+          "phone_number": {
+            "type": "string",
+            "title": "Phone Number"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "phone_number",
+          "name"
+        ],
+        "title": "Body_subscribe_whatsapp_api_notifications_whatsapp_subscribe_post"
+      },
+      "Body_whatsapp_webhook_api_notifications_whatsapp_webhook_post": {
+        "properties": {
+          "Body": {
+            "type": "string",
+            "title": "Body"
+          },
+          "From": {
+            "type": "string",
+            "title": "From"
+          }
+        },
+        "type": "object",
+        "required": [
+          "Body",
+          "From"
+        ],
+        "title": "Body_whatsapp_webhook_api_notifications_whatsapp_webhook_post"
+      },
+      "ClientErrorReport": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Message"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "stack": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stack"
+          },
+          "level": {
+            "type": "string",
+            "maxLength": 20,
+            "title": "Level",
+            "default": "error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "ClientErrorReport"
+      },
+      "CreateProductBatchRequest": {
+        "properties": {
+          "crop_type": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Crop Type"
+          },
+          "farm_id": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Farm Id"
+          },
+          "quantity": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Quantity"
+          },
+          "unit": {
+            "type": "string",
+            "maxLength": 20,
+            "minLength": 1,
+            "title": "Unit"
+          },
+          "planting_date": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Planting Date"
+          },
+          "harvesting_date": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Harvesting Date"
+          },
+          "farmer_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Farmer Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "crop_type",
+          "farm_id",
+          "quantity",
+          "unit",
+          "planting_date",
+          "harvesting_date",
+          "farmer_name"
+        ],
+        "title": "CreateProductBatchRequest"
+      },
+      "CreateSmartContractRequest": {
+        "properties": {
+          "batch_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Batch Id"
+          },
+          "seller": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Seller"
+          },
+          "buyer": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Buyer"
+          },
+          "price": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Price"
+          },
+          "terms": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "batch_id",
+          "seller",
+          "buyer",
+          "price"
+        ],
+        "title": "CreateSmartContractRequest"
+      },
+      "CropQualityBatchRequest": {
+        "properties": {
+          "crop_type": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Crop Type"
+          },
+          "images_base64": {
+            "items": {},
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Images Base64"
+          }
+        },
+        "type": "object",
+        "required": [
+          "crop_type",
+          "images_base64"
+        ],
+        "title": "CropQualityBatchRequest"
+      },
+      "CropQualityGradingRequest": {
+        "properties": {
+          "crop_type": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Crop Type"
+          },
+          "image_base64": {
+            "type": "string",
+            "minLength": 100,
+            "title": "Image Base64"
+          }
+        },
+        "type": "object",
+        "required": [
+          "crop_type",
+          "image_base64"
+        ],
+        "title": "CropQualityGradingRequest"
+      },
+      "EventBatchRequest": {
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/EventRequest"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Events"
+          }
+        },
+        "type": "object",
+        "required": [
+          "events"
+        ],
+        "title": "EventBatchRequest"
+      },
+      "EventRequest": {
+        "properties": {
+          "event_type": {
+            "type": "string",
+            "pattern": "^(impression|conversion|error|flag_evaluated|custom)$",
+            "title": "Event Type",
+            "default": "impression"
+          },
+          "user_id": {
+            "type": "string",
+            "title": "User Id"
+          },
+          "experiment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Experiment Id"
+          },
+          "variant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variant"
+          },
+          "flag_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag Id"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata",
+            "default": {}
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id"
+        ],
+        "title": "EventRequest"
+      },
+      "ExperimentCreateRequest": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "status": {
+            "type": "string",
+            "pattern": "^(draft|running|paused|completed)$",
+            "title": "Status",
+            "default": "draft"
+          },
+          "variants": {
+            "items": {
+              "$ref": "#/components/schemas/ExperimentVariant"
+            },
+            "type": "array",
+            "title": "Variants",
+            "default": []
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "owner": {
+            "type": "string",
+            "title": "Owner",
+            "default": ""
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "ExperimentCreateRequest"
+      },
+      "ExperimentVariant": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "weight": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Weight",
+            "default": 50
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ExperimentVariant"
+      },
+      "FinanceAssessmentRequest": {
+        "properties": {
+          "farmer_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Farmer Name"
+          },
+          "crop_type": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Crop Type"
+          },
+          "acreage": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Acreage",
+            "default": 0
+          },
+          "annual_revenue": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Annual Revenue",
+            "default": 0
+          },
+          "annual_operating_cost": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Annual Operating Cost",
+            "default": 0
+          },
+          "existing_debt": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Existing Debt",
+            "default": 0
+          },
+          "emergency_fund": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Emergency Fund",
+            "default": 0
+          },
+          "credit_score": {
+            "type": "integer",
+            "maximum": 900.0,
+            "minimum": 300.0,
+            "title": "Credit Score",
+            "default": 650
+          },
+          "requested_loan_amount": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Requested Loan Amount",
+            "default": 0
+          },
+          "loan_tenure_months": {
+            "type": "integer",
+            "maximum": 120.0,
+            "minimum": 6.0,
+            "title": "Loan Tenure Months",
+            "default": 36
+          }
+        },
+        "type": "object",
+        "required": [
+          "farmer_name",
+          "crop_type"
+        ],
+        "title": "FinanceAssessmentRequest"
+      },
+      "FlagUpsertRequest": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": false
+          },
+          "rollout_pct": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Rollout Pct",
+            "default": 0
+          },
+          "cohorts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Cohorts",
+            "default": []
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "owner": {
+            "type": "string",
+            "title": "Owner",
+            "default": ""
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags",
+            "default": []
+          }
+        },
+        "type": "object",
+        "title": "FlagUpsertRequest"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "PredictRequest": {
+        "properties": {
+          "Crop": {
+            "type": "string",
+            "maxLength": 50,
+            "title": "Crop"
+          },
+          "CropCoveredArea": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Cropcoveredarea"
+          },
+          "CHeight": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Cheight"
+          },
+          "CNext": {
+            "type": "string",
+            "maxLength": 50,
+            "title": "Cnext"
+          },
+          "CLast": {
+            "type": "string",
+            "maxLength": 50,
+            "title": "Clast"
+          },
+          "CTransp": {
+            "type": "string",
+            "maxLength": 50,
+            "title": "Ctransp"
+          },
+          "IrriType": {
+            "type": "string",
+            "maxLength": 50,
+            "title": "Irritype"
+          },
+          "IrriSource": {
+            "type": "string",
+            "maxLength": 50,
+            "title": "Irrisource"
+          },
+          "IrriCount": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Irricount"
+          },
+          "WaterCov": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Watercov"
+          },
+          "Season": {
+            "type": "string",
+            "maxLength": 50,
+            "title": "Season"
+          }
+        },
+        "type": "object",
+        "required": [
+          "Crop",
+          "CropCoveredArea",
+          "CHeight",
+          "CNext",
+          "CLast",
+          "CTransp",
+          "IrriType",
+          "IrriSource",
+          "IrriCount",
+          "WaterCov",
+          "Season"
+        ],
+        "title": "PredictRequest"
+      },
+      "PredictResponse": {
+        "properties": {
+          "predicted_ExpYield": {
+            "type": "number",
+            "title": "Predicted Expyield"
+          }
+        },
+        "type": "object",
+        "required": [
+          "predicted_ExpYield"
+        ],
+        "title": "PredictResponse"
+      },
+      "QualityTrendsRequest": {
+        "properties": {
+          "crop_type": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Crop Type"
+          },
+          "days": {
+            "type": "integer",
+            "maximum": 30.0,
+            "minimum": 1.0,
+            "title": "Days",
+            "default": 7
+          }
+        },
+        "type": "object",
+        "required": [
+          "crop_type"
+        ],
+        "title": "QualityTrendsRequest"
+      },
+      "RAGQuery": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Query"
+          },
+          "top_k": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Top K",
+            "default": 3
+          }
+        },
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "title": "RAGQuery"
+      },
+      "RegisterActorRequest": {
+        "properties": {
+          "actor_id": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Actor Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "actor_type": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Actor Type"
+          },
+          "location": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Location"
+          }
+        },
+        "type": "object",
+        "required": [
+          "actor_id",
+          "name",
+          "actor_type",
+          "location"
+        ],
+        "title": "RegisterActorRequest"
+      },
+      "RegisterModelVersionRequest": {
+        "properties": {
+          "model_name": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Model Name"
+          },
+          "model_path": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Model Path"
+          },
+          "rmse": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Rmse"
+          },
+          "r2_score": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": -1.0,
+            "title": "R2 Score",
+            "default": 0
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model_name",
+          "model_path",
+          "rmse"
+        ],
+        "title": "RegisterModelVersionRequest"
+      },
+      "ReportRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Name"
+          },
+          "crop": {
+            "type": "string",
+            "maxLength": 50,
+            "title": "Crop"
+          },
+          "area": {
+            "type": "string",
+            "maxLength": 50,
+            "title": "Area"
+          },
+          "profit": {
+            "type": "string",
+            "maxLength": 50,
+            "title": "Profit"
+          },
+          "season": {
+            "type": "string",
+            "maxLength": 50,
+            "title": "Season"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "crop",
+          "area",
+          "profit",
+          "season"
+        ],
+        "title": "ReportRequest"
+      },
+      "SeedVerifyRequest": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 4,
+            "title": "Code"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "title": "SeedVerifyRequest"
+      },
+      "SimulationRequest": {
+        "properties": {
+          "crop_type": {
+            "type": "string",
+            "title": "Crop Type"
+          },
+          "temp_delta": {
+            "type": "number",
+            "maximum": 5.0,
+            "minimum": -5.0,
+            "title": "Temp Delta"
+          },
+          "rain_delta": {
+            "type": "number",
+            "maximum": 100.0,
+            "minimum": -100.0,
+            "title": "Rain Delta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "crop_type",
+          "temp_delta",
+          "rain_delta"
+        ],
+        "title": "SimulationRequest"
+      },
+      "StatusUpdateRequest": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "pattern": "^(draft|running|paused|completed)$",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "StatusUpdateRequest"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "YieldInput": {
+        "properties": {
+          "data": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "YieldInput"
+      }
+    }
+  }
+}
