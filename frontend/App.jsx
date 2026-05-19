@@ -467,7 +467,19 @@ function App() {
             <p>We've sent a link to <b>{user.email}</b>.<br /> Please verify your email to unlock all features.</p>
             <button 
               onClick={() => {
-                auth.currentUser.reload().then(() => window.location.reload());
+                if (auth.currentUser) {
+                  auth.currentUser.reload().then(() => {
+                    const refreshedUser = auth.currentUser;
+                    setUser({
+                      uid: refreshedUser.uid,
+                      email: refreshedUser.email,
+                      emailVerified: refreshedUser.emailVerified,
+                      isAnonymous: refreshedUser.isAnonymous,
+                    });
+                  }).catch((err) => {
+                    console.error("Error reloading user:", err);
+                  });
+                }
               }} 
               className="btn-refresh"
             >
