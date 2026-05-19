@@ -22,6 +22,7 @@ import {
   FaFileInvoiceDollar,
   FaChartBar,
   FaTrophy,
+  FaUserPlus,
 } from "react-icons/fa";
 import "./Dashboard.css";
 import {
@@ -207,6 +208,7 @@ export default function Dashboard({ userData }) {
     { label: "Yield Predictor", icon: <FaChartBar />, link: "/yield-predictor" },
     { label: "Crop Planner", icon: <FaCalendarAlt />, link: "/crop-planner" },
     { label: "Community", icon: <FaComments />, link: "/community" },
+    { label: "Referrals", icon: <FaUserPlus />, link: "/referrals" },
     { label: "Leaderboard", icon: <FaTrophy />, link: "/leaderboard" },
     { label: "Diseases", icon: <FaBug />, link: "/disease-awareness" },
     { label: "Helpline", icon: <FaPhoneAlt />, link: "/helpline" },

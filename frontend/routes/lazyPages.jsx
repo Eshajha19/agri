@@ -40,6 +40,7 @@ export const SeedVerifier = lazyPage(() => import('../SeedVerifier'));
 export const FarmFinance = lazyPage(() => import('../FarmFinance'));
 export const YieldPredictor = lazyPage(() => import('../YieldPredictor'));
 export const Leaderboard = lazyPage(() => import('../Leaderboard'));
+export const ReferralHub = lazyPage(() => import('../ReferralHub'));
 export const Blog = lazyPage(() => import('../Blog'));
 export const BlogDetail = lazyPage(() => import('../BlogDetail'));
 export const ProfileSettings = lazyPage(() => import('../ProfileSettings'));

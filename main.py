@@ -7,6 +7,7 @@ and non-destructive so upstream changes can be rebased safely.
 """
 import os
 import re
+import hashlib
 import logging
 import collections
 import threading
@@ -323,7 +324,7 @@ except Exception:
     flags_router = None
 
 # Import modular routers
-from backend.routers import ml, governance, alerts, finance, quality, blockchain, reports, knowledge, community, voice_assistant
+from backend.routers import ml, governance, alerts, finance, quality, blockchain, reports, knowledge, community, voice_assistant, referrals
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -446,6 +447,137 @@ def _delete_user_storage_assets(uid: str) -> int:
         logger.warning("Storage cleanup skipped for uid=%s: %s", uid, exc)
 
     return deleted
+
+
+def _normalize_referral_code(code: str) -> str:
+    if not code:
+        return ""
+    return re.sub(r"[^A-Z0-9]", "", str(code).upper().strip())
+
+
+def _generate_referral_code(uid: str, attempt: int = 0) -> str:
+    digest = hashlib.sha256(f"{uid}:{attempt}".encode("utf-8")).hexdigest().upper()
+    return f"FS{digest[:10]}"
+
+
+def _referral_badge(referral_count: int) -> str:
+    if referral_count >= 10:
+        return "Village Mentor"
+    if referral_count >= 5:
+        return "Community Champion"
+    if referral_count >= 3:
+        return "Seed Builder"
+    if referral_count >= 1:
+        return "First Harvester"
+    return "Starter"
+
+
+def _referral_points_for_count(referral_count: int) -> int:
+    return referral_count * 50
+
+
+def _community_label(user_data: Optional[Dict[str, Any]]) -> str:
+    if not user_data:
+        return "Unknown village"
+    return (
+        user_data.get("villageName")
+        or user_data.get("village")
+        or user_data.get("address")
+        or user_data.get("locationName")
+        or "Unknown village"
+    )
+
+
+def _ensure_user_referral_code(db, uid: str, user_data: Optional[Dict[str, Any]] = None) -> str:
+    user_ref = db.collection("users").document(uid)
+    data = user_data
+    if data is None:
+        user_snap = user_ref.get()
+        data = user_snap.to_dict() if user_snap.exists else {}
+
+    existing_code = _normalize_referral_code((data or {}).get("referralCode", ""))
+    if existing_code:
+        code_ref = db.collection("referral_codes").document(existing_code)
+        code_snap = code_ref.get()
+        if not code_snap.exists or code_snap.to_dict().get("uid") == uid:
+            code_ref.set({
+                "uid": uid,
+                "displayName": (data or {}).get("displayName") or "Farmer",
+                "updatedAt": datetime.now().isoformat(),
+            }, merge=True)
+            if (data or {}).get("referralCode") != existing_code:
+                user_ref.set({
+                    "referralCode": existing_code,
+                    "referralCodeIssuedAt": datetime.now().isoformat(),
+                }, merge=True)
+            return existing_code
+
+    for attempt in range(5):
+        generated_code = _generate_referral_code(uid, attempt)
+        code_ref = db.collection("referral_codes").document(generated_code)
+        code_snap = code_ref.get()
+        if code_snap.exists and code_snap.to_dict().get("uid") != uid:
+            continue
+
+        code_ref.set({
+            "uid": uid,
+            "displayName": (data or {}).get("displayName") or "Farmer",
+            "createdAt": datetime.now().isoformat(),
+            "updatedAt": datetime.now().isoformat(),
+        }, merge=True)
+        user_ref.set({
+            "referralCode": generated_code,
+            "referralCodeIssuedAt": datetime.now().isoformat(),
+        }, merge=True)
+        return generated_code
+
+    raise HTTPException(status_code=500, detail="Failed to generate a referral code")
+
+
+def _referral_history_entry(doc_snapshot) -> Dict[str, Any]:
+    data = doc_snapshot.to_dict() if doc_snapshot else {}
+    return {
+        "id": getattr(doc_snapshot, "id", None),
+        "inviteeName": data.get("inviteeName", "Farmer"),
+        "inviteeLocation": data.get("inviteeLocation", "Unknown village"),
+        "createdAt": data.get("createdAt"),
+        "status": data.get("status", "redeemed"),
+        "rewardPoints": data.get("rewardPoints", 0),
+    }
+
+
+def _referral_leaderboard(db, limit: int = 5):
+    leaders: list = []
+    communities: Dict[str, Dict[str, Any]] = {}
+
+    try:
+        docs = db.collection("users").order_by("referralCount", direction=firestore.Query.DESCENDING).limit(limit).get()
+    except Exception:
+        docs = db.collection("users").get()
+        docs = sorted(docs, key=lambda snap: int((snap.to_dict() or {}).get("referralCount", 0)), reverse=True)[:limit]
+
+    for doc_snapshot in docs:
+        data = doc_snapshot.to_dict() or {}
+        count = int(data.get("referralCount", 0) or 0)
+        if count <= 0:
+            continue
+
+        community = _community_label(data)
+        leaders.append({
+            "uid": doc_snapshot.id,
+            "displayName": data.get("displayName") or "Farmer",
+            "referralCount": count,
+            "referralPoints": int(data.get("referralPoints", _referral_points_for_count(count)) or 0),
+            "referralBadge": data.get("referralBadge") or _referral_badge(count),
+            "community": community,
+        })
+
+        community_entry = communities.setdefault(community, {"community": community, "referrals": 0, "farmers": 0})
+        community_entry["referrals"] += count
+        community_entry["farmers"] += 1
+
+    community_board = sorted(communities.values(), key=lambda item: item["referrals"], reverse=True)[:limit]
+    return leaders, community_board
 
 async def verify_role(request: Request, required_roles: list = None, require_all: bool = False):
     auth_header = request.headers.get("Authorization", "")
@@ -736,6 +868,8 @@ try:
     supply_chain = SupplyChainBlockchain()
     blockchain.init_blockchain(supply_chain)
 
+    referrals.init_referrals(validate_firestore_ready)
+
     # Initialize Voice Assistant for Farmers
     from voice_assistant import VoiceAssistant, OfflineCacheManager
     voice_asst = VoiceAssistant(offline_mode=True)
@@ -807,6 +941,7 @@ app.include_router(reports.router, prefix="/api/admin", tags=["Reports"])
 app.include_router(knowledge.router, prefix="/api/knowledge", tags=["Knowledge"])
 app.include_router(community.router, prefix="/api/community", tags=["Community"])
 app.include_router(voice_assistant.router, prefix="/api/voice", tags=["Voice Assistant"])
+app.include_router(referrals.router, prefix="/api/referrals", tags=["Referrals"])
 
 # Initialize repositories for persistent storage
 _finance_repository = FinanceApplicationRepository()

@@ -20,6 +20,7 @@ import {
   FaFileInvoiceDollar,
   FaHome,
   FaTrophy,
+  FaUserPlus,
   FaMedal,
   FaCog,
   FaMicrophone
@@ -76,6 +77,7 @@ import {
   SeedVerifier,
   SoilAnalysis,
   SoilGuide,
+  ReferralHub,
   Terms,
   YieldPredictor,
   EquipmentManagement,
@@ -418,6 +420,7 @@ function App() {
                 <Link to="/profile-settings" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaCog /> Profile settings</Link>
                 <Link to="/community" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaComments /> Community</Link>
                 <Link to="/leaderboard" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaTrophy />Leaderboard</Link>
+                <Link to="/referrals" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaUserPlus /> Referrals</Link>
                 <Link to="/risk-index" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Risk Index</Link>
                 <Link to="/farm-finance" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaFileInvoiceDollar /> Farm Finance</Link>
                 <Link to="/glossary" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaBook /> Glossary</Link>
@@ -516,6 +519,7 @@ function App() {
             <Route path="/profit-calculator" element={<CropProfitCalculator />} />
             <Route path="/community" element={<Community />} />
             <Route path="/leaderboard" element={<Leaderboard />} />
+            <Route path="/referrals" element={<ReferralHub />} />
             <Route path="/soil-analysis" element={<SoilAnalysis />} />
             <Route path="/faq" element={<FAQ />} />
             <Route path="/terms" element={<Terms />} />
