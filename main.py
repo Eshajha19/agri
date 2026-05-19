@@ -683,7 +683,7 @@ try:
     from voice_assistant import VoiceAssistant, OfflineCacheManager
     voice_asst = VoiceAssistant(offline_mode=True)
     cache_mgr = OfflineCacheManager(cache_dir="./voice_assistant_cache")
-    voice_assistant.init_voice_assistant(voice_asst, cache_mgr)
+    voice_assistant.init_voice_assistant(voice_asst, cache_mgr, verify_role)
 except Exception as e:
     logger.warning(f"Dependency wiring failed: {e}")
 
