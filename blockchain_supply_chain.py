@@ -17,6 +17,12 @@ import base64
 
 logger = logging.getLogger(__name__)
 
+def safe_json_serializer(obj: Any) -> str:
+    """Custom serializer for non-JSON-native objects (like datetime)."""
+    if hasattr(obj, "isoformat"):
+        return obj.isoformat()
+    return str(obj)
+
 
 @dataclass
 class BlockchainRecord:
@@ -38,7 +44,7 @@ class BlockchainRecord:
             "location": self.location,
             "data": self.data,
             "previous_hash": self.previous_hash
-        }, sort_keys=True)
+        }, sort_keys=True, default=safe_json_serializer)
         return hashlib.sha256(record_string.encode()).hexdigest()
 
 
@@ -337,7 +343,7 @@ class SupplyChainBlockchain:
         }
 
         qr_code = qrcode.QRCode(version=1, box_size=10, border=5)
-        qr_code.add_data(json.dumps(qr_data))
+        qr_code.add_data(json.dumps(qr_data, default=safe_json_serializer))
         qr_code.make(fit=True)
 
         qr_image = qr_code.make_image(fill_color="black", back_color="white")
