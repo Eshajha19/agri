@@ -7,9 +7,14 @@
 
 .visually-hidden {
   position: absolute !important;
-  height: 1px; width: 1px;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
   overflow: hidden;
-  clip: rect(1px, 1px, 1px, 1px);
+  clip-path: inset(50%);
+  clip: rect(0 0 0 0);
+  border: 0;
   white-space: nowrap;
 }
 
@@ -80,9 +85,9 @@
 
 .hero-badges { margin: 14px 0 18px; display:flex; gap:10px; flex-wrap:wrap; }
 .badge { background: rgba(46,125,50,0.08); color: #2e7d32; padding:6px 10px; border-radius:999px; font-weight:700; font-size:0.9rem; }
-.badge-pulse { position:relative; animation: pulseBadge 1800ms ease-in-out infinite; }
+.badge-pulse { position:relative; animation: pulse-badge 1800ms ease-in-out infinite; }
 
-@keyframes pulseBadge {
+@keyframes pulse-badge {
   0% { box-shadow: 0 0 0 0 rgba(46,125,50,0.12); }
   70% { box-shadow: 0 10px 30px 6px rgba(46,125,50,0.04); }
   100% { box-shadow: 0 0 0 0 rgba(46,125,50,0); }
@@ -99,10 +104,10 @@
 .stats-row { display:flex; gap:12px; margin-bottom:8px; }
 .stat { flex:1; text-align:center; padding:8px; }
 .stat-icon { font-size:20px; }
-.stat-number { font-size:1.4rem; font-weight:800; color:#114b21; margin-top:6px; animation: statPop 800ms ease both; }
+.stat-number { font-size:1.4rem; font-weight:800; color:#114b21; margin-top:6px; animation: stat-pop 800ms ease both; }
 .stat-label { font-size:0.85rem; color:#6b6b6b; margin-top:4px; }
 
-@keyframes statPop {
+@keyframes stat-pop {
   0% { transform: scale(0.8); opacity: 0; }
   60% { transform: scale(1.08); opacity: 1; }
   100% { transform: scale(1); opacity: 1; }
@@ -207,17 +212,30 @@
 .hero-animate {
   opacity: 0;
   transform: translateY(8px);
-  animation: fadeInUp 800ms cubic-bezier(0.2, 0.8, 0.2, 1) 1 forwards;
+  animation: fade-in-up 800ms cubic-bezier(0.2, 0.8, 0.2, 1) 1 forwards;
 }
 
-@keyframes fadeInUp {
+@keyframes fade-in-up {
   0% { opacity: 0; transform: translateY(8px); }
   100% { opacity: 1; transform: translateY(0); }
 }
 
 /* Respect user preference for reduced motion */
 @media (prefers-reduced-motion: reduce) {
-  .hero-animate { animation: none; transform: none; }
+  .hero-animate,
+  .badge-pulse,
+  .stat-number,
+  .contributor-card,
+  .contributor-card::before,
+  .founder-card,
+  .founder-card .card-image-container,
+  .illustration-frame:hover .hero-illustration,
+  .hero-illustration,
+  .skeleton-card {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
 }
 
 /* STATS SECTION */
@@ -472,7 +490,7 @@
 .founder-card {
   border: 3px solid #ffb700;
   background: linear-gradient(135deg, #fffaf0 0%, #fff 100%);
-  animation: founderPulse 3s ease-in-out infinite;
+  animation: founder-pulse 3s ease-in-out infinite;
 }
 
 .founder-card:hover {
@@ -481,7 +499,7 @@
   border-color: #ff9500;
 }
 
-@keyframes founderPulse {
+@keyframes founder-pulse {
   0%, 100% { box-shadow: 0 2px 12px rgba(255, 183, 0, 0.2); }
   50% { box-shadow: 0 4px 20px rgba(255, 183, 0, 0.4); }
 }
@@ -614,10 +632,10 @@
 
 .founder-card .card-image-container {
   background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 50%, #fff8e1 100%);
-  animation: founderShimmer 4s ease-in-out infinite;
+  animation: founder-shimmer 4s ease-in-out infinite;
 }
 
-@keyframes founderShimmer {
+@keyframes founder-shimmer {
   0%, 100% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
 }
@@ -1201,7 +1219,7 @@
   perspective: 900px;
   opacity: 0;
   transform: translateY(12px) scale(0.985);
-  animation: cardEnter 640ms cubic-bezier(0.2,0.9,0.2,1) forwards;
+  animation: card-enter 640ms cubic-bezier(0.2,0.9,0.2,1) forwards;
 }
 
 .card-image-container {
@@ -1246,7 +1264,7 @@
 }
 
 /* entrance animation */
-@keyframes cardEnter {
+@keyframes card-enter {
   0% { opacity: 0; transform: translateY(18px) scale(0.985); }
   60% { opacity: 1; transform: translateY(-6px) scale(1.005); }
   100% { opacity: 1; transform: translateY(0) scale(1); }
@@ -1270,7 +1288,14 @@
 @media (prefers-reduced-motion: reduce) {
   .contributor-card,
   .contributor-card::before,
-  .contributors-hero .hero-animate {
+  .contributors-hero .hero-animate,
+  .badge-pulse,
+  .stat-number,
+  .founder-card,
+  .founder-card .card-image-container,
+  .illustration-frame:hover .hero-illustration,
+  .hero-illustration,
+  .skeleton-card {
     animation: none !important;
     transition: none !important;
     transform: none !important;
