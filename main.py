@@ -66,6 +66,7 @@ from ml.preprocessing import UnknownCategoryError, MissingFeatureError
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
+from error_recovery_middleware import ErrorRecoveryMiddleware
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -236,6 +237,8 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
 )
+
+app.add_middleware(ErrorRecoveryMiddleware)
 
 # --- Models ---
 
