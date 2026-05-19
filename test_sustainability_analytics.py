@@ -1,5 +1,21 @@
+import os
+import pytest
 from sustainability_analytics import SustainabilityAnalytics
 
+@pytest.fixture(autouse=True)
+def cleanup_test_db():
+    test_file = "sustainability_history_test.json"
+    if os.path.exists(test_file):
+        try:
+            os.remove(test_file)
+        except Exception:
+            pass
+    yield
+    if os.path.exists(test_file):
+        try:
+            os.remove(test_file)
+        except Exception:
+            pass
 
 def test_analyze_returns_water_and_carbon_metrics():
     engine = SustainabilityAnalytics()
