@@ -70,6 +70,7 @@ import {
   ProfileSetup,
   ProfileSettings,
   QRTraceability,
+  ReferralHub,
   Resources,
   RiskIndex,
   Schemes,
