@@ -42,6 +42,7 @@ export const YieldPredictor = lazyPage(() => import('../YieldPredictor'));
 export const SmartFarmAutopilot = lazyPage(() => import('../SmartFarmAutopilot'));
 export const SustainabilityAnalytics = lazyPage(() => import('../SustainabilityAnalytics'));
 export const Leaderboard = lazyPage(() => import('../Leaderboard'));
+export const ReferralHub = lazyPage(() => import('../ReferralHub'));
 export const Blog = lazyPage(() => import('../Blog'));
 export const BlogDetail = lazyPage(() => import('../BlogDetail'));
 export const ProfileSettings = lazyPage(() => import('../ProfileSettings'));

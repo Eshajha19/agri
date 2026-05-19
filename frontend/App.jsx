@@ -20,6 +20,7 @@ import {
   FaFileInvoiceDollar,
   FaHome,
   FaTrophy,
+  FaUserPlus,
   FaMedal,
   FaCog,
   FaMicrophone
@@ -69,6 +70,7 @@ import {
   ProfileSetup,
   ProfileSettings,
   QRTraceability,
+  ReferralHub,
   Resources,
   RiskIndex,
   Schemes,
@@ -157,7 +159,7 @@ function App() {
   const scorecardRef = useRef(null);
   const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
   const [isOpen, setIsOpen] = useState(false);
-  const { theme, toggleTheme } = useTheme();
+  const { theme, toggleTheme, setTheme } = useTheme();
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [profileCompleted, setProfileCompleted] = useState(true);
@@ -313,7 +315,11 @@ function App() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-   const handleThemeToggle = toggleTheme;
+  const handleThemeToggle = toggleTheme;
+  const handleThemeSelect = (nextTheme) => {
+    setTheme(nextTheme);
+    setShowMoreMenu(false);
+  };
   const handleLogout = async () => {
     try {
       await signOut(auth);
@@ -325,8 +331,7 @@ function App() {
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: "smooth" });
 
   return (
-    <div className={`app ${theme === "dark" ? "theme-dark" : ""} ${liteMode ? "lite-mode" : ""}`}>
-      <SkipLink />
+    <div className={`app ${theme !== "light" ? "theme-dark" : ""} ${theme === "night" ? "theme-night" : ""} ${liteMode ? "lite-mode" : ""}`}>
       {user?.isAnonymous && <GuestBanner />}
 
       {loading && <Loader fullPage={true} message={<span className="notranslate">Initializing Fasal Saathi...</span>} />}
@@ -354,8 +359,8 @@ function App() {
         </ul>
 
         <div className="nav-right">
-          <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Toggle Theme">
-            {theme === "dark" ? "☀️" : "🌙"}
+          <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Cycle Theme" title={`Current theme: ${theme}`}>
+            {theme === "light" ? "🌙" : theme === "dark" ? "☀️" : "🌙"}
           </button>
 
           <button
@@ -382,6 +387,27 @@ function App() {
                     }}
                   />
                 </div>
+                <div className="theme-selector-section">
+                  <span className="theme-selector-label">Theme:</span>
+                  <div className="theme-option-grid" role="group" aria-label="Theme selection">
+                    {[
+                      { value: "light", label: "Light", icon: "☀️" },
+                      { value: "dark", label: "Dark", icon: "🌙" },
+                      { value: "night", label: "Night Light", icon: "🌇" },
+                    ].map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={`theme-option-button ${theme === option.value ? "active" : ""}`}
+                        onClick={() => handleThemeSelect(option.value)}
+                        aria-pressed={theme === option.value}
+                      >
+                        <span className="theme-option-icon" aria-hidden="true">{option.icon}</span>
+                        <span>{option.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <Link to="/voice-assistant" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMicrophone /> Voice Assistant</Link>
                 <div className="performance-toggle-section">
                   <button
@@ -405,6 +431,7 @@ function App() {
                 <Link to="/profile-settings" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaCog /> Profile settings</Link>
                 <Link to="/community" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaComments /> Community</Link>
                 <Link to="/leaderboard" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaTrophy />Leaderboard</Link>
+                <Link to="/referrals" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaUserPlus /> Referrals</Link>
                 <Link to="/risk-index" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Risk Index</Link>
                 <Link to="/farm-finance" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaFileInvoiceDollar /> Farm Finance</Link>
                 <Link to="/glossary" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaBook /> Glossary</Link>
@@ -515,6 +542,7 @@ function App() {
             <Route path="/profit-calculator" element={<CropProfitCalculator />} />
             <Route path="/community" element={<Community />} />
             <Route path="/leaderboard" element={<Leaderboard />} />
+            <Route path="/referrals" element={<ReferralHub />} />
             <Route path="/soil-analysis" element={<SoilAnalysis />} />
             <Route path="/faq" element={<FAQ />} />
             <Route path="/terms" element={<Terms />} />

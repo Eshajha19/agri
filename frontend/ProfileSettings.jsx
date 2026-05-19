@@ -2,37 +2,69 @@ import React, { useState, useEffect } from "react";
 import { auth, db, isFirebaseConfigured } from "./lib/firebase";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
-import { FaUser, FaGlobe, FaMapMarkerAlt, FaSeedling, FaArrowRight } from "react-icons/fa";
+import {
+  FaArrowRight,
+  FaExclamationTriangle,
+  FaGlobe,
+  FaLock,
+  FaMapMarkerAlt,
+  FaSeedling,
+  FaTimes,
+  FaTrashAlt,
+  FaUser,
+} from "react-icons/fa";
+import { deleteUser, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
 import "./ProfileSetup.css";
 
+const DELETE_CONFIRMATION = "DELETE";
+const ACCOUNT_STORAGE_KEYS = [
+  "agri:preferredLanguage",
+  "agri:voiceAssistantSession",
+  "agri:voiceAssistantHistory",
+  "diseaseHistory",
+  "pestHistory",
+  "irrigationData",
+  "farm_reports",
+  "agriLmsProgress",
+  "qrFarmBatches",
+  "fasalSaathiIncome",
+  "fasalSaathiDiary",
+  "userId",
+];
+const ACCOUNT_STORAGE_PREFIXES = [
+  "agri:sustainabilityHistory:",
+  "p2p_chat_",
+  "remote_ecdh_public_",
+];
+
 const LANGUAGE_OPTIONS = [
-  { value: "en", label: "🌍 English" },
-  { value: "hi", label: "🇮🇳 हिंदी" },
-  { value: "mr", label: "🇮🇳 मराठी" },
-  { value: "bn", label: "🇮🇳 বাংলা" },
-  { value: "ta", label: "🇮🇳 தமிழ்" },
-  { value: "te", label: "🇮🇳 తెలుగు" },
-  { value: "gu", label: "🇮🇳 ગુજરાતી" },
-  { value: "pa", label: "🇮🇳 ਪੰਜਾਬੀ" },
-  { value: "kn", label: "🇮🇳 ಕನ್ನಡ" },
-  { value: "ml", label: "🇮🇳 മലയാളം" },
-  { value: "or", label: "🇮🇳 ଓଡ଼ିଆ" },
-  { value: "as", label: "🇮🇳 অসমীয়া" },
+  { value: "en", label: "ðŸŒ English" },
+  { value: "hi", label: "ðŸ‡®ðŸ‡³ à¤¹à¤¿à¤‚à¤¦à¥€" },
+  { value: "mr", label: "ðŸ‡®ðŸ‡³ à¤®à¤°à¤¾à¤ à¥€" },
+  { value: "bn", label: "ðŸ‡®ðŸ‡³ à¦¬à¦¾à¦‚à¦²à¦¾" },
+  { value: "ta", label: "ðŸ‡®ðŸ‡³ à®¤à®®à®¿à®´à¯" },
+  { value: "te", label: "ðŸ‡®ðŸ‡³ à°¤à±†à°²à±à°—à±" },
+  { value: "gu", label: "ðŸ‡®ðŸ‡³ àª—à«àªœàª°àª¾àª¤à«€" },
+  { value: "pa", label: "ðŸ‡®ðŸ‡³ à¨ªà©°à¨œà¨¾à¨¬à©€" },
+  { value: "kn", label: "ðŸ‡®ðŸ‡³ à²•à²¨à³à²¨à²¡" },
+  { value: "ml", label: "ðŸ‡®ðŸ‡³ à´®à´²à´¯à´¾à´³à´‚" },
+  { value: "or", label: "ðŸ‡®ðŸ‡³ à¬“à¬¡à¬¼à¬¿à¬†" },
+  { value: "as", label: "ðŸ‡®ðŸ‡³ à¦…à¦¸à¦®à§€à¦¯à¦¼à¦¾" },
 ];
 
 const CROP_OPTIONS = [
-  { value: "rice", label: "🌾 Rice" },
-  { value: "wheat", label: "🌾 Wheat" },
-  { value: "cotton", label: "🌿 Cotton" },
-  { value: "sugarcane", label: "🎋 Sugarcane" },
-  { value: "maize", label: "🌽 Maize" },
-  { value: "soybean", label: "🫘 Soybean" },
-  { value: "potato", label: "🥔 Potato" },
-  { value: "onion", label: "🧅 Onion" },
-  { value: "tomato", label: "🍅 Tomato" },
-  { value: "vegetables", label: "🥬 Vegetables" },
-  { value: "fruits", label: "🍎 Fruits" },
-  { value: "other", label: "🌱 Other" },
+  { value: "rice", label: "ðŸŒ¾ Rice" },
+  { value: "wheat", label: "ðŸŒ¾ Wheat" },
+  { value: "cotton", label: "ðŸŒ¿ Cotton" },
+  { value: "sugarcane", label: "ðŸŽ‹ Sugarcane" },
+  { value: "maize", label: "ðŸŒ½ Maize" },
+  { value: "soybean", label: "ðŸ«˜ Soybean" },
+  { value: "potato", label: "ðŸ¥” Potato" },
+  { value: "onion", label: "ðŸ§… Onion" },
+  { value: "tomato", label: "ðŸ… Tomato" },
+  { value: "vegetables", label: "ðŸ¥¬ Vegetables" },
+  { value: "fruits", label: "ðŸŽ Fruits" },
+  { value: "other", label: "ðŸŒ± Other" },
 ];
 
 const SOIL_OPTIONS = [
@@ -81,7 +113,16 @@ const ProfileSettings = ({ user, userData }) => {
   const [locLoading, setLocLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const [deleteSuccess, setDeleteSuccess] = useState("");
   const navigate = useNavigate();
+
+  const requiresPasswordReauth =
+    user?.providerData?.some((provider) => provider.providerId === "password") && Boolean(user?.email);
 
   useEffect(() => {
     if (!user) {
@@ -193,6 +234,109 @@ const ProfileSettings = ({ user, userData }) => {
     );
   };
 
+  const clearAccountBrowserData = () => {
+    const storageKeys = new Set(ACCOUNT_STORAGE_KEYS);
+
+    for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+      const key = localStorage.key(index);
+      if (!key) {
+        continue;
+      }
+
+      const matchesExactKey = storageKeys.has(key);
+      const matchesPrefix = ACCOUNT_STORAGE_PREFIXES.some((prefix) => key.startsWith(prefix));
+
+      if (matchesExactKey || matchesPrefix) {
+        localStorage.removeItem(key);
+      }
+    }
+  };
+
+  const openDeleteModal = () => {
+    setDeleteError("");
+    setDeleteSuccess("");
+    setDeletePassword("");
+    setDeleteConfirmation("");
+    setDeleteModalOpen(true);
+  };
+
+  const closeDeleteModal = () => {
+    if (deleteLoading) {
+      return;
+    }
+
+    setDeleteModalOpen(false);
+    setDeleteError("");
+    setDeletePassword("");
+    setDeleteConfirmation("");
+  };
+
+  const handleDeleteAccount = async (e) => {
+    e.preventDefault();
+    setDeleteError("");
+    setDeleteSuccess("");
+
+    if (deleteConfirmation.trim().toUpperCase() !== DELETE_CONFIRMATION) {
+      setDeleteError('Type DELETE exactly to confirm permanent account deletion.');
+      return;
+    }
+
+    if (requiresPasswordReauth && !deletePassword.trim()) {
+      setDeleteError("Re-enter your password to continue.");
+      return;
+    }
+
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      setDeleteError("You need to be signed in to delete your account.");
+      return;
+    }
+
+    setDeleteLoading(true);
+
+    try {
+      if (requiresPasswordReauth) {
+        const credential = EmailAuthProvider.credential(currentUser.email, deletePassword);
+        await reauthenticateWithCredential(currentUser, credential);
+      }
+
+      const idToken = await currentUser.getIdToken(true);
+      const response = await fetch("/api/account/delete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          confirmation_text: DELETE_CONFIRMATION,
+          reason: "user_requested",
+        }),
+      });
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result.detail || result.message || "Account deletion failed.");
+      }
+
+      clearAccountBrowserData();
+
+      try {
+        await deleteUser(currentUser);
+      } catch (deleteErr) {
+        console.warn("Firebase auth deletion failed after server cleanup:", deleteErr);
+        throw new Error("Your data was removed, but the auth account could not be deleted. Please sign out and retry.");
+      }
+
+      setDeleteSuccess("Your account has been permanently deleted.");
+      setDeleteModalOpen(false);
+      setTimeout(() => navigate("/login"), 1200);
+    } catch (deleteErr) {
+      setDeleteError(deleteErr.message || "Unable to delete the account right now.");
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
@@ -275,12 +419,12 @@ const ProfileSettings = ({ user, userData }) => {
             <div className={`loc-box ${address ? 'success' : locLoading ? 'pending' : ''}`}>
               {locLoading ? (
                 <>
-                  <span className="loc-status">📍 Getting your location...</span>
+                  <span className="loc-status">ðŸ“ Getting your location...</span>
                   <div className="small-spinner"></div>
                 </>
               ) : address ? (
                 <>
-                  <span className="loc-status">✅ {address}</span>
+                  <span className="loc-status">âœ… {address}</span>
                   <button type="button" onClick={requestLocation} className="loc-btn">
                     Update
                   </button>
@@ -312,7 +456,7 @@ const ProfileSettings = ({ user, userData }) => {
           <div className="setup-group">
             <label><FaSeedling /> Preferred Crops</label>
             <div className="setup-input-wrapper">
-              <span className="setup-icon">🌱</span>
+              <span className="setup-icon">ðŸŒ±</span>
               <select
                 multiple
                 value={preferredCrops}
@@ -342,7 +486,7 @@ const ProfileSettings = ({ user, userData }) => {
           <div className="setup-group">
             <label>Soil Type</label>
             <div className="setup-input-wrapper">
-              <span className="setup-icon">🧪</span>
+              <span className="setup-icon">ðŸ§ª</span>
               <select value={soilType} onChange={(e) => setSoilType(e.target.value)} required>
                 <option value="">Choose your soil type</option>
                 {SOIL_OPTIONS.map((soil) => (
@@ -355,7 +499,7 @@ const ProfileSettings = ({ user, userData }) => {
           <div className="setup-group">
             <label>Farm Size</label>
             <div className="setup-input-wrapper">
-              <span className="setup-icon">📏</span>
+              <span className="setup-icon">ðŸ“</span>
               <input
                 type="text"
                 placeholder="e.g. 2.5 acres / 1.0 hectare"
@@ -369,7 +513,7 @@ const ProfileSettings = ({ user, userData }) => {
           <div className="setup-group">
             <label>Irrigation Method</label>
             <div className="setup-input-wrapper">
-              <span className="setup-icon">💧</span>
+              <span className="setup-icon">ðŸ’§</span>
               <select value={irrigationMethod} onChange={(e) => setIrrigationMethod(e.target.value)} required>
                 <option value="">Choose irrigation method</option>
                 {IRRIGATION_OPTIONS.map((method) => (
@@ -399,7 +543,7 @@ const ProfileSettings = ({ user, userData }) => {
           <div className="setup-group">
             <label><FaMapMarkerAlt /> Phone Number (for WhatsApp Alerts)</label>
             <div className="setup-input-wrapper">
-              <span className="setup-icon" style={{ fontSize: '1.2rem' }}>📱</span>
+              <span className="setup-icon" style={{ fontSize: '1.2rem' }}>ðŸ“±</span>
               <input
                 type="tel"
                 placeholder="e.g. +91 98765 43210"
@@ -426,7 +570,95 @@ const ProfileSettings = ({ user, userData }) => {
             {!loading && <FaArrowRight />}
           </button>
         </form>
+
+        <section className="privacy-security-section" aria-labelledby="privacy-security-title">
+          <div className="privacy-security-copy">
+            <div className="privacy-security-icon">
+              <FaLock />
+            </div>
+            <div>
+              <h2 id="privacy-security-title">Privacy & Security</h2>
+              <p>
+                Permanently delete your account and remove your profile, farm data, consultations, WhatsApp subscription,
+                and other stored personal records from Fasal Saathi.
+              </p>
+            </div>
+          </div>
+
+          <button type="button" className="delete-account-btn" onClick={openDeleteModal}>
+            <FaTrashAlt />
+            Delete Account
+          </button>
+        </section>
+
+        {deleteSuccess && <div className="setup-success setup-success--danger">{deleteSuccess}</div>}
       </div>
+
+      {deleteModalOpen && (
+        <div className="delete-account-overlay" role="presentation" onClick={closeDeleteModal}>
+          <div
+            className="delete-account-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-account-title"
+            aria-describedby="delete-account-description"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button type="button" className="delete-modal-close" onClick={closeDeleteModal} aria-label="Close dialog">
+              <FaTimes />
+            </button>
+
+            <div className="delete-modal-warning">
+              <FaExclamationTriangle />
+            </div>
+
+            <h2 id="delete-account-title">Delete account permanently?</h2>
+            <p id="delete-account-description">
+              This will remove your profile, farm records, consultations, uploaded files, and device-linked data.
+              This action cannot be undone.
+            </p>
+
+            <form className="delete-account-form" onSubmit={handleDeleteAccount}>
+              <label className="delete-account-field">
+                <span>Type DELETE to confirm</span>
+                <input
+                  type="text"
+                  value={deleteConfirmation}
+                  onChange={(event) => setDeleteConfirmation(event.target.value)}
+                  placeholder="DELETE"
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  spellCheck="false"
+                />
+              </label>
+
+              {requiresPasswordReauth && (
+                <label className="delete-account-field">
+                  <span>Re-enter your password</span>
+                  <input
+                    type="password"
+                    value={deletePassword}
+                    onChange={(event) => setDeletePassword(event.target.value)}
+                    placeholder="Password"
+                    autoComplete="current-password"
+                  />
+                </label>
+              )}
+
+              {deleteError && <div className="delete-account-error">{deleteError}</div>}
+
+              <div className="delete-account-actions">
+                <button type="button" className="delete-account-cancel" onClick={closeDeleteModal} disabled={deleteLoading}>
+                  Cancel
+                </button>
+                <button type="submit" className="delete-account-confirm" disabled={deleteLoading}>
+                  {deleteLoading ? "Deleting..." : "Delete My Account"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
