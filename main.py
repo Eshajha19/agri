@@ -7,6 +7,7 @@ and non-destructive so upstream changes can be rebased safely.
 """
 import os
 import re
+import hashlib
 import logging
 import collections
 import threading
@@ -323,7 +324,7 @@ except Exception:
     flags_router = None
 
 # Import modular routers
-from backend.routers import ml, governance, alerts, finance, quality, blockchain, reports, knowledge, community, voice_assistant
+from backend.routers import ml, governance, alerts, finance, quality, blockchain, reports, knowledge, community, voice_assistant, referrals
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -736,6 +737,8 @@ try:
     supply_chain = SupplyChainBlockchain()
     blockchain.init_blockchain(supply_chain)
 
+    referrals.init_referrals(validate_firestore_ready)
+
     # Initialize Voice Assistant for Farmers
     from voice_assistant import VoiceAssistant, OfflineCacheManager
     voice_asst = VoiceAssistant(offline_mode=True)
@@ -807,6 +810,7 @@ app.include_router(reports.router, prefix="/api/admin", tags=["Reports"])
 app.include_router(knowledge.router, prefix="/api/knowledge", tags=["Knowledge"])
 app.include_router(community.router, prefix="/api/community", tags=["Community"])
 app.include_router(voice_assistant.router, prefix="/api/voice", tags=["Voice Assistant"])
+app.include_router(referrals.router, prefix="/api/referrals", tags=["Referrals"])
 
 # Initialize repositories for persistent storage
 _finance_repository = FinanceApplicationRepository()
