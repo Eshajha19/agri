@@ -22,6 +22,8 @@ import {
   FaFileInvoiceDollar,
   FaChartBar,
   FaTrophy,
+  FaRobot,
+  FaRecycle,
 } from "react-icons/fa";
 import "./Dashboard.css";
 import {
@@ -205,6 +207,8 @@ export default function Dashboard({ userData }) {
   const quickActions = [
     { label: "AI Advisor", icon: <FaSeedling />, link: "/advisor" },
     { label: "Yield Predictor", icon: <FaChartBar />, link: "/yield-predictor" },
+    { label: "Farm Autopilot", icon: <FaRobot />, link: "/smart-farm-autopilot" },
+    { label: "Sustainability", icon: <FaRecycle />, link: "/sustainability-analytics" },
     { label: "Crop Planner", icon: <FaCalendarAlt />, link: "/crop-planner" },
     { label: "Community", icon: <FaComments />, link: "/community" },
     { label: "Leaderboard", icon: <FaTrophy />, link: "/leaderboard" },
