@@ -56,12 +56,6 @@ from cryptography.hazmat.primitives.asymmetric import ed25519
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from firebase_admin import auth, credentials, firestore, storage
-from opentelemetry import trace
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor
-from prometheus_fastapi_instrumentator import Instrumentator
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -723,13 +717,29 @@ PUBLIC_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.pub")
 
 HAS_GCP_KMS = False
 secretmanager = None
+_kms_init_error = None
 try:
     from google.cloud import secretmanager as gcp_secretmanager
 
     secretmanager = gcp_secretmanager
     HAS_GCP_KMS = True
-except Exception:
+except Exception as e:
     HAS_GCP_KMS = False
+    _kms_init_error = str(e)
+
+ALLOW_INSECURE_FALLBACK = os.getenv("ALLOW_INSECURE_KEY_FALLBACK", "false").lower() == "true"
+
+if os.getenv("GOOGLE_CLOUD_PROJECT") and not HAS_GCP_KMS:
+    logger.error(
+        f"KMS initialization failed: GOOGLE_CLOUD_PROJECT is set but GCP Secret Manager is unavailable. "
+        f"Error: {_kms_init_error}. Set ALLOW_INSECURE_KEY_FALLBACK=true to permit local key fallback (NOT RECOMMENDED)."
+    )
+    if not ALLOW_INSECURE_FALLBACK:
+        raise RuntimeError(
+            "SECURITY CRITICAL: KMS is required for production use but is unavailable. "
+            "Application will not start with insecure key fallback. "
+            "Either configure GCP Secret Manager or explicitly set ALLOW_INSECURE_KEY_FALLBACK=true (NOT RECOMMENDED)."
+        )
 
 
 def get_signing_keys():
@@ -749,13 +759,35 @@ def get_signing_keys():
         response = client.access_secret_version(request={"name": name})
         payload = response.payload.data.decode("UTF-8")
         _cached_private_key = serialization.load_pem_private_key(payload.encode(), password=None)
+        logger.info("Successfully loaded signing key from GCP KMS")
         return _cached_private_key
 
     if os.path.exists(PRIVATE_KEY_PATH):
+        if not ALLOW_INSECURE_FALLBACK:
+            logger.warning(
+                "SECURITY WARNING: Falling back to local file-based signing keys. "
+                "This is insecure for production use. Set GOOGLE_CLOUD_PROJECT and configure GCP KMS "
+                "or set ALLOW_INSECURE_KEY_FALLBACK=true only if you understand the risks."
+            )
         with open(PRIVATE_KEY_PATH, "rb") as key_file:
             _cached_private_key = serialization.load_pem_private_key(key_file.read(), password=None)
+        logger.warning("Using local file-based signing key - NOT SECURE FOR PRODUCTION")
         return _cached_private_key
 
+    if not ALLOW_INSECURE_FALLBACK:
+        logger.error(
+            "SECURITY CRITICAL: No secure key source available and ALLOW_INSECURE_KEY_FALLBACK is not enabled. "
+            "Refusing to generate insecure keys. Set ALLOW_INSECURE_KEY_FALLBACK=true to permit key generation."
+        )
+        raise RuntimeError(
+            "SECURITY CRITICAL: Cannot proceed without secure key management. "
+            "Either configure GCP KMS, provide existing keys, or explicitly allow insecure fallback."
+        )
+
+    logger.warning(
+        "SECURITY WARNING: Generating new insecure signing keys locally. "
+        "This should NEVER happen in production - keys will not persist across restarts."
+    )
     private_key = ed25519.Ed25519PrivateKey.generate()
     os.makedirs(KEYS_DIR, exist_ok=True)
     with open(PRIVATE_KEY_PATH, "wb") as private_file:
@@ -797,6 +829,70 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up: initializing services")
     get_firestore_client()
     init_ml_pipeline()
+
+    # Domain engines — initialized exactly once here at startup.
+    # Previously these lived at module scope, causing unnecessary re-construction
+    # on every import and overwriting any in-memory state on reload.
+    drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
+    shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
+    version_manager = ModelVersionManager(versions_dir="./model_versions")
+
+    _finance_repository = FinanceApplicationRepository()
+    _notification_repository = NotificationRepository()  # noqa: F841 — kept for symmetry / future use
+    _supply_chain_repository = SupplyChainRepository()
+    _farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
+    _supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
+    _crop_quality_grader = CropQualityGrader()
+    logger.info("Domain engines initialized with persistent repositories")
+
+    # Router init hooks — also moved here so they run after engines are ready.
+    governance.init_governance(drift_detector, shadow_evaluator, version_manager)
+    finance.init_finance(_farm_finance_ai, RBACManager, Permission)
+    quality.init_quality(_crop_quality_grader, RBACManager, Permission)
+    blockchain.init_blockchain(_supply_chain_blockchain)
+    referrals.init_referrals(validate_firestore_ready)
+    reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
+
+    rag_generate_fn = None
+    try:
+        from rag.generator import generate_response as rag_generate_fn
+    except Exception as exc:
+        logger.warning("RAG init skipped: %s", exc)
+
+    knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
+    alerts.init_alerts([], subscriber_store, lambda **kwargs: [], send_whatsapp_message, format_alert_message, verify_role)
+    platform.init_platform(
+        verify_role,
+        get_signing_keys,
+        sanitise_log_field,
+        rag_generate_fn,
+        subscriber_store,
+        send_whatsapp_message,
+        format_alert_message,
+        weather_service,
+        RBACManager,
+        Permission,
+    )
+
+    if voice_assistant_router is not None:
+        try:
+            from voice_assistant import OfflineCacheManager, VoiceAssistant
+
+            voice_asst = VoiceAssistant(offline_mode=True)
+            cache_mgr = OfflineCacheManager(cache_dir="./voice_assistant_cache")
+            voice_assistant_router.init_voice_assistant(voice_asst, cache_mgr, verify_role)
+        except Exception as exc:
+            logger.warning("Voice assistant init skipped: %s", exc)
+
+    try:
+        import joblib
+
+        model_lag = joblib.load("sklearn_yield_model.joblib")
+    except Exception:
+        model_lag = None
+
+    ml.init_router(ModelRouter(default_model="xgboost"), model_lag)
+
     yield
     logger.info("Shutting down")
 
@@ -805,6 +901,12 @@ app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
 
 # Observability setup
 try:
+    from opentelemetry import trace
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor
+
     service_name = os.environ.get("OTEL_SERVICE_NAME", "fasal-saathi-backend")
     resource = Resource.create({"service.name": service_name})
     provider = TracerProvider(resource=resource)
@@ -821,6 +923,8 @@ except Exception as exc:
     logger.warning("Tracing setup skipped: %s", exc)
 
 try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+
     Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
@@ -840,67 +944,15 @@ app.add_middleware(
 app.add_middleware(RBACMiddleware)
 logger.info(print_rbac_matrix())
 
-# Domain dependencies
-drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
-shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
-version_manager = ModelVersionManager(versions_dir="./model_versions")
-
-_finance_repository = FinanceApplicationRepository()
-_notification_repository = NotificationRepository()
-_supply_chain_repository = SupplyChainRepository()
-_farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
-_supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
-_crop_quality_grader = CropQualityGrader()
-
-# Router init hooks
-governance.init_governance(drift_detector, shadow_evaluator, version_manager)
-finance.init_finance(_farm_finance_ai, RBACManager, Permission)
-quality.init_quality(_crop_quality_grader, RBACManager, Permission)
-blockchain.init_blockchain(_supply_chain_blockchain)
-referrals.init_referrals(validate_firestore_ready)
-reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
-
-rag_generate_fn = None
-try:
-    from rag.generator import generate_response as rag_generate_fn
-except Exception as exc:
-    logger.warning("RAG init skipped: %s", exc)
-
-knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
-
-alerts.init_alerts([], subscriber_store, lambda **kwargs: [], send_whatsapp_message, format_alert_message, verify_role)
-platform.init_platform(
-    verify_role,
-    get_signing_keys,
-    sanitise_log_field,
-    rag_generate_fn,
-    subscriber_store,
-    send_whatsapp_message,
-    format_alert_message,
-    weather_service,
-    RBACManager,
-    Permission,
-)
-
+# Import the voice assistant router at module level so app.include_router() can
+# reference it during router registration below. Its internal state is
+# initialized inside lifespan (above) once all domain engines are ready.
+voice_assistant_router = None
 try:
     from backend.routers import voice_assistant as voice_assistant_router
-    from voice_assistant import OfflineCacheManager, VoiceAssistant
 
-    voice_asst = VoiceAssistant(offline_mode=True)
-    cache_mgr = OfflineCacheManager(cache_dir="./voice_assistant_cache")
-    voice_assistant_router.init_voice_assistant(voice_asst, cache_mgr, verify_role)
 except Exception as exc:
-    voice_assistant_router = None
-    logger.warning("Voice assistant init skipped: %s", exc)
-
-try:
-    import joblib
-
-    model_lag = joblib.load("sklearn_yield_model.joblib")
-except Exception:
-    model_lag = None
-
-ml.init_router(ModelRouter(default_model="xgboost"), model_lag)
+    logger.warning("Voice assistant router import skipped: %s", exc)
 
 # Router registration
 app.include_router(ml.router, prefix="/api/yield", tags=["ML Prediction"])

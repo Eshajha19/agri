@@ -21,7 +21,8 @@ import {
   FaUserPlus,
   FaMedal,
   FaCog,
-  FaMicrophone
+  FaMicrophone,
+  FaInfoCircle
 } from "react-icons/fa";
 import { usePerformanceStore } from "./stores/performanceStore";
 import { useBrowserCacheBudget } from "./lib/cacheBudget";
@@ -126,6 +127,7 @@ const getInitialLanguage = () => {
 
 /**
  * Helper to apply Google Translate selection to the hidden widget
+ * Uses MutationObserver for reliable widget detection instead of polling
  */
 const applyGoogleTranslate = (langCode) => {
   try {
@@ -141,6 +143,54 @@ const applyGoogleTranslate = (langCode) => {
     console.error("GT Apply Error:", e);
   }
   return false;
+};
+
+/**
+ * Robustly wait for Google Translate widget using MutationObserver
+ * Returns a promise that resolves when widget is ready or times out
+ */
+const waitForGoogleTranslateWidget = (timeoutMs = 15000) => {
+  return new Promise((resolve, reject) => {
+    const existingWidget = document.querySelector(".goog-te-combo");
+    if (existingWidget) {
+      resolve(existingWidget);
+      return;
+    }
+
+    let observer = null;
+    const timeoutId = setTimeout(() => {
+      if (observer) observer.disconnect();
+      reject(new Error("Google Translate widget not found within timeout"));
+    }, timeoutMs);
+
+    observer = new MutationObserver((mutations) => {
+      const widget = document.querySelector(".goog-te-combo");
+      if (widget) {
+        clearTimeout(timeoutId);
+        observer?.disconnect();
+        resolve(widget);
+      }
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+  });
+};
+
+/**
+ * Apply translation with robust widget detection
+ */
+const applyGoogleTranslateRobust = async (langCode, onReady, onError) => {
+  try {
+    await waitForGoogleTranslateWidget(15000);
+    applyGoogleTranslate(langCode);
+    onReady?.();
+  } catch (error) {
+    console.warn("Google Translate widget initialization failed:", error.message);
+    onError?.(error);
+  }
 };
 
 const GuestBanner = () => (
@@ -241,22 +291,40 @@ function App() {
 
   /* ---------------- LANGUAGE AUTO-TRANS ---------------- */
   useEffect(() => {
-    if (applyGoogleTranslate(preferredLang)) return;
-    
-    let retries = 0;
-    const MAX_RETRIES = 20; // Try for ~6 seconds
-    
-    const id = setInterval(() => {
-      retries++;
-      if (applyGoogleTranslate(preferredLang)) {
-        clearInterval(id);
-      } else if (retries >= MAX_RETRIES) {
-        clearInterval(id);
-        console.warn("Google Translate widget initialization timed out or was blocked. Graceful fallback applied.");
+    const applyTranslation = async () => {
+      if (applyGoogleTranslate(preferredLang)) return;
+
+      try {
+        await applyGoogleTranslateRobust(
+          preferredLang,
+          () => console.log("Google Translate initialized successfully"),
+          () => console.warn("Google Translate unavailable - using default language")
+        );
+      } catch (error) {
+        console.warn("Translation initialization failed - graceful fallback applied");
       }
-    }, 300);
-    
-    return () => clearInterval(id);
+    };
+
+    applyTranslation();
+
+    const handleWidgetLoad = () => {
+      if (!applyGoogleTranslate(preferredLang)) {
+        applyGoogleTranslateRobust(preferredLang);
+      }
+    };
+
+    const widgetCheckInterval = setInterval(() => {
+      if (document.querySelector(".goog-te-combo") && !applyGoogleTranslate(preferredLang)) {
+        applyGoogleTranslateRobust(preferredLang);
+      }
+    }, 2000);
+
+    document.addEventListener("googleTranslateWidgetLoaded", handleWidgetLoad);
+
+    return () => {
+      clearInterval(widgetCheckInterval);
+      document.removeEventListener("googleTranslateWidgetLoaded", handleWidgetLoad);
+    };
   }, [preferredLang]);
 
   /* ---------------- AUTH & FIRESTORE SYNC ---------------- */
@@ -266,7 +334,8 @@ function App() {
       return;
     }
 
-    // Deterministic auth-readiness sync
+    const userDocUnsubscribeRef = { current: null };
+
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
 
@@ -286,8 +355,7 @@ function App() {
       };
 
       if (currentUser) {
-        // Wait for profile data sync before hiding loader
-        const unsubscribeDoc = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
+        userDocUnsubscribeRef.current = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
           if (userDoc.exists()) {
             const data = userDoc.data();
             setUserData(data);
@@ -308,7 +376,6 @@ function App() {
           setProfileCompleted(false);
           void hydrateUserSnapshot().finally(() => setLoading(false));
         });
-        return () => unsubscribeDoc();
       } else {
         setUserData(null);
         setProfileCompleted(true);
@@ -316,7 +383,12 @@ function App() {
       }
     });
 
-    return () => unsubscribeAuth();
+    return () => {
+      unsubscribeAuth();
+      if (userDocUnsubscribeRef.current) {
+        userDocUnsubscribeRef.current();
+      }
+    };
   }, []);
 
   // E2EE Key Generation Sync
