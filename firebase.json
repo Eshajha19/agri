@@ -1,0 +1,38 @@
+{
+  "projects": {
+    "default": "fasal-saathi"
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "emulators": {
+    "firestore": {
+      "host": "localhost",
+      "port": 8080
+    },
+    "ui": {
+      "enabled": true,
+      "host": "localhost",
+      "port": 4000
+    },
+    "auth": {
+      "host": "localhost",
+      "port": 9099
+    }
+  },
+  "hosting": {
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}

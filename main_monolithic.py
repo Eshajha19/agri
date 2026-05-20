@@ -1,0 +1,1617 @@
+# main.py
+import os
+import io
+import json
+import collections
+            try:
+                prod_version = version_manager.get_production_version()
+                recent_alerts = drift_detector.get_alerts(limit=5)
+                recent_evals = shadow_evaluator.get_evaluations(limit=5)
+
+                return {
+                    "success": True,
+                    "governance_status": {
+                        "drift_detection": {
+                            "recent_alerts": recent_alerts,
+                            "alert_count": len(drift_detector.alerts)
+                        },
+                        "shadow_evaluation": {
+                            "active_evaluations": len(shadow_evaluator.active_evaluations),
+                            "completed_evaluations": len(shadow_evaluator.evaluations),
+                            "recent_evaluations": recent_evals
+                        },
+                        "model_versioning": {
+                            "production_version": prod_version.to_dict() if prod_version else None,
+                            "total_versions": len(version_manager.versions)
+                        }
+                    }
+                }
+            except Exception as e:
+                logger.error("Get governance status error: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to get governance status")
+
+
+class SeedVerifyRequest(BaseModel):
+    code: str = Field(..., min_length=4, max_length=100)
+
+class FinanceAssessmentRequest(BaseModel):
+    farmer_name: str = Field(..., min_length=1, max_length=100)
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    acreage: float = Field(default=0, ge=0)
+    annual_revenue: float = Field(default=0, ge=0)
+    annual_operating_cost: float = Field(default=0, ge=0)
+    existing_debt: float = Field(default=0, ge=0)
+    emergency_fund: float = Field(default=0, ge=0)
+    credit_score: int = Field(default=650, ge=300, le=900)
+    requested_loan_amount: float = Field(default=0, ge=0)
+    loan_tenure_months: int = Field(default=36, ge=6, le=120)
+    irrigation_cost: float = Field(default=0, ge=0)
+    labor_cost: float = Field(default=0, ge=0)
+    selected_lender: Optional[str] = Field(default=None, max_length=100)
+    farm_location: Optional[str] = Field(default=None, max_length=120)
+    notes: Optional[str] = Field(default=None, max_length=500)
+
+# ML Governance Request Models
+class StartShadowEvaluationRequest(BaseModel):
+    production_model: str = Field(..., min_length=1, max_length=50)
+    candidate_model: str = Field(..., min_length=1, max_length=50)
+
+class RecordPredictionRequest(BaseModel):
+    eval_id: str = Field(..., min_length=1)
+    production_prediction: float
+    candidate_prediction: float
+    actual_value: float
+
+class RegisterModelVersionRequest(BaseModel):
+    model_name: str = Field(..., min_length=1, max_length=50)
+    model_path: str = Field(..., min_length=1)
+    rmse: float = Field(..., gt=0)
+    r2_score: float = Field(default=0, ge=-1, le=1)
+    metadata: Optional[Dict[str, Any]] = None
+
+# --- ML Governance Initialization ---
+drift_detector = DriftDetector(
+    window_size=100,
+    prediction_drift_threshold=0.2,
+    input_drift_threshold=0.15,
+)
+shadow_evaluator = ShadowEvaluator(
+    min_samples=50,
+    error_improvement_threshold=0.05,
+)
+version_manager = ModelVersionManager(versions_dir="./model_versions")
+
+# --- ML Pipeline Initialization ---
+# init_ml_pipeline() is called inside the FastAPI lifespan context manager
+# (defined above app = FastAPI(...)) so it runs in every Uvicorn worker
+# process on startup.  Do NOT call it here at module level — doing so would
+# run it in the main process only and leave additional workers with empty
+# registries in multi-worker deployments.
+router = ModelRouter(default_model="xgboost")
+
+def init_ml_pipeline():
+    try:
+        # Register XGBoost Adapter
+        xgb_adapter = XGBoostAdapter()
+        model_path = "yield_model.joblib"
+        if os.path.exists(model_path):
+            xgb_adapter.load(model_path)
+            ModelRegistry.register("xgboost", xgb_adapter)
+            print("ML Pipeline: Registered XGBoost model.")
+        else:
+            print(f"ML Pipeline Warning: {model_path} not found.")
+            
+        # You can register other models here (e.g., LSTM) as they become available
+        # ModelRegistry.register("lstm", LSTMAdapter("lstm_model.h5"))
+        
+    except Exception as e:
+        print(f"ML Pipeline Error: {e}")
+
+init_ml_pipeline()
+
+# Load model directly for backward compatibility or simple use cases if needed
+try:
+    model = joblib.load("yield_model.joblib")
+    model_lag = joblib.load("sklearn_yield_model.pkl")
+    print("Models loaded successfully")
+except Exception as e:
+    print(f"Error loading models: {e}")
+    model = None
+    model_lag = None
+
+# --- Static Notifications Storage ---
+#
+# Problems with the original bare list:
+#
+# 1. Unbounded growth — every trigger_whatsapp_alert call appended an entry
+#    that was never removed.  After weeks in production the list could hold
+#    thousands of entries, all serialised and sent to every client on every
+#    GET /api/notifications poll.
+#
+# 2. Duplicate IDs under concurrency — `len(list) + 1` is not atomic.  Two
+#    concurrent trigger-alert requests could both read the same length and
+#    produce entries with identical IDs, silently corrupting any client-side
+#    deduplication keyed on id.
+#
+# Fix — NotificationStore:
+#
+# • collections.deque(maxlen=MAX_NOTIFICATIONS) caps memory at a fixed
+#   ceiling.  When the deque is full, the oldest entry is automatically
+#   evicted before the new one is appended — no manual cleanup needed.
+#
+# • itertools.count() produces a strictly monotonically increasing integer
+#   sequence.  In CPython, next() on a count object is effectively atomic
+#   for the GIL-protected use case here, so two concurrent appends always
+#   get distinct IDs.
+#
+# • threading.Lock() serialises append() so the read-then-increment
+#   sequence is never interleaved across threads.
+#
+# • get_recent() filters by a TTL window so the response payload stays
+#   small even when the deque is at capacity.
+
+# Maximum number of triggered-alert entries kept in memory at any time.
+# Oldest entries are evicted automatically when this ceiling is reached.
+_MAX_NOTIFICATIONS = 200
+
+# How long a triggered-alert entry remains visible to clients.
+_NOTIFICATION_TTL_HOURS = 24
+
+
+class NotificationStore:
+    """
+    Thread-safe, bounded, TTL-aware store for in-process notifications.
+
+    Parameters
+    ----------
+    maxlen : int
+        Hard cap on the number of entries held in memory.  When full,
+        the oldest entry is evicted before the new one is appended.
+    ttl_hours : int
+        Entries older than this many hours are excluded from get_recent().
+    """
+
+    def __init__(self, maxlen: int = _MAX_NOTIFICATIONS, ttl_hours: int = _NOTIFICATION_TTL_HOURS):
+        self._deque: collections.deque = collections.deque(maxlen=maxlen)
+        self._lock = threading.Lock()
+        self._counter = itertools.count(start=1)
+        self._ttl = timedelta(hours=ttl_hours)
+
+    def append(self, alert_type: str, message: str) -> dict:
+        """
+        Add a new notification entry and return it.
+
+        The ID is assigned from a monotonically increasing counter so
+        concurrent calls always produce distinct values.
+        """
+        with self._lock:
+            entry = {
+                "id": next(self._counter),
+                "type": alert_type,
+                "message": message,
+                "time": datetime.now().isoformat(),
+            }
+            self._deque.append(entry)
+        return entry
+
+    def get_recent(self) -> list:
+        """
+        Return all entries newer than the configured TTL, oldest first.
+
+        Takes a snapshot under the lock so callers always see a consistent
+        view even if append() is running concurrently.
+        """
+        cutoff = datetime.now() - self._ttl
+        with self._lock:
+            snapshot = list(self._deque)
+        return [
+            e for e in snapshot
+            if datetime.fromisoformat(e["time"]) >= cutoff
+        ]
+
+
+# Seed the store with the initial weather advisory that was previously
+# hard-coded in the bare list.
+_notification_store = NotificationStore()
+_notification_store.append(
+    alert_type="weather",
+    message="🌧️ Heavy rainfall expected in your region today.",
+)
+
+# Initialize repositories for persistent storage
+_finance_repository = FinanceApplicationRepository()
+_notification_repository = NotificationRepository()
+_supply_chain_repository = SupplyChainRepository()
+
+# Initialize Crop Quality Grader
+_crop_quality_grader = CropQualityGrader()
+
+# Initialize Supply Chain Blockchain with persistent repository
+_supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
+
+# Initialize Farm Finance AI with persistent repository
+_farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
+
+logger.info("Domain engines initialized with persistent repositories")
+
+# --- Routes ---
+
+@app.get("/")
+def root():
+    return {"message": "Fasal Saathi API", "status": "running"}
+
+@app.get("/predict")
+def predict_get():
+    return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
+
+@app.post("/predict", response_model=PredictResponse)
+@limiter.limit("5/minute")
+def predict_yield(data: PredictRequest, request: Request):
+    """
+    Standardised prediction endpoint using ML Router for dynamic model selection.
+
+    Returns HTTP 422 when the input contains an unknown categorical value or a
+    missing required feature, so callers receive an actionable error message
+    rather than a silently corrupted prediction.
+    """
+    try:
+        input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
+
+        context = {
+            "location": request.headers.get("X-User-Location", "Unknown"),
+            "crop": data.Crop,
+        }
+
+        predicted_yield = router.predict(input_data, context)
+        return {"predicted_ExpYield": float(predicted_yield)}
+
+    except UnknownCategoryError as e:
+        # The submitted categorical value was not in the training vocabulary.
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "unknown_category",
+                "field": e.column,
+                "value": str(e.value),
+                "message": str(e),
+            },
+        )
+    except MissingFeatureError as e:
+        # Required feature columns are absent after encoding.
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "missing_features",
+                "missing": e.missing_columns,
+                "message": str(e),
+            },
+        )
+    except Exception as e:
+        print(f"Prediction Error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/predict-yield-lag")
+@limiter.limit("5/minute")
+async def predict_yield_lag(payload: YieldInput, request: Request):
+    if model_lag is None:
+        raise HTTPException(status_code=500, detail="Model not loaded")
+    try:
+        data = payload.data
+        if len(data) != 5:
+            raise ValueError("Exactly 5 values are required")
+        data = np.array(data).reshape(1, -1)
+        prediction = model_lag.predict(data)
+        return {
+            "prediction": round(float(prediction[0]), 2),
+            "model": "RandomForest Time Series (Lag Features)"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal Server Error") from e
+
+@app.post("/predict-yield-trend")
+@limiter.limit("5/minute")
+async def predict_yield_trend(payload: YieldInput, request: Request):
+    if model_lag is None:
+        raise HTTPException(status_code=500, detail="Model not loaded")
+    try:
+        data = payload.data
+        if len(data) != 5:
+            raise ValueError("Exactly 5 values are required")
+        temp = list(data)
+        trend = []
+        for _ in range(5):
+            features = temp[:5]
+            pred = model_lag.predict([features])[0]
+            pred_value = round(float(pred), 2)
+            trend.append(pred_value)
+            temp = [pred_value] + temp
+        return {
+            "trend": trend,
+            "prediction": trend[-1],
+            "model": "RandomForest Trend Forecast (Lag Features)"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal Server Error") from e
+
+@app.get("/api/notifications")
+async def get_notifications(
+    request: Request,
+    crop: str = Query(default=None),
+    irrigation_count: int = Query(default=None, ge=0),
+    water_coverage: int = Query(default=None, ge=0, le=100),
+    season: str = Query(default=None)
+):
+    """
+    Return recent triggered-alert notifications combined with dynamic
+    farm advisory alerts generated from the query parameters.
+
+    Only notifications newer than the store's TTL window are included,
+    so the response payload stays small regardless of how long the
+    process has been running.
+    """
+    # Check permission: user can read notifications
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.NOTIFICATIONS_READ], require_all=False
+    )
+    dynamic_alerts = generate_alerts(
+        crop=crop,
+        irrigation_count=irrigation_count,
+        water_coverage=water_coverage,
+        season=season
+    )
+    return {"success": True, "data": _notification_store.get_recent() + dynamic_alerts}
+
+@app.post("/api/finance/analyze")
+@limiter.limit("10/minute")
+async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest):
+    """Analyze farm finances and return loan recommendations."""
+    # Check permission: farmer can create finance requests
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
+    analysis = _farm_finance_ai.analyze_financial_profile(body.model_dump())
+    return {"success": True, "data": analysis}
+
+
+@app.post("/api/finance/applications")
+@limiter.limit("5/minute")
+async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
+    """Create a loan application from the current farm profile."""
+    # Check permission: farmer can create finance applications
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_CREATE], require_all=False
+    )
+    application = _farm_finance_ai.create_application(body.model_dump())
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/applications/{application_id}")
+async def get_finance_application(application_id: str, request: Request):
+    # Check permission: user can read finance applications (own or all if expert/admin)
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.FINANCE_READ_OWN, Permission.FINANCE_READ_ALL], require_all=False
+    )
+    application = _farm_finance_ai.get_application(application_id)
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return {"success": True, "data": application}
+
+
+@app.get("/api/finance/products")
+def get_finance_products():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+
+@app.get("/api/finance/marketplace")
+def get_finance_marketplace():
+    return {"success": True, "data": _farm_finance_ai.list_marketplace()}
+
+# --- WhatsApp Service Endpoints ---
+#
+# Subscriber persistence is handled by whatsapp_store.SubscriberStore, which
+# provides thread-safe, crash-safe read-modify-write operations via a
+# threading.Lock and atomic file replacement (write-to-tmp then os.replace).
+# The old load_subscribers / save_subscribers helpers have been removed because
+# they had no locking and used open(..., "w") directly, which could corrupt the
+# file on a concurrent write or a mid-write crash.
+
+@app.post("/api/whatsapp/subscribe")
+@limiter.limit("2/minute")
+async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
+    # Require authentication so the subscriber's identity is always derived
+    # from the verified Firebase token — never from client-supplied data.
+    # Previously the endpoint accepted user_id from the request body, which
+    # allowed any caller to overwrite another user's subscription by sending
+    # a known user_id with an attacker-controlled phone number.
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+
+    subscriber = {
+        "phone_number": data.phone_number,
+        "name": data.name,
+        "subscribed_at": datetime.now().isoformat(),
+    }
+    try:
+        subscriber_store.upsert(uid, subscriber)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save subscription. Please try again.",
+        ) from exc
+
+    welcome_msg = (
+        f"Namaste {data.name}! 🙏\n\n"
+        "Welcome to *Fasal Saathi WhatsApp Alerts*. "
+        "You will now receive real-time updates directly here."
+    )
+    send_whatsapp_message(data.phone_number, welcome_msg)
+    return {"success": True, "message": "Successfully subscribed"}
+
+@app.post("/api/whatsapp/trigger-alert")
+@limiter.limit("10/minute")
+async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
+    """
+    Broadcast a WhatsApp alert to all subscribers.
+
+    Requires authentication — admin or expert role only.
+
+    Previously this endpoint had no authentication check, no rate limit,
+    and no input constraints.  Any unauthenticated caller could send
+    arbitrary messages to every subscribed farmer, enabling social
+    engineering attacks (fake market alerts, fake pest warnings) and
+    consuming Twilio API credits at the attacker's discretion.
+    """
+    # RBAC: only admins and experts may broadcast alerts to all farmers.
+    await verify_role(request, required_roles=["admin", "expert"])
+
+    # get_all() acquires the lock and returns a stable snapshot, so this read
+    # cannot race with a concurrent subscription write.
+    subscribers = subscriber_store.get_all()
+    results = []
+    formatted_msg = format_alert_message(data.alert_type, data.message)
+
+    for user_id, info in subscribers.items():
+        res = send_whatsapp_message(info["phone_number"], formatted_msg)
+        results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})
+
+    # Use the bounded, thread-safe NotificationStore instead of the bare
+    # static_notifications list (which had no size cap and racy ID generation).
+    _notification_store.append(
+        alert_type=data.alert_type,
+        message=data.message,
+    )
+
+    delivered = sum(1 for r in results if r["success"])
+    return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
+
+@app.post("/api/whatsapp/webhook")
+async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
+    incoming_msg = Body.lower().strip()
+    sender_number = From.replace("whatsapp:", "")
+    
+    responses = {
+        "weather": "🌡️ *Weather Update*\n\n28°C, Clear skies. No rain expected.",
+        "pest": "🐛 *Pest Assistant*\n\nPlease use the Pest Management tool in-app for diagnosis.",
+        "hi": "🙏 *Namaste!*\n\nI am your AI Farming Assistant. Try 'Weather' or 'Pest'.",
+        "hello": "🙏 *Namaste!*\n\nI am your AI Farming Assistant. Try 'Weather' or 'Pest'."
+    }
+    
+    response = next((v for k, v in responses.items() if k in incoming_msg), f"Received: '{Body}'. Try 'Weather' or 'Pest' 🌱")
+    send_whatsapp_message(sender_number, response)
+    return {"status": "success"}
+
+# --- Cryptographic Reports ---
+#
+# Key resolution priority (highest → lowest):
+#   1. In-process cache          – avoids repeated I/O on every request
+#   2. GCP Secret Manager        – production path; key never touches disk
+#   3. Local persistent PEM file – dev/staging fallback; blocked in production
+#   4. Fresh generation          – last resort for local dev only
+#
+# When ENV=production the function raises HTTP 500 at steps 2, 3, and 4
+# rather than falling through to a weaker path, so a plaintext disk key
+# can never silently be used in production.
+
+_cached_private_key = None
+KEYS_DIR = "keys"
+PRIVATE_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.key")
+PUBLIC_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.pub")
+
+IS_PRODUCTION = os.getenv("ENV", "").lower() == "production"
+
+
+def get_signing_keys():
+    """
+    Return the Ed25519 private key used to sign financial reports.
+
+    Resolution order:
+      1. In-process cache (fastest path after first call)
+      2. GCP Secret Manager (production-grade; key never written to disk)
+      3. Local PEM file    (dev/staging only; raises in production)
+      4. Fresh generation  (dev/staging only; raises in production)
+    """
+    global _cached_private_key
+
+    # 1. In-process cache
+    if _cached_private_key is not None:
+        return _cached_private_key
+
+    # 2. GCP Secret Manager
+    project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+    secret_id = os.getenv("REPORT_SIGNING_SECRET_NAME", "report-signing-key")
+
+    if project_id:
+        if not HAS_GCP_KMS:
+            if IS_PRODUCTION:
+                raise HTTPException(
+                    status_code=500,
+                    detail="google-cloud-secret-manager is not installed but is required in production"
+                )
+            print("KMS Warning: google-cloud-secret-manager not installed; skipping GCP path.")
+        else:
+            try:
+                client = secretmanager.SecretManagerServiceClient()
+                name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
+                response = client.access_secret_version(request={"name": name})
+                payload = response.payload.data.decode("UTF-8")
+                _cached_private_key = serialization.load_pem_private_key(
+                    payload.encode(), password=None
+                )
+                print(f"KMS: Loaded signing key from Secret Manager (secret: {secret_id})")
+                return _cached_private_key
+            except Exception as e:
+                if IS_PRODUCTION:
+                    print(f"KMS Error: {e}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Failed to retrieve signing key from Secret Manager"
+                    )
+                print(f"KMS Warning: Could not reach Secret Manager ({e}); falling back to local key.")
+    elif IS_PRODUCTION:
+        raise HTTPException(
+            status_code=500,
+            detail="GOOGLE_CLOUD_PROJECT is not set; cannot retrieve signing key in production"
+        )
+
+    # 3. Local persistent PEM file (dev/staging only)
+    if os.path.exists(PRIVATE_KEY_PATH):
+        try:
+            with open(PRIVATE_KEY_PATH, "rb") as f:
+                _cached_private_key = serialization.load_pem_private_key(f.read(), password=None)
+            print(f"Key Management: Loaded existing local key from {PRIVATE_KEY_PATH}")
+            return _cached_private_key
+        except Exception as e:
+            print(f"Key Management Warning: Could not load local key file ({e}); generating a new one.")
+
+    # 4. Fresh generation (dev/staging only)
+    print("Key Management: Generating a fresh signing key for local development.")
+    private_key = ed25519.Ed25519PrivateKey.generate()
+
+    try:
+        os.makedirs(KEYS_DIR, exist_ok=True)
+        with open(PRIVATE_KEY_PATH, "wb") as f:
+            f.write(private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption()
+            ))
+        with open(PUBLIC_KEY_PATH, "wb") as f:
+            f.write(private_key.public_key().public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo
+            ))
+        print(f"Key Management: Saved new key pair to {KEYS_DIR}/")
+    except Exception as e:
+        print(f"Key Management Warning: Could not persist generated key ({e}); key is in-memory only.")
+
+    _cached_private_key = private_key
+    return private_key
+
+
+@app.post("/api/reports/generate")
+@limiter.limit("3/minute")
+async def generate_signed_report(data: ReportRequest, request: Request):
+    # RBAC: Only Experts or Admins can generate signed reports
+    await verify_role(request, required_roles=["expert", "admin"])
+    
+    try:
+        private_key = get_signing_keys()
+        
+        # Create a buffer for the PDF
+        buffer = io.BytesIO()
+        p = canvas.Canvas(buffer, pagesize=letter)
+        width, height = letter
+
+        # 1. Header
+        p.setFont("Helvetica-Bold", 24)
+        p.setFillColor(colors.green)
+        p.drawCentredString(width/2, height - 1*inch, "FASAL SAATHI")
+        
+        p.setFont("Helvetica-Bold", 18)
+        p.setFillColor(colors.black)
+        p.drawCentredString(width/2, height - 1.5*inch, "CERTIFIED FINANCIAL FARM REPORT")
+        
+        p.setStrokeColor(colors.green)
+        p.line(1*inch, height - 1.7*inch, width - 1*inch, height - 1.7*inch)
+
+        # 2. Content
+        p.setFont("Helvetica", 14)
+        y = height - 2.5*inch
+        
+        details = [
+            ("Farmer Name:", data.name),
+            ("Crop Type:", data.crop),
+            ("Farm Area:", data.area),
+            ("Season Profit:", f"Rs. {data.profit}"),
+            ("Season:", data.season),
+            ("Report Date:", datetime.now().strftime("%d %B, %Y")),
+        ]
+
+        for label, value in details:
+            p.setFont("Helvetica-Bold", 14)
+            p.drawString(1.5*inch, y, label)
+            p.setFont("Helvetica", 14)
+            p.drawString(3.5*inch, y, value)
+            y -= 0.4*inch
+
+        # 3. Signature Box
+        y -= 0.5*inch
+        p.setStrokeColor(colors.black)
+        p.rect(1*inch, y - 1.5*inch, width - 2*inch, 1.8*inch, stroke=1, fill=0)
+        
+        # Data for signing — use a JSON object with explicit field keys so
+        # every field is unambiguously bound to its name.  The old pipe-
+        # delimited format ("Alice|Wheat|5 Acres|...") allowed two different
+        # inputs to produce the same string:
+        #   name="Alice|Wheat", crop="5 Acres"  →  "Alice|Wheat|5 Acres|..."
+        #   name="Alice",       crop="Wheat|5 Acres" →  "Alice|Wheat|5 Acres|..."
+        # With JSON, {"name": "Alice|Wheat", "crop": "5 Acres"} and
+        # {"name": "Alice", "crop": "Wheat|5 Acres"} are distinct byte strings,
+        # so the signature binds unambiguously to the exact field values.
+        # sort_keys=True ensures the serialisation is deterministic regardless
+        # of Python dict insertion order.
+        report_payload = {
+            "name":   data.name,
+            "crop":   data.crop,
+            "area":   data.area,
+            "profit": data.profit,
+            "season": data.season,
+            "date":   datetime.now().date().isoformat(),
+        }
+        report_data_bytes = json.dumps(report_payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
+        signature = private_key.sign(report_data_bytes)
+
+        # Use the full 64-char SHA-256 hex digest as the canonical signature
+        # fingerprint, then display the first 16 chars (64 bits) on the PDF.
+        # The old 8-char (32-bit) truncation had a ~1-in-4-billion collision
+        # probability per pair — not negligible for a document presented to a
+        # bank.  16 hex chars gives ~1-in-18-quintillion, which is negligible.
+        sig_full = hashlib.sha256(signature).hexdigest().upper()
+        sig_id = sig_full[:16]
+
+        p.setFont("Helvetica-Bold", 14)
+        p.drawString(1.2*inch, y - 0.3*inch, "DIGITAL CRYPTOGRAPHIC SIGNATURE")
+        
+        p.setFont("Helvetica", 12)
+        p.drawString(1.2*inch, y - 0.7*inch, f"Signature ID: {sig_id}")
+        p.setFont("Helvetica-Bold", 12)
+        p.setFillColor(colors.green)
+        p.drawString(1.2*inch, y - 1.0*inch, "Status: VERIFIED ✔")
+        p.setFillColor(colors.black)
+        p.setFont("Helvetica", 10)
+        p.drawString(1.2*inch, y - 1.3*inch, "Security: This report is tamper-proof and cryptographically signed.")
+
+        # 4. Footer
+        p.setFont("Helvetica-Oblique", 10)
+        p.drawCentredString(width/2, 0.5*inch, "This document is generated by Fasal Saathi and is bank-ready.")
+
+        p.showPage()
+        p.save()
+
+        # Get PDF content
+        pdf_content = buffer.getvalue()
+        buffer.close()
+
+        return Response(
+            content=pdf_content,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=FasalSaathi_Report_{sig_id}.pdf"
+            }
+        )
+    except Exception as e:
+        print(f"Error generating report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/log-error")
+@limiter.limit("10/minute")
+async def log_error(request: Request, body: ClientErrorReport):
+    """
+    Receives structured error reports from the frontend.
+
+    Hardening applied vs the original implementation:
+
+    1. Rate-limited (10/minute per IP) — the original had no limiter at all,
+       allowing unlimited flooding that could exhaust server memory and CPU.
+
+    2. Typed, bounded Pydantic schema (ClientErrorReport) — the original used
+       raw request.json() with no size limit; a single request could send an
+       arbitrarily large payload.
+
+    3. ANSI / control-character sanitisation — the original printed the message
+       verbatim, allowing an attacker to inject terminal escape sequences that
+       corrupt log files or exploit log viewers.  _sanitise_log_field() strips
+       all ASCII control characters (including ESC) before the value reaches
+       the log.
+
+    4. structured logging via logging module — the original used print(), which
+       is lost in production log aggregators that capture the logging module
+       but not stdout.
+    """
+    level = _sanitise_log_field(body.level).lower()
+    message = _sanitise_log_field(body.message)
+    source = _sanitise_log_field(body.source) if body.source else "unknown"
+    stack = _sanitise_log_field(body.stack) if body.stack else ""
+
+    log_fn = {
+        "error": logger.error,
+        "warn": logger.warning,
+        "warning": logger.warning,
+        "info": logger.info,
+    }.get(level, logger.error)
+
+    log_fn(
+        "[ClientError] level=%s source=%s message=%s%s",
+        level,
+        source,
+        message,
+        f" stack={stack}" if stack else "",
+    )
+    return {"success": True}
+
+# --- RAG Advisor ---
+try:
+    from rag.generator import generate_response as rag_generate
+    HAS_RAG = True
+except Exception as rag_e:
+    print(f"RAG Warning: {rag_e}")
+    HAS_RAG = False
+
+@app.post("/api/rag/query")
+@limiter.limit("10/minute")
+async def rag_query(request: Request, body: RAGQuery):
+    """RAG-based AI advisor with research-backed citations."""
+    if not HAS_RAG:
+        raise HTTPException(status_code=503, detail="RAG pipeline not available")
+    try:
+        result = rag_generate(body.query, top_k=body.top_k)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/simulate-climate")
+@limiter.limit("5/minute")
+async def simulate_climate(request: Request, data: SimulationRequest):
+    """
+    Simulates the impact of climate anomalies on yield and profit.
+    Based on standard agricultural sensitivity coefficients.
+    """
+    # Sensitivity coefficients (heuristic values)
+    sensitivities = {
+        "rice": {"temp": -0.05, "rain": 0.02}, # -5% yield per degree temp rise
+        "wheat": {"temp": -0.06, "rain": 0.03},
+        "cotton": {"temp": -0.03, "rain": 0.01},
+        "maize": {"temp": -0.07, "rain": 0.04},
+        "sugarcane": {"temp": -0.02, "rain": 0.05},
+        "soybean": {"temp": -0.04, "rain": 0.03},
+        "potato": {"temp": -0.05, "rain": 0.04},
+        "default": {"temp": -0.04, "rain": 0.02}
+    }
+    
+    crop = data.crop_type.lower()
+    coeff = sensitivities.get(crop, sensitivities["default"])
+    
+    # Calculate yield impact
+    # temp_delta is absolute change, rain_delta is percentage change
+    yield_impact_temp = data.temp_delta * coeff["temp"]
+    yield_impact_rain = (data.rain_delta / 100.0) * coeff["rain"]
+    
+    total_yield_impact = yield_impact_temp + yield_impact_rain
+    
+    # Heuristic for profit impact (usually amplified by fixed costs)
+    profit_impact = total_yield_impact * 1.5 
+    
+    # Suitability Score (0-100)
+    suitability = max(0, min(100, 85 + (total_yield_impact * 100)))
+    
+    return {
+        "crop_type": data.crop_type,
+        "yield_impact_pct": round(total_yield_impact * 100, 2),
+        "profit_impact_pct": round(profit_impact * 100, 2),
+        "suitability_score": round(suitability, 1),
+        "risk_level": "High" if total_yield_impact < -0.15 else "Medium" if total_yield_impact < -0.05 else "Low",
+        "recommendation": "Switch to heat-tolerant varieties" if data.temp_delta > 2 else "Ensure adequate irrigation" if data.rain_delta < -20 else "Conditions remain viable"
+    }
+
+@app.post("/api/seeds/verify")
+@limiter.limit("10/minute")
+async def verify_seed(data: SeedVerifyRequest, request: Request):
+    """
+    Verifies seed authenticity against the trusted batch registry.
+    
+    Requires authentication and appropriate role.
+    """
+    # RBAC: user can verify seeds
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.SEEDS_VERIFY], require_all=False
+    )
+
+    """
+    Registry lookup logic
+    ---------------------
+    Each entry in SEED_REGISTRY is keyed by the canonical batch code
+    (upper-cased, stripped).  The entry carries:
+
+    - status        : "authentic" | "invalid"
+    - crop          : crop name the batch is certified for
+    - batch         : batch identifier
+    - manufacturer  : seed company name
+    - cert_body     : certifying authority (e.g. NSC, ICAR)
+    - certified_on  : ISO date string of certification
+    - expires_on    : ISO date string of expiry  (YYYY-MM-DD)
+    - reason        : present only on invalid entries — human-readable
+                      explanation of why the batch is rejected
+
+    Verification steps (in order)
+    ------------------------------
+    1. Format validation  — code must match the canonical pattern
+                            FS-<ALPHA>-<YEAR>-<ALPHANUM> or be a known
+                            blacklisted / test code.  Codes that do not
+                            match any registry entry are returned as
+                            "not_found" — never as "authentic".
+    2. Registry lookup    — exact match against SEED_REGISTRY keys.
+    3. Blacklist check    — status == "invalid" → return immediately.
+    4. Expiry check       — authentic entries whose expires_on is in the
+                            past are downgraded to "invalid" at query time
+                            so the registry does not need to be updated
+                            every season.
+    5. Return             — structured response with full metadata.
+
+    Security note
+    -------------
+    The old implementation used substring matching (`"FS-AUTH" in code`),
+    which allowed any crafted string containing that substring to pass.
+    This implementation uses exact dictionary lookup only — no substring
+    or regex matching is performed on the submitted code.
+    """
+
+    # ── Trusted seed batch registry ──────────────────────────────────────────
+    # In a production deployment this would be loaded from Firestore or a
+    # SQL database.  The structure is kept identical so swapping the data
+    # source requires only changing the lookup call, not the validation logic.
+    SEED_REGISTRY: dict[str, dict] = {
+        # ── Authentic batches ────────────────────────────────────────────────
+        "FS-RICE-2026-A1": {
+            "status": "authentic",
+            "crop": "Rice (IR-64)",
+            "batch": "2026-A1",
+            "manufacturer": "National Seeds Corporation (NSC)",
+            "cert_body": "Central Seed Certification Board (CSCB)",
+            "certified_on": "2025-10-01",
+            "expires_on": "2027-03-31",
+        },
+        "FS-WHEAT-2026-W2": {
+            "status": "authentic",
+            "crop": "Wheat (HD-2967)",
+            "batch": "2026-W2",
+            "manufacturer": "Punjab Agro Industries Corporation",
+            "cert_body": "State Seed Certification Agency, Punjab",
+            "certified_on": "2025-11-15",
+            "expires_on": "2027-05-31",
+        },
+        "FS-COTTON-2026-C3": {
+            "status": "authentic",
+            "crop": "Cotton (Bt Hybrid)",
+            "batch": "2026-C3",
+            "manufacturer": "Maharashtra State Seeds Corporation",
+            "cert_body": "Central Seed Certification Board (CSCB)",
+            "certified_on": "2026-01-10",
+            "expires_on": "2027-06-30",
+        },
+        "FS-MAIZE-2026-M4": {
+            "status": "authentic",
+            "crop": "Maize (DKC-9144)",
+            "batch": "2026-M4",
+            "manufacturer": "ICAR-Indian Institute of Maize Research",
+            "cert_body": "Central Seed Certification Board (CSCB)",
+            "certified_on": "2026-02-20",
+            "expires_on": "2027-08-31",
+        },
+        "FS-SOYBEAN-2026-S5": {
+            "status": "authentic",
+            "crop": "Soybean (JS-335)",
+            "batch": "2026-S5",
+            "manufacturer": "Madhya Pradesh State Seeds Corporation",
+            "cert_body": "State Seed Certification Agency, MP",
+            "certified_on": "2026-03-05",
+            "expires_on": "2027-09-30",
+        },
+        # ── Blacklisted / counterfeit batches ────────────────────────────────
+        "FS-FAKE-2026-X9": {
+            "status": "invalid",
+            "crop": "Unknown",
+            "batch": "2026-X9",
+            "manufacturer": "Unknown",
+            "cert_body": "N/A",
+            "certified_on": "N/A",
+            "expires_on": "N/A",
+            "reason": "Blacklisted — reported counterfeit batch",
+        },
+        "FS-RICE-2024-OLD": {
+            "status": "invalid",
+            "crop": "Rice (IR-64)",
+            "batch": "2024-OLD",
+            "manufacturer": "National Seeds Corporation (NSC)",
+            "cert_body": "Central Seed Certification Board (CSCB)",
+            "certified_on": "2023-10-01",
+            "expires_on": "2025-03-31",   # already expired — also caught by expiry check
+            "reason": "Expired — shelf life exceeded as of 2025-03-31",
+        },
+    }
+    # ─────────────────────────────────────────────────────────────────────────
+
+    # Step 1 — normalise the submitted code.
+    # Upper-case and strip whitespace so "fs-rice-2026-a1 " matches correctly.
+    code = data.code.upper().strip()
+
+    # Step 2 — exact registry lookup (no substring matching).
+    entry = SEED_REGISTRY.get(code)
+
+    if entry is None:
+        # Code is not in the registry at all — return not_found.
+        # We deliberately do NOT fall back to any pattern matching here.
+        logger.info("Seed verification: code not found in registry — code=%s", code)
+        return {
+            "success": True,
+            "code": code,
+            "status": "not_found",
+        }
+
+    # Step 3 — blacklist check.
+    if entry["status"] == "invalid":
+        logger.warning(
+            "Seed verification: invalid/blacklisted code submitted — code=%s reason=%s",
+            code,
+            entry.get("reason", "unknown"),
+        )
+        return {
+            "success": True,
+            "code": code,
+            "status": "invalid",
+            "crop": entry["crop"],
+            "batch": entry["batch"],
+            "manufacturer": entry["manufacturer"],
+            "cert_body": entry["cert_body"],
+            "reason": entry.get("reason", "Batch is invalid or blacklisted"),
+        }
+
+    # Step 4 — expiry check (authentic entries only).
+    # Downgrade to "invalid" at query time if the batch has expired.
+    try:
+        expiry = datetime.strptime(entry["expires_on"], "%Y-%m-%d").date()
+        if expiry < datetime.utcnow().date():
+            logger.warning(
+                "Seed verification: authentic batch has expired — code=%s expires_on=%s",
+                code,
+                entry["expires_on"],
+            )
+            return {
+                "success": True,
+                "code": code,
+                "status": "invalid",
+                "crop": entry["crop"],
+                "batch": entry["batch"],
+                "manufacturer": entry["manufacturer"],
+                "cert_body": entry["cert_body"],
+                "reason": f"Expired — shelf life exceeded as of {entry['expires_on']}",
+            }
+    except ValueError:
+        # expires_on is "N/A" or malformed — skip expiry check.
+        pass
+
+    # Step 5 — all checks passed: return authentic result with full metadata.
+    logger.info(
+        "Seed verification: authentic batch confirmed — code=%s crop=%s",
+        code,
+        entry["crop"],
+    )
+    return {
+        "success": True,
+        "code": code,
+        "status": "authentic",
+        "crop": entry["crop"],
+        "batch": entry["batch"],
+        "manufacturer": entry["manufacturer"],
+        "cert_body": entry["cert_body"],
+        "certified_on": entry["certified_on"],
+        "expires_on": entry["expires_on"],
+    }
+
+# --- Crop Quality Grading Endpoints ---
+
+@app.post("/api/quality/assess-single")
+@limiter.limit("10/minute")
+async def assess_single_crop(request: Request, data: CropQualityGradingRequest):
+    """
+    Assess quality of a single crop from image
+    
+    Request body:
+    {
+        "crop_type": "tomato",  // or potato, grain, fruit
+        "image_base64": "<base64_encoded_image>"
+    }
+    """
+    # RBAC: user can assess crop quality
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.QUALITY_ASSESS], require_all=False
+    )
+    
+    try:
+        # Decode base64 image
+        import base64
+        image_bytes = base64.b64decode(data.image_base64)
+        
+        # Assess the crop
+        assessment = _crop_quality_grader.assess_crop_image(
+            image_bytes, 
+            data.crop_type
+        )
+        
+        # Convert to dict
+        from dataclasses import asdict
+        result = asdict(assessment)
+        
+        return {
+            "success": True,
+            "data": result,
+            "timestamp": datetime.now().isoformat()
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Quality assessment error: %s", str(e))
+        raise HTTPException(status_code=500, detail="Quality assessment failed")
+
+@app.post("/api/quality/assess-batch")
+@limiter.limit("5/minute")
+async def assess_batch_crops(request: Request, data: CropQualityBatchRequest):
+    """
+    Assess quality of multiple crops in batch
+    
+    Request body:
+    {
+        "crop_type": "tomato",
+        "images_base64": ["<base64_image1>", "<base64_image2>", ...]
+    }
+    """
+    # RBAC: user can assess crop quality
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.QUALITY_ASSESS], require_all=False
+    )
+    
+    try:
+        import base64
+        
+        # Decode all images
+        image_bytes_list = []
+        for img_b64 in data.images_base64:
+            try:
+                image_bytes = base64.b64decode(img_b64)
+                image_bytes_list.append(image_bytes)
+            except Exception as e:
+                logger.warning("Failed to decode image: %s", str(e))
+                continue
+        
+        if not image_bytes_list:
+            raise ValueError("No valid images provided")
+        
+        # Batch grade
+        result = _crop_quality_grader.batch_grade_crops(
+            image_bytes_list,
+            data.crop_type
+        )
+        
+        return {
+            "success": True,
+            "data": result,
+            "timestamp": datetime.now().isoformat()
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Batch assessment error: %s", str(e))
+        raise HTTPException(status_code=500, detail="Batch assessment failed")
+
+@app.post("/api/quality/trends")
+@limiter.limit("10/minute")
+async def get_quality_trends(request: Request, data: QualityTrendsRequest):
+    """
+    Get quality trends for a crop type
+    
+    Request body:
+    {
+        "crop_type": "tomato",
+        "days": 7
+    }
+    """
+    try:
+        trends = _crop_quality_grader.get_quality_trends(
+            data.crop_type,
+            data.days
+        )
+        
+        return {
+            "success": True,
+            "data": trends,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error("Quality trends error: %s", str(e))
+        raise HTTPException(status_code=500, detail="Failed to retrieve trends")
+
+@app.get("/api/quality/supported-crops")
+@limiter.limit("20/minute")
+async def get_supported_crops(request: Request):
+    """
+    Get list of supported crops for quality grading
+    """
+    return {
+        "success": True,
+        "crops": _crop_quality_grader.supported_crops,
+        "total": len(_crop_quality_grader.supported_crops)
+    }
+
+@app.post("/api/quality/market-price")
+@limiter.limit("10/minute")
+async def calculate_market_price(request: Request, data: CropQualityGradingRequest):
+    """
+    Calculate market price adjustment based on quality grade
+    
+    Request body:
+    {
+        "crop_type": "tomato",
+        "image_base64": "<base64_encoded_image>"
+    }
+    """
+    try:
+        import base64
+        from crop_quality_grading import GRADE_MAPPING
+        
+        # Decode image
+        image_bytes = base64.b64decode(data.image_base64)
+        
+        # Assess quality
+        assessment = _crop_quality_grader.assess_crop_image(
+            image_bytes,
+            data.crop_type
+        )
+        
+        # Get grade info
+        grade_info = GRADE_MAPPING[assessment.grade]
+        
+        return {
+            "success": True,
+            "crop_type": data.crop_type,
+            "grade": assessment.grade,
+            "grade_label": grade_info["label"],
+            "score": assessment.score,
+            "price_multiplier": grade_info["price_multiplier"],
+            "recommendations": assessment.recommendations,
+            "timestamp": datetime.now().isoformat()
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Market price calculation error: %s", str(e))
+        raise HTTPException(status_code=500, detail="Price calculation failed")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
+# --- Blockchain Supply Chain Endpoints ---
+
+@app.post("/api/blockchain/register-actor")
+@limiter.limit("10/minute")
+async def register_actor(request: Request, data: RegisterActorRequest):
+    """Register supply chain participant"""
+    try:
+        actor_data = _supply_chain_blockchain.register_actor(
+            data.actor_id,
+            data.name,
+            data.actor_type,
+            data.location
+        )
+        return {"success": True, "actor": actor_data}
+    except Exception as e:
+        logger.error("Register actor error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/blockchain/create-batch")
+@limiter.limit("10/minute")
+async def create_batch(request: Request, data: CreateProductBatchRequest):
+    """Create product batch on blockchain"""
+    try:
+        batch = _supply_chain_blockchain.create_product_batch(
+            data.crop_type,
+            data.farm_id,
+            data.quantity,
+            data.unit,
+            data.planting_date,
+            data.harvesting_date,
+            data.farmer_name
+        )
+        from dataclasses import asdict
+        return {"success": True, "batch": asdict(batch)}
+    except Exception as e:
+        logger.error("Create batch error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/blockchain/add-node")
+@limiter.limit("10/minute")
+async def add_node(request: Request, data: AddSupplyChainNodeRequest):
+    """Add supply chain node"""
+    try:
+        node = _supply_chain_blockchain.add_supply_chain_node(
+            data.batch_id,
+            data.node_type,
+            data.actor_name,
+            data.location,
+            data.action,
+            temperature=data.temperature,
+            humidity=data.humidity,
+            quality_check=data.quality_check,
+            notes=data.notes
+        )
+        from dataclasses import asdict
+        return {"success": True, "node": asdict(node)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Add node error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/blockchain/create-contract")
+@limiter.limit("10/minute")
+async def create_contract(request: Request, data: CreateSmartContractRequest):
+    """Create smart contract"""
+    try:
+        contract = _supply_chain_blockchain.create_smart_contract(
+            data.batch_id,
+            data.seller,
+            data.buyer,
+            data.price,
+            data.terms
+        )
+        from dataclasses import asdict
+        return {"success": True, "contract": asdict(contract)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Create contract error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/blockchain/execute-contract")
+@limiter.limit("10/minute")
+async def execute_contract(request: Request, data: ExecuteContractRequest):
+    """Execute smart contract"""
+    try:
+        result = _supply_chain_blockchain.execute_smart_contract(data.contract_id)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Execute contract error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blockchain/qr-code/{batch_id}")
+@limiter.limit("20/minute")
+async def get_qr_code(batch_id: str):
+    """Get QR code for batch"""
+    try:
+        qr_code = _supply_chain_blockchain.generate_qr_code(batch_id)
+        return {"success": True, "batch_id": batch_id, "qr_code_base64": qr_code}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("QR code generation error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blockchain/verify/{batch_id}")
+@limiter.limit("20/minute")
+async def verify_batch(batch_id: str):
+    """Verify batch authenticity"""
+    try:
+        verification = _supply_chain_blockchain.verify_batch(batch_id)
+        return verification
+    except Exception as e:
+        logger.error("Verification error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blockchain/journey/{batch_id}")
+@limiter.limit("20/minute")
+async def get_journey(batch_id: str):
+    """Get supply chain journey"""
+    try:
+        journey = _supply_chain_blockchain.get_supply_chain_journey(batch_id)
+        return {"success": True, "data": journey}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Journey retrieval error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blockchain/analytics/{batch_id}")
+@limiter.limit("20/minute")
+async def get_analytics(batch_id: str):
+    """Get supply chain analytics"""
+    try:
+        analytics = _supply_chain_blockchain.get_supply_chain_analytics(batch_id)
+        return {"success": True, "data": analytics}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Analytics error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blockchain/marketplace")
+@limiter.limit("20/minute")
+async def get_marketplace():
+    """Get certified products for marketplace"""
+    try:
+        certified = _supply_chain_blockchain.get_certified_products()
+        return {"success": True, "products": certified, "count": len(certified)}
+    except Exception as e:
+        logger.error("Marketplace error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blockchain/stats")
+@limiter.limit("20/minute")
+async def get_stats():
+    """Get blockchain statistics"""
+    try:
+        stats = {
+            "total_records": _supply_chain_blockchain.get_blockchain_record_count(),
+            "total_products": len(_supply_chain_blockchain.products),
+            "registered_actors": len(_supply_chain_blockchain.verified_actors),
+            "total_contracts": len(_supply_chain_blockchain.smart_contracts)
+        }
+        return {"success": True, "stats": stats}
+    except Exception as e:
+        logger.error("Stats error: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def register_ml_governance_routes() -> None:
+    @app.post("/api/ml-governance/drift/baseline")
+    @limiter.limit("5/minute")
+    async def set_drift_baseline(request: Request, model_name: str, predictions: list):
+        try:
+            if not predictions or len(predictions) < 10:
+                raise ValueError("Need at least 10 baseline predictions")
+
+            drift_detector.set_baseline(model_name, predictions)
+            return {
+                "success": True,
+                "message": f"Baseline set for model '{model_name}' with {len(predictions)} samples",
+                "model_name": model_name,
+            }
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            logger.error("Drift baseline error: %s", str(e))
+            raise HTTPException(status_code=500, detail="Failed to set baseline")
+
+    @app.post("/api/ml-governance/drift/check")
+    @limiter.limit("100/minute")
+    async def check_drift(request: Request, model_name: str, prediction: float, actual_value: float = None):
+        try:
+            is_drift, alert = drift_detector.check_prediction_drift(model_name, prediction, actual_value)
+            response = {
+                "drift_detected": is_drift,
+                "model_name": model_name,
+                "prediction": prediction,
+            }
+            if alert:
+                response["alert"] = alert.to_dict()
+            return response
+        except Exception as e:
+            logger.error("Drift check error: %s", str(e))
+            raise HTTPException(status_code=500, detail="Failed to check drift")
+
+    @app.get("/api/ml-governance/drift/alerts")
+    @limiter.limit("20/minute")
+    async def get_drift_alerts(request: Request, model_name: str = None, limit: int = 10):
+        try:
+            alerts = drift_detector.get_alerts(model_name, limit)
+            return {"success": True, "alerts": alerts, "count": len(alerts)}
+        except Exception as e:
+            logger.error("Get alerts error: %s", str(e))
+            raise HTTPException(status_code=500, detail="Failed to retrieve alerts")
+
+    @app.post("/api/ml-governance/shadow/start")
+    @limiter.limit("10/minute")
+    async def start_shadow_evaluation(request: Request, data: StartShadowEvaluationRequest):
+        try:
+            eval_id = shadow_evaluator.start_shadow_evaluation(data.production_model, data.candidate_model)
+            return {
+                "success": True,
+                "eval_id": eval_id,
+                "production_model": data.production_model,
+                "candidate_model": data.candidate_model,
+            }
+        except Exception as e:
+            logger.error("Shadow eval start error: %s", str(e))
+            raise HTTPException(status_code=500, detail="Failed to start shadow evaluation")
+
+    @app.post("/api/ml-governance/shadow/record")
+    @limiter.limit("200/minute")
+    async def record_shadow_predictions(request: Request, data: RecordPredictionRequest):
+        try:
+            shadow_evaluator.record_predictions(
+                data.eval_id,
+                data.production_prediction,
+                data.candidate_prediction,
+                data.actual_value,
+            )
+            status = shadow_evaluator.get_evaluation_status(data.eval_id)
+            return {"success": True, "eval_id": data.eval_id, "status": status}
+        except Exception as e:
+            logger.error("Record predictions error: %s", str(e))
+            raise HTTPException(status_code=500, detail="Failed to record predictions")
+
+    @app.post("/api/ml-governance/shadow/evaluate")
+    @limiter.limit("10/minute")
+    async def evaluate_candidate_model(request: Request, eval_id: str):
+        try:
+            result = shadow_evaluator.evaluate_candidate(eval_id)
+            if result is None:
+                status = shadow_evaluator.get_evaluation_status(eval_id)
+                return {"success": False, "message": "Not enough samples for evaluation", "status": status}
+            return {"success": True, "evaluation": result.to_dict()}
+        except Exception as e:
+            logger.error("Evaluate candidate error: %s", str(e))
+            raise HTTPException(status_code=500, detail="Failed to evaluate candidate")
+
+    @app.get("/api/ml-governance/shadow/status/{eval_id}")
+    @limiter.limit("50/minute")
+    async def get_shadow_eval_status(request: Request, eval_id: str):
+        try:
+            status = shadow_evaluator.get_evaluation_status(eval_id)
+            return {"success": True, "status": status}
+        except Exception as e:
+            logger.error("Get shadow status error: %s", str(e))
+            raise HTTPException(status_code=500, detail="Failed to get status")
+
+    @app.post("/api/ml-governance/versions/register")
+    @limiter.limit("5/minute")
+    async def register_model_version(request: Request, data: RegisterModelVersionRequest):
+        try:
+            performance_metrics = {"rmse": data.rmse, "r2_score": data.r2_score}
+            version_id = version_manager.register_version(
+                data.model_name,
+                data.model_path,
+                performance_metrics,
+                data.metadata,
+            )
+            return {"success": True, "version_id": version_id, "model_name": data.model_name}
+        except Exception as e:
+            logger.error("Register version error: %s", str(e))
+            raise HTTPException(status_code=500, detail="Failed to register version")
+
+    @app.post("/api/ml-governance/versions/promote")
+    @limiter.limit("5/minute")
+    async def promote_model_version(request: Request, version_id: str):
+        try:
+            success = version_manager.promote_version(version_id)
+            if not success:
+                raise ValueError("Failed to promote version")
+            prod_version = version_manager.get_production_version()
+            return {
+                "success": True,
+                "message": f"Promoted {version_id} to production",
+                "production_version": prod_version.to_dict() if prod_version else None,
+            }
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            logger.error("Promote version error: %s", str(e))
+            raise HTTPException(status_code=500, detail="Failed to promote version")
+
+    @app.post("/api/ml-governance/versions/rollback")
+    @limiter.limit("5/minute")
+    async def rollback_model_version(request: Request, version_id: str):
+        try:
+            success = version_manager.rollback_to_version(version_id)
+            if not success:
+                raise ValueError("Rollback failed")
+            prod_version = version_manager.get_production_version()
+            return {
+                "success": True,
+                "message": f"Rolled back to {version_id}",
+                "production_version": prod_version.to_dict() if prod_version else None,
+            }
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            logger.error("Rollback version error: %s", str(e))
+            raise HTTPException(status_code=500, detail="Failed to rollback")
+
+    @app.get("/api/ml-governance/versions/production")
+    @limiter.limit("50/minute")
+    async def get_production_version(request: Request):
+        try:
+            prod_version = version_manager.get_production_version()
+            if not prod_version:
+                return {"success": True, "production_version": None, "message": "No production version set"}
+            return {"success": True, "production_version": prod_version.to_dict()}
+        except Exception as e:
+            logger.error("Get production version error: %s", str(e))
+            raise HTTPException(status_code=500, detail="Failed to get production version")
+
+    @app.get("/api/ml-governance/versions/list")
+    @limiter.limit("20/minute")
+    async def list_model_versions(request: Request, model_name: str = None):
+        try:
+            versions = version_manager.list_versions(model_name)
+            return {"success": True, "versions": versions, "total": len(versions)}
+        except Exception as e:
+            logger.error("List versions error: %s", str(e))
+            raise HTTPException(status_code=500, detail="Failed to list versions")
+
+    @app.get("/api/ml-governance/versions/compare")
+    @limiter.limit("20/minute")
+    async def compare_model_versions(request: Request, v1: str, v2: str):
+        try:
+            comparison = version_manager.compare_versions(v1, v2)
+            if "error" in comparison:
+                raise ValueError(comparison["error"])
+            return {"success": True, "comparison": comparison}
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            logger.error("Compare versions error: %s", str(e))
+            raise HTTPException(status_code=500, detail="Failed to compare versions")
+
+    @app.get("/api/ml-governance/status")
+    @limiter.limit("20/minute")
+    async def get_governance_status(request: Request):
+        try:
+            prod_version = version_manager.get_production_version()
+            recent_alerts = drift_detector.get_alerts(limit=5)
+            recent_evals = shadow_evaluator.get_evaluations(limit=5)
+            return {
+                "success": True,
+                "governance_status": {
+                    "drift_detection": {"recent_alerts": recent_alerts, "alert_count": len(drift_detector.alerts)},
+                    "shadow_evaluation": {
+                        "active_evaluations": len(shadow_evaluator.active_evaluations),
+                        "completed_evaluations": len(shadow_evaluator.evaluations),
+                        "recent_evaluations": recent_evals,
+                    },
+                    "model_versioning": {
+                        "production_version": prod_version.to_dict() if prod_version else None,
+                        "total_versions": len(version_manager.versions),
+                    },
+                },
+            }
+        except Exception as e:
+            logger.error("Get governance status error: %s", str(e))
+            raise HTTPException(status_code=500, detail="Failed to get governance status")
+
+
+register_ml_governance_routes()

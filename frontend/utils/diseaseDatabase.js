@@ -153,21 +153,56 @@ export const getDiseaseInfo = (diseaseKey, language = 'en') => {
 export const saveDiseaseHistory = (detectionResult) => {
   try {
     const history = JSON.parse(localStorage.getItem('diseaseHistory') || '[]');
+
+    // Store only a slim summary — NOT the full AI response.
+    //
+    // The original code spread the entire detectionResult object, which
+    // includes free-text treatment/prevention strings from Gemini that can
+    // be several KB each.  With 50 entries that could consume a significant
+    // fraction of the 5–10 MB localStorage quota, causing QuotaExceededError
+    // that silently broke every other feature using localStorage (farm
+    // reports, WhatsApp settings, QR batches, language preferences).
+    //
+    // The history panel only displays disease name, confidence, method, and
+    // date — so those are the only fields we need to persist.
     const newEntry = {
-      id: Date.now(),
+      // Use crypto.randomUUID() for collision-resistant IDs.
+      // Date.now() as the id caused duplicate keys when two detections
+      // completed within the same millisecond, causing React to silently
+      // drop one entry from the rendered list.
+      id: (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       timestamp: new Date().toISOString(),
-      ...detectionResult
+      disease:    detectionResult.disease    || 'Unknown',
+      confidence: detectionResult.confidence || 'Low',
+      method:     detectionResult.method     || 'unknown',
     };
+
     history.unshift(newEntry);
-    
-    // Keep only last 50 entries
-    if (history.length > 50) {
-      history.splice(50);
+
+    // Cap at 20 entries — enough for a useful history without risking
+    // quota exhaustion even if disease names are long.
+    if (history.length > 20) {
+      history.splice(20);
     }
-    
+
     localStorage.setItem('diseaseHistory', JSON.stringify(history));
     return newEntry;
   } catch (error) {
+    // Re-throw QuotaExceededError so the caller can warn the user.
+    // Swallowing it silently (the original behaviour) meant the user had
+    // no idea their history wasn't saved AND that other localStorage writes
+    // were also failing.
+    if (
+      error instanceof DOMException &&
+      (error.name === 'QuotaExceededError' ||
+       error.name === 'NS_ERROR_DOM_QUOTA_REACHED')
+    ) {
+      throw error;
+    }
+    // For other errors (e.g. JSON parse failure on corrupt data) return null
+    // so the caller degrades gracefully.
     return null;
   }
 };

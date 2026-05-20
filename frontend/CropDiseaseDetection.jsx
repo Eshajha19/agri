@@ -153,12 +153,8 @@ export default function CropDiseaseDetection({ onClose }) {
       let detectionResult = null;
 
       if (isUsingAI) {
-        // Use Gemini AI API
-        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-        if (!apiKey) {
-          throw new Error("⚠️ API key not configured.");
-        }
-
+        // Call the backend proxy — the Gemini API key stays server-side and is
+        // never bundled into the compiled JavaScript.
         const toBase64 = (file) =>
           new Promise((res, rej) => {
             const reader = new FileReader();
@@ -180,35 +176,23 @@ export default function CropDiseaseDetection({ onClose }) {
   "organic": ["organic1", "organic2"]
 }`;
 
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [
-                {
-                  parts: [
-                    { text: prompt },
-                    {
-                      inline_data: {
-                        mime_type: image.type,
-                        data: base64,
-                      },
-                    },
-                  ],
-                },
-              ],
-            }),
-          }
-        );
+        const apiBase = import.meta.env.VITE_API_BASE_URL || "";
+        const response = await fetch(`${apiBase}/api/gemini/analyze-image`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            image_base64: base64,
+            mime_type: image.type,
+            prompt,
+          }),
+        });
 
         if (!response.ok) {
           throw new Error(`API Error (${response.status})`);
         }
 
         const data = await response.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        const text = data.text;
 
         if (!text) throw new Error("Empty response from AI");
 
@@ -232,10 +216,19 @@ export default function CropDiseaseDetection({ onClose }) {
         }
       }
 
-      // Save to history
-      const historyEntry = saveDiseaseHistory(detectionResult);
-      if (historyEntry) {
-        setHistory(prev => [historyEntry, ...prev]);
+      // Save to history — only a slim summary is persisted (disease name,
+      // confidence, method).  If localStorage is full, show a non-blocking
+      // warning rather than silently failing.
+      try {
+        const historyEntry = saveDiseaseHistory(detectionResult);
+        if (historyEntry) {
+          setHistory(prev => [historyEntry, ...prev]);
+        }
+      } catch (storageErr) {
+        // QuotaExceededError — history could not be saved but the detection
+        // result is still shown.  Warn the user so they know to clear history.
+        console.warn('Disease history not saved — localStorage quota exceeded:', storageErr);
+        setError('⚠️ Detection complete, but history could not be saved (storage full). Clear history to free space.');
       }
 
       setResult(detectionResult);
