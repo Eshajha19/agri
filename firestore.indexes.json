@@ -23,6 +23,14 @@
         { "fieldPath": "postId",    "order": "ASCENDING"  },
         { "fieldPath": "createdAt", "order": "ASCENDING"  }
       ]
+    },
+    {
+      "collectionGroup": "scheme_applications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId",    "order": "ASCENDING"  },
+        { "fieldPath": "appliedAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
