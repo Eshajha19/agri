@@ -216,7 +216,7 @@ export default function FarmFinance() {
     try {
       setIsAnalyzing(true);
       setFinanceNotice('');
-      const analysis = await postFinanceRequest('/api/finance/analyze', buildFinancePayload());
+      const analysis = await postFinanceRequest('/api/farm-finance/analyze', buildFinancePayload());
       setAnalysisResult(analysis);
       toast.success('Financial assessment generated');
     } catch (error) {
@@ -231,7 +231,7 @@ export default function FarmFinance() {
     try {
       setIsApplying(true);
       setFinanceNotice('');
-      const application = await postFinanceRequest('/api/finance/applications', buildFinancePayload());
+      const application = await postFinanceRequest('/api/farm-finance/applications', buildFinancePayload());
       setLoanApplications(prev => [application, ...prev]);
       toast.success(`Loan application created: ${application.application_id}`);
     } catch (error) {
