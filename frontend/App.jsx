@@ -21,7 +21,8 @@ import {
   FaUserPlus,
   FaMedal,
   FaCog,
-  FaMicrophone
+  FaMicrophone,
+  FaInfoCircle
 } from "react-icons/fa";
 import { usePerformanceStore } from "./stores/performanceStore";
 import { useBrowserCacheBudget } from "./lib/cacheBudget";
