@@ -3,6 +3,7 @@ import { auth, db, isFirebaseConfigured } from "./lib/firebase";
 import { doc, setDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import { FaUser, FaGlobe, FaMapMarkerAlt, FaSeedling, FaArrowRight } from "react-icons/fa";
+import apiClient from "./lib/apiClient";
 import "./ProfileSetup.css";
 
 const LANGUAGE_OPTIONS = [
@@ -144,17 +145,17 @@ const ProfileSetup = ({ user, profileCompleted }) => {
           updatedAt: new Date().toISOString()
         }, { merge: true });
 
-        // If WhatsApp alerts are enabled, subscribe via backend
+        // If WhatsApp alerts are enabled, subscribe via backend.
+        // Use apiClient so the Firebase auth token is automatically injected
+        // via the Axios request interceptor — the backend derives the user's
+        // identity from the verified token, not from any client-supplied field.
         if (whatsappAlerts && phoneNumber) {
           try {
-            await fetch("/api/whatsapp/subscribe", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                phone_number: phoneNumber,
-                user_id: currentUser.uid,
-                name: name
-              })
+            await apiClient.post("/api/whatsapp/subscribe", {
+              phone_number: phoneNumber,
+              name: name
+              // user_id is intentionally omitted — the backend ignores it and
+              // uses the uid from the verified Firebase token instead.
             });
           } catch (whatsappErr) {
             console.error("WhatsApp subscription error:", whatsappErr);
