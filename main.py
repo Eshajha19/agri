@@ -3,9 +3,6 @@ import os
 import asyncio
 import io
 import json
-import collections
-import itertools
-import threading
 import logging
 import re
 import joblib
@@ -53,13 +50,42 @@ from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from rate_limit_config import build_limiter, rate_limit_exceeded_handler
 
-# Firebase Admin SDK
 import firebase_admin
-from firebase_admin import credentials, auth as firebase_auth, firestore
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ed25519
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from firebase_admin import auth, credentials, firestore, storage
+from opentelemetry import trace
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor
+from prometheus_fastapi_instrumentator import Instrumentator
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
-# ML Ops Imports
-from ml.registry import ModelRegistry
+from backend.routers import (
+    alerts,
+    blockchain,
+    community,
+    finance,
+    governance,
+    knowledge,
+    ml,
+    platform,
+    quality,
+    referrals,
+    reports,
+)
+from blockchain_supply_chain import SupplyChainBlockchain
+from crop_quality_grading import CropQualityGrader
+from farm_finance_ai import FarmFinanceAI
+from feature_flags.routes import router as flags_router
 from ml.adapters.xgboost_adapter import XGBoostAdapter
+from ml.governance import DriftDetector, ModelVersionManager, ShadowEvaluator
+from ml.registry import ModelRegistry
 from ml.router import ModelRouter
 from ml.preprocessing import UnknownCategoryError, MissingFeatureError
 
@@ -73,6 +99,7 @@ from realtime_notifications import notification_broker
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
@@ -111,136 +138,67 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
-# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
-# Used to sanitise client-supplied strings before they reach the log, so a
-# crafted payload cannot inject terminal control codes or forge log lines.
-_CONTROL_CHAR_RE = re.compile(
-    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
-    r"|\x1B[@-_]"                          # other ESC sequences
-    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
-)
-
-def _sanitise_log_field(value: str) -> str:
-    """Strip ANSI escape sequences and ASCII control characters from *value*."""
-    if not isinstance(value, str):
-        return ""
-    return _CONTROL_CHAR_RE.sub("", value)
 
 # Initialize Limiter
 limiter = build_limiter(default_limits=["120/minute"])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
-# Initialize Firebase Admin
-import logging as _logging
-_firebase_logger = _logging.getLogger(__name__)
 
-# Explicitly set to None before the try block so db_firestore is always
-# defined at module level, even if an exception is raised mid-init.
 db_firestore = None
 
-if not firebase_admin._apps:
+
+def get_firestore_client():
+    global db_firestore
+    if db_firestore is not None:
+        return db_firestore
+
     try:
-        # In a GCP environment this picks up Application Default Credentials
-        # automatically.  For local dev set GOOGLE_APPLICATION_CREDENTIALS to
-        # the path of a service-account key file.
-        firebase_admin.initialize_app()
-        db_firestore = firestore.client()
-        _firebase_logger.info("Firebase Admin: successfully initialized")
-    except Exception as e:
-        _firebase_logger.warning(
-            "Firebase Admin: could not initialize — role-gated endpoints will "
-            "return 503 until Firestore is reachable. Reason: %s", e
-        )
+        if not firebase_admin._apps:
+            cred = None
+            if os.path.exists("serviceAccountKey.json"):
+                cred = credentials.Certificate("serviceAccountKey.json")
+            elif os.path.exists("firebase-credentials.json"):
+                cred = credentials.Certificate("firebase-credentials.json")
+            else:
+                cred_json = os.getenv("FIREBASE_CREDENTIALS_JSON")
+                if cred_json:
+                    cred = credentials.Certificate(json.loads(cred_json))
 
-async def verify_role(request: Request, required_roles: list = None):
-    """
-    Verify the Firebase ID token and check the caller's role against Firestore.
-    Expects 'Authorization: Bearer <ID_TOKEN>' header.
+            try:
+                firebase_admin.initialize_app(cred) if cred else firebase_admin.initialize_app()
+            except ValueError:
+                pass
 
-    Fail-closed design:
-    - If Firestore is unavailable the request is rejected with 503.
-    - If the user document does not exist the request is rejected with 403.
-    - The function never grants a role that was not explicitly stored in Firestore.
-    """
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
+        if firebase_admin._apps:
+            db_firestore = firestore.client()
+    except Exception as exc:
+        logger.error("Failed to initialize Firestore client: %s", exc)
+        db_firestore = None
 
-    # Use a slice instead of split()[1] to avoid IndexError when the header
-    # is exactly "Bearer " with no token following it.
-    id_token = auth_header[7:].strip()
-    if not id_token:
-        raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
+    return db_firestore
 
-    # Verify the token signature with Firebase — raises on invalid/expired tokens.
-    try:
-        decoded_token = firebase_auth.verify_id_token(id_token)
-    except Exception:
-        raise HTTPException(status_code=401, detail="Authentication failed")
 
-    uid = decoded_token["uid"]
+def validate_firestore_ready():
+    client = get_firestore_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Database service temporarily unavailable.")
+    return client
 
-    # Firestore must be available to resolve the caller's role.
-    # Failing open (granting admin when Firestore is down) is a security bug,
-    # so we reject the request instead.
-    if not db_firestore:
-        raise HTTPException(
-            status_code=503,
-            detail="Authorization service temporarily unavailable"
-        )
 
-    # Wrap the Firestore fetch so a transient network error (timeout, reset)
-    # returns the same clean 503 as a missing db_firestore, rather than an
-    # unhandled exception that leaks internal details as a raw 500.
-    try:
-        user_doc = db_firestore.collection("users").document(uid).get()
-    except Exception as e:
-        _firebase_logger.error(
-            "Firestore fetch failed for uid=%s during role check: %s", uid, e
-        )
-        raise HTTPException(
-            status_code=503,
-            detail="Authorization service temporarily unavailable"
-        )
+async def verify_role(request: Request, required_roles: list = None, require_all: bool = False):
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing auth token")
 
-    if not user_doc.exists:
-        raise HTTPException(status_code=403, detail="User profile not found")
+app.add_middleware(ErrorRecoveryMiddleware)
 
-    user_role = user_doc.to_dict().get("role", "farmer")
+app.add_middleware(ErrorRecoveryMiddleware)
 
-    if required_roles and user_role not in required_roles:
-        raise HTTPException(status_code=403, detail="Access denied: insufficient permissions")
-
-    return {"uid": uid, "role": user_role}
-
-# --- Secure CORS Configuration ---
-frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
-trusted_origins = [
-    "http://localhost:5173",     # Local development
-    "http://127.0.0.1:5173",     # Local development alternative
-    "https://yourfrontend.com",  # Production domain placeholder
-]
-
-# Add any custom frontend URLs from environment
-if frontend_url and frontend_url not in trusted_origins:
-    trusted_origins.append(frontend_url)
-
-# Support comma-separated list of additional origins
-extra_origins = os.getenv("ADDITIONAL_ALLOWED_ORIGINS")
-if extra_origins:
-    trusted_origins.extend([origin.strip() for origin in extra_origins.split(",")])
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=trusted_origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
-)
+app.add_middleware(ErrorRecoveryMiddleware)
 
 app.add_middleware(ErrorRecoveryMiddleware)
 
@@ -299,95 +257,18 @@ class ReportRequest(BaseModel):
 class SeedVerifyRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=100)
 
-# --- ML Pipeline Initialization ---
-# init_ml_pipeline() is called inside the FastAPI lifespan context manager
-# (defined above app = FastAPI(...)) so it runs in every Uvicorn worker
-# process on startup.  Do NOT call it here at module level — doing so would
-# run it in the main process only and leave additional workers with empty
-# registries in multi-worker deployments.
-router = ModelRouter(default_model="xgboost")
+    db = validate_firestore_ready()
+    user_doc = db.collection("users").document(uid).get()
+    user_roles = user_doc.get("roles", []) if user_doc.exists else []
 
-def init_ml_pipeline():
-    try:
-        # Register XGBoost Adapter
-        xgb_adapter = XGBoostAdapter()
-        model_path = "yield_model.joblib"
-        if os.path.exists(model_path):
-            xgb_adapter.load(model_path)
-            ModelRegistry.register("xgboost", xgb_adapter)
-            print("ML Pipeline: Registered XGBoost model.")
-        else:
-            print(f"ML Pipeline Warning: {model_path} not found.")
-            
-        # You can register other models here (e.g., LSTM) as they become available
-        # ModelRegistry.register("lstm", LSTMAdapter("lstm_model.h5"))
-        
-    except Exception as e:
-        print(f"ML Pipeline Error: {e}")
+    if required_roles:
+        has_access = all(role in user_roles for role in required_roles) if require_all else any(
+            role in user_roles for role in required_roles
+        )
+        if not has_access:
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
 
-init_ml_pipeline()
-
-# Load model directly for backward compatibility or simple use cases if needed
-try:
-    model = joblib.load("yield_model.joblib")
-    model_lag = joblib.load("sklearn_yield_model.pkl")
-    print("Models loaded successfully")
-except Exception as e:
-    print(f"Error loading models: {e}")
-    model = None
-    model_lag = None
-
-# --- Static Notifications Storage ---
-#
-# Problems with the original bare list:
-#
-# 1. Unbounded growth — every trigger_whatsapp_alert call appended an entry
-#    that was never removed.  After weeks in production the list could hold
-#    thousands of entries, all serialised and sent to every client on every
-#    GET /api/notifications poll.
-#
-# 2. Duplicate IDs under concurrency — `len(list) + 1` is not atomic.  Two
-#    concurrent trigger-alert requests could both read the same length and
-#    produce entries with identical IDs, silently corrupting any client-side
-#    deduplication keyed on id.
-#
-# Fix — NotificationStore:
-#
-# • collections.deque(maxlen=MAX_NOTIFICATIONS) caps memory at a fixed
-#   ceiling.  When the deque is full, the oldest entry is automatically
-#   evicted before the new one is appended — no manual cleanup needed.
-#
-# • itertools.count() produces a strictly monotonically increasing integer
-#   sequence.  In CPython, next() on a count object is effectively atomic
-#   for the GIL-protected use case here, so two concurrent appends always
-#   get distinct IDs.
-#
-# • threading.Lock() serialises append() so the read-then-increment
-#   sequence is never interleaved across threads.
-#
-# • get_recent() filters by a TTL window so the response payload stays
-#   small even when the deque is at capacity.
-
-# Maximum number of triggered-alert entries kept in memory at any time.
-# Oldest entries are evicted automatically when this ceiling is reached.
-_MAX_NOTIFICATIONS = 200
-
-# How long a triggered-alert entry remains visible to clients.
-_NOTIFICATION_TTL_HOURS = 24
-
-
-class NotificationStore:
-    """
-    Thread-safe, bounded, TTL-aware store for in-process notifications.
-
-    Parameters
-    ----------
-    maxlen : int
-        Hard cap on the number of entries held in memory.  When full,
-        the oldest entry is evicted before the new one is appended.
-    ttl_hours : int
-        Entries older than this many hours are excluded from get_recent().
-    """
+    return {"uid": uid, "roles": user_roles}
 
     def __init__(self, maxlen: int = _MAX_NOTIFICATIONS, ttl_hours: int = _NOTIFICATION_TTL_HOURS):
         self._deque: collections.deque = collections.deque(maxlen=maxlen)
@@ -444,7 +325,17 @@ async def publish_notification(alert_type: str, message: str) -> dict:
     await notification_broker.publish(entry)
     return entry
 
-# --- Routes ---
+async def publish_notification(alert_type: str, message: str) -> dict:
+    """Store a notification and broadcast it to websocket subscribers."""
+    entry = _notification_store.append(alert_type=alert_type, message=message)
+    await notification_broker.publish(entry)
+    return entry
+
+def sanitise_log_field(value: str) -> str:
+    if not isinstance(value, str):
+        value = str(value)
+    sanitised = "".join(ch if ord(ch) >= 32 or ch in "\n\t" else f"\\x{ord(ch):02x}" for ch in value)
+    return sanitised[:1000]
 
 @app.get("/")
 @limiter.limit("60/minute")
@@ -690,517 +581,269 @@ KEYS_DIR = "keys"
 PRIVATE_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.key")
 PUBLIC_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.pub")
 
-IS_PRODUCTION = os.getenv("ENV", "").lower() == "production"
+HAS_GCP_KMS = False
+secretmanager = None
+try:
+    from google.cloud import secretmanager as gcp_secretmanager
+
+    secretmanager = gcp_secretmanager
+    HAS_GCP_KMS = True
+except Exception:
+    HAS_GCP_KMS = False
 
 
 def get_signing_keys():
-    """
-    Return the Ed25519 private key used to sign financial reports.
-
-    Resolution order:
-      1. In-process cache (fastest path after first call)
-      2. GCP Secret Manager (production-grade; key never written to disk)
-      3. Local PEM file    (dev/staging only; raises in production)
-      4. Fresh generation  (dev/staging only; raises in production)
-    """
     global _cached_private_key
 
-    # 1. In-process cache
     if _cached_private_key is not None:
         return _cached_private_key
 
-    # 2. GCP Secret Manager
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
     secret_id = os.getenv("REPORT_SIGNING_SECRET_NAME", "report-signing-key")
 
     if project_id:
         if not HAS_GCP_KMS:
-            if IS_PRODUCTION:
-                raise HTTPException(
-                    status_code=500,
-                    detail="google-cloud-secret-manager is not installed but is required in production"
-                )
-            print("KMS Warning: google-cloud-secret-manager not installed; skipping GCP path.")
-        else:
-            try:
-                client = secretmanager.SecretManagerServiceClient()
-                name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
-                response = client.access_secret_version(request={"name": name})
-                payload = response.payload.data.decode("UTF-8")
-                _cached_private_key = serialization.load_pem_private_key(
-                    payload.encode(), password=None
-                )
-                print(f"KMS: Loaded signing key from Secret Manager (secret: {secret_id})")
-                return _cached_private_key
-            except Exception as e:
-                if IS_PRODUCTION:
-                    print(f"KMS Error: {e}")
-                    raise HTTPException(
-                        status_code=500,
-                        detail="Failed to retrieve signing key from Secret Manager"
-                    )
-                print(f"KMS Warning: Could not reach Secret Manager ({e}); falling back to local key.")
-    elif IS_PRODUCTION:
-        raise HTTPException(
-            status_code=500,
-            detail="GOOGLE_CLOUD_PROJECT is not set; cannot retrieve signing key in production"
-        )
+            raise HTTPException(status_code=500, detail="KMS is required when GOOGLE_CLOUD_PROJECT is set")
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
+        response = client.access_secret_version(request={"name": name})
+        payload = response.payload.data.decode("UTF-8")
+        _cached_private_key = serialization.load_pem_private_key(payload.encode(), password=None)
+        return _cached_private_key
 
-    # 3. Local persistent PEM file (dev/staging only)
     if os.path.exists(PRIVATE_KEY_PATH):
-        try:
-            with open(PRIVATE_KEY_PATH, "rb") as f:
-                _cached_private_key = serialization.load_pem_private_key(f.read(), password=None)
-            print(f"Key Management: Loaded existing local key from {PRIVATE_KEY_PATH}")
-            return _cached_private_key
-        except Exception as e:
-            print(f"Key Management Warning: Could not load local key file ({e}); generating a new one.")
+        with open(PRIVATE_KEY_PATH, "rb") as key_file:
+            _cached_private_key = serialization.load_pem_private_key(key_file.read(), password=None)
+        return _cached_private_key
 
-    # 4. Fresh generation (dev/staging only)
-    print("Key Management: Generating a fresh signing key for local development.")
     private_key = ed25519.Ed25519PrivateKey.generate()
-
-    try:
-        os.makedirs(KEYS_DIR, exist_ok=True)
-        with open(PRIVATE_KEY_PATH, "wb") as f:
-            f.write(private_key.private_bytes(
+    os.makedirs(KEYS_DIR, exist_ok=True)
+    with open(PRIVATE_KEY_PATH, "wb") as private_file:
+        private_file.write(
+            private_key.private_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.NoEncryption()
-            ))
-        with open(PUBLIC_KEY_PATH, "wb") as f:
-            f.write(private_key.public_key().public_bytes(
+                encryption_algorithm=serialization.NoEncryption(),
+            )
+        )
+    with open(PUBLIC_KEY_PATH, "wb") as public_file:
+        public_file.write(
+            private_key.public_key().public_bytes(
                 encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo
-            ))
-        print(f"Key Management: Saved new key pair to {KEYS_DIR}/")
-    except Exception as e:
-        print(f"Key Management Warning: Could not persist generated key ({e}); key is in-memory only.")
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            )
+        )
 
     _cached_private_key = private_key
     return private_key
 
 
-@app.post("/api/reports/generate")
-@limiter.limit("3/minute")
-async def generate_signed_report(data: ReportRequest, request: Request):
-    # RBAC: Only Experts or Admins can generate signed reports
-    await verify_role(request, required_roles=["expert", "admin"])
-    
+def init_ml_pipeline() -> None:
     try:
-        private_key = get_signing_keys()
-        
-        # Create a buffer for the PDF
-        buffer = io.BytesIO()
-        p = canvas.Canvas(buffer, pagesize=letter)
-        width, height = letter
+        xgb_adapter = XGBoostAdapter()
+        model_path = "yield_model.joblib"
+        if os.path.exists(model_path):
+            xgb_adapter.load(model_path)
+            ModelRegistry.register("xgboost", xgb_adapter)
+            logger.info("ML Pipeline: Registered XGBoost model")
+        else:
+            logger.warning("ML Pipeline: %s not found", model_path)
+    except Exception as exc:
+        logger.warning("ML Pipeline initialization failed: %s", exc)
 
-        # 1. Header
-        p.setFont("Helvetica-Bold", 24)
-        p.setFillColor(colors.green)
-        p.drawCentredString(width/2, height - 1*inch, "FASAL SAATHI")
-        
-        p.setFont("Helvetica-Bold", 18)
-        p.setFillColor(colors.black)
-        p.drawCentredString(width/2, height - 1.5*inch, "CERTIFIED FINANCIAL FARM REPORT")
-        
-        p.setStrokeColor(colors.green)
-        p.line(1*inch, height - 1.7*inch, width - 1*inch, height - 1.7*inch)
 
-        # 2. Content
-        p.setFont("Helvetica", 14)
-        y = height - 2.5*inch
-        
-        details = [
-            ("Farmer Name:", data.name),
-            ("Crop Type:", data.crop),
-            ("Farm Area:", data.area),
-            ("Season Profit:", f"Rs. {data.profit}"),
-            ("Season:", data.season),
-            ("Report Date:", datetime.now().strftime("%d %B, %Y")),
-        ]
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Starting up: initializing services")
+    get_firestore_client()
+    init_ml_pipeline()
+    yield
+    logger.info("Shutting down")
 
-        for label, value in details:
-            p.setFont("Helvetica-Bold", 14)
-            p.drawString(1.5*inch, y, label)
-            p.setFont("Helvetica", 14)
-            p.drawString(3.5*inch, y, value)
-            y -= 0.4*inch
 
-        # 3. Signature Box
-        y -= 0.5*inch
-        p.setStrokeColor(colors.black)
-        p.rect(1*inch, y - 1.5*inch, width - 2*inch, 1.8*inch, stroke=1, fill=0)
-        
-        # Data for signing — use a JSON object with explicit field keys so
-        # every field is unambiguously bound to its name.  The old pipe-
-        # delimited format ("Alice|Wheat|5 Acres|...") allowed two different
-        # inputs to produce the same string:
-        #   name="Alice|Wheat", crop="5 Acres"  →  "Alice|Wheat|5 Acres|..."
-        #   name="Alice",       crop="Wheat|5 Acres" →  "Alice|Wheat|5 Acres|..."
-        # With JSON, {"name": "Alice|Wheat", "crop": "5 Acres"} and
-        # {"name": "Alice", "crop": "Wheat|5 Acres"} are distinct byte strings,
-        # so the signature binds unambiguously to the exact field values.
-        # sort_keys=True ensures the serialisation is deterministic regardless
-        # of Python dict insertion order.
-        report_payload = {
-            "name":   data.name,
-            "crop":   data.crop,
-            "area":   data.area,
-            "profit": data.profit,
-            "season": data.season,
-            "date":   datetime.now().date().isoformat(),
-        }
-        report_data_bytes = json.dumps(report_payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
-        signature = private_key.sign(report_data_bytes)
+app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
 
-        # Use the full 64-char SHA-256 hex digest as the canonical signature
-        # fingerprint, then display the first 16 chars (64 bits) on the PDF.
-        # The old 8-char (32-bit) truncation had a ~1-in-4-billion collision
-        # probability per pair — not negligible for a document presented to a
-        # bank.  16 hex chars gives ~1-in-18-quintillion, which is negligible.
-        sig_full = hashlib.sha256(signature).hexdigest().upper()
-        sig_id = sig_full[:16]
-
-        p.setFont("Helvetica-Bold", 14)
-        p.drawString(1.2*inch, y - 0.3*inch, "DIGITAL CRYPTOGRAPHIC SIGNATURE")
-        
-        p.setFont("Helvetica", 12)
-        p.drawString(1.2*inch, y - 0.7*inch, f"Signature ID: {sig_id}")
-        p.setFont("Helvetica-Bold", 12)
-        p.setFillColor(colors.green)
-        p.drawString(1.2*inch, y - 1.0*inch, "Status: VERIFIED ✔")
-        p.setFillColor(colors.black)
-        p.setFont("Helvetica", 10)
-        p.drawString(1.2*inch, y - 1.3*inch, "Security: This report is tamper-proof and cryptographically signed.")
-
-        # 4. Footer
-        p.setFont("Helvetica-Oblique", 10)
-        p.drawCentredString(width/2, 0.5*inch, "This document is generated by Fasal Saathi and is bank-ready.")
-
-        p.showPage()
-        p.save()
-
-        # Get PDF content
-        pdf_content = buffer.getvalue()
-        buffer.close()
-
-        return Response(
-            content=pdf_content,
-            media_type="application/pdf",
-            headers={
-                "Content-Disposition": f"attachment; filename=FasalSaathi_Report_{sig_id}.pdf"
-            }
-        )
-    except Exception as e:
-        print(f"Error generating report: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/log-error")
-@limiter.limit("10/minute")
-async def log_error(request: Request, body: ClientErrorReport):
-    """
-    Receives structured error reports from the frontend.
-
-    Hardening applied vs the original implementation:
-
-    1. Rate-limited (10/minute per IP) — the original had no limiter at all,
-       allowing unlimited flooding that could exhaust server memory and CPU.
-
-    2. Typed, bounded Pydantic schema (ClientErrorReport) — the original used
-       raw request.json() with no size limit; a single request could send an
-       arbitrarily large payload.
-
-    3. ANSI / control-character sanitisation — the original printed the message
-       verbatim, allowing an attacker to inject terminal escape sequences that
-       corrupt log files or exploit log viewers.  _sanitise_log_field() strips
-       all ASCII control characters (including ESC) before the value reaches
-       the log.
-
-    4. structured logging via logging module — the original used print(), which
-       is lost in production log aggregators that capture the logging module
-       but not stdout.
-    """
-    level = _sanitise_log_field(body.level).lower()
-    message = _sanitise_log_field(body.message)
-    source = _sanitise_log_field(body.source) if body.source else "unknown"
-    stack = _sanitise_log_field(body.stack) if body.stack else ""
-
-    log_fn = {
-        "error": logger.error,
-        "warn": logger.warning,
-        "warning": logger.warning,
-        "info": logger.info,
-    }.get(level, logger.error)
-
-    log_fn(
-        "[ClientError] level=%s source=%s message=%s%s",
-        level,
-        source,
-        message,
-        f" stack={stack}" if stack else "",
-    )
-    return {"success": True}
-
-# --- RAG Advisor ---
+# Observability setup
 try:
-    from rag.generator import generate_response as rag_generate
-    HAS_RAG = True
-except Exception as rag_e:
-    print(f"RAG Warning: {rag_e}")
-    HAS_RAG = False
+    service_name = os.environ.get("OTEL_SERVICE_NAME", "fasal-saathi-backend")
+    resource = Resource.create({"service.name": service_name})
+    provider = TracerProvider(resource=resource)
+    trace.set_tracer_provider(provider)
+    otlp_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+    if otlp_endpoint:
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
-@app.post("/api/rag/query")
-@limiter.limit("10/minute")
-async def rag_query(request: Request, body: RAGQuery):
-    """RAG-based AI advisor with research-backed citations."""
-    if not HAS_RAG:
-        raise HTTPException(status_code=503, detail="RAG pipeline not available")
-    try:
-        result = rag_generate(body.query, top_k=body.top_k)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=otlp_endpoint)))
+    else:
+        provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
+    FastAPIInstrumentor().instrument_app(app)
+except Exception as exc:
+    logger.warning("Tracing setup skipped: %s", exc)
 
-@app.post("/api/simulate-climate")
+try:
+    Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+except Exception as exc:
+    logger.warning("Prometheus setup skipped: %s", exc)
+
+# Middleware and rate-limits
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.add_middleware(RBACMiddleware)
+logger.info(print_rbac_matrix())
+
+# Domain dependencies
+drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
+shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
+version_manager = ModelVersionManager(versions_dir="./model_versions")
+
+_finance_repository = FinanceApplicationRepository()
+_notification_repository = NotificationRepository()
+_supply_chain_repository = SupplyChainRepository()
+_farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
+_supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
+_crop_quality_grader = CropQualityGrader()
+
+# Router init hooks
+governance.init_governance(drift_detector, shadow_evaluator, version_manager)
+finance.init_finance(_farm_finance_ai, RBACManager, Permission)
+quality.init_quality(_crop_quality_grader, RBACManager, Permission)
+blockchain.init_blockchain(_supply_chain_blockchain)
+referrals.init_referrals(validate_firestore_ready)
+reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
+
+rag_generate_fn = None
+try:
+    from rag.generator import generate_response as rag_generate_fn
+except Exception as exc:
+    logger.warning("RAG init skipped: %s", exc)
+
+knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
+
+alerts.init_alerts([], subscriber_store, lambda **kwargs: [], send_whatsapp_message, format_alert_message, verify_role)
+platform.init_platform(
+    verify_role,
+    get_signing_keys,
+    sanitise_log_field,
+    rag_generate_fn,
+    subscriber_store,
+    send_whatsapp_message,
+    format_alert_message,
+    weather_service,
+    RBACManager,
+    Permission,
+)
+
+try:
+    from backend.routers import voice_assistant as voice_assistant_router
+    from voice_assistant import OfflineCacheManager, VoiceAssistant
+
+    voice_asst = VoiceAssistant(offline_mode=True)
+    cache_mgr = OfflineCacheManager(cache_dir="./voice_assistant_cache")
+    voice_assistant_router.init_voice_assistant(voice_asst, cache_mgr, verify_role)
+except Exception as exc:
+    voice_assistant_router = None
+    logger.warning("Voice assistant init skipped: %s", exc)
+
+try:
+    import joblib
+
+    model_lag = joblib.load("sklearn_yield_model.joblib")
+except Exception:
+    model_lag = None
+
+ml.init_router(ModelRouter(default_model="xgboost"), model_lag)
+
+# Router registration
+app.include_router(ml.router, prefix="/api/yield", tags=["ML Prediction"])
+app.include_router(governance.router, prefix="/api/ml-governance", tags=["ML Governance"])
+app.include_router(finance.router, prefix="/api/farm-finance", tags=["Finance"])
+app.include_router(finance.router, prefix="/api/finance", tags=["Finance Legacy"])
+app.include_router(quality.router, prefix="/api/crop-quality", tags=["Quality"])
+app.include_router(blockchain.router, prefix="/api/supply-chain", tags=["Blockchain"])
+app.include_router(reports.router, prefix="/api/admin", tags=["Reports"])
+app.include_router(knowledge.router, prefix="/api/knowledge", tags=["Knowledge"])
+app.include_router(community.router, prefix="/api/community", tags=["Community"])
+if voice_assistant_router is not None:
+    app.include_router(voice_assistant_router.router, prefix="/api/voice", tags=["Voice Assistant"])
+app.include_router(referrals.router, prefix="/api/referrals", tags=["Referrals"])
+app.include_router(platform.router, prefix="/api", tags=["Platform"])
+app.include_router(alerts.router, prefix="/api/notifications", tags=["Alerts"])
+app.include_router(flags_router, prefix="/api/flags", tags=["Feature Flags"])
+
+
+@app.get("/")
+def health_check():
+    return {"status": "healthy", "service": "Fasal Saathi Backend", "version": "2.0"}
+
+
+# --- Smart Farm Autopilot ---
+
+class SeasonPlanRequest(BaseModel):
+    farm_name: str = Field(default="My Farm", max_length=100)
+    state: str = Field(..., min_length=2, max_length=50)
+    district: str = Field(default="", max_length=100)
+    area_acres: float = Field(..., gt=0, le=10000)
+    soil_type: str = Field(..., min_length=2, max_length=50)
+    season: str = Field(..., pattern="^(Kharif|Rabi|Zaid)$")
+    water_source: str = Field(default="Canal", max_length=50)
+    budget_inr: Optional[float] = Field(default=None, ge=0)
+
+
+@app.post("/api/autopilot/generate-plan")
 @limiter.limit("5/minute")
-async def simulate_climate(request: Request, data: SimulationRequest):
+async def generate_farm_plan(request: Request, data: SeasonPlanRequest):
     """
-    Simulates the impact of climate anomalies on yield and profit.
-    Based on standard agricultural sensitivity coefficients.
+    Smart Farm Autopilot — generate a complete seasonal farming plan.
+
+    Requires authentication. The planner is computationally intensive
+    (crop selection, sowing schedule, irrigation plan, fertilizer/pesticide
+    timeline, yield/profit projection) and must not be accessible to
+    unauthenticated callers.
     """
-    # Sensitivity coefficients (heuristic values)
-    sensitivities = {
-        "rice": {"temp": -0.05, "rain": 0.02}, # -5% yield per degree temp rise
-        "wheat": {"temp": -0.06, "rain": 0.03},
-        "cotton": {"temp": -0.03, "rain": 0.01},
-        "maize": {"temp": -0.07, "rain": 0.04},
-        "sugarcane": {"temp": -0.02, "rain": 0.05},
-        "soybean": {"temp": -0.04, "rain": 0.03},
-        "potato": {"temp": -0.05, "rain": 0.04},
-        "default": {"temp": -0.04, "rain": 0.02}
-    }
-    
-    crop = data.crop_type.lower()
-    coeff = sensitivities.get(crop, sensitivities["default"])
-    
-    # Calculate yield impact
-    # temp_delta is absolute change, rain_delta is percentage change
-    yield_impact_temp = data.temp_delta * coeff["temp"]
-    yield_impact_rain = (data.rain_delta / 100.0) * coeff["rain"]
-    
-    total_yield_impact = yield_impact_temp + yield_impact_rain
-    
-    # Heuristic for profit impact (usually amplified by fixed costs)
-    profit_impact = total_yield_impact * 1.5 
-    
-    # Suitability Score (0-100)
-    suitability = max(0, min(100, 85 + (total_yield_impact * 100)))
-    
-    return {
-        "crop_type": data.crop_type,
-        "yield_impact_pct": round(total_yield_impact * 100, 2),
-        "profit_impact_pct": round(profit_impact * 100, 2),
-        "suitability_score": round(suitability, 1),
-        "risk_level": "High" if total_yield_impact < -0.15 else "Medium" if total_yield_impact < -0.05 else "Low",
-        "recommendation": "Switch to heat-tolerant varieties" if data.temp_delta > 2 else "Ensure adequate irrigation" if data.rain_delta < -20 else "Conditions remain viable"
-    }
-
-@app.post("/api/seeds/verify")
-@limiter.limit("10/minute")
-async def verify_seed(data: SeedVerifyRequest, request: Request):
-    """
-    Verifies seed authenticity against the trusted batch registry.
-
-    Registry lookup logic
-    ---------------------
-    Each entry in SEED_REGISTRY is keyed by the canonical batch code
-    (upper-cased, stripped).  The entry carries:
-
-    - status        : "authentic" | "invalid"
-    - crop          : crop name the batch is certified for
-    - batch         : batch identifier
-    - manufacturer  : seed company name
-    - cert_body     : certifying authority (e.g. NSC, ICAR)
-    - certified_on  : ISO date string of certification
-    - expires_on    : ISO date string of expiry  (YYYY-MM-DD)
-    - reason        : present only on invalid entries — human-readable
-                      explanation of why the batch is rejected
-
-    Verification steps (in order)
-    ------------------------------
-    1. Format validation  — code must match the canonical pattern
-                            FS-<ALPHA>-<YEAR>-<ALPHANUM> or be a known
-                            blacklisted / test code.  Codes that do not
-                            match any registry entry are returned as
-                            "not_found" — never as "authentic".
-    2. Registry lookup    — exact match against SEED_REGISTRY keys.
-    3. Blacklist check    — status == "invalid" → return immediately.
-    4. Expiry check       — authentic entries whose expires_on is in the
-                            past are downgraded to "invalid" at query time
-                            so the registry does not need to be updated
-                            every season.
-    5. Return             — structured response with full metadata.
-
-    Security note
-    -------------
-    The old implementation used substring matching (`"FS-AUTH" in code`),
-    which allowed any crafted string containing that substring to pass.
-    This implementation uses exact dictionary lookup only — no substring
-    or regex matching is performed on the submitted code.
-    """
-
-    # ── Trusted seed batch registry ──────────────────────────────────────────
-    # In a production deployment this would be loaded from Firestore or a
-    # SQL database.  The structure is kept identical so swapping the data
-    # source requires only changing the lookup call, not the validation logic.
-    SEED_REGISTRY: dict[str, dict] = {
-        # ── Authentic batches ────────────────────────────────────────────────
-        "FS-RICE-2026-A1": {
-            "status": "authentic",
-            "crop": "Rice (IR-64)",
-            "batch": "2026-A1",
-            "manufacturer": "National Seeds Corporation (NSC)",
-            "cert_body": "Central Seed Certification Board (CSCB)",
-            "certified_on": "2025-10-01",
-            "expires_on": "2027-03-31",
-        },
-        "FS-WHEAT-2026-W2": {
-            "status": "authentic",
-            "crop": "Wheat (HD-2967)",
-            "batch": "2026-W2",
-            "manufacturer": "Punjab Agro Industries Corporation",
-            "cert_body": "State Seed Certification Agency, Punjab",
-            "certified_on": "2025-11-15",
-            "expires_on": "2027-05-31",
-        },
-        "FS-COTTON-2026-C3": {
-            "status": "authentic",
-            "crop": "Cotton (Bt Hybrid)",
-            "batch": "2026-C3",
-            "manufacturer": "Maharashtra State Seeds Corporation",
-            "cert_body": "Central Seed Certification Board (CSCB)",
-            "certified_on": "2026-01-10",
-            "expires_on": "2027-06-30",
-        },
-        "FS-MAIZE-2026-M4": {
-            "status": "authentic",
-            "crop": "Maize (DKC-9144)",
-            "batch": "2026-M4",
-            "manufacturer": "ICAR-Indian Institute of Maize Research",
-            "cert_body": "Central Seed Certification Board (CSCB)",
-            "certified_on": "2026-02-20",
-            "expires_on": "2027-08-31",
-        },
-        "FS-SOYBEAN-2026-S5": {
-            "status": "authentic",
-            "crop": "Soybean (JS-335)",
-            "batch": "2026-S5",
-            "manufacturer": "Madhya Pradesh State Seeds Corporation",
-            "cert_body": "State Seed Certification Agency, MP",
-            "certified_on": "2026-03-05",
-            "expires_on": "2027-09-30",
-        },
-        # ── Blacklisted / counterfeit batches ────────────────────────────────
-        "FS-FAKE-2026-X9": {
-            "status": "invalid",
-            "crop": "Unknown",
-            "batch": "2026-X9",
-            "manufacturer": "Unknown",
-            "cert_body": "N/A",
-            "certified_on": "N/A",
-            "expires_on": "N/A",
-            "reason": "Blacklisted — reported counterfeit batch",
-        },
-        "FS-RICE-2024-OLD": {
-            "status": "invalid",
-            "crop": "Rice (IR-64)",
-            "batch": "2024-OLD",
-            "manufacturer": "National Seeds Corporation (NSC)",
-            "cert_body": "Central Seed Certification Board (CSCB)",
-            "certified_on": "2023-10-01",
-            "expires_on": "2025-03-31",   # already expired — also caught by expiry check
-            "reason": "Expired — shelf life exceeded as of 2025-03-31",
-        },
-    }
-    # ─────────────────────────────────────────────────────────────────────────
-
-    # Step 1 — normalise the submitted code.
-    # Upper-case and strip whitespace so "fs-rice-2026-a1 " matches correctly.
-    code = data.code.upper().strip()
-
-    # Step 2 — exact registry lookup (no substring matching).
-    entry = SEED_REGISTRY.get(code)
-
-    if entry is None:
-        # Code is not in the registry at all — return not_found.
-        # We deliberately do NOT fall back to any pattern matching here.
-        logger.info("Seed verification: code not found in registry — code=%s", code)
-        return {
-            "success": True,
-            "code": code,
-            "status": "not_found",
-        }
-
-    # Step 3 — blacklist check.
-    if entry["status"] == "invalid":
-        logger.warning(
-            "Seed verification: invalid/blacklisted code submitted — code=%s reason=%s",
-            code,
-            entry.get("reason", "unknown"),
-        )
-        return {
-            "success": True,
-            "code": code,
-            "status": "invalid",
-            "crop": entry["crop"],
-            "batch": entry["batch"],
-            "manufacturer": entry["manufacturer"],
-            "cert_body": entry["cert_body"],
-            "reason": entry.get("reason", "Batch is invalid or blacklisted"),
-        }
-
-    # Step 4 — expiry check (authentic entries only).
-    # Downgrade to "invalid" at query time if the batch has expired.
+    await verify_role(request)   # raises 401/403 if token is missing or invalid
     try:
-        expiry = datetime.strptime(entry["expires_on"], "%Y-%m-%d").date()
-        if expiry < datetime.utcnow().date():
-            logger.warning(
-                "Seed verification: authentic batch has expired — code=%s expires_on=%s",
-                code,
-                entry["expires_on"],
-            )
-            return {
-                "success": True,
-                "code": code,
-                "status": "invalid",
-                "crop": entry["crop"],
-                "batch": entry["batch"],
-                "manufacturer": entry["manufacturer"],
-                "cert_body": entry["cert_body"],
-                "reason": f"Expired — shelf life exceeded as of {entry['expires_on']}",
-            }
-    except ValueError:
-        # expires_on is "N/A" or malformed — skip expiry check.
-        pass
+        from smart_farm_autopilot import generate_season_plan
+        plan = generate_season_plan(data.dict())
+        return {"success": True, "plan": plan}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Autopilot plan generation failed: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to generate farm plan")
 
-    # Step 5 — all checks passed: return authentic result with full metadata.
-    logger.info(
-        "Seed verification: authentic batch confirmed — code=%s crop=%s",
-        code,
-        entry["crop"],
-    )
-    return {
-        "success": True,
-        "code": code,
-        "status": "authentic",
-        "crop": entry["crop"],
-        "batch": entry["batch"],
-        "manufacturer": entry["manufacturer"],
-        "cert_body": entry["cert_body"],
-        "certified_on": entry["certified_on"],
-        "expires_on": entry["expires_on"],
-    }
+
+# Include ML Model Management Router
+try:
+    from routers.ml_models import router as ml_router
+    app.include_router(ml_router)
+    logger.info("ML Model Management API loaded successfully")
+except Exception as e:
+    logger.warning(f"Could not load ML Model Management API: {e}")
+
+# Include ML Model Management Router
+try:
+    from routers.ml_models import router as ml_router
+    app.include_router(ml_router)
+    logger.info("ML Model Management API loaded successfully")
+except Exception as e:
+    logger.warning(f"Could not load ML Model Management API: {e}")
+
+# Include ML Model Management Router
+try:
+    from routers.ml_models import router as ml_router
+    app.include_router(ml_router)
+    logger.info("ML Model Management API loaded successfully")
+except Exception as e:
+    logger.warning(f"Could not load ML Model Management API: {e}")
 
 # Include ML Model Management Router
 try:
@@ -1212,4 +855,5 @@ except Exception as e:
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

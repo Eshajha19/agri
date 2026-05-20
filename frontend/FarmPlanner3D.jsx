@@ -1,4 +1,4 @@
-import React, { useState, useRef, Suspense } from 'react';
+import React, { useState, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Grid, Plane, Box, Sphere, Cylinder, PerspectiveCamera, ContactShadows, Environment, Text } from '@react-three/drei';
 import * as THREE from 'three';
@@ -171,40 +171,38 @@ export default function FarmPlanner3D() {
           <pointLight position={[10, 10, 10]} intensity={1} castShadow />
           <Environment preset="city" />
 
-          <Suspense fallback={null}>
-            {/* Ground Grid */}
-            <Grid 
-              infiniteGrid 
-              fadeDistance={50} 
-              fadeStrength={5} 
-              cellSize={1} 
-              sectionSize={5} 
-              sectionColor="#2e7d32"
-              cellColor="#999"
+          {/* Ground Grid */}
+          <Grid 
+            infiniteGrid 
+            fadeDistance={50} 
+            fadeStrength={5} 
+            cellSize={1} 
+            sectionSize={5} 
+            sectionColor="#2e7d32"
+            cellColor="#999"
+          />
+          
+          {/* Clickable Plane for object placement */}
+          <Plane 
+            args={[100, 100]} 
+            rotation={[-Math.PI / 2, 0, 0]} 
+            position={[0, -0.01, 0]} 
+            onClick={addItem}
+          >
+            <meshStandardMaterial color="#f0fdf4" transparent opacity={0.5} />
+          </Plane>
+
+          {/* Render Items */}
+          {items.map(item => (
+            <DraggableObject 
+              key={item.id}
+              {...item}
+              isSelected={selectedId === item.id}
+              onSelect={() => setSelectedId(item.id)}
             />
-            
-            {/* Clickable Plane for object placement */}
-            <Plane 
-              args={[100, 100]} 
-              rotation={[-Math.PI / 2, 0, 0]} 
-              position={[0, -0.01, 0]} 
-              onClick={addItem}
-            >
-              <meshStandardMaterial color="#f0fdf4" transparent opacity={0.5} />
-            </Plane>
+          ))}
 
-            {/* Render Items */}
-            {items.map(item => (
-              <DraggableObject 
-                key={item.id}
-                {...item}
-                isSelected={selectedId === item.id}
-                onSelect={() => setSelectedId(item.id)}
-              />
-            ))}
-
-            <ContactShadows position={[0, 0, 0]} opacity={0.4} scale={20} blur={2} far={4.5} />
-          </Suspense>
+          <ContactShadows position={[0, 0, 0]} opacity={0.4} scale={20} blur={2} far={4.5} />
         </Canvas>
         
         <div className="viewport-overlay">
