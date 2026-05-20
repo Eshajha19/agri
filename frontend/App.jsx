@@ -281,13 +281,18 @@ function App() {
       return;
     }
 
-    // Deterministic auth-readiness sync
+    const userDocUnsubscribeRef = { current: null };
+
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       
+      if (userDocUnsubscribeRef.current) {
+        userDocUnsubscribeRef.current();
+        userDocUnsubscribeRef.current = null;
+      }
+      
       if (currentUser) {
-        // Wait for profile data sync before hiding loader
-        const unsubscribeDoc = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
+        userDocUnsubscribeRef.current = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
           if (userDoc.exists()) {
             const data = userDoc.data();
             setUserData(data);
@@ -302,10 +307,8 @@ function App() {
           setLoading(false);
         }, (error) => {
           console.error("Firestore sync error:", error);
-          // Still disable loading to avoid hanging, but only after deterministic failure
           setLoading(false);
         });
-        return () => unsubscribeDoc();
       } else {
         setUserData(null);
         setProfileCompleted(true);
@@ -313,7 +316,12 @@ function App() {
       }
     });
 
-    return () => unsubscribeAuth();
+    return () => {
+      unsubscribeAuth();
+      if (userDocUnsubscribeRef.current) {
+        userDocUnsubscribeRef.current();
+      }
+    };
   }, []);
 
   // E2EE Key Generation Sync
