@@ -934,12 +934,44 @@ limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# ---------------------------------------------------------------------------
+# CORS — explicit origin allowlist
+#
+# allow_origins=["*"] combined with allow_credentials=True is forbidden by
+# the CORS specification and rejected by browsers. It would also allow any
+# origin on the internet to make credentialed requests on behalf of a
+# logged-in farmer if a non-browser client ever relaxed the check.
+#
+# Origins are built from:
+#   1. Hard-coded local development origins (always included).
+#   2. FRONTEND_URL env var — set this to the production deployment URL.
+#   3. ADDITIONAL_ALLOWED_ORIGINS env var — comma-separated list for staging
+#      or preview deployments (e.g. Vercel preview URLs).
+# ---------------------------------------------------------------------------
+_CORS_ORIGINS: list[str] = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+_frontend_url = os.getenv("FRONTEND_URL", "").strip()
+if _frontend_url and _frontend_url not in _CORS_ORIGINS:
+    _CORS_ORIGINS.append(_frontend_url)
+
+_extra_origins = os.getenv("ADDITIONAL_ALLOWED_ORIGINS", "").strip()
+if _extra_origins:
+    for _origin in _extra_origins.split(","):
+        _origin = _origin.strip()
+        if _origin and _origin not in _CORS_ORIGINS:
+            _CORS_ORIGINS.append(_origin)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
 )
 app.add_middleware(RBACMiddleware)
 logger.info(print_rbac_matrix())
