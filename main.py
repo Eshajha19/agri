@@ -19,12 +19,6 @@ from cryptography.hazmat.primitives.asymmetric import ed25519
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from firebase_admin import auth, credentials, firestore, storage
-from opentelemetry import trace
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor
-from prometheus_fastapi_instrumentator import Instrumentator
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -188,13 +182,29 @@ PUBLIC_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.pub")
 
 HAS_GCP_KMS = False
 secretmanager = None
+_kms_init_error = None
 try:
     from google.cloud import secretmanager as gcp_secretmanager
 
     secretmanager = gcp_secretmanager
     HAS_GCP_KMS = True
-except Exception:
+except Exception as e:
     HAS_GCP_KMS = False
+    _kms_init_error = str(e)
+
+ALLOW_INSECURE_FALLBACK = os.getenv("ALLOW_INSECURE_KEY_FALLBACK", "false").lower() == "true"
+
+if os.getenv("GOOGLE_CLOUD_PROJECT") and not HAS_GCP_KMS:
+    logger.error(
+        f"KMS initialization failed: GOOGLE_CLOUD_PROJECT is set but GCP Secret Manager is unavailable. "
+        f"Error: {_kms_init_error}. Set ALLOW_INSECURE_KEY_FALLBACK=true to permit local key fallback (NOT RECOMMENDED)."
+    )
+    if not ALLOW_INSECURE_FALLBACK:
+        raise RuntimeError(
+            "SECURITY CRITICAL: KMS is required for production use but is unavailable. "
+            "Application will not start with insecure key fallback. "
+            "Either configure GCP Secret Manager or explicitly set ALLOW_INSECURE_KEY_FALLBACK=true (NOT RECOMMENDED)."
+        )
 
 
 def get_signing_keys():
@@ -214,13 +224,35 @@ def get_signing_keys():
         response = client.access_secret_version(request={"name": name})
         payload = response.payload.data.decode("UTF-8")
         _cached_private_key = serialization.load_pem_private_key(payload.encode(), password=None)
+        logger.info("Successfully loaded signing key from GCP KMS")
         return _cached_private_key
 
     if os.path.exists(PRIVATE_KEY_PATH):
+        if not ALLOW_INSECURE_FALLBACK:
+            logger.warning(
+                "SECURITY WARNING: Falling back to local file-based signing keys. "
+                "This is insecure for production use. Set GOOGLE_CLOUD_PROJECT and configure GCP KMS "
+                "or set ALLOW_INSECURE_KEY_FALLBACK=true only if you understand the risks."
+            )
         with open(PRIVATE_KEY_PATH, "rb") as key_file:
             _cached_private_key = serialization.load_pem_private_key(key_file.read(), password=None)
+        logger.warning("Using local file-based signing key - NOT SECURE FOR PRODUCTION")
         return _cached_private_key
 
+    if not ALLOW_INSECURE_FALLBACK:
+        logger.error(
+            "SECURITY CRITICAL: No secure key source available and ALLOW_INSECURE_KEY_FALLBACK is not enabled. "
+            "Refusing to generate insecure keys. Set ALLOW_INSECURE_KEY_FALLBACK=true to permit key generation."
+        )
+        raise RuntimeError(
+            "SECURITY CRITICAL: Cannot proceed without secure key management. "
+            "Either configure GCP KMS, provide existing keys, or explicitly allow insecure fallback."
+        )
+
+    logger.warning(
+        "SECURITY WARNING: Generating new insecure signing keys locally. "
+        "This should NEVER happen in production - keys will not persist across restarts."
+    )
     private_key = ed25519.Ed25519PrivateKey.generate()
     os.makedirs(KEYS_DIR, exist_ok=True)
     with open(PRIVATE_KEY_PATH, "wb") as private_file:
@@ -334,6 +366,12 @@ app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
 
 # Observability setup
 try:
+    from opentelemetry import trace
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor
+
     service_name = os.environ.get("OTEL_SERVICE_NAME", "fasal-saathi-backend")
     resource = Resource.create({"service.name": service_name})
     provider = TracerProvider(resource=resource)
@@ -350,6 +388,8 @@ except Exception as exc:
     logger.warning("Tracing setup skipped: %s", exc)
 
 try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+
     Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
