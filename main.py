@@ -1,5 +1,6 @@
 # main.py
 import os
+import asyncio
 import io
 import json
 import collections
@@ -14,7 +15,7 @@ import numpy as np
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
-from fastapi import FastAPI, HTTPException, Request, Form, Query, Response
+from fastapi import FastAPI, HTTPException, Request, Form, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field, validator
@@ -67,6 +68,7 @@ from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
 from error_recovery_middleware import ErrorRecoveryMiddleware
+from realtime_notifications import notification_broker
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -101,8 +103,10 @@ async def lifespan(app: FastAPI):
     first request is served.
     """
     init_ml_pipeline()
+    await notification_broker.start()
     yield
     # Shutdown: nothing to clean up for in-memory models.
+    await notification_broker.stop()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -431,6 +435,14 @@ _notification_store.append(
     alert_type="weather",
     message="🌧️ Heavy rainfall expected in your region today.",
 )
+notification_broker.seed_notifications(_notification_store.get_recent())
+
+
+async def publish_notification(alert_type: str, message: str) -> dict:
+    """Store a notification and broadcast it to websocket subscribers."""
+    entry = _notification_store.append(alert_type=alert_type, message=message)
+    await notification_broker.publish(entry)
+    return entry
 
 # --- Routes ---
 
@@ -631,13 +643,18 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
 
     # Use the bounded, thread-safe NotificationStore instead of the bare
     # static_notifications list (which had no size cap and racy ID generation).
-    _notification_store.append(
+    await publish_notification(
         alert_type=data.alert_type,
         message=data.message,
     )
 
     delivered = sum(1 for r in results if r["success"])
     return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
+
+
+@app.websocket("/api/notifications/stream")
+async def notifications_stream(websocket: WebSocket):
+    await notification_broker.connect(websocket)
 
 @app.post("/api/whatsapp/webhook")
 @limiter.limit("20/minute")
