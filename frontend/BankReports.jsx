@@ -2,11 +2,20 @@ import React, { useState } from "react";
 import { FaFileInvoiceDollar, FaDownload, FaShieldAlt, FaCheckCircle, FaSpinner, FaHistory } from "react-icons/fa";
 import "./BankReports.css";
 import apiClient from "./lib/apiClient";
+import { loadVersionedArray, saveVersionedArray } from "./utils/versionedStorage";
+
+const REPORTS_STORAGE_KEY = "farm_reports";
+const REPORTS_STORAGE_VERSION = 1;
+const MAX_REPORTS = 50;
 
 const BankReports = ({ userData }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [reports, setReports] = useState(JSON.parse(localStorage.getItem("farm_reports") || "[]"));
+  const [reports, setReports] = useState(() => loadVersionedArray(REPORTS_STORAGE_KEY, {
+    version: REPORTS_STORAGE_VERSION,
+    fallback: [],
+    maxItems: MAX_REPORTS,
+  }));
 
   const [formData, setFormData] = useState({
     name: userData?.displayName || "",
@@ -54,7 +63,13 @@ const BankReports = ({ userData }) => {
       };
       const updatedReports = [newReport, ...reports];
       setReports(updatedReports);
-      localStorage.setItem("farm_reports", JSON.stringify(updatedReports));
+      const saved = saveVersionedArray(REPORTS_STORAGE_KEY, updatedReports, {
+        version: REPORTS_STORAGE_VERSION,
+        maxItems: MAX_REPORTS,
+      });
+      if (!saved) {
+        setError("Report history is full. Older reports were kept in memory only.");
+      }
 
     } catch (err) {
       console.error(err);

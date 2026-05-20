@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { FaBug, FaSearch, FaExclamationTriangle, FaSeedling, FaFlask, FaShieldAlt, FaWhatsapp, FaArrowCircleRight, FaTimes, FaSpinner, FaHistory } from "react-icons/fa";
 import "./PestManagement.css";
 
-export default function PestManagement({ onClose }) {
+export default function PestManagement({ userData, onClose }) {
   const [crop, setCrop] = useState("");
   const [symptoms, setSymptoms] = useState("");
   const [result, setResult] = useState(null);
@@ -97,8 +97,7 @@ export default function PestManagement({ onClose }) {
     setSuccess(null);
 
     try {
-      const userData = JSON.parse(localStorage.getItem("user") || "{}");
-      const userId = userData.uid;
+      const userId = userData?.uid;
       
       if (!userId) {
         throw new Error("User not logged in");

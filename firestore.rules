@@ -66,6 +66,14 @@ service cloud.firestore {
         && (
           !("reputation" in request.resource.data.diff(resource.data).affectedKeys())
           || reputationCooldownOk(userId)
+        )
+        // Prevent privilege escalation: a user updating their own profile may
+        // not change their role to anything other than "farmer".
+        // Elevated roles (expert, vendor, admin) must be assigned by an admin
+        // via a separate admin-only write path, not through self-service setup.
+        && (
+          !("role" in request.resource.data.diff(resource.data).affectedKeys())
+          || request.resource.data.role == "farmer"
         );
     }
 
@@ -116,6 +124,110 @@ service cloud.firestore {
     match /marketplace/{itemId} {
       allow read: if true;
       allow write: if hasRole('vendor') || hasRole('admin');
+    }
+
+    // Finance Applications: farmers can read their own; admins can read all
+    match /finance_applications/{applicationId} {
+      allow read: if isAuthed() && (hasRole('admin') || hasRole('expert'));
+      allow create: if isAuthed();
+      allow update: if isAuthed() && (hasRole('admin') || hasRole('expert'));
+      allow delete: if hasRole('admin');
+    }
+
+    // Notifications: authenticated users can read; system can write
+    match /notifications/{notificationId} {
+      allow read: if isAuthed();
+      allow write: if hasRole('admin') || hasRole('system');
+    }
+
+    // Supply Chain Records: nested structure for traceability
+    match /supply_chain_batches/{batchId} {
+      allow read: if isAuthed();
+      allow create, update: if isAuthed() && (hasRole('farmer') || hasRole('vendor') || hasRole('admin'));
+      allow delete: if hasRole('admin');
+
+      // Supply chain nodes within each batch
+      match /nodes/{nodeId} {
+        allow read: if isAuthed();
+        allow create, update: if isAuthed() && (hasRole('farmer') || hasRole('vendor') || hasRole('admin'));
+        allow delete: if hasRole('admin');
+      }
+    }
+
+    // Disaster alerts (GeoAlertMesh): authenticated users can read and create;
+    // only the reporter or an admin may delete.
+    // Field validation enforced here so direct SDK calls cannot bypass the
+    // frontend whitelist on type, severity, and notes length.
+    match /disaster_alerts/{alertId} {
+      allow read: if isAuthed();
+
+      allow create: if isAuthed()
+        // Caller must be the reporter — prevents impersonation.
+        && request.resource.data.reporterId == request.auth.uid
+        // type must be one of the three known values.
+        && request.resource.data.type in ["Pest Outbreak", "Wildfire", "Extreme Weather"]
+        // severity must be High or Medium.
+        && request.resource.data.severity in ["High", "Medium"]
+        // notes must be a string no longer than 100 characters.
+        && request.resource.data.notes is string
+        && request.resource.data.notes.size() <= 100
+        // geohash, lat, lng must be present and correctly typed.
+        && request.resource.data.geohash is string
+        && request.resource.data.lat is number
+        && request.resource.data.lng is number
+        // createdAt must be a server-generated timestamp.
+        && hasServerTimestamp('createdAt');
+
+      // Only the original reporter or an admin may delete an alert.
+      allow delete: if isOwner(resource.data.reporterId) || hasRole('admin');
+    }
+
+    // Consultations: records created when a farmer books an expert session.
+    //
+    // Sensitive fields: userId, userName, expertId, expertName, date, time,
+    // consultationType, notes, status.
+    //
+    // Read access:
+    //   - The farmer who owns the record (userId == caller uid).
+    //   - Experts can read records where they are the assigned expert.
+    //   - Admins can read all records.
+    //
+    // Write access:
+    //   - Create: authenticated caller only, and userId must equal the
+    //     caller's uid — prevents forging a booking under another user's id.
+    //   - Update: the owning farmer (status/notes changes) or an expert
+    //     assigned to the consultation (status updates), or an admin.
+    //   - Delete: admin only.
+    match /consultations/{consultationId} {
+      allow read: if isAuthed()
+        && (
+          resource.data.userId == request.auth.uid
+          || resource.data.expertId == request.auth.uid
+          || hasRole('admin')
+        );
+
+      allow create: if isAuthed()
+        // Bind the record to the authenticated caller — no forged userId.
+        && request.resource.data.userId == request.auth.uid
+        // notes must be a string capped at 1000 characters.
+        && (!("notes" in request.resource.data)
+            || (request.resource.data.notes is string
+                && request.resource.data.notes.size() <= 1000))
+        // status on creation must be "scheduled".
+        && request.resource.data.status == "scheduled";
+
+      allow update: if isAuthed()
+        && (
+          // Farmer can update their own record (e.g. cancel, add notes).
+          resource.data.userId == request.auth.uid
+          // Assigned expert can update status (e.g. mark completed).
+          || resource.data.expertId == request.auth.uid
+          || hasRole('admin')
+        )
+        // userId must never change after creation.
+        && request.resource.data.userId == resource.data.userId;
+
+      allow delete: if hasRole('admin');
     }
 
   }
