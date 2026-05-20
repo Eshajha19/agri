@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef, unstable_batchedUpdates } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import "./Advisor.css";
 // Components - Static imports (lazy loading removed for faster feature access)
@@ -431,11 +431,9 @@ showGreenPractices,
         languages: nextLanguages,
       };
 
-      unstable_batchedUpdates(() => {
-        setDisplayFarmers(nextFarmers);
-        setDisplayCrops(nextCrops);
-        setDisplayLanguages(nextLanguages);
-      });
+      setDisplayFarmers(nextFarmers);
+      setDisplayCrops(nextCrops);
+      setDisplayLanguages(nextLanguages);
 
       const done =
         nextFarmers   >= TARGETS.farmers  &&
