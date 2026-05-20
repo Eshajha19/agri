@@ -418,9 +418,6 @@ showGreenPractices,
     // Reset local counters to 0 so the animation always plays from the start
     // when the component mounts fresh.
     displayRef.current = { farmers: 0, crops: 0, languages: 0 };
-    setDisplayFarmers(0);
-    setDisplayCrops(0);
-    setDisplayLanguages(0);
 
     const tick = () => {
       const cur = displayRef.current;
