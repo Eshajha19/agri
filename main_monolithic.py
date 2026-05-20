@@ -163,19 +163,36 @@ async def lifespan(app: FastAPI):
     FastAPI lifespan context manager.
 
     Runs inside **every** Uvicorn/Gunicorn worker process on startup, so the
-    ML pipeline is always initialised regardless of how many workers are
-    spawned.  This replaces the previous bare ``init_ml_pipeline()`` call at
-    module level, which only ran reliably in single-worker deployments.
+    ML pipeline and domain engines are always initialised regardless of how
+    many workers are spawned.
 
     Multi-worker guarantee
     ----------------------
     When Uvicorn is started with ``--workers N``, each worker forks/spawns
     from the main process and imports ``main.py`` independently.  The
     ``lifespan`` hook is invoked by FastAPI in every worker's event loop,
-    ensuring ``ModelRegistry`` is populated in every process before the
-    first request is served.
+    ensuring ``ModelRegistry`` is populated and domain engines are ready in
+    every process before the first request is served.
+
+    Domain engines are intentionally initialised here rather than at module
+    scope: module-level code runs on every import (e.g. during tests or
+    hot-reload), which would cause unnecessary re-construction and would
+    overwrite any in-memory state accumulated since the last reload.
     """
+    global _finance_repository, _notification_repository, _supply_chain_repository
+    global _farm_finance_ai, _supply_chain_blockchain, _crop_quality_grader
+
     init_ml_pipeline()
+
+    # Domain engines — initialized exactly once per worker process at startup.
+    _finance_repository = FinanceApplicationRepository()
+    _notification_repository = NotificationRepository()
+    _supply_chain_repository = SupplyChainRepository()
+    _crop_quality_grader = CropQualityGrader()
+    _supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
+    _farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
+    logger.info("Domain engines initialized with persistent repositories")
+
     yield
     # Shutdown: nothing to clean up for in-memory models.
 
@@ -558,21 +575,16 @@ _notification_store.append(
     message="🌧️ Heavy rainfall expected in your region today.",
 )
 
-# Initialize repositories for persistent storage
-_finance_repository = FinanceApplicationRepository()
-_notification_repository = NotificationRepository()
-_supply_chain_repository = SupplyChainRepository()
-
-# Initialize Crop Quality Grader
-_crop_quality_grader = CropQualityGrader()
-
-# Initialize Supply Chain Blockchain with persistent repository
-_supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
-
-# Initialize Farm Finance AI with persistent repository
-_farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
-
-logger.info("Domain engines initialized with persistent repositories")
+# Domain engine placeholders — actual instances are created once inside the
+# lifespan context manager above, which runs at server startup (not on import).
+# Endpoint handlers reference these module-level names; the lifespan assigns
+# the real objects via ``global`` before any request is served.
+_finance_repository = None
+_notification_repository = None
+_supply_chain_repository = None
+_crop_quality_grader = None
+_supply_chain_blockchain = None
+_farm_finance_ai = None
 
 # --- Routes ---
 
