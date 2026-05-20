@@ -37,6 +37,7 @@ import {
 } from 'recharts';
 import './FarmFinance.css';
 import { loadVersionedArray, saveVersionedArray } from './utils/versionedStorage';
+import apiClient from './lib/apiClient';
 
 const INCOME_STORAGE_KEY = 'fasalSaathiIncome';
 const EXPENSE_STORAGE_KEY = 'fasalSaathiDiary';
@@ -199,14 +200,13 @@ export default function FarmFinance() {
   });
 
   const postFinanceRequest = async (path, payload) => {
-    const response = await fetch(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
-    const responseData = await response.json();
-    if (!response.ok || responseData?.success === false) {
+    // Use apiClient so the Firebase auth token is automatically injected via
+    // the Axios request interceptor. Raw fetch() has no Authorization header,
+    // causing every request to be rejected with 401/403 by the backend's
+    // rbac_manager.raise_if_unauthorized() check.
+    const response = await apiClient.post(path, payload);
+    const responseData = response.data;
+    if (responseData?.success === false) {
       throw new Error(responseData?.detail || responseData?.message || 'Finance request failed');
     }
     return responseData.data;
