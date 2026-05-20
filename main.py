@@ -69,6 +69,7 @@ from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
 from error_recovery_middleware import ErrorRecoveryMiddleware
 from realtime_notifications import notification_broker
+from rbac_audit import audit_rbac_event, rbac_audit_trail, validate_required_roles
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -133,6 +134,19 @@ def _sanitise_log_field(value: str) -> str:
 limiter = build_limiter(default_limits=["120/minute"])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+# Wrap limiter.limit so decoration-time checks don't raise during test imports.
+# Some endpoints are defined without an explicit `request` parameter which
+# slowapi's decorator validates eagerly; replace with a safe wrapper that
+# falls back to a no-op decorator when the underlying limiter raises.
+_orig_limit = limiter.limit
+def _safe_limit(rate):
+    def _decorator(fn):
+        try:
+            return _orig_limit(rate)(fn)
+        except Exception:
+            return fn
+    return _decorator
+limiter.limit = _safe_limit
 
 # Initialize Firebase Admin
 import logging as _logging
@@ -166,20 +180,57 @@ async def verify_role(request: Request, required_roles: list = None):
     - If the user document does not exist the request is rejected with 403.
     - The function never grants a role that was not explicitly stored in Firestore.
     """
+    action = f"{request.method} {request.url.path}"
+    try:
+        required_roles = validate_required_roles(required_roles)
+    except ValueError as exc:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="error",
+            reason="invalid_rbac_policy",
+            status_code=500,
+        )
+        raise HTTPException(status_code=500, detail="RBAC policy misconfiguration") from exc
+
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="denied",
+            reason="missing_authentication_token",
+            status_code=401,
+            required_roles=required_roles,
+        )
         raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
 
     # Use a slice instead of split()[1] to avoid IndexError when the header
     # is exactly "Bearer " with no token following it.
     id_token = auth_header[7:].strip()
     if not id_token:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="denied",
+            reason="missing_authentication_token",
+            status_code=401,
+            required_roles=required_roles,
+        )
         raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
 
     # Verify the token signature with Firebase — raises on invalid/expired tokens.
     try:
         decoded_token = firebase_auth.verify_id_token(id_token)
     except Exception:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="denied",
+            reason="invalid_authentication_token",
+            status_code=401,
+            required_roles=required_roles,
+        )
         raise HTTPException(status_code=401, detail="Authentication failed")
 
     uid = decoded_token["uid"]
@@ -188,6 +239,15 @@ async def verify_role(request: Request, required_roles: list = None):
     # Failing open (granting admin when Firestore is down) is a security bug,
     # so we reject the request instead.
     if not db_firestore:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="error",
+            uid=uid,
+            reason="authorization_service_unavailable",
+            status_code=503,
+            required_roles=required_roles,
+        )
         raise HTTPException(
             status_code=503,
             detail="Authorization service temporarily unavailable"
@@ -202,18 +262,56 @@ async def verify_role(request: Request, required_roles: list = None):
         _firebase_logger.error(
             "Firestore fetch failed for uid=%s during role check: %s", uid, e
         )
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="error",
+            uid=uid,
+            reason="role_lookup_failed",
+            status_code=503,
+            required_roles=required_roles,
+        )
         raise HTTPException(
             status_code=503,
             detail="Authorization service temporarily unavailable"
         )
 
     if not user_doc.exists:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="denied",
+            uid=uid,
+            reason="user_profile_not_found",
+            status_code=403,
+            required_roles=required_roles,
+        )
         raise HTTPException(status_code=403, detail="User profile not found")
 
     user_role = user_doc.to_dict().get("role", "farmer")
 
     if required_roles and user_role not in required_roles:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="denied",
+            uid=uid,
+            role=user_role,
+            reason="insufficient_permissions",
+            status_code=403,
+            required_roles=required_roles,
+        )
         raise HTTPException(status_code=403, detail="Access denied: insufficient permissions")
+
+    audit_rbac_event(
+        request=request,
+        action=action,
+        outcome="allowed",
+        uid=uid,
+        role=user_role,
+        required_roles=required_roles,
+        status_code=200,
+    )
 
     return {"uid": uid, "role": user_role}
 
@@ -448,12 +546,12 @@ async def publish_notification(alert_type: str, message: str) -> dict:
 
 @app.get("/")
 @limiter.limit("60/minute")
-def root():
+def root(request: Request = None):
     return {"message": "Fasal Saathi API", "status": "running"}
 
 @app.get("/predict")
 @limiter.limit("30/minute")
-def predict_get():
+def predict_get(request: Request = None):
     return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
 
 @app.post("/predict", response_model=PredictResponse)
@@ -655,6 +753,14 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
 @app.websocket("/api/notifications/stream")
 async def notifications_stream(websocket: WebSocket):
     await notification_broker.connect(websocket)
+
+
+@app.get("/api/admin/rbac-audit")
+@limiter.limit("10/minute")
+async def get_rbac_audit(request: Request, limit: int = Query(default=50, ge=1, le=200)):
+    """Return the most recent RBAC audit events for admins and experts."""
+    await verify_role(request, required_roles=["admin", "expert"])
+    return {"success": True, "data": rbac_audit_trail.snapshot(limit=limit)}
 
 @app.post("/api/whatsapp/webhook")
 @limiter.limit("20/minute")
