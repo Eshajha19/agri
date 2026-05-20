@@ -869,13 +869,13 @@ showGreenPractices,
             <p>Report and receive highly localized (5km radius) real-time disaster alerts.</p>
           </div>
 
-<div className="card reveal bank-report-card" role="button" tabIndex={0} onClick={() => setShowBankReport(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowBankReport(true); }} aria-label="Bank Reports: Export financial data">
-  <div className="icon" aria-hidden="true">
-    <Landmark size={32} strokeWidth={2} />
-  </div>
-  <h3><span className="notranslate">Bank Reports & Export</span></h3>
-  <p>Generate professional PDF/CSV reports for bank loans and financial records.</p>
-</div>
+          <div className="card reveal bank-report-card" role="button" tabIndex={0} onClick={() => setShowBankReport(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowBankReport(true); }} aria-label="Bank Reports: Export financial data">
+            <div className="icon" aria-hidden="true">
+              <Landmark size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Bank Reports & Export</span></h3>
+            <p>Generate professional PDF/CSV reports for bank loans and financial records.</p>
+          </div>
 
           <div 
             className="card reveal" 
@@ -937,15 +937,15 @@ showGreenPractices,
             <h3><span className="notranslate">My Consultations</span></h3>
             <p>View your past and upcoming consultation history with experts.</p>
           </div>
-<div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/farming-news")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/farming-news"); }} aria-label="Farming News: Latest agricultural updates">
-              <div className="icon" aria-hidden="true">
-                <Book size={32} strokeWidth={2} />
-              </div>
-              <h3><span className="notranslate">Farming News</span></h3>
-              <p>
-                Stay updated with the latest agricultural news, weather alerts, and policy changes.
-              </p>
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/farming-news")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/farming-news"); }} aria-label="Farming News: Latest agricultural updates">
+            <div className="icon" aria-hidden="true">
+              <Book size={32} strokeWidth={2} />
             </div>
+            <h3><span className="notranslate">Farming News</span></h3>
+            <p>
+              Stay updated with the latest agricultural news, weather alerts, and policy changes.
+            </p>
+          </div>
 
           <div 
             className="card reveal" 
