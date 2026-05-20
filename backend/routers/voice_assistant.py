@@ -201,6 +201,54 @@ async def process_voice_query(request: Request, data: VoiceQueryRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+MAX_FILE_SIZE = 25 * 1024 * 1024  # 25MB
+CHUNK_SIZE = 1024 * 1024  # 1MB chunks
+TEMP_UPLOAD_DIR = "./temp_audio_uploads"
+ALLOWED_EXTENSIONS = {".wav", ".mp3", ".ogg", ".webm", ".m4a"}
+
+# In-memory rate limiting: user_id -> (count, window_start)
+_rate_limit_store: Dict[str, tuple] = {}
+RATE_LIMIT_COUNT = 10  # max uploads per window
+RATE_LIMIT_WINDOW = 60  # seconds
+
+
+def _check_rate_limit(user_id: str) -> bool:
+    """Check if user has exceeded rate limit"""
+    import time
+    current_time = time.time()
+    
+    if user_id not in _rate_limit_store:
+        _rate_limit_store[user_id] = (1, current_time)
+        return True
+    
+    count, window_start = _rate_limit_store[user_id]
+    
+    if current_time - window_start > RATE_LIMIT_WINDOW:
+        _rate_limit_store[user_id] = (1, current_time)
+        return True
+    
+    if count >= RATE_LIMIT_COUNT:
+        return False
+    
+    _rate_limit_store[user_id] = (count + 1, window_start)
+    return True
+
+
+def _validate_filename(filename: str) -> str:
+    """Validate and sanitize filename"""
+    if not filename:
+        raise ValueError("No file provided")
+    
+    import re
+    filename = re.sub(r'[^\w\-.]', '_', filename)
+    ext = os.path.splitext(filename)[1].lower()
+    
+    if ext not in ALLOWED_EXTENSIONS:
+        raise ValueError(f"Invalid file type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}")
+    
+    return filename
+
+
 @router.post("/audio-upload", tags=["Voice"])
 async def upload_audio(
     request: Request,
@@ -212,39 +260,71 @@ async def upload_audio(
     """
     Upload audio file for transcription
     
-    Supported formats: WAV, MP3, OGG
+    Supported formats: WAV, MP3, OGG, WebM, M4A
     Max file size: 25MB
+    
+    Security features:
+    - Streams to disk instead of memory buffering
+    - Rate limited to prevent DoS
+    - Validates file type and size
     """
     if voice_assistant is None:
         raise HTTPException(status_code=500, detail="Voice Assistant not initialized")
     
     try:
-        # Validate file
-        if not file.filename:
-            raise ValueError("No file provided")
-        
-        if file.size and file.size > 25 * 1024 * 1024:  # 25MB
-            raise ValueError("File too large (max 25MB)")
-        
-        # Read file
-        audio_bytes = await file.read()
-        
         if not user_id:
             raise ValueError("user_id required")
         
-        # Create session if needed
-        session_id = session_id or voice_assistant.create_session(user_id, language_code).session_id
+        if not _check_rate_limit(user_id):
+            raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again later.")
         
-        # Process audio (placeholder)
-        logger.info(f"Audio uploaded: {file.filename} ({len(audio_bytes)} bytes)")
+        safe_filename = _validate_filename(file.filename)
         
-        return {
-            "success": True,
-            "message": "Audio received - transcription in progress",
-            "session_id": session_id,
-            "filename": file.filename,
-        }
+        os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
+        
+        temp_path = os.path.join(TEMP_UPLOAD_DIR, f"{user_id}_{safe_filename}")
+        bytes_written = 0
+        
+        try:
+            with open(temp_path, "wb") as f:
+                while True:
+                    chunk = await file.read(CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    
+                    bytes_written += len(chunk)
+                    
+                    if bytes_written > MAX_FILE_SIZE:
+                        f.flush()
+                        os.remove(temp_path)
+                        raise ValueError(f"File too large (max {MAX_FILE_SIZE // (1024*1024)}MB)")
+                    
+                    f.write(chunk)
+            
+            if bytes_written == 0:
+                raise ValueError("Empty file uploaded")
+            
+            session_id = session_id or voice_assistant.create_session(user_id, language_code).session_id
+            
+            logger.info(f"Audio uploaded: {safe_filename} ({bytes_written} bytes)")
+            
+            return {
+                "success": True,
+                "message": "Audio received - transcription in progress",
+                "session_id": session_id,
+                "filename": safe_filename,
+                "size_bytes": bytes_written,
+            }
+        
+        finally:
+            try:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+            except Exception:
+                pass
     
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Audio upload error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
