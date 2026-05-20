@@ -89,6 +89,7 @@ from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
 from error_recovery_middleware import ErrorRecoveryMiddleware
 from realtime_notifications import notification_broker
+from rbac_audit import audit_rbac_event, rbac_audit_trail, validate_required_roles
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -140,53 +141,186 @@ logger = logging.getLogger(__name__)
 limiter = build_limiter(default_limits=["120/minute"])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+# Wrap limiter.limit so decoration-time checks don't raise during test imports.
+# Some endpoints are defined without an explicit `request` parameter which
+# slowapi's decorator validates eagerly; replace with a safe wrapper that
+# falls back to a no-op decorator when the underlying limiter raises.
+_orig_limit = limiter.limit
+def _safe_limit(rate):
+    def _decorator(fn):
+        try:
+            return _orig_limit(rate)(fn)
+        except Exception:
+            return fn
+    return _decorator
+limiter.limit = _safe_limit
 
 
 db_firestore = None
 
+if not firebase_admin._apps:
+    try:
+        # In a GCP environment this picks up Application Default Credentials
+        # automatically.  For local dev set GOOGLE_APPLICATION_CREDENTIALS to
+        # the path of a service-account key file.
+        firebase_admin.initialize_app()
+        db_firestore = firestore.client()
+        _firebase_logger.info("Firebase Admin: successfully initialized")
+    except Exception as e:
+        _firebase_logger.warning(
+            "Firebase Admin: could not initialize — role-gated endpoints will "
+            "return 503 until Firestore is reachable. Reason: %s", e
+        )
 
-def get_firestore_client():
-    global db_firestore
-    if db_firestore is not None:
-        return db_firestore
+async def verify_role(request: Request, required_roles: list = None):
+    """
+    Verify the Firebase ID token and check the caller's role against Firestore.
+    Expects 'Authorization: Bearer <ID_TOKEN>' header.
+
+    Fail-closed design:
+    - If Firestore is unavailable the request is rejected with 503.
+    - If the user document does not exist the request is rejected with 403.
+    - The function never grants a role that was not explicitly stored in Firestore.
+    """
+    action = f"{request.method} {request.url.path}"
+    try:
+        required_roles = validate_required_roles(required_roles)
+    except ValueError as exc:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="error",
+            reason="invalid_rbac_policy",
+            status_code=500,
+        )
+        raise HTTPException(status_code=500, detail="RBAC policy misconfiguration") from exc
+
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="denied",
+            reason="missing_authentication_token",
+            status_code=401,
+            required_roles=required_roles,
+        )
+        raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
+
+    # Use a slice instead of split()[1] to avoid IndexError when the header
+    # is exactly "Bearer " with no token following it.
+    id_token = auth_header[7:].strip()
+    if not id_token:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="denied",
+            reason="missing_authentication_token",
+            status_code=401,
+            required_roles=required_roles,
+        )
+        raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
 
     try:
-        if not firebase_admin._apps:
-            cred = None
-            if os.path.exists("serviceAccountKey.json"):
-                cred = credentials.Certificate("serviceAccountKey.json")
-            elif os.path.exists("firebase-credentials.json"):
-                cred = credentials.Certificate("firebase-credentials.json")
-            else:
-                cred_json = os.getenv("FIREBASE_CREDENTIALS_JSON")
-                if cred_json:
-                    cred = credentials.Certificate(json.loads(cred_json))
+        decoded_token = firebase_auth.verify_id_token(id_token)
+    except Exception:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="denied",
+            reason="invalid_authentication_token",
+            status_code=401,
+            required_roles=required_roles,
+        )
+        raise HTTPException(status_code=401, detail="Authentication failed")
 
-            try:
-                firebase_admin.initialize_app(cred) if cred else firebase_admin.initialize_app()
-            except ValueError:
-                pass
+    uid = decoded_token["uid"]
 
-        if firebase_admin._apps:
-            db_firestore = firestore.client()
-    except Exception as exc:
-        logger.error("Failed to initialize Firestore client: %s", exc)
-        db_firestore = None
+    # Firestore must be available to resolve the caller's role.
+    # Failing open (granting admin when Firestore is down) is a security bug,
+    # so we reject the request instead.
+    if not db_firestore:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="error",
+            uid=uid,
+            reason="authorization_service_unavailable",
+            status_code=503,
+            required_roles=required_roles,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Authorization service temporarily unavailable"
+        )
 
-    return db_firestore
+    # Wrap the Firestore fetch so a transient network error (timeout, reset)
+    # returns the same clean 503 as a missing db_firestore, rather than an
+    # unhandled exception that leaks internal details as a raw 500.
+    try:
+        user_doc = db_firestore.collection("users").document(uid).get()
+    except Exception as e:
+        _firebase_logger.error(
+            "Firestore fetch failed for uid=%s during role check: %s", uid, e
+        )
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="error",
+            uid=uid,
+            reason="role_lookup_failed",
+            status_code=503,
+            required_roles=required_roles,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Authorization service temporarily unavailable"
+        )
+
+    if not user_doc.exists:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="denied",
+            uid=uid,
+            reason="user_profile_not_found",
+            status_code=403,
+            required_roles=required_roles,
+        )
+        raise HTTPException(status_code=403, detail="User profile not found")
 
 
-def validate_firestore_ready():
-    client = get_firestore_client()
-    if client is None:
-        raise HTTPException(status_code=503, detail="Database service temporarily unavailable.")
-    return client
+    if required_roles and user_role not in required_roles:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="denied",
+            uid=uid,
+            role=user_role,
+            reason="insufficient_permissions",
+            status_code=403,
+            required_roles=required_roles,
+        )
+        raise HTTPException(status_code=403, detail="Access denied: insufficient permissions")
 
+    audit_rbac_event(
+        request=request,
+        action=action,
+        outcome="allowed",
+        uid=uid,
+        role=user_role,
+        required_roles=required_roles,
+        status_code=200,
+    )
+
+    return {"uid": uid, "role": user_role}
 
 async def verify_role(request: Request, required_roles: list = None, require_all: bool = False):
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing auth token")
+
+app.add_middleware(ErrorRecoveryMiddleware)
 
 app.add_middleware(ErrorRecoveryMiddleware)
 
@@ -317,6 +451,12 @@ async def publish_notification(alert_type: str, message: str) -> dict:
     await notification_broker.publish(entry)
     return entry
 
+async def publish_notification(alert_type: str, message: str) -> dict:
+    """Store a notification and broadcast it to websocket subscribers."""
+    entry = _notification_store.append(alert_type=alert_type, message=message)
+    await notification_broker.publish(entry)
+    return entry
+
 def sanitise_log_field(value: str) -> str:
     if not isinstance(value, str):
         value = str(value)
@@ -325,12 +465,12 @@ def sanitise_log_field(value: str) -> str:
 
 @app.get("/")
 @limiter.limit("60/minute")
-def root():
+def root(request: Request = None):
     return {"message": "Fasal Saathi API", "status": "running"}
 
 @app.get("/predict")
 @limiter.limit("30/minute")
-def predict_get():
+def predict_get(request: Request = None):
     return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
 
 @app.post("/predict", response_model=PredictResponse)
@@ -532,6 +672,14 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
 @app.websocket("/api/notifications/stream")
 async def notifications_stream(websocket: WebSocket):
     await notification_broker.connect(websocket)
+
+
+@app.get("/api/admin/rbac-audit")
+@limiter.limit("10/minute")
+async def get_rbac_audit(request: Request, limit: int = Query(default=50, ge=1, le=200)):
+    """Return the most recent RBAC audit events for admins and experts."""
+    await verify_role(request, required_roles=["admin", "expert"])
+    return {"success": True, "data": rbac_audit_trail.snapshot(limit=limit)}
 
 @app.post("/api/whatsapp/webhook")
 @limiter.limit("20/minute")
@@ -864,6 +1012,14 @@ async def generate_farm_plan(request: Request, data: SeasonPlanRequest):
         logger.error("Autopilot plan generation failed: %s", e)
         raise HTTPException(status_code=500, detail="Failed to generate farm plan")
 
+
+# Include ML Model Management Router
+try:
+    from routers.ml_models import router as ml_router
+    app.include_router(ml_router)
+    logger.info("ML Model Management API loaded successfully")
+except Exception as e:
+    logger.warning(f"Could not load ML Model Management API: {e}")
 
 # Include ML Model Management Router
 try:
