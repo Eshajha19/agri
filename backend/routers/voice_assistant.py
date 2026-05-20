@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class VoiceQueryRequest(BaseModel):
     """Request model for voice queries"""
     transcript: str = Field(..., min_length=1, max_length=500)
-    language_code: str = Field(default="hi", regex="^(hi|bho|mr|gu|kn|te|ta|en)$")
+    language_code: str = Field(default="hi", pattern="^(hi|bho|mr|gu|kn|te|ta|en)$")
     session_id: Optional[str] = None
     user_id: str = Field(..., min_length=1, max_length=100)
     context: Optional[Dict[str, Any]] = None
@@ -32,7 +32,7 @@ class VoiceQueryRequest(BaseModel):
 
 class AudioUploadRequest(BaseModel):
     """Request for audio file upload"""
-    language_code: str = Field(default="hi", regex="^(hi|bho|mr|gu|kn|te|ta|en)$")
+    language_code: str = Field(default="hi", pattern="^(hi|bho|mr|gu|kn|te|ta|en)$")
     session_id: Optional[str] = None
     user_id: str = Field(..., min_length=1, max_length=100)
 
@@ -51,7 +51,7 @@ class VoiceResponseData(BaseModel):
 class SessionCreateRequest(BaseModel):
     """Request to create new voice session"""
     user_id: str = Field(..., min_length=1, max_length=100)
-    language_code: str = Field(default="hi", regex="^(hi|bho|mr|gu|kn|te|ta|en)$")
+    language_code: str = Field(default="hi", pattern="^(hi|bho|mr|gu|kn|te|ta|en)$")
 
 
 class SessionResponse(BaseModel):
@@ -82,13 +82,15 @@ class HealthCheckResponse(BaseModel):
 
 voice_assistant = None
 cache_manager = None
+verify_role_fn = None
 
 
-def init_voice_assistant(va, cm):
+def init_voice_assistant(va, cm, vr_fn=None):
     """Initialize voice assistant and cache manager"""
-    global voice_assistant, cache_manager
+    global voice_assistant, cache_manager, verify_role_fn
     voice_assistant = va
     cache_manager = cm
+    verify_role_fn = vr_fn
     logger.info("Voice Assistant router initialized")
 
 
@@ -342,13 +344,18 @@ async def sync_offline_cache(request: Request):
     """
     if cache_manager is None:
         raise HTTPException(status_code=500, detail="Cache manager not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Authorization system not initialized")
     
     try:
+        await verify_role_fn(request, required_roles=["admin", "system"])
         cache_manager.save_cache(voice_assistant.offline_cache)
         return {
             "success": True,
             "message": "Offline cache synchronized",
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Cache sync error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
