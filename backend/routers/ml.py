@@ -64,16 +64,25 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
 
 @router.post("/predict-yield-trend")
 async def predict_yield_trend(payload: YieldInput, request: Request):
+    """
+    Multi-step yield trend prediction using sliding window.
+    
+    Maintains proper feature alignment by using the last 4 original features
+    plus the newly predicted value to form the next input vector.
+    This preserves the semantic meaning of each feature position.
+    """
     if model_lag is None:
         raise HTTPException(status_code=500, detail="Model not loaded")
     try:
         trend = []
         temp = list(payload.data if len(payload.data) == 5 else [0] * 5)
+        
         for _ in range(5):
             pred = model_lag.predict([temp[:5]])[0]
             pred_value = round(float(pred), 2)
             trend.append(pred_value)
-            temp = [pred_value] + temp
+            temp = temp[1:] + [pred_value]
+        
         return {"trend": trend, "prediction": trend[-1], "model": "RandomForest Trend"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

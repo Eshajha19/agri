@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import "./ExpertDirectory.css";
 import { useAdvisorStore } from "../stores/advisorStore";
 import { db, auth } from "../lib/firebase";
 import { collection, getDocs, query, where, orderBy } from "firebase/firestore";
@@ -18,8 +17,9 @@ import {
   Star,
 } from "lucide-react";
 
-function ConsultationHistory({ userData, onClose, onStartConsultation: _onStartConsultation }) {
+function ConsultationHistory({ onClose, onStartConsultation: _onStartConsultation }) {
   const { setShowTeleConsultation, setActiveConsultation } = useAdvisorStore();
+  const user = auth?.currentUser;
   const [consultations, setConsultations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
@@ -33,8 +33,9 @@ function ConsultationHistory({ userData, onClose, onStartConsultation: _onStartC
   }, []);
 
   const loadConsultations = async () => {
+    setLoading(true);
     try {
-      if (!userData) {
+      if (!user || user.isAnonymous) {
         setConsultations(MOCK_CONSULTATIONS);
         setLoading(false);
         return;
@@ -43,7 +44,7 @@ function ConsultationHistory({ userData, onClose, onStartConsultation: _onStartC
       const consultationsRef = collection(db, "consultations");
       const q = query(
         consultationsRef,
-        where("userId", "==", userData.uid),
+        where("userId", "==", user.uid),
         orderBy("createdAt", "desc")
       );
 
