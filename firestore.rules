@@ -174,5 +174,53 @@ service cloud.firestore {
       allow delete: if isOwner(resource.data.reporterId) || hasRole('admin');
     }
 
+    // Consultations: records created when a farmer books an expert session.
+    //
+    // Sensitive fields: userId, userName, expertId, expertName, date, time,
+    // consultationType, notes, status.
+    //
+    // Read access:
+    //   - The farmer who owns the record (userId == caller uid).
+    //   - Experts can read records where they are the assigned expert.
+    //   - Admins can read all records.
+    //
+    // Write access:
+    //   - Create: authenticated caller only, and userId must equal the
+    //     caller's uid — prevents forging a booking under another user's id.
+    //   - Update: the owning farmer (status/notes changes) or an expert
+    //     assigned to the consultation (status updates), or an admin.
+    //   - Delete: admin only.
+    match /consultations/{consultationId} {
+      allow read: if isAuthed()
+        && (
+          resource.data.userId == request.auth.uid
+          || resource.data.expertId == request.auth.uid
+          || hasRole('admin')
+        );
+
+      allow create: if isAuthed()
+        // Bind the record to the authenticated caller — no forged userId.
+        && request.resource.data.userId == request.auth.uid
+        // notes must be a string capped at 1000 characters.
+        && (!("notes" in request.resource.data)
+            || (request.resource.data.notes is string
+                && request.resource.data.notes.size() <= 1000))
+        // status on creation must be "scheduled".
+        && request.resource.data.status == "scheduled";
+
+      allow update: if isAuthed()
+        && (
+          // Farmer can update their own record (e.g. cancel, add notes).
+          resource.data.userId == request.auth.uid
+          // Assigned expert can update status (e.g. mark completed).
+          || resource.data.expertId == request.auth.uid
+          || hasRole('admin')
+        )
+        // userId must never change after creation.
+        && request.resource.data.userId == resource.data.userId;
+
+      allow delete: if hasRole('admin');
+    }
+
   }
 }
