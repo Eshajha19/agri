@@ -353,7 +353,7 @@ try:
 
     voice_asst = VoiceAssistant(offline_mode=True)
     cache_mgr = OfflineCacheManager(cache_dir="./voice_assistant_cache")
-    voice_assistant_router.init_voice_assistant(voice_asst, cache_mgr)
+    voice_assistant_router.init_voice_assistant(voice_asst, cache_mgr, verify_role)
 except Exception as exc:
     voice_assistant_router = None
     logger.warning("Voice assistant init skipped: %s", exc)
