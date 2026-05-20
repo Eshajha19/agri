@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState, useRef, unstable_batchedUpdates } from "react";
 import { useNavigate } from "react-router-dom";
 import "./Advisor.css";
 // Components - Static imports (lazy loading removed for faster feature access)
@@ -434,9 +434,11 @@ showGreenPractices,
         languages: nextLanguages,
       };
 
-      setDisplayFarmers(nextFarmers);
-      setDisplayCrops(nextCrops);
-      setDisplayLanguages(nextLanguages);
+      unstable_batchedUpdates(() => {
+        setDisplayFarmers(nextFarmers);
+        setDisplayCrops(nextCrops);
+        setDisplayLanguages(nextLanguages);
+      });
 
       const done =
         nextFarmers   >= TARGETS.farmers  &&
@@ -444,8 +446,6 @@ showGreenPractices,
         nextLanguages >= TARGETS.languages;
 
       if (done) {
-        // Write final values to the global store exactly once so they are
-        // persisted if the user navigates away and returns.
         setFarmers(TARGETS.farmers);
         setCrops(TARGETS.crops);
         setLanguages(TARGETS.languages);
@@ -1131,7 +1131,7 @@ showGreenPractices,
 
       {/* Modals */}
       {showWeather && (
-        <div className="weather-overlay" onClick={() => setShowWeather(false)}>
+        <div key="modal-weather" className="weather-overlay" onClick={() => setShowWeather(false)}>
           <div className="weather-popup" onClick={(e)=>e.stopPropagation()}>
             <WeatherCard onClose={() => setShowWeather(false)} />
           </div>
@@ -1139,7 +1139,7 @@ showGreenPractices,
       )}
 
       {showSoilChatbot && (
-        <div className="weather-overlay" onClick={() => setShowSoilChatbot(false)}>
+        <div key="modal-soil-chatbot" className="weather-overlay" onClick={() => setShowSoilChatbot(false)}>
           <div className="chatbot-popup" onClick={(e)=>e.stopPropagation()}>
             <SoilChatbot onClose={() => setShowSoilChatbot(false)} />
           </div>
@@ -1147,7 +1147,7 @@ showGreenPractices,
       )}
 
       {showForecast && (
-        <div className="weather-overlay" onClick={() => setShowForecast(false)}>
+        <div key="modal-forecast" className="weather-overlay" onClick={() => setShowForecast(false)}>
           <div className="weather-popup" onClick={(e)=>e.stopPropagation()}>
             <Forecast onClose={() => setShowForecast(false)} />
           </div>
@@ -1155,7 +1155,7 @@ showGreenPractices,
       )}
 
       {showExpertStatus && (
-        <div className="weather-overlay" onClick={() => setShowExpertStatus(false)}>
+        <div key="modal-expert-status" className="weather-overlay" onClick={() => setShowExpertStatus(false)}>
           <div className="expert-status-modal" onClick={(e)=>e.stopPropagation()}>
             <div className="modal-header">
               <h2><Award className="header-icon" /> Expert Status</h2>
@@ -1225,7 +1225,7 @@ showGreenPractices,
       )}
 
       {showBankReport && (
-        <div className="weather-overlay" onClick={() => setShowBankReport(false)}>
+        <div key="modal-bank-report" className="weather-overlay" onClick={() => setShowBankReport(false)}>
           <div className="bank-report-modal" onClick={(e)=>e.stopPropagation()}>
             <div className="modal-header">
               <h2><Landmark className="header-icon" /> Bank Reporting & Export</h2>
@@ -1317,7 +1317,7 @@ showGreenPractices,
       )}
 
       {showSoilAnalysis && (
-        <div className="weather-overlay" onClick={() => setShowSoilAnalysis(false)}>
+        <div key="modal-soil-analysis" className="weather-overlay" onClick={() => setShowSoilAnalysis(false)}>
           <div className="soil-analysis-popup" onClick={(e)=>e.stopPropagation()}>
             <button className="close-btn" onClick={() => setShowSoilAnalysis(false)} style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 10 }}><X /></button>
             <SoilAnalysis userData={userData} />
@@ -1326,7 +1326,7 @@ showGreenPractices,
       )}
 
       {showSoilGuide && (
-        <div className="weather-overlay" onClick={() => setShowSoilGuide(false)}>
+        <div key="modal-soil-guide" className="weather-overlay" onClick={() => setShowSoilGuide(false)}>
           <div className="soil-analysis-popup" onClick={(e) => e.stopPropagation()}>
             <button className="close-btn" onClick={() => setShowSoilGuide(false)} style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 10 }}><X /></button>
             <SoilGuide userData={userData} />
@@ -1335,7 +1335,7 @@ showGreenPractices,
       )}
 
       {showIrrigation && (
-        <div className="weather-overlay" onClick={()=>setShowIrrigation(false)}>
+        <div key="modal-irrigation" className="weather-overlay" onClick={()=>setShowIrrigation(false)}>
           <div onClick={(e)=>e.stopPropagation()}>
             <IrrigationGuidance userData={userData} onClose={() => setShowIrrigation(false)} />
           </div>
@@ -1343,7 +1343,7 @@ showGreenPractices,
       )}
 
       {showYieldPopup && (
-        <div className="weather-overlay" onClick={closeYieldPopup}>
+        <div key="modal-yield-popup" className="weather-overlay" onClick={closeYieldPopup}>
           <div className="yield-popup" onClick={(e) => e.stopPropagation()}>
             <button className="close-btn" onClick={closeYieldPopup} aria-label="Close yield prediction">
               <X />
@@ -1354,7 +1354,7 @@ showGreenPractices,
       )}
 
       {showYieldHistory && (
-        <div className="weather-overlay" onClick={() => setShowYieldHistory(false)}>
+        <div key="modal-yield-history" className="weather-overlay" onClick={() => setShowYieldHistory(false)}>
           <div className="weather-popup" style={{ maxWidth: "900px", width: "95vw", maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn" onClick={() => setShowYieldHistory(false)} aria-label="Close yield history">
               <X />
@@ -1365,7 +1365,7 @@ showGreenPractices,
       )}
 
       {showProfitCalculator && (
-        <div className="weather-overlay" onClick={()=>setShowProfitCalculator(false)}>
+        <div key="modal-profit-calculator" className="weather-overlay" onClick={()=>setShowProfitCalculator(false)}>
           <div className="weather-popup profit-popup" onClick={(e)=>e.stopPropagation()}>
             <CropProfitCalculator userData={userData} />
             <button className="close-btn" onClick={() => setShowProfitCalculator(false)}>Close</button>
@@ -1374,7 +1374,7 @@ showGreenPractices,
       )}
 
       {showFertilizerPopup && (
-        <div className="weather-overlay" onClick={() => setShowFertilizerPopup(false)}>
+        <div key="modal-fertilizer" className="weather-overlay" onClick={() => setShowFertilizerPopup(false)}>
           <div className="weather-popup fertilizer-popup-shell" onClick={(e) => e.stopPropagation()}>
             <FertilizerRecommendation userData={userData} onClose={() => setShowFertilizerPopup(false)} />
           </div>
@@ -1382,7 +1382,7 @@ showGreenPractices,
       )}
 
       {showFarmingMap && (
-        <div className="farming-map-overlay" onClick={() => setShowFarmingMap(false)}>
+        <div key="modal-farming-map" className="farming-map-overlay" onClick={() => setShowFarmingMap(false)}>
           <div className="farming-map-popup" onClick={(e) => e.stopPropagation()}>
             <button className="close-btn" onClick={() => setShowFarmingMap(false)}>Close</button>
             <FarmingMap />
@@ -1391,7 +1391,7 @@ showGreenPractices,
       )}
 
       {showCropDiseaseDetection && (
-        <div className="weather-overlay" onClick={() => setShowCropDiseaseDetection(false)}>
+        <div key="modal-crop-disease" className="weather-overlay" onClick={() => setShowCropDiseaseDetection(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
             <CropDiseaseDetection userData={userData} onClose={() => setShowCropDiseaseDetection(false)} />
           </div>
@@ -1399,7 +1399,7 @@ showGreenPractices,
       )}
 
       {showPestManagement && (
-        <div className="weather-overlay" onClick={() => setShowPestManagement(false)}>
+        <div key="modal-pest-management" className="weather-overlay" onClick={() => setShowPestManagement(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ padding: 0, background: 'transparent', boxShadow: 'none' }}>
             <PestManagement userData={userData} onClose={() => setShowPestManagement(false)} />
           </div>
@@ -1407,7 +1407,7 @@ showGreenPractices,
       )}
 
       {showSprayReminder && (
-        <div className="weather-overlay" onClick={() => setShowSprayReminder(false)}>
+        <div key="modal-spray-reminder" className="weather-overlay" onClick={() => setShowSprayReminder(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ padding: 0, background: 'transparent', boxShadow: 'none' }}>
             <SprayReminder userData={userData} onClose={() => setShowSprayReminder(false)} />
           </div>
@@ -1415,7 +1415,7 @@ showGreenPractices,
       )}
 
       {showAgriMarketplace && (
-        <div className="weather-overlay" onClick={() => setShowAgriMarketplace(false)}>
+        <div key="modal-agri-marketplace" className="weather-overlay" onClick={() => setShowAgriMarketplace(false)}>
           <div className="agri-modal-wrapper" onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowAgriMarketplace(false)}><X /></button>
             <AgriMarketplace userData={userData} onClose={() => setShowAgriMarketplace(false)} />
@@ -1424,7 +1424,7 @@ showGreenPractices,
       )}
 
       {showAgriLMS && (
-        <div className="weather-overlay" onClick={() => setShowAgriLMS(false)}>
+        <div key="modal-agri-lms" className="weather-overlay" onClick={() => setShowAgriLMS(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowAgriLMS(false)}><X /></button>
             <AgriLMS userData={userData} />
@@ -1433,7 +1433,7 @@ showGreenPractices,
       )}
 
       {showQRTraceability && (
-        <div className="weather-overlay" onClick={() => setShowQRTraceability(false)}>
+        <div key="modal-qr-traceability" className="weather-overlay" onClick={() => setShowQRTraceability(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowQRTraceability(false)}><X /></button>
             <QRTraceability userData={userData} />
@@ -1442,7 +1442,7 @@ showGreenPractices,
       )}
 
       {showFarmPlanner3D && (
-        <div className="weather-overlay" onClick={() => setShowFarmPlanner3D(false)}>
+        <div key="modal-farm-planner-3d" className="weather-overlay" onClick={() => setShowFarmPlanner3D(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowFarmPlanner3D(false)}><X /></button>
             <FarmPlanner3D userData={userData} />
@@ -1451,7 +1451,7 @@ showGreenPractices,
       )}
 
       {showOfflineStatus && (
-        <div className="weather-overlay" onClick={()=>setShowOfflineStatus(false)}>
+        <div key="modal-offline-status" className="weather-overlay" onClick={()=>setShowOfflineStatus(false)}>
           <div className="weather-popup coming-soon" onClick={(e)=>e.stopPropagation()}>
             <h2>
               <WifiOff className="inline-icon" /> 
@@ -1472,7 +1472,7 @@ showGreenPractices,
       )}
 
       {showFarmDiary && (
-        <div className="weather-overlay" onClick={() => setShowFarmDiary(false)}>
+        <div key="modal-farm-diary" className="weather-overlay" onClick={() => setShowFarmDiary(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowFarmDiary(false)}><X /></button>
             <FarmDiary userData={userData} onClose={() => setShowFarmDiary(false)} />
@@ -1481,7 +1481,7 @@ showGreenPractices,
       )}
 
       {showCropRotation && (
-        <div className="weather-overlay" onClick={() => setShowCropRotation(false)}>
+        <div key="modal-crop-rotation" className="weather-overlay" onClick={() => setShowCropRotation(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowCropRotation(false)}>✕</button>
             <CropRotation userData={userData} />
@@ -1490,7 +1490,7 @@ showGreenPractices,
       )}
 
       {showP2PChat && (
-        <div className="weather-overlay" onClick={() => setShowP2PChat(false)}>
+        <div key="modal-p2p-chat" className="weather-overlay" onClick={() => setShowP2PChat(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
             <P2PChat 
               recipient={{ userId: "advisor", userName: "AI Farming Advisor" }} 
@@ -1502,13 +1502,15 @@ showGreenPractices,
       )}
 
       {showGeoAlerts && (
-        <div className="weather-overlay" onClick={() => setShowGeoAlerts(false)}>
-          <GeoAlertMesh userData={userData} onClose={() => setShowGeoAlerts(false)} />
+        <div key="modal-geo-alerts" className="weather-overlay" onClick={() => setShowGeoAlerts(false)}>
+          <div onClick={(e)=>e.stopPropagation()}>
+            <GeoAlertMesh userData={userData} onClose={() => setShowGeoAlerts(false)} />
+          </div>
         </div>
       )}
 
       {showSmartCropRecommendation && (
-        <div className="weather-overlay" onClick={() => setShowSmartCropRecommendation(false)}>
+        <div key="modal-smart-crop-recommendation" className="weather-overlay" onClick={() => setShowSmartCropRecommendation(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
             <SmartCropRecommendation userData={userData} />
             <button
@@ -1522,7 +1524,7 @@ showGreenPractices,
       )}
 
       {showCropRecommendationAdvisor && (
-        <div className="weather-overlay" onClick={() => setShowCropRecommendationAdvisor(false)}>
+        <div key="modal-crop-recommendation-advisor" className="weather-overlay" onClick={() => setShowCropRecommendationAdvisor(false)}>
           <div className="weather-popup crop-advisor-popup" onClick={(e) => e.stopPropagation()}>
             <CropRecommendationAdvisor userData={userData} onClose={() => setShowCropRecommendationAdvisor(false)} />
           </div>
@@ -1530,7 +1532,7 @@ showGreenPractices,
       )}
 
       {showSeedVerifier && (
-        <div className="weather-overlay" onClick={() => setShowSeedVerifier(false)}>
+        <div key="modal-seed-verifier" className="weather-overlay" onClick={() => setShowSeedVerifier(false)}>
           <div className="weather-popup" style={{ width: '90%', maxWidth: '450px', padding: 0, overflowY: 'auto', maxHeight: '90vh' }} onClick={(e) => e.stopPropagation()}>
             <SeedVerifier userData={userData} onClose={() => setShowSeedVerifier(false)} />
           </div>
@@ -1551,7 +1553,7 @@ showGreenPractices,
       />
 
 {showGreenPractices && (
-         <div className="weather-overlay" onClick={() => setShowGreenPractices(false)}>
+         <div key="modal-green-practices" className="weather-overlay" onClick={() => setShowGreenPractices(false)}>
            <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
              <GreenPractices 
                userData={userData} 
@@ -1561,8 +1563,8 @@ showGreenPractices,
          </div>
        )}
 
-        {showCropGrading && (
-          <div className="weather-overlay" onClick={() => setShowCropGrading(false)}>
+         {showCropGrading && (
+           <div key="modal-crop-grading" className="weather-overlay" onClick={() => setShowCropGrading(false)}>
             <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
               <CropQualityGrading onClose={() => setShowCropGrading(false)} />
             </div>
@@ -1570,7 +1572,7 @@ showGreenPractices,
         )}
 
       {showSustainabilityAnalytics && (
-        <div className="weather-overlay" onClick={() => setShowSustainabilityAnalytics(false)}>
+        <div key="modal-sustainability-analytics" className="weather-overlay" onClick={() => setShowSustainabilityAnalytics(false)}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
             <SustainabilityAnalytics
               userData={userData}
@@ -1581,7 +1583,7 @@ showGreenPractices,
       )}
 
       {showExpertDirectory && (
-        <div className="weather-overlay" onClick={() => setShowExpertDirectory(false)}>
+        <div key="modal-expert-directory" className="weather-overlay" onClick={() => setShowExpertDirectory(false)}>
           <div onClick={(e) => e.stopPropagation()}>
             <ExpertDirectory 
               onClose={() => setShowExpertDirectory(false)}
@@ -1596,7 +1598,7 @@ showGreenPractices,
       )}
 
       {showConsultationHistory && (
-        <div className="weather-overlay" onClick={() => setShowConsultationHistory(false)}>
+        <div key="modal-consultation-history" className="weather-overlay" onClick={() => setShowConsultationHistory(false)}>
           <div onClick={(e) => e.stopPropagation()}>
             <ConsultationHistory 
               onClose={() => setShowConsultationHistory(false)}
@@ -1611,7 +1613,7 @@ showGreenPractices,
       )}
 
       {showTeleConsultation && activeConsultation && (
-        <div className="weather-overlay" onClick={() => setShowTeleConsultation(false)}>
+        <div key={`modal-tele-consultation-${activeConsultation.createdAt || activeConsultation.date || ''}`} className="weather-overlay" onClick={() => setShowTeleConsultation(false)}>
           <div onClick={(e) => e.stopPropagation()}>
             <TeleConsultation 
               consultation={activeConsultation}
