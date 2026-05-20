@@ -677,6 +677,42 @@ def health_check():
     return {"status": "healthy", "service": "Fasal Saathi Backend", "version": "2.0"}
 
 
+# --- Smart Farm Autopilot ---
+
+class SeasonPlanRequest(BaseModel):
+    farm_name: str = Field(default="My Farm", max_length=100)
+    state: str = Field(..., min_length=2, max_length=50)
+    district: str = Field(default="", max_length=100)
+    area_acres: float = Field(..., gt=0, le=10000)
+    soil_type: str = Field(..., min_length=2, max_length=50)
+    season: str = Field(..., pattern="^(Kharif|Rabi|Zaid)$")
+    water_source: str = Field(default="Canal", max_length=50)
+    budget_inr: Optional[float] = Field(default=None, ge=0)
+
+
+@app.post("/api/autopilot/generate-plan")
+@limiter.limit("5/minute")
+async def generate_farm_plan(request: Request, data: SeasonPlanRequest):
+    """
+    Smart Farm Autopilot — generate a complete seasonal farming plan.
+
+    Requires authentication. The planner is computationally intensive
+    (crop selection, sowing schedule, irrigation plan, fertilizer/pesticide
+    timeline, yield/profit projection) and must not be accessible to
+    unauthenticated callers.
+    """
+    await verify_role(request)   # raises 401/403 if token is missing or invalid
+    try:
+        from smart_farm_autopilot import generate_season_plan
+        plan = generate_season_plan(data.dict())
+        return {"success": True, "plan": plan}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Autopilot plan generation failed: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to generate farm plan")
+
+
 # Include ML Model Management Router
 try:
     from routers.ml_models import router as ml_router
