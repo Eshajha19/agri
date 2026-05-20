@@ -802,11 +802,7 @@ logger.info(print_rbac_matrix())
 voice_assistant_router = None
 try:
     from backend.routers import voice_assistant as voice_assistant_router
-    from voice_assistant import OfflineCacheManager, VoiceAssistant
 
-    voice_asst = VoiceAssistant(offline_mode=True)
-    cache_mgr = OfflineCacheManager(cache_dir="./voice_assistant_cache")
-    voice_assistant_router.init_voice_assistant(voice_asst, cache_mgr, verify_role)
 except Exception as exc:
     logger.warning("Voice assistant router import skipped: %s", exc)
 
