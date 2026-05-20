@@ -66,6 +66,14 @@ service cloud.firestore {
         && (
           !("reputation" in request.resource.data.diff(resource.data).affectedKeys())
           || reputationCooldownOk(userId)
+        )
+        // Prevent privilege escalation: a user updating their own profile may
+        // not change their role to anything other than "farmer".
+        // Elevated roles (expert, vendor, admin) must be assigned by an admin
+        // via a separate admin-only write path, not through self-service setup.
+        && (
+          !("role" in request.resource.data.diff(resource.data).affectedKeys())
+          || request.resource.data.role == "farmer"
         );
     }
 
