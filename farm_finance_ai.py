@@ -36,6 +36,11 @@ class FinanceApplication:
     risk_level: str
     required_documents: List[str] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
+    # owner_uid ties the application to the Firebase UID of the farmer who
+    # created it. Used by get_application() to enforce ownership and prevent
+    # IDOR — a farmer must not be able to read another farmer's loan profile
+    # by guessing or enumerating application IDs.
+    owner_uid: Optional[str] = field(default=None)
 
 
 class FarmFinanceAI:
@@ -208,7 +213,7 @@ class FarmFinanceAI:
             "marketplace": [self._product_payload(product) for product in self.loan_products],
         }
 
-    def create_application(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def create_application(self, payload: Dict[str, Any], owner_uid: Optional[str] = None) -> Dict[str, Any]:
         analysis = self.analyze_financial_profile(payload)
         requested_lender = (payload.get("selected_lender") or "").strip()
         selected_product = self._select_product(requested_lender, analysis["lender_matches"], analysis["selected_product"])
@@ -230,11 +235,10 @@ class FarmFinanceAI:
             risk_level=analysis["risk_level"],
             required_documents=analysis["required_documents"],
             notes=analysis["action_plan"],
+            owner_uid=owner_uid,
         )
-        # Store in-memory for backward compatibility
         self.applications[application_id] = application
-        
-        # Persist to repository if available
+
         if self.repository:
             try:
                 app_dict = {
@@ -250,6 +254,7 @@ class FarmFinanceAI:
                     "risk_level": application.risk_level,
                     "required_documents": application.required_documents,
                     "notes": application.notes,
+                    "owner_uid": application.owner_uid,
                 }
                 self.repository.create(app_dict)
                 logger.info("Application %s persisted to repository.", application_id)
@@ -272,12 +277,29 @@ class FarmFinanceAI:
             "estimated_emi": analysis["estimated_emi"],
         }
 
-    def get_application(self, application_id: str) -> Optional[Dict[str, Any]]:
-        # Try to retrieve from repository first if available
+    def get_application(self, application_id: str, owner_uid: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve a finance application by ID.
+
+        Parameters
+        ----------
+        application_id : str
+            The application ID to look up.
+        owner_uid : str, optional
+            When provided, the application is only returned if its stored
+            owner_uid matches — preventing IDOR where a farmer reads another
+            farmer's loan profile by guessing an application ID.
+            Pass None to bypass the ownership check (admins / experts).
+        """
+        # Try repository first
         if self.repository:
             try:
                 app_dict = self.repository.get(application_id)
                 if app_dict:
+                    stored_uid = app_dict.get("owner_uid")
+                    # Enforce ownership when a uid filter is supplied
+                    if owner_uid is not None and stored_uid is not None and stored_uid != owner_uid:
+                        return None
                     return {
                         "application_id": app_dict.get("application_id"),
                         "farmer_name": app_dict.get("farmer_name"),
@@ -294,11 +316,16 @@ class FarmFinanceAI:
                     }
             except Exception as exc:
                 logger.warning("Failed to retrieve application from repository: %s", exc)
-        
+
         # Fall back to in-memory storage
         application = self.applications.get(application_id)
         if not application:
             return None
+
+        # Enforce ownership on in-memory records too
+        if owner_uid is not None and application.owner_uid is not None and application.owner_uid != owner_uid:
+            return None
+
         return {
             "application_id": application.application_id,
             "farmer_name": application.farmer_name,
