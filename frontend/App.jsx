@@ -77,6 +77,8 @@ import { useTheme } from "./ThemeContext";
 // Libs
 import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc } from "./lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
+import { loadAppState, loadUserProfileSnapshot, persistAppState, persistUserProfileSnapshot } from "./lib/offlinePersistence";
+import { syncOfflineRequests } from "./lib/syncOfflineRequests";
 
 // CSS
 import "./App.css";
@@ -134,7 +136,13 @@ const GuestBanner = ({ onSignUp }) => (
 
 function App() {
   const scorecardRef = useRef(null);
-  const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
+  const [preferredLang, setPreferredLang] = useState(() => {
+    try {
+      return localStorage.getItem("agri:preferredLanguage") || getInitialLanguage();
+    } catch {
+      return getInitialLanguage();
+    }
+  });
   const [isOpen, setIsOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const [user, setUser] = useState(null);
@@ -151,6 +159,52 @@ function App() {
   useEffect(() => {
     detectAndSetLiteMode();
   }, [detectAndSetLiteMode]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateOfflineState = async () => {
+      try {
+        const storedState = await loadAppState();
+        if (!cancelled && storedState?.preferredLang) {
+          setPreferredLang(storedState.preferredLang);
+        }
+      } catch (error) {
+        console.warn("Failed to restore offline app state:", error);
+      }
+    };
+
+    const syncQueuedRequests = async () => {
+      try {
+        await syncOfflineRequests();
+      } catch (error) {
+        console.warn("Offline request sync failed:", error);
+      }
+    };
+
+    void hydrateOfflineState();
+    void syncQueuedRequests();
+
+    const handleOnline = () => {
+      setIsOffline(false);
+      void syncQueuedRequests();
+    };
+
+    const handleOffline = () => setIsOffline(true);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    void persistAppState({ preferredLang });
+  }, [preferredLang]);
 
   const { i18n } = useTranslation();
   const location = useLocation();
@@ -184,6 +238,22 @@ function App() {
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       clearTimeout(safetyTimer);
       setUser(currentUser);
+
+      const hydrateUserSnapshot = async () => {
+        if (!currentUser?.uid) return false;
+        try {
+          const snapshot = await loadUserProfileSnapshot(currentUser.uid);
+          if (snapshot) {
+            setUserData(snapshot);
+            setProfileCompleted(snapshot.profileCompleted === true);
+            return true;
+          }
+        } catch (error) {
+          console.warn("Failed to restore offline user profile snapshot:", error);
+        }
+        return false;
+      };
+
       if (currentUser) {
         const unsubscribeDoc = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
           if (userDoc.exists()) {
@@ -196,11 +266,15 @@ function App() {
           } else {
             setUserData(null);
             setProfileCompleted(false);
+            void hydrateUserSnapshot().finally(() => setLoading(false));
+            return;
           }
           setLoading(false);
         }, (error) => {
           console.error("Firestore sync error:", error);
-          setLoading(false);
+          setUserData(null);
+          setProfileCompleted(false);
+          void hydrateUserSnapshot().finally(() => setLoading(false));
         });
         return () => unsubscribeDoc();
       } else {
@@ -241,6 +315,16 @@ function App() {
 
     ensurePublicKey();
   }, [user]);
+
+  useEffect(() => {
+    if (!user?.uid || !userData) return;
+
+    void persistUserProfileSnapshot(user.uid, {
+      ...userData,
+      profileCompleted,
+      savedAt: new Date().toISOString(),
+    });
+  }, [user?.uid, userData, profileCompleted]);
 
   // Online/Offline detection
   useEffect(() => {
@@ -338,6 +422,7 @@ function App() {
                       setPreferredLang(lang);
                       i18n.changeLanguage(lang);
                       localStorage.setItem("agri:preferredLanguage", lang);
+                      void persistAppState({ preferredLang: lang });
                     }}
                   />
                 </div>
