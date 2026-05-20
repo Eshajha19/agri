@@ -159,6 +159,8 @@ async def verify_role(request: Request, required_roles: list = None, require_all
 
 app.add_middleware(ErrorRecoveryMiddleware)
 
+app.add_middleware(ErrorRecoveryMiddleware)
+
 # --- Models ---
 
 class PredictRequest(BaseModel):
@@ -712,6 +714,14 @@ async def generate_farm_plan(request: Request, data: SeasonPlanRequest):
         logger.error("Autopilot plan generation failed: %s", e)
         raise HTTPException(status_code=500, detail="Failed to generate farm plan")
 
+
+# Include ML Model Management Router
+try:
+    from routers.ml_models import router as ml_router
+    app.include_router(ml_router)
+    logger.info("ML Model Management API loaded successfully")
+except Exception as e:
+    logger.warning(f"Could not load ML Model Management API: {e}")
 
 # Include ML Model Management Router
 try:
