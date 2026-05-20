@@ -16,9 +16,9 @@ import logging
 
 # Rate limiting — mirrors the setup used in main.py so both apps enforce
 # consistent per-IP throttles via the same slowapi library.
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
+from rate_limit_config import build_limiter, rate_limit_exceeded_handler
 
 # Import our validator
 from feedback_validation import FeedbackValidator
@@ -133,9 +133,9 @@ app = FastAPI(
 # slowapi uses the same key_func pattern as main.py (remote IP address).
 # The limiter is attached to app.state so the @limiter.limit() decorator
 # can resolve it at request time.
-limiter = Limiter(key_func=get_remote_address)
+limiter = build_limiter(default_limits=["120/minute"])
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Add CORS middleware
@@ -215,6 +215,7 @@ async def verify_admin(request: Request) -> dict:
 
 
 @app.get("/")
+@limiter.limit("60/minute")
 async def root():
     """Health check endpoint"""
     return {
