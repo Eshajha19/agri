@@ -10,6 +10,7 @@ const resourcesData = [
     description:
       "Learn how to choose crops based on season, soil health, and weather conditions.",
     tags: ["Seasonal", "Soil", "Irrigation"],
+    link: "/crop-planner"
   },
   {
     id: 2,
@@ -18,6 +19,7 @@ const resourcesData = [
     description:
       "Explore smart farming technologies, AI in agriculture, and government schemes.",
     tags: ["Tech", "AI", "Govt"],
+    link: "/schemes"
   },
   {
     id: 3,
@@ -26,6 +28,7 @@ const resourcesData = [
     description:
       "Step-by-step guide for soil testing, fertilizer usage, and crop rotation.",
     tags: ["Beginner", "Advanced", "Yield"],
+    link: "/crop-guide"
   },
   {
     id: 4,
@@ -34,6 +37,7 @@ const resourcesData = [
     description:
       "Natural and chemical methods to protect crops from pests effectively.",
     tags: ["Pest", "Organic", "Protection"],
+    link: "/advisor"
   },
   {
     id: 5,
@@ -122,11 +126,13 @@ export default function ResourcesPage() {
               </div>
 
               {item.link ? (
-                <Link to={item.link}>
+                <Link to={item.link} className="explore-link">
                   <button className="explore-btn">Explore →</button>
                 </Link>
               ) : (
-                <button className="explore-btn">Explore →</button>
+                <button className="explore-btn" disabled aria-label="Content coming soon">
+                  Explore →
+                </button>
               )}
             </div>
           ))

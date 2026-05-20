@@ -1,0 +1,241 @@
+.sustainability-analytics {
+  background: #fff;
+  border-radius: 24px;
+  max-width: 1100px;
+  width: 95%;
+  max-height: 92vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  animation: susSlideUp 0.35s ease-out;
+  color: #1e293b;
+  position: relative;
+}
+
+@keyframes susSlideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.sus-close-top {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: #ef4444;
+  border: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+  color: #fff;
+  font-size: 24px;
+  line-height: 1;
+  z-index: 5;
+}
+
+.sus-header {
+  padding: 28px 28px 20px;
+  background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+  border-bottom: 1px solid #a7f3d0;
+}
+
+.sus-header h2 {
+  margin: 0 0 8px;
+  font-size: 1.5rem;
+  color: #065f46;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sus-header p {
+  margin: 0;
+  color: #047857;
+  font-size: 0.95rem;
+  max-width: 720px;
+}
+
+.sus-body {
+  padding: 24px 28px 32px;
+  display: grid;
+  gap: 24px;
+}
+
+.sus-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.sus-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.sus-form-grid input,
+.sus-form-grid select {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  font-size: 0.95rem;
+}
+
+.sus-checkbox {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 10px !important;
+  margin-top: 8px;
+}
+
+.sus-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.sus-btn {
+  padding: 10px 18px;
+  border-radius: 10px;
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sus-btn-primary {
+  background: #059669;
+  color: #fff;
+}
+
+.sus-btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.sus-btn-secondary {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.sus-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.sus-metric-card {
+  padding: 16px;
+  border-radius: 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.sus-metric-card h4 {
+  margin: 0 0 6px;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.sus-metric-card .value {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.sus-metric-card.water .value { color: #0284c7; }
+.sus-metric-card.carbon .value { color: #b45309; }
+.sus-metric-card.score .value { color: #059669; }
+
+.sus-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+.sus-chart-box {
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  min-height: 280px;
+}
+
+.sus-chart-box h3 {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  color: #0f172a;
+}
+
+.sus-recommendations {
+  padding: 16px;
+  border-radius: 14px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+}
+
+.sus-recommendations h3 {
+  margin: 0 0 10px;
+  color: #166534;
+}
+
+.sus-recommendations ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: #14532d;
+}
+
+.sus-recommendations li {
+  margin-bottom: 8px;
+}
+
+.sus-error {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.sus-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.sus-history-table th,
+.sus-history-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.sus-history-table th {
+  color: #64748b;
+  font-weight: 600;
+}
+
+.sus-btn .spin {
+  animation: susSpin 0.8s linear infinite;
+}
+
+@keyframes susSpin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 640px) {
+  .sus-body {
+    padding: 16px;
+  }
+  .sus-header {
+    padding: 20px 16px;
+  }
+}
