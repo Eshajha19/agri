@@ -1,15 +1,19 @@
-"""Main API entrypoint.
-
-This module is intentionally small: it builds the FastAPI app, initializes
-shared services, and registers routers. Domain endpoints live in
-`backend.routers.*` modules.
-"""
-
+# main.py
+import os
+import asyncio
+import io
 import json
 import logging
-import os
-import threading
-import time
+import re
+import joblib
+import hashlib
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any
+
+from fastapi import FastAPI, HTTPException, Request, Form, Query, Response, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field, validator
 
@@ -90,16 +94,49 @@ from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
 from error_recovery_middleware import ErrorRecoveryMiddleware
+from realtime_notifications import notification_broker
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
-from reportlab.pdfgen import canvas
-from weather_alerts import weather_service
-from whatsapp_service import format_alert_message, send_whatsapp_message
-from whatsapp_store import subscriber_store
+from cryptography.hazmat.primitives.asymmetric import ed25519
+from cryptography.hazmat.primitives import serialization
+
+# KMS Support
+try:
+    from google.cloud import secretmanager
+    HAS_GCP_KMS = True
+except ImportError:
+    HAS_GCP_KMS = False
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    FastAPI lifespan context manager.
+
+    Runs inside **every** Uvicorn/Gunicorn worker process on startup, so the
+    ML pipeline is always initialised regardless of how many workers are
+    spawned.  This replaces the previous bare ``init_ml_pipeline()`` call at
+    module level, which only ran reliably in single-worker deployments.
+
+    Multi-worker guarantee
+    ----------------------
+    When Uvicorn is started with ``--workers N``, each worker forks/spawns
+    from the main process and imports ``main.py`` independently.  The
+    ``lifespan`` hook is invoked by FastAPI in every worker's event loop,
+    ensuring ``ModelRegistry`` is populated in every process before the
+    first request is served.
+    """
+    init_ml_pipeline()
+    await notification_broker.start()
+    yield
+    # Shutdown: nothing to clean up for in-memory models.
+    await notification_broker.stop()
+
+
+app = FastAPI(lifespan=lifespan)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -156,6 +193,8 @@ async def verify_role(request: Request, required_roles: list = None, require_all
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing auth token")
+
+app.add_middleware(ErrorRecoveryMiddleware)
 
 app.add_middleware(ErrorRecoveryMiddleware)
 
@@ -229,6 +268,60 @@ class SeedVerifyRequest(BaseModel):
 
     return {"uid": uid, "roles": user_roles}
 
+    def __init__(self, maxlen: int = _MAX_NOTIFICATIONS, ttl_hours: int = _NOTIFICATION_TTL_HOURS):
+        self._deque: collections.deque = collections.deque(maxlen=maxlen)
+        self._lock = threading.Lock()
+        self._counter = itertools.count(start=1)
+        self._ttl = timedelta(hours=ttl_hours)
+
+    def append(self, alert_type: str, message: str) -> dict:
+        """
+        Add a new notification entry and return it.
+
+        The ID is assigned from a monotonically increasing counter so
+        concurrent calls always produce distinct values.
+        """
+        with self._lock:
+            entry = {
+                "id": next(self._counter),
+                "type": alert_type,
+                "message": message,
+                "time": datetime.now().isoformat(),
+            }
+            self._deque.append(entry)
+        return entry
+
+    def get_recent(self) -> list:
+        """
+        Return all entries newer than the configured TTL, oldest first.
+
+        Takes a snapshot under the lock so callers always see a consistent
+        view even if append() is running concurrently.
+        """
+        cutoff = datetime.now() - self._ttl
+        with self._lock:
+            snapshot = list(self._deque)
+        return [
+            e for e in snapshot
+            if datetime.fromisoformat(e["time"]) >= cutoff
+        ]
+
+
+# Seed the store with the initial weather advisory that was previously
+# hard-coded in the bare list.
+_notification_store = NotificationStore()
+_notification_store.append(
+    alert_type="weather",
+    message="🌧️ Heavy rainfall expected in your region today.",
+)
+notification_broker.seed_notifications(_notification_store.get_recent())
+
+
+async def publish_notification(alert_type: str, message: str) -> dict:
+    """Store a notification and broadcast it to websocket subscribers."""
+    entry = _notification_store.append(alert_type=alert_type, message=message)
+    await notification_broker.publish(entry)
+    return entry
 
 def sanitise_log_field(value: str) -> str:
     if not isinstance(value, str):
@@ -433,13 +526,18 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
 
     # Use the bounded, thread-safe NotificationStore instead of the bare
     # static_notifications list (which had no size cap and racy ID generation).
-    _notification_store.append(
+    await publish_notification(
         alert_type=data.alert_type,
         message=data.message,
     )
 
     delivered = sum(1 for r in results if r["success"])
     return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
+
+
+@app.websocket("/api/notifications/stream")
+async def notifications_stream(websocket: WebSocket):
+    await notification_broker.connect(websocket)
 
 @app.post("/api/whatsapp/webhook")
 @limiter.limit("20/minute")
@@ -714,6 +812,14 @@ async def generate_farm_plan(request: Request, data: SeasonPlanRequest):
         logger.error("Autopilot plan generation failed: %s", e)
         raise HTTPException(status_code=500, detail="Failed to generate farm plan")
 
+
+# Include ML Model Management Router
+try:
+    from routers.ml_models import router as ml_router
+    app.include_router(ml_router)
+    logger.info("ML Model Management API loaded successfully")
+except Exception as e:
+    logger.warning(f"Could not load ML Model Management API: {e}")
 
 # Include ML Model Management Router
 try:
