@@ -11,7 +11,40 @@ import os
 import threading
 import time
 from contextlib import asynccontextmanager
-from typing import Any, Dict, Tuple
+from pydantic import BaseModel, Field, validator
+
+class SimulationRequest(BaseModel):
+    crop_type: str
+    temp_delta: float = Field(..., ge=-5, le=5)
+    rain_delta: float = Field(..., ge=-100, le=100)
+
+class ClientErrorReport(BaseModel):
+    """
+    Typed, bounded schema for frontend error reports sent to /api/log-error.
+
+    Fields are intentionally narrow:
+    - message  : the human-readable error description (capped at 500 chars)
+    - source   : optional filename / module where the error originated
+    - stack    : optional stack trace (capped to prevent log flooding)
+    - level    : severity hint from the client; defaults to "error"
+
+    All string fields are stripped of ANSI escape sequences and ASCII
+    control characters before being written to the log, so a crafted
+    payload cannot inject terminal control codes or forge log lines.
+    """
+    message: str = Field(..., min_length=1, max_length=500)
+    source: Optional[str] = Field(default=None, max_length=200)
+    stack: Optional[str] = Field(default=None, max_length=2000)
+    level: str = Field(default="error", max_length=20)
+
+class RAGQuery(BaseModel):
+    query: str = Field(..., min_length=3, max_length=500)
+    top_k: int = Field(default=3, ge=1, le=5)
+
+# Rate Limiting
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from rate_limit_config import build_limiter, rate_limit_exceeded_handler
 
 import firebase_admin
 from cryptography.hazmat.primitives import serialization
@@ -72,46 +105,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class IdempotencyCache:
-    def __init__(self, max_size: int = 1000, ttl_seconds: int = 86400):
-        self.max_size = max_size
-        self.ttl_seconds = ttl_seconds
-        self.cache: Dict[str, Tuple[Any, float]] = {}
-
-    def _evict_expired(self) -> None:
-        now = time.time()
-        expired_keys = [key for key, (_, ts) in self.cache.items() if now - ts >= self.ttl_seconds]
-        for key in expired_keys:
-            del self.cache[key]
-
-    def __contains__(self, key: str) -> bool:
-        self._evict_expired()
-        if key in self.cache:
-            _, ts = self.cache[key]
-            if time.time() - ts < self.ttl_seconds:
-                return True
-            del self.cache[key]
-        return False
-
-    def __getitem__(self, key: str) -> Any:
-        self._evict_expired()
-        if key in self.cache:
-            value, ts = self.cache[key]
-            if time.time() - ts < self.ttl_seconds:
-                return value
-            del self.cache[key]
-        raise KeyError(key)
-
-    def __setitem__(self, key: str, value: Any) -> None:
-        self._evict_expired()
-        if len(self.cache) >= self.max_size and key not in self.cache:
-            oldest_key = min(self.cache.keys(), key=lambda k: self.cache[k][1])
-            del self.cache[oldest_key]
-        self.cache[key] = (value, time.time())
-
-
-_IDEMPOTENCY_LOCK = threading.Lock()
-_IDEMPOTENCY_CACHE = IdempotencyCache(max_size=1000, ttl_seconds=86400)
+# Initialize Limiter
+limiter = build_limiter(default_limits=["120/minute"])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 
 db_firestore = None
@@ -237,6 +234,239 @@ def sanitise_log_field(value: str) -> str:
     sanitised = "".join(ch if ord(ch) >= 32 or ch in "\n\t" else f"\\x{ord(ch):02x}" for ch in value)
     return sanitised[:1000]
 
+@app.get("/")
+@limiter.limit("60/minute")
+def root():
+    return {"message": "Fasal Saathi API", "status": "running"}
+
+@app.get("/predict")
+@limiter.limit("30/minute")
+def predict_get():
+    return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
+
+@app.post("/predict", response_model=PredictResponse)
+@limiter.limit("5/minute")
+def predict_yield(data: PredictRequest, request: Request):
+    """
+    Standardised prediction endpoint using ML Router for dynamic model selection.
+
+    Returns HTTP 422 when the input contains an unknown categorical value or a
+    missing required feature, so callers receive an actionable error message
+    rather than a silently corrupted prediction.
+    """
+    try:
+        input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
+
+        context = {
+            "location": request.headers.get("X-User-Location", "Unknown"),
+            "crop": data.Crop,
+        }
+
+        predicted_yield = router.predict(input_data, context)
+        return {"predicted_ExpYield": float(predicted_yield)}
+
+    except UnknownCategoryError as e:
+        # The submitted categorical value was not in the training vocabulary.
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "unknown_category",
+                "field": e.column,
+                "value": str(e.value),
+                "message": str(e),
+            },
+        )
+    except MissingFeatureError as e:
+        # Required feature columns are absent after encoding.
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "missing_features",
+                "missing": e.missing_columns,
+                "message": str(e),
+            },
+        )
+    except Exception as e:
+        print(f"Prediction Error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/predict-yield-lag")
+@limiter.limit("5/minute")
+async def predict_yield_lag(payload: YieldInput, request: Request):
+    if model_lag is None:
+        raise HTTPException(status_code=500, detail="Model not loaded")
+    try:
+        data = payload.data
+        if len(data) != 5:
+            raise ValueError("Exactly 5 values are required")
+        data = np.array(data).reshape(1, -1)
+        prediction = model_lag.predict(data)
+        return {
+            "prediction": round(float(prediction[0]), 2),
+            "model": "RandomForest Time Series (Lag Features)"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal Server Error") from e
+
+@app.post("/predict-yield-trend")
+@limiter.limit("5/minute")
+async def predict_yield_trend(payload: YieldInput, request: Request):
+    if model_lag is None:
+        raise HTTPException(status_code=500, detail="Model not loaded")
+    try:
+        data = payload.data
+        if len(data) != 5:
+            raise ValueError("Exactly 5 values are required")
+        temp = list(data)
+        trend = []
+        for _ in range(5):
+            features = temp[:5]
+            pred = model_lag.predict([features])[0]
+            pred_value = round(float(pred), 2)
+            trend.append(pred_value)
+            temp = [pred_value] + temp
+        return {
+            "trend": trend,
+            "prediction": trend[-1],
+            "model": "RandomForest Trend Forecast (Lag Features)"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal Server Error") from e
+
+@app.get("/api/notifications")
+@limiter.limit("30/minute")
+def get_notifications(
+    crop: str = Query(default=None),
+    irrigation_count: int = Query(default=None, ge=0),
+    water_coverage: int = Query(default=None, ge=0, le=100),
+    season: str = Query(default=None)
+):
+    """
+    Return recent triggered-alert notifications combined with dynamic
+    farm advisory alerts generated from the query parameters.
+
+    Only notifications newer than the store's TTL window are included,
+    so the response payload stays small regardless of how long the
+    process has been running.
+    """
+    dynamic_alerts = generate_alerts(
+        crop=crop,
+        irrigation_count=irrigation_count,
+        water_coverage=water_coverage,
+        season=season
+    )
+    return {"success": True, "data": _notification_store.get_recent() + dynamic_alerts}
+
+# --- WhatsApp Service Endpoints ---
+#
+# Subscriber persistence is handled by whatsapp_store.SubscriberStore, which
+# provides thread-safe, crash-safe read-modify-write operations via a
+# threading.Lock and atomic file replacement (write-to-tmp then os.replace).
+# The old load_subscribers / save_subscribers helpers have been removed because
+# they had no locking and used open(..., "w") directly, which could corrupt the
+# file on a concurrent write or a mid-write crash.
+
+@app.post("/api/whatsapp/subscribe")
+@limiter.limit("2/minute")
+async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
+    # Require authentication so the subscriber's identity is always derived
+    # from the verified Firebase token — never from client-supplied data.
+    # Previously the endpoint accepted user_id from the request body, which
+    # allowed any caller to overwrite another user's subscription by sending
+    # a known user_id with an attacker-controlled phone number.
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+
+    subscriber = {
+        "phone_number": data.phone_number,
+        "name": data.name,
+        "subscribed_at": datetime.now().isoformat(),
+    }
+    try:
+        subscriber_store.upsert(uid, subscriber)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save subscription. Please try again.",
+        ) from exc
+
+    welcome_msg = (
+        f"Namaste {data.name}! 🙏\n\n"
+        "Welcome to *Fasal Saathi WhatsApp Alerts*. "
+        "You will now receive real-time updates directly here."
+    )
+    send_whatsapp_message(data.phone_number, welcome_msg)
+    return {"success": True, "message": "Successfully subscribed"}
+
+@app.post("/api/whatsapp/trigger-alert")
+@limiter.limit("10/minute")
+async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
+    """
+    Broadcast a WhatsApp alert to all subscribers.
+
+    Requires authentication — admin or expert role only.
+
+    Previously this endpoint had no authentication check, no rate limit,
+    and no input constraints.  Any unauthenticated caller could send
+    arbitrary messages to every subscribed farmer, enabling social
+    engineering attacks (fake market alerts, fake pest warnings) and
+    consuming Twilio API credits at the attacker's discretion.
+    """
+    # RBAC: only admins and experts may broadcast alerts to all farmers.
+    await verify_role(request, required_roles=["admin", "expert"])
+
+    # get_all() acquires the lock and returns a stable snapshot, so this read
+    # cannot race with a concurrent subscription write.
+    subscribers = subscriber_store.get_all()
+    results = []
+    formatted_msg = format_alert_message(data.alert_type, data.message)
+
+    for user_id, info in subscribers.items():
+        res = send_whatsapp_message(info["phone_number"], formatted_msg)
+        results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})
+
+    # Use the bounded, thread-safe NotificationStore instead of the bare
+    # static_notifications list (which had no size cap and racy ID generation).
+    _notification_store.append(
+        alert_type=data.alert_type,
+        message=data.message,
+    )
+
+    delivered = sum(1 for r in results if r["success"])
+    return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
+
+@app.post("/api/whatsapp/webhook")
+@limiter.limit("20/minute")
+async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
+    incoming_msg = Body.lower().strip()
+    sender_number = From.replace("whatsapp:", "")
+    
+    responses = {
+        "weather": "🌡️ *Weather Update*\n\n28°C, Clear skies. No rain expected.",
+        "pest": "🐛 *Pest Assistant*\n\nPlease use the Pest Management tool in-app for diagnosis.",
+        "hi": "🙏 *Namaste!*\n\nI am your AI Farming Assistant. Try 'Weather' or 'Pest'.",
+        "hello": "🙏 *Namaste!*\n\nI am your AI Farming Assistant. Try 'Weather' or 'Pest'."
+    }
+    
+    response = next((v for k, v in responses.items() if k in incoming_msg), f"Received: '{Body}'. Try 'Weather' or 'Pest' 🌱")
+    send_whatsapp_message(sender_number, response)
+    return {"status": "success"}
+
+# --- Cryptographic Reports ---
+#
+# Key resolution priority (highest → lowest):
+#   1. In-process cache          – avoids repeated I/O on every request
+#   2. GCP Secret Manager        – production path; key never touches disk
+#   3. Local persistent PEM file – dev/staging fallback; blocked in production
+#   4. Fresh generation          – last resort for local dev only
+#
+# When ENV=production the function raises HTTP 500 at steps 2, 3, and 4
+# rather than falling through to a weaker path, so a plaintext disk key
+# can never silently be used in production.
 
 _cached_private_key = None
 KEYS_DIR = "keys"
@@ -410,7 +640,7 @@ try:
 
     voice_asst = VoiceAssistant(offline_mode=True)
     cache_mgr = OfflineCacheManager(cache_dir="./voice_assistant_cache")
-    voice_assistant_router.init_voice_assistant(voice_asst, cache_mgr)
+    voice_assistant_router.init_voice_assistant(voice_asst, cache_mgr, verify_role)
 except Exception as exc:
     voice_assistant_router = None
     logger.warning("Voice assistant init skipped: %s", exc)
