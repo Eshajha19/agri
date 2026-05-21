@@ -277,7 +277,9 @@ class FarmFinanceAI:
             "estimated_emi": analysis["estimated_emi"],
         }
 
-    def get_application(self, application_id: str, owner_uid: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    _IDOR_GUARD = object()
+
+    def get_application(self, application_id: str, owner_uid: Any = _IDOR_GUARD) -> Optional[Dict[str, Any]]:
         """
         Retrieve a finance application by ID.
 
@@ -290,7 +292,10 @@ class FarmFinanceAI:
             owner_uid matches — preventing IDOR where a farmer reads another
             farmer's loan profile by guessing an application ID.
             Pass None to bypass the ownership check (admins / experts).
+            When omitted, access is denied by default.
         """
+        if owner_uid is self._IDOR_GUARD:
+            return None
         # Try repository first
         if self.repository:
             try:
