@@ -456,6 +456,19 @@ async def verify_seed(request: Request, data: SeedVerifyRequest):
 
     await rbac_manager.raise_if_unauthorized(request, [permission_enum.SEEDS_VERIFY], require_all=False)
 
+    # ---------------------------------------------------------------------------
+    # Seed registry — IMPORTANT LIMITATION
+    #
+    # This is a minimal static registry used for demonstration purposes only.
+    # It contains two known codes: one authentic and one blacklisted counterfeit.
+    # Any code NOT in this registry returns status="unverified" with a warning
+    # that the seed could not be verified — NOT a clean "not found" that implies
+    # the seed is safe. Farmers must be told to treat unverified codes with
+    # caution and contact their local agricultural office for confirmation.
+    #
+    # Production deployment should replace this dict with a Firestore/database
+    # lookup against a maintained registry of certified seed batches.
+    # ---------------------------------------------------------------------------
     seed_registry = {
         "FS-RICE-2026-A1": {
             "status": "authentic",
@@ -482,7 +495,22 @@ async def verify_seed(request: Request, data: SeedVerifyRequest):
     entry = seed_registry.get(code)
 
     if entry is None:
-        return {"success": True, "code": code, "status": "not_found"}
+        # Return "unverified" — NOT "not_found".
+        # "Not found" implies the seed is safe but merely unknown.
+        # "Unverified" correctly signals that the code could not be confirmed
+        # as authentic, and the farmer should treat it with caution.
+        return {
+            "success": True,
+            "code": code,
+            "status": "unverified",
+            "warning": (
+                "This seed code was not found in the verified registry. "
+                "This does NOT mean the seed is safe — it may be counterfeit, "
+                "mislabelled, or from an unregistered batch. "
+                "Do not use this seed until you have confirmed its authenticity "
+                "with your local Krishi Vigyan Kendra (KVK) or agricultural office."
+            ),
+        }
 
     if entry["status"] == "invalid":
         return {

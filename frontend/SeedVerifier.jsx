@@ -71,6 +71,10 @@ const SeedVerifier = ({ onClose }) => {
         if (result.status === "authentic" || result.status === "invalid") {
           setMetadata(result);
         }
+        // "unverified" carries a warning message — store it in metadata too
+        if (result.status === "unverified") {
+          setMetadata(result);
+        }
       } else {
         setError("Verification failed. Please try again.");
         setStatus("idle");
@@ -185,15 +189,30 @@ const SeedVerifier = ({ onClose }) => {
           </div>
         )}
 
-        {status === "not_found" && (
+        {(status === "not_found" || status === "unverified") && (
           <div className="result-card not-found">
             <Search className="result-icon warning" />
-            <h3 className="warning-text">Unregistered</h3>
-            <p>Code not found in our central database.</p>
+            <h3 className="warning-text">⚠️ Cannot Verify — Use With Caution</h3>
+            <p style={{ fontWeight: 600, color: "#b45309" }}>
+              This seed code was <strong>not found</strong> in the verified registry.
+            </p>
+            <p>
+              This does <strong>not</strong> mean the seed is safe. It may be counterfeit,
+              mislabelled, or from an unregistered batch.
+            </p>
+            {metadata?.warning && (
+              <p style={{ fontSize: "0.85rem", color: "#92400e", marginTop: "8px" }}>
+                {metadata.warning}
+              </p>
+            )}
             <div className="data-details">
               <p><span>Batch Code:</span> <strong>{scannedData}</strong></p>
-              <p><span>Status:</span> <strong className="warning-text">NOT FOUND</strong></p>
+              <p><span>Status:</span> <strong className="warning-text">UNVERIFIED</strong></p>
             </div>
+            <p style={{ fontSize: "0.8rem", color: "#6b7280", marginTop: "8px" }}>
+              Contact your local Krishi Vigyan Kendra (KVK) or agricultural office
+              to confirm authenticity before using this seed.
+            </p>
             <button className="action-btn secondary" onClick={handleReset}>Scan Again</button>
           </div>
         )}
