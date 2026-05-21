@@ -1,22 +1,78 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { FaTrophy, FaMedal, FaStar, FaSeedling, FaCloudSun, FaUsers } from "react-icons/fa";
 import { useTheme } from "./ThemeContext";
+import { db, isFirebaseConfigured } from "./lib/firebase";
+import { collection, query, orderBy, limit, getDocs } from "firebase/firestore";
 import "./Leaderboard.css";
 
-const INITIAL_LEADERBOARD = [
-  { id: 1, name: "Ramesh Kumar", location: "Maharashtra", points: 2850, badges: ["Top Farmer", "Weather Expert"], avatar: "👨‍🌾" },
-  { id: 2, name: "Lakshmi Devi", location: "Tamil Nadu", points: 2640, badges: ["Crop Master", "Community Leader"], avatar: "👩‍🌾" },
-  { id: 3, name: "Suresh Patel", location: "Gujarat", points: 2420, badges: ["Soil Expert"], avatar: "👨‍🌾" },
-  { id: 4, name: "Priya Singh", location: "Punjab", points: 2180, badges: ["Irrigation Pro"], avatar: "👩‍🌾" },
-  { id: 5, name: "Amit Sharma", location: "Uttar Pradesh", points: 1950, badges: ["Rising Star"], avatar: "👨‍🌾" },
-  { id: 6, name: "Kavitha Reddy", location: "Karnataka", points: 1820, badges: ["Organic Farmer"], avatar: "👩‍🌾" },
-  { id: 7, name: "Rajesh Verma", location: "Madhya Pradesh", points: 1690, badges: ["Tech Adopter"], avatar: "👨‍🌾" },
-  { id: 8, name: "Meena Joshi", location: "Maharashtra", points: 1540, badges: ["Knowledge Sharer"], avatar: "👩‍🌾" },
-];
+// Number of farmers shown on the leaderboard
+const PAGE_SIZE = 10;
 
 export default function Leaderboard() {
   const { theme } = useTheme();
   const [timeFilter, setTimeFilter] = useState("all");
+  const [farmers, setFarmers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!isFirebaseConfigured()) {
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    const fetchLeaderboard = async () => {
+      try {
+        // Determine which points field to sort by based on the active filter.
+        // "all"     → lifetime reputation points (always present)
+        // "monthly" → monthlyReputation (written by the reputation system)
+        // "weekly"  → weeklyReputation  (written by the reputation system)
+        // Fall back to "reputation" if the time-scoped field is absent.
+        const sortField =
+          timeFilter === "monthly" ? "monthlyReputation"
+          : timeFilter === "weekly"  ? "weeklyReputation"
+          : "reputation";
+
+        const q = query(
+          collection(db, "users"),
+          orderBy(sortField, "desc"),
+          limit(PAGE_SIZE)
+        );
+
+        const snapshot = await getDocs(q);
+        if (cancelled) return;
+
+        const results = snapshot.docs.map((docSnap, idx) => {
+          const data = docSnap.data();
+          return {
+            id: docSnap.id,
+            rank: idx + 1,
+            name: data.displayName || "Farmer",
+            location: data.address || data.location || "India",
+            points: data[sortField] ?? data.reputation ?? 0,
+            badges: Array.isArray(data.badges) ? data.badges : [],
+            avatar: "👨‍🌾",
+          };
+        });
+
+        setFarmers(results);
+      } catch (err) {
+        if (!cancelled) {
+          console.error("Leaderboard fetch error:", err);
+          setError("Could not load leaderboard. Please try again.");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    fetchLeaderboard();
+    return () => { cancelled = true; };
+  }, [timeFilter]);
 
   const getRankIcon = (rank) => {
     if (rank === 1) return <FaTrophy className="rank-icon gold" />;
@@ -54,23 +110,43 @@ export default function Leaderboard() {
 
         {/* Leaderboard List */}
         <div className="leaderboard-list">
-          {INITIAL_LEADERBOARD.map((farmer, index) => (
+          {loading && (
+            <div style={{ textAlign: "center", padding: "40px", color: "#6b7280" }}>
+              Loading leaderboard…
+            </div>
+          )}
+
+          {!loading && error && (
+            <div style={{ textAlign: "center", padding: "40px", color: "#ef4444" }}>
+              {error}
+            </div>
+          )}
+
+          {!loading && !error && farmers.length === 0 && (
+            <div style={{ textAlign: "center", padding: "40px", color: "#6b7280" }}>
+              No farmers on the leaderboard yet. Start earning points to be the first!
+            </div>
+          )}
+
+          {!loading && !error && farmers.map((farmer) => (
             <div
               key={farmer.id}
-              className={`leaderboard-card ${index < 3 ? `top-${index + 1}` : ""}`}
+              className={`leaderboard-card ${farmer.rank <= 3 ? `top-${farmer.rank}` : ""}`}
             >
-              <div className="card-rank">{getRankIcon(index + 1)}</div>
-              
+              <div className="card-rank">{getRankIcon(farmer.rank)}</div>
+
               <div className="card-avatar">{farmer.avatar}</div>
-              
+
               <div className="card-info">
                 <h3 className="farmer-name">{farmer.name}</h3>
                 <p className="farmer-location">📍 {farmer.location}</p>
-                <div className="farmer-badges">
-                  {farmer.badges.map((badge, i) => (
-                    <span key={i} className="badge">{badge}</span>
-                  ))}
-                </div>
+                {farmer.badges.length > 0 && (
+                  <div className="farmer-badges">
+                    {farmer.badges.slice(0, 3).map((badge, i) => (
+                      <span key={i} className="badge">{badge}</span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="card-points">
