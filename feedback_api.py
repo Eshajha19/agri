@@ -216,7 +216,7 @@ async def verify_admin(request: Request) -> dict:
 
 @app.get("/")
 @limiter.limit("60/minute")
-async def root():
+async def root(request: Request):
     """Health check endpoint"""
     return {
         "service": "Feedback API",
