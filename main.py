@@ -724,8 +724,16 @@ async def get_rbac_audit(request: Request, limit: int = Query(default=50, ge=1, 
 @app.post("/api/whatsapp/webhook")
 @limiter.limit("20/minute")
 async def whatsapp_webhook(request: Request, Body: str = Form(...), From: str = Form(...)):
+    """
+    Handle incoming WhatsApp messages from Twilio.
+    
+    Processing is offloaded to a background Celery task to immediately
+    acknowledge the webhook (preventing Twilio timeout/penalties under burst traffic)
+    and process the message asynchronously.
+    """
     sender_number = From.replace("whatsapp:", "")
     
+    # Offload message processing to reliable background task queue
     from celery_worker import process_whatsapp_webhook_task
     process_whatsapp_webhook_task.delay(Body, sender_number)
     
