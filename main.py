@@ -724,18 +724,11 @@ async def get_rbac_audit(request: Request, limit: int = Query(default=50, ge=1, 
 @app.post("/api/whatsapp/webhook")
 @limiter.limit("20/minute")
 async def whatsapp_webhook(request: Request, Body: str = Form(...), From: str = Form(...)):
-    incoming_msg = Body.lower().strip()
     sender_number = From.replace("whatsapp:", "")
     
-    responses = {
-        "weather": "🌡️ *Weather Update*\n\n28°C, Clear skies. No rain expected.",
-        "pest": "🐛 *Pest Assistant*\n\nPlease use the Pest Management tool in-app for diagnosis.",
-        "hi": "🙏 *Namaste!*\n\nI am your AI Farming Assistant. Try 'Weather' or 'Pest'.",
-        "hello": "🙏 *Namaste!*\n\nI am your AI Farming Assistant. Try 'Weather' or 'Pest'."
-    }
+    from celery_worker import process_whatsapp_webhook_task
+    process_whatsapp_webhook_task.delay(Body, sender_number)
     
-    response = next((v for k, v in responses.items() if k in incoming_msg), f"Received: '{Body}'. Try 'Weather' or 'Pest' 🌱")
-    send_whatsapp_message(sender_number, response)
     return {"status": "success"}
 
 # --- Cryptographic Reports ---

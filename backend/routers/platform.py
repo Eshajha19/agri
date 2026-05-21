@@ -236,18 +236,11 @@ async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
     if send_whatsapp_message_fn is None:
         raise HTTPException(status_code=500, detail="WhatsApp sender not initialized")
 
-    incoming_msg = Body.lower().strip()
     sender_number = From.replace("whatsapp:", "")
 
-    responses = {
-        "weather": "Weather update: check weather alerts in app.",
-        "pest": "Pest assistant: please use the in-app diagnosis tool.",
-        "hi": "Namaste. I am your AI Farming Assistant.",
-        "hello": "Namaste. I am your AI Farming Assistant.",
-    }
-
-    response = next((value for key, value in responses.items() if key in incoming_msg), "Received. Try 'Weather' or 'Pest'.")
-    send_whatsapp_message_fn(sender_number, response)
+    from celery_worker import process_whatsapp_webhook_task
+    process_whatsapp_webhook_task.delay(Body, sender_number)
+    
     return {"status": "success"}
 
 
