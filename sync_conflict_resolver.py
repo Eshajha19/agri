@@ -189,20 +189,21 @@ class ConflictDetector:
             list(server_data.keys()) + 
             list((base_data or {}).keys())
         )
-        
+
         for key in all_keys:
             local_val = local_data.get(key)
             server_val = server_data.get(key)
-            base_val = (base_data or {}).get(key) if base_data else None
-            
-            # Both changed from base value
-            if base_data and local_val != base_val and server_val != base_val:
-                if local_val != server_val:
+
+            if base_data:
+                base_val = base_data.get(key)
+                local_changed = local_val != base_val
+                server_changed = server_val != base_val
+
+                if local_changed and server_changed and local_val != server_val:
                     conflicting_fields.append(key)
-            
-            # One changed, check if they differ
-            elif local_val != server_val:
-                conflicting_fields.append(key)
+            else:
+                if key in local_data and key in server_data and local_val != server_val:
+                    conflicting_fields.append(key)
         
         return conflicting_fields
 
