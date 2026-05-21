@@ -322,12 +322,6 @@ async def verify_role(request: Request, required_roles: list = None, require_all
 
 app.add_middleware(ErrorRecoveryMiddleware)
 
-app.add_middleware(ErrorRecoveryMiddleware)
-
-app.add_middleware(ErrorRecoveryMiddleware)
-
-app.add_middleware(ErrorRecoveryMiddleware)
-
 # --- Models ---
 
 class PredictRequest(BaseModel):
