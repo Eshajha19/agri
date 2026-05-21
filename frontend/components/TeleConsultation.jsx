@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import "./ExpertDirectory.css";
-import { db } from "../lib/firebase";
+import { db, auth } from "../lib/firebase";
 import { collection, getDocs, updateDoc, doc, query, where } from "firebase/firestore";
 import { toast } from "react-toastify";
 import {
@@ -50,17 +50,44 @@ function TeleConsultation({ userData, consultation, onEnd }) {
     setIsLoading(true);
     try {
       const consultationsRef = collection(db, "consultations");
-      const q = query(consultationsRef, where("expertId", "==", consultation.expertId));
-      const snapshot = await getDocs(q);
 
-      if (!snapshot.empty) {
-        const docRef = snapshot.docs[0].ref;
+      // If the consultation object already carries its Firestore document ID,
+      // do a direct point-lookup — no query needed, no risk of touching another
+      // user's record.
+      if (consultation.id) {
+        const docRef = doc(db, "consultations", consultation.id);
         await updateDoc(docRef, {
           status: "completed",
           duration: callDuration,
           endTime: new Date().toISOString(),
           notes: notes,
         });
+      } else {
+        // Fallback: scope the query to BOTH the expert AND the current user so
+        // we never accidentally update another farmer's consultation record.
+        // Previously the query only filtered on expertId, meaning snapshot.docs[0]
+        // could be any farmer's record for that expert.
+        const currentUid = auth?.currentUser?.uid || userData?.uid;
+        const constraints = [
+          where("expertId", "==", consultation.expertId),
+          where("status", "==", "scheduled"),
+        ];
+        if (currentUid) {
+          constraints.push(where("userId", "==", currentUid));
+        }
+        const q = query(consultationsRef, ...constraints);
+        const snapshot = await getDocs(q);
+
+        if (!snapshot.empty) {
+          // Update only the first matching record that belongs to this user
+          const docRef = snapshot.docs[0].ref;
+          await updateDoc(docRef, {
+            status: "completed",
+            duration: callDuration,
+            endTime: new Date().toISOString(),
+            notes: notes,
+          });
+        }
       }
 
       toast.success("Consultation completed!");
