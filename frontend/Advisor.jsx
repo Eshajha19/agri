@@ -97,6 +97,32 @@ import {
 
 export default function Advisor({ userData }) {
   const navigate = useNavigate();
+
+  const createLiveConsultationRoom = () => {
+    const seed = `${userData?.uid || userData?.id || "farmer"}-${Date.now().toString(36)}`;
+    const suffix = typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID().slice(0, 8)
+      : Math.random().toString(36).slice(2, 10);
+
+    return `fasal-saathi-live-${seed}-${suffix}`.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+  };
+
+  const startLiveConsultation = () => {
+    const roomName = createLiveConsultationRoom();
+
+    setActiveConsultation({
+      id: roomName,
+      roomName,
+      type: "video",
+      status: "live",
+      isLiveConsultation: true,
+      expertName: "Live Expert Consultation",
+      expertSpecialization: "Crop guidance, soil analysis, fertilizer recommendations, and disease diagnosis",
+      avatar: "https://images.unsplash.com/photo-1573164713988-8665fc963095?auto=format&fit=crop&w=160&q=80",
+      createdAt: new Date().toISOString(),
+    });
+    setShowTeleConsultation(true);
+  };
   
    const {
      farmers,
@@ -921,6 +947,32 @@ showGreenPractices,
             </div>
             <h3><span className="notranslate">Expert/KVK Booking</span></h3>
             <p>Book consultations with agricultural experts and KVK advisors via video or audio call.</p>
+          </div>
+
+          <div
+            className="card reveal live-consultation-card"
+            role="button"
+            tabIndex={0}
+            onClick={startLiveConsultation}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') startLiveConsultation(); }}
+            aria-label="Live Expert Consultation: Start a Jitsi video consultation"
+          >
+            <div className="card-badge live-consultation-badge">LIVE</div>
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(37, 99, 235, 0.12)', color: '#2563eb' }}>
+              <Video size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Live Expert Consultation</span></h3>
+            <p>Connect instantly with agriculture experts for crop guidance, soil analysis, fertilizer recommendations, and disease diagnosis.</p>
+            <button
+              type="button"
+              className="live-consultation-cta"
+              onClick={(e) => {
+                e.stopPropagation();
+                startLiveConsultation();
+              }}
+            >
+              Start Consultation
+            </button>
           </div>
 
           <div 

@@ -275,7 +275,6 @@ axiosClient.interceptors.request.use(
   (requestError) => Promise.reject(requestError)
 );
 
-apiClient.interceptors.response.use(
 axiosClient.interceptors.response.use(
   (response) => {
     if (!response.config.skipGlobalLoader) {
@@ -325,7 +324,7 @@ axiosClient.interceptors.response.use(
   }
 );
 
-const request = async (method, url, data = undefined, config = {}) => {
+const request = (method, url, data = undefined, config = {}) => {
   const normalizedMethod = method.toLowerCase();
   const dedupeEnabled = shouldDeduplicateRequest(normalizedMethod, config);
   const dedupeKey = dedupeEnabled ? getRequestDedupKey(normalizedMethod, url, config) : null;
@@ -341,7 +340,7 @@ const request = async (method, url, data = undefined, config = {}) => {
   const executeRequest = async () => {
     const gate = resolveCircuitBreakerGate(breakerState, circuitBreakerKey, circuitBreakerResetMs);
     if (!gate.allowed) {
-      throw gate.error;
+      return Promise.reject(gate.error);
     }
 
     try {
