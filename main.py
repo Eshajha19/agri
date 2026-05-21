@@ -7,6 +7,9 @@ import logging
 import re
 import joblib
 import hashlib
+import collections
+import threading
+import itertools
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -320,7 +323,11 @@ async def verify_role(request: Request, required_roles: list = None, require_all
     if not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing auth token")
 
-app.add_middleware(ErrorRecoveryMiddleware)
+    try:
+        token = auth_header.split(" ")[1]
+        decoded_token = auth.verify_id_token(token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 # --- Models ---
 
@@ -377,18 +384,23 @@ class ReportRequest(BaseModel):
 class SeedVerifyRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=100)
 
-    db = validate_firestore_ready()
-    user_doc = db.collection("users").document(uid).get()
-    user_roles = user_doc.get("roles", []) if user_doc.exists else []
 
-    if required_roles:
-        has_access = all(role in user_roles for role in required_roles) if require_all else any(
-            role in user_roles for role in required_roles
-        )
-        if not has_access:
-            raise HTTPException(status_code=403, detail="Insufficient permissions")
+_MAX_NOTIFICATIONS = 200
+_NOTIFICATION_TTL_HOURS = 24
 
-    return {"uid": uid, "roles": user_roles}
+
+class NotificationStore:
+    """
+    Thread-safe, bounded, TTL-aware store for in-process notifications.
+
+    Parameters
+    ----------
+    maxlen : int
+        Hard cap on the number of entries held in memory.  When full,
+        the oldest entry is evicted before the new one is appended.
+    ttl_hours : int
+        Entries older than this many hours are excluded from get_recent().
+    """
 
     def __init__(self, maxlen: int = _MAX_NOTIFICATIONS, ttl_hours: int = _NOTIFICATION_TTL_HOURS):
         self._deque: collections.deque = collections.deque(maxlen=maxlen)
@@ -563,6 +575,7 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
 @app.get("/api/notifications")
 @limiter.limit("30/minute")
 def get_notifications(
+    request: Request,
     crop: str = Query(default=None),
     irrigation_count: int = Query(default=None, ge=0),
     water_coverage: int = Query(default=None, ge=0, le=100),
@@ -677,7 +690,7 @@ async def get_rbac_audit(request: Request, limit: int = Query(default=50, ge=1, 
 
 @app.post("/api/whatsapp/webhook")
 @limiter.limit("20/minute")
-async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
+async def whatsapp_webhook(request: Request, Body: str = Form(...), From: str = Form(...)):
     incoming_msg = Body.lower().strip()
     sender_number = From.replace("whatsapp:", "")
     
