@@ -4,6 +4,7 @@ import asyncio
 import io
 import json
 import logging
+import math
 import re
 import joblib
 import hashlib
@@ -18,7 +19,7 @@ from typing import Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, Request, Form, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, ConfigDict, validator
 
 class SimulationRequest(BaseModel):
     crop_type: str
@@ -93,6 +94,7 @@ from whatsapp_store import subscriber_store
 from error_recovery_middleware import ErrorRecoveryMiddleware
 from realtime_notifications import notification_broker
 from rbac_audit import audit_rbac_event, rbac_audit_trail, validate_required_roles
+from rbac import RBACMiddleware, print_rbac_matrix
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -332,6 +334,8 @@ async def verify_role(request: Request, required_roles: list = None, require_all
 # --- Models ---
 
 class PredictRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     Crop: str = Field(..., max_length=50)
     CropCoveredArea: float = Field(..., gt=0)
     CHeight: int = Field(..., ge=0)
@@ -357,6 +361,44 @@ class WhatsAppSubscribeRequest(BaseModel):
 
 class YieldInput(BaseModel):
     data: list[float]
+
+
+def _coerce_prediction_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
+    sanitized = dict(input_data)
+    numeric_fields = {
+        "N",
+        "P",
+        "K",
+        "ph",
+        "pH",
+        "CropCoveredArea",
+        "CHeight",
+        "IrriCount",
+        "WaterCov",
+        "temperature",
+        "rainfall",
+        "humidity",
+    }
+
+    for field in numeric_fields:
+        if field not in sanitized or sanitized[field] is None:
+            continue
+
+        try:
+            numeric_value = float(sanitized[field])
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"Invalid value for '{field}'")
+
+        if not math.isfinite(numeric_value):
+            raise HTTPException(status_code=400, detail=f"Invalid value for '{field}'")
+
+        sanitized[field] = numeric_value
+
+    for field in ("ph", "pH"):
+        if field in sanitized and not (0 <= sanitized[field] <= 14):
+            raise HTTPException(status_code=400, detail="Invalid pH")
+
+    return sanitized
 
 class AlertTriggerRequest(BaseModel):
     alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
@@ -491,6 +533,7 @@ def predict_yield(data: PredictRequest, request: Request):
     """
     try:
         input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
+        input_data = _coerce_prediction_inputs(input_data)
 
         context = {
             "location": request.headers.get("X-User-Location", "Unknown"),
@@ -521,6 +564,8 @@ def predict_yield(data: PredictRequest, request: Request):
                 "message": str(e),
             },
         )
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Prediction Error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
