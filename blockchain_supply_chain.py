@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict, field
 import qrcode
 import io
+import copy as _copy
 import base64
 
 
@@ -108,22 +109,16 @@ class SupplyChainBlockchain:
         """Create snapshot of current state for rollback"""
         return {
             "chain_len": len(self.chain),
-            "products_keys": set(self.products.keys()),
+            "products_copy": _copy.deepcopy(self.products),
             "supply_chain_nodes_copy": {k: list(v) for k, v in self.supply_chain_nodes.items()},
             "smart_contracts_copy": {k: v.status for k, v in self.smart_contracts.items()},
         }
 
     def _rollback_to_snapshot(self, snap):
         """Rollback state to snapshot point"""
-        # revert chain
         self.chain = self.chain[: snap["chain_len"]]
-        # revert products that were added
-        current_keys = set(self.products.keys())
-        for k in list(current_keys - snap["products_keys"]):
-            del self.products[k]
-        # revert supply_chain_nodes
+        self.products = _copy.deepcopy(snap["products_copy"])
         self.supply_chain_nodes = {k: list(v) for k, v in snap["supply_chain_nodes_copy"].items()}
-        # revert contract statuses
         for cid, status in snap["smart_contracts_copy"].items():
             if cid in self.smart_contracts:
                 self.smart_contracts[cid].status = status
