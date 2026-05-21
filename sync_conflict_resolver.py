@@ -74,7 +74,9 @@ class VersionVector:
     
     def concurrent_with(self, other: 'VersionVector') -> bool:
         """Check if vectors are concurrent (neither happened before)"""
-        return (not self.happened_before(other) and 
+        if self.vector == other.vector:
+            return False
+        return (not self.happened_before(other) and
                 not other.happened_before(self))
     
     def to_dict(self) -> Dict[str, int]:
