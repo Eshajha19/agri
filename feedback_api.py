@@ -305,6 +305,30 @@ async def submit_feedback(
 @limiter.limit("10/minute")
 async def get_feedback_stats(request: Request):
     """Get feedback statistics (admin only)"""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing auth token")
+
+    try:
+        id_token = auth_header.split(" ")[1]
+        decoded = firebase_auth.verify_id_token(id_token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    uid = decoded["uid"]
+
+    try:
+        user_doc = db.collection("users").document(uid).get()
+    except Exception:
+        raise HTTPException(status_code=503, detail="Authorization service unavailable")
+
+    if not user_doc.exists:
+        raise HTTPException(status_code=403, detail="User profile not found")
+
+    user_role = user_doc.to_dict().get("role", "farmer")
+    if user_role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied: admin role required")
+
     try:
         feedback_ref = db.collection("feedback")
         docs = feedback_ref.limit(1000).stream()
