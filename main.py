@@ -499,11 +499,16 @@ async def publish_notification(alert_type: str, message: str) -> dict:
     await notification_broker.publish(entry)
     return entry
 
-async def publish_notification(alert_type: str, message: str) -> dict:
-    """Store a notification and broadcast it to websocket subscribers."""
-    entry = _notification_store.append(alert_type=alert_type, message=message)
-    await notification_broker.publish(entry)
-    return entry
+
+def _normalize_dynamic_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Assign non-colliding IDs to request-scoped advisory alerts."""
+    normalized = []
+    for index, alert in enumerate(alerts, start=1):
+        normalized_alert = dict(alert)
+        normalized_alert["id"] = -index
+        normalized_alert.setdefault("source", "advisory")
+        normalized.append(normalized_alert)
+    return normalized
 
 def sanitise_log_field(value: str) -> str:
     if not isinstance(value, str):
@@ -640,7 +645,7 @@ def get_notifications(
         water_coverage=water_coverage,
         season=season
     )
-    return {"success": True, "data": _notification_store.get_recent() + dynamic_alerts}
+    return {"success": True, "data": _notification_store.get_recent() + _normalize_dynamic_alerts(dynamic_alerts)}
 
 # --- WhatsApp Service Endpoints ---
 #
@@ -710,8 +715,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
         res = send_whatsapp_message(info["phone_number"], formatted_msg)
         results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})
 
-    # Use the bounded, thread-safe NotificationStore instead of the bare
-    # static_notifications list (which had no size cap and racy ID generation).
+    # Persist the alert through the bounded, thread-safe notification store.
     await publish_notification(
         alert_type=data.alert_type,
         message=data.message,
