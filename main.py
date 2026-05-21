@@ -898,7 +898,15 @@ async def lifespan(app: FastAPI):
     except Exception:
         model_lag = None
 
-    ml.init_router(ModelRouter(default_model="xgboost"), model_lag)
+    model_trend = None
+    try:
+        if os.path.exists("trend_forecast_model.joblib"):
+            model_trend = joblib.load("trend_forecast_model.joblib")
+            logger.info("Dedicated trend forecast model loaded")
+    except Exception:
+        model_trend = None
+
+    ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend)
 
     yield
     logger.info("Shutting down")
