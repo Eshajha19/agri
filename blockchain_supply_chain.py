@@ -26,16 +26,34 @@ class BlockchainRecord:
     data: Dict
     hash: str = ""
 
-    def calculate_hash(self) -> str:
-        """Calculate SHA256 hash of record"""
-        record_string = json.dumps({
+    def to_dict(self) -> Dict:
+        """Serialize record to dict (hash excluded — matches calculate_hash input)"""
+        return {
             "timestamp": self.timestamp,
             "actor": self.actor,
             "action": self.action,
             "location": self.location,
-            "data": self.data
-        }, sort_keys=True)
+            "data": self.data,
+        }
+
+    def calculate_hash(self) -> str:
+        """Calculate SHA256 hash of record (excludes hash field)"""
+        record_string = json.dumps(self.to_dict(), sort_keys=True)
         return hashlib.sha256(record_string.encode()).hexdigest()
+
+    @staticmethod
+    def from_dict(data: Dict) -> 'BlockchainRecord':
+        """Reconstruct record from dict, then compute and verify hash"""
+        record = BlockchainRecord(
+            timestamp=data["timestamp"],
+            actor=data["actor"],
+            action=data["action"],
+            location=data["location"],
+            data=data.get("data", {}),
+        )
+        if "hash" in data:
+            record.hash = data["hash"]
+        return record
 
 
 @dataclass
@@ -178,7 +196,7 @@ class SupplyChainBlockchain:
             self.products[batch_id] = batch
             self.supply_chain_nodes[batch_id] = []
             self.chain.append(record)
-            batch.blockchain_records.append(asdict(record))
+            batch.blockchain_records.append(record.to_dict())
 
             return batch
 
@@ -228,7 +246,7 @@ class SupplyChainBlockchain:
             # Commit
             self.supply_chain_nodes.setdefault(batch_id, []).append(node)
             self.chain.append(record)
-            self.products[batch_id].blockchain_records.append(asdict(record))
+            self.products[batch_id].blockchain_records.append(record.to_dict())
 
             return node
 
