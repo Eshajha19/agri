@@ -303,7 +303,10 @@ async def submit_feedback(
 
 @app.get("/api/feedback/stats", response_model=FeedbackStatsResponse)
 @limiter.limit("10/minute")
-async def get_feedback_stats(request: Request):
+async def get_feedback_stats(
+    request: Request,
+    admin_user: dict = Depends(verify_admin),
+):
     """Get feedback statistics (admin only)"""
     try:
         feedback_ref = db.collection("feedback")
