@@ -89,8 +89,18 @@ def init_knowledge(rg_fn, rbac, perm, sr, vr_fn):
 
 @router.post("/rag/query")
 async def rag_query(request: Request, body: RAGQuery):
+    """Query the AI knowledge base (RAG).
+
+    Authentication is required to prevent unauthenticated callers from
+    consuming Gemini API quota on the project's billing account and to
+    enable per-user rate limiting in the future.
+    """
     if rag_generate_fn is None:
         raise HTTPException(status_code=503, detail="RAG not available")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Not initialized")
+    # Raises HTTP 401 if the Firebase token is missing or invalid.
+    await verify_role_fn(request)
     try:
         result = rag_generate_fn(body.query, body.top_k)
         return {"success": True, "query": body.query, "results": result}
@@ -102,6 +112,15 @@ async def rag_query(request: Request, body: RAGQuery):
 
 @router.post("/simulate-climate")
 async def simulate_climate(request: Request, data: SimulationRequest):
+    """Run a climate impact simulation for a given crop.
+
+    Authentication is required so that the endpoint is not freely
+    accessible to scrapers and bots under the global rate limit.
+    """
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Not initialized")
+    # Raises HTTP 401 if the Firebase token is missing or invalid.
+    await verify_role_fn(request)
     try:
         new_temp = 28 + data.temp_delta
         new_rain = 100 + data.rain_delta
@@ -114,6 +133,8 @@ async def simulate_climate(request: Request, data: SimulationRequest):
             "impact_score": impact_score,
             "recommendation": "Adjust irrigation" if impact_score < 40 else "Conditions favorable"
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Climate error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
