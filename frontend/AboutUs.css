@@ -493,8 +493,9 @@
 
 
 .team-showcase-card {
-  --team-accent: #f3d7ef;
-  background: #fff;
+  --team-accent: `#f3d7ef`;
+
+  background: `#fff`;
   border-radius: 24px;
   overflow: hidden;
   box-shadow: 0 16px 32px rgba(15, 23, 42, 0.08);
