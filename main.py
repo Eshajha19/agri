@@ -518,7 +518,7 @@ def predict_get(request: Request = None):
 
 @app.post("/predict", response_model=PredictResponse)
 @limiter.limit("5/minute")
-def predict_yield(data: PredictRequest, request: Request):
+async def predict_yield(data: PredictRequest, request: Request):
     """
     Standardised prediction endpoint using ML Router for dynamic model selection.
 
@@ -535,30 +535,23 @@ def predict_yield(data: PredictRequest, request: Request):
             "crop": data.Crop,
         }
 
-        predicted_yield = router.predict(input_data, context)
-        return {"predicted_ExpYield": float(predicted_yield)}
+        # Offload heavy model inference to Celery worker to prevent blocking ASGI event loop
+        from celery_worker import predict_yield_task
+        task = predict_yield_task.delay(input_data, context)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, task.get)
 
-    except UnknownCategoryError as e:
-        # The submitted categorical value was not in the training vocabulary.
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "unknown_category",
-                "field": e.column,
-                "value": str(e.value),
-                "message": str(e),
-            },
-        )
-    except MissingFeatureError as e:
-        # Required feature columns are absent after encoding.
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "missing_features",
-                "missing": e.missing_columns,
-                "message": str(e),
-            },
-        )
+        if "error" in result:
+            err_type = result.get("type")
+            if err_type == "UnknownCategoryError":
+                raise HTTPException(status_code=422, detail={"error": "unknown_category", "message": result["error"]})
+            elif err_type == "MissingFeatureError":
+                raise HTTPException(status_code=422, detail={"error": "missing_features", "message": result["error"]})
+            else:
+                raise HTTPException(status_code=400, detail=result["error"])
+
+        return result
+
     except HTTPException:
         raise
     except Exception as e:
@@ -568,47 +561,38 @@ def predict_yield(data: PredictRequest, request: Request):
 @app.post("/predict-yield-lag")
 @limiter.limit("5/minute")
 async def predict_yield_lag(payload: YieldInput, request: Request):
-    if model_lag is None:
-        raise HTTPException(status_code=500, detail="Model not loaded")
     try:
-        data = payload.data
-        if len(data) != 5:
-            raise ValueError("Exactly 5 values are required")
-        data = np.array(data).reshape(1, -1)
-        prediction = model_lag.predict(data)
-        return {
-            "prediction": round(float(prediction[0]), 2),
-            "model": "RandomForest Time Series (Lag Features)"
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # Offload time-series lag model prediction to Celery worker pool
+        from celery_worker import predict_yield_lag_task
+        task = predict_yield_lag_task.delay(payload.data)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, task.get)
+
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+
+        return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
 @app.post("/predict-yield-trend")
 @limiter.limit("5/minute")
 async def predict_yield_trend(payload: YieldInput, request: Request):
-    if model_lag is None:
-        raise HTTPException(status_code=500, detail="Model not loaded")
     try:
-        data = payload.data
-        if len(data) != 5:
-            raise ValueError("Exactly 5 values are required")
-        temp = list(data)
-        trend = []
-        for _ in range(5):
-            features = temp[:5]
-            pred = model_lag.predict([features])[0]
-            pred_value = round(float(pred), 2)
-            trend.append(pred_value)
-            temp = [pred_value] + temp
-        return {
-            "trend": trend,
-            "prediction": trend[-1],
-            "model": "RandomForest Trend Forecast (Lag Features)"
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # Offload heavy iterative trend forecasting to Celery worker pool
+        from celery_worker import predict_yield_trend_task
+        task = predict_yield_trend_task.delay(payload.data)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, task.get)
+
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+
+        return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
@@ -730,18 +714,19 @@ async def get_rbac_audit(request: Request, limit: int = Query(default=50, ge=1, 
 @app.post("/api/whatsapp/webhook")
 @limiter.limit("20/minute")
 async def whatsapp_webhook(request: Request, Body: str = Form(...), From: str = Form(...)):
-    incoming_msg = Body.lower().strip()
+    """
+    Handle incoming WhatsApp messages from Twilio.
+    
+    Processing is offloaded to a background Celery task to immediately
+    acknowledge the webhook (preventing Twilio timeout/penalties under burst traffic)
+    and process the message asynchronously.
+    """
     sender_number = From.replace("whatsapp:", "")
     
-    responses = {
-        "weather": "🌡️ *Weather Update*\n\n28°C, Clear skies. No rain expected.",
-        "pest": "🐛 *Pest Assistant*\n\nPlease use the Pest Management tool in-app for diagnosis.",
-        "hi": "🙏 *Namaste!*\n\nI am your AI Farming Assistant. Try 'Weather' or 'Pest'.",
-        "hello": "🙏 *Namaste!*\n\nI am your AI Farming Assistant. Try 'Weather' or 'Pest'."
-    }
+    # Offload message processing to reliable background task queue
+    from celery_worker import process_whatsapp_webhook_task
+    process_whatsapp_webhook_task.delay(Body, sender_number)
     
-    response = next((v for k, v in responses.items() if k in incoming_msg), f"Received: '{Body}'. Try 'Weather' or 'Pest' 🌱")
-    send_whatsapp_message(sender_number, response)
     return {"status": "success"}
 
 # --- Cryptographic Reports ---
