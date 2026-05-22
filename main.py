@@ -65,6 +65,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from backend.routers import (
+    advisory,
     alerts,
     blockchain,
     community,
@@ -1064,6 +1065,7 @@ if voice_assistant_router is not None:
     app.include_router(voice_assistant_router.router, prefix="/api/voice", tags=["Voice Assistant"])
 app.include_router(referrals.router, prefix="/api/referrals", tags=["Referrals"])
 app.include_router(platform.router, prefix="/api", tags=["Platform"])
+app.include_router(advisory.router, prefix="/api", tags=["Advisory"])
 app.include_router(alerts.router, prefix="/api/notifications", tags=["Alerts"])
 app.include_router(flags_router, prefix="/api/flags", tags=["Feature Flags"])
 
