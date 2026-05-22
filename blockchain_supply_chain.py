@@ -115,14 +115,13 @@ class SmartContract:
 class SupplyChainBlockchain:
     """Blockchain for agricultural supply chain with basic atomicity"""
 
-    def __init__(self):
+    def __init__(self, repository=None):
         self.chain: List[BlockchainRecord] = []
         self.products: Dict[str, ProductBatch] = {}
         self.supply_chain_nodes: Dict[str, List[SupplyChainNode]] = {}
         self.smart_contracts: Dict[str, SmartContract] = {}
         self.verified_actors: Dict[str, Dict] = {}
-        # QR-traceability batches (farmer-facing, consumer-verifiable)
-        self._trace_batches: Dict[str, Dict] = {}
+        self._repository = repository
 
     # ------------- Utilities for atomicity -------------
     def _snapshot_state(self):
@@ -157,6 +156,8 @@ class SupplyChainBlockchain:
             "rating": 5.0,
         }
         self.verified_actors[actor_id] = actor_data
+        if self._repository is not None:
+            self._repository.save_actor(actor_id, actor_data)
         return actor_data
 
     def create_product_batch(
@@ -249,6 +250,9 @@ class SupplyChainBlockchain:
             self.supply_chain_nodes.setdefault(batch_id, []).append(node)
             self.chain.append(record)
             self.products[batch_id].blockchain_records.append(record.to_dict())
+
+            if self._repository is not None:
+                self._repository.create(asdict(node))
 
             return node
 
