@@ -18,4 +18,4 @@ EXPOSE 8000
 ENV PORT=8000
 ENV HOST=0.0.0.0
 
-CMD ["gunicorn", "main:app", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000"]
+CMD ["bash", "-c", "gunicorn main:app -w ${WEB_CONCURRENCY:-1} -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT:-8000}"]

@@ -16,6 +16,7 @@ xgboost
 reportlab
 cryptography
 twilio
+python-dotenv
 google-cloud-secret-manager
 slowapi
 firebase-admin
