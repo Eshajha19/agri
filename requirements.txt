@@ -20,7 +20,7 @@ google-cloud-secret-manager
 slowapi
 firebase-admin
 google-generativeai
-opencv-python
+opencv-python-headless
 pillow
 qrcode
 prometheus-client
