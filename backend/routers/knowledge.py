@@ -336,11 +336,17 @@ def _build_recommendations(
 
 @router.post("/rag/query")
 async def rag_query(request: Request, body: RAGQuery):
-    """Query the AI knowledge base (RAG).  Requires authentication."""
+    """Query the AI knowledge base (RAG).
+
+    Authentication is required to prevent unauthenticated callers from
+    consuming Gemini API quota on the project's billing account and to
+    enable per-user rate limiting in the future.
+    """
     if rag_generate_fn is None:
         raise HTTPException(status_code=503, detail="RAG not available")
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    # Raises HTTP 401 if the Firebase token is missing or invalid.
     await verify_role_fn(request)
     try:
         result = rag_generate_fn(body.query, body.top_k)
@@ -354,27 +360,15 @@ async def rag_query(request: Request, body: RAGQuery):
 
 @router.post("/simulate-climate")
 async def simulate_climate(request: Request, data: SimulationRequest):
-    """Run a climate impact simulation for a given crop, region, and season.
+    """Run a climate impact simulation for a given crop.
 
-    Requires authentication.
-
-    The simulation uses:
-    - IMD 1991-2020 regional baseline temperatures and rainfall for the
-      seven major Indian agro-climatic zones across three cropping seasons.
-    - Crop-specific sensitivity coefficients from ICAR/NICRA modelling
-      studies for 12 major crops.
-    - A yield-impact score derived from the deviation of simulated
-      conditions from the crop's optimal temperature and rainfall range.
-    - Context-aware recommendations that vary by crop, region, season,
-      and the direction and magnitude of the climate change being simulated.
-
-    The response includes the data sources and a disclaimer so farmers
-    understand the limitations of the model.
+    Authentication is required so that the endpoint is not freely
+    accessible to scrapers and bots under the global rate limit.
     """
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    # Raises HTTP 401 if the Firebase token is missing or invalid.
     await verify_role_fn(request)
-
     try:
         canonical_region = _resolve_region(data.region or "central")
         canonical_season = _resolve_season(data.season or "kharif")
@@ -427,7 +421,6 @@ async def simulate_climate(request: Request, data: SimulationRequest):
                 "advice from your local Krishi Vigyan Kendra (KVK) or agricultural officer."
             ),
         }
-
     except HTTPException:
         raise
     except Exception as e:
