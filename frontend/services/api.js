@@ -12,8 +12,149 @@ const toNumberOr = (value, fallback) => {
 const API_TIMEOUT_MS = toNumberOr(import.meta.env.VITE_API_TIMEOUT_MS, 15000);
 const DEFAULT_RETRIES = toNumberOr(import.meta.env.VITE_API_RETRIES, 2);
 const RETRY_BASE_DELAY_MS = toNumberOr(import.meta.env.VITE_API_RETRY_DELAY_MS, 400);
+const DEFAULT_CIRCUIT_BREAKER_FAILURES = toNumberOr(import.meta.env.VITE_API_CIRCUIT_BREAKER_FAILURES, 3);
+const DEFAULT_CIRCUIT_BREAKER_RESET_MS = toNumberOr(import.meta.env.VITE_API_CIRCUIT_BREAKER_RESET_MS, 15000);
 
 const isErrorLoggingEndpoint = (url) => String(url || '').includes('/api/log-error');
+const inFlightRequests = new Map();
+const circuitBreakers = new Map();
+
+const isIdempotentMethod = (method) => ['get', 'head', 'options', 'put', 'delete'].includes(method);
+
+const sortObjectKeys = (value) => {
+  if (Array.isArray(value)) {
+    return value.map(sortObjectKeys);
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.keys(value)
+      .sort()
+      .reduce((accumulator, key) => {
+        accumulator[key] = sortObjectKeys(value[key]);
+        return accumulator;
+      }, {});
+  }
+
+  return value;
+};
+
+const stableStringify = (value) => {
+  if (value === undefined) {
+    return '';
+  }
+
+  try {
+    return JSON.stringify(sortObjectKeys(value));
+  } catch {
+    return String(value);
+  }
+};
+
+const getRequestDedupKey = (method, url, config) => {
+  const dedupeKey = config.dedupeKey || config.requestKey;
+  if (dedupeKey) {
+    return String(dedupeKey);
+  }
+
+  return [
+    method,
+    String(url || ''),
+    stableStringify(config.params),
+    stableStringify(config.data),
+  ].join('|');
+};
+
+const shouldDeduplicateRequest = (method, config) => {
+  if (config.dedupe === false || config.skipRequestDeduplication) {
+    return false;
+  }
+
+  if (isIdempotentMethod(method)) {
+    return true;
+  }
+
+  return Boolean(config.dedupeNonIdempotent || config.headers?.['X-Idempotency-Key']);
+};
+
+const getCircuitBreakerKey = (method, url, config) => {
+  if (config.circuitBreakerKey) {
+    return String(config.circuitBreakerKey);
+  }
+
+  return `${method}:${String(url || '')}`;
+};
+
+const getCircuitBreakerState = (key) => {
+  if (!circuitBreakers.has(key)) {
+    circuitBreakers.set(key, {
+      failures: 0,
+      state: 'closed',
+      openedAt: 0,
+      halfOpenProbeActive: false,
+    });
+  }
+
+  return circuitBreakers.get(key);
+};
+
+const createCircuitBreakerError = (key, resetMs) => {
+  const error = new Error(`Circuit breaker open for ${key}`);
+  error.code = 'ERR_CIRCUIT_BREAKER_OPEN';
+  error.status = 503;
+  error.response = {
+    status: 503,
+    statusText: 'Service Unavailable',
+    data: {
+      message: 'Service temporarily unavailable. Please try again shortly.',
+      circuitBreakerKey: key,
+      retryAfterMs: resetMs,
+    },
+  };
+  return error;
+};
+
+const updateCircuitBreakerOnSuccess = (state) => {
+  state.failures = 0;
+  state.state = 'closed';
+  state.openedAt = 0;
+  state.halfOpenProbeActive = false;
+};
+
+const updateCircuitBreakerOnFailure = (state, key, failureThreshold) => {
+  state.failures += 1;
+
+  if (state.state === 'half-open') {
+    state.state = 'open';
+    state.openedAt = Date.now();
+    state.halfOpenProbeActive = false;
+    return;
+  }
+
+  if (state.failures >= failureThreshold) {
+    state.state = 'open';
+    state.openedAt = Date.now();
+    state.halfOpenProbeActive = false;
+  }
+};
+
+const resolveCircuitBreakerGate = (state, key, resetMs) => {
+  if (state.state !== 'open') {
+    return { allowed: true };
+  }
+
+  const elapsed = Date.now() - state.openedAt;
+  if (elapsed < resetMs) {
+    return { allowed: false, error: createCircuitBreakerError(key, resetMs - elapsed) };
+  }
+
+  if (state.halfOpenProbeActive) {
+    return { allowed: false, error: createCircuitBreakerError(key, 0) };
+  }
+
+  state.state = 'half-open';
+  state.halfOpenProbeActive = true;
+  return { allowed: true };
+};
 
 const canRetryRequest = (error, config) => {
   // Prevent automatic retries on non-idempotent HTTP methods (like POST)
@@ -85,7 +226,7 @@ async function getFirebaseIdToken() {
   return null;
 }
 
-const apiClient = axios.create({
+const axiosClient = axios.create({
   baseURL: '', // Use relative path to leverage Vite proxy
   timeout: API_TIMEOUT_MS,
   headers: {
@@ -95,7 +236,7 @@ const apiClient = axios.create({
 
 // Axios request interceptors support returning a Promise, so the async
 // token fetch integrates cleanly without any additional wrapper.
-apiClient.interceptors.request.use(
+axiosClient.interceptors.request.use(
   async (config) => {
     const nextConfig = { ...config };
     const method = (nextConfig.method || 'get').toLowerCase();
@@ -135,6 +276,7 @@ apiClient.interceptors.request.use(
 );
 
 apiClient.interceptors.response.use(
+axiosClient.interceptors.response.use(
   (response) => {
     if (!response.config.skipGlobalLoader) {
       useUiStore.getState().decrementApiPendingRequests();
@@ -165,7 +307,7 @@ apiClient.interceptors.response.use(
       await wait(retryDelay);
 
       // Re-issue the request with the updated configuration
-      return apiClient(config);
+      return axiosClient(config);
     }
 
     if (config.logError !== false && !isErrorLoggingEndpoint(config.url)) {
@@ -182,5 +324,66 @@ apiClient.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+const request = async (method, url, data = undefined, config = {}) => {
+  const normalizedMethod = method.toLowerCase();
+  const dedupeEnabled = shouldDeduplicateRequest(normalizedMethod, config);
+  const dedupeKey = dedupeEnabled ? getRequestDedupKey(normalizedMethod, url, config) : null;
+  const circuitBreakerKey = getCircuitBreakerKey(normalizedMethod, url, config);
+  const breakerState = getCircuitBreakerState(circuitBreakerKey);
+  const circuitBreakerThreshold = toNumberOr(config.circuitBreakerThreshold, DEFAULT_CIRCUIT_BREAKER_FAILURES);
+  const circuitBreakerResetMs = toNumberOr(config.circuitBreakerResetMs, DEFAULT_CIRCUIT_BREAKER_RESET_MS);
+
+  if (dedupeKey && inFlightRequests.has(dedupeKey)) {
+    return inFlightRequests.get(dedupeKey);
+  }
+
+  const executeRequest = async () => {
+    const gate = resolveCircuitBreakerGate(breakerState, circuitBreakerKey, circuitBreakerResetMs);
+    if (!gate.allowed) {
+      throw gate.error;
+    }
+
+    try {
+      const requestConfig = {
+        ...config,
+        method: normalizedMethod,
+        url,
+      };
+
+      if (data !== undefined) {
+        requestConfig.data = data;
+      }
+
+      const response = await axiosClient.request(requestConfig);
+      updateCircuitBreakerOnSuccess(breakerState);
+      return response;
+    } catch (error) {
+      updateCircuitBreakerOnFailure(breakerState, circuitBreakerKey, circuitBreakerThreshold);
+      throw error;
+    } finally {
+      if (dedupeKey) {
+        inFlightRequests.delete(dedupeKey);
+      }
+    }
+  };
+
+  const pendingRequest = executeRequest();
+
+  if (dedupeKey) {
+    inFlightRequests.set(dedupeKey, pendingRequest);
+  }
+
+  return pendingRequest;
+};
+
+const apiClient = {
+  request: (config = {}) => request(config.method || 'get', config.url, config.data, config),
+  get: (url, config = {}) => request('get', url, undefined, config),
+  post: (url, data = {}, config = {}) => request('post', url, data, config),
+  put: (url, data = {}, config = {}) => request('put', url, data, config),
+  patch: (url, data = {}, config = {}) => request('patch', url, data, config),
+  delete: (url, config = {}) => request('delete', url, config.data, config),
+};
 
 export default apiClient;
