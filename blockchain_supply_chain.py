@@ -511,3 +511,50 @@ class SupplyChainBlockchain:
                     "quality_score": batch.quality_score,
                 })
         return certified
+
+    # ------------- QR Traceability (farmer-facing) -------------
+
+    def register_trace_batch(self, payload: Dict) -> Dict:
+        """Store a QR-traceability batch submitted from the frontend.
+
+        These batches are distinct from the supply-chain ProductBatch
+        objects — they carry the farmer-entered journey data that
+        consumers see when they scan a QR code.  Storing them here
+        (server-side) means the data cannot be tampered with via
+        DevTools or by clearing browser storage.
+        """
+        batch_id = payload.get("id")
+        if not batch_id:
+            raise ValueError("Batch ID is required")
+        if batch_id in self._trace_batches:
+            raise ValueError(f"Batch {batch_id} is already registered")
+
+        entry = {
+            "id": batch_id,
+            "crop": payload.get("crop", ""),
+            "variety": payload.get("variety", ""),
+            "harvestDate": payload.get("harvestDate", ""),
+            "farm": payload.get("farm", ""),
+            "status": payload.get("status", "Pending Verification"),
+            "registeredByUid": payload.get("registeredByUid", ""),
+            "registeredAt": datetime.utcnow().isoformat() + "Z",
+            "journey": payload.get("journey", []),
+        }
+        self._trace_batches[batch_id] = entry
+
+        # Also record the registration on the blockchain for auditability.
+        record = BlockchainRecord(
+            timestamp=entry["registeredAt"],
+            actor=entry["registeredByUid"] or "unknown",
+            action="trace_batch_registered",
+            location=entry["farm"],
+            data={"batch_id": batch_id, "crop": entry["crop"]},
+        )
+        record.hash = record.calculate_hash()
+        self.chain.append(record)
+
+        return entry
+
+    def get_trace_batch(self, batch_id: str) -> Optional[Dict]:
+        """Fetch a QR-traceability batch by ID.  Returns None if not found."""
+        return self._trace_batches.get(batch_id)
