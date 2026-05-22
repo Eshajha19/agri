@@ -1,4 +1,8 @@
 """Reports & Logging Router"""
+import re
+from fastapi import APIRouter, Request, HTTPException
+from pydantic import BaseModel, Field, validator
+from typing import Optional
 import base64
 import hashlib
 import io
@@ -20,6 +24,34 @@ from typing import Optional
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Validation bounds — intentionally generous to accommodate large commercial
+# farms while still rejecting obviously fabricated figures.
+# ---------------------------------------------------------------------------
+_PROFIT_MAX_INR = 50_000_000   # ₹5 crore per season
+_AREA_MAX_ACRES = 10_000       # 10,000 acres
+
+# Regex that matches a valid Indian-locale number string produced by the
+# frontend (e.g. "50,000" or "1,00,000") or a plain integer string.
+_NUMERIC_RE = re.compile(r"^[\d,]+(\.\d+)?$")
+
+
+def _parse_inr(value: str) -> float:
+    """Strip commas and parse as float. Raises ValueError on invalid input."""
+    cleaned = value.replace(",", "").strip()
+    if not cleaned:
+        raise ValueError("Value is empty")
+    return float(cleaned)
+
+
+def _parse_acres(value: str) -> float:
+    """Extract the numeric part from strings like '5 Acres' or '5.5'."""
+    cleaned = value.lower().replace("acres", "").replace("acre", "").strip()
+    cleaned = cleaned.replace(",", "")
+    if not cleaned:
+        raise ValueError("Value is empty")
+    return float(cleaned)
+
 
 class ClientErrorReport(BaseModel):
     message: str = Field(..., min_length=1, max_length=500)
@@ -35,12 +67,35 @@ class ReportRequest(BaseModel):
     profit: str = Field(..., max_length=50)
     season: str = Field(..., max_length=50)
 
-    @validator("name", "crop", "area", "profit", "season", pre=True)
-    def reject_pipe_characters(cls, v):
-        if isinstance(v, str) and "|" in v:
-            raise ValueError("Field value must not contain the '|' character.")
+    @validator("profit")
+    def validate_profit(cls, v):
+        try:
+            amount = _parse_inr(v)
+        except (ValueError, TypeError):
+            raise ValueError("Profit must be a valid number (e.g. 50000 or 50,000).")
+        if amount < 0:
+            raise ValueError("Profit cannot be negative.")
+        if amount > _PROFIT_MAX_INR:
+            raise ValueError(
+                f"Profit cannot exceed ₹{_PROFIT_MAX_INR:,} per season. "
+                "If your farm genuinely exceeds this, contact support."
+            )
         return v
 
+    @validator("area")
+    def validate_area(cls, v):
+        try:
+            acres = _parse_acres(v)
+        except (ValueError, TypeError):
+            raise ValueError("Farm area must be a valid number of acres (e.g. '5 Acres' or '5.5').")
+        if acres <= 0:
+            raise ValueError("Farm area must be greater than zero.")
+        if acres > _AREA_MAX_ACRES:
+            raise ValueError(
+                f"Farm area cannot exceed {_AREA_MAX_ACRES:,} acres. "
+                "If your farm genuinely exceeds this, contact support."
+            )
+        return v
 
 verify_role_fn = None
 get_signing_keys_fn = None
