@@ -155,29 +155,6 @@ def _validate_whatsapp_number(raw: str) -> str:
     """
     number = raw.replace("whatsapp:", "").strip()
     # E.164: optional leading +, then 7–15 digits
-    if not re.fullmatch(r"\+?\d{7,15}", number):value2...
-    signing_string = url + "".join(k + v for k, v in sorted_params)
-
-    expected = hmac.new(
-        auth_token.encode("utf-8"),
-        signing_string.encode("utf-8"),
-        hashlib.sha1,
-    ).digest()
-
-    expected_b64 = base64.b64encode(expected).decode("utf-8")
-
-    if not hmac.compare_digest(expected_b64, twilio_signature):
-        raise HTTPException(status_code=403, detail="Invalid Twilio signature")
-
-
-def _validate_whatsapp_number(raw: str) -> str:
-    """Strip the 'whatsapp:' prefix and do basic E.164 sanity check.
-
-    Raises HTTP 400 for values that don't look like a phone number so
-    the raw From field cannot be used to inject arbitrary strings.
-    """
-    number = raw.replace("whatsapp:", "").strip()
-    # E.164: optional leading +, then 7–15 digits
     if not re.fullmatch(r"\+?\d{7,15}", number):
         raise HTTPException(status_code=400, detail="Invalid sender number")
     return number
