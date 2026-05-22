@@ -424,8 +424,12 @@ class RBACMiddleware:
     def __init__(self, app):
         self.app = app
 
-    async def __call__(self, request: Request, call_next):
+    async def __call__(self, scope, receive, send):
         """Log all API requests with user role."""
+        # Create a Request object from the ASGI scope
+        request = Request(scope, receive)
+        
+        # Get user role
         user_role = await RBACManager.get_user_role(request)
         
         # Log the access attempt
@@ -436,8 +440,8 @@ class RBACMiddleware:
             user_role.value if user_role else "unknown",
         )
 
-        response = await call_next(request)
-        return response
+        # Forward the request to the next middleware/app
+        await self.app(scope, receive, send)
 
 
 def print_rbac_matrix() -> str:
