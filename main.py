@@ -71,6 +71,7 @@ from backend.routers import (
     finance,
     governance,
     knowledge,
+    marketplace,
     ml,
     platform,
     quality,
@@ -905,9 +906,10 @@ async def lifespan(app: FastAPI):
     governance.init_governance(drift_detector, shadow_evaluator, version_manager)
     finance.init_finance(_farm_finance_ai, RBACManager, Permission)
     quality.init_quality(_crop_quality_grader, RBACManager, Permission)
-    blockchain.init_blockchain(_supply_chain_blockchain)
+    blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
     referrals.init_referrals(validate_firestore_ready)
     reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
+    marketplace.init_marketplace(verify_role)
 
     rag_generate_fn = None
     try:
@@ -1058,6 +1060,7 @@ app.include_router(finance.router, prefix="/api/finance", tags=["Finance Legacy"
 app.include_router(quality.router, prefix="/api/crop-quality", tags=["Quality"])
 app.include_router(blockchain.router, prefix="/api/supply-chain", tags=["Blockchain"])
 app.include_router(reports.router, prefix="/api/admin", tags=["Reports"])
+app.include_router(marketplace.router, prefix="/api/marketplace", tags=["Marketplace"])
 app.include_router(knowledge.router, prefix="/api/knowledge", tags=["Knowledge"])
 app.include_router(community.router, prefix="/api/community", tags=["Community"])
 if voice_assistant_router is not None:
