@@ -4,9 +4,13 @@ import asyncio
 import io
 import json
 import logging
+import math
 import re
 import joblib
 import hashlib
+import collections
+import threading
+import itertools
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -15,7 +19,7 @@ from typing import Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, Request, Form, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, ConfigDict, validator
 
 class SimulationRequest(BaseModel):
     crop_type: str
@@ -67,6 +71,7 @@ from backend.routers import (
     finance,
     governance,
     knowledge,
+    marketplace,
     ml,
     platform,
     quality,
@@ -90,6 +95,7 @@ from whatsapp_store import subscriber_store
 from error_recovery_middleware import ErrorRecoveryMiddleware
 from realtime_notifications import notification_broker
 from rbac_audit import audit_rbac_event, rbac_audit_trail, validate_required_roles
+from rbac import RBACMiddleware, print_rbac_matrix
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -315,16 +321,11 @@ async def verify_role(request: Request, required_roles: list = None):
 
     return {"uid": uid, "role": user_role}
 
-async def verify_role(request: Request, required_roles: list = None, require_all: bool = False):
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing auth token")
-
-app.add_middleware(ErrorRecoveryMiddleware)
-
 # --- Models ---
 
 class PredictRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     Crop: str = Field(..., max_length=50)
     CropCoveredArea: float = Field(..., gt=0)
     CHeight: int = Field(..., ge=0)
@@ -350,6 +351,44 @@ class WhatsAppSubscribeRequest(BaseModel):
 
 class YieldInput(BaseModel):
     data: list[float]
+
+
+def _coerce_prediction_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
+    sanitized = dict(input_data)
+    numeric_fields = {
+        "N",
+        "P",
+        "K",
+        "ph",
+        "pH",
+        "CropCoveredArea",
+        "CHeight",
+        "IrriCount",
+        "WaterCov",
+        "temperature",
+        "rainfall",
+        "humidity",
+    }
+
+    for field in numeric_fields:
+        if field not in sanitized or sanitized[field] is None:
+            continue
+
+        try:
+            numeric_value = float(sanitized[field])
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"Invalid value for '{field}'")
+
+        if not math.isfinite(numeric_value):
+            raise HTTPException(status_code=400, detail=f"Invalid value for '{field}'")
+
+        sanitized[field] = numeric_value
+
+    for field in ("ph", "pH"):
+        if field in sanitized and not (0 <= sanitized[field] <= 14):
+            raise HTTPException(status_code=400, detail="Invalid pH")
+
+    return sanitized
 
 class AlertTriggerRequest(BaseModel):
     alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
@@ -377,18 +416,23 @@ class ReportRequest(BaseModel):
 class SeedVerifyRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=100)
 
-    db = validate_firestore_ready()
-    user_doc = db.collection("users").document(uid).get()
-    user_roles = user_doc.get("roles", []) if user_doc.exists else []
 
-    if required_roles:
-        has_access = all(role in user_roles for role in required_roles) if require_all else any(
-            role in user_roles for role in required_roles
-        )
-        if not has_access:
-            raise HTTPException(status_code=403, detail="Insufficient permissions")
+_MAX_NOTIFICATIONS = 200
+_NOTIFICATION_TTL_HOURS = 24
 
-    return {"uid": uid, "roles": user_roles}
+
+class NotificationStore:
+    """
+    Thread-safe, bounded, TTL-aware store for in-process notifications.
+
+    Parameters
+    ----------
+    maxlen : int
+        Hard cap on the number of entries held in memory.  When full,
+        the oldest entry is evicted before the new one is appended.
+    ttl_hours : int
+        Entries older than this many hours are excluded from get_recent().
+    """
 
     def __init__(self, maxlen: int = _MAX_NOTIFICATIONS, ttl_hours: int = _NOTIFICATION_TTL_HOURS):
         self._deque: collections.deque = collections.deque(maxlen=maxlen)
@@ -445,11 +489,16 @@ async def publish_notification(alert_type: str, message: str) -> dict:
     await notification_broker.publish(entry)
     return entry
 
-async def publish_notification(alert_type: str, message: str) -> dict:
-    """Store a notification and broadcast it to websocket subscribers."""
-    entry = _notification_store.append(alert_type=alert_type, message=message)
-    await notification_broker.publish(entry)
-    return entry
+
+def _normalize_dynamic_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Assign non-colliding IDs to request-scoped advisory alerts."""
+    normalized = []
+    for index, alert in enumerate(alerts, start=1):
+        normalized_alert = dict(alert)
+        normalized_alert["id"] = -index
+        normalized_alert.setdefault("source", "advisory")
+        normalized.append(normalized_alert)
+    return normalized
 
 def sanitise_log_field(value: str) -> str:
     if not isinstance(value, str):
@@ -479,6 +528,7 @@ def predict_yield(data: PredictRequest, request: Request):
     """
     try:
         input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
+        input_data = _coerce_prediction_inputs(input_data)
 
         context = {
             "location": request.headers.get("X-User-Location", "Unknown"),
@@ -509,6 +559,8 @@ def predict_yield(data: PredictRequest, request: Request):
                 "message": str(e),
             },
         )
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Prediction Error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -563,6 +615,7 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
 @app.get("/api/notifications")
 @limiter.limit("30/minute")
 def get_notifications(
+    request: Request,
     crop: str = Query(default=None),
     irrigation_count: int = Query(default=None, ge=0),
     water_coverage: int = Query(default=None, ge=0, le=100),
@@ -582,7 +635,7 @@ def get_notifications(
         water_coverage=water_coverage,
         season=season
     )
-    return {"success": True, "data": _notification_store.get_recent() + dynamic_alerts}
+    return {"success": True, "data": _notification_store.get_recent() + _normalize_dynamic_alerts(dynamic_alerts)}
 
 # --- WhatsApp Service Endpoints ---
 #
@@ -652,8 +705,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
         res = send_whatsapp_message(info["phone_number"], formatted_msg)
         results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})
 
-    # Use the bounded, thread-safe NotificationStore instead of the bare
-    # static_notifications list (which had no size cap and racy ID generation).
+    # Persist the alert through the bounded, thread-safe notification store.
     await publish_notification(
         alert_type=data.alert_type,
         message=data.message,
@@ -677,7 +729,7 @@ async def get_rbac_audit(request: Request, limit: int = Query(default=50, ge=1, 
 
 @app.post("/api/whatsapp/webhook")
 @limiter.limit("20/minute")
-async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
+async def whatsapp_webhook(request: Request, Body: str = Form(...), From: str = Form(...)):
     incoming_msg = Body.lower().strip()
     sender_number = From.replace("whatsapp:", "")
     
@@ -843,9 +895,10 @@ async def lifespan(app: FastAPI):
     governance.init_governance(drift_detector, shadow_evaluator, version_manager)
     finance.init_finance(_farm_finance_ai, RBACManager, Permission)
     quality.init_quality(_crop_quality_grader, RBACManager, Permission)
-    blockchain.init_blockchain(_supply_chain_blockchain)
+    blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
     referrals.init_referrals(validate_firestore_ready)
     reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
+    marketplace.init_marketplace(verify_role)
 
     rag_generate_fn = None
     try:
@@ -885,7 +938,15 @@ async def lifespan(app: FastAPI):
     except Exception:
         model_lag = None
 
-    ml.init_router(ModelRouter(default_model="xgboost"), model_lag)
+    model_trend = None
+    try:
+        if os.path.exists("trend_forecast_model.joblib"):
+            model_trend = joblib.load("trend_forecast_model.joblib")
+            logger.info("Dedicated trend forecast model loaded")
+    except Exception:
+        model_trend = None
+
+    ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend)
 
     yield
     logger.info("Shutting down")
@@ -988,6 +1049,7 @@ app.include_router(finance.router, prefix="/api/finance", tags=["Finance Legacy"
 app.include_router(quality.router, prefix="/api/crop-quality", tags=["Quality"])
 app.include_router(blockchain.router, prefix="/api/supply-chain", tags=["Blockchain"])
 app.include_router(reports.router, prefix="/api/admin", tags=["Reports"])
+app.include_router(marketplace.router, prefix="/api/marketplace", tags=["Marketplace"])
 app.include_router(knowledge.router, prefix="/api/knowledge", tags=["Knowledge"])
 app.include_router(community.router, prefix="/api/community", tags=["Community"])
 if voice_assistant_router is not None:

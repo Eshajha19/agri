@@ -363,6 +363,7 @@ class CircuitBreakerAsync:
             if self._should_attempt_recovery():
                 self.state = "half_open"
             else:
+                coro.close()
                 return None, False
         
         # Execute

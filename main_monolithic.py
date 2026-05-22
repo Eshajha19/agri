@@ -3,32 +3,6 @@ import os
 import io
 import json
 import collections
-            try:
-                prod_version = version_manager.get_production_version()
-                recent_alerts = drift_detector.get_alerts(limit=5)
-                recent_evals = shadow_evaluator.get_evaluations(limit=5)
-
-                return {
-                    "success": True,
-                    "governance_status": {
-                        "drift_detection": {
-                            "recent_alerts": recent_alerts,
-                            "alert_count": len(drift_detector.alerts)
-                        },
-                        "shadow_evaluation": {
-                            "active_evaluations": len(shadow_evaluator.active_evaluations),
-                            "completed_evaluations": len(shadow_evaluator.evaluations),
-                            "recent_evaluations": recent_evals
-                        },
-                        "model_versioning": {
-                            "production_version": prod_version.to_dict() if prod_version else None,
-                            "total_versions": len(version_manager.versions)
-                        }
-                    }
-                }
-            except Exception as e:
-                logger.error("Get governance status error: %s", str(e))
-                raise HTTPException(status_code=500, detail="Failed to get governance status")
 
 
 
@@ -1687,7 +1661,7 @@ async def execute_contract(request: Request, data: ExecuteContractRequest):
 
 @app.get("/api/blockchain/qr-code/{batch_id}")
 @limiter.limit("20/minute")
-async def get_qr_code(batch_id: str):
+async def get_qr_code(request: Request, batch_id: str):
     """Get QR code for batch"""
     try:
         qr_code = _supply_chain_blockchain.generate_qr_code(batch_id)
@@ -1700,7 +1674,7 @@ async def get_qr_code(batch_id: str):
 
 @app.get("/api/blockchain/verify/{batch_id}")
 @limiter.limit("20/minute")
-async def verify_batch(batch_id: str):
+async def verify_batch(request: Request, batch_id: str):
     """Verify batch authenticity"""
     try:
         verification = _supply_chain_blockchain.verify_batch(batch_id)
@@ -1711,7 +1685,7 @@ async def verify_batch(batch_id: str):
 
 @app.get("/api/blockchain/journey/{batch_id}")
 @limiter.limit("20/minute")
-async def get_journey(batch_id: str):
+async def get_journey(request: Request, batch_id: str):
     """Get supply chain journey"""
     try:
         journey = _supply_chain_blockchain.get_supply_chain_journey(batch_id)
@@ -1724,7 +1698,7 @@ async def get_journey(batch_id: str):
 
 @app.get("/api/blockchain/analytics/{batch_id}")
 @limiter.limit("20/minute")
-async def get_analytics(batch_id: str):
+async def get_analytics(request: Request, batch_id: str):
     """Get supply chain analytics"""
     try:
         analytics = _supply_chain_blockchain.get_supply_chain_analytics(batch_id)
@@ -1737,7 +1711,7 @@ async def get_analytics(batch_id: str):
 
 @app.get("/api/blockchain/marketplace")
 @limiter.limit("20/minute")
-async def get_marketplace():
+async def get_marketplace(request: Request):
     """Get certified products for marketplace"""
     try:
         certified = _supply_chain_blockchain.get_certified_products()
@@ -1748,7 +1722,7 @@ async def get_marketplace():
 
 @app.get("/api/blockchain/stats")
 @limiter.limit("20/minute")
-async def get_stats():
+async def get_stats(request: Request):
     """Get blockchain statistics"""
     try:
         stats = {
