@@ -193,7 +193,10 @@ def _leaderboards(db, limit: int = 10):
         community = _community_label(data)
         leaders.append(
             {
-                "uid": doc_snapshot.id,
+                # uid is intentionally omitted from the leaderboard payload.
+                # Exposing Firebase UIDs in a public/unauthenticated response
+                # enables account enumeration and targeted attacks against
+                # specific users' Firestore documents.
                 "displayName": data.get("displayName") or "Farmer",
                 "referralCount": count,
                 "referralPoints": int(data.get("referralPoints", _referral_points_for_count(count)) or 0),
@@ -416,7 +419,14 @@ async def get_referral_history(request: Request, limit: int = Query(default=20, 
 
 
 @router.get("/leaderboard")
-async def get_referral_leaderboard(limit: int = Query(default=10, ge=3, le=50)):
+async def get_referral_leaderboard(request: Request, limit: int = Query(default=10, ge=3, le=50)):
+    """
+    Public referral leaderboard — requires authentication.
+
+    Authentication is required to prevent unauthenticated enumeration of
+    user accounts. UIDs are not included in the response regardless.
+    """
     db = _require_db()
+    await _get_uid_from_request(request)   # raises 401 if token is missing/invalid
     farmers, villages = _leaderboards(db, limit=limit)
     return {"success": True, "data": {"farmers": farmers, "villages": villages}}
