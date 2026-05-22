@@ -59,7 +59,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from firebase_admin import auth, credentials, firestore, storage
+from firebase_admin import auth as firebase_auth, credentials, firestore, storage
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -141,6 +141,7 @@ app = FastAPI(lifespan=lifespan)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+_firebase_logger = logging.getLogger(__name__)
 
 
 # Initialize Limiter
@@ -177,6 +178,15 @@ if not firebase_admin._apps:
             "Firebase Admin: could not initialize — role-gated endpoints will "
             "return 503 until Firestore is reachable. Reason: %s", e
         )
+
+def validate_firestore_ready() -> firestore.Client:
+    """Return the Firestore client, raising 503 if unavailable."""
+    if db_firestore is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Authorization service temporarily unavailable"
+        )
+    return db_firestore
 
 async def verify_role(request: Request, required_roles: list = None):
     """
@@ -295,6 +305,7 @@ async def verify_role(request: Request, required_roles: list = None):
         )
         raise HTTPException(status_code=403, detail="User profile not found")
 
+    user_role = user_doc.to_dict().get("role", "farmer")
 
     if required_roles and user_role not in required_roles:
         audit_rbac_event(

@@ -1,6 +1,7 @@
 pip
 setuptools
 wheel
+gunicorn
 fastapi
 uvicorn
 pandas
@@ -37,7 +38,10 @@ vosk
 sounddevice
 scipy
 # Additional audio processing
-python-multipart
 # Optional: For cloud-based speech (Google Cloud)
 google-cloud-speech
 google-cloud-texttospeech
+
+# Background worker
+celery
+redis
