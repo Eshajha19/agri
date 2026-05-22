@@ -65,7 +65,97 @@ def _verify_twilio_signature(request: Request, body: bytes) -> None:
         params = []
     sorted_params = sorted(params, key=lambda kv: kv[0])
 
+    # Build the string Twilio signs: URL + key1value1key2"""Alerts & Notifications Router"""
+import base64
+import hashlib
+import hmac
+import os
+import re
+import urllib.parse
+from fastapi import APIRouter, Request, HTTPException, Query, Form
+from pydantic import BaseModel, Field
+from datetime import datetime
+
+router = APIRouter()
+
+class AlertTriggerRequest(BaseModel):
+    alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
+    message: str = Field(..., min_length=1, max_length=500)
+
+notification_store = None
+subscriber_store = None
+generate_alerts_fn = None
+send_whatsapp_fn = None
+format_alert_fn = None
+verify_role_fn = None
+
+def init_alerts(ns, ss, ga_fn, sw_fn, fa_fn, vr_fn):
+    global notification_store, subscriber_store, generate_alerts_fn, send_whatsapp_fn, format_alert_fn, verify_role_fn
+    notification_store = ns
+    subscriber_store = ss
+    generate_alerts_fn = ga_fn
+    send_whatsapp_fn = sw_fn
+    format_alert_fn = fa_fn
+    verify_role_fn = vr_fn
+
+
+def _verify_twilio_signature(request: Request, body: bytes) -> None:
+    """Validate the X-Twilio-Signature header using HMAC-SHA1.
+
+    Twilio signs every webhook request with:
+        HMAC-SHA1(auth_token, url + sorted_params)
+
+    If the signature is absent or does not match we raise HTTP 403 so
+    forged requests are rejected before any processing occurs.
+
+    Reference: https://www.twilio.com/docs/usage/webhooks/webhooks-security
+    """
+    auth_token = os.getenv("TWILIO_AUTH_TOKEN", "")
+    if not auth_token:
+        # If the token is not configured we cannot verify — fail closed.
+        raise HTTPException(
+            status_code=500,
+            detail="Webhook signature verification is not configured",
+        )
+
+    twilio_signature = request.headers.get("X-Twilio-Signature", "")
+    if not twilio_signature:
+        raise HTTPException(status_code=403, detail="Missing Twilio signature")
+
+    # Reconstruct the full URL exactly as Twilio sees it.
+    url = str(request.url)
+
+    # Parse the form-encoded body and sort parameters alphabetically.
+    try:
+        params = urllib.parse.parse_qsl(body.decode("utf-8"), keep_blank_values=True)
+    except Exception:
+        params = []
+    sorted_params = sorted(params, key=lambda kv: kv[0])
+
     # Build the string Twilio signs: URL + key1value1key2value2...
+    signing_string = url + "".join(k + v for k, v in sorted_params)
+
+    expected = hmac.new(
+        auth_token.encode("utf-8"),
+        signing_string.encode("utf-8"),
+        hashlib.sha1,
+    ).digest()
+
+    expected_b64 = base64.b64encode(expected).decode("utf-8")
+
+    if not hmac.compare_digest(expected_b64, twilio_signature):
+        raise HTTPException(status_code=403, detail="Invalid Twilio signature")
+
+
+def _validate_whatsapp_number(raw: str) -> str:
+    """Strip the 'whatsapp:' prefix and do basic E.164 sanity check.
+
+    Raises HTTP 400 for values that don't look like a phone number so
+    the raw From field cannot be used to inject arbitrary strings.
+    """
+    number = raw.replace("whatsapp:", "").strip()
+    # E.164: optional leading +, then 7–15 digits
+    if not re.fullmatch(r"\+?\d{7,15}", number):value2...
     signing_string = url + "".join(k + v for k, v in sorted_params)
 
     expected = hmac.new(
@@ -133,6 +223,22 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/whatsapp/webhook")
+async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
+    """
+    Handle incoming WhatsApp messages from Twilio.
+    
+    Processing is offloaded to a background Celery task to immediately
+    acknowledge the webhook (preventing Twilio timeout/penalties under burst traffic)
+    and process the message asynchronously.
+    """
+    if send_whatsapp_fn is None:
+        raise HTTPException(status_code=500, detail="Not initialized")
+    sender_number = From.replace("whatsapp:", "")
+    
+    # Offload message processing to reliable background task queue
+    from celery_worker import process_whatsapp_webhook_task
+    process_whatsapp_webhook_task.delay(Body, sender_number)
+    
 async def whatsapp_webhook(request: Request, Body: str = Form(...), From: str = Form(...)):
     """Receive inbound WhatsApp messages from Twilio.
 
