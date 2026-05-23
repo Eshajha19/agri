@@ -99,10 +99,10 @@ def predict_yield_lag_task(self, data: list):
 @celery_app.task(bind=True, name="predict_yield_trend_task")
 def predict_yield_trend_task(self, data: list):
     """Celery task for yield trend forecasting."""
-    model = _get_lag_model()  # Using lag model for iterative trend as in main.py
+    model = _get_trend_model()  # Use dedicated trend model, not the lag model
     if not model:
-        raise RuntimeError("Lag model not loaded in worker")
-    
+        raise RuntimeError("Trend model not loaded in worker")
+
     try:
         if len(data) != 5:
             raise ValueError("Exactly 5 values are required")
@@ -114,7 +114,7 @@ def predict_yield_trend_task(self, data: list):
             pred_value = round(float(pred), 2)
             trend.append(pred_value)
             temp = [pred_value] + temp
-        
+
         return {
             "trend": trend,
             "prediction": trend[-1],

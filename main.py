@@ -138,7 +138,7 @@ async def lifespan(app: FastAPI):
     await notification_broker.stop()
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -172,9 +172,9 @@ if not firebase_admin._apps:
         # the path of a service-account key file.
         firebase_admin.initialize_app()
         db_firestore = firestore.client()
-        _firebase_logger.info("Firebase Admin: successfully initialized")
+        logger.info("Firebase Admin: successfully initialized")
     except Exception as e:
-        _firebase_logger.warning(
+        logger.warning(
             "Firebase Admin: could not initialize — role-gated endpoints will "
             "return 503 until Firestore is reachable. Reason: %s", e
         )
@@ -267,7 +267,7 @@ async def verify_role(request: Request, required_roles: list = None):
     try:
         user_doc = db_firestore.collection("users").document(uid).get()
     except Exception as e:
-        _firebase_logger.error(
+        logger.error(
             "Firestore fetch failed for uid=%s during role check: %s", uid, e
         )
         audit_rbac_event(
@@ -296,6 +296,7 @@ async def verify_role(request: Request, required_roles: list = None):
         )
         raise HTTPException(status_code=403, detail="User profile not found")
 
+    user_role = user_doc.get("role", "farmer")
 
     if required_roles and user_role not in required_roles:
         audit_rbac_event(
@@ -785,7 +786,7 @@ def get_signing_keys():
 
     if project_id:
         if not HAS_GCP_KMS:
-            raise HTTPException(status_code=500, detail="KMS is required when GOOGLE_CLOUD_PROJECT is set")
+            raise RuntimeError("KMS is required when GOOGLE_CLOUD_PROJECT is set")
         client = secretmanager.SecretManagerServiceClient()
         name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
         response = client.access_secret_version(request={"name": name})
@@ -938,8 +939,6 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down")
 
 
-app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
-
 # Observability setup
 try:
     from opentelemetry import trace
@@ -1088,31 +1087,7 @@ async def generate_farm_plan(request: Request, data: SeasonPlanRequest):
         raise HTTPException(status_code=500, detail="Failed to generate farm plan")
 
 
-# Include ML Model Management Router
-try:
-    from routers.ml_models import router as ml_router
-    app.include_router(ml_router)
-    logger.info("ML Model Management API loaded successfully")
-except Exception as e:
-    logger.warning(f"Could not load ML Model Management API: {e}")
-
-# Include ML Model Management Router
-try:
-    from routers.ml_models import router as ml_router
-    app.include_router(ml_router)
-    logger.info("ML Model Management API loaded successfully")
-except Exception as e:
-    logger.warning(f"Could not load ML Model Management API: {e}")
-
-# Include ML Model Management Router
-try:
-    from routers.ml_models import router as ml_router
-    app.include_router(ml_router)
-    logger.info("ML Model Management API loaded successfully")
-except Exception as e:
-    logger.warning(f"Could not load ML Model Management API: {e}")
-
-# Include ML Model Management Router
+# Include ML Model Management Router (registered once)
 try:
     from routers.ml_models import router as ml_router
     app.include_router(ml_router)

@@ -184,7 +184,7 @@ async def lifespan(app: FastAPI):
     # Shutdown: nothing to clean up for in-memory models.
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
 
 logger = logging.getLogger(__name__)
 
@@ -210,9 +210,6 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Initialize Firebase Admin
-import logging as _logging
-_firebase_logger = _logging.getLogger(__name__)
-
 # Explicitly set to None before the try block so db_firestore is always
 # defined at module level, even if an exception is raised mid-init.
 db_firestore = None
@@ -224,9 +221,9 @@ if not firebase_admin._apps:
         # the path of a service-account key file.
         firebase_admin.initialize_app()
         db_firestore = firestore.client()
-        _firebase_logger.info("Firebase Admin: successfully initialized")
+        logger.info("Firebase Admin: successfully initialized")
     except Exception as e:
-        _firebase_logger.warning(
+        logger.warning(
             "Firebase Admin: could not initialize — role-gated endpoints will "
             "return 503 until Firestore is reachable. Reason: %s", e
         )
@@ -274,7 +271,7 @@ async def verify_role(request: Request, required_roles: list = None):
     try:
         user_doc = db_firestore.collection("users").document(uid).get()
     except Exception as e:
-        _firebase_logger.error(
+        logger.error(
             "Firestore fetch failed for uid=%s during role check: %s", uid, e
         )
         raise HTTPException(
@@ -443,15 +440,15 @@ def init_ml_pipeline():
         if os.path.exists(model_path):
             xgb_adapter.load(model_path)
             ModelRegistry.register("xgboost", xgb_adapter)
-            print("ML Pipeline: Registered XGBoost model.")
+            logger.info("ML Pipeline: Registered XGBoost model.")
         else:
-            print(f"ML Pipeline Warning: {model_path} not found.")
+            logger.warning("ML Pipeline: %s not found.", model_path)
             
         # You can register other models here (e.g., LSTM) as they become available
         # ModelRegistry.register("lstm", LSTMAdapter("lstm_model.h5"))
         
     except Exception as e:
-        print(f"ML Pipeline Error: {e}")
+        logger.error("ML Pipeline Error: %s", e)
 
 init_ml_pipeline()
 
@@ -459,9 +456,9 @@ init_ml_pipeline()
 try:
     model = joblib.load("yield_model.joblib")
     model_lag = joblib.load("sklearn_yield_model.pkl")
-    print("Models loaded successfully")
+    logger.info("Models loaded successfully")
 except Exception as e:
-    print(f"Error loading models: {e}")
+    logger.error("Error loading models: %s", e)
     model = None
     model_lag = None
 
@@ -628,7 +625,7 @@ def predict_yield(data: PredictRequest, request: Request):
             },
         )
     except Exception as e:
-        print(f"Prediction Error: {e}")
+        logger.error("Prediction Error: %s", e)
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/predict-yield-lag")
@@ -893,7 +890,7 @@ def get_signing_keys():
                     status_code=500,
                     detail="google-cloud-secret-manager is not installed but is required in production"
                 )
-            print("KMS Warning: google-cloud-secret-manager not installed; skipping GCP path.")
+            logger.warning("KMS: google-cloud-secret-manager not installed; skipping GCP path.")
         else:
             try:
                 client = secretmanager.SecretManagerServiceClient()
@@ -903,16 +900,16 @@ def get_signing_keys():
                 _cached_private_key = serialization.load_pem_private_key(
                     payload.encode(), password=None
                 )
-                print(f"KMS: Loaded signing key from Secret Manager (secret: {secret_id})")
+                logger.info("KMS: Loaded signing key from Secret Manager (secret: %s)", secret_id)
                 return _cached_private_key
             except Exception as e:
                 if IS_PRODUCTION:
-                    print(f"KMS Error: {e}")
+                    logger.error("KMS Error: %s", e)
                     raise HTTPException(
                         status_code=500,
                         detail="Failed to retrieve signing key from Secret Manager"
                     )
-                print(f"KMS Warning: Could not reach Secret Manager ({e}); falling back to local key.")
+                logger.warning("KMS: Could not reach Secret Manager (%s); falling back to local key.", e)
     elif IS_PRODUCTION:
         raise HTTPException(
             status_code=500,
@@ -924,13 +921,13 @@ def get_signing_keys():
         try:
             with open(PRIVATE_KEY_PATH, "rb") as f:
                 _cached_private_key = serialization.load_pem_private_key(f.read(), password=None)
-            print(f"Key Management: Loaded existing local key from {PRIVATE_KEY_PATH}")
+            logger.info("Key Management: Loaded existing local key from %s", PRIVATE_KEY_PATH)
             return _cached_private_key
         except Exception as e:
-            print(f"Key Management Warning: Could not load local key file ({e}); generating a new one.")
+            logger.warning("Key Management: Could not load local key file (%s); generating a new one.", e)
 
     # 4. Fresh generation (dev/staging only)
-    print("Key Management: Generating a fresh signing key for local development.")
+    logger.info("Key Management: Generating a fresh signing key for local development.")
     private_key = ed25519.Ed25519PrivateKey.generate()
 
     try:
@@ -946,9 +943,9 @@ def get_signing_keys():
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo
             ))
-        print(f"Key Management: Saved new key pair to {KEYS_DIR}/")
+        logger.info("Key Management: Saved new key pair to %s/", KEYS_DIR)
     except Exception as e:
-        print(f"Key Management Warning: Could not persist generated key ({e}); key is in-memory only.")
+        logger.warning("Key Management: Could not persist generated key (%s); key is in-memory only.", e)
 
     _cached_private_key = private_key
     return private_key
@@ -1066,7 +1063,7 @@ async def generate_signed_report(data: ReportRequest, request: Request):
             }
         )
     except Exception as e:
-        print(f"Error generating report: {e}")
+        logger.error("Error generating report: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/log-error")
@@ -1120,7 +1117,7 @@ try:
     from rag.generator import generate_response as rag_generate
     HAS_RAG = True
 except Exception as rag_e:
-    print(f"RAG Warning: {rag_e}")
+    logger.warning("RAG Warning: %s", rag_e)
     HAS_RAG = False
 
 @app.post("/api/rag/query")
