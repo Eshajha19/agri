@@ -36,6 +36,7 @@ import { getHistoricalWeatherData } from "./weather/weatherService";
 import ErrorBoundary from "./ErrorBoundary";
 import apiClient from "./lib/apiClient";
 import { getBookmarks } from "./utils/bookmarkStorage";
+import AdvisoryPanel from "./AdvisoryPanel";
 
 export default function Dashboard({ userData }) {
   const name = userData?.displayName || "Farmer";
@@ -104,7 +105,7 @@ export default function Dashboard({ userData }) {
         setUpdateMsg("Settings saved successfully!");
         setTimeout(() => setUpdateMsg(""), 3000);
       }
-    } catch (err) {
+    } catch {
       setUpdateMsg("Error saving settings.");
     } finally {
       setIsUpdating(false);
@@ -338,6 +339,8 @@ export default function Dashboard({ userData }) {
       </section>
 
       <section className="dashboard-grid">
+        <AdvisoryPanel userData={userData} />
+
         <div className="dashboard-column">
           <div className="dashboard-section-card">
             <div className="section-card-header">

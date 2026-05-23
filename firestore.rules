@@ -126,11 +126,22 @@ service cloud.firestore {
       allow write: if hasRole('vendor') || hasRole('admin');
     }
 
-    // Finance Applications: farmers can read their own; admins can read all
+    // Finance Applications: farmers can read their own; admins/experts can read all
     match /finance_applications/{applicationId} {
-      allow read: if isAuthed() && (hasRole('admin') || hasRole('expert'));
-      allow create: if isAuthed();
-      allow update: if isAuthed() && (hasRole('admin') || hasRole('expert'));
+      allow read: if isAuthed()
+        && (
+          resource.data.userId == request.auth.uid
+          || hasRole('admin')
+          || hasRole('expert')
+        );
+      allow create: if isAuthed()
+        && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthed()
+        && (
+          resource.data.userId == request.auth.uid
+          || hasRole('admin')
+          || hasRole('expert')
+        );
       allow delete: if hasRole('admin');
     }
 
@@ -228,6 +239,13 @@ service cloud.firestore {
         && request.resource.data.userId == resource.data.userId;
 
       allow delete: if hasRole('admin');
+    }
+
+    // Schema Migrations: Internal use only.
+    // Read and write restricted strictly to admins to prevent
+    // unauthorized execution or status tampering of migrations.
+    match /_schema_migrations/{migrationId} {
+      allow read, write: if hasRole('admin');
     }
 
   }
