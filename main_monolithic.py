@@ -450,7 +450,6 @@ def init_ml_pipeline():
     except Exception as e:
         logger.error("ML Pipeline Error: %s", e)
 
-init_ml_pipeline()
 
 # Load model directly for backward compatibility or simple use cases if needed
 try:
