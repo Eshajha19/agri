@@ -419,20 +419,28 @@ def require_permission(*permissions: Permission, require_all: bool = False):
 class RBACMiddleware:
     """
     RBAC logging middleware for tracking access attempts.
+    Skips Firebase/Firestore verification for public endpoints to
+    avoid unnecessary latency and Firebase API calls.
     """
+
+    PUBLIC_PATH_PREFIXES = frozenset({"/", "/health", "/metrics", "/favicon"})
 
     def __init__(self, app):
         self.app = app
 
     async def __call__(self, request: Request, call_next):
         """Log all API requests with user role."""
-        user_role = await RBACManager.get_user_role(request)
-        
+        path = request.url.path
+        if any(path.startswith(prefix) for prefix in self.PUBLIC_PATH_PREFIXES):
+            user_role = Role.GUEST
+        else:
+            user_role = await RBACManager.get_user_role(request)
+
         # Log the access attempt
         logger.info(
             "API Request - Method: %s, Path: %s, Role: %s",
             request.method,
-            request.url.path,
+            path,
             user_role.value if user_role else "unknown",
         )
 
