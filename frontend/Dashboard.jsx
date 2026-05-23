@@ -38,9 +38,22 @@ import apiClient from "./lib/apiClient";
 import { getBookmarks } from "./utils/bookmarkStorage";
 import AdvisoryPanel from "./AdvisoryPanel";
 
+const formatFarmArea = (value) => {
+  if (value === undefined || value === null || value === "") return "";
+
+  const areaText = String(value).trim();
+  if (/acres?|hectares?|ha\b/i.test(areaText)) return areaText;
+  if (/^\d+(?:\.\d+)?$/.test(areaText)) return `${areaText} Acres`;
+  return areaText;
+};
+
 export default function Dashboard({ userData }) {
   const name = userData?.displayName || "Farmer";
   const preferredLang = userData?.language || "en";
+  const normalizedFarmArea = formatFarmArea(userData?.farmArea || userData?.farmSize);
+  const normalizedIrrigation = userData?.irrigationType || userData?.irrigationMethod || "";
+  const nextHarvestValue = userData?.nextHarvest || userData?.harvestDate || userData?.expectedHarvest || (userData?.season ? `${userData.season} season` : "Plan with Crop Planner");
+  const yieldScoreValue = userData?.yieldScore ?? userData?.yieldPredictionScore ?? userData?.estimatedYieldScore ?? (userData?.cropType ? "Use Yield Predictor" : "—");
 
   const [currentTime, setCurrentTime] = useState(new Date());
   const [historicalWeather, setHistoricalWeather] = useState([]);
@@ -87,7 +100,6 @@ export default function Dashboard({ userData }) {
 
     fetchData();
   }, [setHistoricalWeather]);
-
   const handleUpdateWhatsApp = async () => {
     setIsUpdating(true);
     setUpdateMsg("");
@@ -137,21 +149,21 @@ export default function Dashboard({ userData }) {
     },
     {
       label: "Farm Area",
-      value: userData?.farmArea ? `${userData.farmArea} Acres` : "—",
+      value: normalizedFarmArea || "—",
       icon: <FaMapMarkerAlt />,
       trend: userData?.address || userData?.location || "Location not set",
     },
     {
       label: "Yield Score",
-      value: "—",
+      value: yieldScoreValue,
       icon: <FaChartLine />,
-      trend: "Use Yield Predictor for estimate",
+      trend: userData?.cropType ? "Use Yield Predictor for estimate" : "Set up your profile",
     },
     {
       label: "Next Harvest",
-      value: "—",
+      value: nextHarvestValue,
       icon: <FaCalendarAlt />,
-      trend: userData?.season ? `${userData.season} season` : "Set up your profile",
+      trend: userData?.season || normalizedIrrigation ? `${userData.season || normalizedIrrigation} planning` : "Set up your profile",
     },
   ];
 
@@ -207,7 +219,7 @@ export default function Dashboard({ userData }) {
   // Generic fallbacks are shown only when profile fields are missing,
   // and are clearly framed as general tips rather than personalised AI output.
   const userCrop = userData?.cropType?.toLowerCase() || "";
-  const userIrrigation = userData?.irrigationType?.toLowerCase() || "";
+  const userIrrigation = normalizedIrrigation?.toLowerCase() || "";
   const recommendations = [
     {
       icon: <FaLeaf />,
