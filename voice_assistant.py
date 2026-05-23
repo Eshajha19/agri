@@ -14,7 +14,7 @@ import json
 import logging
 import os
 from typing import Optional, Dict, List, Any, Tuple
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from datetime import datetime
 import re
 
@@ -129,7 +129,7 @@ class VoiceResponse:
     language_code: str
     audio_bytes: Optional[bytes] = None
     intent: str = ""
-    metadata: Dict[str, Any] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
     offline_available: bool = True
 
 
@@ -141,7 +141,7 @@ class VoiceSession:
     language_code: str
     start_time: str
     last_query: Optional[str] = None
-    context: Dict[str, Any] = None
+    context: Dict[str, Any] = field(default_factory=dict)
     offline_mode: bool = False
 
 
