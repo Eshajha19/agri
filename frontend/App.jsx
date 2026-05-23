@@ -125,6 +125,16 @@ const getInitialLanguage = () => {
   return "en";
 };
 
+const normalizeUserProfile = (profile) => {
+  if (!profile) return profile;
+
+  return {
+    ...profile,
+    farmArea: profile.farmArea ?? profile.farmSize ?? "",
+    irrigationType: profile.irrigationType ?? profile.irrigationMethod ?? "",
+  };
+};
+
 /**
  * Helper to apply Google Translate selection to the hidden widget
  * Uses MutationObserver for reliable widget detection instead of polling
@@ -344,7 +354,7 @@ function App() {
         try {
           const snapshot = await loadUserProfileSnapshot(currentUser.uid);
           if (snapshot) {
-            setUserData(snapshot);
+            setUserData(normalizeUserProfile(snapshot));
             setProfileCompleted(snapshot.profileCompleted === true);
             return true;
           }
@@ -357,7 +367,7 @@ function App() {
       if (currentUser) {
         userDocUnsubscribeRef.current = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
           if (userDoc.exists()) {
-            const data = userDoc.data();
+            const data = normalizeUserProfile(userDoc.data());
             setUserData(data);
             setProfileCompleted(data.profileCompleted === true);
           } else if (currentUser.isAnonymous) {
@@ -425,7 +435,7 @@ function App() {
     if (!user?.uid || !userData) return;
 
     void persistUserProfileSnapshot(user.uid, {
-      ...userData,
+      ...normalizeUserProfile(userData),
       profileCompleted,
       savedAt: new Date().toISOString(),
     });
