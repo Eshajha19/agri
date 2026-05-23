@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 from typing import Optional, Dict, List, Any, Tuple
 from dataclasses import dataclass, asdict, field
 from datetime import datetime
@@ -210,6 +211,7 @@ class VoiceAssistant:
         self.offline_mode = offline_mode
         self.language_model = OfflineLanguageModel()
         self.sessions: Dict[str, VoiceSession] = {}
+        self._session_lock = threading.Lock()
         self.offline_cache = self._init_offline_cache()
         logger.info(f"Voice Assistant initialized - Offline mode: {offline_mode}")
     
@@ -252,7 +254,8 @@ class VoiceAssistant:
             context={},
             offline_mode=self.offline_mode,
         )
-        self.sessions[session_id] = session
+        with self._session_lock:
+            self.sessions[session_id] = session
         return session
     
     def process_voice_input(
@@ -271,10 +274,10 @@ class VoiceAssistant:
         4. Generate response (from cache or online)
         5. Convert to speech (if audio available)
         """
-        if session_id not in self.sessions:
-            raise ValueError(f"Invalid session: {session_id}")
-        
-        session = self.sessions[session_id]
+        with self._session_lock:
+            if session_id not in self.sessions:
+                raise ValueError(f"Invalid session: {session_id}")
+            session = self.sessions[session_id]
         
         # Step 1: Transcribe audio (offline fallback)
         if not voice_input.transcript:
@@ -309,8 +312,9 @@ class VoiceAssistant:
         )
         
         # Update session context
-        session.last_query = voice_input.transcript
-        session.context = context or {}
+        with self._session_lock:
+            session.last_query = voice_input.transcript
+            session.context = context or {}
         
         return response
     
@@ -389,10 +393,10 @@ class VoiceAssistant:
     
     def get_session_history(self, session_id: str) -> Dict[str, Any]:
         """Retrieve session history"""
-        if session_id not in self.sessions:
-            raise ValueError(f"Invalid session: {session_id}")
-        
-        session = self.sessions[session_id]
+        with self._session_lock:
+            if session_id not in self.sessions:
+                raise ValueError(f"Invalid session: {session_id}")
+            session = self.sessions[session_id]
         return {
             "session_id": session_id,
             "user_id": session.user_id,
