@@ -9,6 +9,7 @@ import {
   FaThermometerHalf,
 } from "react-icons/fa";
 import apiClient from "./lib/apiClient";
+import { generateRecommendations } from "./utils/recommendationEngine";
 import { getStoredWeatherSnapshot, WEATHER_SNAPSHOT_EVENT } from "./weather/weatherService";
 import "./AdvisoryPanel.css";
 
@@ -71,16 +72,68 @@ function buildSoilPayload(userData) {
   );
 }
 
+function deriveSeasonFromCalendar() {
+  const month = new Date().getMonth() + 1;
+  if (month >= 6 && month <= 10) return "Kharif";
+  if (month >= 3 && month <= 5) return "Zaid";
+  return "Rabi";
+}
+
+function buildLocalFallbackAdvisories(userData, weatherSnapshot) {
+  const recommendations = generateRecommendations({
+    weatherData: weatherSnapshot,
+    cropType: userData?.cropType,
+    season: userData?.season || deriveSeasonFromCalendar(),
+  });
+
+  const mapped = recommendations.map((item) => ({
+    severity: item.type === "warning" ? "warning" : item.type === "heat" || item.type === "frost" ? "info" : "success",
+    category: item.type === "warning" || item.type === "heat" || item.type === "frost" ? "weather" : item.type === "crop" ? "crop" : "general",
+    title: item.title,
+    message: item.text,
+    action: item.type === "crop"
+      ? "Review your crop care plan"
+      : item.type === "season"
+        ? "Align field work with the season"
+        : "Take action now",
+  }));
+
+  if (mapped.length > 0) {
+    return mapped;
+  }
+
+  return [
+    {
+      severity: "info",
+      category: "general",
+      title: "Profile-based advisory",
+      message: userData?.cropType
+        ? `Your ${userData.cropType} profile is saved. Update weather or soil details to unlock more precise advice.`
+        : "Complete your profile to get more precise field advisories.",
+      action: "Review profile settings",
+    },
+  ];
+}
+
 export default function AdvisoryPanel({ userData }) {
   const [weatherSnapshot, setWeatherSnapshot] = useState(() => getStoredWeatherSnapshot());
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const fallbackAdvisories = useMemo(
+    () => buildLocalFallbackAdvisories(userData, weatherSnapshot),
+    [userData, weatherSnapshot],
+  );
+
   const requestPayload = useMemo(() => ({
     crop_type: userData?.cropType || "",
     weather: buildWeatherPayload(weatherSnapshot),
     soil: buildSoilPayload(userData),
+    farm_area: userData?.farmArea || userData?.farmSize || "",
+    irrigation_type: userData?.irrigationType || userData?.irrigationMethod || "",
+    season: userData?.season || "",
+    location: userData?.address || (typeof userData?.location === "string" ? userData.location : ""),
     user_id: userData?.uid || userData?.id,
     store_alerts: Boolean(userData?.uid || userData?.id),
   }), [userData, weatherSnapshot]);
@@ -107,12 +160,16 @@ export default function AdvisoryPanel({ userData }) {
           retries: 1,
         });
         if (!cancelled) {
-          setAlerts(response.data?.data || []);
+          const nextAlerts = Array.isArray(response.data?.data) && response.data.data.length > 0
+            ? response.data.data
+            : fallbackAdvisories;
+          setAlerts(nextAlerts);
+          setError("");
         }
       } catch {
         if (!cancelled) {
-          setError("Advisories are temporarily unavailable.");
-          setAlerts([]);
+          setAlerts(fallbackAdvisories);
+          setError("");
         }
       } finally {
         if (!cancelled) {
@@ -125,7 +182,7 @@ export default function AdvisoryPanel({ userData }) {
     return () => {
       cancelled = true;
     };
-  }, [requestPayload]);
+  }, [requestPayload, fallbackAdvisories]);
 
   return (
     <div className="advisory-panel dashboard-section-card">
