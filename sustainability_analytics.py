@@ -95,6 +95,44 @@ class SustainabilityAnalytics:
 
     def __init__(self) -> None:
         self._history: Dict[str, List[Dict[str, Any]]] = {}
+        import sys
+        self.is_testing = "pytest" in sys.modules or "unittest" in sys.modules
+
+    def _get_db(self):
+        try:
+            import firebase_admin
+            from firebase_admin import firestore
+            if firebase_admin._apps:
+                return firestore.client()
+        except Exception:
+            pass
+        return None
+
+    def _get_local_file_path(self) -> str:
+        if getattr(self, "is_testing", False):
+            return "sustainability_history_test.json"
+        return "sustainability_history.json"
+
+    def _load_local_history(self) -> Dict[str, List[Dict[str, Any]]]:
+        import json
+        import os
+        path = self._get_local_file_path()
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {}
+
+    def _save_local_history(self, history: Dict[str, List[Dict[str, Any]]]) -> None:
+        import json
+        path = self._get_local_file_path()
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(history, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
 
     def get_formula_config(self) -> Dict[str, Any]:
         return {
@@ -238,27 +276,64 @@ class SustainabilityAnalytics:
         return result
 
     def get_history(self, user_id: str, limit: int = 12) -> List[Dict[str, Any]]:
-        entries = self._history.get(user_id or "anonymous", [])
+        key = user_id or "anonymous"
+        db = self._get_db()
+        if db is not None:
+            try:
+                docs = db.collection("sustainability_history").where("user_id", "==", key).limit(limit).get()
+                entries = [d.to_dict() for d in docs]
+                # Sort entries by created_at descending (newest first)
+                entries.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+                return entries[:limit]
+            except Exception:
+                pass
+
+        # Fallback to local history
+        local_hist = self._load_local_history()
+        entries = local_hist.get(key, [])
+        self._history[key] = entries
         return list(reversed(entries[-limit:]))
 
     def _append_history(self, user_id: str, result: Dict[str, Any]) -> None:
         key = user_id or "anonymous"
+        record = {
+            "record_id": result["record_id"],
+            "user_id": key,
+            "crop_type": result["crop_type"],
+            "season": result["season"],
+            "acreage": result["acreage"],
+            "created_at": result["created_at"],
+            "water_footprint_m3": result["water_footprint_m3"],
+            "carbon_emissions_kg_co2e": result["carbon_emissions_kg_co2e"],
+            "sustainability_score": result["sustainability_score"],
+        }
+
+        # Save to memory cache
         if key not in self._history:
             self._history[key] = []
-        self._history[key].append(
-            {
-                "record_id": result["record_id"],
-                "crop_type": result["crop_type"],
-                "season": result["season"],
-                "acreage": result["acreage"],
-                "created_at": result["created_at"],
-                "water_footprint_m3": result["water_footprint_m3"],
-                "carbon_emissions_kg_co2e": result["carbon_emissions_kg_co2e"],
-                "sustainability_score": result["sustainability_score"],
-            }
-        )
+        self._history[key].append(record)
         if len(self._history[key]) > 50:
             self._history[key] = self._history[key][-50:]
+
+        # Save to Firestore primarilly
+        db = self._get_db()
+        if db is not None:
+            try:
+                db.collection("sustainability_history").document(record["record_id"]).set(record)
+            except Exception:
+                pass
+
+        # Save to local persistent file as fallback
+        try:
+            local_hist = self._load_local_history()
+            if key not in local_hist:
+                local_hist[key] = []
+            local_hist[key].append(record)
+            if len(local_hist[key]) > 50:
+                local_hist[key] = local_hist[key][-50:]
+            self._save_local_history(local_hist)
+        except Exception:
+            pass
 
     def _normalize_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return {

@@ -1,5 +1,5 @@
 import React, { Suspense, useEffect, useState, useRef } from "react";
-import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
+import { Routes, Route, Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -12,17 +12,17 @@ import {
   FaChevronDown,
   FaChevronUp,
   FaWhatsapp,
-  FaInfoCircle,
   FaBook,
   FaShieldAlt,
   FaBolt,
   FaUserSecret,
   FaFileInvoiceDollar,
-  FaHome,
   FaTrophy,
+  FaUserPlus,
   FaMedal,
   FaCog,
-  FaMicrophone
+  FaMicrophone,
+  FaInfoCircle
 } from "react-icons/fa";
 import { usePerformanceStore } from "./stores/performanceStore";
 import { useBrowserCacheBudget } from "./lib/cacheBudget";
@@ -69,13 +69,16 @@ import {
   ProfileSetup,
   ProfileSettings,
   QRTraceability,
+  ReferralHub,
   Resources,
   RiskIndex,
   Schemes,
   SeasonalCropPlanner,
   SeedVerifier,
+  SmartFarmAutopilot,
   SoilAnalysis,
   SoilGuide,
+  SustainabilityAnalytics,
   Terms,
   YieldPredictor,
   EquipmentManagement,
@@ -84,9 +87,20 @@ import {
 const Weather = React.lazy(() => import("./Weather"));
 import VoiceAssistant from "./VoiceAssistant";
 
+/**
+ * Thin wrapper so SustainabilityAnalytics (designed as a modal) works as a
+ * full standalone route. The onClose prop navigates the user back.
+ */
+function SustainabilityAnalyticsPage({ userData }) {
+  const navigate = useNavigate();
+  return <SustainabilityAnalytics userData={userData} onClose={() => navigate(-1)} />
+}
+
 // Libs
 import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc, getDoc } from "./lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
+import { loadAppState, loadUserProfileSnapshot, persistAppState, persistUserProfileSnapshot } from "./lib/offlinePersistence";
+import { syncOfflineRequests } from "./lib/syncOfflineRequests";
 
 // CSS
 import "./App.css";
@@ -113,6 +127,7 @@ const getInitialLanguage = () => {
 
 /**
  * Helper to apply Google Translate selection to the hidden widget
+ * Uses MutationObserver for reliable widget detection instead of polling
  */
 const applyGoogleTranslate = (langCode) => {
   try {
@@ -130,6 +145,54 @@ const applyGoogleTranslate = (langCode) => {
   return false;
 };
 
+/**
+ * Robustly wait for Google Translate widget using MutationObserver
+ * Returns a promise that resolves when widget is ready or times out
+ */
+const waitForGoogleTranslateWidget = (timeoutMs = 15000) => {
+  return new Promise((resolve, reject) => {
+    const existingWidget = document.querySelector(".goog-te-combo");
+    if (existingWidget) {
+      resolve(existingWidget);
+      return;
+    }
+
+    let observer = null;
+    const timeoutId = setTimeout(() => {
+      if (observer) observer.disconnect();
+      reject(new Error("Google Translate widget not found within timeout"));
+    }, timeoutMs);
+
+    observer = new MutationObserver((mutations) => {
+      const widget = document.querySelector(".goog-te-combo");
+      if (widget) {
+        clearTimeout(timeoutId);
+        observer?.disconnect();
+        resolve(widget);
+      }
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+  });
+};
+
+/**
+ * Apply translation with robust widget detection
+ */
+const applyGoogleTranslateRobust = async (langCode, onReady, onError) => {
+  try {
+    await waitForGoogleTranslateWidget(15000);
+    applyGoogleTranslate(langCode);
+    onReady?.();
+  } catch (error) {
+    console.warn("Google Translate widget initialization failed:", error.message);
+    onError?.(error);
+  }
+};
+
 const GuestBanner = () => (
   <div className="guest-banner">
     <div className="guest-banner-content">
@@ -144,9 +207,15 @@ const GuestBanner = () => (
 
 function App() {
   const scorecardRef = useRef(null);
-  const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
+  const [preferredLang, setPreferredLang] = useState(() => {
+    try {
+      return localStorage.getItem("agri:preferredLanguage") || getInitialLanguage();
+    } catch {
+      return getInitialLanguage();
+    }
+  });
   const [isOpen, setIsOpen] = useState(false);
-  const { theme, toggleTheme } = useTheme();
+  const { theme, toggleTheme, setTheme } = useTheme();
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [profileCompleted, setProfileCompleted] = useState(true);
@@ -163,6 +232,52 @@ function App() {
     detectAndSetLiteMode();
   }, [detectAndSetLiteMode]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateOfflineState = async () => {
+      try {
+        const storedState = await loadAppState();
+        if (!cancelled && storedState?.preferredLang) {
+          setPreferredLang(storedState.preferredLang);
+        }
+      } catch (error) {
+        console.warn("Failed to restore offline app state:", error);
+      }
+    };
+
+    const syncQueuedRequests = async () => {
+      try {
+        await syncOfflineRequests();
+      } catch (error) {
+        console.warn("Offline request sync failed:", error);
+      }
+    };
+
+    void hydrateOfflineState();
+    void syncQueuedRequests();
+
+    const handleOnline = () => {
+      setIsOffline(false);
+      void syncQueuedRequests();
+    };
+
+    const handleOffline = () => setIsOffline(true);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    void persistAppState({ preferredLang });
+  }, [preferredLang]);
+
   const { i18n } = useTranslation();
   const location = useLocation();
 
@@ -176,22 +291,40 @@ function App() {
 
   /* ---------------- LANGUAGE AUTO-TRANS ---------------- */
   useEffect(() => {
-    if (applyGoogleTranslate(preferredLang)) return;
-    
-    let retries = 0;
-    const MAX_RETRIES = 20; // Try for ~6 seconds
-    
-    const id = setInterval(() => {
-      retries++;
-      if (applyGoogleTranslate(preferredLang)) {
-        clearInterval(id);
-      } else if (retries >= MAX_RETRIES) {
-        clearInterval(id);
-        console.warn("Google Translate widget initialization timed out or was blocked. Graceful fallback applied.");
+    const applyTranslation = async () => {
+      if (applyGoogleTranslate(preferredLang)) return;
+
+      try {
+        await applyGoogleTranslateRobust(
+          preferredLang,
+          () => console.log("Google Translate initialized successfully"),
+          () => console.warn("Google Translate unavailable - using default language")
+        );
+      } catch (error) {
+        console.warn("Translation initialization failed - graceful fallback applied");
       }
-    }, 300);
-    
-    return () => clearInterval(id);
+    };
+
+    applyTranslation();
+
+    const handleWidgetLoad = () => {
+      if (!applyGoogleTranslate(preferredLang)) {
+        applyGoogleTranslateRobust(preferredLang);
+      }
+    };
+
+    const widgetCheckInterval = setInterval(() => {
+      if (document.querySelector(".goog-te-combo") && !applyGoogleTranslate(preferredLang)) {
+        applyGoogleTranslateRobust(preferredLang);
+      }
+    }, 2000);
+
+    document.addEventListener("googleTranslateWidgetLoaded", handleWidgetLoad);
+
+    return () => {
+      clearInterval(widgetCheckInterval);
+      document.removeEventListener("googleTranslateWidgetLoaded", handleWidgetLoad);
+    };
   }, [preferredLang]);
 
   /* ---------------- AUTH & FIRESTORE SYNC ---------------- */
@@ -201,13 +334,28 @@ function App() {
       return;
     }
 
-    // Deterministic auth-readiness sync
+    const userDocUnsubscribeRef = { current: null };
+
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      
+
+      const hydrateUserSnapshot = async () => {
+        if (!currentUser?.uid) return false;
+        try {
+          const snapshot = await loadUserProfileSnapshot(currentUser.uid);
+          if (snapshot) {
+            setUserData(snapshot);
+            setProfileCompleted(snapshot.profileCompleted === true);
+            return true;
+          }
+        } catch (error) {
+          console.warn("Failed to restore offline user profile snapshot:", error);
+        }
+        return false;
+      };
+
       if (currentUser) {
-        // Wait for profile data sync before hiding loader
-        const unsubscribeDoc = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
+        userDocUnsubscribeRef.current = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
           if (userDoc.exists()) {
             const data = userDoc.data();
             setUserData(data);
@@ -218,14 +366,16 @@ function App() {
           } else {
             setUserData(null);
             setProfileCompleted(false);
+            void hydrateUserSnapshot().finally(() => setLoading(false));
+            return;
           }
           setLoading(false);
         }, (error) => {
           console.error("Firestore sync error:", error);
-          // Still disable loading to avoid hanging, but only after deterministic failure
-          setLoading(false);
+          setUserData(null);
+          setProfileCompleted(false);
+          void hydrateUserSnapshot().finally(() => setLoading(false));
         });
-        return () => unsubscribeDoc();
       } else {
         setUserData(null);
         setProfileCompleted(true);
@@ -233,7 +383,12 @@ function App() {
       }
     });
 
-    return () => unsubscribeAuth();
+    return () => {
+      unsubscribeAuth();
+      if (userDocUnsubscribeRef.current) {
+        userDocUnsubscribeRef.current();
+      }
+    };
   }, []);
 
   // E2EE Key Generation Sync
@@ -265,6 +420,16 @@ function App() {
 
     ensurePublicKey();
   }, [user]);
+
+  useEffect(() => {
+    if (!user?.uid || !userData) return;
+
+    void persistUserProfileSnapshot(user.uid, {
+      ...userData,
+      profileCompleted,
+      savedAt: new Date().toISOString(),
+    });
+  }, [user?.uid, userData, profileCompleted]);
 
   // Online/Offline detection
   useEffect(() => {
@@ -302,7 +467,11 @@ function App() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-   const handleThemeToggle = toggleTheme;
+  const handleThemeToggle = toggleTheme;
+  const handleThemeSelect = (nextTheme) => {
+    setTheme(nextTheme);
+    setShowMoreMenu(false);
+  };
   const handleLogout = async () => {
     try {
       await signOut(auth);
@@ -314,8 +483,7 @@ function App() {
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: "smooth" });
 
   return (
-    <div className={`app ${theme === "dark" ? "theme-dark" : ""} ${liteMode ? "lite-mode" : ""}`}>
-      <SkipLink />
+    <div className={`app ${theme !== "light" ? "theme-dark" : ""} ${theme === "night" ? "theme-night" : ""} ${liteMode ? "lite-mode" : ""}`}>
       {user?.isAnonymous && <GuestBanner />}
 
       {loading && <Loader fullPage={true} message={<span className="notranslate">Initializing Fasal Saathi...</span>} />}
@@ -335,16 +503,16 @@ function App() {
         </div>
 
         <ul className={`nav-center ${isOpen ? "active" : ""}`}>
-          <li><Link to="/" onClick={() => setIsOpen(false)}><FaHome /> Home</Link></li>
-          <li><Link to="/about" onClick={() => setIsOpen(false)}><FaInfoCircle /> About</Link></li>
-          <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}><FaInfoCircle /> How It Works</Link></li>
+          <li><Link to="/" onClick={() => setIsOpen(false)}>Home</Link></li>
+          <li><Link to="/about" onClick={() => setIsOpen(false)}>About</Link></li>
+          <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}>How It Works</Link></li>
           <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}> Crop Guide</Link></li>
           <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
         </ul>
 
         <div className="nav-right">
-          <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Toggle Theme">
-            {theme === "dark" ? "☀️" : "🌙"}
+          <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Cycle Theme" title={`Current theme: ${theme}`}>
+            {theme === "light" ? "🌙" : theme === "dark" ? "☀️" : "🌙"}
           </button>
 
           <button
@@ -368,8 +536,30 @@ function App() {
                       setPreferredLang(lang);
                       i18n.changeLanguage(lang);
                       localStorage.setItem("agri:preferredLanguage", lang);
+                      void persistAppState({ preferredLang: lang });
                     }}
                   />
+                </div>
+                <div className="theme-selector-section">
+                  <span className="theme-selector-label">Theme:</span>
+                  <div className="theme-option-grid" role="group" aria-label="Theme selection">
+                    {[
+                      { value: "light", label: "Light", icon: "☀️" },
+                      { value: "dark", label: "Dark", icon: "🌙" },
+                      { value: "night", label: "Night Light", icon: "🌇" },
+                    ].map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={`theme-option-button ${theme === option.value ? "active" : ""}`}
+                        onClick={() => handleThemeSelect(option.value)}
+                        aria-pressed={theme === option.value}
+                      >
+                        <span className="theme-option-icon" aria-hidden="true">{option.icon}</span>
+                        <span>{option.label}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <Link to="/voice-assistant" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMicrophone /> Voice Assistant</Link>
                 <div className="performance-toggle-section">
@@ -394,6 +584,7 @@ function App() {
                 <Link to="/profile-settings" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaCog /> Profile settings</Link>
                 <Link to="/community" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaComments /> Community</Link>
                 <Link to="/leaderboard" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaTrophy />Leaderboard</Link>
+                <Link to="/referrals" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaUserPlus /> Referrals</Link>
                 <Link to="/risk-index" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Risk Index</Link>
                 <Link to="/farm-finance" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaFileInvoiceDollar /> Farm Finance</Link>
                 <Link to="/glossary" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaBook /> Glossary</Link>
@@ -456,7 +647,19 @@ function App() {
             <p>We've sent a link to <b>{user.email}</b>.<br /> Please verify your email to unlock all features.</p>
             <button 
               onClick={() => {
-                auth.currentUser.reload().then(() => window.location.reload());
+                if (auth.currentUser) {
+                  auth.currentUser.reload().then(() => {
+                    const refreshedUser = auth.currentUser;
+                    setUser({
+                      uid: refreshedUser.uid,
+                      email: refreshedUser.email,
+                      emailVerified: refreshedUser.emailVerified,
+                      isAnonymous: refreshedUser.isAnonymous,
+                    });
+                  }).catch((err) => {
+                    console.error("Error reloading user:", err);
+                  });
+                }
               }} 
               className="btn-refresh"
             >
@@ -492,6 +695,7 @@ function App() {
             <Route path="/profit-calculator" element={<CropProfitCalculator />} />
             <Route path="/community" element={<Community />} />
             <Route path="/leaderboard" element={<Leaderboard />} />
+            <Route path="/referrals" element={<ReferralHub />} />
             <Route path="/soil-analysis" element={<SoilAnalysis />} />
             <Route path="/faq" element={<FAQ />} />
             <Route path="/terms" element={<Terms />} />
@@ -514,6 +718,11 @@ function App() {
             <Route path="/farm-finance" element={<FarmFinance />} />
             <Route path="/farming-news" element={<FarmingNews userData={userData} />} />
             <Route path="/yield-predictor" element={<YieldPredictor />} />
+            <Route path="/smart-farm-autopilot" element={<SmartFarmAutopilot />} />
+            <Route
+              path="/sustainability-analytics"
+              element={<SustainabilityAnalyticsPage userData={userData} />}
+            />
             <Route path="/blog" element={<Blog />} />
             <Route path="/blog/:id" element={<BlogDetail />} />
             <Route path="/weather" element={<Weather />} />

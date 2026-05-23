@@ -30,6 +30,10 @@ const Auth = () => {
   const location = useLocation();
 
   const from = location.state?.from?.pathname || "/";
+  const referralCode = new URLSearchParams(location.search).get("ref") || "";
+  const redirectAfterAuth = referralCode
+    ? `/referrals?ref=${encodeURIComponent(referralCode)}`
+    : from;
 
   if (!isFirebaseConfigured()) {
     return (
@@ -53,7 +57,7 @@ const Auth = () => {
     setError("");
     try {
       await signInAnonymously(auth);
-      navigate(from, { replace: true });
+      navigate(redirectAfterAuth, { replace: true });
     } catch (err) {
       console.error("Guest login error:", err);
       setError("Failed to start guest session.");
@@ -95,7 +99,7 @@ const Auth = () => {
           }
         }
 
-        navigate(from, { replace: true });
+        navigate(redirectAfterAuth, { replace: true });
       } else {
         // Sign Up Logic
         const anonymousUser = auth.currentUser?.isAnonymous ? auth.currentUser : null;
@@ -198,7 +202,7 @@ const Auth = () => {
         // We continue even if Firestore fails, as the user is authenticated
       }
 
-      navigate(from, { replace: true });
+      navigate(redirectAfterAuth, { replace: true });
     } catch (err) {
       console.error("Google Auth Error:", err);
       
