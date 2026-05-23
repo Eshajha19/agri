@@ -785,7 +785,7 @@ def get_signing_keys():
 
     if project_id:
         if not HAS_GCP_KMS:
-            raise HTTPException(status_code=500, detail="KMS is required when GOOGLE_CLOUD_PROJECT is set")
+            raise RuntimeError("KMS is required when GOOGLE_CLOUD_PROJECT is set")
         client = secretmanager.SecretManagerServiceClient()
         name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
         response = client.access_secret_version(request={"name": name})
