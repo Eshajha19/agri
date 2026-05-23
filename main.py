@@ -169,6 +169,20 @@ async def lifespan(app: FastAPI):
     marketplace.init_marketplace(verify_role)
     lms.init_lms(verify_role, db_firestore)
 
+    # Backfill Firebase custom-claim 'role' for all existing users so that
+    # Firestore security rules (request.auth.token.role) are consistent with
+    # the Firestore users/{uid}.role field from day one.
+    # Runs in a thread-pool executor so it doesn't block the event loop.
+    # Safe to run on every startup — idempotent.
+    if db_firestore:
+        try:
+            from role_sync import backfill_role_claims
+            import asyncio as _asyncio
+            loop = _asyncio.get_event_loop()
+            await loop.run_in_executor(None, backfill_role_claims, db_firestore)
+        except Exception as _exc:
+            logger.warning("Role-claim backfill skipped: %s", _exc)
+
     rag_generate_fn = None
     try:
         from rag.generator import generate_response as rag_generate_fn

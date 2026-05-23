@@ -293,3 +293,101 @@ async def log_error(request: Request, body: ClientErrorReport):
     except Exception as e:
         logger.error(f"Log error: {e}")
         raise HTTPException(status_code=500, detail="Failed to log error")
+
+
+# ---------------------------------------------------------------------------
+# Admin: role assignment with custom-claim sync
+# ---------------------------------------------------------------------------
+
+class AssignRoleRequest(BaseModel):
+    target_uid: str = Field(..., min_length=1, max_length=128)
+    role: str = Field(..., pattern=r"^(admin|expert|farmer|vendor|system|guest)$")
+
+
+@router.post("/admin/assign-role")
+async def assign_role(request: Request, body: AssignRoleRequest):
+    """
+    Assign a role to a user and sync the Firebase custom claim.
+
+    Admin only.  Updates both the Firestore users/{uid}.role field and the
+    Firebase Auth custom claim so that Firestore security rules
+    (request.auth.token.role) stay consistent with the stored role.
+
+    The target user's next token refresh will include the updated claim.
+    Existing tokens remain valid until they expire (≤ 1 hour).
+    """
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Not initialized")
+
+    await verify_role_fn(request, required_roles=["admin"])
+
+    import firebase_admin
+    from firebase_admin import firestore as _fs
+    from role_sync import sync_role_claim, VALID_ROLES
+
+    if not firebase_admin._apps:
+        raise HTTPException(status_code=503, detail="Authorization service unavailable")
+
+    try:
+        db = _fs.client()
+        user_ref = db.collection("users").document(body.target_uid)
+        snap = user_ref.get()
+        if not snap.exists:
+            raise HTTPException(status_code=404, detail="User profile not found")
+
+        user_ref.update({"role": body.role})
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("assign_role: Firestore update failed uid=%s: %s", body.target_uid, exc)
+        raise HTTPException(status_code=503, detail="Authorization service unavailable")
+
+    try:
+        await sync_role_claim(body.target_uid, body.role)
+    except Exception as exc:
+        # Firestore write succeeded; log the claim-sync failure but don't
+        # roll back — the backend verify_role still reads from Firestore,
+        # so access control is not broken.  The claim will be corrected on
+        # the next assign-role call or backfill run.
+        logger.error(
+            "assign_role: custom claim sync failed uid=%s role=%s: %s",
+            body.target_uid, body.role, exc,
+        )
+
+    return {
+        "success": True,
+        "target_uid": body.target_uid,
+        "role": body.role,
+        "message": "Role updated. The user's next token refresh will include the new claim.",
+    }
+
+
+@router.post("/admin/backfill-role-claims")
+async def backfill_role_claims_endpoint(request: Request):
+    """
+    One-time backfill: set the 'role' custom claim for every user in Firestore.
+
+    Admin only.  Safe to call multiple times — idempotent.  Run this once
+    after deploying the Firestore rules change that switched from get()-based
+    role checks to custom-claim-based checks.
+    """
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Not initialized")
+
+    await verify_role_fn(request, required_roles=["admin"])
+
+    import firebase_admin
+    from firebase_admin import firestore as _fs
+    from role_sync import backfill_role_claims
+
+    if not firebase_admin._apps:
+        raise HTTPException(status_code=503, detail="Authorization service unavailable")
+
+    try:
+        db = _fs.client()
+        summary = backfill_role_claims(db)
+    except Exception as exc:
+        logger.error("backfill_role_claims: failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Backfill failed — check server logs")
+
+    return {"success": True, **summary}
