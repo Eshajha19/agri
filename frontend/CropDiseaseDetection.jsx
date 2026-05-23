@@ -176,7 +176,7 @@ export default function CropDiseaseDetection({ onClose }) {
   "organic": ["organic1", "organic2"]
 }`;
 
-        const apiBase = import.meta.env.VITE_API_BASE_URL || "";
+const apiBase = import.meta.env.VITE_API_BASE_URL || "";
         const response = await fetch(`${apiBase}/api/gemini/analyze-image`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },

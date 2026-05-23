@@ -1056,8 +1056,36 @@ app.include_router(alerts.router, prefix="/api/notifications", tags=["Alerts"])
 app.include_router(flags_router, prefix="/api/flags", tags=["Feature Flags"])
 
 
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
+from fastapi.responses import FileResponse, JSONResponse
+
+# Serve frontend static assets and SPA fallback
+frontend_build_path = Path(__file__).parent / "frontend" / "build"
+
+# Mount static assets directory for JS/CSS chunks
+if frontend_build_path.exists():
+    assets_path = frontend_build_path / "assets"
+    if assets_path.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_path)), name="assets")
+
+@app.get("/api/health")
+def api_health():
+    return {"status": "healthy", "service": "Fasal Saathi Backend", "version": "2.0"}
+
+@app.get("/{full_path:path}")
+async def serve_spa(full_path: str):
+    # Only serve SPA for non-API routes
+    if not full_path.startswith("api/") and not full_path.startswith("docs") and not full_path.startswith("openapi"):
+        if frontend_build_path.exists() and (frontend_build_path / "index.html").exists():
+            return FileResponse(str(frontend_build_path / "index.html"))
+    raise HTTPException(status_code=404, detail="Not found")
+
+
 @app.get("/")
 def health_check():
+    if frontend_build_path.exists() and (frontend_build_path / "index.html").exists():
+        return FileResponse(str(frontend_build_path / "index.html"))
     return {"status": "healthy", "service": "Fasal Saathi Backend", "version": "2.0"}
 
 
@@ -1096,30 +1124,6 @@ async def generate_farm_plan(request: Request, data: SeasonPlanRequest):
         logger.error("Autopilot plan generation failed: %s", e)
         raise HTTPException(status_code=500, detail="Failed to generate farm plan")
 
-
-# Include ML Model Management Router
-try:
-    from routers.ml_models import router as ml_router
-    app.include_router(ml_router)
-    logger.info("ML Model Management API loaded successfully")
-except Exception as e:
-    logger.warning(f"Could not load ML Model Management API: {e}")
-
-# Include ML Model Management Router
-try:
-    from routers.ml_models import router as ml_router
-    app.include_router(ml_router)
-    logger.info("ML Model Management API loaded successfully")
-except Exception as e:
-    logger.warning(f"Could not load ML Model Management API: {e}")
-
-# Include ML Model Management Router
-try:
-    from routers.ml_models import router as ml_router
-    app.include_router(ml_router)
-    logger.info("ML Model Management API loaded successfully")
-except Exception as e:
-    logger.warning(f"Could not load ML Model Management API: {e}")
 
 # Include ML Model Management Router
 try:

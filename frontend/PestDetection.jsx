@@ -113,7 +113,10 @@ export default function PestDetection({ onClose }) {
       // Call the backend proxy — the Gemini API key stays server-side and is
       // never bundled into the compiled JavaScript.
       const apiBase = import.meta.env.VITE_API_BASE_URL || "";
-      const response = await fetch(`${apiBase}/api/gemini/analyze-image`, {
+      
+      // For production single-link deployment, use relative path
+const baseUrl = apiBase || "";
+       const response = await fetch(`${baseUrl}/api/gemini/analyze-image`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
