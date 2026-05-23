@@ -303,7 +303,7 @@ class FarmFinanceAI:
                 if app_dict:
                     stored_uid = app_dict.get("owner_uid")
                     # Enforce ownership when a uid filter is supplied
-                    if owner_uid is not None and stored_uid is not None and stored_uid != owner_uid:
+                    if owner_uid is not None and (stored_uid is None or stored_uid != owner_uid):
                         return None
                     return {
                         "application_id": app_dict.get("application_id"),
@@ -328,7 +328,7 @@ class FarmFinanceAI:
             return None
 
         # Enforce ownership on in-memory records too
-        if owner_uid is not None and application.owner_uid is not None and application.owner_uid != owner_uid:
+        if owner_uid is not None and (application.owner_uid is None or application.owner_uid != owner_uid):
             return None
 
         return {
