@@ -96,7 +96,13 @@ from whatsapp_store import subscriber_store
 from error_recovery_middleware import ErrorRecoveryMiddleware
 from realtime_notifications import notification_broker
 from rbac_audit import audit_rbac_event, rbac_audit_trail, validate_required_roles
-from rbac import RBACMiddleware, print_rbac_matrix
+from rbac import RBACMiddleware, print_rbac_matrix, RBACManager, Permission
+from persistence.repositories import (
+    FinanceApplicationRepository,
+    NotificationRepository,
+    SupplyChainRepository,
+)
+from weather_alerts import weather_service
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -112,6 +118,10 @@ try:
     HAS_GCP_KMS = True
 except ImportError:
     HAS_GCP_KMS = False
+
+# Logger must be configured before lifespan so startup log calls work.
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -131,17 +141,88 @@ async def lifespan(app: FastAPI):
     ensuring ``ModelRegistry`` is populated in every process before the
     first request is served.
     """
+    logger.info("Starting up: initializing services")
     init_ml_pipeline()
     await notification_broker.start()
+
+    # Domain engines — initialized exactly once here at startup.
+    drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
+    shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
+    version_manager = ModelVersionManager(versions_dir="./model_versions")
+
+    _finance_repository = FinanceApplicationRepository()
+    _notification_repository = NotificationRepository()  # noqa: F841 — kept for symmetry / future use
+    _supply_chain_repository = SupplyChainRepository()
+    _farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
+    _supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
+    _crop_quality_grader = CropQualityGrader()
+    logger.info("Domain engines initialized with persistent repositories")
+
+    # Router init hooks — run after engines are ready.
+    governance.init_governance(drift_detector, shadow_evaluator, version_manager)
+    finance.init_finance(_farm_finance_ai, RBACManager, Permission)
+    quality.init_quality(_crop_quality_grader, RBACManager, Permission)
+    blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
+    referrals.init_referrals(lambda: db_firestore)
+    reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
+    marketplace.init_marketplace(verify_role)
+
+    rag_generate_fn = None
+    try:
+        from rag.generator import generate_response as rag_generate_fn
+    except Exception as exc:
+        logger.warning("RAG init skipped: %s", exc)
+
+    knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
+    alerts.init_alerts([], subscriber_store, lambda **kwargs: [], send_whatsapp_message, format_alert_message, verify_role)
+    platform.init_platform(
+        verify_role,
+        get_signing_keys,
+        sanitise_log_field,
+        rag_generate_fn,
+        subscriber_store,
+        send_whatsapp_message,
+        format_alert_message,
+        weather_service,
+        RBACManager,
+        Permission,
+    )
+
+    if voice_assistant_router is not None:
+        try:
+            from voice_assistant import OfflineCacheManager, VoiceAssistant
+
+            voice_asst = VoiceAssistant(offline_mode=True)
+            cache_mgr = OfflineCacheManager(cache_dir="./voice_assistant_cache")
+            voice_assistant_router.init_voice_assistant(voice_asst, cache_mgr, verify_role)
+        except Exception as exc:
+            logger.warning("Voice assistant init skipped: %s", exc)
+
+    try:
+        import joblib as _joblib
+
+        model_lag = _joblib.load("sklearn_yield_model.joblib")
+    except Exception:
+        model_lag = None
+
+    model_trend = None
+    try:
+        if os.path.exists("trend_forecast_model.joblib"):
+            import joblib as _joblib2
+            model_trend = _joblib2.load("trend_forecast_model.joblib")
+            logger.info("Dedicated trend forecast model loaded")
+    except Exception:
+        model_trend = None
+
+    ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend)
+
     yield
-    # Shutdown: nothing to clean up for in-memory models.
+    # Shutdown
     await notification_broker.stop()
+    logger.info("Shutting down")
 
 
 app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 
 # Initialize Limiter
@@ -229,7 +310,7 @@ async def verify_role(request: Request, required_roles: list = None):
         raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
 
     try:
-        decoded_token = firebase_auth.verify_id_token(id_token)
+        decoded_token = auth.verify_id_token(id_token)
     except Exception:
         audit_rbac_event(
             request=request,
@@ -857,88 +938,6 @@ def init_ml_pipeline() -> None:
         logger.warning("ML Pipeline initialization failed: %s", exc)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    logger.info("Starting up: initializing services")
-    get_firestore_client()
-    init_ml_pipeline()
-
-    # Domain engines — initialized exactly once here at startup.
-    # Previously these lived at module scope, causing unnecessary re-construction
-    # on every import and overwriting any in-memory state on reload.
-    drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
-    shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
-    version_manager = ModelVersionManager(versions_dir="./model_versions")
-
-    _finance_repository = FinanceApplicationRepository()
-    _notification_repository = NotificationRepository()  # noqa: F841 — kept for symmetry / future use
-    _supply_chain_repository = SupplyChainRepository()
-    _farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
-    _supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
-    _crop_quality_grader = CropQualityGrader()
-    logger.info("Domain engines initialized with persistent repositories")
-
-    # Router init hooks — also moved here so they run after engines are ready.
-    governance.init_governance(drift_detector, shadow_evaluator, version_manager)
-    finance.init_finance(_farm_finance_ai, RBACManager, Permission)
-    quality.init_quality(_crop_quality_grader, RBACManager, Permission)
-    blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
-    referrals.init_referrals(validate_firestore_ready)
-    reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
-    marketplace.init_marketplace(verify_role)
-
-    rag_generate_fn = None
-    try:
-        from rag.generator import generate_response as rag_generate_fn
-    except Exception as exc:
-        logger.warning("RAG init skipped: %s", exc)
-
-    knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
-    alerts.init_alerts([], subscriber_store, lambda **kwargs: [], send_whatsapp_message, format_alert_message, verify_role)
-    platform.init_platform(
-        verify_role,
-        get_signing_keys,
-        sanitise_log_field,
-        rag_generate_fn,
-        subscriber_store,
-        send_whatsapp_message,
-        format_alert_message,
-        weather_service,
-        RBACManager,
-        Permission,
-    )
-
-    if voice_assistant_router is not None:
-        try:
-            from voice_assistant import OfflineCacheManager, VoiceAssistant
-
-            voice_asst = VoiceAssistant(offline_mode=True)
-            cache_mgr = OfflineCacheManager(cache_dir="./voice_assistant_cache")
-            voice_assistant_router.init_voice_assistant(voice_asst, cache_mgr, verify_role)
-        except Exception as exc:
-            logger.warning("Voice assistant init skipped: %s", exc)
-
-    try:
-        import joblib
-
-        model_lag = joblib.load("sklearn_yield_model.joblib")
-    except Exception:
-        model_lag = None
-
-    model_trend = None
-    try:
-        if os.path.exists("trend_forecast_model.joblib"):
-            model_trend = joblib.load("trend_forecast_model.joblib")
-            logger.info("Dedicated trend forecast model loaded")
-    except Exception:
-        model_trend = None
-
-    ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend)
-
-    yield
-    logger.info("Shutting down")
-
-
 # Observability setup
 try:
     from opentelemetry import trace
@@ -969,9 +968,8 @@ try:
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
 
-# Middleware and rate-limits
-limiter = Limiter(key_func=get_remote_address)
-app.state.limiter = limiter
+# Middleware and rate-limits — the limiter was already configured above;
+# only the exception handler alias from slowapi's public API is wired here.
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ---------------------------------------------------------------------------
@@ -1044,11 +1042,6 @@ app.include_router(platform.router, prefix="/api", tags=["Platform"])
 app.include_router(advisory.router, prefix="/api", tags=["Advisory"])
 app.include_router(alerts.router, prefix="/api/notifications", tags=["Alerts"])
 app.include_router(flags_router, prefix="/api/flags", tags=["Feature Flags"])
-
-
-@app.get("/")
-def health_check():
-    return {"status": "healthy", "service": "Fasal Saathi Backend", "version": "2.0"}
 
 
 # --- Smart Farm Autopilot ---
