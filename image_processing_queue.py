@@ -232,18 +232,21 @@ class ImageProcessingQueue:
 
     def cancel_task(self, task_id: str) -> bool:
         """Cancel a queued or processing task"""
-        with self._task_lock:
+        with self._queue_lock:
             if task_id not in self._tasks_by_id:
                 return False
-            
+
             task = self._tasks_by_id[task_id]
             if task.status in (TaskStatus.QUEUED, TaskStatus.RETRYING):
                 task.status = TaskStatus.CANCELLED
+                self._task_queue = deque(
+                    t for t in self._task_queue if t.task_id != task_id
+                )
                 del self._tasks_by_id[task_id]
                 self._completed_tasks[task_id] = task
                 logger.info(f"Task {task_id} cancelled")
                 return True
-            
+
             return False
 
     def register_worker(self, worker_id: str) -> WorkerStats:
