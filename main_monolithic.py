@@ -184,7 +184,7 @@ async def lifespan(app: FastAPI):
     # Shutdown: nothing to clean up for in-memory models.
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
 
 logger = logging.getLogger(__name__)
 
