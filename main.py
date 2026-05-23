@@ -1085,31 +1085,7 @@ async def generate_farm_plan(request: Request, data: SeasonPlanRequest):
         raise HTTPException(status_code=500, detail="Failed to generate farm plan")
 
 
-# Include ML Model Management Router
-try:
-    from routers.ml_models import router as ml_router
-    app.include_router(ml_router)
-    logger.info("ML Model Management API loaded successfully")
-except Exception as e:
-    logger.warning(f"Could not load ML Model Management API: {e}")
-
-# Include ML Model Management Router
-try:
-    from routers.ml_models import router as ml_router
-    app.include_router(ml_router)
-    logger.info("ML Model Management API loaded successfully")
-except Exception as e:
-    logger.warning(f"Could not load ML Model Management API: {e}")
-
-# Include ML Model Management Router
-try:
-    from routers.ml_models import router as ml_router
-    app.include_router(ml_router)
-    logger.info("ML Model Management API loaded successfully")
-except Exception as e:
-    logger.warning(f"Could not load ML Model Management API: {e}")
-
-# Include ML Model Management Router
+# Include ML Model Management Router (registered once)
 try:
     from routers.ml_models import router as ml_router
     app.include_router(ml_router)
