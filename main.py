@@ -318,17 +318,6 @@ async def verify_role(request: Request, required_roles: list = None):
 
     return {"uid": uid, "role": user_role}
 
-async def verify_role(request: Request, required_roles: list = None, require_all: bool = False):
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing auth token")
-
-    try:
-        token = auth_header.split(" ")[1]
-        decoded_token = auth.verify_id_token(token)
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
 # --- Models ---
 
 class PredictRequest(BaseModel):
