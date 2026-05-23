@@ -25,14 +25,17 @@ logger = logging.getLogger(__name__)
 
 
 class WhatsAppSubscribeRequest(BaseModel):
-    phone_number: str
-    user_id: str
-    name: str
+    phone_number: str = Field(..., min_length=7, max_length=20)
+    name: str = Field(..., min_length=1, max_length=100)
+    # user_id is accepted for backward-compatibility but is IGNORED.
+    # The authoritative identity is always derived from the verified
+    # Firebase ID token — never from client-supplied data.
+    user_id: Optional[str] = None
 
 
 class AlertTriggerRequest(BaseModel):
-    alert_type: str
-    message: str
+    alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
+    message: str = Field(..., min_length=1, max_length=500)
 
 
 class ReportRequest(BaseModel):
@@ -185,11 +188,23 @@ async def get_alerts_history():
 
 
 @router.post("/whatsapp/subscribe")
-async def subscribe_whatsapp(data: WhatsAppSubscribeRequest):
+async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
+    """
+    Subscribe the authenticated user to WhatsApp alerts.
+
+    The subscriber's identity is derived exclusively from the verified
+    Firebase ID token — never from the client-supplied user_id field.
+    This prevents an attacker from overwriting another user's subscription
+    by sending a known uid with an attacker-controlled phone number.
+    """
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
     if subscriber_store is None:
         raise HTTPException(status_code=500, detail="Subscriber store not initialized")
 
-    user_id = data.user_id if data.user_id else str(datetime.now().timestamp())
+    token_data = await verify_role_fn(request)
+    uid = token_data["uid"]
+
     subscriber = {
         "phone_number": data.phone_number,
         "name": data.name,
@@ -197,7 +212,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest):
     }
 
     try:
-        subscriber_store.upsert(user_id, subscriber)
+        subscriber_store.upsert(uid, subscriber)
     except OSError as exc:
         raise HTTPException(
             status_code=500,
@@ -216,9 +231,24 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest):
 
 
 @router.post("/whatsapp/trigger-alert")
-async def trigger_whatsapp_alert(data: AlertTriggerRequest):
+async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
+    """
+    Broadcast a WhatsApp alert to all subscribers.
+
+    Requires authentication — admin or expert role only.
+
+    Without this check any unauthenticated caller could send arbitrary
+    messages to every subscribed farmer (social engineering attacks,
+    fake pest warnings, fake market alerts) and consume Twilio API
+    credits at will.
+    """
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
     if subscriber_store is None or send_whatsapp_message_fn is None or format_alert_message_fn is None:
         raise HTTPException(status_code=500, detail="WhatsApp dependencies not initialized")
+
+    # RBAC: only admins and experts may broadcast alerts to all farmers.
+    await verify_role_fn(request, required_roles=["admin", "expert"])
 
     subscribers = subscriber_store.get_all()
     results = []
@@ -228,7 +258,8 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest):
         result = send_whatsapp_message_fn(info["phone_number"], formatted_msg)
         results.append({"user_id": user_id, "success": result.get("success", False)})
 
-    return {"success": True, "results": results}
+    delivered = sum(1 for r in results if r["success"])
+    return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
 
 
 @router.post("/whatsapp/webhook")
