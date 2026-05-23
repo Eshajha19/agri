@@ -230,5 +230,12 @@ service cloud.firestore {
       allow delete: if hasRole('admin');
     }
 
+    // Schema Migrations: Internal use only.
+    // Read and write restricted strictly to admins to prevent
+    // unauthorized execution or status tampering of migrations.
+    match /_schema_migrations/{migrationId} {
+      allow read, write: if hasRole('admin');
+    }
+
   }
 }

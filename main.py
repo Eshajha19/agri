@@ -4,6 +4,7 @@ import asyncio
 import io
 import json
 import logging
+import math
 import re
 import joblib
 import hashlib
@@ -18,7 +19,7 @@ from typing import Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, Request, Form, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, ConfigDict, validator
 
 class SimulationRequest(BaseModel):
     crop_type: str
@@ -70,6 +71,7 @@ from backend.routers import (
     finance,
     governance,
     knowledge,
+    marketplace,
     ml,
     platform,
     quality,
@@ -93,6 +95,7 @@ from whatsapp_store import subscriber_store
 from error_recovery_middleware import ErrorRecoveryMiddleware
 from realtime_notifications import notification_broker
 from rbac_audit import audit_rbac_event, rbac_audit_trail, validate_required_roles
+from rbac import RBACMiddleware, print_rbac_matrix
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -321,6 +324,8 @@ async def verify_role(request: Request, required_roles: list = None):
 # --- Models ---
 
 class PredictRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     Crop: str = Field(..., max_length=50)
     CropCoveredArea: float = Field(..., gt=0)
     CHeight: int = Field(..., ge=0)
@@ -346,6 +351,44 @@ class WhatsAppSubscribeRequest(BaseModel):
 
 class YieldInput(BaseModel):
     data: list[float]
+
+
+def _coerce_prediction_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
+    sanitized = dict(input_data)
+    numeric_fields = {
+        "N",
+        "P",
+        "K",
+        "ph",
+        "pH",
+        "CropCoveredArea",
+        "CHeight",
+        "IrriCount",
+        "WaterCov",
+        "temperature",
+        "rainfall",
+        "humidity",
+    }
+
+    for field in numeric_fields:
+        if field not in sanitized or sanitized[field] is None:
+            continue
+
+        try:
+            numeric_value = float(sanitized[field])
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"Invalid value for '{field}'")
+
+        if not math.isfinite(numeric_value):
+            raise HTTPException(status_code=400, detail=f"Invalid value for '{field}'")
+
+        sanitized[field] = numeric_value
+
+    for field in ("ph", "pH"):
+        if field in sanitized and not (0 <= sanitized[field] <= 14):
+            raise HTTPException(status_code=400, detail="Invalid pH")
+
+    return sanitized
 
 class AlertTriggerRequest(BaseModel):
     alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
@@ -446,11 +489,16 @@ async def publish_notification(alert_type: str, message: str) -> dict:
     await notification_broker.publish(entry)
     return entry
 
-async def publish_notification(alert_type: str, message: str) -> dict:
-    """Store a notification and broadcast it to websocket subscribers."""
-    entry = _notification_store.append(alert_type=alert_type, message=message)
-    await notification_broker.publish(entry)
-    return entry
+
+def _normalize_dynamic_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Assign non-colliding IDs to request-scoped advisory alerts."""
+    normalized = []
+    for index, alert in enumerate(alerts, start=1):
+        normalized_alert = dict(alert)
+        normalized_alert["id"] = -index
+        normalized_alert.setdefault("source", "advisory")
+        normalized.append(normalized_alert)
+    return normalized
 
 def sanitise_log_field(value: str) -> str:
     if not isinstance(value, str):
@@ -470,7 +518,7 @@ def predict_get(request: Request = None):
 
 @app.post("/predict", response_model=PredictResponse)
 @limiter.limit("5/minute")
-def predict_yield(data: PredictRequest, request: Request):
+async def predict_yield(data: PredictRequest, request: Request):
     """
     Standardised prediction endpoint using ML Router for dynamic model selection.
 
@@ -480,36 +528,32 @@ def predict_yield(data: PredictRequest, request: Request):
     """
     try:
         input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
+        input_data = _coerce_prediction_inputs(input_data)
 
         context = {
             "location": request.headers.get("X-User-Location", "Unknown"),
             "crop": data.Crop,
         }
 
-        predicted_yield = router.predict(input_data, context)
-        return {"predicted_ExpYield": float(predicted_yield)}
+        # Offload heavy model inference to Celery worker to prevent blocking ASGI event loop
+        from celery_worker import predict_yield_task
+        task = predict_yield_task.delay(input_data, context)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, task.get)
 
-    except UnknownCategoryError as e:
-        # The submitted categorical value was not in the training vocabulary.
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "unknown_category",
-                "field": e.column,
-                "value": str(e.value),
-                "message": str(e),
-            },
-        )
-    except MissingFeatureError as e:
-        # Required feature columns are absent after encoding.
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "missing_features",
-                "missing": e.missing_columns,
-                "message": str(e),
-            },
-        )
+        if "error" in result:
+            err_type = result.get("type")
+            if err_type == "UnknownCategoryError":
+                raise HTTPException(status_code=422, detail={"error": "unknown_category", "message": result["error"]})
+            elif err_type == "MissingFeatureError":
+                raise HTTPException(status_code=422, detail={"error": "missing_features", "message": result["error"]})
+            else:
+                raise HTTPException(status_code=400, detail=result["error"])
+
+        return result
+
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Prediction Error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -517,47 +561,38 @@ def predict_yield(data: PredictRequest, request: Request):
 @app.post("/predict-yield-lag")
 @limiter.limit("5/minute")
 async def predict_yield_lag(payload: YieldInput, request: Request):
-    if model_lag is None:
-        raise HTTPException(status_code=500, detail="Model not loaded")
     try:
-        data = payload.data
-        if len(data) != 5:
-            raise ValueError("Exactly 5 values are required")
-        data = np.array(data).reshape(1, -1)
-        prediction = model_lag.predict(data)
-        return {
-            "prediction": round(float(prediction[0]), 2),
-            "model": "RandomForest Time Series (Lag Features)"
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # Offload time-series lag model prediction to Celery worker pool
+        from celery_worker import predict_yield_lag_task
+        task = predict_yield_lag_task.delay(payload.data)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, task.get)
+
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+
+        return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
 @app.post("/predict-yield-trend")
 @limiter.limit("5/minute")
 async def predict_yield_trend(payload: YieldInput, request: Request):
-    if model_lag is None:
-        raise HTTPException(status_code=500, detail="Model not loaded")
     try:
-        data = payload.data
-        if len(data) != 5:
-            raise ValueError("Exactly 5 values are required")
-        temp = list(data)
-        trend = []
-        for _ in range(5):
-            features = temp[:5]
-            pred = model_lag.predict([features])[0]
-            pred_value = round(float(pred), 2)
-            trend.append(pred_value)
-            temp = [pred_value] + temp
-        return {
-            "trend": trend,
-            "prediction": trend[-1],
-            "model": "RandomForest Trend Forecast (Lag Features)"
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # Offload heavy iterative trend forecasting to Celery worker pool
+        from celery_worker import predict_yield_trend_task
+        task = predict_yield_trend_task.delay(payload.data)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, task.get)
+
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+
+        return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
@@ -584,7 +619,7 @@ def get_notifications(
         water_coverage=water_coverage,
         season=season
     )
-    return {"success": True, "data": _notification_store.get_recent() + dynamic_alerts}
+    return {"success": True, "data": _notification_store.get_recent() + _normalize_dynamic_alerts(dynamic_alerts)}
 
 # --- WhatsApp Service Endpoints ---
 #
@@ -654,8 +689,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
         res = send_whatsapp_message(info["phone_number"], formatted_msg)
         results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})
 
-    # Use the bounded, thread-safe NotificationStore instead of the bare
-    # static_notifications list (which had no size cap and racy ID generation).
+    # Persist the alert through the bounded, thread-safe notification store.
     await publish_notification(
         alert_type=data.alert_type,
         message=data.message,
@@ -680,18 +714,19 @@ async def get_rbac_audit(request: Request, limit: int = Query(default=50, ge=1, 
 @app.post("/api/whatsapp/webhook")
 @limiter.limit("20/minute")
 async def whatsapp_webhook(request: Request, Body: str = Form(...), From: str = Form(...)):
-    incoming_msg = Body.lower().strip()
+    """
+    Handle incoming WhatsApp messages from Twilio.
+    
+    Processing is offloaded to a background Celery task to immediately
+    acknowledge the webhook (preventing Twilio timeout/penalties under burst traffic)
+    and process the message asynchronously.
+    """
     sender_number = From.replace("whatsapp:", "")
     
-    responses = {
-        "weather": "🌡️ *Weather Update*\n\n28°C, Clear skies. No rain expected.",
-        "pest": "🐛 *Pest Assistant*\n\nPlease use the Pest Management tool in-app for diagnosis.",
-        "hi": "🙏 *Namaste!*\n\nI am your AI Farming Assistant. Try 'Weather' or 'Pest'.",
-        "hello": "🙏 *Namaste!*\n\nI am your AI Farming Assistant. Try 'Weather' or 'Pest'."
-    }
+    # Offload message processing to reliable background task queue
+    from celery_worker import process_whatsapp_webhook_task
+    process_whatsapp_webhook_task.delay(Body, sender_number)
     
-    response = next((v for k, v in responses.items() if k in incoming_msg), f"Received: '{Body}'. Try 'Weather' or 'Pest' 🌱")
-    send_whatsapp_message(sender_number, response)
     return {"status": "success"}
 
 # --- Cryptographic Reports ---
@@ -845,9 +880,10 @@ async def lifespan(app: FastAPI):
     governance.init_governance(drift_detector, shadow_evaluator, version_manager)
     finance.init_finance(_farm_finance_ai, RBACManager, Permission)
     quality.init_quality(_crop_quality_grader, RBACManager, Permission)
-    blockchain.init_blockchain(_supply_chain_blockchain)
+    blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
     referrals.init_referrals(validate_firestore_ready)
     reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
+    marketplace.init_marketplace(verify_role)
 
     rag_generate_fn = None
     try:
@@ -998,6 +1034,7 @@ app.include_router(finance.router, prefix="/api/finance", tags=["Finance Legacy"
 app.include_router(quality.router, prefix="/api/crop-quality", tags=["Quality"])
 app.include_router(blockchain.router, prefix="/api/supply-chain", tags=["Blockchain"])
 app.include_router(reports.router, prefix="/api/admin", tags=["Reports"])
+app.include_router(marketplace.router, prefix="/api/marketplace", tags=["Marketplace"])
 app.include_router(knowledge.router, prefix="/api/knowledge", tags=["Knowledge"])
 app.include_router(community.router, prefix="/api/community", tags=["Community"])
 if voice_assistant_router is not None:
