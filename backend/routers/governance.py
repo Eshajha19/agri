@@ -52,34 +52,51 @@ def _require_auth(request: Request) -> str:
 def _require_admin_auth(request: Request) -> str:
     """
     Verify the Firebase ID token AND check that the caller has the 'admin'
-    role in Firestore. Used for destructive write operations (promote,
-    rollback, register, set baseline) that must be restricted to admins.
+    or 'expert' role in Firestore. Used for destructive write operations
+    (promote, rollback, register, set baseline, start shadow eval) that must
+    be restricted to privileged roles.
 
-    Falls back to uid-only check when Firestore is unavailable so the
-    endpoint still rejects unauthenticated callers even in degraded state.
+    Fail-closed design: any error reaching Firestore — transient network
+    failure, SDK exception, or unavailable service — results in HTTP 503
+    rather than silently granting access. A Firestore outage must never
+    become a privilege-escalation window.
     """
     uid = _require_auth(request)
 
-    # Best-effort role check — import lazily to avoid circular imports
+    import firebase_admin
+    from firebase_admin import firestore as _fs
+
+    # Firestore must be initialised; if not, the authorization service is
+    # unavailable and we must reject rather than allow through.
+    if not firebase_admin._apps:
+        raise HTTPException(
+            status_code=503,
+            detail="Authorization service unavailable"
+        )
+
     try:
-        import firebase_admin
-        from firebase_admin import firestore as _fs
-        if firebase_admin._apps:
-            db = _fs.client()
-            user_doc = db.collection("users").document(uid).get()
-            if user_doc.exists:
-                role = user_doc.to_dict().get("role", "farmer")
-                if role not in ("admin", "expert"):
-                    raise HTTPException(
-                        status_code=403,
-                        detail="Access denied: admin or expert role required"
-                    )
+        db = _fs.client()
+        user_doc = db.collection("users").document(uid).get()
     except HTTPException:
         raise
     except Exception:
-        # Firestore unavailable — token is still verified; allow through
-        # rather than blocking legitimate admins during an outage.
-        pass
+        # Any Firestore error (timeout, network reset, SDK fault) is treated
+        # as an authorization-service failure. Fail closed — do not grant
+        # access when the role cannot be verified.
+        raise HTTPException(
+            status_code=503,
+            detail="Authorization service unavailable"
+        )
+
+    if not user_doc.exists:
+        raise HTTPException(status_code=403, detail="User profile not found")
+
+    role = user_doc.to_dict().get("role", "farmer")
+    if role not in ("admin", "expert"):
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: admin or expert role required"
+        )
 
     return uid
 
