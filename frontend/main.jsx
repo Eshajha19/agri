@@ -7,8 +7,12 @@ import NavigationManager from './NavigationManager.jsx'
 import './index.css'
 import './lib/i18n.js'
 import { registerSW } from 'virtual:pwa-register'
+import { initializeFirebase } from './lib/firebase'
 
 console.log('Fasal Saathi: Booting application...');
+
+// Initialize Firebase early (supports runtime config fetch from backend)
+void initializeFirebase();
 
 // Register service worker with auto-update
 const updateSW = registerSW({

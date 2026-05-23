@@ -12,6 +12,19 @@ services:
         value: 8000
       - key: HOST
         value: 0.0.0.0
+      # Firebase env vars - set actual values in Render dashboard
+      - key: VITE_FIREBASE_API_KEY
+        value: ""
+      - key: VITE_FIREBASE_AUTH_DOMAIN
+        value: ""
+      - key: VITE_FIREBASE_PROJECT_ID
+        value: ""
+      - key: VITE_FIREBASE_STORAGE_BUCKET
+        value: ""
+      - key: VITE_FIREBASE_MESSAGING_SENDER_ID
+        value: ""
+      - key: VITE_FIREBASE_APP_ID
+        value: ""
       - key: GEMINI_API_KEY
         sync: false
       - key: GOOGLE_CLOUD_PROJECT

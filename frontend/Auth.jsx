@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -13,7 +13,7 @@ import {
 import { doc, setDoc, getDoc } from "firebase/firestore";
 import { useNavigate, useLocation } from "react-router-dom";
 import { FaGoogle, FaEnvelope, FaLock, FaUser, FaArrowRight, FaLeaf, FaUserSecret } from "react-icons/fa";
-import { auth, db, isFirebaseConfigured } from "./lib/firebase";
+import { auth, db, isFirebaseConfigured, initializeFirebase } from "./lib/firebase";
 import { migrateUserData } from "./lib/migration";
 import "./Auth.css";
 
@@ -26,6 +26,8 @@ const Auth = () => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [firebaseReady, setFirebaseReady] = useState(false);
+  const [checkingConfig, setCheckingConfig] = useState(true);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -35,7 +37,30 @@ const Auth = () => {
     ? `/referrals?ref=${encodeURIComponent(referralCode)}`
     : from;
 
-  if (!isFirebaseConfigured()) {
+  useEffect(() => {
+    const init = async () => {
+      await initializeFirebase();
+      setFirebaseReady(isFirebaseConfigured());
+      setCheckingConfig(false);
+    };
+    init();
+  }, []);
+
+  if (checkingConfig) {
+    return (
+      <div className="auth-container">
+        <div className="auth-card">
+          <div className="auth-logo">
+            <FaLeaf className="leaf-icon" />
+            <h1 className="notranslate" translate="no">Fasal Saathi</h1>
+          </div>
+          <p className="auth-subtitle">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!firebaseReady) {
     return (
       <div className="auth-container">
         <div className="auth-card">
@@ -45,7 +70,7 @@ const Auth = () => {
             </div>
           <p className="auth-subtitle">Firebase credentials not configured</p>
           <div className="auth-message">
-            <p>Please configure Firebase credentials in your .env file to enable authentication.</p>
+            <p>Please configure Firebase credentials in your environment to enable authentication.</p>
           </div>
         </div>
       </div>

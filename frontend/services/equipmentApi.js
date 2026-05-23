@@ -3,7 +3,7 @@ import { getAllEquipmentData, saveEquipmentData, getEquipmentData } from '../uti
 
 class EquipmentService {
   constructor() {
-    this.baseURL = import.meta.env.VITE_EQUIPMENT_API_URL || 'http://localhost:8000/api/equipment';
+    this.baseURL = import.meta.env.VITE_EQUIPMENT_API_URL || "/api/equipment";
     this.mockMode = !import.meta.env.VITE_EQUIPMENT_API_URL;
   }
 

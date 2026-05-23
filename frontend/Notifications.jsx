@@ -21,7 +21,7 @@ export default function useNotifications() {
   };
 
   const buildStreamUrl = () => {
-    const apiBase = import.meta.env.VITE_API_BASE || window.location.origin;
+    const apiBase = import.meta.env.VITE_API_BASE_URL || window.location.origin;
     const url = new URL("/api/notifications/stream", apiBase);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     return url.toString();
@@ -29,8 +29,9 @@ export default function useNotifications() {
 
   const fetchNotifications = async () => {
     try {
-      const apiBase = import.meta.env.VITE_API_BASE || "";
-      const res = await fetch(`${apiBase}/api/notifications`);
+      const apiBase = import.meta.env.VITE_API_BASE_URL || "";
+      const url = apiBase || "";
+      const res = await fetch(url ? `${url}/api/notifications` : "/api/notifications");
       const data = await res.json();
 
       if (data.success) {

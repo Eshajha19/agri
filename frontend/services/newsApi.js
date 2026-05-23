@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { reportErrorToBackend } from '../utils/errorReporting';
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_BASE || "";
 
 /**
  * Fetch farming news articles with optional filtering and pagination

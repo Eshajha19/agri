@@ -24,6 +24,16 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+class CropRecommendationRequest(BaseModel):
+    soil_ph: float = Field(..., ge=4.0, le=9.0)
+    nitrogen: float = Field(..., ge=0)
+    phosphorus: float = Field(..., ge=0)
+    potassium: float = Field(..., ge=0)
+    location: str = Field(..., min_length=1, max_length=100)
+    season: str = Field(default="kharif", pattern="^(kharif|rabi|summer)$")
+    area_size: Optional[float] = Field(None, gt=0)
+
+
 class WhatsAppSubscribeRequest(BaseModel):
     phone_number: str
     user_id: str
@@ -535,4 +545,106 @@ async def verify_seed(request: Request, data: SeedVerifyRequest):
         "cert_body": entry["cert_body"],
         "certified_on": entry["certified_on"],
         "expires_on": entry["expires_on"],
+    }
+
+
+@router.post("/crop/recommend")
+async def crop_recommend(data: CropRecommendationRequest):
+    """
+    Get AI-powered crop recommendations based on soil parameters and location.
+    Returns recommended crops with compatibility scores, fertilizer recommendations,
+    and soil analysis.
+    """
+    # Soil analysis
+    ph_level = "acidic" if data.soil_ph < 6.0 else "neutral" if data.soil_ph <= 7.5 else "alkaline"
+    nitrogen_level = "low" if data.nitrogen < 20 else "medium" if data.nitrogen <= 40 else "high"
+    phosphorus_level = "low" if data.phosphorus < 15 else "medium" if data.phosphorus <= 30 else "high"
+    potassium_level = "low" if data.potassium < 100 else "medium" if data.potassium <= 200 else "high"
+
+    # Crop recommendations based on soil parameters
+    # This is a simplified rule-based system - could be enhanced with ML models
+    recommendations = []
+
+    # Rice - prefers neutral pH, moderate nitrogen, high potassium
+    rice_score = 100
+    if data.soil_ph >= 5.5 and data.soil_ph <= 7.0:
+        rice_score += 10
+    if nitrogen_level in ("medium", "high"):
+        rice_score += 5
+    if potassium_level in ("medium", "high"):
+        rice_score += 10
+    if data.season == "kharif":
+        rice_score += 15
+    recommendations.append({
+        "crop": "Rice",
+        "compatibility_score": min(rice_score, 100),
+        "reasons": ["Perfect for Kharif season", "Thrives in flooded conditions", "High market demand"],
+        "recommended_fertilizer": "Apply 120 kg N, 60 kg P2O5, 60 kg K2O per hectare in 3 splits",
+    })
+
+    # Wheat - prefers neutral pH, moderate nutrients
+    wheat_score = 90
+    if data.soil_ph >= 6.0 and data.soil_ph <= 7.5:
+        wheat_score += 10
+    if data.season == "rabi":
+        wheat_score += 15
+    recommendations.append({
+        "crop": "Wheat",
+        "compatibility_score": min(wheat_score, 100),
+        "reasons": ["Ideal for Rabi season", "Good storage quality", "Versatile market"],
+        "recommended_fertilizer": "Apply 120 kg N, 60 kg P2O5, 40 kg K2O per hectare",
+    })
+
+    # Maize - adaptable to various conditions
+    maize_score = 80
+    if nitrogen_level in ("medium", "high"):
+        maize_score += 10
+    recommendations.append({
+        "crop": "Maize",
+        "compatibility_score": min(maize_score, 100),
+        "reasons": ["High yield potential", "Multiple uses (food, feed, fodder)", "Drought tolerant"],
+        "recommended_fertilizer": "Apply 150 kg N, 75 kg P2O5, 75 kg K2O per hectare",
+    })
+
+    # Cotton - prefers slightly alkaline soil
+    cotton_score = 70
+    if data.soil_ph >= 6.0 and data.soil_ph <= 8.0:
+        cotton_score += 10
+    if potassium_level in ("medium", "high"):
+        cotton_score += 10
+    recommendations.append({
+        "crop": "Cotton",
+        "compatibility_score": min(cotton_score, 100),
+        "reasons": ["Cash crop with good returns", "Long growing period", "Fiber quality important"],
+        "recommended_fertilizer": "Apply 100 kg N, 50 kg P2O5, 50 kg K2O per hectare",
+    })
+
+    # Sort by compatibility score
+    recommendations.sort(key=lambda x: x["compatibility_score"], reverse=True)
+
+    # Generate warnings
+    warnings = []
+    if ph_level == "acidic":
+        warnings.append("Soil is acidic. Consider applying lime to improve pH before sowing.")
+    if nitrogen_level == "low":
+        warnings.append("Low nitrogen detected. Apply nitrogen-rich fertilizer or organic compost.")
+    if phosphorus_level == "low":
+        warnings.append("Low phosphorus may affect root development. Consider rock phosphate.")
+    if data.season not in ("kharif", "rabi"):
+        warnings.append("Non-traditional season selected. Verify local climate suitability.")
+
+    return {
+        "success": True,
+        "recommendations": recommendations[:3],
+        "soil_analysis": {
+            "ph_level": ph_level,
+            "ph_value": data.soil_ph,
+            "nitrogen_level": nitrogen_level,
+            "nitrogen_value": data.nitrogen,
+            "phosphorus_level": phosphorus_level,
+            "phosphorus_value": data.phosphorus,
+            "potassium_level": potassium_level,
+            "potassium_value": data.potassium,
+        },
+        "warnings": warnings,
     }

@@ -1073,6 +1073,27 @@ if frontend_build_path.exists():
 def api_health():
     return {"status": "healthy", "service": "Fasal Saathi Backend", "version": "2.0"}
 
+@app.get("/api/firebase-config")
+def get_firebase_config():
+    """
+    Expose Firebase client config to the frontend at runtime.
+    This allows the frontend to work in Docker deployments where env vars
+    are not available at build time.
+    """
+    config = {
+        "apiKey": os.getenv("VITE_FIREBASE_API_KEY", ""),
+        "authDomain": os.getenv("VITE_FIREBASE_AUTH_DOMAIN", ""),
+        "projectId": os.getenv("VITE_FIREBASE_PROJECT_ID", ""),
+        "storageBucket": os.getenv("VITE_FIREBASE_STORAGE_BUCKET", ""),
+        "messagingSenderId": os.getenv("VITE_FIREBASE_MESSAGING_SENDER_ID", ""),
+        "appId": os.getenv("VITE_FIREBASE_APP_ID", ""),
+    }
+    # Only return config if all required fields are present
+    if not all([config["apiKey"], config["projectId"], config["authDomain"]]):
+        return {"configured": False}
+    config["configured"] = True
+    return config
+
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str):
     # Only serve SPA for non-API routes

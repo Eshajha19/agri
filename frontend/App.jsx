@@ -97,7 +97,7 @@ function SustainabilityAnalyticsPage({ userData }) {
 }
 
 // Libs
-import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc, getDoc } from "./lib/firebase";
+import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc, getDoc, initializeFirebase } from "./lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { loadAppState, loadUserProfileSnapshot, persistAppState, persistUserProfileSnapshot } from "./lib/offlinePersistence";
 import { syncOfflineRequests } from "./lib/syncOfflineRequests";
@@ -327,67 +327,81 @@ function App() {
     };
   }, [preferredLang]);
 
-  /* ---------------- AUTH & FIRESTORE SYNC ---------------- */
-  useEffect(() => {
-    if (!isFirebaseConfigured()) {
-      setLoading(false);
-      return;
-    }
+/* ---------------- AUTH & FIRESTORE SYNC ---------------- */
+   useEffect(() => {
+    let cancelled = false;
 
-    const userDocUnsubscribeRef = { current: null };
+    const initAndSetup = async () => {
+      await initializeFirebase();
+      if (!isFirebaseConfigured()) {
+        setLoading(false);
+        return;
+      }
 
-    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
+      const userDocUnsubscribeRef = { current: null };
 
-      const hydrateUserSnapshot = async () => {
-        if (!currentUser?.uid) return false;
-        try {
-          const snapshot = await loadUserProfileSnapshot(currentUser.uid);
-          if (snapshot) {
-            setUserData(snapshot);
-            setProfileCompleted(snapshot.profileCompleted === true);
-            return true;
+      const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+        if (cancelled) return;
+        setUser(currentUser);
+
+        const hydrateUserSnapshot = async () => {
+          if (!currentUser?.uid) return false;
+          try {
+            const snapshot = await loadUserProfileSnapshot(currentUser.uid);
+            if (snapshot) {
+              setUserData(snapshot);
+              setProfileCompleted(snapshot.profileCompleted === true);
+              return true;
+            }
+          } catch (error) {
+            console.warn("Failed to restore offline user profile snapshot:", error);
           }
-        } catch (error) {
-          console.warn("Failed to restore offline user profile snapshot:", error);
-        }
-        return false;
-      };
+          return false;
+        };
 
-      if (currentUser) {
-        userDocUnsubscribeRef.current = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
-          if (userDoc.exists()) {
-            const data = userDoc.data();
-            setUserData(data);
-            setProfileCompleted(data.profileCompleted === true);
-          } else if (currentUser.isAnonymous) {
-            setUserData({ displayName: "Guest Farmer", isAnonymous: true });
-            setProfileCompleted(true);
-          } else {
+        if (currentUser) {
+          userDocUnsubscribeRef.current = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
+            if (cancelled) return;
+            if (userDoc.exists()) {
+              const data = userDoc.data();
+              setUserData(data);
+              setProfileCompleted(data.profileCompleted === true);
+            } else if (currentUser.isAnonymous) {
+              setUserData({ displayName: "Guest Farmer", isAnonymous: true });
+              setProfileCompleted(true);
+            } else {
+              setUserData(null);
+              setProfileCompleted(false);
+              void hydrateUserSnapshot().finally(() => setLoading(false));
+              return;
+            }
+            setLoading(false);
+          }, (error) => {
+            if (cancelled) return;
+            console.error("Firestore sync error:", error);
             setUserData(null);
             setProfileCompleted(false);
             void hydrateUserSnapshot().finally(() => setLoading(false));
-            return;
-          }
-          setLoading(false);
-        }, (error) => {
-          console.error("Firestore sync error:", error);
+          });
+        } else {
           setUserData(null);
-          setProfileCompleted(false);
-          void hydrateUserSnapshot().finally(() => setLoading(false));
-        });
-      } else {
-        setUserData(null);
-        setProfileCompleted(true);
-        setLoading(false);
-      }
-    });
+          setProfileCompleted(true);
+          setLoading(false);
+        }
+      });
+
+      return () => {
+        cancelAnimationFrame?.(unsubscribeAuth);
+        if (userDocUnsubscribeRef.current) {
+          userDocUnsubscribeRef.current();
+        }
+      };
+    };
+
+    initAndSetup();
 
     return () => {
-      unsubscribeAuth();
-      if (userDocUnsubscribeRef.current) {
-        userDocUnsubscribeRef.current();
-      }
+      cancelled = true;
     };
   }, []);
 
