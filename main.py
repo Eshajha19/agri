@@ -295,6 +295,7 @@ async def verify_role(request: Request, required_roles: list = None):
         )
         raise HTTPException(status_code=403, detail="User profile not found")
 
+    user_role = user_doc.get("role", "farmer")
 
     if required_roles and user_role not in required_roles:
         audit_rbac_event(
