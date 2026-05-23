@@ -158,11 +158,16 @@ class ConflictDetector:
         # Same checksum = no conflict
         if local_version.checksum == server_version.checksum:
             return False
-        
+
+        # Equal vectors with different checksums = divergence without clock
+        # advancement → treat as conflict to avoid silent overwrite.
+        if local_version.version_vector.vector == server_version.version_vector.vector:
+            return True
+
         # Check if versions are concurrent
         if local_version.version_vector.concurrent_with(server_version.version_vector):
             return True
-        
+
         # Sequential updates (not concurrent) = no conflict
         return False
     
