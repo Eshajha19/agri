@@ -107,10 +107,9 @@ class ImageProcessingQueue:
 
     def enqueue(self, task: ImageProcessingTask) -> str:
         """Enqueue a task for processing"""
-        if len(self._task_queue) >= self.max_queue_size:
-            raise RuntimeError(f"Queue is full (max: {self.max_queue_size})")
-
         with self._queue_lock:
+            if len(self._task_queue) >= self.max_queue_size:
+                raise RuntimeError(f"Queue is full (max: {self.max_queue_size})")
             self._task_queue.append(task)
             self._tasks_by_id[task.task_id] = task
             self._total_enqueued += 1
