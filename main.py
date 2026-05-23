@@ -137,7 +137,7 @@ async def lifespan(app: FastAPI):
     await notification_broker.stop()
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -936,8 +936,6 @@ async def lifespan(app: FastAPI):
     yield
     logger.info("Shutting down")
 
-
-app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
 
 # Observability setup
 try:
