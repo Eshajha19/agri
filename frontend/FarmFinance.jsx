@@ -47,6 +47,12 @@ const MAX_FINANCE_ENTRIES = 250;
 export default function FarmFinance() {
   const [incomeEntries, setIncomeEntries] = useState([]);
   const [expenseEntries, setExpenseEntries] = useState([]);
+  const [expenseTrackerData, setExpenseTrackerData] = useState({
+    seedCost: '',
+    fertilizerCost: '',
+    irrigationCost: '',
+    laborCost: '',
+  });
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [loanFormTouched, setLoanFormTouched] = useState(false);
@@ -136,6 +142,13 @@ export default function FarmFinance() {
     return expenseEntries.reduce((sum, entry) => sum + (parseFloat(entry.cost) || 0), 0);
   }, [expenseEntries]);
 
+  const estimatedTrackerCost = useMemo(() => {
+    return Object.values(expenseTrackerData).reduce(
+      (sum, value) => sum + (parseFloat(value) || 0),
+      0
+    );
+  }, [expenseTrackerData]);
+
   const netProfit = totalIncome - totalExpense;
 
   const chartData = useMemo(() => ([
@@ -167,6 +180,32 @@ export default function FarmFinance() {
     const { name, value } = e.target;
     setLoanFormTouched(true);
     setLoanFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleTrackerInputChange = (e) => {
+    const { name, value } = e.target;
+    setExpenseTrackerData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const applyTrackerToLoanForm = () => {
+    setLoanFormTouched(true);
+    setLoanFormData(prev => ({
+      ...prev,
+      annualOperatingCost: String(Math.max(Math.round(estimatedTrackerCost), 0)),
+      irrigationCost: expenseTrackerData.irrigationCost || prev.irrigationCost,
+      laborCost: expenseTrackerData.laborCost || prev.laborCost,
+      notes: prev.notes || 'Auto-filled from expense tracker',
+    }));
+    toast.success('Estimated cost copied to loan planner');
+  };
+
+  const resetExpenseTracker = () => {
+    setExpenseTrackerData({
+      seedCost: '',
+      fertilizerCost: '',
+      irrigationCost: '',
+      laborCost: '',
+    });
   };
 
   const populateFromFarmTotals = () => {
@@ -405,6 +444,85 @@ export default function FarmFinance() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: analysisResult?.risk_level === 'Low' ? '#2ecc71' : '#f39c12', fontSize: '0.8rem' }}>
             {analysisResult?.risk_level === 'Low' ? <FaCheckCircle /> : <FaExclamationTriangle />}
             {loanHealthLabel}
+          </div>
+        </div>
+        <div className="summary-card projected-cost">
+          <span className="label">Estimated Crop Cost</span>
+          <span className="value">{formatCurrency(estimatedTrackerCost)}</span>
+          <div style={{ fontSize: '0.8rem', opacity: 0.85 }}>
+            Seed, fertilizer, irrigation, and labor
+          </div>
+        </div>
+      </div>
+
+      <div className="finance-section expense-tracker-panel">
+        <div className="expense-tracker-header">
+          <div>
+            <h3 className="section-title"><FaSeedling /> Farm Expense Tracker</h3>
+            <p>Enter the main seasonal costs to estimate your total crop spending before sales start coming in.</p>
+          </div>
+          <div className="expense-tracker-total">
+            <span>Estimated Total</span>
+            <strong>{formatCurrency(estimatedTrackerCost)}</strong>
+          </div>
+        </div>
+
+        <div className="finance-ai-grid expense-tracker-grid">
+          <div className="finance-section expense-tracker-form">
+            <div className="form-row">
+              <div className="form-group">
+                <label>Seed Costs</label>
+                <input type="number" name="seedCost" value={expenseTrackerData.seedCost} onChange={handleTrackerInputChange} className="finance-input" placeholder="0" min="0" />
+              </div>
+              <div className="form-group">
+                <label>Fertilizer Expenses</label>
+                <input type="number" name="fertilizerCost" value={expenseTrackerData.fertilizerCost} onChange={handleTrackerInputChange} className="finance-input" placeholder="0" min="0" />
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label>Irrigation Costs</label>
+                <input type="number" name="irrigationCost" value={expenseTrackerData.irrigationCost} onChange={handleTrackerInputChange} className="finance-input" placeholder="0" min="0" />
+              </div>
+              <div className="form-group">
+                <label>Labor Expenses</label>
+                <input type="number" name="laborCost" value={expenseTrackerData.laborCost} onChange={handleTrackerInputChange} className="finance-input" placeholder="0" min="0" />
+              </div>
+            </div>
+            <div className="expense-tracker-actions">
+              <button type="button" className="finance-btn secondary" onClick={resetExpenseTracker}>
+                Clear
+              </button>
+              <button type="button" className="finance-btn primary" onClick={applyTrackerToLoanForm}>
+                Use in Loan Planner
+              </button>
+            </div>
+          </div>
+
+          <div className="finance-section expense-tracker-breakdown">
+            <h3 className="section-title"><FaClipboardList /> Cost Breakdown</h3>
+            <div className="tracker-breakdown-list">
+              <div className="tracker-breakdown-item">
+                <span>Seed</span>
+                <strong>{formatCurrency(expenseTrackerData.seedCost)}</strong>
+              </div>
+              <div className="tracker-breakdown-item">
+                <span>Fertilizer</span>
+                <strong>{formatCurrency(expenseTrackerData.fertilizerCost)}</strong>
+              </div>
+              <div className="tracker-breakdown-item">
+                <span>Irrigation</span>
+                <strong>{formatCurrency(expenseTrackerData.irrigationCost)}</strong>
+              </div>
+              <div className="tracker-breakdown-item">
+                <span>Labor</span>
+                <strong>{formatCurrency(expenseTrackerData.laborCost)}</strong>
+              </div>
+            </div>
+            <div className="tracker-breakdown-total">
+              <span>Estimated Total Cost</span>
+              <strong>{formatCurrency(estimatedTrackerCost)}</strong>
+            </div>
           </div>
         </div>
       </div>
