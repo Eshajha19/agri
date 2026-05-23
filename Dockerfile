@@ -22,7 +22,7 @@ COPY . .
 
 # Build frontend
 WORKDIR /app/frontend
-RUN npm ci && npm run build
+RUN npm install && npm run build
 WORKDIR /app
 
 EXPOSE 8000

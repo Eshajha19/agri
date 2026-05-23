@@ -1,7 +1,5 @@
 {
-  "name": "fasal-saathi-monorepo",
+  "name": "fasal-saathi",
   "private": true,
-  "workspaces": [
-    "frontend"
-  ]
+  "version": "2.0.0"
 }
