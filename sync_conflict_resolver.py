@@ -111,9 +111,9 @@ class DocumentVersion:
         self.checksum = checksum or self._calculate_checksum()
     
     def _calculate_checksum(self) -> str:
-        """Calculate MD5 checksum of data"""
+        """Calculate SHA-256 checksum of data (FIPS-compliant)"""
         data_str = json.dumps(self.data, sort_keys=True, default=str)
-        return hashlib.md5(data_str.encode()).hexdigest()
+        return hashlib.sha256(data_str.encode()).hexdigest()
     
     def to_dict(self) -> Dict:
         """Convert to dictionary"""
