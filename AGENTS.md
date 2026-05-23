@@ -38,3 +38,11 @@ The `manifest.webmanifest` file must be in the frontend root directory for both 
 ## Linting
 
 Run `npm run lint` in the frontend directory to check code quality.
+
+## Bug Fixes
+
+### TOCTOU Race Condition in Queue Overflow (PR #996)
+- **File**: `image_processing_queue.py`
+- **Issue**: Queue capacity validation (`len(self._task_queue) >= self.max_queue_size`) was performed outside `_queue_lock`, allowing concurrent producers to bypass the capacity limit.
+- **Fix**: Moved capacity check inside the synchronized `with self._queue_lock:` block, ensuring size validation and task insertion are atomic under concurrent workloads.
+- **Impact**: Prevents uncontrolled queue growth, excessive memory consumption, and inconsistent queue state under high-throughput image processing.
