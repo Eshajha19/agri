@@ -72,6 +72,7 @@ from backend.routers import (
     finance,
     governance,
     knowledge,
+    lms,
     marketplace,
     ml,
     platform,
@@ -166,6 +167,7 @@ async def lifespan(app: FastAPI):
     referrals.init_referrals(lambda: db_firestore)
     reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
     marketplace.init_marketplace(verify_role)
+    lms.init_lms(verify_role, db_firestore)
 
     rag_generate_fn = None
     try:
@@ -1042,6 +1044,7 @@ app.include_router(platform.router, prefix="/api", tags=["Platform"])
 app.include_router(advisory.router, prefix="/api", tags=["Advisory"])
 app.include_router(alerts.router, prefix="/api/notifications", tags=["Alerts"])
 app.include_router(flags_router, prefix="/api/flags", tags=["Feature Flags"])
+app.include_router(lms.router, prefix="/api", tags=["LMS"])
 
 
 # --- Smart Farm Autopilot ---
