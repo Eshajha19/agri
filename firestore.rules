@@ -153,14 +153,14 @@ service cloud.firestore {
     match /finance_applications/{applicationId} {
       allow read: if isAuthed()
         && (
-          resource.data.userId == request.auth.uid
+          resource.data.owner_uid == request.auth.uid
           || hasAnyRole(['admin', 'expert'])
         );
       allow create: if isAuthed()
-        && request.resource.data.userId == request.auth.uid;
+        && request.resource.data.owner_uid == request.auth.uid;
       allow update: if isAuthed()
         && (
-          resource.data.userId == request.auth.uid
+          resource.data.owner_uid == request.auth.uid
           || hasAnyRole(['admin', 'expert'])
         );
       allow delete: if hasRole('admin');
