@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Dict, List, Optional, Callable, Any
 from dataclasses import dataclass, asdict, field
-from collections import deque
+import heapq
 import threading
 import time
 
@@ -87,9 +87,10 @@ class ImageProcessingQueue:
         self.max_queue_size = max_queue_size
         self.enable_persistence = enable_persistence
         
-        # Task storage
-        self._task_queue = deque()  # Main queue
-        self._tasks_by_id: Dict[str, ImageProcessingTask] = {}  # Fast lookup
+        # Task storage (heap of (priority, counter, task) tuples)
+        self._task_queue: List[tuple] = []
+        self._tasks_by_id: Dict[str, ImageProcessingTask] = {}
+        self._counter = 0
         self._completed_tasks: Dict[str, ImageProcessingTask] = {}  # History
         
         # Worker management
@@ -107,11 +108,11 @@ class ImageProcessingQueue:
 
     def enqueue(self, task: ImageProcessingTask) -> str:
         """Enqueue a task for processing"""
-        if len(self._task_queue) >= self.max_queue_size:
-            raise RuntimeError(f"Queue is full (max: {self.max_queue_size})")
-
         with self._queue_lock:
-            self._task_queue.append(task)
+            if len(self._task_queue) >= self.max_queue_size:
+                raise RuntimeError(f"Queue is full (max: {self.max_queue_size})")
+            heapq.heappush(self._task_queue, (task.priority.value, self._counter, task))
+            self._counter += 1
             self._tasks_by_id[task.task_id] = task
             self._total_enqueued += 1
             
@@ -123,33 +124,16 @@ class ImageProcessingQueue:
         with self._queue_lock:
             if not self._task_queue:
                 return None
-            
-            # Find highest priority task (lowest priority value)
-            best_task = None
-            best_idx = 0
-            min_priority = TaskPriority.LOW.value + 1
-            
-            for idx, task in enumerate(self._task_queue):
-                if task.priority.value < min_priority:
-                    min_priority = task.priority.value
-                    best_task = task
-                    best_idx = idx
-            
-            if best_task is None:
-                return None
-            
-            # Remove from queue
-            deque_list = list(self._task_queue)
-            deque_list.pop(best_idx)
-            self._task_queue = deque(deque_list)
-            
+
+            _, _, task = heapq.heappop(self._task_queue)
+
             # Update task status
-            best_task.status = TaskStatus.PROCESSING
-            best_task.started_at = datetime.now().isoformat()
-            best_task.worker_id = worker_id
-            
-            logger.info(f"Task {best_task.task_id} assigned to worker {worker_id}")
-            return best_task
+            task.status = TaskStatus.PROCESSING
+            task.started_at = datetime.now().isoformat()
+            task.worker_id = worker_id
+
+            logger.info(f"Task {task.task_id} assigned to worker {worker_id}")
+            return task
 
     def complete_task(self, task_id: str, result: Dict) -> bool:
         """Mark task as completed with result"""
@@ -185,7 +169,8 @@ class ImageProcessingQueue:
                 task.status = TaskStatus.RETRYING
                 # Re-enqueue for retry
                 with self._queue_lock:
-                    self._task_queue.appendleft(task)
+                    heapq.heappush(self._task_queue, (task.priority.value, self._counter, task))
+                    self._counter += 1
                 logger.info(f"Task {task_id} requeued for retry ({task.retry_count}/{task.max_retries})")
                 return True
             else:
@@ -233,18 +218,22 @@ class ImageProcessingQueue:
 
     def cancel_task(self, task_id: str) -> bool:
         """Cancel a queued or processing task"""
-        with self._task_lock:
+        with self._queue_lock:
             if task_id not in self._tasks_by_id:
                 return False
-            
+
             task = self._tasks_by_id[task_id]
             if task.status in (TaskStatus.QUEUED, TaskStatus.RETRYING):
                 task.status = TaskStatus.CANCELLED
+                self._task_queue = [
+                    entry for entry in self._task_queue if entry[2].task_id != task_id
+                ]
+                heapq.heapify(self._task_queue)
                 del self._tasks_by_id[task_id]
                 self._completed_tasks[task_id] = task
                 logger.info(f"Task {task_id} cancelled")
                 return True
-            
+
             return False
 
     def register_worker(self, worker_id: str) -> WorkerStats:
@@ -311,7 +300,7 @@ class ImageProcessingQueue:
     def get_pending_tasks(self, limit: int = 100) -> List[Dict]:
         """Get pending tasks"""
         with self._queue_lock:
-            tasks = list(self._task_queue)[:limit]
+            tasks = [entry[2] for entry in self._task_queue[:limit]]
             return [
                 {
                     "task_id": t.task_id,
