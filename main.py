@@ -171,9 +171,9 @@ if not firebase_admin._apps:
         # the path of a service-account key file.
         firebase_admin.initialize_app()
         db_firestore = firestore.client()
-        _firebase_logger.info("Firebase Admin: successfully initialized")
+        logger.info("Firebase Admin: successfully initialized")
     except Exception as e:
-        _firebase_logger.warning(
+        logger.warning(
             "Firebase Admin: could not initialize — role-gated endpoints will "
             "return 503 until Firestore is reachable. Reason: %s", e
         )
@@ -266,7 +266,7 @@ async def verify_role(request: Request, required_roles: list = None):
     try:
         user_doc = db_firestore.collection("users").document(uid).get()
     except Exception as e:
-        _firebase_logger.error(
+        logger.error(
             "Firestore fetch failed for uid=%s during role check: %s", uid, e
         )
         audit_rbac_event(
