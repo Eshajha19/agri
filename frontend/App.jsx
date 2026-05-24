@@ -148,7 +148,7 @@ const GuestBanner = () => (
     <div className="guest-banner-content">
       <FaUserSecret className="banner-icon" />
       <span>
-        <strong>Guest Session Active:</strong> Explore the platform freely! 
+        <strong>Guest Session Active:</strong> Explore the platform freely!
         <Link to="/auth" className="banner-link"> Sign Up</Link> to save your progress permanently.
       </span>
     </div>
@@ -169,7 +169,7 @@ function App() {
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
-  
+
   const { liteMode, setLiteMode, detectAndSetLiteMode } = usePerformanceStore();
 
   useEffect(() => {
@@ -190,10 +190,10 @@ function App() {
   /* ---------------- LANGUAGE AUTO-TRANS ---------------- */
   useEffect(() => {
     if (applyGoogleTranslate(preferredLang)) return;
-    
+
     let retries = 0;
     const MAX_RETRIES = 20; // Try for ~6 seconds
-    
+
     const id = setInterval(() => {
       retries++;
       if (applyGoogleTranslate(preferredLang)) {
@@ -203,9 +203,32 @@ function App() {
         console.warn("Google Translate widget initialization timed out or was blocked. Graceful fallback applied.");
       }
     }, 300);
-    
+
     return () => clearInterval(id);
   }, [preferredLang]);
+
+  /* ---------------- HIDE GOOGLE TRANSLATE BANNER ---------------- */
+  useEffect(() => {
+    const hideGoogleTranslateBanner = () => {
+      const bannerFrame = document.querySelector(".goog-te-banner-frame");
+      if (bannerFrame) {
+        bannerFrame.style.display = "none";
+      }
+
+      document.body.style.top = "0px";
+
+      const translateElement = document.querySelector(".goog-te-balloon-frame");
+      if (translateElement) {
+        translateElement.style.display = "none";
+      }
+    };
+
+    hideGoogleTranslateBanner();
+
+    const interval = setInterval(hideGoogleTranslateBanner, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   /* ---------------- AUTH & FIRESTORE SYNC ---------------- */
   useEffect(() => {
@@ -217,7 +240,7 @@ function App() {
     // Deterministic auth-readiness sync
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      
+
       if (currentUser) {
         // Wait for profile data sync before hiding loader
         const unsubscribeDoc = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
@@ -492,7 +515,7 @@ function App() {
             <div className="verify-icon">✉️</div>
             <h2>Verify Your Email</h2>
             <p>We've sent a link to <b>{user.email}</b>.<br /> Please verify your email to unlock all features.</p>
-            <button 
+            <button
               onClick={() => {
                 if (auth.currentUser) {
                   auth.currentUser.reload().then(() => {
@@ -507,7 +530,7 @@ function App() {
                     console.error("Error reloading user:", err);
                   });
                 }
-              }} 
+              }}
               className="btn-refresh"
             >
               I've Verified My Email
