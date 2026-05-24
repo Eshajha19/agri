@@ -11,6 +11,7 @@ import logging
 import collections
 import threading
 import time
+import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, Tuple
 from contextlib import asynccontextmanager
@@ -1057,26 +1058,29 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     send_whatsapp_message(data.phone_number, welcome_msg)
     return {"success": True, "message": "Successfully subscribed"}
 
+_broadcast_rate_limit = {}
+
 @app.post("/api/whatsapp/trigger-alert")
-async def trigger_whatsapp_alert(data: AlertTriggerRequest):
-    # get_all() acquires the lock and returns a stable snapshot, so this read
-    # cannot race with a concurrent subscription write.
+async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
+    token_data = await verify_role(request, required_roles=["admin", "expert"])
+    uid = token_data["uid"]
+    now = time.time()
+    last = _broadcast_rate_limit.get(uid, 0)
+    if now - last < 60:
+        raise HTTPException(status_code=429, detail="Rate limited: 1 broadcast per 60 seconds")
+    _broadcast_rate_limit[uid] = now
+    loop = asyncio.get_event_loop()
     subscribers = subscriber_store.get_all()
-    results = []
     formatted_msg = format_alert_message(data.alert_type, data.message)
-
     for user_id, info in subscribers.items():
-        res = send_whatsapp_message(info["phone_number"], formatted_msg)
-        results.append({"user_id": user_id, "success": res.get("success", False)})
-
+        loop.run_in_executor(None, send_whatsapp_message, info["phone_number"], formatted_msg)
     static_notifications.append({
         "id": len(static_notifications) + 1,
         "type": data.alert_type,
         "message": data.message,
         "time": datetime.now().isoformat(),
     })
-
-    return {"success": True, "results": results}
+    return {"success": True, "message": "Alert broadcast queued"}
 
 @app.post("/api/whatsapp/webhook")
 async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
