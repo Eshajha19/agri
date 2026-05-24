@@ -1007,6 +1007,8 @@ _CORS_ORIGINS: list[str] = [
     "http://127.0.0.1:5173",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "https://fasal-saathi.xyz/",
+    "https://fasal-saathi.vercel.app"
 ]
 
 _frontend_url = os.getenv("FRONTEND_URL", "").strip()
