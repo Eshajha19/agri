@@ -176,3 +176,131 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* CropDiseaseAwareness.css */
+
+.disease-awareness-container {
+  padding: 40px 20px;
+  background: #f4fff4;
+  min-height: 100vh;
+  font-family: "Poppins", sans-serif;
+}
+
+.disease-header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.disease-header h1 {
+  font-size: 2.7rem;
+  color: #1b5e20;
+  margin-bottom: 10px;
+}
+
+.disease-header p {
+  max-width: 800px;
+  margin: auto;
+  color: #555;
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.disease-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 25px;
+}
+
+.disease-card {
+  background: white;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+  transition: 0.3s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.disease-card:hover {
+  transform: translateY(-8px);
+}
+
+.disease-image-placeholder {
+  font-size: 4rem;
+  background: linear-gradient(135deg, #43a047, #66bb6a);
+  color: white;
+  text-align: center;
+  padding: 25px;
+}
+
+.disease-content {
+  padding: 20px;
+  flex: 1;
+}
+
+.crop-tag {
+  background: #e8f5e9;
+  color: #2e7d32;
+  padding: 6px 14px;
+  border-radius: 50px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.disease-title {
+  margin: 15px 0;
+  color: #1b5e20;
+  font-size: 1.5rem;
+}
+
+.disease-section {
+  margin-bottom: 18px;
+}
+
+.disease-section h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #2e7d32;
+  margin-bottom: 8px;
+  font-size: 1rem;
+}
+
+.disease-section p {
+  color: #555;
+  line-height: 1.7;
+  font-size: 0.95rem;
+}
+
+.disease-footer {
+  padding: 20px;
+  background: #f9fff9;
+  border-top: 1px solid #e0f2e9;
+}
+
+.remedy-badge {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  color: #2e7d32;
+}
+
+.remedy-badge p {
+  color: #444;
+  line-height: 1.6;
+  font-size: 0.92rem;
+}
+
+@media (max-width: 768px) {
+  .disease-header h1 {
+    font-size: 2rem;
+  }
+
+  .disease-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .disease-card {
+    border-radius: 16px;
+  }
+}
