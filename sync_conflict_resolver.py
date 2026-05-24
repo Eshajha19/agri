@@ -111,9 +111,9 @@ class DocumentVersion:
         self.checksum = checksum or self._calculate_checksum()
     
     def _calculate_checksum(self) -> str:
-        """Calculate MD5 checksum of data"""
+        """Calculate SHA-256 checksum of data (FIPS-compliant)"""
         data_str = json.dumps(self.data, sort_keys=True, default=str)
-        return hashlib.md5(data_str.encode()).hexdigest()
+        return hashlib.sha256(data_str.encode()).hexdigest()
     
     def to_dict(self) -> Dict:
         """Convert to dictionary"""
@@ -158,11 +158,16 @@ class ConflictDetector:
         # Same checksum = no conflict
         if local_version.checksum == server_version.checksum:
             return False
-        
+
+        # Equal vectors with different checksums = divergence without clock
+        # advancement → treat as conflict to avoid silent overwrite.
+        if local_version.version_vector.vector == server_version.version_vector.vector:
+            return True
+
         # Check if versions are concurrent
         if local_version.version_vector.concurrent_with(server_version.version_vector):
             return True
-        
+
         # Sequential updates (not concurrent) = no conflict
         return False
     

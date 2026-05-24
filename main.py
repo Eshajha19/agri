@@ -10,9 +10,8 @@ import joblib
 import hashlib
 import collections
 import threading
-import itertools
-import pandas as pd
-import numpy as np
+import time
+import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
@@ -65,12 +64,14 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from backend.routers import (
+    advisory,
     alerts,
     blockchain,
     community,
     finance,
     governance,
     knowledge,
+    lms,
     marketplace,
     ml,
     platform,
@@ -95,7 +96,13 @@ from whatsapp_store import subscriber_store
 from error_recovery_middleware import ErrorRecoveryMiddleware
 from realtime_notifications import notification_broker
 from rbac_audit import audit_rbac_event, rbac_audit_trail, validate_required_roles
-from rbac import RBACMiddleware, print_rbac_matrix
+from rbac import RBACMiddleware, print_rbac_matrix, RBACManager, Permission
+from persistence.repositories import (
+    FinanceApplicationRepository,
+    NotificationRepository,
+    SupplyChainRepository,
+)
+from weather_alerts import weather_service
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -111,6 +118,10 @@ try:
     HAS_GCP_KMS = True
 except ImportError:
     HAS_GCP_KMS = False
+
+# Logger must be configured before lifespan so startup log calls work.
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -130,17 +141,104 @@ async def lifespan(app: FastAPI):
     ensuring ``ModelRegistry`` is populated in every process before the
     first request is served.
     """
+    logger.info("Starting up: initializing services")
     init_ml_pipeline()
     await notification_broker.start()
+
+    # Domain engines — initialized exactly once here at startup.
+    drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
+    shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
+    version_manager = ModelVersionManager(versions_dir="./model_versions")
+
+    _finance_repository = FinanceApplicationRepository()
+    _notification_repository = NotificationRepository()  # noqa: F841 — kept for symmetry / future use
+    _supply_chain_repository = SupplyChainRepository()
+    _farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
+    _supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
+    _crop_quality_grader = CropQualityGrader()
+    logger.info("Domain engines initialized with persistent repositories")
+
+    # Router init hooks — run after engines are ready.
+    governance.init_governance(drift_detector, shadow_evaluator, version_manager)
+    finance.init_finance(_farm_finance_ai, RBACManager, Permission)
+    quality.init_quality(_crop_quality_grader, RBACManager, Permission)
+    blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
+    referrals.init_referrals(lambda: db_firestore)
+    reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
+    marketplace.init_marketplace(verify_role)
+    lms.init_lms(verify_role, db_firestore)
+    advisory.init_advisory(verify_role)
+
+    # Backfill Firebase custom-claim 'role' for all existing users so that
+    # Firestore security rules (request.auth.token.role) are consistent with
+    # the Firestore users/{uid}.role field from day one.
+    # Runs in a thread-pool executor so it doesn't block the event loop.
+    # Safe to run on every startup — idempotent.
+    if db_firestore:
+        try:
+            from role_sync import backfill_role_claims
+            import asyncio as _asyncio
+            loop = _asyncio.get_event_loop()
+            await loop.run_in_executor(None, backfill_role_claims, db_firestore)
+        except Exception as _exc:
+            logger.warning("Role-claim backfill skipped: %s", _exc)
+
+    rag_generate_fn = None
+    try:
+        from rag.generator import generate_response as rag_generate_fn
+    except Exception as exc:
+        logger.warning("RAG init skipped: %s", exc)
+
+    knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
+    alerts.init_alerts([], subscriber_store, lambda **kwargs: [], send_whatsapp_message, format_alert_message, verify_role)
+    platform.init_platform(
+        verify_role,
+        get_signing_keys,
+        sanitise_log_field,
+        rag_generate_fn,
+        subscriber_store,
+        send_whatsapp_message,
+        format_alert_message,
+        weather_service,
+        RBACManager,
+        Permission,
+    )
+
+    if voice_assistant_router is not None:
+        try:
+            from voice_assistant import OfflineCacheManager, VoiceAssistant
+
+            voice_asst = VoiceAssistant(offline_mode=True)
+            cache_mgr = OfflineCacheManager(cache_dir="./voice_assistant_cache")
+            voice_assistant_router.init_voice_assistant(voice_asst, cache_mgr, verify_role)
+        except Exception as exc:
+            logger.warning("Voice assistant init skipped: %s", exc)
+
+    try:
+        import joblib as _joblib
+
+        model_lag = _joblib.load("sklearn_yield_model.joblib")
+    except Exception:
+        model_lag = None
+
+    model_trend = None
+    try:
+        if os.path.exists("trend_forecast_model.joblib"):
+            import joblib as _joblib2
+            model_trend = _joblib2.load("trend_forecast_model.joblib")
+            logger.info("Dedicated trend forecast model loaded")
+    except Exception:
+        model_trend = None
+
+    ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend)
+
     yield
-    # Shutdown: nothing to clean up for in-memory models.
+    # Shutdown
     await notification_broker.stop()
+    logger.info("Shutting down")
 
 
-app = FastAPI(lifespan=lifespan)
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
 
 
 # Initialize Limiter
@@ -171,9 +269,9 @@ if not firebase_admin._apps:
         # the path of a service-account key file.
         firebase_admin.initialize_app()
         db_firestore = firestore.client()
-        _firebase_logger.info("Firebase Admin: successfully initialized")
+        logger.info("Firebase Admin: successfully initialized")
     except Exception as e:
-        _firebase_logger.warning(
+        logger.warning(
             "Firebase Admin: could not initialize — role-gated endpoints will "
             "return 503 until Firestore is reachable. Reason: %s", e
         )
@@ -228,7 +326,7 @@ async def verify_role(request: Request, required_roles: list = None):
         raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
 
     try:
-        decoded_token = firebase_auth.verify_id_token(id_token)
+        decoded_token = auth.verify_id_token(id_token)
     except Exception:
         audit_rbac_event(
             request=request,
@@ -266,7 +364,7 @@ async def verify_role(request: Request, required_roles: list = None):
     try:
         user_doc = db_firestore.collection("users").document(uid).get()
     except Exception as e:
-        _firebase_logger.error(
+        logger.error(
             "Firestore fetch failed for uid=%s during role check: %s", uid, e
         )
         audit_rbac_event(
@@ -295,6 +393,7 @@ async def verify_role(request: Request, required_roles: list = None):
         )
         raise HTTPException(status_code=403, detail="User profile not found")
 
+    user_role = user_doc.to_dict().get("role", "farmer")
 
     if required_roles and user_role not in required_roles:
         audit_rbac_event(
@@ -503,7 +602,7 @@ def _normalize_dynamic_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, An
 def sanitise_log_field(value: str) -> str:
     if not isinstance(value, str):
         value = str(value)
-    sanitised = "".join(ch if ord(ch) >= 32 or ch in "\n\t" else f"\\x{ord(ch):02x}" for ch in value)
+    sanitised = "".join(ch if ord(ch) >= 32 or ch == "\t" else f"\\x{ord(ch):02x}" for ch in value)
     return sanitised[:1000]
 
 @app.get("/")
@@ -662,6 +761,8 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     send_whatsapp_message(data.phone_number, welcome_msg)
     return {"success": True, "message": "Successfully subscribed"}
 
+_broadcast_rate_limit = {}
+
 @app.post("/api/whatsapp/trigger-alert")
 @limiter.limit("10/minute")
 async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
@@ -682,9 +783,8 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     # get_all() acquires the lock and returns a stable snapshot, so this read
     # cannot race with a concurrent subscription write.
     subscribers = subscriber_store.get_all()
-    results = []
     formatted_msg = format_alert_message(data.alert_type, data.message)
-
+    results = []
     for user_id, info in subscribers.items():
         res = send_whatsapp_message(info["phone_number"], formatted_msg)
         results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})
@@ -784,7 +884,7 @@ def get_signing_keys():
 
     if project_id:
         if not HAS_GCP_KMS:
-            raise HTTPException(status_code=500, detail="KMS is required when GOOGLE_CLOUD_PROJECT is set")
+            raise RuntimeError("KMS is required when GOOGLE_CLOUD_PROJECT is set")
         client = secretmanager.SecretManagerServiceClient()
         name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
         response = client.access_secret_version(request={"name": name})
@@ -855,90 +955,6 @@ def init_ml_pipeline() -> None:
         logger.warning("ML Pipeline initialization failed: %s", exc)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    logger.info("Starting up: initializing services")
-    get_firestore_client()
-    init_ml_pipeline()
-
-    # Domain engines — initialized exactly once here at startup.
-    # Previously these lived at module scope, causing unnecessary re-construction
-    # on every import and overwriting any in-memory state on reload.
-    drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
-    shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
-    version_manager = ModelVersionManager(versions_dir="./model_versions")
-
-    _finance_repository = FinanceApplicationRepository()
-    _notification_repository = NotificationRepository()  # noqa: F841 — kept for symmetry / future use
-    _supply_chain_repository = SupplyChainRepository()
-    _farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
-    _supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
-    _crop_quality_grader = CropQualityGrader()
-    logger.info("Domain engines initialized with persistent repositories")
-
-    # Router init hooks — also moved here so they run after engines are ready.
-    governance.init_governance(drift_detector, shadow_evaluator, version_manager)
-    finance.init_finance(_farm_finance_ai, RBACManager, Permission)
-    quality.init_quality(_crop_quality_grader, RBACManager, Permission)
-    blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
-    referrals.init_referrals(validate_firestore_ready)
-    reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
-    marketplace.init_marketplace(verify_role)
-
-    rag_generate_fn = None
-    try:
-        from rag.generator import generate_response as rag_generate_fn
-    except Exception as exc:
-        logger.warning("RAG init skipped: %s", exc)
-
-    knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
-    alerts.init_alerts([], subscriber_store, lambda **kwargs: [], send_whatsapp_message, format_alert_message, verify_role)
-    platform.init_platform(
-        verify_role,
-        get_signing_keys,
-        sanitise_log_field,
-        rag_generate_fn,
-        subscriber_store,
-        send_whatsapp_message,
-        format_alert_message,
-        weather_service,
-        RBACManager,
-        Permission,
-    )
-
-    if voice_assistant_router is not None:
-        try:
-            from voice_assistant import OfflineCacheManager, VoiceAssistant
-
-            voice_asst = VoiceAssistant(offline_mode=True)
-            cache_mgr = OfflineCacheManager(cache_dir="./voice_assistant_cache")
-            voice_assistant_router.init_voice_assistant(voice_asst, cache_mgr, verify_role)
-        except Exception as exc:
-            logger.warning("Voice assistant init skipped: %s", exc)
-
-    try:
-        import joblib
-
-        model_lag = joblib.load("sklearn_yield_model.joblib")
-    except Exception:
-        model_lag = None
-
-    model_trend = None
-    try:
-        if os.path.exists("trend_forecast_model.joblib"):
-            model_trend = joblib.load("trend_forecast_model.joblib")
-            logger.info("Dedicated trend forecast model loaded")
-    except Exception:
-        model_trend = None
-
-    ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend)
-
-    yield
-    logger.info("Shutting down")
-
-
-app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
-
 # Observability setup
 try:
     from opentelemetry import trace
@@ -969,9 +985,8 @@ try:
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
 
-# Middleware and rate-limits
-limiter = Limiter(key_func=get_remote_address)
-app.state.limiter = limiter
+# Middleware and rate-limits — the limiter was already configured above;
+# only the exception handler alias from slowapi's public API is wired here.
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ---------------------------------------------------------------------------
@@ -990,9 +1005,9 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # ---------------------------------------------------------------------------
 _CORS_ORIGINS: list[str] = [
     "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "https://fasal-saathi.vercel.app",
+    "https://fasal-saathi.xyz/"
 ]
 
 _frontend_url = os.getenv("FRONTEND_URL", "").strip()
@@ -1019,12 +1034,139 @@ logger.info(print_rbac_matrix())
 # Import the voice assistant router at module level so app.include_router() can
 # reference it during router registration below. Its internal state is
 # initialized inside lifespan (above) once all domain engines are ready.
+# =============================================================================
+# OPTIONAL VOICE ASSISTANT ROUTER IMPORT
+# =============================================================================
+#
+# The voice assistant module is treated as an OPTIONAL feature.
+#
+# Why?
+#
+# In production systems some features may depend on:
+#
+# - extra ML libraries
+# - speech models
+# - external APIs
+# - GPU dependencies
+# - audio processing packages
+#
+# If any dependency is missing, importing the router could crash
+# the entire FastAPI application during startup.
+#
+# This defensive import pattern prevents total backend failure.
+#
+# -----------------------------------------------------------------------------
+# WHAT THIS CODE DOES
+# -----------------------------------------------------------------------------
+#
+# 1. Initializes the variable as None
+#
+#       voice_assistant_router = None
+#
+# This guarantees the variable always exists even if import fails.
+#
+# -----------------------------------------------------------------------------
+# 2. Attempts to import the optional router
+#
+#       from backend.routers import voice_assistant as voice_assistant_router
+#
+# If successful:
+#
+# - voice assistant APIs become available
+# - routes can later be registered safely
+#
+# -----------------------------------------------------------------------------
+# 3. Handles import failure gracefully
+#
+# If the import crashes because of:
+#
+# - missing package
+# - syntax error
+# - model loading failure
+# - missing environment variable
+# - incompatible dependency
+#
+# the backend DOES NOT crash.
+#
+# Instead:
+#
+#       logger.warning(...)
+#
+# records the issue in logs while allowing the rest
+# of the API system to continue working normally.
+#
+# -----------------------------------------------------------------------------
+# WHY THIS IS GOOD PRACTICE
+# -----------------------------------------------------------------------------
+#
+# Benefits:
+#
+# - improves backend reliability
+# - prevents startup crashes
+# - supports modular architecture
+# - allows optional AI features
+# - safer deployments
+# - easier debugging
+#
+# This pattern is commonly used in:
+#
+# - plugin systems
+# - AI microservices
+# - enterprise APIs
+# - feature-flag architectures
+#
+# -----------------------------------------------------------------------------
+# IMPORTANT NOTE
+# -----------------------------------------------------------------------------
+#
+# Because the router may remain None,
+# route registration MUST check:
+#
+#       if voice_assistant_router is not None:
+#
+# before calling:
+#
+#       app.include_router(...)
+#
+# Otherwise FastAPI may crash with:
+#
+#       AttributeError
+#
+# -----------------------------------------------------------------------------
+# EXAMPLE FLOW
+# -----------------------------------------------------------------------------
+#
+# SUCCESS CASE:
+#
+#   Import succeeds
+#   -> router loads
+#   -> APIs enabled
+#
+# FAILURE CASE:
+#
+#   Import fails
+#   -> warning logged
+#   -> backend still starts
+#   -> voice APIs disabled only
+#
+# -----------------------------------------------------------------------------
+# FINAL RESULT
+# -----------------------------------------------------------------------------
+#
+# This is a safe and production-friendly optional import pattern.
+#
+# =============================================================================
+
 voice_assistant_router = None
+
 try:
     from backend.routers import voice_assistant as voice_assistant_router
 
 except Exception as exc:
-    logger.warning("Voice assistant router import skipped: %s", exc)
+    logger.warning(
+        "Voice assistant router import skipped: %s",
+        exc
+    )
 
 # Router registration
 app.include_router(ml.router, prefix="/api/yield", tags=["ML Prediction"])
@@ -1041,13 +1183,10 @@ if voice_assistant_router is not None:
     app.include_router(voice_assistant_router.router, prefix="/api/voice", tags=["Voice Assistant"])
 app.include_router(referrals.router, prefix="/api/referrals", tags=["Referrals"])
 app.include_router(platform.router, prefix="/api", tags=["Platform"])
+app.include_router(advisory.router, prefix="/api", tags=["Advisory"])
 app.include_router(alerts.router, prefix="/api/notifications", tags=["Alerts"])
 app.include_router(flags_router, prefix="/api/flags", tags=["Feature Flags"])
-
-
-@app.get("/")
-def health_check():
-    return {"status": "healthy", "service": "Fasal Saathi Backend", "version": "2.0"}
+app.include_router(lms.router, prefix="/api", tags=["LMS"])
 
 
 # --- Smart Farm Autopilot ---
@@ -1086,31 +1225,7 @@ async def generate_farm_plan(request: Request, data: SeasonPlanRequest):
         raise HTTPException(status_code=500, detail="Failed to generate farm plan")
 
 
-# Include ML Model Management Router
-try:
-    from routers.ml_models import router as ml_router
-    app.include_router(ml_router)
-    logger.info("ML Model Management API loaded successfully")
-except Exception as e:
-    logger.warning(f"Could not load ML Model Management API: {e}")
-
-# Include ML Model Management Router
-try:
-    from routers.ml_models import router as ml_router
-    app.include_router(ml_router)
-    logger.info("ML Model Management API loaded successfully")
-except Exception as e:
-    logger.warning(f"Could not load ML Model Management API: {e}")
-
-# Include ML Model Management Router
-try:
-    from routers.ml_models import router as ml_router
-    app.include_router(ml_router)
-    logger.info("ML Model Management API loaded successfully")
-except Exception as e:
-    logger.warning(f"Could not load ML Model Management API: {e}")
-
-# Include ML Model Management Router
+# Include ML Model Management Router (registered once)
 try:
     from routers.ml_models import router as ml_router
     app.include_router(ml_router)

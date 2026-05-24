@@ -67,7 +67,7 @@ async def assess_single_crop(request: Request, data: CropQualityGradingRequest):
     try:
         import base64
         image_bytes = base64.b64decode(data.image_base64)
-        result = crop_quality_grader.assess_crop_image(data.crop_type, image_bytes)
+        result = crop_quality_grader.assess_crop_image(image_bytes, data.crop_type)
         return {"success": True, "crop_type": data.crop_type, "assessment": result}
     except Exception as e:
         logger.error(f"Assessment error: {e}")
@@ -86,9 +86,20 @@ async def assess_batch_crops(request: Request, data: CropQualityBatchRequest):
         raise HTTPException(status_code=403, detail=str(e))
     try:
         import base64
-        image_bytes_list = [base64.b64decode(img) for img in data.images_base64]
-        results = crop_quality_grader.batch_grade_crops(data.crop_type, image_bytes_list)
+        image_bytes_list = []
+        for idx, img in enumerate(data.images_base64):
+            try:
+                image_bytes_list.append(base64.b64decode(img))
+            except Exception as decode_err:
+                logger.error(f"Batch decode error at index {idx}: {decode_err}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid base64 encoding at image index {idx}",
+                )
+        results = crop_quality_grader.batch_grade_crops(image_bytes_list, data.crop_type)
         return {"success": True, "crop_type": data.crop_type, "batch_results": results}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Batch error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -139,7 +150,7 @@ async def calculate_market_price(request: Request, data: CropQualityGradingReque
     try:
         import base64
         image_bytes = base64.b64decode(data.image_base64)
-        assessment = crop_quality_grader.assess_crop_image(data.crop_type, image_bytes)
+        assessment = crop_quality_grader.assess_crop_image(image_bytes, data.crop_type)
         return {"success": True, "crop_type": data.crop_type, "grade": getattr(assessment, 'grade', 'A'), "assessment": assessment}
     except Exception as e:
         logger.error(f"Price error: {e}")

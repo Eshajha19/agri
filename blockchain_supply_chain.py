@@ -121,6 +121,7 @@ class SupplyChainBlockchain:
         self.supply_chain_nodes: Dict[str, List[SupplyChainNode]] = {}
         self.smart_contracts: Dict[str, SmartContract] = {}
         self.verified_actors: Dict[str, Dict] = {}
+        self._trace_batches: Dict[str, Dict] = {}
         self._repository = repository
 
     # ------------- Utilities for atomicity -------------
@@ -131,6 +132,7 @@ class SupplyChainBlockchain:
             "products_copy": _copy.deepcopy(self.products),
             "supply_chain_nodes_copy": {k: list(v) for k, v in self.supply_chain_nodes.items()},
             "smart_contracts_copy": {k: v.status for k, v in self.smart_contracts.items()},
+            "trace_batches_copy": _copy.deepcopy(self._trace_batches),
         }
 
     def _rollback_to_snapshot(self, snap):
@@ -141,6 +143,7 @@ class SupplyChainBlockchain:
         for cid, status in snap["smart_contracts_copy"].items():
             if cid in self.smart_contracts:
                 self.smart_contracts[cid].status = status
+        self._trace_batches = _copy.deepcopy(snap["trace_batches_copy"])
 
     # ------------- Core operations -------------
     def register_actor(self, actor_id: str, name: str, actor_type: str, location: str) -> Dict:
