@@ -1004,8 +1004,6 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # ---------------------------------------------------------------------------
 _CORS_ORIGINS: list[str] = [
     "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:3000",
     "http://127.0.0.1:3000",
     "https://fasal-saathi.vercel.app",
     "https://fasal-saathi.xyz/"
