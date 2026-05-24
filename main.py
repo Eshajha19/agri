@@ -631,22 +631,14 @@ version_manager = ModelVersionManager(versions_dir="./model_versions")
 router = ModelRouter(default_model="xgboost")
 
 def init_ml_pipeline():
-    try:
-        # Register XGBoost Adapter
-        xgb_adapter = XGBoostAdapter()
-        model_path = "yield_model.joblib"
-        if os.path.exists(model_path):
-            xgb_adapter.load(model_path)
-            ModelRegistry.register("xgboost", xgb_adapter)
-            print("ML Pipeline: Registered XGBoost model.")
-        else:
-            print(f"ML Pipeline Warning: {model_path} not found.")
-            
-        # You can register other models here (e.g., LSTM) as they become available
-        # ModelRegistry.register("lstm", LSTMAdapter("lstm_model.h5"))
-        
-    except Exception as e:
-        print(f"ML Pipeline Error: {e}")
+    xgb_adapter = XGBoostAdapter()
+    model_path = "yield_model.joblib"
+    if os.path.exists(model_path):
+        xgb_adapter.load(model_path)
+        ModelRegistry.register("xgboost", xgb_adapter)
+        logger.info("ML Pipeline: Registered XGBoost model")
+    else:
+        logger.warning("ML Pipeline: %s not found — disabling XGBoost predictions", model_path)
 
 notification_store = NotificationStore()
 
