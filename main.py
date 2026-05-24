@@ -168,6 +168,7 @@ async def lifespan(app: FastAPI):
     reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
     marketplace.init_marketplace(verify_role)
     lms.init_lms(verify_role, db_firestore)
+    advisory.init_advisory(verify_role)
 
     # Backfill Firebase custom-claim 'role' for all existing users so that
     # Firestore security rules (request.auth.token.role) are consistent with
