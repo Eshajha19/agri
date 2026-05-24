@@ -1035,7 +1035,7 @@ def get_finance_marketplace():
 @app.post("/api/whatsapp/subscribe")
 @limiter.limit("2/minute")
 async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
-    user_id = data.user_id if data.user_id else str(datetime.now().timestamp())
+    user_id = data.user_id if data.user_id else os.urandom(16).hex()
     subscriber = {
         "phone_number": data.phone_number,
         "name": data.name,
