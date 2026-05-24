@@ -13,7 +13,7 @@ import {
   FaTrashAlt,
   FaUser,
 } from "react-icons/fa";
-import { deleteUser, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
+import { EmailAuthProvider, reauthenticateWithCredential, signOut } from "firebase/auth";
 import "./ProfileSetup.css";
 
 const DELETE_CONFIRMATION = "DELETE";
@@ -321,10 +321,9 @@ const ProfileSettings = ({ user, userData }) => {
       clearAccountBrowserData();
 
       try {
-        await deleteUser(currentUser);
-      } catch (deleteErr) {
-        console.warn("Firebase auth deletion failed after server cleanup:", deleteErr);
-        throw new Error("Your data was removed, but the auth account could not be deleted. Please sign out and retry.");
+        await signOut(auth);
+      } catch (signOutErr) {
+        console.warn("Firebase sign-out failed after account deletion:", signOutErr);
       }
 
       setDeleteSuccess("Your account has been permanently deleted.");
