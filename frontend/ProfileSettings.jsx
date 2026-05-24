@@ -38,33 +38,33 @@ const ACCOUNT_STORAGE_PREFIXES = [
 ];
 
 const LANGUAGE_OPTIONS = [
-  { value: "en", label: "ðŸŒ English" },
-  { value: "hi", label: "ðŸ‡®ðŸ‡³ à¤¹à¤¿à¤‚à¤¦à¥€" },
-  { value: "mr", label: "ðŸ‡®ðŸ‡³ à¤®à¤°à¤¾à¤ à¥€" },
-  { value: "bn", label: "ðŸ‡®ðŸ‡³ à¦¬à¦¾à¦‚à¦²à¦¾" },
-  { value: "ta", label: "ðŸ‡®ðŸ‡³ à®¤à®®à®¿à®´à¯" },
-  { value: "te", label: "ðŸ‡®ðŸ‡³ à°¤à±†à°²à±à°—à±" },
-  { value: "gu", label: "ðŸ‡®ðŸ‡³ àª—à«àªœàª°àª¾àª¤à«€" },
-  { value: "pa", label: "ðŸ‡®ðŸ‡³ à¨ªà©°à¨œà¨¾à¨¬à©€" },
-  { value: "kn", label: "ðŸ‡®ðŸ‡³ à²•à²¨à³à²¨à²¡" },
-  { value: "ml", label: "ðŸ‡®ðŸ‡³ à´®à´²à´¯à´¾à´³à´‚" },
-  { value: "or", label: "ðŸ‡®ðŸ‡³ à¬“à¬¡à¬¼à¬¿à¬†" },
-  { value: "as", label: "ðŸ‡®ðŸ‡³ à¦…à¦¸à¦®à§€à¦¯à¦¼à¦¾" },
+  { value: "en", label: "🌍 English" },
+  { value: "hi", label: "🇮🇳 हिंदी" },
+  { value: "mr", label: "🇮🇳 मराठी" },
+  { value: "bn", label: "🇮🇳 বাংলা" },
+  { value: "ta", label: "🇮🇳 தமிழ்" },
+  { value: "te", label: "🇮🇳 తెలుగు" },
+  { value: "gu", label: "🇮🇳 ગુજરાતી" },
+  { value: "pa", label: "🇮🇳 ਪੰਜਾਬੀ" },
+  { value: "kn", label: "🇮🇳 ಕನ್ನಡ" },
+  { value: "ml", label: "🇮🇳 മലയാളം" },
+  { value: "or", label: "🇮🇳 ଓଡ଼ିଆ" },
+  { value: "as", label: "🇮🇳 অসমীয়া" },
 ];
 
 const CROP_OPTIONS = [
-  { value: "rice", label: "ðŸŒ¾ Rice" },
-  { value: "wheat", label: "ðŸŒ¾ Wheat" },
-  { value: "cotton", label: "ðŸŒ¿ Cotton" },
-  { value: "sugarcane", label: "ðŸŽ‹ Sugarcane" },
-  { value: "maize", label: "ðŸŒ½ Maize" },
-  { value: "soybean", label: "ðŸ«˜ Soybean" },
-  { value: "potato", label: "ðŸ¥” Potato" },
-  { value: "onion", label: "ðŸ§… Onion" },
-  { value: "tomato", label: "ðŸ… Tomato" },
-  { value: "vegetables", label: "ðŸ¥¬ Vegetables" },
-  { value: "fruits", label: "ðŸŽ Fruits" },
-  { value: "other", label: "ðŸŒ± Other" },
+  { value: "rice", label: "🌾 Rice" },
+  { value: "wheat", label: "🌾 Wheat" },
+  { value: "cotton", label: "🌿 Cotton" },
+  { value: "sugarcane", label: "🎋 Sugarcane" },
+  { value: "maize", label: "🌽 Maize" },
+  { value: "soybean", label: "🫘 Soybean" },
+  { value: "potato", label: "🥔 Potato" },
+  { value: "onion", label: "🧅 Onion" },
+  { value: "tomato", label: "🍅 Tomato" },
+  { value: "vegetables", label: "🥬 Vegetables" },
+  { value: "fruits", label: "🍎 Fruits" },
+  { value: "other", label: "🌱 Other" },
 ];
 
 const SOIL_OPTIONS = [
@@ -421,12 +421,12 @@ const ProfileSettings = ({ user, userData }) => {
             <div className={`loc-box ${address ? 'success' : locLoading ? 'pending' : ''}`}>
               {locLoading ? (
                 <>
-                  <span className="loc-status">ðŸ“ Getting your location...</span>
+                  <span className="loc-status">📍 Getting your location...</span>
                   <div className="small-spinner"></div>
                 </>
               ) : address ? (
                 <>
-                  <span className="loc-status">âœ… {address}</span>
+                  <span className="loc-status">✅ {address}</span>
                   <button type="button" onClick={requestLocation} className="loc-btn">
                     Update
                   </button>
@@ -458,7 +458,7 @@ const ProfileSettings = ({ user, userData }) => {
           <div className="setup-group">
             <label><FaSeedling /> Preferred Crops</label>
             <div className="setup-input-wrapper">
-              <span className="setup-icon">ðŸŒ±</span>
+              <span className="setup-icon">🌱</span>
               <select
                 multiple
                 value={preferredCrops}
@@ -488,7 +488,7 @@ const ProfileSettings = ({ user, userData }) => {
           <div className="setup-group">
             <label>Soil Type</label>
             <div className="setup-input-wrapper">
-              <span className="setup-icon">ðŸ§ª</span>
+              <span className="setup-icon">🧪</span>
               <select value={soilType} onChange={(e) => setSoilType(e.target.value)} required>
                 <option value="">Choose your soil type</option>
                 {SOIL_OPTIONS.map((soil) => (
@@ -501,7 +501,7 @@ const ProfileSettings = ({ user, userData }) => {
           <div className="setup-group">
             <label>Farm Size</label>
             <div className="setup-input-wrapper">
-              <span className="setup-icon">ðŸ“</span>
+              <span className="setup-icon">📏</span>
               <input
                 type="text"
                 placeholder="e.g. 2.5 acres / 1.0 hectare"
@@ -515,7 +515,7 @@ const ProfileSettings = ({ user, userData }) => {
           <div className="setup-group">
             <label>Irrigation Method</label>
             <div className="setup-input-wrapper">
-              <span className="setup-icon">ðŸ’§</span>
+              <span className="setup-icon">💧</span>
               <select value={irrigationMethod} onChange={(e) => setIrrigationMethod(e.target.value)} required>
                 <option value="">Choose irrigation method</option>
                 {IRRIGATION_OPTIONS.map((method) => (
@@ -545,7 +545,7 @@ const ProfileSettings = ({ user, userData }) => {
           <div className="setup-group">
             <label><FaMapMarkerAlt /> Phone Number (for WhatsApp Alerts)</label>
             <div className="setup-input-wrapper">
-              <span className="setup-icon" style={{ fontSize: '1.2rem' }}>ðŸ“±</span>
+              <span className="setup-icon" style={{ fontSize: '1.2rem' }}>📱</span>
               <input
                 type="tel"
                 placeholder="e.g. +91 98765 43210"
