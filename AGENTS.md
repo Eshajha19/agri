@@ -52,9 +52,3 @@ Run `npm run lint` in the frontend directory to check code quality.
 - **Issue**: Consultation override logic used `token_data.get("role")` but `verify_role()` returns `{"roles": [...]}` (list under `"roles"` key). `"role"` always returned `None`, so `None not in ("admin", "expert")` was always `True`, making admins/experts unable to override consultation ownership.
 - **Fix**: Migrated from Firestore `get()` role checks to Firebase custom claims (`bba24af`). The `roles` list is now correctly queried instead of the non-existent `role` key.
 - **Impact**: Admins and experts can now properly override consultation ownership as intended.
-
-### CORS Wildcard Origin with Credentials Violates Spec
-- **File**: `main.py`
-- **Issue**: `allow_origins=["*"]` combined with `allow_credentials=True` violated the CORS specification — browsers reject credentialed requests with wildcard origins, breaking authenticated cross-origin calls while leaving non-credentialed requests open to any origin.
-- **Fix**: Replaced `["*"]` with an explicit allowlist built from localhost dev origins, `FRONTEND_URL` env var (production), and `ADDITIONAL_ALLOWED_ORIGINS` env var (staging/preview). The allowlist is constructed at startup before the middleware is added.
-- **Impact**: Credentialed cross-origin requests now work correctly with known origins, and arbitrary origins can no longer make API requests.
