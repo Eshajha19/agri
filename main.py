@@ -1007,6 +1007,8 @@ _CORS_ORIGINS: list[str] = [
     "http://127.0.0.1:5173",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "https://fasal-saathi.vercel.app",
+    "https://fasal-saathi.xyz/"
 ]
 
 _frontend_url = os.getenv("FRONTEND_URL", "").strip()
@@ -1033,12 +1035,139 @@ logger.info(print_rbac_matrix())
 # Import the voice assistant router at module level so app.include_router() can
 # reference it during router registration below. Its internal state is
 # initialized inside lifespan (above) once all domain engines are ready.
+# =============================================================================
+# OPTIONAL VOICE ASSISTANT ROUTER IMPORT
+# =============================================================================
+#
+# The voice assistant module is treated as an OPTIONAL feature.
+#
+# Why?
+#
+# In production systems some features may depend on:
+#
+# - extra ML libraries
+# - speech models
+# - external APIs
+# - GPU dependencies
+# - audio processing packages
+#
+# If any dependency is missing, importing the router could crash
+# the entire FastAPI application during startup.
+#
+# This defensive import pattern prevents total backend failure.
+#
+# -----------------------------------------------------------------------------
+# WHAT THIS CODE DOES
+# -----------------------------------------------------------------------------
+#
+# 1. Initializes the variable as None
+#
+#       voice_assistant_router = None
+#
+# This guarantees the variable always exists even if import fails.
+#
+# -----------------------------------------------------------------------------
+# 2. Attempts to import the optional router
+#
+#       from backend.routers import voice_assistant as voice_assistant_router
+#
+# If successful:
+#
+# - voice assistant APIs become available
+# - routes can later be registered safely
+#
+# -----------------------------------------------------------------------------
+# 3. Handles import failure gracefully
+#
+# If the import crashes because of:
+#
+# - missing package
+# - syntax error
+# - model loading failure
+# - missing environment variable
+# - incompatible dependency
+#
+# the backend DOES NOT crash.
+#
+# Instead:
+#
+#       logger.warning(...)
+#
+# records the issue in logs while allowing the rest
+# of the API system to continue working normally.
+#
+# -----------------------------------------------------------------------------
+# WHY THIS IS GOOD PRACTICE
+# -----------------------------------------------------------------------------
+#
+# Benefits:
+#
+# - improves backend reliability
+# - prevents startup crashes
+# - supports modular architecture
+# - allows optional AI features
+# - safer deployments
+# - easier debugging
+#
+# This pattern is commonly used in:
+#
+# - plugin systems
+# - AI microservices
+# - enterprise APIs
+# - feature-flag architectures
+#
+# -----------------------------------------------------------------------------
+# IMPORTANT NOTE
+# -----------------------------------------------------------------------------
+#
+# Because the router may remain None,
+# route registration MUST check:
+#
+#       if voice_assistant_router is not None:
+#
+# before calling:
+#
+#       app.include_router(...)
+#
+# Otherwise FastAPI may crash with:
+#
+#       AttributeError
+#
+# -----------------------------------------------------------------------------
+# EXAMPLE FLOW
+# -----------------------------------------------------------------------------
+#
+# SUCCESS CASE:
+#
+#   Import succeeds
+#   -> router loads
+#   -> APIs enabled
+#
+# FAILURE CASE:
+#
+#   Import fails
+#   -> warning logged
+#   -> backend still starts
+#   -> voice APIs disabled only
+#
+# -----------------------------------------------------------------------------
+# FINAL RESULT
+# -----------------------------------------------------------------------------
+#
+# This is a safe and production-friendly optional import pattern.
+#
+# =============================================================================
+
 voice_assistant_router = None
+
 try:
     from backend.routers import voice_assistant as voice_assistant_router
 
 except Exception as exc:
-    logger.warning("Voice assistant router import skipped: %s", exc)
+    logger.warning(
+        "Voice assistant router import skipped: %s",
+        exc
+    )
 
 # Router registration
 app.include_router(ml.router, prefix="/api/yield", tags=["ML Prediction"])
