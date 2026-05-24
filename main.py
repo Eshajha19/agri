@@ -452,8 +452,27 @@ class YieldInput(BaseModel):
     data: list[float]
 
 
+_ALLOWED_PREDICTION_FIELDS = frozenset({
+    "Crop", "CropCoveredArea", "CHeight", "CNext", "CLast", "CTransp",
+    "IrriType", "IrriSource", "IrriCount", "WaterCov", "Season",
+    "N", "P", "K", "ph", "pH", "temperature", "rainfall", "humidity",
+})
+
+
 def _coerce_prediction_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
     sanitized = dict(input_data)
+
+    # Defense-in-depth: reject any field not in the allowlist.
+    # PredictRequest already uses extra="forbid" at the schema level, but
+    # this check protects other code paths that may call this function.
+    extra = [k for k in sanitized if k not in _ALLOWED_PREDICTION_FIELDS]
+    if extra:
+        logger.warning("Rejecting unknown prediction fields: %s", extra)
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown field(s): {', '.join(sorted(extra))}",
+        )
+
     numeric_fields = {
         "N",
         "P",
