@@ -34,7 +34,6 @@ class FinanceApplication:
     created_at: str
     assessment_score: float
     risk_level: str
-    owner_uid: str = ""
     required_documents: List[str] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
     # owner_uid ties the application to the Firebase UID of the farmer who
@@ -234,7 +233,6 @@ class FarmFinanceAI:
             created_at=datetime.now().isoformat(),
             assessment_score=analysis["financial_health_score"],
             risk_level=analysis["risk_level"],
-            owner_uid=owner_uid,
             required_documents=analysis["required_documents"],
             notes=analysis["action_plan"],
             owner_uid=owner_uid,
@@ -257,7 +255,6 @@ class FarmFinanceAI:
                     "owner_uid": application.owner_uid,
                     "required_documents": application.required_documents,
                     "notes": application.notes,
-                    "owner_uid": application.owner_uid,
                 }
                 self.repository.create(app_dict)
                 logger.info("Application %s persisted to repository.", application_id)
