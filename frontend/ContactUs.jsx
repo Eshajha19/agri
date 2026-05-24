@@ -25,7 +25,6 @@ const FAQ_ITEMS = [
   {
     q: (
       <span>
-        Is <span className="notranslate" translate="no">Fasal Saathi</span> available in my language?
         Is{" "}
         <span className="notranslate" translate="no">
           Fasal Saathi
@@ -42,7 +41,6 @@ const FAQ_ITEMS = [
   {
     q: (
       <span>
-        Can I use <span className="notranslate" translate="no">Fasal Saathi</span> offline?
         Can I use{" "}
         <span className="notranslate" translate="no">
           Fasal Saathi
@@ -205,108 +203,11 @@ export default function ContactUs() {
       <div className="contact-blob contact-blob-1" />
       <div className="contact-blob contact-blob-2" />
 
-      {/* HERO */}
       {/* ─── HERO ─── */}
       <div className="contact-hero">
         <div className="contact-hero-badge">
           <FaLeaf />
           Get In Touch
-        </div>
-
-        <h1>
-          We're Here to
-          <br />
-          <span className="hero-highlight">Help You Grow</span>
-        </h1>
-
-        <p>
-          Have a question, suggestion, or need support? The{" "}
-          <span className="notranslate" translate="no">
-            Fasal Saathi
-          </span>{" "}
-          team is just a message away.
-        </p>
-
-        <div className="hero-quick-links">
-          <a
-            href="mailto:contact@fasalsaathi.com"
-            className="hero-quick-btn"
-          >
-            <FaEnvelope />
-            Email Us
-          </a>
-
-          <a
-            href="https://wa.me/919999999999"
-            className="hero-quick-btn whatsapp"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <FaWhatsapp />
-            WhatsApp
-          </a>
-        </div>
-      </div>
-
-      <div className="contact-container">
-
-        {/* FAQ SECTION */}
-        <div className="contact-faq">
-          <div className="faq-header">
-            <div>
-              <h2>Frequently Asked Questions</h2>
-
-              <p className="faq-subtitle">
-                Quick answers to common questions about{" "}
-                <span className="notranslate" translate="no">
-                  Fasal Saathi
-                </span>
-                .
-              </p>
-            </div>
-
-            <div className="faq-badge">
-              {FAQ_ITEMS.length} Questions
-            </div>
-          </div>
-
-          <div className="faq-list">
-            {FAQ_ITEMS.map((item, i) => (
-              <div
-                key={i}
-                className={`faq-item ${openFaq === i ? "open" : ""}`}
-              >
-                {/* FULL CLICKABLE BUTTON */}
-                <button
-                  type="button"
-                  className="faq-question"
-                  onClick={() => toggleFaq(i)}
-                  aria-expanded={openFaq === i}
-                >
-                  <span className="faq-num">
-                    {String(i + 1).padStart(2, "0")}
-                  </span>
-
-                  <span className="faq-title">
-                    {item.q}
-                  </span>
-
-                  {/* FIXED ICON */}
-                  <span className="faq-chevron">
-                    {openFaq === i ? "−" : "+"}
-                  </span>
-                </button>
-
-                {/* EXPANDABLE CONTENT */}
-                <div
-                  className={`faq-answer-wrap ${
-                    openFaq === i ? "show" : ""
-                  }`}
-                >
-                  <div className="faq-answer">
-                    {item.a}
-                  </div>
-                </div>
         </div>
 
         <h1>
