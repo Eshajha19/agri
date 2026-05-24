@@ -1486,6 +1486,80 @@ async def simulate_climate(request: Request, data: SimulationRequest):
         "recommendation": "Switch to heat-tolerant varieties" if data.temp_delta > 2 else "Ensure adequate irrigation" if data.rain_delta < -20 else "Conditions remain viable"
     }
 
+# ── Trusted seed batch registry ──────────────────────────────────────────
+# In a production deployment this would be loaded from Firestore or a
+# SQL database.  The structure is kept identical so swapping the data
+# source requires only changing the lookup call, not the validation logic.
+SEED_REGISTRY: dict[str, dict] = {
+    # ── Authentic batches ────────────────────────────────────────────────
+    "FS-RICE-2026-A1": {
+        "status": "authentic",
+        "crop": "Rice (IR-64)",
+        "batch": "2026-A1",
+        "manufacturer": "National Seeds Corporation (NSC)",
+        "cert_body": "Central Seed Certification Board (CSCB)",
+        "certified_on": "2025-10-01",
+        "expires_on": "2027-03-31",
+    },
+    "FS-WHEAT-2026-W2": {
+        "status": "authentic",
+        "crop": "Wheat (HD-2967)",
+        "batch": "2026-W2",
+        "manufacturer": "Punjab Agro Industries Corporation",
+        "cert_body": "State Seed Certification Agency, Punjab",
+        "certified_on": "2025-11-15",
+        "expires_on": "2027-05-31",
+    },
+    "FS-COTTON-2026-C3": {
+        "status": "authentic",
+        "crop": "Cotton (Bt Hybrid)",
+        "batch": "2026-C3",
+        "manufacturer": "Maharashtra State Seeds Corporation",
+        "cert_body": "Central Seed Certification Board (CSCB)",
+        "certified_on": "2026-01-10",
+        "expires_on": "2027-06-30",
+    },
+    "FS-MAIZE-2026-M4": {
+        "status": "authentic",
+        "crop": "Maize (DKC-9144)",
+        "batch": "2026-M4",
+        "manufacturer": "ICAR-Indian Institute of Maize Research",
+        "cert_body": "Central Seed Certification Board (CSCB)",
+        "certified_on": "2026-02-20",
+        "expires_on": "2027-08-31",
+    },
+    "FS-SOYBEAN-2026-S5": {
+        "status": "authentic",
+        "crop": "Soybean (JS-335)",
+        "batch": "2026-S5",
+        "manufacturer": "Madhya Pradesh State Seeds Corporation",
+        "cert_body": "State Seed Certification Agency, MP",
+        "certified_on": "2026-03-05",
+        "expires_on": "2027-09-30",
+    },
+    # ── Blacklisted / counterfeit batches ────────────────────────────────
+    "FS-FAKE-2026-X9": {
+        "status": "invalid",
+        "crop": "Unknown",
+        "batch": "2026-X9",
+        "manufacturer": "Unknown",
+        "cert_body": "N/A",
+        "certified_on": "N/A",
+        "expires_on": "N/A",
+        "reason": "Blacklisted — reported counterfeit batch",
+    },
+    "FS-RICE-2024-OLD": {
+        "status": "invalid",
+        "crop": "Rice (IR-64)",
+        "batch": "2024-OLD",
+        "manufacturer": "National Seeds Corporation (NSC)",
+        "cert_body": "Central Seed Certification Board (CSCB)",
+        "certified_on": "2023-10-01",
+        "expires_on": "2025-03-31",   # already expired — also caught by expiry check
+        "reason": "Expired — shelf life exceeded as of 2025-03-31",
+    },
+}
+
 @app.post("/api/seeds/verify")
 @limiter.limit("10/minute")
 async def verify_seed(data: SeedVerifyRequest, request: Request):
@@ -1537,81 +1611,6 @@ async def verify_seed(data: SeedVerifyRequest, request: Request):
     This implementation uses exact dictionary lookup only — no substring
     or regex matching is performed on the submitted code.
     """
-
-    # ── Trusted seed batch registry ──────────────────────────────────────────
-    # In a production deployment this would be loaded from Firestore or a
-    # SQL database.  The structure is kept identical so swapping the data
-    # source requires only changing the lookup call, not the validation logic.
-    SEED_REGISTRY: dict[str, dict] = {
-        # ── Authentic batches ────────────────────────────────────────────────
-        "FS-RICE-2026-A1": {
-            "status": "authentic",
-            "crop": "Rice (IR-64)",
-            "batch": "2026-A1",
-            "manufacturer": "National Seeds Corporation (NSC)",
-            "cert_body": "Central Seed Certification Board (CSCB)",
-            "certified_on": "2025-10-01",
-            "expires_on": "2027-03-31",
-        },
-        "FS-WHEAT-2026-W2": {
-            "status": "authentic",
-            "crop": "Wheat (HD-2967)",
-            "batch": "2026-W2",
-            "manufacturer": "Punjab Agro Industries Corporation",
-            "cert_body": "State Seed Certification Agency, Punjab",
-            "certified_on": "2025-11-15",
-            "expires_on": "2027-05-31",
-        },
-        "FS-COTTON-2026-C3": {
-            "status": "authentic",
-            "crop": "Cotton (Bt Hybrid)",
-            "batch": "2026-C3",
-            "manufacturer": "Maharashtra State Seeds Corporation",
-            "cert_body": "Central Seed Certification Board (CSCB)",
-            "certified_on": "2026-01-10",
-            "expires_on": "2027-06-30",
-        },
-        "FS-MAIZE-2026-M4": {
-            "status": "authentic",
-            "crop": "Maize (DKC-9144)",
-            "batch": "2026-M4",
-            "manufacturer": "ICAR-Indian Institute of Maize Research",
-            "cert_body": "Central Seed Certification Board (CSCB)",
-            "certified_on": "2026-02-20",
-            "expires_on": "2027-08-31",
-        },
-        "FS-SOYBEAN-2026-S5": {
-            "status": "authentic",
-            "crop": "Soybean (JS-335)",
-            "batch": "2026-S5",
-            "manufacturer": "Madhya Pradesh State Seeds Corporation",
-            "cert_body": "State Seed Certification Agency, MP",
-            "certified_on": "2026-03-05",
-            "expires_on": "2027-09-30",
-        },
-        # ── Blacklisted / counterfeit batches ────────────────────────────────
-        "FS-FAKE-2026-X9": {
-            "status": "invalid",
-            "crop": "Unknown",
-            "batch": "2026-X9",
-            "manufacturer": "Unknown",
-            "cert_body": "N/A",
-            "certified_on": "N/A",
-            "expires_on": "N/A",
-            "reason": "Blacklisted — reported counterfeit batch",
-        },
-        "FS-RICE-2024-OLD": {
-            "status": "invalid",
-            "crop": "Rice (IR-64)",
-            "batch": "2024-OLD",
-            "manufacturer": "National Seeds Corporation (NSC)",
-            "cert_body": "Central Seed Certification Board (CSCB)",
-            "certified_on": "2023-10-01",
-            "expires_on": "2025-03-31",   # already expired — also caught by expiry check
-            "reason": "Expired — shelf life exceeded as of 2025-03-31",
-        },
-    }
-    # ─────────────────────────────────────────────────────────────────────────
 
     # Step 1 — normalise the submitted code.
     # Upper-case and strip whitespace so "fs-rice-2026-a1 " matches correctly.
