@@ -1,0 +1,183 @@
+"""
+Integration test for Sync Conflict Resolution System
+Tests full workflow from local change to server update with conflict handling
+"""
+
+import pytest
+from sync_conflict_resolver import (
+    SyncManager,
+    ConflictResolver,
+    ConflictResolutionStrategy,
+    DocumentVersion,
+    VersionVector
+)
+
+
+class TestIntegration:
+    """Integration tests for complete sync workflow"""
+    
+    def test_simple_sync_no_conflict(self):
+        """Test simple sync without conflict"""
+        manager = SyncManager()
+        
+        # User makes local change
+        manager.on_local_change("users/123", {"name": "John", "age": 30}, "client1")
+        
+        # Verify pending
+        pending = manager.get_pending_syncs()
+        assert len(pending) == 1
+        assert pending[0].data["name"] == "John"
+        
+        # Server accepts the change (echoes back)
+        data, has_conflict, conflicts = manager.on_server_update(
+            "users/123",
+            {"name": "John", "age": 30}
+        )
+        
+        assert not has_conflict
+        assert len(manager.get_pending_syncs()) == 0
+    
+    def test_concurrent_updates_with_conflict(self):
+        """Test concurrent updates causing conflict"""
+        manager = SyncManager()
+        
+        # Base version
+        base_data = {"name": "John", "age": 30, "email": "john@example.com"}
+        
+        # Local change: update name
+        local_data = {"name": "John Doe", "age": 30, "email": "john@example.com"}
+        manager.on_local_change("users/123", local_data, "client1")
+        
+        # Server change: update age (concurrent)
+        server_data = {"name": "John", "age": 31, "email": "john@example.com"}
+        data, has_conflict, conflicts = manager.on_server_update(
+            "users/123",
+            server_data
+        )
+        
+        # Conflict detected
+        assert has_conflict
+        assert "name" in conflicts or "age" in conflicts
+    
+    def test_non_overlapping_concurrent_changes(self):
+        """Test concurrent changes to different fields (should merge)"""
+        resolver = ConflictResolver(ConflictResolutionStrategy.MERGE)
+        
+        # Base version
+        base = DocumentVersion("users/123", {
+            "name": "John",
+            "age": 30,
+            "email": "john@example.com",
+            "city": "NYC"
+        }, "base")
+        
+        # Local: changed email
+        local = DocumentVersion("users/123", {
+            "name": "John",
+            "age": 30,
+            "email": "newemail@example.com",
+            "city": "NYC"
+        }, "client1")
+        
+        # Server: changed city
+        server = DocumentVersion("users/123", {
+            "name": "John",
+            "age": 30,
+            "email": "john@example.com",
+            "city": "LA"
+        }, "server")
+        
+        resolved, has_conflict, conflicts = resolver.resolve(local, server, base)
+        
+        # Both changes should be applied
+        assert resolved.data["email"] == "newemail@example.com"
+        assert resolved.data["city"] == "LA"
+        assert not has_conflict  # No conflict on different fields
+    
+    def test_conflict_resolution_strategies(self):
+        """Test different conflict resolution strategies"""
+        
+        base = DocumentVersion("doc1", {"value": "original"}, "base")
+        local = DocumentVersion("doc1", {"value": "local"}, "client1")
+        server = DocumentVersion("doc1", {"value": "server"}, "server")
+        
+        # Test LAST_WRITE_WINS
+        import time
+        time.sleep(0.01)
+        server_newer = DocumentVersion("doc1", {"value": "server"}, "server")
+        
+        resolver_lww = ConflictResolver(ConflictResolutionStrategy.LAST_WRITE_WINS)
+        resolved, _, _ = resolver_lww.resolve(local, server_newer, base)
+        assert resolved.data["value"] == "server"
+        
+        # Test SERVER_WINS
+        resolver_sw = ConflictResolver(ConflictResolutionStrategy.SERVER_WINS)
+        resolved, _, _ = resolver_sw.resolve(local, server, base)
+        assert resolved.data["value"] == "server"
+    
+    def test_conflict_log_tracking(self):
+        """Test conflict logging for audit trail"""
+        resolver = ConflictResolver()
+        
+        base = DocumentVersion("doc1", {"value": "original"}, "base")
+        local = DocumentVersion("doc1", {"value": "local"}, "client1")
+        server = DocumentVersion("doc1", {"value": "server"}, "server")
+        
+        local.version_vector.increment("client1")
+        server.version_vector.increment("server")
+        
+        resolver.resolve(local, server, base)
+        
+        log = resolver.get_conflict_log()
+        assert len(log) > 0
+        assert log[0]["doc_id"] == "doc1"
+        assert log[0]["local_client"] == "client1"
+    
+    def test_multi_document_sync(self):
+        """Test syncing multiple documents"""
+        manager = SyncManager()
+        
+        # Multiple local changes
+        manager.on_local_change("doc1", {"status": "active"}, "client1")
+        manager.on_local_change("doc2", {"status": "inactive"}, "client1")
+        manager.on_local_change("doc3", {"status": "pending"}, "client1")
+        
+        assert manager.sync_state.value == "syncing"
+        assert len(manager.get_pending_syncs()) == 3
+        
+        # Server accepts first two
+        manager.on_server_update("doc1", {"status": "active"})
+        manager.on_server_update("doc2", {"status": "inactive"})
+        
+        assert len(manager.get_pending_syncs()) == 1
+        
+        # Server accepts last one
+        manager.on_server_update("doc3", {"status": "pending"})
+        
+        assert len(manager.get_pending_syncs()) == 0
+        assert manager.sync_state.value == "synced"
+    
+    def test_version_vector_causality(self):
+        """Test version vector for causality tracking"""
+        
+        # Client 1 makes two updates
+        vv1 = VersionVector({"client1": 1})
+        vv2 = VersionVector({"client1": 2})
+        
+        # vv1 happened before vv2
+        assert vv1.happened_before(vv2)
+        
+        # Concurrent updates from different clients
+        vv3 = VersionVector({"client1": 1})
+        vv4 = VersionVector({"client2": 1})
+        
+        assert vv3.concurrent_with(vv4)
+        
+        # After merging
+        vv3.merge(vv4)
+        assert vv3.vector["client1"] == 1
+        assert vv3.vector["client2"] == 1
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

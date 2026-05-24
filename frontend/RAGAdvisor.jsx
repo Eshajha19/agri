@@ -173,7 +173,7 @@ const RAGAdvisor = ({ isOpen, onClose }) => {
 
         {/* Messages */}
         <div className="rag-messages">
-          {messages.map((msg, i) => <MessageBubble key={i} msg={msg} />)}
+          {messages.map((msg, i) => <MessageBubble key={`${msg.role}-${msg.text.slice(0, 50)}`} msg={msg} />)}
           {loading && (
             <div className="msg-bubble assistant loading-bubble">
               <Loader size={18} className="spin" />
