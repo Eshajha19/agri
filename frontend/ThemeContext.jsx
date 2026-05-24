@@ -3,14 +3,15 @@ import React, { createContext, useContext, useState, useEffect, useMemo } from '
 const ThemeContext = createContext();
 
 /**
- * ThemeProvider manages the application's visual theme (light/dark).
+ * ThemeProvider manages the application's visual theme (light/dark/night).
  * It centralizes theme state and ensures synchronization with the DOM and localStorage,
  * following React's state-driven lifecycle to avoid inconsistencies.
  */
 export const ThemeProvider = ({ children }) => {
   const [theme, setTheme] = useState(() => {
     try {
-      return localStorage.getItem('agri:theme') || 'light';
+      const storedTheme = localStorage.getItem('agri:theme');
+      return storedTheme === 'dark' || storedTheme === 'night' ? storedTheme : 'light';
     } catch {
       return 'light';
     }
@@ -19,14 +20,14 @@ export const ThemeProvider = ({ children }) => {
   // Centralized side-effect to sync React state with the DOM
   useEffect(() => {
     const root = document.documentElement;
-    if (theme === 'dark') {
-      root.classList.add('theme-dark');
-    } else {
-      root.classList.remove('theme-dark');
-    }
+    const isDarkTheme = theme !== 'light';
+
+    root.classList.toggle('theme-dark', isDarkTheme);
+    root.classList.toggle('theme-night', theme === 'night');
     
     // Also set data attribute for future-proofing and better selector performance
     root.setAttribute('data-theme', theme);
+    root.style.colorScheme = isDarkTheme ? 'dark' : 'light';
     
     try {
       localStorage.setItem('agri:theme', theme);
@@ -38,8 +39,9 @@ export const ThemeProvider = ({ children }) => {
   const value = useMemo(() => ({
     theme,
     setTheme,
-    toggleTheme: () => setTheme(prev => (prev === 'dark' ? 'light' : 'dark')),
-    isDark: theme === 'dark'
+    toggleTheme: () => setTheme(prev => (prev === 'light' ? 'dark' : prev === 'dark' ? 'night' : 'light')),
+    isDark: theme !== 'light',
+    isNight: theme === 'night'
   }), [theme]);
 
   return (
