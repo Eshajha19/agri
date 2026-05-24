@@ -236,7 +236,6 @@ const glossaryTerms = [
     category: "Sustainability",
     icon: <FaGlobeAmericas />
   }
-  }
 ];
 
 const Glossary = () => {
