@@ -124,9 +124,9 @@ const Community = () => {
       for (const id of authorIds) {
         if (!newAuthorsData[id]) {
           try {
-            const userDoc = await getDocs(query(collection(db, "users"), where("uid", "==", id)));
-            if (!userDoc.empty) {
-              newAuthorsData[id] = userDoc.docs[0].data();
+            const userDoc = await getDoc(doc(db, "users", id));
+            if (userDoc.exists()) {
+              newAuthorsData[id] = userDoc.data();
               changed = true;
             }
           } catch (err) {
