@@ -224,7 +224,18 @@ class WeatherAlertsService:
         """
         self.cache_duration = timedelta(seconds=cache_duration_seconds)
         self._weather_cache: Dict[str, tuple] = {}  # (data, timestamp)
+        self._max_cache_size = 1000
         self.alert_history: List[WeatherAlert] = []
+
+    def _evict_expired(self) -> None:
+        """Remove expired entries from the weather cache."""
+        now = datetime.now()
+        expired_keys = [
+            key for key, (_, ts) in self._weather_cache.items()
+            if now - ts >= self.cache_duration
+        ]
+        for key in expired_keys:
+            del self._weather_cache[key]
 
     async def get_coordinates(self, location: str) -> tuple:
         """
@@ -283,6 +294,7 @@ class WeatherAlertsService:
             cached_data, cached_time = self._weather_cache[cache_key]
             if datetime.now() - cached_time < self.cache_duration:
                 return cached_data
+            del self._weather_cache[cache_key]
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -317,6 +329,8 @@ class WeatherAlertsService:
                         
                         # Cache the result
                         self._weather_cache[cache_key] = (weather, datetime.now())
+                        if len(self._weather_cache) > self._max_cache_size:
+                            self._evict_expired()
                         return weather
         except asyncio.TimeoutError:
             logger.warning(f"Weather API timeout for {location}")

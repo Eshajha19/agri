@@ -16,9 +16,9 @@ import logging
 
 # Rate limiting — mirrors the setup used in main.py so both apps enforce
 # consistent per-IP throttles via the same slowapi library.
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
+from rate_limit_config import build_limiter, rate_limit_exceeded_handler
 
 # Import our validator
 from feedback_validation import FeedbackValidator
@@ -133,9 +133,9 @@ app = FastAPI(
 # slowapi uses the same key_func pattern as main.py (remote IP address).
 # The limiter is attached to app.state so the @limiter.limit() decorator
 # can resolve it at request time.
-limiter = Limiter(key_func=get_remote_address)
+limiter = build_limiter(default_limits=["120/minute"])
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Add CORS middleware
@@ -215,7 +215,8 @@ async def verify_admin(request: Request) -> dict:
 
 
 @app.get("/")
-async def root():
+@limiter.limit("60/minute")
+async def root(request: Request):
     """Health check endpoint"""
     return {
         "service": "Feedback API",
@@ -302,8 +303,35 @@ async def submit_feedback(
 
 @app.get("/api/feedback/stats", response_model=FeedbackStatsResponse)
 @limiter.limit("10/minute")
-async def get_feedback_stats(request: Request):
+async def get_feedback_stats(
+    request: Request,
+    admin_user: dict = Depends(verify_admin),
+):
     """Get feedback statistics (admin only)"""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing auth token")
+
+    try:
+        id_token = auth_header.split(" ")[1]
+        decoded = firebase_auth.verify_id_token(id_token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    uid = decoded["uid"]
+
+    try:
+        user_doc = db.collection("users").document(uid).get()
+    except Exception:
+        raise HTTPException(status_code=503, detail="Authorization service unavailable")
+
+    if not user_doc.exists:
+        raise HTTPException(status_code=403, detail="User profile not found")
+
+    user_role = user_doc.to_dict().get("role", "farmer")
+    if user_role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied: admin role required")
+
     try:
         feedback_ref = db.collection("feedback")
         docs = feedback_ref.limit(1000).stream()
