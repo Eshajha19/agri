@@ -10,9 +10,8 @@ import joblib
 import hashlib
 import collections
 import threading
-import itertools
-import pandas as pd
-import numpy as np
+import time
+import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
@@ -603,7 +602,7 @@ def _normalize_dynamic_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, An
 def sanitise_log_field(value: str) -> str:
     if not isinstance(value, str):
         value = str(value)
-    sanitised = "".join(ch if ord(ch) >= 32 or ch in "\n\t" else f"\\x{ord(ch):02x}" for ch in value)
+    sanitised = "".join(ch if ord(ch) >= 32 or ch == "\t" else f"\\x{ord(ch):02x}" for ch in value)
     return sanitised[:1000]
 
 @app.get("/")
@@ -785,6 +784,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     # cannot race with a concurrent subscription write.
     subscribers = subscriber_store.get_all()
     formatted_msg = format_alert_message(data.alert_type, data.message)
+    results = []
     for user_id, info in subscribers.items():
         res = send_whatsapp_message(info["phone_number"], formatted_msg)
         results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})
