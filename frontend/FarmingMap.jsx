@@ -50,7 +50,7 @@ const TILE_ATTR = {
 const QUERY_RADIUS_M = 10000; // 10km search radius
 
 // ── Component ─────────────────────────────────────────────────────────────────
-export default function FarmingMap() {
+function FarmingMapContent() {
   const mapContainer = useRef(null);
   const map          = useRef(null);
   const markersRef   = useRef({
@@ -712,5 +712,56 @@ export default function FarmingMap() {
         </div>
       )}
     </div>
+  );
+}
+
+// ── Error Boundary Wrapper ───────────────────────────────────────────────────
+class MapErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("Leaflet Map Error Boundary caught an error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="farming-map-container fm-fallback-container">
+          <div className="fm-error-fallback">
+            <FaExclamationTriangle className="fallback-error-icon" />
+            <h2>Interactive Map Unavailable</h2>
+            <p>
+              We encountered an issue loading or rendering the interactive farm map. This can happen due to 
+              network connectivity problems, invalid coordinates, or Leaflet library failures.
+            </p>
+            {this.state.error && (
+              <pre className="error-diagnostic-details">
+                {this.state.error.toString()}
+              </pre>
+            )}
+            <button className="btn-retry" onClick={() => this.setState({ hasError: false, error: null })}>
+              <FaSync /> Try Reloading Map
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+export default function FarmingMap(props) {
+  return (
+    <MapErrorBoundary>
+      <FarmingMapContent {...props} />
+    </MapErrorBoundary>
   );
 }

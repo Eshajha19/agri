@@ -206,3 +206,19 @@ def format_alert_message(alert_type: str, content: str) -> str:
         f"{content}\n\n"
         "_Stay safe and stay informed with Fasal Saathi._"
     )
+
+def process_webhook_message(body: str, sender_number: str) -> dict:
+    """
+    Process incoming WhatsApp webhook messages.
+    """
+    incoming_msg = body.lower().strip()
+    
+    responses = {
+        "weather": "🌡️ *Weather Update*\n\n28°C, Clear skies. No rain expected.",
+        "pest": "🐛 *Pest Assistant*\n\nPlease use the Pest Management tool in-app for diagnosis.",
+        "hi": "🙏 *Namaste!*\n\nI am your AI Farming Assistant. Try 'Weather' or 'Pest'.",
+        "hello": "🙏 *Namaste!*\n\nI am your AI Farming Assistant. Try 'Weather' or 'Pest'."
+    }
+    
+    response = next((v for k, v in responses.items() if k in incoming_msg), f"Received: '{body}'. Try 'Weather' or 'Pest' 🌱")
+    return send_whatsapp_message(sender_number, response)

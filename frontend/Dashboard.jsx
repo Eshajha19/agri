@@ -21,6 +21,11 @@ import {
   FaShieldAlt,
   FaFileInvoiceDollar,
   FaChartBar,
+  FaTrophy,
+  FaRobot,
+  FaRecycle,
+  FaUserPlus,
+  FaExclamationTriangle,
 } from "react-icons/fa";
 import "./Dashboard.css";
 import {
@@ -31,15 +36,29 @@ import { getHistoricalWeatherData } from "./weather/weatherService";
 import ErrorBoundary from "./ErrorBoundary";
 import apiClient from "./lib/apiClient";
 import { getBookmarks } from "./utils/bookmarkStorage";
+import AdvisoryPanel from "./AdvisoryPanel";
 
-export default function Dashboard() {
-  const name = localStorage.getItem("farmerName") || "Farmer";
-  const preferredLang = localStorage.getItem("preferredLanguage") || "en";
+const formatFarmArea = (value) => {
+  if (value === undefined || value === null || value === "") return "";
+
+  const areaText = String(value).trim();
+  if (/acres?|hectares?|ha\b/i.test(areaText)) return areaText;
+  if (/^\d+(?:\.\d+)?$/.test(areaText)) return `${areaText} Acres`;
+  return areaText;
+};
+
+export default function Dashboard({ userData }) {
+  const name = userData?.displayName || "Farmer";
+  const preferredLang = userData?.language || "en";
+  const normalizedFarmArea = formatFarmArea(userData?.farmArea || userData?.farmSize);
+  const normalizedIrrigation = userData?.irrigationType || userData?.irrigationMethod || "";
+  const nextHarvestValue = userData?.nextHarvest || userData?.harvestDate || userData?.expectedHarvest || (userData?.season ? `${userData.season} season` : "Plan with Crop Planner");
+  const yieldScoreValue = userData?.yieldScore ?? userData?.yieldPredictionScore ?? userData?.estimatedYieldScore ?? (userData?.cropType ? "Use Yield Predictor" : "—");
 
   const [currentTime, setCurrentTime] = useState(new Date());
   const [historicalWeather, setHistoricalWeather] = useState([]);
-  const [phoneNumber, setPhoneNumber] = useState(localStorage.getItem("farmerPhone") || "");
-  const [whatsappAlerts, setWhatsappAlerts] = useState(localStorage.getItem("whatsappAlerts") === "true");
+  const [phoneNumber, setPhoneNumber] = useState(userData?.phoneNumber || "");
+  const [whatsappAlerts, setWhatsappAlerts] = useState(!!userData?.whatsappAlerts);
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateMsg, setUpdateMsg] = useState("");
   const [yieldData, setYieldData] = useState([]);
@@ -48,6 +67,13 @@ export default function Dashboard() {
   const [selectedSeason, setSelectedSeason] = useState("");
   const [savedCrops, setSavedCrops] = useState([]);
   const [savedArticles, setSavedArticles] = useState([]);
+
+  useEffect(() => {
+    if (userData) {
+      setPhoneNumber(userData.phoneNumber || "");
+      setWhatsappAlerts(!!userData.whatsappAlerts);
+    }
+  }, [userData]);
 
   useEffect(() => {
     setSavedCrops(getBookmarks("crops"));
@@ -74,7 +100,6 @@ export default function Dashboard() {
 
     fetchData();
   }, [setHistoricalWeather]);
-
   const handleUpdateWhatsApp = async () => {
     setIsUpdating(true);
     setUpdateMsg("");
@@ -89,12 +114,10 @@ export default function Dashboard() {
         name: name,
       });
       if (response.data?.success) {
-        localStorage.setItem("farmerPhone", phoneNumber);
-        localStorage.setItem("whatsappAlerts", whatsappAlerts.toString());
         setUpdateMsg("Settings saved successfully!");
         setTimeout(() => setUpdateMsg(""), 3000);
       }
-    } catch (err) {
+    } catch {
       setUpdateMsg("Error saving settings.");
     } finally {
       setIsUpdating(false);
@@ -118,80 +141,118 @@ export default function Dashboard() {
   };
 
   const quickStats = [
-    { label: "Active Crops", value: "4", icon: <FaSeedling />, trend: "+1 this month" },
-    { label: "Farm Area", value: "12 Acres", icon: <FaMapMarkerAlt />, trend: "Paddy, Cotton" },
-    { label: "Yield Score", value: "87%", icon: <FaChartLine />, trend: "+5% vs last season" },
-    { label: "Next Harvest", value: "45 Days", icon: <FaCalendarAlt />, trend: "Kharif Season" },
+    {
+      label: "Primary Crop",
+      value: userData?.cropType || "—",
+      icon: <FaSeedling />,
+      trend: userData?.season ? `${userData.season} season` : "Set up your profile",
+    },
+    {
+      label: "Farm Area",
+      value: normalizedFarmArea || "—",
+      icon: <FaMapMarkerAlt />,
+      trend: userData?.address || userData?.location || "Location not set",
+    },
+    {
+      label: "Yield Score",
+      value: yieldScoreValue,
+      icon: <FaChartLine />,
+      trend: userData?.cropType ? "Use Yield Predictor for estimate" : "Set up your profile",
+    },
+    {
+      label: "Next Harvest",
+      value: nextHarvestValue,
+      icon: <FaCalendarAlt />,
+      trend: userData?.season || normalizedIrrigation ? `${userData.season || normalizedIrrigation} planning` : "Set up your profile",
+    },
   ];
 
+  // Recent activity is derived from real user actions where available.
+  // Static entries are clearly labelled as tips/reminders, not fabricated events.
+  const cropLabel = userData?.cropType || "your crop";
   const recentActivity = [
     {
       icon: <FaCloudSun />,
-      title: "Weather Alert Received",
-      description: "Heavy rainfall expected in your region for the next 3 days",
-      time: "2 hours ago",
-      type: "warning",
+      title: "Weather Alerts",
+      description: "Check the Weather Alerts section for real-time conditions at your location.",
+      time: "Live",
+      type: "info",
     },
     {
       icon: <FaSeedling />,
-      title: "Crop Health Check Completed",
-      description: "Paddy field section A shows healthy growth patterns",
-      time: "5 hours ago",
-      type: "success",
+      title: "Crop Health",
+      description: `Use the Disease Detection tool to check ${cropLabel} health.`,
+      time: "Tip",
+      type: "default",
     },
     {
       icon: <FaChartLine />,
-      title: "Yield Prediction Updated",
-      description: "Expected yield increased to 42 quintals/acre for current season",
-      time: "1 day ago",
+      title: "Yield Prediction",
+      description: "Run the Yield Predictor to get an estimate for your current season.",
+      time: "Tip",
       type: "info",
     },
     {
       icon: <FaWater />,
-      title: "Irrigation Schedule Set",
-      description: "Drip irrigation scheduled for tomorrow at 6:00 AM",
-      time: "1 day ago",
+      title: "Irrigation Planner",
+      description: "Use the Crop Planner to schedule irrigation based on your crop and soil.",
+      time: "Tip",
       type: "default",
     },
     {
       icon: <FaBug />,
-      title: "Pest Alert Dismissed",
-      description: "Brown planthopper risk level returned to normal",
-      time: "2 days ago",
-      type: "success",
+      title: "Pest Monitoring",
+      description: "Use the Pest Detection tool to identify and manage pest risks early.",
+      time: "Tip",
+      type: "default",
     },
     {
       icon: <FaTractor />,
-      title: "Soil Test Report Ready",
-      description: "Nitrogen levels optimal, phosphorus slightly low",
-      time: "3 days ago",
+      title: "Soil Analysis",
+      description: "Run a Soil Analysis to check nutrient levels and get fertilizer advice.",
+      time: "Tip",
       type: "info",
     },
   ];
 
+  // Recommendations are derived from the user's actual profile data.
+  // Generic fallbacks are shown only when profile fields are missing,
+  // and are clearly framed as general tips rather than personalised AI output.
+  const userCrop = userData?.cropType?.toLowerCase() || "";
+  const userIrrigation = normalizedIrrigation?.toLowerCase() || "";
   const recommendations = [
     {
       icon: <FaLeaf />,
-      title: "Switch to Drip Irrigation",
-      description: "Based on your soil type and crop selection, drip irrigation can save up to 40% water and increase yield by 15%.",
+      title: userIrrigation && userIrrigation !== "drip"
+        ? "Consider Drip Irrigation"
+        : "Optimise Your Irrigation",
+      description: userIrrigation && userIrrigation !== "drip"
+        ? `Switching from ${userData.irrigationType} to drip irrigation can reduce water use by up to 40% for ${userData.cropType || "most crops"}.`
+        : "Review your irrigation schedule with the Crop Planner to match soil moisture needs.",
       tag: "Water Management",
     },
     {
       icon: <FaSeedling />,
-      title: "Plant Cover Crops",
-      description: "Adding leguminous cover crops between seasons improves soil nitrogen and reduces fertilizer costs by 25%.",
+      title: "Improve Soil Health",
+      description: userCrop
+        ? `Leguminous cover crops between ${userData.cropType} seasons can reduce fertilizer costs and improve soil nitrogen.`
+        : "Adding cover crops between seasons improves soil nitrogen and reduces fertilizer costs.",
       tag: "Soil Health",
     },
     {
       icon: <FaBell />,
-      title: "Optimal Sowing Window",
-      description: "Weather data suggests the best sowing window for Rabi wheat is in the next 10-15 days for your region.",
+      title: "Plan Your Sowing Window",
+      description: userData?.season
+        ? `Check the Seasonal Crop Planner for the optimal sowing window for ${userData.season} crops in your region.`
+        : "Use the Seasonal Crop Planner to find the best sowing window for your region and season.",
       tag: "Planning",
     },
     {
       icon: <FaChartLine />,
-      title: "Market Price Trending Up",
-      description: "Cotton prices have risen 12% this month. Consider timing your harvest for maximum returns.",
+      title: "Track Market Prices",
+      description: userCrop
+        ? `Monitor live mandi prices for ${userData.cropType} in the Market Prices section to time your sale.`
+        : "Check the Market Prices section for live mandi rates before deciding when to sell.",
       tag: "Market",
     },
   ];
@@ -199,8 +260,12 @@ export default function Dashboard() {
   const quickActions = [
     { label: "AI Advisor", icon: <FaSeedling />, link: "/advisor" },
     { label: "Yield Predictor", icon: <FaChartBar />, link: "/yield-predictor" },
+    { label: "Farm Autopilot", icon: <FaRobot />, link: "/smart-farm-autopilot" },
+    { label: "Sustainability", icon: <FaRecycle />, link: "/sustainability-analytics" },
     { label: "Crop Planner", icon: <FaCalendarAlt />, link: "/crop-planner" },
     { label: "Community", icon: <FaComments />, link: "/community" },
+    { label: "Referrals", icon: <FaUserPlus />, link: "/referrals" },
+    { label: "Leaderboard", icon: <FaTrophy />, link: "/leaderboard" },
     { label: "Diseases", icon: <FaBug />, link: "/disease-awareness" },
     { label: "Helpline", icon: <FaPhoneAlt />, link: "/helpline" },
     { label: "Glossary", icon: <FaBook />, link: "/glossary" },
@@ -246,6 +311,33 @@ export default function Dashboard() {
       </section>
 
       <section className="dashboard-stats">
+        {!userData?.cropType && (
+          <div
+            className="profile-incomplete-banner"
+            style={{
+              gridColumn: "1 / -1",
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              padding: "12px 16px",
+              background: "#fffbeb",
+              border: "1px solid #fde68a",
+              borderRadius: "10px",
+              marginBottom: "4px",
+              fontSize: "0.9rem",
+              color: "#92400e",
+            }}
+          >
+            <FaExclamationTriangle />
+            <span>
+              Your farm profile is incomplete — some stats show "—".{" "}
+              <Link to="/profile-setup" style={{ color: "#b45309", fontWeight: 600 }}>
+                Complete your profile
+              </Link>{" "}
+              to see personalised data here.
+            </span>
+          </div>
+        )}
         {quickStats.map((stat, idx) => (
           <div className="stat-card" key={idx}>
             <div className="stat-card-icon">{stat.icon}</div>
@@ -259,6 +351,8 @@ export default function Dashboard() {
       </section>
 
       <section className="dashboard-grid">
+        <AdvisoryPanel userData={userData} />
+
         <div className="dashboard-column">
           <div className="dashboard-section-card">
             <div className="section-card-header">
@@ -356,23 +450,23 @@ export default function Dashboard() {
             <div className="farm-summary-grid">
               <div className="farm-summary-item">
                 <span className="farm-summary-label">Primary Crop</span>
-                <span className="farm-summary-value">Paddy</span>
+                <span className="farm-summary-value">{userData?.cropType || "—"}</span>
               </div>
               <div className="farm-summary-item">
                 <span className="farm-summary-label">Season</span>
-                <span className="farm-summary-value">Kharif</span>
+                <span className="farm-summary-value">{userData?.season || "—"}</span>
               </div>
               <div className="farm-summary-item">
                 <span className="farm-summary-label">Soil Type</span>
-                <span className="farm-summary-value">Alluvial</span>
+                <span className="farm-summary-value">{userData?.soilType || "—"}</span>
               </div>
               <div className="farm-summary-item">
                 <span className="farm-summary-label">Irrigation</span>
-                <span className="farm-summary-value">Drip</span>
+                <span className="farm-summary-value">{userData?.irrigationType || "—"}</span>
               </div>
               <div className="farm-summary-item">
                 <span className="farm-summary-label">Region</span>
-                <span className="farm-summary-value">Maharashtra</span>
+                <span className="farm-summary-value">{userData?.address || userData?.location || "—"}</span>
               </div>
               <div className="farm-summary-item">
                 <span className="farm-summary-label">Language</span>
