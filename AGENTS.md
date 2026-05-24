@@ -46,3 +46,9 @@ Run `npm run lint` in the frontend directory to check code quality.
 - **Issue**: Queue capacity validation (`len(self._task_queue) >= self.max_queue_size`) was performed outside `_queue_lock`, allowing concurrent producers to bypass the capacity limit.
 - **Fix**: Moved capacity check inside the synchronized `with self._queue_lock:` block, ensuring size validation and task insertion are atomic under concurrent workloads.
 - **Impact**: Prevents uncontrolled queue growth, excessive memory consumption, and inconsistent queue state under high-throughput image processing.
+
+### Admin/Expert Role Check Broken by Wrong Key Name (PR #1022)
+- **Files**: `main.py`, `rbac.py`
+- **Issue**: Consultation override logic used `token_data.get("role")` but `verify_role()` returns `{"roles": [...]}` (list under `"roles"` key). `"role"` always returned `None`, so `None not in ("admin", "expert")` was always `True`, making admins/experts unable to override consultation ownership.
+- **Fix**: Migrated from Firestore `get()` role checks to Firebase custom claims (`bba24af`). The `roles` list is now correctly queried instead of the non-existent `role` key.
+- **Impact**: Admins and experts can now properly override consultation ownership as intended.
