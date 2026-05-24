@@ -1486,63 +1486,11 @@ async def simulate_climate(request: Request, data: SimulationRequest):
         "recommendation": "Switch to heat-tolerant varieties" if data.temp_delta > 2 else "Ensure adequate irrigation" if data.rain_delta < -20 else "Conditions remain viable"
     }
 
-@app.post("/api/seeds/verify")
-@limiter.limit("10/minute")
-async def verify_seed(data: SeedVerifyRequest, request: Request):
-    """
-    Verifies seed authenticity against the trusted batch registry.
-    
-    Requires authentication and appropriate role.
-    """
-    # RBAC: user can verify seeds
-    await RBACManager.raise_if_unauthorized(
-        request, [Permission.SEEDS_VERIFY], require_all=False
-    )
-
-    """
-    Registry lookup logic
-    ---------------------
-    Each entry in SEED_REGISTRY is keyed by the canonical batch code
-    (upper-cased, stripped).  The entry carries:
-
-    - status        : "authentic" | "invalid"
-    - crop          : crop name the batch is certified for
-    - batch         : batch identifier
-    - manufacturer  : seed company name
-    - cert_body     : certifying authority (e.g. NSC, ICAR)
-    - certified_on  : ISO date string of certification
-    - expires_on    : ISO date string of expiry  (YYYY-MM-DD)
-    - reason        : present only on invalid entries — human-readable
-                      explanation of why the batch is rejected
-
-    Verification steps (in order)
-    ------------------------------
-    1. Format validation  — code must match the canonical pattern
-                            FS-<ALPHA>-<YEAR>-<ALPHANUM> or be a known
-                            blacklisted / test code.  Codes that do not
-                            match any registry entry are returned as
-                            "not_found" — never as "authentic".
-    2. Registry lookup    — exact match against SEED_REGISTRY keys.
-    3. Blacklist check    — status == "invalid" → return immediately.
-    4. Expiry check       — authentic entries whose expires_on is in the
-                            past are downgraded to "invalid" at query time
-                            so the registry does not need to be updated
-                            every season.
-    5. Return             — structured response with full metadata.
-
-    Security note
-    -------------
-    The old implementation used substring matching (`"FS-AUTH" in code`),
-    which allowed any crafted string containing that substring to pass.
-    This implementation uses exact dictionary lookup only — no substring
-    or regex matching is performed on the submitted code.
-    """
-
-    # ── Trusted seed batch registry ──────────────────────────────────────────
-    # In a production deployment this would be loaded from Firestore or a
-    # SQL database.  The structure is kept identical so swapping the data
-    # source requires only changing the lookup call, not the validation logic.
-    SEED_REGISTRY: dict[str, dict] = {
+# ── Trusted seed batch registry ──────────────────────────────────────────
+# In a production deployment this would be loaded from Firestore or a
+# SQL database.  The structure is kept identical so swapping the data
+# source requires only changing the lookup call, not the validation logic.
+SEED_REGISTRY: dict[str, dict] = {
         # ── Authentic batches ────────────────────────────────────────────────
         "FS-RICE-2026-A1": {
             "status": "authentic",
@@ -1610,8 +1558,59 @@ async def verify_seed(data: SeedVerifyRequest, request: Request):
             "expires_on": "2025-03-31",   # already expired — also caught by expiry check
             "reason": "Expired — shelf life exceeded as of 2025-03-31",
         },
-    }
-    # ─────────────────────────────────────────────────────────────────────────
+}
+
+@app.post("/api/seeds/verify")
+@limiter.limit("10/minute")
+async def verify_seed(data: SeedVerifyRequest, request: Request):
+    """
+    Verifies seed authenticity against the trusted batch registry.
+    
+    Requires authentication and appropriate role.
+    """
+    # RBAC: user can verify seeds
+    await RBACManager.raise_if_unauthorized(
+        request, [Permission.SEEDS_VERIFY], require_all=False
+    )
+
+    """
+    Registry lookup logic
+    ---------------------
+    Each entry in SEED_REGISTRY is keyed by the canonical batch code
+    (upper-cased, stripped).  The entry carries:
+
+    - status        : "authentic" | "invalid"
+    - crop          : crop name the batch is certified for
+    - batch         : batch identifier
+    - manufacturer  : seed company name
+    - cert_body     : certifying authority (e.g. NSC, ICAR)
+    - certified_on  : ISO date string of certification
+    - expires_on    : ISO date string of expiry  (YYYY-MM-DD)
+    - reason        : present only on invalid entries — human-readable
+                      explanation of why the batch is rejected
+
+    Verification steps (in order)
+    ------------------------------
+    1. Format validation  — code must match the canonical pattern
+                            FS-<ALPHA>-<YEAR>-<ALPHANUM> or be a known
+                            blacklisted / test code.  Codes that do not
+                            match any registry entry are returned as
+                            "not_found" — never as "authentic".
+    2. Registry lookup    — exact match against SEED_REGISTRY keys.
+    3. Blacklist check    — status == "invalid" → return immediately.
+    4. Expiry check       — authentic entries whose expires_on is in the
+                            past are downgraded to "invalid" at query time
+                            so the registry does not need to be updated
+                            every season.
+    5. Return             — structured response with full metadata.
+
+    Security note
+    -------------
+    The old implementation used substring matching (`"FS-AUTH" in code`),
+    which allowed any crafted string containing that substring to pass.
+    This implementation uses exact dictionary lookup only — no substring
+    or regex matching is performed on the submitted code.
+    """
 
     # Step 1 — normalise the submitted code.
     # Upper-case and strip whitespace so "fs-rice-2026-a1 " matches correctly.
