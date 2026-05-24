@@ -1,171 +1,55 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
-import {
-  Send,
-  Lock,
-  ShieldCheck,
-  X,
-  KeyRound,
-  AlertTriangle,
-} from "lucide-react";
-
+import React, { useState, useEffect, useRef } from "react";
+import { Send, Lock, ShieldCheck, X, KeyRound } from "lucide-react";
 import { db, auth } from "./lib/firebase";
-
-import {
-  collection,
-  addDoc,
-  query,
-  where,
-  orderBy,
-  onSnapshot,
+import { 
+  collection, 
+  addDoc, 
+  query, 
+  where, 
+  orderBy, 
+  onSnapshot, 
   Timestamp,
   doc,
   setDoc,
-  getDoc,
+  getDoc
 } from "firebase/firestore";
-
 import { isFirebaseConfigured } from "./lib/firebase";
 import { cryptoService } from "./utils/cryptoService";
-
 import "./P2PChat.css";
 
 const P2PChat = ({ recipient, onClose }) => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
+  const [isRecipientVerified, setIsRecipientVerified] = useState(true); // Mock verification
   const [sharedKey, setSharedKey] = useState(null);
-
-  const [keyStatus, setKeyStatus] = useState(
-    "initializing"
-  );
-
-  const [loadingMessages, setLoadingMessages] =
-    useState(true);
-
+  const [keyStatus, setKeyStatus] = useState("initializing"); // initializing, ready, waiting
+  
   const messagesEndRef = useRef(null);
-
   const currentUser = auth?.currentUser;
 
-  const effectiveRecipient = useMemo(() => {
-    return recipient?.userId
-      ? recipient
-      : {
-          userId: "default",
-          userName: "Secure Chat",
-        };
-  }, [recipient]);
-
-  const chatId = useMemo(() => {
-    if (!currentUser?.uid) return null;
-
-    return [
-      currentUser.uid,
-      effectiveRecipient.userId,
-    ]
-      .sort()
-      .join("-");
-  }, [currentUser, effectiveRecipient.userId]);
-
-  /* =========================================================
-      AUTO SCROLL
-  ========================================================= */
+  const hasValidRecipient = recipient && recipient.userId;
+  const effectiveRecipient = hasValidRecipient ? recipient : { userId: "default", userName: "Chat" };
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({
-      behavior: "smooth",
-    });
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
+  // 1. Initialize Cryptographic Keys
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  /* =========================================================
-      INIT CRYPTO
-  ========================================================= */
-
-  useEffect(() => {
-    let mounted = true;
+    let isMounted = true;
 
     const initCrypto = async () => {
+      if (!currentUser) {
+        if (isMounted) setKeyStatus("auth_required");
+        console.warn("P2PChat: No currentUser found.");
+        return;
+      }
+      if (!effectiveRecipient.userId) {
+        console.warn("P2PChat: No recipient userId.");
+        return;
+      }
+      
       try {
-        if (!currentUser) {
-          if (mounted)
-            setKeyStatus("auth_required");
-          return;
-        }
-
-        setKeyStatus("generating_keys");
-
-        let privateKey =
-          await cryptoService.loadPrivateKey(
-            currentUser.uid
-          );
-
-        let publicJwk = null;
-
-        /* ==============================
-            GENERATE KEY PAIR
-        ============================== */
-
-        if (!privateKey) {
-          const keyPair =
-            await cryptoService.generateECDHKeyPair();
-
-          privateKey = keyPair.privateKey;
-
-          await cryptoService.savePrivateKey(
-            currentUser.uid,
-            privateKey
-          );
-
-          publicJwk =
-            await cryptoService.exportKey(
-              keyPair.publicKey
-            );
-        } else {
-          if (isFirebaseConfigured()) {
-            const pubRef = doc(
-              db,
-              "public_keys",
-              currentUser.uid
-            );
-
-            const snap = await getDoc(pubRef);
-
-            if (snap.exists()) {
-              publicJwk = snap.data().jwk;
-            } else {
-              const keyPair =
-                await cryptoService.generateECDHKeyPair();
-
-              privateKey = keyPair.privateKey;
-
-              await cryptoService.savePrivateKey(
-                currentUser.uid,
-                privateKey
-              );
-
-              publicJwk =
-                await cryptoService.exportKey(
-                  keyPair.publicKey
-                );
-            }
-          }
-        }
-
-        /* ==============================
-            PUBLISH PUBLIC KEY
-        ============================== */
-
-        setKeyStatus("publishing_key");
-
-        if (isFirebaseConfigured() && publicJwk) {
-          await setDoc(
-            doc(db, "public_keys", currentUser.uid),
-            {
-              jwk: publicJwk,
-            },
-            { merge: true }
-          );
         if (isMounted) setKeyStatus("generating_keys");
         // Load or generate our ECDH key pair securely.
         // Private key is stored in IndexedDB as a non-extractable object.
@@ -183,124 +67,60 @@ const P2PChat = ({ recipient, onClose }) => {
           }
         }
 
-        /* ==============================
-            FETCH RECIPIENT KEY
-        ============================== */
-
-        setKeyStatus("fetching_peer_key");
-
+        if (isMounted) setKeyStatus("fetching_peer_key");
+        // C. Retrieve the recipient's public key
         let recipientPubKeyJwk = null;
-
-        if (
-          effectiveRecipient.userId === "default"
-        ) {
+        if (effectiveRecipient.userId === "default" || effectiveRecipient.userId === "advisor") {
+          // Mock behavior for the 'default' or 'advisor' testing chat:
+          // Treat it as a "Note to Self" by using our own public key!
           recipientPubKeyJwk = publicJwk;
-        } else {
-          const recipientRef = doc(
-            db,
-            "public_keys",
-            effectiveRecipient.userId
-          );
-
-          const recipientSnap = await getDoc(
-            recipientRef
-          );
-
+        } else if (isFirebaseConfigured()) {
+          const recipientRef = doc(db, "public_keys", effectiveRecipient.userId);
+          const recipientSnap = await getDoc(recipientRef);
           if (recipientSnap.exists()) {
-            recipientPubKeyJwk =
-              recipientSnap.data().jwk;
+            recipientPubKeyJwk = recipientSnap.data().jwk;
           }
+        } else {
+          const localRec = localStorage.getItem(`remote_ecdh_public_${effectiveRecipient.userId}`);
+          if (localRec) recipientPubKeyJwk = JSON.parse(localRec);
         }
 
-        /* ==============================
-            DERIVE SHARED SECRET
-        ============================== */
-
-        if (!recipientPubKeyJwk) {
-          if (mounted)
-            setKeyStatus("waiting");
-
-          return;
+        // D. Derive the shared symmetric key
+        if (recipientPubKeyJwk) {
+          const recipientPublicKey = await cryptoService.importPublicKey(recipientPubKeyJwk);
+          const derivedKey = await cryptoService.deriveSharedSecret(privateKey, recipientPublicKey);
+          if (isMounted) {
+            setSharedKey(derivedKey);
+            setKeyStatus("ready");
+          }
+        } else {
+          if (isMounted) setKeyStatus("waiting");
+          console.warn("Recipient has not published a public key yet.");
         }
-
-        const recipientPublicKey =
-          await cryptoService.importPublicKey(
-            recipientPubKeyJwk
-          );
-
-        const derivedKey =
-          await cryptoService.deriveSharedSecret(
-            privateKey,
-            recipientPublicKey
-          );
-
-        if (mounted) {
-          setSharedKey(derivedKey);
-          setKeyStatus("ready");
-        }
-      } catch (err) {
-        console.error(err);
-
-        if (mounted) {
-          setKeyStatus("error");
-        }
+      } catch (error) {
+        console.error("Crypto init failed:", error);
+        if (isMounted) setKeyStatus("error");
       }
     };
 
     initCrypto();
+    return () => { isMounted = false; };
+  }, [currentUser, effectiveRecipient.userId]);
 
-    return () => {
-      mounted = false;
-    };
-  }, [currentUser, effectiveRecipient]);
-
-  /* =========================================================
-      LOAD MESSAGES
-  ========================================================= */
-
+  // 2. Load Messages (Only when sharedKey is ready)
   useEffect(() => {
-    if (
-      !currentUser ||
-      !chatId ||
-      !sharedKey
-    )
-      return;
+    if (!currentUser || !effectiveRecipient.userId || !sharedKey) return;
 
-    setLoadingMessages(true);
+    const chatId = [currentUser.uid, effectiveRecipient.userId].sort().join("-");
+    let isMounted = true;
 
-    const q = query(
-      collection(db, "direct_messages"),
-      where("chatId", "==", chatId),
-      orderBy("createdAt", "asc")
-    );
+    if (isFirebaseConfigured()) {
+      const q = query(
+        collection(db, "direct_messages"),
+        where("chatId", "==", chatId),
+        orderBy("createdAt", "asc")
+      );
 
-    const unsubscribe = onSnapshot(
-      q,
-      async (snapshot) => {
-        const decryptedMessages =
-          await Promise.all(
-            snapshot.docs.map(async (docItem) => {
-              const data = docItem.data();
-
-              try {
-                const decrypted =
-                  await cryptoService.decryptMessage(
-                    data.encryptedContent,
-                    sharedKey
-                  );
-
-                return {
-                  id: docItem.id,
-                  ...data,
-                  content: decrypted,
-                };
-              } catch {
-                return {
-                  id: docItem.id,
-                  ...data,
-                  content:
-                    "[Unable to decrypt message]",
-                };
       const unsubscribe = onSnapshot(
         q,
         async (snapshot) => {
@@ -355,209 +175,130 @@ const P2PChat = ({ recipient, onClose }) => {
               } else {
                 return { ...msg, content: "[Legacy Format]" };
               }
-            })
-          );
+            } catch (e) {
+              return { ...msg, content: "[Decryption Failed]" };
+            }
+          }));
+          if (isMounted) {
+            setMessages(decryptedMessages);
+            setTimeout(scrollToBottom, 100);
+          }
+        }
+      };
 
-        setMessages(decryptedMessages);
-        setLoadingMessages(false);
-      }
-    );
+      loadLocalMessages();
+      const interval = setInterval(loadLocalMessages, 2000);
+      return () => {
+        isMounted = false;
+        clearInterval(interval);
+      };
+    }
+  }, [sharedKey, currentUser, effectiveRecipient.userId]);
 
-    return () => unsubscribe();
-  }, [chatId, sharedKey, currentUser]);
-
-  /* =========================================================
-      SEND MESSAGE
-  ========================================================= */
-
+  // 3. Send Message
   const handleSendMessage = async (e) => {
     e.preventDefault();
+    if (!newMessage.trim() || !currentUser || !sharedKey) return;
 
-    if (
-      !newMessage.trim() ||
-      !sharedKey ||
-      !currentUser
-    )
-      return;
-
-    const messageText = newMessage.trim();
-
-    setNewMessage("");
+    const chatId = [currentUser.uid, effectiveRecipient.userId].sort().join("-");
+    const messageText = newMessage;
+    setNewMessage(""); // Clear early for UX
 
     try {
-      const encrypted =
-        await cryptoService.encryptMessage(
-          messageText,
-          sharedKey
-        );
+      const encrypted = await cryptoService.encryptMessage(messageText, sharedKey);
 
-      await addDoc(
-        collection(db, "direct_messages"),
-        {
+      if (isFirebaseConfigured()) {
+        await addDoc(collection(db, "direct_messages"), {
           chatId,
           senderId: currentUser.uid,
-          senderName:
-            currentUser.displayName ||
-            currentUser.email?.split("@")[0] ||
-            "User",
-
-          recipientId:
-            effectiveRecipient.userId,
-
+          senderName: currentUser.displayName || currentUser.email?.split('@')[0] || "User",
+          recipientId: effectiveRecipient.userId,
+          encryptedContent: encrypted, // Stores { ciphertext, iv }
+          createdAt: Timestamp.now()
+        });
+      } else {
+        // Local Mode
+        const localKey = `p2p_chat_${chatId}`;
+        const existing = JSON.parse(localStorage.getItem(localKey) || "[]");
+        const newMsg = {
+          id: Date.now(),
+          senderId: currentUser.uid,
+          senderName: "You",
           encryptedContent: encrypted,
-
-          createdAt: Timestamp.now(),
-        }
-      );
+          createdAt: { toDate: () => new Date() }
+        };
+        localStorage.setItem(localKey, JSON.stringify([...existing, newMsg]));
+        setMessages(prev => [...prev, { ...newMsg, content: messageText }]);
+        setTimeout(scrollToBottom, 100);
+      }
     } catch (err) {
-      console.error(err);
-
+      console.error("Encryption/Send failed:", err);
+      // Revert input on failure
       setNewMessage(messageText);
     }
   };
 
-  /* =========================================================
-      UI
-  ========================================================= */
-
   return (
     <div className="p2p-chat-container">
-      {/* HEADER */}
-
       <div className="p2p-chat-header">
         <div className="recipient-info">
           <div className="user-avatar">
-            {effectiveRecipient.userName?.[0] ||
-              "U"}
-
-            <ShieldCheck
-              className="verified-badge"
-              size={14}
-            />
+            {effectiveRecipient.userName ? effectiveRecipient.userName[0].toUpperCase() : "U"}
+            {isRecipientVerified && <ShieldCheck className="verified-badge" size={14} />}
           </div>
-
           <div>
-            <h3>
-              {effectiveRecipient.userName}
-            </h3>
-
+            <h3>{effectiveRecipient.userName}</h3>
             <span className="security-status">
               {keyStatus === "ready" ? (
-                <>
-                  <Lock size={13} />
-                  End-to-End Encrypted
-                </>
+                <><Lock size={12} /> True End-to-End Encrypted</>
               ) : keyStatus === "waiting" ? (
-                <>
-                  <KeyRound size={13} />
-                  Waiting for peer key...
-                </>
-              ) : keyStatus === "error" ? (
-                <>
-                  <AlertTriangle size={13} />
-                  Encryption Error
-                </>
+                <><KeyRound size={12} /> Waiting for peer key...</>
               ) : (
-                <>
-                  <KeyRound size={13} />
-                  Securing connection...
-                </>
+                <><KeyRound size={12} /> Securing connection...</>
               )}
             </span>
           </div>
         </div>
-
-        <button
-          className="close-chat-btn"
-          onClick={onClose}
-        >
-          <X size={20} />
-        </button>
+        <button className="close-chat-btn" onClick={onClose}><X size={20} /></button>
       </div>
-
-      {/* MESSAGES */}
 
       <div className="p2p-chat-messages">
         <div className="encryption-notice">
           <Lock size={16} />
-
-          <p>
-            Messages are protected with ECDH +
-            AES-GCM encryption.
-          </p>
+          <p>Messages are end-to-end encrypted using ECDH and AES-GCM. No one outside of this chat can read them.</p>
         </div>
-
-        {loadingMessages ? (
-          <div className="chat-loader">
-            Loading secure messages...
-          </div>
-        ) : messages.length === 0 ? (
-          <div className="empty-chat">
-            Start your secure conversation.
-          </div>
-        ) : (
-          messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`message-row ${
-                msg.senderId === currentUser?.uid
-                  ? "sent"
-                  : "received"
-              }`}
-            >
-              <div className="message-bubble">
-                <p>{msg.content}</p>
-
-                <span className="message-time">
-                  {msg.createdAt?.toDate
-                    ? msg.createdAt
-                        .toDate()
-                        .toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })
-                    : ""}
-                </span>
-              </div>
+        
+        {messages.map((msg) => (
+          <div 
+            key={msg.id} 
+            className={`message-bubble ${msg.senderId === currentUser?.uid ? 'sent' : 'received'}`}
+          >
+            <div className="message-content">
+              <p>{msg.content}</p>
+              <span className="message-time">
+                {msg.createdAt?.toDate ? msg.createdAt.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Recently"}
+              </span>
             </div>
-          ))
-        )}
-
+          </div>
+        ))}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* INPUT */}
-
-      <form
-        className="p2p-chat-input"
-        onSubmit={handleSendMessage}
-      >
-        <input
-          type="text"
+      <form className="p2p-chat-input" onSubmit={handleSendMessage}>
+        <input 
+          type="text" 
           placeholder={
-            keyStatus === "auth_required"
-              ? "Please login first..."
-              : keyStatus === "ready"
-              ? "Type secure message..."
-              : "Securing chat..."
-          }
+            keyStatus === "auth_required" ? "Please log in to chat securely." :
+            keyStatus === "ready" ? "Type a secure message..." : 
+            `Securing: ${keyStatus.replace("_", " ")}...`
+          } 
           value={newMessage}
-          onChange={(e) =>
-            setNewMessage(e.target.value)
-          }
-          disabled={keyStatus !== "ready"}
+          onChange={(e) => setNewMessage(e.target.value)}
+          disabled={!sharedKey}
           required
         />
-
-        <button
-          type="submit"
-          className="send-msg-btn"
-          disabled={
-            !newMessage.trim() ||
-            keyStatus !== "ready"
-          }
-        >
-          <Send size={20} />
+        <button type="submit" className="send-msg-btn" aria-label="Send Message" disabled={!sharedKey}>
+          <Send className="send-icon-svg" size={40} />
         </button>
       </form>
     </div>
