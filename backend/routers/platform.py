@@ -25,14 +25,17 @@ logger = logging.getLogger(__name__)
 
 
 class WhatsAppSubscribeRequest(BaseModel):
-    phone_number: str
-    user_id: str
-    name: str
+    phone_number: str = Field(..., min_length=7, max_length=20)
+    name: str = Field(..., min_length=1, max_length=100)
+    # user_id is accepted for backward-compatibility but is IGNORED.
+    # The authoritative identity is always derived from the verified
+    # Firebase ID token — never from client-supplied data.
+    user_id: Optional[str] = None
 
 
 class AlertTriggerRequest(BaseModel):
-    alert_type: str
-    message: str
+    alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
+    message: str = Field(..., min_length=1, max_length=500)
 
 
 class ReportRequest(BaseModel):
@@ -185,11 +188,23 @@ async def get_alerts_history():
 
 
 @router.post("/whatsapp/subscribe")
-async def subscribe_whatsapp(data: WhatsAppSubscribeRequest):
+async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
+    """
+    Subscribe the authenticated user to WhatsApp alerts.
+
+    The subscriber's identity is derived exclusively from the verified
+    Firebase ID token — never from the client-supplied user_id field.
+    This prevents an attacker from overwriting another user's subscription
+    by sending a known uid with an attacker-controlled phone number.
+    """
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
     if subscriber_store is None:
         raise HTTPException(status_code=500, detail="Subscriber store not initialized")
 
-    user_id = data.user_id if data.user_id else str(datetime.now().timestamp())
+    token_data = await verify_role_fn(request)
+    uid = token_data["uid"]
+
     subscriber = {
         "phone_number": data.phone_number,
         "name": data.name,
@@ -197,7 +212,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest):
     }
 
     try:
-        subscriber_store.upsert(user_id, subscriber)
+        subscriber_store.upsert(uid, subscriber)
     except OSError as exc:
         raise HTTPException(
             status_code=500,
@@ -216,9 +231,24 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest):
 
 
 @router.post("/whatsapp/trigger-alert")
-async def trigger_whatsapp_alert(data: AlertTriggerRequest):
+async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
+    """
+    Broadcast a WhatsApp alert to all subscribers.
+
+    Requires authentication — admin or expert role only.
+
+    Without this check any unauthenticated caller could send arbitrary
+    messages to every subscribed farmer (social engineering attacks,
+    fake pest warnings, fake market alerts) and consume Twilio API
+    credits at will.
+    """
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
     if subscriber_store is None or send_whatsapp_message_fn is None or format_alert_message_fn is None:
         raise HTTPException(status_code=500, detail="WhatsApp dependencies not initialized")
+
+    # RBAC: only admins and experts may broadcast alerts to all farmers.
+    await verify_role_fn(request, required_roles=["admin", "expert"])
 
     subscribers = subscriber_store.get_all()
     results = []
@@ -228,26 +258,28 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest):
         result = send_whatsapp_message_fn(info["phone_number"], formatted_msg)
         results.append({"user_id": user_id, "success": result.get("success", False)})
 
-    return {"success": True, "results": results}
+    delivered = sum(1 for r in results if r["success"])
+    return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
 
 
 @router.post("/whatsapp/webhook")
 async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
+    """
+    Handle incoming WhatsApp messages from Twilio.
+    
+    Processing is offloaded to a background Celery task to immediately
+    acknowledge the webhook (preventing Twilio timeout/penalties under burst traffic)
+    and process the message asynchronously.
+    """
     if send_whatsapp_message_fn is None:
         raise HTTPException(status_code=500, detail="WhatsApp sender not initialized")
 
-    incoming_msg = Body.lower().strip()
     sender_number = From.replace("whatsapp:", "")
 
-    responses = {
-        "weather": "Weather update: check weather alerts in app.",
-        "pest": "Pest assistant: please use the in-app diagnosis tool.",
-        "hi": "Namaste. I am your AI Farming Assistant.",
-        "hello": "Namaste. I am your AI Farming Assistant.",
-    }
-
-    response = next((value for key, value in responses.items() if key in incoming_msg), "Received. Try 'Weather' or 'Pest'.")
-    send_whatsapp_message_fn(sender_number, response)
+    # Offload message processing to reliable background task queue
+    from celery_worker import process_whatsapp_webhook_task
+    process_whatsapp_webhook_task.delay(Body, sender_number)
+    
     return {"status": "success"}
 
 
@@ -456,6 +488,19 @@ async def verify_seed(request: Request, data: SeedVerifyRequest):
 
     await rbac_manager.raise_if_unauthorized(request, [permission_enum.SEEDS_VERIFY], require_all=False)
 
+    # ---------------------------------------------------------------------------
+    # Seed registry — IMPORTANT LIMITATION
+    #
+    # This is a minimal static registry used for demonstration purposes only.
+    # It contains two known codes: one authentic and one blacklisted counterfeit.
+    # Any code NOT in this registry returns status="unverified" with a warning
+    # that the seed could not be verified — NOT a clean "not found" that implies
+    # the seed is safe. Farmers must be told to treat unverified codes with
+    # caution and contact their local agricultural office for confirmation.
+    #
+    # Production deployment should replace this dict with a Firestore/database
+    # lookup against a maintained registry of certified seed batches.
+    # ---------------------------------------------------------------------------
     seed_registry = {
         "FS-RICE-2026-A1": {
             "status": "authentic",
@@ -482,7 +527,22 @@ async def verify_seed(request: Request, data: SeedVerifyRequest):
     entry = seed_registry.get(code)
 
     if entry is None:
-        return {"success": True, "code": code, "status": "not_found"}
+        # Return "unverified" — NOT "not_found".
+        # "Not found" implies the seed is safe but merely unknown.
+        # "Unverified" correctly signals that the code could not be confirmed
+        # as authentic, and the farmer should treat it with caution.
+        return {
+            "success": True,
+            "code": code,
+            "status": "unverified",
+            "warning": (
+                "This seed code was not found in the verified registry. "
+                "This does NOT mean the seed is safe — it may be counterfeit, "
+                "mislabelled, or from an unregistered batch. "
+                "Do not use this seed until you have confirmed its authenticity "
+                "with your local Krishi Vigyan Kendra (KVK) or agricultural office."
+            ),
+        }
 
     if entry["status"] == "invalid":
         return {

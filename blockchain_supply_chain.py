@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict, field
 import qrcode
 import io
+import copy as _copy
 import base64
 
 
@@ -25,16 +26,34 @@ class BlockchainRecord:
     data: Dict
     hash: str = ""
 
-    def calculate_hash(self) -> str:
-        """Calculate SHA256 hash of record"""
-        record_string = json.dumps({
+    def to_dict(self) -> Dict:
+        """Serialize record to dict (hash excluded — matches calculate_hash input)"""
+        return {
             "timestamp": self.timestamp,
             "actor": self.actor,
             "action": self.action,
             "location": self.location,
-            "data": self.data
-        }, sort_keys=True)
+            "data": self.data,
+        }
+
+    def calculate_hash(self) -> str:
+        """Calculate SHA256 hash of record (excludes hash field)"""
+        record_string = json.dumps(self.to_dict(), sort_keys=True)
         return hashlib.sha256(record_string.encode()).hexdigest()
+
+    @staticmethod
+    def from_dict(data: Dict) -> 'BlockchainRecord':
+        """Reconstruct record from dict, then compute and verify hash"""
+        record = BlockchainRecord(
+            timestamp=data["timestamp"],
+            actor=data["actor"],
+            action=data["action"],
+            location=data["location"],
+            data=data.get("data", {}),
+        )
+        if "hash" in data:
+            record.hash = data["hash"]
+        return record
 
 
 @dataclass
@@ -96,37 +115,35 @@ class SmartContract:
 class SupplyChainBlockchain:
     """Blockchain for agricultural supply chain with basic atomicity"""
 
-    def __init__(self):
+    def __init__(self, repository=None):
         self.chain: List[BlockchainRecord] = []
         self.products: Dict[str, ProductBatch] = {}
         self.supply_chain_nodes: Dict[str, List[SupplyChainNode]] = {}
         self.smart_contracts: Dict[str, SmartContract] = {}
         self.verified_actors: Dict[str, Dict] = {}
+        self._trace_batches: Dict[str, Dict] = {}
+        self._repository = repository
 
     # ------------- Utilities for atomicity -------------
     def _snapshot_state(self):
         """Create snapshot of current state for rollback"""
         return {
             "chain_len": len(self.chain),
-            "products_keys": set(self.products.keys()),
+            "products_copy": _copy.deepcopy(self.products),
             "supply_chain_nodes_copy": {k: list(v) for k, v in self.supply_chain_nodes.items()},
             "smart_contracts_copy": {k: v.status for k, v in self.smart_contracts.items()},
+            "trace_batches_copy": _copy.deepcopy(self._trace_batches),
         }
 
     def _rollback_to_snapshot(self, snap):
         """Rollback state to snapshot point"""
-        # revert chain
         self.chain = self.chain[: snap["chain_len"]]
-        # revert products that were added
-        current_keys = set(self.products.keys())
-        for k in list(current_keys - snap["products_keys"]):
-            del self.products[k]
-        # revert supply_chain_nodes
+        self.products = _copy.deepcopy(snap["products_copy"])
         self.supply_chain_nodes = {k: list(v) for k, v in snap["supply_chain_nodes_copy"].items()}
-        # revert contract statuses
         for cid, status in snap["smart_contracts_copy"].items():
             if cid in self.smart_contracts:
                 self.smart_contracts[cid].status = status
+        self._trace_batches = _copy.deepcopy(snap["trace_batches_copy"])
 
     # ------------- Core operations -------------
     def register_actor(self, actor_id: str, name: str, actor_type: str, location: str) -> Dict:
@@ -142,6 +159,8 @@ class SupplyChainBlockchain:
             "rating": 5.0,
         }
         self.verified_actors[actor_id] = actor_data
+        if self._repository is not None:
+            self._repository.save_actor(actor_id, actor_data)
         return actor_data
 
     def create_product_batch(
@@ -183,7 +202,7 @@ class SupplyChainBlockchain:
             self.products[batch_id] = batch
             self.supply_chain_nodes[batch_id] = []
             self.chain.append(record)
-            batch.blockchain_records.append(asdict(record))
+            batch.blockchain_records.append(record.to_dict())
 
             return batch
 
@@ -233,7 +252,10 @@ class SupplyChainBlockchain:
             # Commit
             self.supply_chain_nodes.setdefault(batch_id, []).append(node)
             self.chain.append(record)
-            self.products[batch_id].blockchain_records.append(asdict(record))
+            self.products[batch_id].blockchain_records.append(record.to_dict())
+
+            if self._repository is not None:
+                self._repository.create(asdict(node))
 
             return node
 
@@ -492,3 +514,50 @@ class SupplyChainBlockchain:
                     "quality_score": batch.quality_score,
                 })
         return certified
+
+    # ------------- QR Traceability (farmer-facing) -------------
+
+    def register_trace_batch(self, payload: Dict) -> Dict:
+        """Store a QR-traceability batch submitted from the frontend.
+
+        These batches are distinct from the supply-chain ProductBatch
+        objects — they carry the farmer-entered journey data that
+        consumers see when they scan a QR code.  Storing them here
+        (server-side) means the data cannot be tampered with via
+        DevTools or by clearing browser storage.
+        """
+        batch_id = payload.get("id")
+        if not batch_id:
+            raise ValueError("Batch ID is required")
+        if batch_id in self._trace_batches:
+            raise ValueError(f"Batch {batch_id} is already registered")
+
+        entry = {
+            "id": batch_id,
+            "crop": payload.get("crop", ""),
+            "variety": payload.get("variety", ""),
+            "harvestDate": payload.get("harvestDate", ""),
+            "farm": payload.get("farm", ""),
+            "status": payload.get("status", "Pending Verification"),
+            "registeredByUid": payload.get("registeredByUid", ""),
+            "registeredAt": datetime.utcnow().isoformat() + "Z",
+            "journey": payload.get("journey", []),
+        }
+        self._trace_batches[batch_id] = entry
+
+        # Also record the registration on the blockchain for auditability.
+        record = BlockchainRecord(
+            timestamp=entry["registeredAt"],
+            actor=entry["registeredByUid"] or "unknown",
+            action="trace_batch_registered",
+            location=entry["farm"],
+            data={"batch_id": batch_id, "crop": entry["crop"]},
+        )
+        record.hash = record.calculate_hash()
+        self.chain.append(record)
+
+        return entry
+
+    def get_trace_batch(self, batch_id: str) -> Optional[Dict]:
+        """Fetch a QR-traceability batch by ID.  Returns None if not found."""
+        return self._trace_batches.get(batch_id)
