@@ -859,23 +859,30 @@ async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest)
 @limiter.limit("5/minute")
 async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
     """Create a loan application from the current farm profile."""
-    # Check permission: farmer can create finance applications
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
     await RBACManager.raise_if_unauthorized(
         request, [Permission.FINANCE_CREATE], require_all=False
     )
-    application = _farm_finance_ai.create_application(body.model_dump())
+    application = _farm_finance_ai.create_application(body.model_dump(), owner_uid=uid)
     return {"success": True, "data": application}
 
 
 @app.get("/api/finance/applications/{application_id}")
 async def get_finance_application(application_id: str, request: Request):
-    # Check permission: user can read finance applications (own or all if expert/admin)
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+    has_read_all = await RBACManager.verify_permission(
+        request, [Permission.FINANCE_READ_ALL], require_all=False
+    )
     await RBACManager.raise_if_unauthorized(
         request, [Permission.FINANCE_READ_OWN, Permission.FINANCE_READ_ALL], require_all=False
     )
     application = _farm_finance_ai.get_application(application_id)
     if not application:
         raise HTTPException(status_code=404, detail="Application not found")
+    if not has_read_all and application.get("owner_uid", "") != uid:
+        raise HTTPException(status_code=403, detail="Access denied: not your application")
     return {"success": True, "data": application}
 
 
@@ -892,7 +899,8 @@ def get_finance_marketplace():
 @limiter.limit("10/minute")
 async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest):
     """Analyze farm finances and return loan recommendations."""
-    # Check permission: farmer can create finance requests
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
     await RBACManager.raise_if_unauthorized(
         request, [Permission.FINANCE_CREATE], require_all=False
     )
@@ -904,23 +912,30 @@ async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest)
 @limiter.limit("5/minute")
 async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
     """Create a loan application from the current farm profile."""
-    # Check permission: farmer can create finance applications
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
     await RBACManager.raise_if_unauthorized(
         request, [Permission.FINANCE_CREATE], require_all=False
     )
-    application = _farm_finance_ai.create_application(body.model_dump())
+    application = _farm_finance_ai.create_application(body.model_dump(), owner_uid=uid)
     return {"success": True, "data": application}
 
 
 @app.get("/api/finance/applications/{application_id}")
 async def get_finance_application(application_id: str, request: Request):
-    # Check permission: user can read finance applications (own or all if expert/admin)
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+    has_read_all = await RBACManager.verify_permission(
+        request, [Permission.FINANCE_READ_ALL], require_all=False
+    )
     await RBACManager.raise_if_unauthorized(
         request, [Permission.FINANCE_READ_OWN, Permission.FINANCE_READ_ALL], require_all=False
     )
     application = _farm_finance_ai.get_application(application_id)
     if not application:
         raise HTTPException(status_code=404, detail="Application not found")
+    if not has_read_all and application.get("owner_uid", "") != uid:
+        raise HTTPException(status_code=403, detail="Access denied: not your application")
     return {"success": True, "data": application}
 
 
@@ -937,7 +952,8 @@ def get_finance_marketplace():
 @limiter.limit("10/minute")
 async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest):
     """Analyze farm finances and return loan recommendations."""
-    # Check permission: farmer can create finance requests
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
     await RBACManager.raise_if_unauthorized(
         request, [Permission.FINANCE_CREATE], require_all=False
     )
@@ -949,23 +965,30 @@ async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest)
 @limiter.limit("5/minute")
 async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
     """Create a loan application from the current farm profile."""
-    # Check permission: farmer can create finance applications
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
     await RBACManager.raise_if_unauthorized(
         request, [Permission.FINANCE_CREATE], require_all=False
     )
-    application = _farm_finance_ai.create_application(body.model_dump())
+    application = _farm_finance_ai.create_application(body.model_dump(), owner_uid=uid)
     return {"success": True, "data": application}
 
 
 @app.get("/api/finance/applications/{application_id}")
 async def get_finance_application(application_id: str, request: Request):
-    # Check permission: user can read finance applications (own or all if expert/admin)
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+    has_read_all = await RBACManager.verify_permission(
+        request, [Permission.FINANCE_READ_ALL], require_all=False
+    )
     await RBACManager.raise_if_unauthorized(
         request, [Permission.FINANCE_READ_OWN, Permission.FINANCE_READ_ALL], require_all=False
     )
     application = _farm_finance_ai.get_application(application_id)
     if not application:
         raise HTTPException(status_code=404, detail="Application not found")
+    if not has_read_all and application.get("owner_uid", "") != uid:
+        raise HTTPException(status_code=403, detail="Access denied: not your application")
     return {"success": True, "data": application}
 
 
@@ -982,7 +1005,8 @@ def get_finance_marketplace():
 @limiter.limit("10/minute")
 async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest):
     """Analyze farm finances and return loan recommendations."""
-    # Check permission: farmer can create finance requests
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
     await RBACManager.raise_if_unauthorized(
         request, [Permission.FINANCE_CREATE], require_all=False
     )
@@ -994,23 +1018,30 @@ async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest)
 @limiter.limit("5/minute")
 async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
     """Create a loan application from the current farm profile."""
-    # Check permission: farmer can create finance applications
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
     await RBACManager.raise_if_unauthorized(
         request, [Permission.FINANCE_CREATE], require_all=False
     )
-    application = _farm_finance_ai.create_application(body.model_dump())
+    application = _farm_finance_ai.create_application(body.model_dump(), owner_uid=uid)
     return {"success": True, "data": application}
 
 
 @app.get("/api/finance/applications/{application_id}")
 async def get_finance_application(application_id: str, request: Request):
-    # Check permission: user can read finance applications (own or all if expert/admin)
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+    has_read_all = await RBACManager.verify_permission(
+        request, [Permission.FINANCE_READ_ALL], require_all=False
+    )
     await RBACManager.raise_if_unauthorized(
         request, [Permission.FINANCE_READ_OWN, Permission.FINANCE_READ_ALL], require_all=False
     )
     application = _farm_finance_ai.get_application(application_id)
     if not application:
         raise HTTPException(status_code=404, detail="Application not found")
+    if not has_read_all and application.get("owner_uid", "") != uid:
+        raise HTTPException(status_code=403, detail="Access denied: not your application")
     return {"success": True, "data": application}
 
 

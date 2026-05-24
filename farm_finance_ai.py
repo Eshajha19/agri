@@ -34,6 +34,7 @@ class FinanceApplication:
     created_at: str
     assessment_score: float
     risk_level: str
+    owner_uid: str = ""
     required_documents: List[str] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
 
@@ -208,7 +209,7 @@ class FarmFinanceAI:
             "marketplace": [self._product_payload(product) for product in self.loan_products],
         }
 
-    def create_application(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def create_application(self, payload: Dict[str, Any], owner_uid: str = "") -> Dict[str, Any]:
         analysis = self.analyze_financial_profile(payload)
         requested_lender = (payload.get("selected_lender") or "").strip()
         selected_product = self._select_product(requested_lender, analysis["lender_matches"], analysis["selected_product"])
@@ -228,6 +229,7 @@ class FarmFinanceAI:
             created_at=datetime.now().isoformat(),
             assessment_score=analysis["financial_health_score"],
             risk_level=analysis["risk_level"],
+            owner_uid=owner_uid,
             required_documents=analysis["required_documents"],
             notes=analysis["action_plan"],
         )
@@ -248,6 +250,7 @@ class FarmFinanceAI:
                     "created_at": application.created_at,
                     "assessment_score": application.assessment_score,
                     "risk_level": application.risk_level,
+                    "owner_uid": application.owner_uid,
                     "required_documents": application.required_documents,
                     "notes": application.notes,
                 }
@@ -289,6 +292,7 @@ class FarmFinanceAI:
                         "created_at": app_dict.get("created_at"),
                         "assessment_score": app_dict.get("assessment_score"),
                         "risk_level": app_dict.get("risk_level"),
+                        "owner_uid": app_dict.get("owner_uid", ""),
                         "required_documents": app_dict.get("required_documents", []),
                         "notes": app_dict.get("notes", []),
                     }
@@ -310,6 +314,7 @@ class FarmFinanceAI:
             "created_at": application.created_at,
             "assessment_score": application.assessment_score,
             "risk_level": application.risk_level,
+            "owner_uid": application.owner_uid,
             "required_documents": application.required_documents,
             "notes": application.notes,
         }
