@@ -113,7 +113,7 @@ def predict_yield_trend_task(self, data: list):
             pred = model.predict([features])[0]
             pred_value = round(float(pred), 2)
             trend.append(pred_value)
-            temp = [pred_value] + temp
+            temp = temp[1:] + [pred_value]
 
         return {
             "trend": trend,
