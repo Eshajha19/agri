@@ -55,12 +55,19 @@ def init_quality(cqg, rbac, perm):
 
 @router.post("/assess-single")
 async def assess_single_crop(request: Request, data: CropQualityGradingRequest):
-    if crop_quality_grader is None:
+    """Assess a single crop image. Requires QUALITY_ASSESS permission."""
+    if crop_quality_grader is None or rbac_manager is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    try:
+        await rbac_manager.raise_if_unauthorized(request, [Permission.QUALITY_ASSESS], require_all=False)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=403, detail=str(e))
     try:
         import base64
         image_bytes = base64.b64decode(data.image_base64)
-        result = crop_quality_grader.assess_crop_image(data.crop_type, image_bytes)
+        result = crop_quality_grader.assess_crop_image(image_bytes, data.crop_type)
         return {"success": True, "crop_type": data.crop_type, "assessment": result}
     except Exception as e:
         logger.error(f"Assessment error: {e}")
@@ -68,21 +75,46 @@ async def assess_single_crop(request: Request, data: CropQualityGradingRequest):
 
 @router.post("/assess-batch")
 async def assess_batch_crops(request: Request, data: CropQualityBatchRequest):
-    if crop_quality_grader is None:
+    """Assess a batch of crop images. Requires QUALITY_ASSESS permission."""
+    if crop_quality_grader is None or rbac_manager is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     try:
+        await rbac_manager.raise_if_unauthorized(request, [Permission.QUALITY_ASSESS], require_all=False)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    try:
         import base64
-        image_bytes_list = [base64.b64decode(img) for img in data.images_base64]
-        results = crop_quality_grader.batch_grade_crops(data.crop_type, image_bytes_list)
+        image_bytes_list = []
+        for idx, img in enumerate(data.images_base64):
+            try:
+                image_bytes_list.append(base64.b64decode(img))
+            except Exception as decode_err:
+                logger.error(f"Batch decode error at index {idx}: {decode_err}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid base64 encoding at image index {idx}",
+                )
+        results = crop_quality_grader.batch_grade_crops(image_bytes_list, data.crop_type)
         return {"success": True, "crop_type": data.crop_type, "batch_results": results}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Batch error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/trends")
 async def get_quality_trends(request: Request, data: QualityTrendsRequest):
-    if crop_quality_grader is None:
+    """Get quality trends. Requires QUALITY_READ permission."""
+    if crop_quality_grader is None or rbac_manager is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    try:
+        await rbac_manager.raise_if_unauthorized(request, [Permission.QUALITY_READ], require_all=False)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=403, detail=str(e))
     try:
         trends = crop_quality_grader.get_quality_trends(data.crop_type, data.days)
         return {"success": True, "crop_type": data.crop_type, "days": data.days, "trends": trends}
@@ -92,19 +124,33 @@ async def get_quality_trends(request: Request, data: QualityTrendsRequest):
 
 @router.get("/supported-crops")
 async def get_supported_crops(request: Request):
-    if crop_quality_grader is None:
+    """Get supported crop types. Requires QUALITY_READ permission."""
+    if crop_quality_grader is None or rbac_manager is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    try:
+        await rbac_manager.raise_if_unauthorized(request, [Permission.QUALITY_READ], require_all=False)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=403, detail=str(e))
     crops = crop_quality_grader.supported_crops if hasattr(crop_quality_grader, 'supported_crops') else []
     return {"success": True, "supported_crops": crops}
 
 @router.post("/market-price")
 async def calculate_market_price(request: Request, data: CropQualityGradingRequest):
-    if crop_quality_grader is None:
+    """Calculate market price from crop image. Requires QUALITY_ASSESS permission."""
+    if crop_quality_grader is None or rbac_manager is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    try:
+        await rbac_manager.raise_if_unauthorized(request, [Permission.QUALITY_ASSESS], require_all=False)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=403, detail=str(e))
     try:
         import base64
         image_bytes = base64.b64decode(data.image_base64)
-        assessment = crop_quality_grader.assess_crop_image(data.crop_type, image_bytes)
+        assessment = crop_quality_grader.assess_crop_image(image_bytes, data.crop_type)
         return {"success": True, "crop_type": data.crop_type, "grade": getattr(assessment, 'grade', 'A'), "assessment": assessment}
     except Exception as e:
         logger.error(f"Price error: {e}")

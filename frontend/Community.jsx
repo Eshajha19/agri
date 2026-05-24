@@ -144,10 +144,23 @@ const Community = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [posts, postComments]);
   
-  // Mock verification check for demo
+  // A user is considered verified only when their Firestore profile explicitly
+  // marks them as an expert or admin, or when they have earned the "verified"
+  // badge through the platform's reputation system.
+  //
+  // Previously this was a mock function that returned true for every Firebase
+  // UID (all UIDs are 28 chars, so `userId.length > 10` was always true),
+  // meaning every user — including spammers and bad actors — received a blue
+  // ShieldCheck badge that made their posts appear credible to farmers.
   const isVerified = (userId) => {
-    // For demo: all users with 'a' in their ID or the word 'farmer' are verified
-    return userId.length > 10 || userId.includes('farmer');
+    if (!userId) return false;
+    const author = authorsData[userId];
+    if (!author) return false;
+    // Verified if the user holds an elevated role assigned by an admin
+    if (author.role === "expert" || author.role === "admin") return true;
+    // Or if they have explicitly earned the "verified" badge
+    if (Array.isArray(author.badges) && author.badges.includes("verified")) return true;
+    return false;
   };
 
   const currentUser = isFirebaseConfigured() ? auth?.currentUser : null;
