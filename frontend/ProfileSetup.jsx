@@ -3,6 +3,7 @@ import { auth, db, isFirebaseConfigured } from "./lib/firebase";
 import { doc, setDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import { FaUser, FaGlobe, FaMapMarkerAlt, FaSeedling, FaArrowRight } from "react-icons/fa";
+import apiClient from "./lib/apiClient";
 import "./ProfileSetup.css";
 
 const LANGUAGE_OPTIONS = [
@@ -132,7 +133,7 @@ const ProfileSetup = ({ user, profileCompleted }) => {
         await setDoc(doc(db, "users", currentUser.uid), {
           displayName: name,
           language: language,
-          role: role,
+          role: "farmer",   // always farmer — elevated roles are admin-assigned only
           cropType: cropType,
           location: location,
           address: address,
@@ -144,17 +145,17 @@ const ProfileSetup = ({ user, profileCompleted }) => {
           updatedAt: new Date().toISOString()
         }, { merge: true });
 
-        // If WhatsApp alerts are enabled, subscribe via backend
+        // If WhatsApp alerts are enabled, subscribe via backend.
+        // Use apiClient so the Firebase auth token is automatically injected
+        // via the Axios request interceptor — the backend derives the user's
+        // identity from the verified token, not from any client-supplied field.
         if (whatsappAlerts && phoneNumber) {
           try {
-            await fetch("/api/whatsapp/subscribe", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                phone_number: phoneNumber,
-                user_id: currentUser.uid,
-                name: name
-              })
+            await apiClient.post("/api/whatsapp/subscribe", {
+              phone_number: phoneNumber,
+              name: name
+              // user_id is intentionally omitted — the backend ignores it and
+              // uses the uid from the verified Firebase token instead.
             });
           } catch (whatsappErr) {
             console.error("WhatsApp subscription error:", whatsappErr);
@@ -203,15 +204,18 @@ const ProfileSetup = ({ user, profileCompleted }) => {
             <label><FaUser /> I am a...</label>
             <div className="setup-input-wrapper">
               <span className="setup-icon">👤</span>
-              <select
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-              >
+              {/* Role is always "farmer" during self-service profile setup.
+                  Expert and vendor roles are assigned by admins only — they
+                  must not be self-assignable because they grant elevated
+                  backend permissions (report generation, finance read-all,
+                  consultation management). */}
+              <select value="farmer" disabled aria-label="Account role">
                 <option value="farmer">🚜 Farmer</option>
-                <option value="expert">🎓 Agri-Expert</option>
-                <option value="vendor">🏪 Marketplace Vendor</option>
               </select>
             </div>
+            <p style={{ fontSize: "0.78rem", color: "#6b7280", marginTop: "4px" }}>
+              Expert and vendor roles are assigned by administrators.
+            </p>
           </div>
 
           <div className="setup-group">

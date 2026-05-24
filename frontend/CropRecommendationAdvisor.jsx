@@ -132,8 +132,8 @@ export default function CropRecommendationAdvisor({ onClose }) {
     [formData]
   );
 
-  const toggleCropExpand = (index) => {
-    setExpandedCrop(expandedCrop === index ? null : index);
+  const toggleCropExpand = (cropName) => {
+    setExpandedCrop(expandedCrop === cropName ? null : cropName);
   };
 
   const getSoilInterpretation = () => {
@@ -174,8 +174,8 @@ export default function CropRecommendationAdvisor({ onClose }) {
     );
   };
 
-  const getRecommendationCard = (crop, index) => {
-    const isExpanded = expandedCrop === index;
+  const getRecommendationCard = (crop) => {
+    const isExpanded = expandedCrop === crop.crop;
     const scoreColor =
       crop.compatibility_score >= 80
         ? '#10b981'
@@ -184,8 +184,8 @@ export default function CropRecommendationAdvisor({ onClose }) {
           : '#ef4444';
 
     return (
-      <div key={index} className="recommendation-card">
-        <div className="card-header" onClick={() => toggleCropExpand(index)}>
+        <div key={crop.crop} className="recommendation-card">
+         <div className="card-header" onClick={() => toggleCropExpand(crop.crop)}>
           <div className="card-title-section">
             <Leaf size={20} className="crop-icon" />
             <div className="crop-info">
@@ -216,8 +216,8 @@ export default function CropRecommendationAdvisor({ onClose }) {
             <div className="reasons-section">
               <h6>Why this crop?</h6>
               <ul className="reasons-list">
-                {crop.reasons.map((reason, idx) => (
-                  <li key={idx}>
+                {crop.reasons.map((reason) => (
+                  <li key={reason}>
                     <CheckCircle size={16} className="check-icon" />
                     {reason}
                   </li>

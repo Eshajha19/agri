@@ -275,33 +275,57 @@ class CropQualityGrader:
         self, images_data: List[bytes], crop_type: str
     ) -> Dict:
         """
-        Grade multiple crops in batch
-        
+        Grade multiple crops in batch.
+
         Args:
-            images_data: List of image bytes
-            crop_type: Type of crop
-            
+            images_data: List of image bytes. Each entry must be non-empty bytes.
+            crop_type: Type of crop being assessed.
+
         Returns:
-            Dictionary with batch results and statistics
+            Dictionary with per-image assessments and aggregate batch statistics.
         """
+        if not images_data:
+            return {
+                "assessments": [],
+                "batch_statistics": {
+                    "total_crops": 0,
+                    "graded_crops": 0,
+                    "failed_crops": 0,
+                    "average_score": 0,
+                    "grade_distribution": {},
+                    "average_price_adjustment": 0,
+                },
+                "crop_type": crop_type,
+                "timestamp": datetime.now().isoformat(),
+            }
+
         assessments = []
-        for image_data in images_data:
+        for idx, image_data in enumerate(images_data):
+            if not isinstance(image_data, (bytes, bytearray)) or len(image_data) == 0:
+                assessments.append({
+                    "error": f"Image at index {idx} is empty or not valid bytes",
+                    "index": idx,
+                    "timestamp": datetime.now().isoformat(),
+                })
+                continue
             try:
                 assessment = self.assess_crop_image(image_data, crop_type)
                 assessments.append(asdict(assessment))
             except Exception as e:
                 assessments.append(
-                    {"error": str(e), "timestamp": datetime.now().isoformat()}
+                    {"error": str(e), "index": idx, "timestamp": datetime.now().isoformat()}
                 )
 
         # Calculate batch statistics
         valid_assessments = [a for a in assessments if "error" not in a]
+        failed_count = len(assessments) - len(valid_assessments)
         if valid_assessments:
             scores = [a["score"] for a in valid_assessments]
             grades = [a["grade"] for a in valid_assessments]
             batch_stats = {
                 "total_crops": len(images_data),
                 "graded_crops": len(valid_assessments),
+                "failed_crops": failed_count,
                 "average_score": round(np.mean(scores), 2),
                 "grade_distribution": {
                     g: grades.count(g) for g in set(grades)
@@ -315,6 +339,7 @@ class CropQualityGrader:
             batch_stats = {
                 "total_crops": len(images_data),
                 "graded_crops": 0,
+                "failed_crops": failed_count,
                 "average_score": 0,
                 "grade_distribution": {},
                 "average_price_adjustment": 0,
@@ -323,6 +348,7 @@ class CropQualityGrader:
         return {
             "assessments": assessments,
             "batch_statistics": batch_stats,
+            "crop_type": crop_type,
             "timestamp": datetime.now().isoformat(),
         }
 

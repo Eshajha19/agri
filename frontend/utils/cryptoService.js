@@ -58,13 +58,21 @@ export const cryptoService = {
    * never be read by JavaScript. It is stored directly as a CryptoKey object
    * in IndexedDB. The public key remains extractable so it can be shared.
    */
-async generateECDHKeyPair() {
-     return await window.crypto.subtle.generateKey(
-       { name: "ECDH", namedCurve: "P-256" },
-       true, // extractable — keys must be exported before storing non-extractable copies
-       ["deriveKey"]
-     );
-   },
+  async generateECDHKeyPair() {
+    const keyPair = await window.crypto.subtle.generateKey(
+      { name: "ECDH", namedCurve: "P-256" },
+      true,
+      ["deriveKey"]
+    );
+    const privateJwk = await window.crypto.subtle.exportKey("jwk", keyPair.privateKey);
+    const nonExtractablePrivateKey = await window.crypto.subtle.importKey(
+      "jwk", privateJwk,
+      { name: "ECDH", namedCurve: "P-256" },
+      false,
+      ["deriveKey"]
+    );
+    return { privateKey: nonExtractablePrivateKey, publicKey: keyPair.publicKey };
+  },
 
   /**
    * Export a PUBLIC key to JWK format for transmission to Firebase.

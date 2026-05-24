@@ -163,22 +163,22 @@ export default function PersonalizedRecommendations({ userData, weatherData }) {
         </div>
       </div>
 
-      <div className="recommendation-grid">
-        {sortedRecs.map((rec, index) => {
-          const config = TYPE_CONFIG[rec.type];
-          const IconComponent = config.icon;
-          const isCropType = rec.type === 'crop' && userData?.cropType;
-          const CropIcon = isCropType ? getCropIcon(userData.cropType) : null;
+       <div className="recommendation-grid">
+          {sortedRecs.map((rec, sortedIdx) => {
+           const config = TYPE_CONFIG[rec.type];
+           const IconComponent = config.icon;
+           const isCropType = rec.type === 'crop' && userData?.cropType;
+           const CropIcon = isCropType ? getCropIcon(userData.cropType) : null;
 
-          return (
-            <div 
-              key={index} 
-              className={`recommendation-card ${rec.type}`}
-              style={{
-                background: config.gradient,
-                borderLeft: `4px solid ${config.borderColor}`,
-                animationDelay: `${index * 0.1}s`
-              }}
+           return (
+             <div 
+               key={`${rec.type}|${(rec.title || rec.text || '').slice(0, 30)}`} 
+               className={`recommendation-card ${rec.type}`}
+               style={{
+                 background: config.gradient,
+                 borderLeft: `4px solid ${config.borderColor}`,
+                 animationDelay: `${sortedIdx * 0.1}s`
+               }}
               role="alert"
               aria-live={rec.type === 'warning' || rec.type === 'heat' || rec.type === 'frost' ? 'polite' : 'off'}
             >
