@@ -10,6 +10,7 @@ const resourcesData = [
     description:
       "Learn how to choose crops based on season, soil health, and weather conditions.",
     tags: ["Seasonal", "Soil", "Irrigation"],
+    link: "/crop-planner"
   },
   {
     id: 2,
@@ -18,6 +19,7 @@ const resourcesData = [
     description:
       "Explore smart farming technologies, AI in agriculture, and government schemes.",
     tags: ["Tech", "AI", "Govt"],
+    link: "/schemes"
   },
   {
     id: 3,
@@ -26,6 +28,7 @@ const resourcesData = [
     description:
       "Step-by-step guide for soil testing, fertilizer usage, and crop rotation.",
     tags: ["Beginner", "Advanced", "Yield"],
+    link: "/crop-guide"
   },
   {
     id: 4,
@@ -34,6 +37,7 @@ const resourcesData = [
     description:
       "Natural and chemical methods to protect crops from pests effectively.",
     tags: ["Pest", "Organic", "Protection"],
+    link: "/advisor"
   },
   {
     id: 5,
@@ -70,7 +74,7 @@ export default function ResourcesPage() {
 
   return (
     <div className="resources-page">
-      
+
       {/* HERO */}
       <div className="resources-hero">
         <h1>Knowledge Hub 🌱</h1>
@@ -96,7 +100,7 @@ export default function ResourcesPage() {
           return (
             <button
               key={type}
-              className={filter === type ? "active" : ""}
+              className={`category-tab ${filter === type ? "active" : ""}`}
               onClick={() => setFilter(type)}
             >
               {type} ({count})
@@ -117,16 +121,18 @@ export default function ResourcesPage() {
 
               <div className="tags">
                 {item.tags.map((tag, i) => (
-                   <span key={i}>{tag}</span>
+                  <span key={i}>{tag}</span>
                 ))}
               </div>
 
               {item.link ? (
-                <Link to={item.link}>
+                <Link to={item.link} className="explore-link">
                   <button className="explore-btn">Explore →</button>
                 </Link>
               ) : (
-                <button className="explore-btn">Explore →</button>
+                <button className="explore-btn" disabled aria-label="Content coming soon">
+                  Explore →
+                </button>
               )}
             </div>
           ))
@@ -153,9 +159,9 @@ export default function ResourcesPage() {
       <div className="about-section">
         <h2>About Knowledge Hub 🌾</h2>
         <p>
-          This platform is designed to help farmers, students, and agriculture 
-          enthusiasts access reliable knowledge in one place. From seasonal 
-          farming tips to modern agricultural technologies, we aim to simplify 
+          This platform is designed to help farmers, students, and agriculture
+          enthusiasts access reliable knowledge in one place. From seasonal
+          farming tips to modern agricultural technologies, we aim to simplify
           learning and improve productivity.
         </p>
 

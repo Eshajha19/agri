@@ -1,4 +1,5 @@
-import React from "react";
+// import React from "react";
+import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   FaBrain,
@@ -199,6 +200,7 @@ const getDailyQuote = () => {
   return dailyQuotes[index];
 };
 
+
 // ─── Pre-generated stable bird data (avoids Math.random() on every render) ───
 const BIRD_DATA = Array.from({ length: 7 }, (_, i) => ({
   id: i,
@@ -298,8 +300,30 @@ const Birds = () => (
 
 // ─── Home component ───────────────────────────────────────────────────────────
 export default function Home({ user }) {
+  
+    const initialQuoteIndex = dailyQuotes.findIndex(
+      (quote) => quote.text === getDailyQuote().text
+    );
+
+    const [currentQuoteIndex, setCurrentQuoteIndex] =
+      useState(initialQuoteIndex);
+
+    const dailyQuote = dailyQuotes[currentQuoteIndex];
+
+    const handlePrevQuote = () => {
+      setCurrentQuoteIndex((prev) =>
+        prev === 0 ? dailyQuotes.length - 1 : prev - 1
+      );
+    };
+
+    const handleNextQuote = () => {
+      setCurrentQuoteIndex((prev) =>
+        prev === dailyQuotes.length - 1 ? 0 : prev + 1
+      );
+    };
+
   const [statValues, setStatValues] = React.useState([0, 0, 0, 0]);
-  const [dailyQuote, setDailyQuote] = React.useState(getDailyQuote());
+  // const [dailyQuote, setDailyQuote] = React.useState(getDailyQuote());
 
   React.useEffect(() => {
     const interval = setInterval(() => {
@@ -315,19 +339,19 @@ export default function Home({ user }) {
     return () => clearInterval(interval);
   }, []);
 
-  React.useEffect(() => {
-    setDailyQuote(getDailyQuote());
-    const now = new Date();
-    const nextMidnight = new Date(now);
-    nextMidnight.setHours(24, 0, 0, 0);
-    const remainingMs = nextMidnight.getTime() - now.getTime();
+  // React.useEffect(() => {
+  //   setDailyQuote(getDailyQuote());
+  //   const now = new Date();
+  //   const nextMidnight = new Date(now);
+  //   nextMidnight.setHours(24, 0, 0, 0);
+  //   const remainingMs = nextMidnight.getTime() - now.getTime();
 
-    const refreshTimeout = setTimeout(() => {
-      setDailyQuote(getDailyQuote());
-    }, remainingMs + 1000);
+  //   const refreshTimeout = setTimeout(() => {
+  //     setDailyQuote(getDailyQuote());
+  //   }, remainingMs + 1000);
 
-    return () => clearTimeout(refreshTimeout);
-  }, []);
+  //   return () => clearTimeout(refreshTimeout);
+  // }, []);
 
   return (
     <div className="home">
@@ -437,12 +461,37 @@ export default function Home({ user }) {
           </p>
         </div>
         <div className="quote-card">
-          <div className="quote-card-top">
+          {/* <div className="quote-card-top">
             <FaQuoteLeft className="quote-icon" />
             <span className="quote-label">Daily Farming Quote</span>
+          </div> */}
+          <div className="quote-card-top">
+            <div className="quote-title">
+              <FaQuoteLeft className="quote-icon" />
+              <span className="quote-label">Daily Farming Quote</span>
+            </div>
           </div>
-          <p className="quote-card-text">{dailyQuote.text}</p>
-          <div className="quote-author">— {dailyQuote.author}</div>
+          <div className="quote-card-below">
+            <p className="quote-card-text">{dailyQuote.text}</p>
+            <div className="quote-author">{dailyQuote.author}</div>
+            <div className="quote-buttons">
+              {/* <button className="quote-btn">Prev</button>
+              <button className="quote-btn">Next</button> */}
+              <button
+                className="quote-btn"
+                onClick={handlePrevQuote}
+              >
+                Prev
+              </button>
+
+              <button
+                className="quote-btn"
+                onClick={handleNextQuote}
+              >
+                Next
+              </button>
+            </div>
+          </div> 
         </div>
       </section>
 
@@ -659,19 +708,19 @@ export default function Home({ user }) {
               <p className="testimonial-text">{testimonial.text}</p>
               <div className="testimonial-author">
                 <div className="author-avatar">
-    {testimonial.name.charAt(0)}
-  </div>
+                  {testimonial.name.charAt(0)}
+                </div>
 
-  <div className="author-info">
-    <span className="author-name">
-      <span className="notranslate">{testimonial.name}</span>
-    </span>
+                <div className="author-info">
+                  <span className="author-name">
+                    <span className="notranslate">{testimonial.name}</span>
+                  </span>
 
-    <span className="author-location">
-      {testimonial.location}
-    </span>
-  </div>
-</div>
+                  <span className="author-location">
+                    {testimonial.location}
+                  </span>
+                </div>
+              </div>
             </div>
           ))}
         </div>

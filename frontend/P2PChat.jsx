@@ -166,6 +166,21 @@ const P2PChat = ({ recipient, onClose }) => {
             },
             { merge: true }
           );
+        if (isMounted) setKeyStatus("generating_keys");
+        // Load or generate our ECDH key pair securely.
+        // Private key is stored in IndexedDB as a non-extractable object.
+        const { privateKey, publicJwk } = await cryptoService.ensureKeys(currentUser.uid);
+
+        if (isMounted) setKeyStatus("publishing_key");
+        // Publish our public key to Firestore for peers to find
+        if (publicJwk) {
+          if (isFirebaseConfigured()) {
+            const pubKeyRef = doc(db, "public_keys", currentUser.uid);
+            await setDoc(pubKeyRef, { jwk: publicJwk }, { merge: true });
+          } else {
+            // Local fallback (development only)
+            localStorage.setItem(`remote_ecdh_public_${currentUser.uid}`, JSON.stringify(publicJwk));
+          }
         }
 
         /* ==============================

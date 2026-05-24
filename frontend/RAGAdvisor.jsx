@@ -55,6 +55,17 @@ function MessageBubble({ msg }) {
   );
 }
 
+const sanitizeText = (text) => {
+  if (!text) return "";
+  // Strip HTML tags entirely to prevent XSS / raw HTML injection
+  let cleaned = text.replace(/<[^>]*>/g, "");
+  // Neutralize common markdown elements: remove bold, italic, code elements, headers
+  cleaned = cleaned.replace(/[*_~`#]/g, "");
+  // Neutralize markdown links [text](url) -> text (url)
+  cleaned = cleaned.replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1 ($2)");
+  return cleaned.trim();
+};
+
 const RAGAdvisor = ({ isOpen, onClose }) => {
   const [messages, setMessages] = useState([
     {
@@ -75,8 +86,16 @@ const RAGAdvisor = ({ isOpen, onClose }) => {
   if (!isOpen) return null;
 
   const handleSend = async (q) => {
-    const text = (q || query).trim();
-    if (!text) return;
+    const rawText = (q || query).trim();
+    if (!rawText) return;
+
+    // Frontend sanitization of query
+    const text = sanitizeText(rawText);
+    if (text.length < 3) {
+      setError("Please enter a valid query with at least 3 characters.");
+      return;
+    }
+
     setQuery("");
     setError("");
     setMessages((prev) => [...prev, { role: "user", text }]);
@@ -87,11 +106,31 @@ const RAGAdvisor = ({ isOpen, onClose }) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: text, top_k: 3 }),
       });
+
+      // Handle 400 or 422 validation errors cleanly and show them in assistant bubble
+      if (res.status === 400 || res.status === 422) {
+        const errData = await res.json();
+        const errMsg = errData.detail?.[0]?.msg || errData.detail || "Query failed validation check.";
+        setError(errMsg);
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            text: `⚠️ Input validation block: ${errMsg}`,
+            citations: [],
+          },
+        ]);
+        return;
+      }
+
       if (!res.ok) throw new Error("Backend unavailable");
       const data = await res.json();
+      // Sanitize AI-generated answer before rendering to prevent injection
+      // from malformed or unexpected LLM output
+      const safeAnswer = sanitizeText(data.answer);
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", text: data.answer, citations: data.citations },
+        { role: "assistant", text: safeAnswer, citations: data.citations },
       ]);
     } catch {
       // Fallback: client-side answer using local knowledge
@@ -134,7 +173,7 @@ const RAGAdvisor = ({ isOpen, onClose }) => {
 
         {/* Messages */}
         <div className="rag-messages">
-          {messages.map((msg, i) => <MessageBubble key={i} msg={msg} />)}
+          {messages.map((msg, i) => <MessageBubble key={`${msg.role}-${msg.text.slice(0, 50)}`} msg={msg} />)}
           {loading && (
             <div className="msg-bubble assistant loading-bubble">
               <Loader size={18} className="spin" />

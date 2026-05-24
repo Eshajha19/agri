@@ -18,8 +18,8 @@ export const useAdvisorStore = create((set) => ({
   showSoilChatbot: false,
   setShowSoilChatbot: (show) => set({ showSoilChatbot: show }),
 
-  showComingSoon: false,
-  setShowComingSoon: (show) => set({ showComingSoon: show }),
+  showOfflineStatus: false,
+  setShowOfflineStatus: (show) => set({ showOfflineStatus: show }),
 
   showIrrigation: false,
   setShowIrrigation: (show) => set({ showIrrigation: show }),
@@ -117,6 +117,9 @@ showGreenPractices: false,
    showConsultationHistory: false,
    setShowConsultationHistory: (show) => set({ showConsultationHistory: show }),
 
+   selectedExpert: null,
+   setSelectedExpert: (expert) => set({ selectedExpert: expert }),
+
     // Reset all modals to closed
    resetAdvisorStore: () =>
      set({
@@ -134,7 +137,7 @@ showGreenPractices: false,
        showCropDiseaseDetection: false,
        showPestManagement: false,
        showSprayReminder: false,
-       showComingSoon: false,
+       showOfflineStatus: false,
        showAgriMarketplace: false,
        showQRTraceability: false,
        showFarmPlanner3D: false,
@@ -158,5 +161,6 @@ showRAGAdvisor: false,
           showTeleConsultation: false,
           activeConsultation: null,
           showConsultationHistory: false,
+          selectedExpert: null,
       }),
 }));

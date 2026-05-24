@@ -136,7 +136,7 @@ function generateTimeSlots() {
   return slots;
 }
 
-function ExpertDirectory({ onClose, onBookConsultation }) {
+function ExpertDirectory({ userData, onClose, onBookConsultation }) {
   const { setSelectedExpert } = useAdvisorStore();
   const [experts] = useState(MOCK_EXPERTS);
   const [searchQuery, setSearchQuery] = useState("");
@@ -208,16 +208,23 @@ function ExpertDirectory({ onClose, onBookConsultation }) {
       return;
     }
 
+    // Require authentication before writing to Firestore.
+    // The Firestore rule enforces userId == request.auth.uid, so writing
+    // userId: "anonymous" would be rejected server-side anyway — but we
+    // catch it here to give the user a clear, actionable error message
+    // instead of a silent failure.
+    const currentUser = auth?.currentUser;
+    if (!currentUser) {
+      toast.error("Please sign in to book a consultation.");
+      return;
+    }
+
     setBookingLoading(true);
 
     try {
-      const user = auth.currentUser;
       const consultationData = {
-        expertId: selectedExpert.id,
-        expertName: selectedExpert.name,
-        expertSpecialization: selectedExpert.specialization,
-        userId: user?.uid || "anonymous",
-        userName: user?.displayName || "Guest Farmer",
+        userId: currentUser.uid,
+        userName: currentUser.displayName || userData?.displayName || "Farmer",
         date: currentDate.toISOString().split("T")[0],
         time: selectedSlot.time,
         notes: bookingNotes,
@@ -348,8 +355,7 @@ function ExpertDirectory({ onClose, onBookConsultation }) {
   }
 
   return (
-    <div className="expert-directory-overlay" onClick={onClose}>
-      <div className="expert-directory" onClick={(e) => e.stopPropagation()}>
+    <div className="expert-directory">
         <div className="directory-header">
           <h2>
             <User className="header-icon" /> Expert/KVK Directory
@@ -439,15 +445,22 @@ function ExpertDirectory({ onClose, onBookConsultation }) {
                   >
                     <Calendar size={16} /> Book Consultation
                   </button>
-                  <a href={`tel:${expert.phone}`} className="call-btn">
-                    <Phone size={16} /> Call
-                  </a>
+                  {/* Phone numbers are not exposed directly — contact is
+                      handled through the consultation booking flow only.
+                      Direct tel: links would bypass the booking system and
+                      expose expert contact details to all authenticated users. */}
+                  <button
+                    className="call-btn"
+                    onClick={() => handleExpertSelect(expert)}
+                    title="Schedule a call via the booking calendar"
+                  >
+                    <Phone size={16} /> Schedule Call
+                  </button>
                 </div>
               </div>
             ))
           )}
         </div>
-      </div>
     </div>
   );
 }

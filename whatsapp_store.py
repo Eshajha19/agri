@@ -1,34 +1,29 @@
 """
-whatsapp_store.py — Thread-safe, crash-safe subscriber persistence.
+whatsapp_store.py — Multi-worker distributed-safe, thread-safe, crash-safe subscriber persistence.
 
 Problems solved
 ---------------
-1. Race condition (read-modify-write with no locking)
-   Two concurrent subscription requests both read the same snapshot,
-   each modify their own in-memory copy, and the second write silently
+1. Race condition across multiple workers/containers (read-modify-write)
+   Two concurrent subscription requests across different worker processes both read
+   the same snapshot, each modify their own in-memory copy, and the second write silently
    overwrites the first — permanently losing a subscriber.
 
 2. Corrupted reads during concurrent writes
-   open(..., "w") truncates the file immediately.  A concurrent reader
-   that opens the file between the truncation and the final flush sees
-   an empty or partial file, causing json.load() to throw.  The old
-   bare `except Exception: return {}` swallowed this silently, causing
-   trigger-alert to broadcast to zero subscribers.
+   open(..., "w") truncates the file immediately. A concurrent reader that opens the file
+   between the truncation and the final flush sees an empty or partial file, causing json.load()
+   to throw.
 
 3. No crash durability
-   A process crash mid-write left the file empty or truncated with no
-   recovery path.
+   A process crash mid-write left the file empty or truncated with no recovery path.
 
 Solutions
 ---------
-- threading.Lock serialises every read and write.  FastAPI's async
-  endpoints run on a thread pool that shares the same process, so a
-  single in-process lock is sufficient.
-- Atomic write: data is written to a sibling `.tmp` file first, then
-  os.replace() swaps it in.  os.replace() is atomic on POSIX and
-  effectively atomic on Windows (same-volume rename), so readers always
-  see either the old complete file or the new complete file — never a
-  partial write.
+- filelock.FileLock combined with threading.Lock serialises every read and write across
+  multiple worker processes/containers and threads. This guarantees distributed-safe
+  synchronization in horizontally scaled deployments.
+- Atomic write: data is written to a sibling `.tmp` file first, then os.replace() swaps it in.
+  os.replace() is atomic on POSIX and effectively atomic on Windows (same-volume rename),
+  so readers always see either the old complete file or the new complete file — never a partial write.
 - Errors are logged with full tracebacks instead of being swallowed.
 """
 
@@ -38,6 +33,7 @@ import os
 import threading
 from datetime import datetime
 from typing import Dict, Any
+from filelock import FileLock, Timeout
 
 logger = logging.getLogger(__name__)
 
@@ -47,24 +43,30 @@ Subscriber = Dict[str, Any]
 
 class SubscriberStore:
     """
-    Thread-safe, crash-safe persistence layer for WhatsApp subscribers.
+    Multi-worker distributed-safe, thread-safe, crash-safe persistence layer for WhatsApp subscribers.
 
-    All public methods acquire ``_lock`` before touching the file, so
-    concurrent FastAPI requests cannot interleave their reads and writes.
+    All public methods acquire ``_lock`` and ``_filelock`` before touching the file, so
+    concurrent FastAPI requests across multiple processes or threads cannot interleave
+    their reads and writes.
 
     Parameters
     ----------
     filepath : str
         Path to the JSON file used for persistence.
+    timeout : int
+        Timeout in seconds to wait for acquiring the distributed file lock.
     """
 
-    def __init__(self, filepath: str = "whatsapp_subscribers.json") -> None:
+    def __init__(self, filepath: str = "whatsapp_subscribers.json", timeout: int = 10) -> None:
         self._filepath = filepath
         self._tmp_filepath = filepath + ".tmp"
+        self._lock_filepath = filepath + ".lock"
+        self._timeout = timeout
         self._lock = threading.Lock()
+        self._filelock = FileLock(self._lock_filepath, timeout=self._timeout)
 
     # ------------------------------------------------------------------
-    # Private helpers (must be called with _lock already held)
+    # Private helpers (must be called with locks already held)
     # ------------------------------------------------------------------
 
     def _read_locked(self) -> Dict[str, Subscriber]:
@@ -136,7 +138,7 @@ class SubscriberStore:
         The returned dict is a copy — callers cannot accidentally mutate
         the in-memory state.
         """
-        with self._lock:
+        with self._lock, self._filelock:
             return dict(self._read_locked())
 
     def upsert(self, user_id: str, subscriber: Subscriber) -> None:
@@ -153,9 +155,9 @@ class SubscriberStore:
         Raises
         ------
         OSError
-            If the file cannot be written.
+            If the file cannot be written or lock acquisition times out.
         """
-        with self._lock:
+        with self._lock, self._filelock:
             subscribers = self._read_locked()
             subscribers[user_id] = subscriber
             self._write_locked(subscribers)
@@ -173,9 +175,9 @@ class SubscriberStore:
         Raises
         ------
         OSError
-            If the file cannot be written.
+            If the file cannot be written or lock acquisition times out.
         """
-        with self._lock:
+        with self._lock, self._filelock:
             subscribers = self._read_locked()
             if user_id not in subscribers:
                 return False
@@ -186,7 +188,7 @@ class SubscriberStore:
 
     def count(self) -> int:
         """Return the number of registered subscribers."""
-        with self._lock:
+        with self._lock, self._filelock:
             return len(self._read_locked())
 
 

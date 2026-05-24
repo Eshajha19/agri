@@ -1,0 +1,256 @@
+.referral-page {
+  min-height: 100vh;
+  padding: 2rem 1rem 3rem;
+  background: radial-gradient(circle at 20% 10%, #e6f4ea 0%, #f7fff8 38%, #f4f8ff 100%);
+  color: #1f2d2a;
+}
+
+.referral-page.theme-dark {
+  background: radial-gradient(circle at 20% 10%, #17221f 0%, #121917 38%, #141923 100%);
+  color: #eef5f0;
+}
+
+.referral-shell {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.referral-hero {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.hero-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #0f9d58, #18b76a);
+  color: #fff;
+  font-size: 1.4rem;
+}
+
+.referral-hero h1 {
+  margin: 0;
+  font-size: clamp(1.35rem, 2.2vw, 2rem);
+}
+
+.referral-hero p {
+  margin: 0.2rem 0 0;
+  opacity: 0.86;
+}
+
+.referral-status {
+  margin: 0.6rem 0 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  background: #eef6ff;
+  color: #143a63;
+}
+
+.referral-status.error {
+  background: #fff1f0;
+  color: #8e1e2f;
+}
+
+.referral-status.success {
+  background: #ebfff0;
+  color: #0a6532;
+}
+
+.referral-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.panel {
+  border-radius: 14px;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 8px 30px rgba(10, 35, 20, 0.08);
+}
+
+.theme-dark .panel {
+  background: rgba(28, 37, 34, 0.9);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25);
+}
+
+.panel h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0 0 0.9rem;
+  font-size: 1.05rem;
+}
+
+.code-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.7rem;
+}
+
+.code-pill {
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  padding: 0.5rem 0.8rem;
+  border-radius: 999px;
+  background: #edf8ee;
+  color: #147a41;
+}
+
+.link-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.6rem;
+  margin-bottom: 0.8rem;
+}
+
+.link-row input,
+.redeem-form input {
+  width: 100%;
+  border: 1px solid #c9d9ce;
+  border-radius: 10px;
+  padding: 0.6rem 0.75rem;
+  background: #fff;
+}
+
+.redeem-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+
+.panel button {
+  border: none;
+  border-radius: 10px;
+  padding: 0.62rem 0.9rem;
+  cursor: pointer;
+  background: #0f9d58;
+  color: #fff;
+  font-weight: 600;
+}
+
+.panel button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.share-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.share-buttons .wa {
+  background: #1da851;
+}
+
+.share-buttons .sms {
+  background: #3b79ce;
+}
+
+.stat-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.7rem;
+}
+
+.stat-list label,
+.stat-list strong,
+.history-item span {
+  display: block;
+}
+
+.stat-list label {
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+.progress-wrap {
+  margin-top: 0.9rem;
+}
+
+.progress-label {
+  font-size: 0.9rem;
+  margin-bottom: 0.4rem;
+}
+
+.progress-track {
+  width: 100%;
+  height: 9px;
+  border-radius: 999px;
+  background: #dde8df;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #0f9d58, #18b76a);
+}
+
+.premium-chip {
+  display: inline-block;
+  margin-top: 0.8rem;
+  padding: 0.36rem 0.7rem;
+  border-radius: 999px;
+  background: #fff2db;
+  color: #8b5b02;
+  font-size: 0.83rem;
+  font-weight: 600;
+}
+
+.nearby-cta {
+  margin-top: 0.85rem;
+  font-size: 0.92rem;
+  opacity: 0.82;
+}
+
+.history-list,
+.list-board {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.history-item,
+.board-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.7rem;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  padding: 0.62rem 0.75rem;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.theme-dark .history-item,
+.theme-dark .board-row {
+  background: rgba(18, 25, 22, 0.8);
+  border-color: rgba(255, 255, 255, 0.09);
+}
+
+.empty {
+  opacity: 0.7;
+  margin: 0.25rem 0;
+}
+
+@media (max-width: 860px) {
+  .referral-grid,
+  .referral-grid.second,
+  .referral-grid.third {
+    grid-template-columns: 1fr;
+  }
+
+  .redeem-form,
+  .link-row {
+    grid-template-columns: 1fr;
+  }
+}

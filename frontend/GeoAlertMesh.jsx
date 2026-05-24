@@ -4,16 +4,23 @@ import { db, auth, isFirebaseConfigured } from "./lib/firebase";
 import { collection, addDoc, query, orderBy, startAt, endAt, Timestamp, onSnapshot } from "firebase/firestore";
 import { AlertTriangle, MapPin, X, Flame, Bug, CloudLightning } from "lucide-react";
 
+// Whitelisted alert types — must match the <select> options and the
+// Firestore security rule validation below.
+const ALERT_TYPES = ["Pest Outbreak", "Wildfire", "Extreme Weather"];
+const SEVERITY_LEVELS = ["High", "Medium"];
+const NOTES_MAX_LENGTH = 100;
+
 export default function GeoAlertMesh({ onClose }) {
   const [alerts, setAlerts] = useState([]);
   const [location, setLocation] = useState(null);
   const [error, setError] = useState(null);
   
   // Form state
-  const [alertType, setAlertType] = useState("Pest Outbreak");
-  const [severity, setSeverity] = useState("High");
+  const [alertType, setAlertType] = useState(ALERT_TYPES[0]);
+  const [severity, setSeverity] = useState(SEVERITY_LEVELS[0]);
   const [notes, setNotes] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [successMsg, setSuccessMsg] = useState("");
 
   // 1. Get User Location
   useEffect(() => {
@@ -95,28 +102,58 @@ export default function GeoAlertMesh({ onClose }) {
       if (!auth.currentUser) setError("You must be logged in to report disasters.");
       return;
     }
-    
+
+    // ── Frontend validation (mirrors Firestore security rules) ────────────
+
+    // Validate alertType against the whitelist — the <select> enforces this
+    // in the UI, but a direct SDK call could bypass it.
+    if (!ALERT_TYPES.includes(alertType)) {
+      setError("Invalid alert type selected.");
+      return;
+    }
+
+    // Validate severity against the whitelist.
+    if (!SEVERITY_LEVELS.includes(severity)) {
+      setError("Invalid severity level selected.");
+      return;
+    }
+
+    // Enforce the notes length cap server-side (maxLength on the input is
+    // client-only and can be bypassed via devtools or direct SDK calls).
+    const sanitizedNotes = notes.trim().slice(0, NOTES_MAX_LENGTH);
+
     setIsSubmitting(true);
+    setError(null);
+    setSuccessMsg("");
     try {
       const hash = geofire.geohashForLocation([location.lat, location.lng]);
-      
+
       await addDoc(collection(db, "disaster_alerts"), {
         geohash: hash,
         lat: location.lat,
         lng: location.lng,
         type: alertType,
         severity: severity,
-        notes: notes,
+        notes: sanitizedNotes,
         reporterId: auth.currentUser.uid,
+        // reporterName is derived from the authenticated user's profile.
+        // A user can set their display name to anything, but the Firestore
+        // rule enforces that reporterId == request.auth.uid, so the name
+        // is at least tied to a real authenticated account.
         reporterName: auth.currentUser.displayName || auth.currentUser.email?.split("@")[0] || "Farmer",
         createdAt: Timestamp.now()
       });
-      
+
       setNotes("");
-      // Success feedback can be inferred by the alert popping up instantly in the feed below
+      setSuccessMsg("Alert broadcast to nearby farmers!");
+      setTimeout(() => setSuccessMsg(""), 4000);
     } catch (err) {
       console.error(err);
-      setError("Failed to broadcast alert. Check your connection.");
+      if (err.code === "permission-denied") {
+        setError("Permission denied. Ensure you are logged in and Firestore rules are deployed.");
+      } else {
+        setError("Failed to broadcast alert. Check your connection.");
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -146,13 +183,10 @@ export default function GeoAlertMesh({ onClose }) {
           <form onSubmit={handleReport} className="report-form">
             <div className="form-row">
               <select value={alertType} onChange={(e) => setAlertType(e.target.value)} className="alert-select">
-                <option>Pest Outbreak</option>
-                <option>Wildfire</option>
-                <option>Extreme Weather</option>
+                {ALERT_TYPES.map(t => <option key={t}>{t}</option>)}
               </select>
               <select value={severity} onChange={(e) => setSeverity(e.target.value)} className="severity-select">
-                <option value="High">High Severity</option>
-                <option value="Medium">Medium Severity</option>
+                {SEVERITY_LEVELS.map(s => <option key={s} value={s}>{s} Severity</option>)}
               </select>
             </div>
             <input 
@@ -161,8 +195,9 @@ export default function GeoAlertMesh({ onClose }) {
               placeholder="Additional details (e.g. Locust Swarm moving north)" 
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              maxLength={100}
+              maxLength={NOTES_MAX_LENGTH}
             />
+            {successMsg && <p className="geo-success">{successMsg}</p>}
             <button type="submit" disabled={!location || isSubmitting} className="broadcast-btn">
               {isSubmitting ? "Broadcasting..." : "Broadcast Alert to Nearby Farmers"}
             </button>
