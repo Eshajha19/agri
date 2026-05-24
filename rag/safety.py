@@ -131,14 +131,14 @@ class PromptInjectionDetector:
         """Detect SQL injection patterns (defense in depth)."""
         sql_patterns = [
             r"'\s*or\s*'",
-            r"'.*=.*'",
-            r"\".*or.*\"",
-            r"union.*select",
-            r"drop.*table",
-            r"insert.*into",
-            r"delete.*from",
-            r"update.*set",
-            r"exec.*proc",
+            r"'[^']*=[^']*'",
+            r"\"[^\"]*or[^\"]*\"",
+            r"\bunion\b.{0,50}select",
+            r"\bdrop\b.{0,50}table",
+            r"\binsert\b.{0,50}into",
+            r"\bdelete\b.{0,50}from",
+            r"\bupdate\b.{0,50}set",
+            r"\bexec\b.{0,50}proc",
         ]
         for pattern in sql_patterns:
             if re.search(pattern, query, re.IGNORECASE):
@@ -149,10 +149,10 @@ class PromptInjectionDetector:
         """Detect command injection patterns."""
         command_patterns = [
             r";\s*(?:rm|del|drop|kill|stop)",
-            r"\$\{.*\}",
-            r"\$\(.*\)",
-            r"`.*`",
-            r"\|.*(?:nc|ncat|curl|wget)",
+            r"\$\{[^}]*\}",
+            r"\$\([^)]*\)",
+            r"`[^`]*`",
+            r"\|\s*(?:nc|ncat|curl|wget)",
         ]
         for pattern in command_patterns:
             if re.search(pattern, query, re.IGNORECASE):
