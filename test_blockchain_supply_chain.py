@@ -363,6 +363,25 @@ class TestSupplyChainBlockchain:
 
         assert abs(analytics["average_temperature"] - expected_avg_temp) < 0.1
 
+    def test_datetime_serialization(self, blockchain):
+        """Test that datetime objects inside blockchain record data are safely serialized"""
+        # Create a record that explicitly contains datetime objects in its data
+        record = BlockchainRecord(
+            timestamp="2026-05-19T05:53:53",
+            actor="Farmer",
+            action="harvested",
+            location="Farm",
+            data={
+                "harvest_time": datetime.now(),
+                "created_at": datetime.utcnow()
+            }
+        )
+        
+        # This calculate_hash call should serialize without raising TypeError
+        record_hash = record.calculate_hash()
+        assert record_hash is not None
+        assert len(record_hash) == 64
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
