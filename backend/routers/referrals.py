@@ -301,6 +301,9 @@ async def redeem_referral_code(payload: RedeemReferralRequest, request: Request)
     if not normalized_code:
         raise HTTPException(status_code=400, detail="Invalid referral code")
 
+    # Resolve the inviter from the referral code before entering the transaction.
+    # This read does not need to be inside the transaction because referral codes
+    # are immutable once created — the uid they map to never changes.
     code_ref = db.collection("referral_codes").document(normalized_code)
     code_doc = code_ref.get()
     if not code_doc.exists:
@@ -314,79 +317,101 @@ async def redeem_referral_code(payload: RedeemReferralRequest, request: Request)
 
     invitee_ref = db.collection("users").document(invitee_uid)
     inviter_ref = db.collection("users").document(inviter_uid)
-
-    invitee_doc = invitee_ref.get()
-    invitee_data = invitee_doc.to_dict() if invitee_doc.exists else {}
-
-    if (invitee_data or {}).get("referredByUid") or (invitee_data or {}).get("referralRedeemedAt"):
-        raise HTTPException(status_code=409, detail="Referral already redeemed for this account")
-
     referral_doc_id = f"{inviter_uid}_{invitee_uid}"
     referral_ref = db.collection("referrals").document(referral_doc_id)
-    if referral_ref.get().exists:
-        raise HTTPException(status_code=409, detail="Duplicate referral attempt blocked")
-
-    inviter_doc = inviter_ref.get()
-    inviter_data = inviter_doc.to_dict() if inviter_doc.exists else {}
+    reward_history_ref = db.collection("reward_history").document()
 
     created_at = _now_iso()
     reward_points = 50
 
-    referral_ref.set(
-        {
-            "inviterUid": inviter_uid,
-            "inviteeUid": invitee_uid,
-            "inviteeName": (invitee_data or {}).get("displayName") or "Farmer",
-            "inviteeLocation": _community_label(invitee_data),
-            "referralCode": normalized_code,
-            "status": "redeemed",
-            "rewardPoints": reward_points,
-            "createdAt": created_at,
-            "updatedAt": created_at,
-        },
-        merge=False,
-    )
+    # All six Firestore operations are wrapped in a single transaction so that:
+    #   1. The duplicate-redemption check and the referral write are atomic —
+    #      concurrent redemptions of the same code cannot both pass the guard.
+    #   2. The inviter's referralCount increment and the subsequent badge/premium
+    #      read are performed inside the same transaction, guaranteeing that the
+    #      count we read is exactly the value after our increment (Firestore
+    #      transactions return the post-commit state of documents read within
+    #      them, and the server-side Increment is applied before the read is
+    #      returned to the transaction).
+    @firestore.transactional
+    def _run_redemption(transaction, invitee_ref, inviter_ref, referral_ref, reward_history_ref):
+        # --- reads (must come before any writes in a Firestore transaction) ---
+        invitee_snap = invitee_ref.get(transaction=transaction)
+        invitee_data = invitee_snap.to_dict() if invitee_snap.exists else {}
 
-    invitee_ref.set(
-        {
-            "referredByUid": inviter_uid,
-            "referredByCode": normalized_code,
-            "referralRedeemedAt": created_at,
-        },
-        merge=True,
-    )
+        if (invitee_data or {}).get("referredByUid") or (invitee_data or {}).get("referralRedeemedAt"):
+            raise HTTPException(status_code=409, detail="Referral already redeemed for this account")
 
-    inviter_ref.set(
-        {
-            "referralCount": firestore.Increment(1),
-            "referralPoints": firestore.Increment(reward_points),
-            "updatedAt": created_at,
-        },
-        merge=True,
-    )
+        referral_snap = referral_ref.get(transaction=transaction)
+        if referral_snap.exists:
+            raise HTTPException(status_code=409, detail="Duplicate referral attempt blocked")
 
-    inviter_latest = inviter_ref.get().to_dict() or inviter_data or {}
-    inviter_count = int(inviter_latest.get("referralCount", 0) or 0)
+        inviter_snap = inviter_ref.get(transaction=transaction)
+        inviter_data = inviter_snap.to_dict() if inviter_snap.exists else {}
 
-    inviter_ref.set(
-        {
-            "referralBadge": _referral_badge(inviter_count),
-            "premiumUnlocked": inviter_count >= 5,
-            "updatedAt": created_at,
-        },
-        merge=True,
-    )
+        # Compute the new count from the current persisted value plus our increment
+        # so that badge and premium status are derived from the correct post-commit
+        # count without requiring a second round-trip after the transaction.
+        current_count = int((inviter_data or {}).get("referralCount", 0) or 0)
+        new_count = current_count + 1
+        new_points = int((inviter_data or {}).get("referralPoints", 0) or 0) + reward_points
 
-    db.collection("reward_history").add(
-        {
-            "uid": inviter_uid,
-            "type": "referral_reward",
-            "points": reward_points,
-            "inviteeUid": invitee_uid,
-            "inviteeName": (invitee_data or {}).get("displayName") or "Farmer",
-            "referralCode": normalized_code,
-            "createdAt": created_at,
-        }
+        # --- writes ---
+        transaction.set(
+            referral_ref,
+            {
+                "inviterUid": inviter_uid,
+                "inviteeUid": invitee_uid,
+                "inviteeName": (invitee_data or {}).get("displayName") or "Farmer",
+                "inviteeLocation": _community_label(invitee_data),
+                "referralCode": normalized_code,
+                "status": "redeemed",
+                "rewardPoints": reward_points,
+                "createdAt": created_at,
+                "updatedAt": created_at,
+            },
+        )
+
+        transaction.set(
+            invitee_ref,
+            {
+                "referredByUid": inviter_uid,
+                "referredByCode": normalized_code,
+                "referralRedeemedAt": created_at,
+            },
+            merge=True,
+        )
+
+        transaction.set(
+            inviter_ref,
+            {
+                "referralCount": new_count,
+                "referralPoints": new_points,
+                "referralBadge": _referral_badge(new_count),
+                "premiumUnlocked": new_count >= 5,
+                "updatedAt": created_at,
+            },
+            merge=True,
+        )
+
+        transaction.set(
+            reward_history_ref,
+            {
+                "uid": inviter_uid,
+                "type": "referral_reward",
+                "points": reward_points,
+                "inviteeUid": invitee_uid,
+                "inviteeName": (invitee_data or {}).get("displayName") or "Farmer",
+                "referralCode": normalized_code,
+                "createdAt": created_at,
+            },
+        )
+
+        return new_count
+
+    transaction = db.transaction()
+    inviter_count = _run_redemption(
+        transaction, invitee_ref, inviter_ref, referral_ref, reward_history_ref
     )
 
     return {
