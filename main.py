@@ -423,7 +423,7 @@ async def verify_role(request: Request, required_roles: list = None):
 # --- Models ---
 
 class PredictRequest(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     Crop: str = Field(..., max_length=50)
     CropCoveredArea: float = Field(..., gt=0)
