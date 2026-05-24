@@ -761,6 +761,8 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     send_whatsapp_message(data.phone_number, welcome_msg)
     return {"success": True, "message": "Successfully subscribed"}
 
+_broadcast_rate_limit = {}
+
 @app.post("/api/whatsapp/trigger-alert")
 @limiter.limit("10/minute")
 async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
@@ -781,9 +783,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     # get_all() acquires the lock and returns a stable snapshot, so this read
     # cannot race with a concurrent subscription write.
     subscribers = subscriber_store.get_all()
-    results = []
     formatted_msg = format_alert_message(data.alert_type, data.message)
-
     for user_id, info in subscribers.items():
         res = send_whatsapp_message(info["phone_number"], formatted_msg)
         results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})
