@@ -195,6 +195,11 @@ async def book_equipment(request: Request, data: BookEquipmentRequest):
     - The equipment owner can see it (GET /marketplace/bookings?owner=true).
     - The farmer who booked can see their own bookings.
     - The booking survives page refreshes and device changes.
+
+    The availability check and the booking write are performed inside a
+    single lock acquisition so no concurrent request can observe
+    available=True and create a second booking for the same equipment
+    between the check and the write (double-booking race condition).
     """
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Not initialized")
@@ -202,33 +207,36 @@ async def book_equipment(request: Request, data: BookEquipmentRequest):
     token_data = await verify_role_fn(request)
     booker_uid = token_data["uid"]
 
+    bid = str(uuid.uuid4())
+    booking = None
+
+    # Hold the lock for the entire check-then-act sequence so no concurrent
+    # request can slip in between the availability read and the booking write.
     with _lock:
         listing = _listings.get(data.equipmentId)
 
-    if listing is None:
-        raise HTTPException(status_code=404, detail="Equipment listing not found")
-    if not listing["available"]:
-        raise HTTPException(status_code=409, detail="Equipment is not available for booking")
+        if listing is None:
+            raise HTTPException(status_code=404, detail="Equipment listing not found")
+        if not listing["available"]:
+            raise HTTPException(status_code=409, detail="Equipment is not available for booking")
 
-    bid = str(uuid.uuid4())
-    booking = {
-        "id": bid,
-        "equipmentId": data.equipmentId,
-        "equipmentName": listing["name"],
-        "equipmentType": listing["type"],
-        "ownerUid": listing["ownerUid"],
-        "ownerName": listing["owner"],
-        "bookerUid": booker_uid,
-        "date": data.date,
-        "time": data.time,
-        "duration": data.duration,
-        "priceUnit": listing["priceUnit"],
-        "totalCost": listing["price"] * data.duration,
-        "status": "pending",   # pending → confirmed → completed / cancelled
-        "createdAt": datetime.utcnow().isoformat() + "Z",
-    }
+        booking = {
+            "id": bid,
+            "equipmentId": data.equipmentId,
+            "equipmentName": listing["name"],
+            "equipmentType": listing["type"],
+            "ownerUid": listing["ownerUid"],
+            "ownerName": listing["owner"],
+            "bookerUid": booker_uid,
+            "date": data.date,
+            "time": data.time,
+            "duration": data.duration,
+            "priceUnit": listing["priceUnit"],
+            "totalCost": listing["price"] * data.duration,
+            "status": "pending",   # pending → confirmed → completed / cancelled
+            "createdAt": datetime.utcnow().isoformat() + "Z",
+        }
 
-    with _lock:
         _bookings[bid] = booking
         # Mark the listing as unavailable while a booking is pending.
         _listings[data.equipmentId] = {**listing, "available": False}
