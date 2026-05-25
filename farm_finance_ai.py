@@ -42,6 +42,17 @@ class FinanceApplication:
     # by guessing or enumerating application IDs.
     owner_uid: Optional[str] = field(default=None)
 
+    def __post_init__(self) -> None:
+        """Normalise owner_uid so ownership checks behave consistently.
+
+        If owner_uid is an empty string (which could happen if the dataclass
+        previously had owner_uid: str = "" before the field was changed to
+        Optional[str]) we set it to None so that downstream checks of the
+        form 'owner_uid is not None' work predictably.
+        """
+        if self.owner_uid is not None and self.owner_uid.strip() == "":
+            self.owner_uid = None
+
 
 class FarmFinanceAI:
     """Deterministic finance-planning engine for farm loan recommendations."""

@@ -87,7 +87,7 @@ async def register_trace_batch(request: Request, data: RegisterTraceBatchRequest
         raise HTTPException(status_code=500, detail="Not initialized")
 
     token_data = await verify_role_fn(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
 
     try:
         batch_payload = data.model_dump()
