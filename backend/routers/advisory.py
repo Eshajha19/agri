@@ -74,7 +74,7 @@ async def create_advisory(payload: AdvisoryRequest, request: Request):
 
         # Derive uid from the verified token — never from the request body.
         token_data = await _verify_role_fn(request)
-        uid = token_data["uid"]
+        uid = token_data.get("uid")
 
         with _store_lock:
             _stored_alerts[uid].extend(alerts)
@@ -105,7 +105,7 @@ async def get_my_advisories(request: Request):
         raise HTTPException(status_code=500, detail="Advisory service not initialized")
 
     token_data = await _verify_role_fn(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
 
     with _store_lock:
         data = list(_stored_alerts.get(uid, []))

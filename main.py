@@ -418,7 +418,14 @@ async def verify_role(request: Request, required_roles: list = None):
         status_code=200,
     )
 
-    return {"uid": uid, "role": user_role}
+    return {
+        "uid": uid,
+        "role": user_role,
+        # Also include "roles" (list) for consumers that destructure the
+        # token payload with token_data["roles"].  Both keys stay in sync
+        # so either access pattern works without KeyError.
+        "roles": [user_role],
+    }
 
 # --- Models ---
 
@@ -738,7 +745,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     # allowed any caller to overwrite another user's subscription by sending
     # a known user_id with an attacker-controlled phone number.
     token_data = await verify_role(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
 
     subscriber = {
         "phone_number": data.phone_number,

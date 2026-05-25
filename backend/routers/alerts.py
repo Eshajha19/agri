@@ -127,7 +127,7 @@ async def subscribe_whatsapp(
         raise HTTPException(status_code=500, detail="Not initialized")
     try:
         token_data = await verify_role_fn(request)
-        uid = token_data["uid"]
+        uid = token_data.get("uid")
         subscriber = {
             "phone_number": phone_number,
             "name": name,

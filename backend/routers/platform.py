@@ -203,7 +203,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
         raise HTTPException(status_code=500, detail="Subscriber store not initialized")
 
     token_data = await verify_role_fn(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
 
     subscriber = {
         "phone_number": data.phone_number,
