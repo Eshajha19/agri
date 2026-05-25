@@ -38,6 +38,7 @@ Fix
 
 import logging
 import os
+import re
 
 from dotenv import load_dotenv
 from twilio.base.exceptions import TwilioRestException
@@ -220,5 +221,8 @@ def process_webhook_message(body: str, sender_number: str) -> dict:
         "hello": "🙏 *Namaste!*\n\nI am your AI Farming Assistant. Try 'Weather' or 'Pest'."
     }
     
-    response = next((v for k, v in responses.items() if k in incoming_msg), f"Received: '{body}'. Try 'Weather' or 'Pest' 🌱")
+    response = next(
+        (v for k, v in responses.items() if re.search(rf"\b{re.escape(k)}\b", incoming_msg)),
+        f"Received: '{body}'. Try 'Weather' or 'Pest' 🌱",
+    )
     return send_whatsapp_message(sender_number, response)
