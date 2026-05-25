@@ -24,6 +24,7 @@ class BlockchainRecord:
     action: str
     location: str
     data: Dict
+    previous_hash: str = ""
     hash: str = ""
 
     def to_dict(self) -> Dict:
@@ -34,6 +35,7 @@ class BlockchainRecord:
             "action": self.action,
             "location": self.location,
             "data": self.data,
+            "previous_hash": self.previous_hash,
         }
 
     def calculate_hash(self) -> str:
@@ -50,6 +52,7 @@ class BlockchainRecord:
             action=data["action"],
             location=data["location"],
             data=data.get("data", {}),
+            previous_hash=data.get("previous_hash", ""),
         )
         if "hash" in data:
             record.hash = data["hash"]
@@ -189,12 +192,14 @@ class SupplyChainBlockchain:
                 farmer_name=farmer_name,
             )
 
+            prev_hash = self.chain[-1].hash if self.chain else ""
             record = BlockchainRecord(
                 timestamp=datetime.now().isoformat(),
                 actor=farmer_name,
                 action="created_batch",
                 location=farm_id,
                 data=asdict(batch),
+                previous_hash=prev_hash,
             )
             record.hash = record.calculate_hash()
 
@@ -240,12 +245,14 @@ class SupplyChainBlockchain:
                 notes=kwargs.get("notes", ""),
             )
 
+            prev_hash = self.chain[-1].hash if self.chain else ""
             record = BlockchainRecord(
                 timestamp=node.timestamp,
                 actor=actor_name,
                 action=action,
                 location=location,
                 data=asdict(node),
+                previous_hash=prev_hash,
             )
             record.hash = record.calculate_hash()
 
@@ -287,12 +294,14 @@ class SupplyChainBlockchain:
                 terms=terms or {},
             )
 
+            prev_hash = self.chain[-1].hash if self.chain else ""
             record = BlockchainRecord(
                 timestamp=datetime.now().isoformat(),
                 actor=seller,
                 action="contract_created",
                 location="contract",
                 data=asdict(contract),
+                previous_hash=prev_hash,
             )
             record.hash = record.calculate_hash()
 
@@ -318,6 +327,7 @@ class SupplyChainBlockchain:
                 raise ValueError(f"Contract {contract_id} cannot be executed (status: {contract.status})")
 
             # Prepare execution record first (may raise)
+            prev_hash = self.chain[-1].hash if self.chain else ""
             record = BlockchainRecord(
                 timestamp=datetime.now().isoformat(),
                 actor=contract.buyer,
@@ -329,6 +339,7 @@ class SupplyChainBlockchain:
                     "amount": contract.price,
                     "currency": contract.currency,
                 },
+                previous_hash=prev_hash,
             )
             record.hash = record.calculate_hash()
 
@@ -488,9 +499,12 @@ class SupplyChainBlockchain:
         }
 
     def _verify_blockchain_integrity(self) -> bool:
-        """Verify blockchain hasn't been tampered with"""
-        for record in self.chain:
+        """Verify blockchain hasn't been tampered with (chained hash continuity)"""
+        for i, record in enumerate(self.chain):
             if record.hash != record.calculate_hash():
+                return False
+            expected_prev = self.chain[i - 1].hash if i > 0 else ""
+            if record.previous_hash != expected_prev:
                 return False
         return True
 
@@ -546,12 +560,14 @@ class SupplyChainBlockchain:
         self._trace_batches[batch_id] = entry
 
         # Also record the registration on the blockchain for auditability.
+        prev_hash = self.chain[-1].hash if self.chain else ""
         record = BlockchainRecord(
             timestamp=entry["registeredAt"],
             actor=entry["registeredByUid"] or "unknown",
             action="trace_batch_registered",
             location=entry["farm"],
             data={"batch_id": batch_id, "crop": entry["crop"]},
+            previous_hash=prev_hash,
         )
         record.hash = record.calculate_hash()
         self.chain.append(record)
