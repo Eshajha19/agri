@@ -888,8 +888,9 @@ except Exception as e:
     _kms_init_error = str(e)
 
 ALLOW_INSECURE_FALLBACK = os.getenv("ALLOW_INSECURE_KEY_FALLBACK", "false").lower() == "true"
+REPORT_SIGNING_PRIVATE_KEY_PEM = os.getenv("REPORT_SIGNING_PRIVATE_KEY_PEM", "").strip()
 
-if os.getenv("GOOGLE_CLOUD_PROJECT") and not HAS_GCP_KMS:
+if os.getenv("GOOGLE_CLOUD_PROJECT") and not HAS_GCP_KMS and not REPORT_SIGNING_PRIVATE_KEY_PEM:
     logger.error(
         f"KMS initialization failed: GOOGLE_CLOUD_PROJECT is set but GCP Secret Manager is unavailable. "
         f"Error: {_kms_init_error}. Set ALLOW_INSECURE_KEY_FALLBACK=true to permit local key fallback (NOT RECOMMENDED)."
@@ -906,6 +907,14 @@ def get_signing_keys():
     global _cached_private_key
 
     if _cached_private_key is not None:
+        return _cached_private_key
+
+    if REPORT_SIGNING_PRIVATE_KEY_PEM:
+        _cached_private_key = serialization.load_pem_private_key(
+            REPORT_SIGNING_PRIVATE_KEY_PEM.encode("utf-8"),
+            password=None,
+        )
+        logger.info("Successfully loaded signing key from REPORT_SIGNING_PRIVATE_KEY_PEM")
         return _cached_private_key
 
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
