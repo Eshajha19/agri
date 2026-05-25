@@ -215,7 +215,13 @@ const resolveApiBaseUrl = () => {
       hostname === '127.0.0.1' ||
       hostname.endsWith('.localhost');
 
-    return isLocalhost ? '' : window.location.origin;
+    if (!isLocalhost) {
+      console.error(
+        '[api.js] VITE_API_BASE_URL is not configured in production. ' +
+        'API requests will fail. Set VITE_API_BASE_URL to your backend origin.'
+      );
+    }
+    return '';
   }
 
   return '';
