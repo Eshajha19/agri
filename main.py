@@ -82,7 +82,7 @@ from backend.routers import (
 from blockchain_supply_chain import SupplyChainBlockchain
 from crop_quality_grading import CropQualityGrader
 from farm_finance_ai import FarmFinanceAI
-from feature_flags.routes import router as flags_router
+from feature_flags.routes import init_feature_flags, router as flags_router
 from ml.adapters.xgboost_adapter import XGBoostAdapter
 from ml.governance import DriftDetector, ModelVersionManager, ShadowEvaluator
 from ml.registry import ModelRegistry
@@ -192,6 +192,7 @@ async def lifespan(app: FastAPI):
 
     knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
     alerts.init_alerts([], subscriber_store, lambda **kwargs: [], send_whatsapp_message, format_alert_message, verify_role)
+    init_feature_flags(verify_role)
     platform.init_platform(
         verify_role,
         get_signing_keys,
@@ -1213,7 +1214,7 @@ app.include_router(referrals.router, prefix="/api/referrals", tags=["Referrals"]
 app.include_router(platform.router, prefix="/api", tags=["Platform"])
 app.include_router(advisory.router, prefix="/api", tags=["Advisory"])
 app.include_router(alerts.router, prefix="/api/notifications", tags=["Alerts"])
-app.include_router(flags_router, prefix="/api/flags", tags=["Feature Flags"])
+app.include_router(flags_router, tags=["Feature Flags"])
 app.include_router(lms.router, prefix="/api", tags=["LMS"])
 
 
