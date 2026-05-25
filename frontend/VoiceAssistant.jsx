@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import './VoiceAssistant.css';
+import apiClient from './lib/apiClient';
 
 const VoiceAssistant = () => {
   const [isListening, setIsListening] = useState(false);
@@ -39,22 +40,11 @@ const VoiceAssistant = () => {
 
   const createSession = async () => {
     try {
-      const userId = localStorage.getItem('userId') || `user_${Date.now()}`;
-      const response = await fetch('/api/voice/sessions/create', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          user_id: userId,
-          language_code: language,
-        }),
+      const response = await apiClient.post('/api/voice/sessions/create', {
+        language_code: language,
       });
 
-      if (!response.ok) throw new Error('Failed to create session');
-      const data = await response.json();
-      setSessionId(data.session_id);
-      localStorage.setItem('userId', userId);
+      setSessionId(response.data.session_id);
     } catch (err) {
       console.error('Session creation error:', err);
       setError('Failed to create voice session');
@@ -144,23 +134,13 @@ const VoiceAssistant = () => {
       setMessages((prev) => [...prev, userMessage]);
 
       // Send query to backend
-      const response = await fetch('/api/voice/query', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          transcript: query,
-          language_code: language,
-          session_id: sessionId,
-        }),
+      const response = await apiClient.post('/api/voice/query', {
+        transcript: query,
+        language_code: language,
+        session_id: sessionId,
       });
 
-      if (!response.ok) {
-        throw new Error(`Query failed: ${response.statusText}`);
-      }
-
-      const data = await response.json();
+      const data = response.data;
 
       // Add assistant response
       const assistantMessage = {
