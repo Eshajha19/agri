@@ -189,6 +189,26 @@ const getRetryDelayMs = (retryCount, retryDelayMs) => {
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const normalizeBaseUrl = (value) => {
+  if (!value) {
+    return '';
+  }
+
+  return String(value).replace(/\/$/, '');
+};
+
+const resolveApiBaseUrl = () => {
+  const configuredBaseUrl = normalizeBaseUrl(
+    import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_BACKEND_URL
+  );
+
+  if (configuredBaseUrl) {
+    return configuredBaseUrl;
+  }
+
+  return '';
+};
+
 /**
  * Retrieve the current Firebase ID token for the signed-in user.
  *
@@ -227,7 +247,7 @@ async function getFirebaseIdToken() {
 }
 
 const axiosClient = axios.create({
-  baseURL: '', // Use relative path to leverage Vite proxy
+  baseURL: resolveApiBaseUrl(),
   timeout: API_TIMEOUT_MS,
   headers: {
     'Content-Type': 'application/json',
