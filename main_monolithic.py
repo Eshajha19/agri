@@ -765,7 +765,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     # allowed any caller to overwrite another user's subscription by sending
     # a known user_id with an attacker-controlled phone number.
     token_data = await verify_role(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
 
     subscriber = {
         "phone_number": data.phone_number,
