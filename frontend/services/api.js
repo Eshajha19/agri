@@ -206,18 +206,6 @@ const resolveApiBaseUrl = () => {
     return configuredBaseUrl;
   }
 
-  // Local development relies on the Vite proxy; production deployments need
-  // an explicit backend URL so requests do not stay on the static frontend host.
-  if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    const isLocalhost =
-      hostname === 'localhost' ||
-      hostname === '127.0.0.1' ||
-      hostname.endsWith('.localhost');
-
-    return isLocalhost ? '' : window.location.origin;
-  }
-
   return '';
 };
 

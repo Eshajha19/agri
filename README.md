@@ -206,6 +206,8 @@ REACT_APP_BACKEND_URL=http://localhost:5000
 VITE_API_BASE_URL=https://your-backend.onrender.com
 ```
 
+For Vercel deployments, set `VITE_API_BASE_URL` to the live backend origin in the project environment variables. Without it, browser requests stay on the static frontend host and marketplace API calls will fail.
+
 ---
 
 ## 🧩 API Endpoints (Examples)
