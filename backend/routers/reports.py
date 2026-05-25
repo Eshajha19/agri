@@ -1,6 +1,7 @@
 """Reports & Logging Router"""
 import re
 from fastapi import APIRouter, Request, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, validator
 from typing import Optional
 import base64
@@ -12,14 +13,10 @@ from datetime import datetime
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field, validator
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
-from typing import Optional
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -246,7 +243,7 @@ async def generate_signed_report(request: Request, data: ReportRequest):
         raise HTTPException(status_code=500, detail="Not initialized")
 
     try:
-        await verify_role_fn(request)
+        await verify_role_fn(request, required_roles=["admin"])
     except HTTPException:
         raise
     except Exception as e:
