@@ -214,6 +214,8 @@ class FarmFinanceAI:
         }
 
     def create_application(self, payload: Dict[str, Any], owner_uid: Optional[str] = None) -> Dict[str, Any]:
+        if not owner_uid or not owner_uid.strip():
+            raise ValueError("owner_uid is required to create an application")
         analysis = self.analyze_financial_profile(payload)
         requested_lender = (payload.get("selected_lender") or "").strip()
         selected_product = self._select_product(requested_lender, analysis["lender_matches"], analysis["selected_product"])
@@ -302,8 +304,11 @@ class FarmFinanceAI:
                 app_dict = self.repository.get(application_id)
                 if app_dict:
                     stored_uid = app_dict.get("owner_uid")
-                    # Enforce ownership when a uid filter is supplied
-                    if owner_uid is not None and (stored_uid is None or stored_uid != owner_uid):
+                    # Reject records without an owner (orphaned).
+                    if not stored_uid:
+                        return None
+                    # Enforce ownership when a uid filter is supplied.
+                    if owner_uid is not None and stored_uid != owner_uid:
                         return None
                     return {
                         "application_id": app_dict.get("application_id"),
@@ -329,7 +334,10 @@ class FarmFinanceAI:
             return None
 
         # Enforce ownership on in-memory records too
-        if owner_uid is not None and (application.owner_uid is None or application.owner_uid != owner_uid):
+        # Reject orphaned records (None owner_uid) entirely.
+        if not application.owner_uid:
+            return None
+        if owner_uid is not None and application.owner_uid != owner_uid:
             return None
 
         return {
