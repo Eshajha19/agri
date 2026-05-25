@@ -189,6 +189,38 @@ const getRetryDelayMs = (retryCount, retryDelayMs) => {
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const normalizeBaseUrl = (value) => {
+  if (!value) {
+    return '';
+  }
+
+  return String(value).replace(/\/$/, '');
+};
+
+const resolveApiBaseUrl = () => {
+  const configuredBaseUrl = normalizeBaseUrl(
+    import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_BACKEND_URL
+  );
+
+  if (configuredBaseUrl) {
+    return configuredBaseUrl;
+  }
+
+  // Local development relies on the Vite proxy; production deployments need
+  // an explicit backend URL so requests do not stay on the static frontend host.
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    const isLocalhost =
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname.endsWith('.localhost');
+
+    return isLocalhost ? '' : window.location.origin;
+  }
+
+  return '';
+};
+
 /**
  * Retrieve the current Firebase ID token for the signed-in user.
  *
@@ -227,7 +259,7 @@ async function getFirebaseIdToken() {
 }
 
 const axiosClient = axios.create({
-  baseURL: '', // Use relative path to leverage Vite proxy
+  baseURL: resolveApiBaseUrl(),
   timeout: API_TIMEOUT_MS,
   headers: {
     'Content-Type': 'application/json',
