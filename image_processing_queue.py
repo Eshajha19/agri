@@ -111,12 +111,16 @@ class ImageProcessingQueue:
         with self._queue_lock:
             if len(self._task_queue) >= self.max_queue_size:
                 raise RuntimeError(f"Queue is full (max: {self.max_queue_size})")
-            self._task_queue.append(task)
+            # Push only a heap tuple — never append raw task objects.
+            # The previous code did both self._task_queue.append(task) AND
+            # heapq.heappush(...), which mixed raw ImageProcessingTask objects
+            # with (priority, counter, task) tuples in the same list, breaking
+            # heap ordering and causing TypeErrors on comparison.
             heapq.heappush(self._task_queue, (task.priority.value, self._counter, task))
             self._counter += 1
             self._tasks_by_id[task.task_id] = task
             self._total_enqueued += 1
-            
+
         logger.info(f"Task {task.task_id} enqueued (priority: {task.priority.name}, queue_size: {len(self._task_queue)})")
         return task.task_id
 
@@ -218,23 +222,41 @@ class ImageProcessingQueue:
             return None
 
     def cancel_task(self, task_id: str) -> bool:
-        """Cancel a queued or processing task"""
-        with self._queue_lock:
+        """Cancel a queued or retrying task"""
+        # Acquire both locks in a consistent order (_task_lock before
+        # _queue_lock) to avoid deadlock with fail_task, which also nests
+        # _queue_lock inside _task_lock.
+        with self._task_lock:
             if task_id not in self._tasks_by_id:
                 return False
 
             task = self._tasks_by_id[task_id]
-            if task.status in (TaskStatus.QUEUED, TaskStatus.RETRYING):
-                task.status = TaskStatus.CANCELLED
-                self._task_queue = deque(
-                    t for t in self._task_queue if t.task_id != task_id
-                )
-                del self._tasks_by_id[task_id]
-                self._completed_tasks[task_id] = task
-                logger.info(f"Task {task_id} cancelled")
-                return True
+            if task.status not in (TaskStatus.QUEUED, TaskStatus.RETRYING):
+                return False
 
-            return False
+            task.status = TaskStatus.CANCELLED
+
+            with self._queue_lock:
+                # Rebuild the heap without the cancelled task.
+                # The previous code used `deque(t for t in self._task_queue if
+                # t.task_id != task_id)` which had three bugs:
+                #   1. `deque` was never imported.
+                #   2. Heap tuples are (priority, counter, task) — they have no
+                #      `.task_id` attribute, so the filter always raised AttributeError.
+                #   3. Replacing the heap list with a deque broke all future
+                #      heappush / heappop calls.
+                # Fix: filter the heap list by inspecting entry[2].task_id (the task
+                # inside each tuple), then heapify to restore the heap invariant.
+                self._task_queue = [
+                    entry for entry in self._task_queue
+                    if entry[2].task_id != task_id
+                ]
+                heapq.heapify(self._task_queue)
+
+            del self._tasks_by_id[task_id]
+            self._completed_tasks[task_id] = task
+            logger.info(f"Task {task_id} cancelled")
+            return True
 
     def register_worker(self, worker_id: str) -> WorkerStats:
         """Register a worker"""
