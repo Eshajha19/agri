@@ -82,7 +82,7 @@ from backend.routers import (
 from blockchain_supply_chain import SupplyChainBlockchain
 from crop_quality_grading import CropQualityGrader
 from farm_finance_ai import FarmFinanceAI
-from feature_flags.routes import router as flags_router
+from feature_flags.routes import init_feature_flags, router as flags_router
 from ml.adapters.xgboost_adapter import XGBoostAdapter
 from ml.governance import DriftDetector, ModelVersionManager, ShadowEvaluator
 from ml.registry import ModelRegistry
@@ -94,6 +94,7 @@ from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
 from error_recovery_middleware import ErrorRecoveryMiddleware
+from notification_auth import filter_notifications_for_user
 from realtime_notifications import notification_broker
 from rbac_audit import audit_rbac_event, rbac_audit_trail, validate_required_roles
 from rbac import RBACMiddleware, print_rbac_matrix, RBACManager, Permission
@@ -191,6 +192,7 @@ async def lifespan(app: FastAPI):
 
     knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
     alerts.init_alerts([], subscriber_store, lambda **kwargs: [], send_whatsapp_message, format_alert_message, verify_role)
+    init_feature_flags(verify_role)
     platform.init_platform(
         verify_role,
         get_signing_keys,
@@ -278,13 +280,11 @@ if not firebase_admin._apps:
 
 async def verify_role(request: Request, required_roles: list = None):
     """
-    Verify the Firebase ID token and check the caller's role against Firestore.
-    Expects 'Authorization: Bearer <ID_TOKEN>' header.
+    Verify the Firebase ID token and check the caller's role.
 
-    Fail-closed design:
-    - If Firestore is unavailable the request is rejected with 503.
-    - If the user document does not exist the request is rejected with 403.
-    - The function never grants a role that was not explicitly stored in Firestore.
+    Delegates identity resolution to :meth:`RBACManager.resolve_auth_context`,
+    which treats Firestore ``users/{uid}.role`` as authoritative and rejects
+    stale JWT custom claims that disagree with Firestore.
     """
     action = f"{request.method} {request.url.path}"
     try:
@@ -299,108 +299,53 @@ async def verify_role(request: Request, required_roles: list = None):
         )
         raise HTTPException(status_code=500, detail="RBAC policy misconfiguration") from exc
 
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        audit_rbac_event(
-            request=request,
-            action=action,
-            outcome="denied",
-            reason="missing_authentication_token",
-            status_code=401,
-            required_roles=required_roles,
-        )
-        raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
-
-    # Use a slice instead of split()[1] to avoid IndexError when the header
-    # is exactly "Bearer " with no token following it.
-    id_token = auth_header[7:].strip()
-    if not id_token:
-        audit_rbac_event(
-            request=request,
-            action=action,
-            outcome="denied",
-            reason="missing_authentication_token",
-            status_code=401,
-            required_roles=required_roles,
-        )
-        raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
-
     try:
-        decoded_token = auth.verify_id_token(id_token)
-    except Exception:
-        audit_rbac_event(
-            request=request,
-            action=action,
-            outcome="denied",
-            reason="invalid_authentication_token",
-            status_code=401,
-            required_roles=required_roles,
+        ctx = await RBACManager.resolve_auth_context(
+            request,
+            allow_unauthenticated=False,
         )
-        raise HTTPException(status_code=401, detail="Authentication failed")
+    except HTTPException as exc:
+        uid = None
+        reason = "authorization_denied"
+        if exc.status_code == 401:
+            detail = str(exc.detail).lower()
+            reason = (
+                "missing_authentication_token"
+                if "missing" in detail
+                else "invalid_authentication_token"
+            )
+        elif exc.status_code == 403:
+            detail = str(exc.detail).lower()
+            if "profile not found" in detail:
+                reason = "user_profile_not_found"
+            elif "stale" in detail:
+                reason = "stale_authentication_token"
+            elif "invalid role" in detail:
+                reason = "invalid_profile_role"
+            else:
+                reason = "insufficient_permissions"
+        elif exc.status_code == 503:
+            reason = "authorization_service_unavailable"
 
-    uid = decoded_token["uid"]
-
-    # Firestore must be available to resolve the caller's role.
-    # Failing open (granting admin when Firestore is down) is a security bug,
-    # so we reject the request instead.
-    if not db_firestore:
         audit_rbac_event(
             request=request,
             action=action,
-            outcome="error",
+            outcome="denied" if exc.status_code in (401, 403) else "error",
             uid=uid,
-            reason="authorization_service_unavailable",
-            status_code=503,
+            reason=reason,
+            status_code=exc.status_code,
             required_roles=required_roles,
         )
-        raise HTTPException(
-            status_code=503,
-            detail="Authorization service temporarily unavailable"
-        )
+        raise
 
-    # Wrap the Firestore fetch so a transient network error (timeout, reset)
-    # returns the same clean 503 as a missing db_firestore, rather than an
-    # unhandled exception that leaks internal details as a raw 500.
-    try:
-        user_doc = db_firestore.collection("users").document(uid).get()
-    except Exception as e:
-        logger.error(
-            "Firestore fetch failed for uid=%s during role check: %s", uid, e
-        )
-        audit_rbac_event(
-            request=request,
-            action=action,
-            outcome="error",
-            uid=uid,
-            reason="role_lookup_failed",
-            status_code=503,
-            required_roles=required_roles,
-        )
-        raise HTTPException(
-            status_code=503,
-            detail="Authorization service temporarily unavailable"
-        )
-
-    if not user_doc.exists:
-        audit_rbac_event(
-            request=request,
-            action=action,
-            outcome="denied",
-            uid=uid,
-            reason="user_profile_not_found",
-            status_code=403,
-            required_roles=required_roles,
-        )
-        raise HTTPException(status_code=403, detail="User profile not found")
-
-    user_role = user_doc.to_dict().get("role", "farmer")
+    user_role = ctx.role
 
     if required_roles and user_role not in required_roles:
         audit_rbac_event(
             request=request,
             action=action,
             outcome="denied",
-            uid=uid,
+            uid=ctx.uid,
             role=user_role,
             reason="insufficient_permissions",
             status_code=403,
@@ -412,13 +357,13 @@ async def verify_role(request: Request, required_roles: list = None):
         request=request,
         action=action,
         outcome="allowed",
-        uid=uid,
+        uid=ctx.uid,
         role=user_role,
         required_roles=required_roles,
         status_code=200,
     )
 
-    return {"uid": uid, "role": user_role}
+    return {"uid": ctx.uid, "role": user_role}
 
 # --- Models ---
 
@@ -558,12 +503,21 @@ class NotificationStore:
         self._counter = itertools.count(start=1)
         self._ttl = timedelta(hours=ttl_hours)
 
-    def append(self, alert_type: str, message: str) -> dict:
+    def append(
+        self,
+        alert_type: str,
+        message: str,
+        *,
+        recipient_uid: Optional[str] = None,
+    ) -> dict:
         """
         Add a new notification entry and return it.
 
         The ID is assigned from a monotonically increasing counter so
         concurrent calls always produce distinct values.
+
+        When ``recipient_uid`` is None the notification is a broadcast visible
+        to every authenticated user; otherwise only that UID may receive it.
         """
         with self._lock:
             entry = {
@@ -571,6 +525,7 @@ class NotificationStore:
                 "type": alert_type,
                 "message": message,
                 "time": datetime.now().isoformat(),
+                "recipient_uid": recipient_uid,
             }
             self._deque.append(entry)
         return entry
@@ -590,6 +545,10 @@ class NotificationStore:
             if datetime.fromisoformat(e["time"]) >= cutoff
         ]
 
+    def get_recent_for_user(self, uid: str) -> list:
+        """Return TTL-valid entries visible to the given Firebase UID."""
+        return filter_notifications_for_user(self.get_recent(), uid)
+
 
 # Seed the store with the initial weather advisory that was previously
 # hard-coded in the bare list.
@@ -601,11 +560,60 @@ _notification_store.append(
 notification_broker.seed_notifications(_notification_store.get_recent())
 
 
-async def publish_notification(alert_type: str, message: str) -> dict:
-    """Store a notification and broadcast it to websocket subscribers."""
-    entry = _notification_store.append(alert_type=alert_type, message=message)
+async def publish_notification(
+    alert_type: str,
+    message: str,
+    *,
+    recipient_uid: Optional[str] = None,
+) -> dict:
+    """Store a notification and fan it out to authorized websocket subscribers."""
+    entry = _notification_store.append(
+        alert_type=alert_type,
+        message=message,
+        recipient_uid=recipient_uid,
+    )
     await notification_broker.publish(entry)
     return entry
+
+
+async def _authenticate_notification_websocket(websocket: WebSocket) -> Optional[str]:
+    """
+    Verify Firebase ID token from WebSocket query param before accepting.
+
+    Browsers cannot set Authorization headers on WebSocket handshakes, so clients
+    must pass ``?token=<Firebase ID token>``.
+    """
+    token = websocket.query_params.get("token")
+    if not token or not token.strip():
+        await websocket.close(code=1008, reason="Missing authentication token")
+        return None
+
+    try:
+        decoded = auth.verify_id_token(token.strip())
+    except Exception:
+        await websocket.close(code=1008, reason="Invalid authentication token")
+        return None
+
+    uid = decoded.get("uid")
+    if not uid:
+        await websocket.close(code=1008, reason="Invalid authentication token")
+        return None
+
+    if not db_firestore:
+        await websocket.close(code=1011, reason="Authorization service unavailable")
+        return None
+
+    try:
+        user_doc = db_firestore.collection("users").document(uid).get()
+    except Exception:
+        await websocket.close(code=1011, reason="Authorization service unavailable")
+        return None
+
+    if not user_doc.exists:
+        await websocket.close(code=1008, reason="User profile not found")
+        return None
+
+    return uid
 
 
 def _normalize_dynamic_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -716,7 +724,7 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
 
 @app.get("/api/notifications")
 @limiter.limit("30/minute")
-def get_notifications(
+async def get_notifications(
     request: Request,
     crop: str = Query(default=None),
     irrigation_count: int = Query(default=None, ge=0),
@@ -727,17 +735,26 @@ def get_notifications(
     Return recent triggered-alert notifications combined with dynamic
     farm advisory alerts generated from the query parameters.
 
+    Requires Firebase authentication. Notifications are scoped to broadcast
+    entries and entries targeted at the caller's UID.
+
     Only notifications newer than the store's TTL window are included,
     so the response payload stays small regardless of how long the
     process has been running.
     """
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
     dynamic_alerts = generate_alerts(
         crop=crop,
         irrigation_count=irrigation_count,
         water_coverage=water_coverage,
         season=season
     )
-    return {"success": True, "data": _notification_store.get_recent() + _normalize_dynamic_alerts(dynamic_alerts)}
+    stored = _notification_store.get_recent_for_user(uid)
+    return {
+        "success": True,
+        "data": stored + _normalize_dynamic_alerts(dynamic_alerts),
+    }
 
 # --- WhatsApp Service Endpoints ---
 #
@@ -820,7 +837,10 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
 
 @app.websocket("/api/notifications/stream")
 async def notifications_stream(websocket: WebSocket):
-    await notification_broker.connect(websocket)
+    uid = await _authenticate_notification_websocket(websocket)
+    if uid is None:
+        return
+    await notification_broker.connect(websocket, uid)
 
 
 @app.get("/api/admin/rbac-audit")
@@ -832,21 +852,11 @@ async def get_rbac_audit(request: Request, limit: int = Query(default=50, ge=1, 
 
 @app.post("/api/whatsapp/webhook")
 @limiter.limit("20/minute")
-async def whatsapp_webhook(request: Request, Body: str = Form(...), From: str = Form(...)):
-    """
-    Handle incoming WhatsApp messages from Twilio.
-    
-    Processing is offloaded to a background Celery task to immediately
-    acknowledge the webhook (preventing Twilio timeout/penalties under burst traffic)
-    and process the message asynchronously.
-    """
-    sender_number = From.replace("whatsapp:", "")
-    
-    # Offload message processing to reliable background task queue
-    from celery_worker import process_whatsapp_webhook_task
-    process_whatsapp_webhook_task.delay(Body, sender_number)
-    
-    return {"status": "success"}
+async def whatsapp_webhook(request: Request):
+    """Handle inbound Twilio WhatsApp webhooks (signature-verified)."""
+    from twilio_webhook_security import handle_inbound_whatsapp_webhook
+
+    return await handle_inbound_whatsapp_webhook(request)
 
 # --- Cryptographic Reports ---
 #
@@ -1204,7 +1214,7 @@ app.include_router(referrals.router, prefix="/api/referrals", tags=["Referrals"]
 app.include_router(platform.router, prefix="/api", tags=["Platform"])
 app.include_router(advisory.router, prefix="/api", tags=["Advisory"])
 app.include_router(alerts.router, prefix="/api/notifications", tags=["Alerts"])
-app.include_router(flags_router, prefix="/api/flags", tags=["Feature Flags"])
+app.include_router(flags_router, tags=["Feature Flags"])
 app.include_router(lms.router, prefix="/api", tags=["LMS"])
 
 
