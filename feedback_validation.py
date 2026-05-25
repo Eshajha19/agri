@@ -5,7 +5,7 @@ Provides server-side validation for feedback data to prevent NoSQL injection and
 
 import re
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 
@@ -263,7 +263,7 @@ class FeedbackValidator:
             validated['cropType'] = crop_type
             
         # Add metadata
-        validated['validatedAt'] = datetime.utcnow().isoformat()
+        validated['validatedAt'] = datetime.now(timezone.utc).isoformat()
         validated['validationVersion'] = '1.0.0'
         
         # Add user info if available
