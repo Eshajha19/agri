@@ -9,7 +9,7 @@ import hashlib
 import io
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -132,7 +132,7 @@ def _build_pdf(data: ReportRequest, signature_hex: str, cert_id: str) -> bytes:
     c.setFillColor(colors.HexColor("#1B5E20"))
     c.setFont("Helvetica-Bold", 10)
     c.drawRightString(width - inch, height - 95, f"Certificate ID: {cert_id}")
-    c.drawRightString(width - inch, height - 110, f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}")
+    c.drawRightString(width - inch, height - 110, f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
 
     # ── Section: Farmer Details ──────────────────────────────────────────────
     y = height - 150
@@ -218,7 +218,7 @@ def _sign_report(private_key: Ed25519PrivateKey, data: ReportRequest, cert_id: s
 
 def _make_cert_id(data: ReportRequest) -> str:
     """Derive a short, deterministic certificate ID from the report fields."""
-    raw = f"{data.name}|{data.crop}|{data.season}|{datetime.utcnow().strftime('%Y%m%d')}"
+    raw = f"{data.name}|{data.crop}|{data.season}|{datetime.now(timezone.utc).strftime('%Y%m%d')}"
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:10].upper()
     return f"CERT-{digest}"
 
