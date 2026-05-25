@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 
@@ -46,7 +46,7 @@ def _add_alert(alerts: list[dict[str, Any]], severity: str, category: str, title
             "message": message,
             "action": action,
             "source": "rule-based",
-            "time": datetime.now().isoformat(),
+            "time": datetime.now(timezone.utc).isoformat(),
         }
     )
 
