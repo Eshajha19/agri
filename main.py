@@ -774,7 +774,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     # allowed any caller to overwrite another user's subscription by sending
     # a known user_id with an attacker-controlled phone number.
     token_data = await verify_role(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
 
     subscriber = {
         "phone_number": data.phone_number,
@@ -888,8 +888,9 @@ except Exception as e:
     _kms_init_error = str(e)
 
 ALLOW_INSECURE_FALLBACK = os.getenv("ALLOW_INSECURE_KEY_FALLBACK", "false").lower() == "true"
+REPORT_SIGNING_PRIVATE_KEY_PEM = os.getenv("REPORT_SIGNING_PRIVATE_KEY_PEM", "").strip()
 
-if os.getenv("GOOGLE_CLOUD_PROJECT") and not HAS_GCP_KMS:
+if os.getenv("GOOGLE_CLOUD_PROJECT") and not HAS_GCP_KMS and not REPORT_SIGNING_PRIVATE_KEY_PEM:
     logger.error(
         f"KMS initialization failed: GOOGLE_CLOUD_PROJECT is set but GCP Secret Manager is unavailable. "
         f"Error: {_kms_init_error}. Set ALLOW_INSECURE_KEY_FALLBACK=true to permit local key fallback (NOT RECOMMENDED)."
@@ -906,6 +907,14 @@ def get_signing_keys():
     global _cached_private_key
 
     if _cached_private_key is not None:
+        return _cached_private_key
+
+    if REPORT_SIGNING_PRIVATE_KEY_PEM:
+        _cached_private_key = serialization.load_pem_private_key(
+            REPORT_SIGNING_PRIVATE_KEY_PEM.encode("utf-8"),
+            password=None,
+        )
+        logger.info("Successfully loaded signing key from REPORT_SIGNING_PRIVATE_KEY_PEM")
         return _cached_private_key
 
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
@@ -1010,7 +1019,16 @@ except Exception as exc:
 try:
     from prometheus_fastapi_instrumentator import Instrumentator
 
-    Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+    Instrumentator().instrument(app)
+
+    @app.get("/metrics")
+    async def metrics(request: Request):
+        if verify_role is None:
+            raise HTTPException(status_code=500, detail="Auth service not initialized")
+        # Only admins may view operational telemetry.
+        await verify_role(request, required_roles=["admin"])
+        from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
 
@@ -1261,6 +1279,14 @@ try:
     logger.info("ML Model Management API loaded successfully")
 except Exception as e:
     logger.warning(f"Could not load ML Model Management API: {e}")
+
+# Include Crop Recommendation Router
+try:
+    from routers.crop_recommendation import router as crop_router
+    app.include_router(crop_router)
+    logger.info("Crop Recommendation API loaded successfully")
+except Exception as e:
+    logger.warning(f"Could not load Crop Recommendation API: {e}")
 
 if __name__ == "__main__":
     import uvicorn
