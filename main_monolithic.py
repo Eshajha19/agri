@@ -84,6 +84,9 @@ class QualityTrendsRequest(BaseModel):
     crop_type: str = Field(..., min_length=1, max_length=50)
     days: int = Field(default=7, ge=1, le=30)
 
+# Date/Time utilities
+from datetime import datetime, timezone
+
 # Rate Limiting
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -1341,7 +1344,7 @@ async def verify_seed(data: SeedVerifyRequest, request: Request):
     # Downgrade to "invalid" at query time if the batch has expired.
     try:
         expiry = datetime.strptime(entry["expires_on"], "%Y-%m-%d").date()
-        if expiry < datetime.utcnow().date():
+        if expiry < datetime.now(timezone.utc).date():
             logger.warning(
                 "Seed verification: authentic batch has expired — code=%s expires_on=%s",
                 code,
