@@ -1019,7 +1019,16 @@ except Exception as exc:
 try:
     from prometheus_fastapi_instrumentator import Instrumentator
 
-    Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+    Instrumentator().instrument(app)
+
+    @app.get("/metrics")
+    async def metrics(request: Request):
+        if verify_role is None:
+            raise HTTPException(status_code=500, detail="Auth service not initialized")
+        # Only admins may view operational telemetry.
+        await verify_role(request, required_roles=["admin"])
+        from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
 
