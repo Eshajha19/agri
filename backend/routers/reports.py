@@ -1,6 +1,7 @@
 """Reports & Logging Router"""
 import re
 from fastapi import APIRouter, Request, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, validator
 from typing import Optional
 import base64
@@ -12,14 +13,10 @@ from datetime import datetime
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field, validator
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
-from typing import Optional
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -246,7 +243,7 @@ async def generate_signed_report(request: Request, data: ReportRequest):
         raise HTTPException(status_code=500, detail="Not initialized")
 
     try:
-        await verify_role_fn(request)
+        await verify_role_fn(request, required_roles=["admin"])
     except HTTPException:
         raise
     except Exception as e:
@@ -309,9 +306,9 @@ async def assign_role(request: Request, body: AssignRoleRequest):
     """
     Assign a role to a user and sync the Firebase custom claim.
 
-    Admin only.  Updates both the Firestore users/{uid}.role field and the
-    Firebase Auth custom claim so that Firestore security rules
-    (request.auth.token.role) stay consistent with the stored role.
+    Admin only.  Syncs the Firebase Auth custom claim FIRST, then updates
+    the Firestore users/{uid}.role field.  If the claim sync fails the
+    Firestore update is skipped entirely, keeping both stores consistent.
 
     The target user's next token refresh will include the updated claim.
     Existing tokens remain valid until they expire (≤ 1 hour).
@@ -335,24 +332,17 @@ async def assign_role(request: Request, body: AssignRoleRequest):
         if not snap.exists:
             raise HTTPException(status_code=404, detail="User profile not found")
 
+        # Sync the Auth custom claim FIRST so that if it fails we never touch
+        # Firestore, keeping both stores consistent.
+        await sync_role_claim(body.target_uid, body.role)
+
+        # Only update Firestore once the claim is confirmed.
         user_ref.update({"role": body.role})
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("assign_role: Firestore update failed uid=%s: %s", body.target_uid, exc)
+        logger.error("assign_role: update failed uid=%s: %s", body.target_uid, exc)
         raise HTTPException(status_code=503, detail="Authorization service unavailable")
-
-    try:
-        await sync_role_claim(body.target_uid, body.role)
-    except Exception as exc:
-        # Firestore write succeeded; log the claim-sync failure but don't
-        # roll back — the backend verify_role still reads from Firestore,
-        # so access control is not broken.  The claim will be corrected on
-        # the next assign-role call or backfill run.
-        logger.error(
-            "assign_role: custom claim sync failed uid=%s role=%s: %s",
-            body.target_uid, body.role, exc,
-        )
 
     return {
         "success": True,
