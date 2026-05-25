@@ -15,6 +15,8 @@ from typing import Any, Deque, Dict, Iterable, Optional
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from notification_auth import filter_notifications_for_user, notification_visible_to_user
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,6 +41,10 @@ class NotificationBroadcastHub:
     immediate snapshot. If REDIS_URL is configured and redis.asyncio is
     available, the hub also publishes to a Redis channel so multiple workers can
     fan out the same event across processes.
+
+    Each WebSocket connection is bound to a Firebase UID; snapshots and live
+    events are filtered so clients only receive notifications they are allowed
+    to see (broadcast or targeted to their UID).
     """
 
     def __init__(
@@ -48,7 +54,7 @@ class NotificationBroadcastHub:
         redis_channel: str = "fasal_saathi.notifications",
     ) -> None:
         self._history: Deque[Dict[str, Any]] = collections.deque(maxlen=history_limit)
-        self._connections: set[WebSocket] = set()
+        self._connections: dict[WebSocket, str] = {}
         self._history_lock = asyncio.Lock()
         self._broadcast_lock = asyncio.Lock()
         self._redis_url = redis_url or os.getenv("REDIS_URL")
@@ -66,6 +72,10 @@ class NotificationBroadcastHub:
     def snapshot(self) -> list[Dict[str, Any]]:
         """Return a copy of the current history."""
         return list(self._history)
+
+    def snapshot_for_user(self, uid: str) -> list[Dict[str, Any]]:
+        """Return history entries visible to the given user."""
+        return filter_notifications_for_user(self._history, uid)
 
     async def start(self) -> None:
         """Start optional Redis pub-sub listener."""
@@ -117,7 +127,7 @@ class NotificationBroadcastHub:
         self._started = False
 
     async def publish(self, notification: Dict[str, Any], source: str = "local") -> NotificationEvent:
-        """Persist notification locally and fan it out to connected clients."""
+        """Persist notification locally and fan it out to subscribed clients."""
         event = NotificationEvent(type="notification", data=notification, source=source)
         payload = {
             "type": event.type,
@@ -128,7 +138,11 @@ class NotificationBroadcastHub:
 
         async with self._history_lock:
             self._history.append(notification)
-            clients = list(self._connections)
+            clients = [
+                (websocket, uid)
+                for websocket, uid in self._connections.items()
+                if notification_visible_to_user(notification, uid)
+            ]
 
         await self._broadcast(payload, clients)
 
@@ -140,12 +154,12 @@ class NotificationBroadcastHub:
 
         return event
 
-    async def connect(self, websocket: WebSocket) -> None:
+    async def connect(self, websocket: WebSocket, uid: str) -> None:
         """Accept a websocket client and keep it subscribed until disconnect."""
         await websocket.accept()
         async with self._history_lock:
-            self._connections.add(websocket)
-            snapshot = list(self._history)
+            self._connections[websocket] = uid
+            snapshot = filter_notifications_for_user(self._history, uid)
 
         await websocket.send_json(
             {
@@ -164,15 +178,19 @@ class NotificationBroadcastHub:
             pass
         finally:
             async with self._history_lock:
-                self._connections.discard(websocket)
+                self._connections.pop(websocket, None)
 
-    async def _broadcast(self, payload: Dict[str, Any], clients: list[WebSocket]) -> None:
+    async def _broadcast(
+        self,
+        payload: Dict[str, Any],
+        clients: list[tuple[WebSocket, str]],
+    ) -> None:
         if not clients:
             return
 
         async with self._broadcast_lock:
             stale_clients: list[WebSocket] = []
-            for websocket in clients:
+            for websocket, _uid in clients:
                 try:
                     await websocket.send_json(payload)
                 except Exception:
@@ -181,7 +199,7 @@ class NotificationBroadcastHub:
             if stale_clients:
                 async with self._history_lock:
                     for websocket in stale_clients:
-                        self._connections.discard(websocket)
+                        self._connections.pop(websocket, None)
 
     async def _redis_listener(self) -> None:
         try:
@@ -193,7 +211,11 @@ class NotificationBroadcastHub:
                 if isinstance(notification, dict):
                     async with self._history_lock:
                         self._history.append(notification)
-                        clients = list(self._connections)
+                        clients = [
+                            (websocket, uid)
+                            for websocket, uid in self._connections.items()
+                            if notification_visible_to_user(notification, uid)
+                        ]
                     await self._broadcast(payload, clients)
         except asyncio.CancelledError:
             raise

@@ -94,6 +94,7 @@ from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
 from error_recovery_middleware import ErrorRecoveryMiddleware
+from notification_auth import filter_notifications_for_user
 from realtime_notifications import notification_broker
 from rbac_audit import audit_rbac_event, rbac_audit_trail, validate_required_roles
 from rbac import RBACMiddleware, print_rbac_matrix, RBACManager, Permission
@@ -501,12 +502,21 @@ class NotificationStore:
         self._counter = itertools.count(start=1)
         self._ttl = timedelta(hours=ttl_hours)
 
-    def append(self, alert_type: str, message: str) -> dict:
+    def append(
+        self,
+        alert_type: str,
+        message: str,
+        *,
+        recipient_uid: Optional[str] = None,
+    ) -> dict:
         """
         Add a new notification entry and return it.
 
         The ID is assigned from a monotonically increasing counter so
         concurrent calls always produce distinct values.
+
+        When ``recipient_uid`` is None the notification is a broadcast visible
+        to every authenticated user; otherwise only that UID may receive it.
         """
         with self._lock:
             entry = {
@@ -514,6 +524,7 @@ class NotificationStore:
                 "type": alert_type,
                 "message": message,
                 "time": datetime.now().isoformat(),
+                "recipient_uid": recipient_uid,
             }
             self._deque.append(entry)
         return entry
@@ -533,6 +544,10 @@ class NotificationStore:
             if datetime.fromisoformat(e["time"]) >= cutoff
         ]
 
+    def get_recent_for_user(self, uid: str) -> list:
+        """Return TTL-valid entries visible to the given Firebase UID."""
+        return filter_notifications_for_user(self.get_recent(), uid)
+
 
 # Seed the store with the initial weather advisory that was previously
 # hard-coded in the bare list.
@@ -544,11 +559,60 @@ _notification_store.append(
 notification_broker.seed_notifications(_notification_store.get_recent())
 
 
-async def publish_notification(alert_type: str, message: str) -> dict:
-    """Store a notification and broadcast it to websocket subscribers."""
-    entry = _notification_store.append(alert_type=alert_type, message=message)
+async def publish_notification(
+    alert_type: str,
+    message: str,
+    *,
+    recipient_uid: Optional[str] = None,
+) -> dict:
+    """Store a notification and fan it out to authorized websocket subscribers."""
+    entry = _notification_store.append(
+        alert_type=alert_type,
+        message=message,
+        recipient_uid=recipient_uid,
+    )
     await notification_broker.publish(entry)
     return entry
+
+
+async def _authenticate_notification_websocket(websocket: WebSocket) -> Optional[str]:
+    """
+    Verify Firebase ID token from WebSocket query param before accepting.
+
+    Browsers cannot set Authorization headers on WebSocket handshakes, so clients
+    must pass ``?token=<Firebase ID token>``.
+    """
+    token = websocket.query_params.get("token")
+    if not token or not token.strip():
+        await websocket.close(code=1008, reason="Missing authentication token")
+        return None
+
+    try:
+        decoded = auth.verify_id_token(token.strip())
+    except Exception:
+        await websocket.close(code=1008, reason="Invalid authentication token")
+        return None
+
+    uid = decoded.get("uid")
+    if not uid:
+        await websocket.close(code=1008, reason="Invalid authentication token")
+        return None
+
+    if not db_firestore:
+        await websocket.close(code=1011, reason="Authorization service unavailable")
+        return None
+
+    try:
+        user_doc = db_firestore.collection("users").document(uid).get()
+    except Exception:
+        await websocket.close(code=1011, reason="Authorization service unavailable")
+        return None
+
+    if not user_doc.exists:
+        await websocket.close(code=1008, reason="User profile not found")
+        return None
+
+    return uid
 
 
 def _normalize_dynamic_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -659,7 +723,7 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
 
 @app.get("/api/notifications")
 @limiter.limit("30/minute")
-def get_notifications(
+async def get_notifications(
     request: Request,
     crop: str = Query(default=None),
     irrigation_count: int = Query(default=None, ge=0),
@@ -670,17 +734,26 @@ def get_notifications(
     Return recent triggered-alert notifications combined with dynamic
     farm advisory alerts generated from the query parameters.
 
+    Requires Firebase authentication. Notifications are scoped to broadcast
+    entries and entries targeted at the caller's UID.
+
     Only notifications newer than the store's TTL window are included,
     so the response payload stays small regardless of how long the
     process has been running.
     """
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
     dynamic_alerts = generate_alerts(
         crop=crop,
         irrigation_count=irrigation_count,
         water_coverage=water_coverage,
         season=season
     )
-    return {"success": True, "data": _notification_store.get_recent() + _normalize_dynamic_alerts(dynamic_alerts)}
+    stored = _notification_store.get_recent_for_user(uid)
+    return {
+        "success": True,
+        "data": stored + _normalize_dynamic_alerts(dynamic_alerts),
+    }
 
 # --- WhatsApp Service Endpoints ---
 #
@@ -763,7 +836,10 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
 
 @app.websocket("/api/notifications/stream")
 async def notifications_stream(websocket: WebSocket):
-    await notification_broker.connect(websocket)
+    uid = await _authenticate_notification_websocket(websocket)
+    if uid is None:
+        return
+    await notification_broker.connect(websocket, uid)
 
 
 @app.get("/api/admin/rbac-audit")
