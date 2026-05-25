@@ -390,9 +390,14 @@ async def log_error(body: ClientErrorReport):
 
 
 @router.post("/rag/query")
-async def rag_query(body: RAGQuery):
+async def rag_query(request: Request, body: RAGQuery):
     if rag_generate_fn is None:
         raise HTTPException(status_code=503, detail="RAG pipeline not available")
+
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+
+    await verify_role_fn(request)
 
     try:
         return rag_generate_fn(body.query, top_k=body.top_k)
