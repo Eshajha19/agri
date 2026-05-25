@@ -310,8 +310,8 @@ async def assign_role(request: Request, body: AssignRoleRequest):
     the Firestore users/{uid}.role field.  If the claim sync fails the
     Firestore update is skipped entirely, keeping both stores consistent.
 
-    The target user's next token refresh will include the updated claim.
-    Existing tokens remain valid until they expire (≤ 1 hour).
+    Refresh tokens are revoked so the target user must sign in again with the
+    updated claim (no stale-role window).
     """
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Not initialized")
@@ -348,7 +348,7 @@ async def assign_role(request: Request, body: AssignRoleRequest):
         "success": True,
         "target_uid": body.target_uid,
         "role": body.role,
-        "message": "Role updated. The user's next token refresh will include the new claim.",
+        "message": "Role updated. The user must sign in again to apply the new credentials.",
     }
 
 
