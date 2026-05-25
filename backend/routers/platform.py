@@ -262,27 +262,6 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
 
 
-@router.post("/whatsapp/webhook")
-async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
-    """
-    Handle incoming WhatsApp messages from Twilio.
-    
-    Processing is offloaded to a background Celery task to immediately
-    acknowledge the webhook (preventing Twilio timeout/penalties under burst traffic)
-    and process the message asynchronously.
-    """
-    if send_whatsapp_message_fn is None:
-        raise HTTPException(status_code=500, detail="WhatsApp sender not initialized")
-
-    sender_number = From.replace("whatsapp:", "")
-
-    # Offload message processing to reliable background task queue
-    from celery_worker import process_whatsapp_webhook_task
-    process_whatsapp_webhook_task.delay(Body, sender_number)
-    
-    return {"status": "success"}
-
-
 @router.post("/reports/generate")
 async def generate_signed_report(request: Request, data: ReportRequest):
     if verify_role_fn is None or get_signing_keys_fn is None:
