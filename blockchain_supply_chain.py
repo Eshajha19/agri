@@ -7,7 +7,7 @@ import hashlib
 import json
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict, field
 import qrcode
@@ -554,7 +554,7 @@ class SupplyChainBlockchain:
             "farm": payload.get("farm", ""),
             "status": payload.get("status", "Pending Verification"),
             "registeredByUid": payload.get("registeredByUid", ""),
-            "registeredAt": datetime.utcnow().isoformat() + "Z",
+            "registeredAt": datetime.now(timezone.utc).isoformat() + "Z",
             "journey": payload.get("journey", []),
         }
         self._trace_batches[batch_id] = entry
