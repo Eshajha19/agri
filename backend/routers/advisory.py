@@ -1,4 +1,5 @@
 """Rule-based farmer advisory API."""
+import html
 import threading
 from collections import defaultdict, deque
 from typing import Any, Optional
@@ -28,6 +29,33 @@ def init_advisory(verify_role_fn) -> None:
 # ---------------------------------------------------------------------------
 # Helper — UID extraction & validation
 # ---------------------------------------------------------------------------
+
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _sanitise_alert_text(text: Any) -> str:
+    """Strip HTML/script from alert text to prevent stored XSS in advisories."""
+    return html.escape(str(text or ""), quote=True)
+
+
+def _sanitise_alert(alert: Any) -> dict:
+    """Sanitise a single alert dict so stored content is safe to render."""
+    if not isinstance(alert, dict):
+        return {"message": str(alert), "sanitised": True}
+    safe = {}
+    for k, v in alert.items():
+        if isinstance(v, str):
+            safe[k] = _sanitise_alert_text(v)
+        else:
+            safe[k] = v
+    safe.setdefault("sanitised", True)
+    return safe
+
+
+def _sanitise_alerts(alerts: list) -> list:
+    """Return a sanitised copy of the alerts list — originals are untouched."""
+    return [_sanitise_alert(a) for a in alerts]
+
 
 async def _get_authenticated_uid(request: Request) -> str:
     """Extract and validate the caller's Firebase UID from the verified token.
@@ -98,7 +126,7 @@ async def create_advisory(payload: AdvisoryRequest, request: Request):
         uid = await _get_authenticated_uid(request)
 
         with _store_lock:
-            _stored_alerts[uid].extend(alerts)
+            _stored_alerts[uid].extend(_sanitise_alerts(alerts))
         stored = True
 
     return {
