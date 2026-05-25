@@ -40,15 +40,18 @@ async def get_notifications(
     water_coverage: int = Query(None, ge=0, le=100),
     season: str = Query(None),
 ):
-    if notification_store is None or generate_alerts_fn is None:
+    if notification_store is None or generate_alerts_fn is None or verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    token_data = await verify_role_fn(request)
+    uid = token_data["uid"]
     dynamic_alerts = generate_alerts_fn(
         crop=crop,
         irrigation_count=irrigation_count,
         water_coverage=water_coverage,
         season=season,
     )
-    return {"success": True, "data": notification_store.get_recent() + dynamic_alerts}
+    stored = notification_store.get_recent_for_user(uid)
+    return {"success": True, "data": stored + dynamic_alerts}
 
 
 @router.post("/whatsapp/subscribe")
