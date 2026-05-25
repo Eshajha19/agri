@@ -202,9 +202,8 @@ BACKEND_PORT=5000
 REACT_APP_FIREBASE_API_KEY=xxxxxxxxxxxx
 REACT_APP_FIREBASE_AUTH_DOMAIN=your-app.firebaseapp.com
 REACT_APP_FIREBASE_PROJECT_ID=your-app
-REACT_APP_BACKEND_URL=http://localhost:5000
 VITE_API_BASE_URL=https://your-backend.onrender.com
-```
+# Alternative: VITE_BACKEND_URL is also supported as a fallback
 
 ---
 
