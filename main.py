@@ -1271,6 +1271,14 @@ try:
 except Exception as e:
     logger.warning(f"Could not load ML Model Management API: {e}")
 
+# Include Crop Recommendation Router
+try:
+    from routers.crop_recommendation import router as crop_router
+    app.include_router(crop_router)
+    logger.info("Crop Recommendation API loaded successfully")
+except Exception as e:
+    logger.warning(f"Could not load Crop Recommendation API: {e}")
+
 if __name__ == "__main__":
     import uvicorn
 
