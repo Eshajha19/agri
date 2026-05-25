@@ -27,6 +27,9 @@ def init_advisory(verify_role_fn) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Helper — UID extraction & validation
+# ---------------------------------------------------------------------------
+
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -82,13 +85,11 @@ async def _get_authenticated_uid(request: Request) -> str:
 # ---------------------------------------------------------------------------
 
 class AdvisoryRequest(BaseModel):
+    model_config = {"extra": "forbid"}  # reject unknown fields (e.g. user_id)
+
     weather: dict[str, Any] = Field(default_factory=dict)
     soil: dict[str, Any] = Field(default_factory=dict)
     crop_type: Optional[str] = Field(default=None, max_length=50)
-    # user_id is no longer accepted from the request body.
-    # The authoritative identity is always derived from the verified
-    # Firebase ID token so a caller cannot store alerts under another
-    # user's UID.
     store_alerts: bool = False
 
 
