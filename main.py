@@ -279,13 +279,11 @@ if not firebase_admin._apps:
 
 async def verify_role(request: Request, required_roles: list = None):
     """
-    Verify the Firebase ID token and check the caller's role against Firestore.
-    Expects 'Authorization: Bearer <ID_TOKEN>' header.
+    Verify the Firebase ID token and check the caller's role.
 
-    Fail-closed design:
-    - If Firestore is unavailable the request is rejected with 503.
-    - If the user document does not exist the request is rejected with 403.
-    - The function never grants a role that was not explicitly stored in Firestore.
+    Delegates identity resolution to :meth:`RBACManager.resolve_auth_context`,
+    which treats Firestore ``users/{uid}.role`` as authoritative and rejects
+    stale JWT custom claims that disagree with Firestore.
     """
     action = f"{request.method} {request.url.path}"
     try:
@@ -300,108 +298,53 @@ async def verify_role(request: Request, required_roles: list = None):
         )
         raise HTTPException(status_code=500, detail="RBAC policy misconfiguration") from exc
 
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        audit_rbac_event(
-            request=request,
-            action=action,
-            outcome="denied",
-            reason="missing_authentication_token",
-            status_code=401,
-            required_roles=required_roles,
-        )
-        raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
-
-    # Use a slice instead of split()[1] to avoid IndexError when the header
-    # is exactly "Bearer " with no token following it.
-    id_token = auth_header[7:].strip()
-    if not id_token:
-        audit_rbac_event(
-            request=request,
-            action=action,
-            outcome="denied",
-            reason="missing_authentication_token",
-            status_code=401,
-            required_roles=required_roles,
-        )
-        raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
-
     try:
-        decoded_token = auth.verify_id_token(id_token)
-    except Exception:
-        audit_rbac_event(
-            request=request,
-            action=action,
-            outcome="denied",
-            reason="invalid_authentication_token",
-            status_code=401,
-            required_roles=required_roles,
+        ctx = await RBACManager.resolve_auth_context(
+            request,
+            allow_unauthenticated=False,
         )
-        raise HTTPException(status_code=401, detail="Authentication failed")
+    except HTTPException as exc:
+        uid = None
+        reason = "authorization_denied"
+        if exc.status_code == 401:
+            detail = str(exc.detail).lower()
+            reason = (
+                "missing_authentication_token"
+                if "missing" in detail
+                else "invalid_authentication_token"
+            )
+        elif exc.status_code == 403:
+            detail = str(exc.detail).lower()
+            if "profile not found" in detail:
+                reason = "user_profile_not_found"
+            elif "stale" in detail:
+                reason = "stale_authentication_token"
+            elif "invalid role" in detail:
+                reason = "invalid_profile_role"
+            else:
+                reason = "insufficient_permissions"
+        elif exc.status_code == 503:
+            reason = "authorization_service_unavailable"
 
-    uid = decoded_token["uid"]
-
-    # Firestore must be available to resolve the caller's role.
-    # Failing open (granting admin when Firestore is down) is a security bug,
-    # so we reject the request instead.
-    if not db_firestore:
         audit_rbac_event(
             request=request,
             action=action,
-            outcome="error",
+            outcome="denied" if exc.status_code in (401, 403) else "error",
             uid=uid,
-            reason="authorization_service_unavailable",
-            status_code=503,
+            reason=reason,
+            status_code=exc.status_code,
             required_roles=required_roles,
         )
-        raise HTTPException(
-            status_code=503,
-            detail="Authorization service temporarily unavailable"
-        )
+        raise
 
-    # Wrap the Firestore fetch so a transient network error (timeout, reset)
-    # returns the same clean 503 as a missing db_firestore, rather than an
-    # unhandled exception that leaks internal details as a raw 500.
-    try:
-        user_doc = db_firestore.collection("users").document(uid).get()
-    except Exception as e:
-        logger.error(
-            "Firestore fetch failed for uid=%s during role check: %s", uid, e
-        )
-        audit_rbac_event(
-            request=request,
-            action=action,
-            outcome="error",
-            uid=uid,
-            reason="role_lookup_failed",
-            status_code=503,
-            required_roles=required_roles,
-        )
-        raise HTTPException(
-            status_code=503,
-            detail="Authorization service temporarily unavailable"
-        )
-
-    if not user_doc.exists:
-        audit_rbac_event(
-            request=request,
-            action=action,
-            outcome="denied",
-            uid=uid,
-            reason="user_profile_not_found",
-            status_code=403,
-            required_roles=required_roles,
-        )
-        raise HTTPException(status_code=403, detail="User profile not found")
-
-    user_role = user_doc.to_dict().get("role", "farmer")
+    user_role = ctx.role
 
     if required_roles and user_role not in required_roles:
         audit_rbac_event(
             request=request,
             action=action,
             outcome="denied",
-            uid=uid,
+            uid=ctx.uid,
             role=user_role,
             reason="insufficient_permissions",
             status_code=403,
@@ -413,13 +356,13 @@ async def verify_role(request: Request, required_roles: list = None):
         request=request,
         action=action,
         outcome="allowed",
-        uid=uid,
+        uid=ctx.uid,
         role=user_role,
         required_roles=required_roles,
         status_code=200,
     )
 
-    return {"uid": uid, "role": user_role}
+    return {"uid": ctx.uid, "role": user_role}
 
 # --- Models ---
 
