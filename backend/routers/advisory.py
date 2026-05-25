@@ -1,4 +1,5 @@
 """Rule-based farmer advisory API."""
+import html
 import threading
 from collections import defaultdict, deque
 from typing import Any, Optional
@@ -23,6 +24,57 @@ _verify_role_fn = None
 def init_advisory(verify_role_fn) -> None:
     global _verify_role_fn
     _verify_role_fn = verify_role_fn
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _sanitise_alert_text(text: Any) -> str:
+    """Strip HTML/script from alert text to prevent stored XSS in advisories."""
+    return html.escape(str(text or ""), quote=True)
+
+
+def _sanitise_alert(alert: Any) -> dict:
+    """Sanitise a single alert dict so stored content is safe to render."""
+    if not isinstance(alert, dict):
+        return {"message": str(alert), "sanitised": True}
+    safe = {}
+    for k, v in alert.items():
+        if isinstance(v, str):
+            safe[k] = _sanitise_alert_text(v)
+        else:
+            safe[k] = v
+    safe.setdefault("sanitised", True)
+    return safe
+
+
+def _sanitise_alerts(alerts: list) -> list:
+    """Return a sanitised copy of the alerts list — originals are untouched."""
+    return [_sanitise_alert(a) for a in alerts]
+
+
+async def _get_authenticated_uid(request: Request) -> str:
+    """Extract and validate the caller's Firebase UID from the verified token.
+
+    Returns the uid string on success.
+
+    Raises
+        HTTPException 401 — token missing, invalid, or uid empty.
+        HTTPException 500 — advisory service not initialised.
+    """
+    if _verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Advisory service not initialized")
+
+    token_data = await _verify_role_fn(request)
+    uid = (token_data or {}).get("uid")
+
+    if not uid or not isinstance(uid, str) or not uid.strip():
+        raise HTTPException(
+            status_code=401,
+            detail="Valid authentication required — uid missing or invalid in token",
+        )
+    return uid.strip()
 
 
 # ---------------------------------------------------------------------------
@@ -69,15 +121,11 @@ async def create_advisory(payload: AdvisoryRequest, request: Request):
 
     stored = False
     if payload.store_alerts:
-        if _verify_role_fn is None:
-            raise HTTPException(status_code=500, detail="Advisory service not initialized")
-
         # Derive uid from the verified token — never from the request body.
-        token_data = await _verify_role_fn(request)
-        uid = token_data["uid"]
+        uid = await _get_authenticated_uid(request)
 
         with _store_lock:
-            _stored_alerts[uid].extend(alerts)
+            _stored_alerts[uid].extend(_sanitise_alerts(alerts))
         stored = True
 
     return {
@@ -101,11 +149,7 @@ async def get_my_advisories(request: Request):
     The endpoint is now /advisory/me so the caller's identity is always
     derived from the verified Firebase token, not from a URL parameter.
     """
-    if _verify_role_fn is None:
-        raise HTTPException(status_code=500, detail="Advisory service not initialized")
-
-    token_data = await _verify_role_fn(request)
-    uid = token_data["uid"]
+    uid = await _get_authenticated_uid(request)
 
     with _store_lock:
         data = list(_stored_alerts.get(uid, []))
