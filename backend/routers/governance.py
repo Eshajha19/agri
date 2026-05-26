@@ -219,8 +219,8 @@ async def get_governance_status(request: Request):
     return {
         "success": True,
         "governance_status": {
-            "drift_alerts": len(drift_detector.get_alerts("all") if hasattr(drift_detector, 'alerts') else []),
-            "active_evals": len(shadow_evaluator.active_evaluations if hasattr(shadow_evaluator, 'active_evaluations') else []),
-            "total_versions": len(version_manager.versions if hasattr(version_manager, 'versions') else [])
-        }
+            "drift_alerts": len(drift_detector.get_alerts("all")),
+            "active_evals": len(shadow_evaluator.get_evaluations()),
+            "total_versions": len(version_manager.list_versions()),
+        },
     }
