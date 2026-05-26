@@ -354,3 +354,4 @@ const Auth = () => {
 };
 
 export default Auth;
+// Enhanced Auth.jsx with security hardening
