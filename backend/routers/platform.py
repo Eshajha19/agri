@@ -19,9 +19,12 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+limiter = Limiter(key_func=get_remote_address)
 
 
 class WhatsAppSubscribeRequest(BaseModel):
@@ -203,7 +206,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
         raise HTTPException(status_code=500, detail="Subscriber store not initialized")
 
     token_data = await verify_role_fn(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
 
     subscriber = {
         "phone_number": data.phone_number,
@@ -260,27 +263,6 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
 
     delivered = sum(1 for r in results if r["success"])
     return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
-
-
-@router.post("/whatsapp/webhook")
-async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
-    """
-    Handle incoming WhatsApp messages from Twilio.
-    
-    Processing is offloaded to a background Celery task to immediately
-    acknowledge the webhook (preventing Twilio timeout/penalties under burst traffic)
-    and process the message asynchronously.
-    """
-    if send_whatsapp_message_fn is None:
-        raise HTTPException(status_code=500, detail="WhatsApp sender not initialized")
-
-    sender_number = From.replace("whatsapp:", "")
-
-    # Offload message processing to reliable background task queue
-    from celery_worker import process_whatsapp_webhook_task
-    process_whatsapp_webhook_task.delay(Body, sender_number)
-    
-    return {"status": "success"}
 
 
 @router.post("/reports/generate")
@@ -363,9 +345,26 @@ async def generate_signed_report(request: Request, data: ReportRequest):
 
 
 @router.post("/log-error")
-async def log_error(body: ClientErrorReport):
-    if sanitise_log_field_fn is None:
-        raise HTTPException(status_code=500, detail="Log sanitizer not initialized")
+@limiter.limit("10/minute")
+async def log_error(request: Request, body: ClientErrorReport):
+    """
+    Receive a client-side error report and write it to the server log.
+
+    Security controls applied:
+    - Authentication required (Firebase ID token) — prevents unauthenticated
+      callers from flooding the log pipeline.
+    - Rate-limited to 10 requests/minute per IP — caps log volume even from
+      authenticated users, preventing log-flooding DoS.
+    - All string fields are sanitised via sanitise_log_field_fn before being
+      written, preventing log-injection via ANSI escape sequences or newlines.
+    """
+    if sanitise_log_field_fn is None or verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Log service not initialized")
+
+    # Require a valid Firebase ID token.  Any authenticated user (farmer,
+    # expert, admin) may report errors; the token is not used for RBAC here,
+    # only to confirm the caller is a real registered user.
+    await verify_role_fn(request)
 
     level = sanitise_log_field_fn(body.level).lower()
     message = sanitise_log_field_fn(body.message)
@@ -390,9 +389,14 @@ async def log_error(body: ClientErrorReport):
 
 
 @router.post("/rag/query")
-async def rag_query(body: RAGQuery):
+async def rag_query(request: Request, body: RAGQuery):
     if rag_generate_fn is None:
         raise HTTPException(status_code=503, detail="RAG pipeline not available")
+
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+
+    await verify_role_fn(request)
 
     try:
         return rag_generate_fn(body.query, top_k=body.top_k)
@@ -402,7 +406,15 @@ async def rag_query(body: RAGQuery):
 
 
 @router.post("/gemini/analyze-image")
-async def gemini_analyze_image(body: GeminiImageRequest):
+async def gemini_analyze_image(request: Request, body: GeminiImageRequest):
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+
+    # Require a valid Firebase ID token to prevent unauthenticated callers
+    # from proxying arbitrary images through the server's GEMINI_API_KEY,
+    # exhausting quota and incurring billing charges.
+    await verify_role_fn(request)
+
     import httpx
 
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
@@ -451,7 +463,15 @@ async def gemini_analyze_image(body: GeminiImageRequest):
 
 
 @router.post("/simulate-climate")
-async def simulate_climate(data: SimulationRequest):
+async def simulate_climate(request: Request, data: SimulationRequest):
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+
+    # Require a valid Firebase ID token to prevent unauthenticated callers
+    # from consuming compute resources and to keep this route consistent with
+    # the authenticated /api/knowledge/simulate-climate endpoint.
+    await verify_role_fn(request)
+
     sensitivities = {
         "rice": {"temp": -0.05, "rain": 0.02},
         "wheat": {"temp": -0.06, "rain": 0.03},
