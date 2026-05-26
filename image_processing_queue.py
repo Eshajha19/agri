@@ -20,6 +20,8 @@ from dataclasses import dataclass, asdict, field
 import heapq
 import threading
 import time
+import os
+import random
 
 logger = logging.getLogger(__name__)
 
@@ -83,15 +85,31 @@ class ImageProcessingQueue:
     horizontal scaling support.
     """
 
-    def __init__(self, max_queue_size: int = 10000, enable_persistence: bool = False):
+    def __init__(self, max_queue_size: int = 10000, enable_persistence: bool = False, enable_backoff: bool = False, backoff_base: float = 1.0):
         self.max_queue_size = max_queue_size
         self.enable_persistence = enable_persistence
+        # Backoff controls (opt-in to preserve previous behavior in tests)
+        self.enable_backoff = enable_backoff
+        self.backoff_base = backoff_base
         
         # Task storage (heap of (priority, counter, task) tuples)
         self._task_queue: List[tuple] = []
         self._tasks_by_id: Dict[str, ImageProcessingTask] = {}
         self._counter = 0
         self._completed_tasks: Dict[str, ImageProcessingTask] = {}  # History
+        # Ack store for exactly-once semantics: maps task_id -> status
+        self._ack_store: Dict[str, str] = {}
+        self._ack_file = os.getenv("IMAGE_PROCESSING_QUEUE_ACK_FILE", "queue_acks.json") if enable_persistence else None
+        if self._ack_file and os.path.exists(self._ack_file):
+            try:
+                with open(self._ack_file, "r", encoding="utf-8") as ack_file:
+                    persisted_acks = json.load(ack_file)
+                if isinstance(persisted_acks, dict):
+                    self._ack_store = {str(task_id): str(status) for task_id, status in persisted_acks.items()}
+                else:
+                    logger.warning("Ignoring invalid ack store format in %s: expected object", self._ack_file)
+            except (OSError, json.JSONDecodeError) as exc:
+                logger.warning("Failed to load ack store from %s: %s", self._ack_file, exc)
         
         # Worker management
         self._workers: Dict[str, WorkerStats] = {}
@@ -108,15 +126,23 @@ class ImageProcessingQueue:
 
     def enqueue(self, task: ImageProcessingTask) -> str:
         """Enqueue a task for processing"""
+        # Exactly-once: if task already acknowledged as completed/failed, skip enqueue
+        if task.task_id in self._ack_store and self._ack_store[task.task_id] in (TaskStatus.COMPLETED.value, TaskStatus.FAILED.value):
+            logger.info(f"Task {task.task_id} already acknowledged as {self._ack_store[task.task_id]} — skipping enqueue")
+            return task.task_id
         with self._queue_lock:
             if len(self._task_queue) >= self.max_queue_size:
                 raise RuntimeError(f"Queue is full (max: {self.max_queue_size})")
-            self._task_queue.append(task)
+            # Push only a heap tuple — never append raw task objects.
+            # The previous code did both self._task_queue.append(task) AND
+            # heapq.heappush(...), which mixed raw ImageProcessingTask objects
+            # with (priority, counter, task) tuples in the same list, breaking
+            # heap ordering and causing TypeErrors on comparison.
             heapq.heappush(self._task_queue, (task.priority.value, self._counter, task))
             self._counter += 1
             self._tasks_by_id[task.task_id] = task
             self._total_enqueued += 1
-            
+
         logger.info(f"Task {task.task_id} enqueued (priority: {task.priority.name}, queue_size: {len(self._task_queue)})")
         return task.task_id
 
@@ -126,8 +152,36 @@ class ImageProcessingQueue:
             if not self._task_queue:
                 return None
 
-            _, _, task = heapq.heappop(self._task_queue)
+            # Pop until we find an eligible task (available_at in past and not acked)
+            popped = []
+            selected = None
+            now_iso = datetime.now().isoformat()
+            while self._task_queue:
+                _, _, task = heapq.heappop(self._task_queue)
 
+                # Skip if task already processed (exactly-once)
+                if task.task_id in self._ack_store and self._ack_store[task.task_id] in (TaskStatus.COMPLETED.value, TaskStatus.FAILED.value):
+                    continue
+
+                available_at = task.metadata.get("available_at")
+                if available_at and available_at > now_iso:
+                    # not ready yet — postpone
+                    popped.append((task.priority.value, self._counter, task))
+                    self._counter += 1
+                    continue
+
+                # eligible
+                selected = task
+                break
+
+            # reinsert postponed tasks
+            for entry in popped:
+                heapq.heappush(self._task_queue, entry)
+
+            if not selected:
+                return None
+
+            task = selected
             # Update task status
             task.status = TaskStatus.PROCESSING
             task.started_at = datetime.now().isoformat()
@@ -152,6 +206,14 @@ class ImageProcessingQueue:
             del self._tasks_by_id[task_id]
             self._completed_tasks[task_id] = task
             self._total_processed += 1
+            # Exactly-once ack
+            self._ack_store[task_id] = TaskStatus.COMPLETED.value
+            if self.enable_persistence:
+                try:
+                    with open(self._ack_file, "w", encoding="utf-8") as f:
+                        json.dump(self._ack_store, f)
+                except Exception:
+                    logger.debug("Failed to persist ack_store on complete")
             
             logger.info(f"Task {task_id} completed successfully")
             return True
@@ -168,11 +230,25 @@ class ImageProcessingQueue:
             
             if retry and task.retry_count < task.max_retries:
                 task.status = TaskStatus.RETRYING
-                # Re-enqueue for retry
-                with self._queue_lock:
-                    heapq.heappush(self._task_queue, (task.priority.value, self._counter, task))
-                    self._counter += 1
-                logger.info(f"Task {task_id} requeued for retry ({task.retry_count}/{task.max_retries})")
+                if self.enable_backoff:
+                    # Re-enqueue for retry with exponential backoff + jitter
+                    delay = self.backoff_base * (2 ** (task.retry_count - 1))
+                    # jitter +/- 20%
+                    jitter = delay * 0.2
+                    delay = delay + random.uniform(-jitter, jitter)
+                    available_at = (datetime.now() + timedelta(seconds=max(0.1, delay))).isoformat()
+                    task.metadata["available_at"] = available_at
+                    with self._queue_lock:
+                        heapq.heappush(self._task_queue, (task.priority.value, self._counter, task))
+                        self._counter += 1
+                    logger.info(f"Task {task_id} requeued for retry ({task.retry_count}/{task.max_retries}) available_at={available_at}")
+                else:
+                    # Immediate requeue (legacy behavior / tests expect immediate)
+                    task.metadata.pop("available_at", None)
+                    with self._queue_lock:
+                        heapq.heappush(self._task_queue, (task.priority.value, self._counter, task))
+                        self._counter += 1
+                    logger.info(f"Task {task_id} requeued for retry ({task.retry_count}/{task.max_retries})")
                 return True
             else:
                 task.status = TaskStatus.FAILED
@@ -183,7 +259,15 @@ class ImageProcessingQueue:
                 del self._tasks_by_id[task_id]
                 self._completed_tasks[task_id] = task
                 self._total_failed += 1
-                
+                # Ack failed for exactly-once
+                self._ack_store[task_id] = TaskStatus.FAILED.value
+                if self.enable_persistence:
+                    try:
+                        with open(self._ack_file, "w", encoding="utf-8") as f:
+                            json.dump(self._ack_store, f)
+                    except Exception:
+                        logger.debug("Failed to persist ack_store on fail")
+
                 logger.error(f"Task {task_id} failed after {task.retry_count} retries: {error}")
                 return False
 
@@ -218,23 +302,41 @@ class ImageProcessingQueue:
             return None
 
     def cancel_task(self, task_id: str) -> bool:
-        """Cancel a queued or processing task"""
-        with self._queue_lock:
+        """Cancel a queued or retrying task"""
+        # Acquire both locks in a consistent order (_task_lock before
+        # _queue_lock) to avoid deadlock with fail_task, which also nests
+        # _queue_lock inside _task_lock.
+        with self._task_lock:
             if task_id not in self._tasks_by_id:
                 return False
 
             task = self._tasks_by_id[task_id]
-            if task.status in (TaskStatus.QUEUED, TaskStatus.RETRYING):
-                task.status = TaskStatus.CANCELLED
-                self._task_queue = deque(
-                    t for t in self._task_queue if t.task_id != task_id
-                )
-                del self._tasks_by_id[task_id]
-                self._completed_tasks[task_id] = task
-                logger.info(f"Task {task_id} cancelled")
-                return True
+            if task.status not in (TaskStatus.QUEUED, TaskStatus.RETRYING):
+                return False
 
-            return False
+            task.status = TaskStatus.CANCELLED
+
+            with self._queue_lock:
+                # Rebuild the heap without the cancelled task.
+                # The previous code used `deque(t for t in self._task_queue if
+                # t.task_id != task_id)` which had three bugs:
+                #   1. `deque` was never imported.
+                #   2. Heap tuples are (priority, counter, task) — they have no
+                #      `.task_id` attribute, so the filter always raised AttributeError.
+                #   3. Replacing the heap list with a deque broke all future
+                #      heappush / heappop calls.
+                # Fix: filter the heap list by inspecting entry[2].task_id (the task
+                # inside each tuple), then heapify to restore the heap invariant.
+                self._task_queue = [
+                    entry for entry in self._task_queue
+                    if entry[2].task_id != task_id
+                ]
+                heapq.heapify(self._task_queue)
+
+            del self._tasks_by_id[task_id]
+            self._completed_tasks[task_id] = task
+            logger.info(f"Task {task_id} cancelled")
+            return True
 
     def register_worker(self, worker_id: str) -> WorkerStats:
         """Register a worker"""
