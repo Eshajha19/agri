@@ -9,6 +9,14 @@ import {
   User,
   MessageSquare,
   CheckCircle2,
+  MessageCircle,
+  Sparkles,
+  Bug,
+  Palette,
+  Target,
+  Pin,
+  Wheat,
+  Rocket,
 } from "lucide-react";
 import "./Feedback.css";
 
@@ -19,12 +27,12 @@ const CROP_OPTIONS = [
 ];
 
 const CATEGORY_OPTIONS = [
-  { value: "general", label: "💬 General Feedback" },
-  { value: "feature", label: "✨ Feature Request" },
-  { value: "bug", label: "🐛 Report a Bug" },
-  { value: "ui", label: "🎨 UI/UX Improvement" },
-  { value: "accuracy", label: "🎯 AI Accuracy" },
-  { value: "other", label: "📌 Other" },
+  { value: "general", label: "General Feedback", icon: <MessageCircle size={14} /> },
+  { value: "feature", label: "Feature Request", icon: <Sparkles size={14} /> },
+  { value: "bug", label: "Report a Bug", icon: <Bug size={14} /> },
+  { value: "ui", label: "UI/UX Improvement", icon: <Palette size={14} /> },
+  { value: "accuracy", label: "AI Accuracy", icon: <Target size={14} /> },
+  { value: "other", label: "Other", icon: <Pin size={14} /> },
 ];
 
 // ✅ Testimonials Data
@@ -82,78 +90,142 @@ export default function Feedback() {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError("");
+   const handleSubmit = async (e) => {
+     e.preventDefault();
+     setError("");
 
-    if (!form.message.trim()) {
-      setError("Please enter your feedback message.");
-      return;
-    }
+     // Basic client-side validation
+     if (!form.message.trim()) {
+       setError("Please enter your feedback message.");
+       return;
+     }
 
-    if (form.rating === 0) {
-      setError("Please select a rating.");
-      return;
-    }
+     if (form.message.trim().length < 3) {
+       setError("Feedback message must be at least 3 characters long.");
+       return;
+     }
 
-    setLoading(true);
-    try {
-      const user = auth?.currentUser;
-      
-      // Prepare data for API submission
-      const feedbackData = {
-        userId: user?.uid || "anonymous",
-        userEmail: user?.email || "anonymous",
-        name: form.name || (user?.displayName ?? "Anonymous"),
-        cropType: form.cropType,
-        location: form.location,
-        category: form.category,
-        message: form.message,
-        rating: form.rating,
-      };
+     if (form.message.length > 2000) {
+       setError("Feedback message is too long (maximum 2000 characters).");
+       return;
+     }
 
-      // Submit to secure backend API instead of direct Firestore write
-      const response = await fetch("/api/feedback", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(feedbackData),
-      });
+     if (form.rating === 0) {
+       setError("Please select a rating.");
+       return;
+     }
 
-      const result = await response.json();
+     if (form.rating < 1 || form.rating > 5) {
+       setError("Please select a valid rating between 1 and 5 stars.");
+       return;
+     }
 
-      if (!response.ok) {
-        throw new Error(result.detail || result.error || "Failed to submit feedback");
-      }
+     // Validate name length
+     if (form.name && form.name.length > 100) {
+       setError("Name is too long (maximum 100 characters).");
+       return;
+     }
 
-      if (!result.success) {
-        throw new Error(result.message || "Feedback submission failed");
-      }
+     // Validate location length
+     if (form.location && form.location.length > 200) {
+       setError("Location is too long (maximum 200 characters).");
+       return;
+     }
 
-      console.log("Feedback submitted successfully. ID:", result.feedback_id);
-      setSubmitted(true);
-    } catch (err) {
-      console.error("Feedback submit error:", err);
-      
-      // User-friendly error messages
-      let errorMessage = "Failed to submit feedback. Please try again.";
-      
-      if (err.message.includes("Message is required")) {
-        errorMessage = "Please enter a valid feedback message.";
-      } else if (err.message.includes("Invalid data format")) {
-        errorMessage = "Your feedback contains invalid characters. Please remove any special symbols and try again.";
-      } else if (err.message.includes("rating")) {
-        errorMessage = "Please select a valid rating between 1 and 5 stars.";
-      } else {
-        errorMessage = err.message || "Failed to submit feedback. Please try again.";
-      }
-      
-      setError(errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  };
+     // Validate category
+     const validCategories = ['general', 'feature', 'bug', 'ui', 'accuracy', 'other'];
+     if (!validCategories.includes(form.category)) {
+       setError("Invalid feedback category selected.");
+       return;
+     }
+
+     // Validate crop type
+     const validCrops = [
+       'Rice', 'Wheat', 'Cotton', 'Sugarcane', 'Maize',
+       'Soybean', 'Potato', 'Onion', 'Tomato', 'Vegetables',
+       'Fruits', 'Other'
+     ];
+     if (form.cropType && !validCrops.includes(form.cropType)) {
+       setError("Invalid crop type selected.");
+       return;
+     }
+
+     // Security validation - check for dangerous patterns
+     const dangerousPatterns = [
+       /\$[a-zA-Z_][a-zA-Z0-9_]*\s*:/, // MongoDB operators
+       /\{.*\}\s*:\s*\{/, // Nested object injection
+       /\.\.\//, // Path traversal
+       /<script.*?>.*?<\/script>/i, // XSS
+       /on\w+\s*=/i, // Event handlers
+       /javascript:/i, // JavaScript protocol
+       /data:/i, // Data URLs
+     ];
+
+     const allFields = [form.message, form.name, form.location].filter(Boolean);
+     for (const field of allFields) {
+       for (const pattern of dangerousPatterns) {
+         if (pattern.test(field)) {
+           setError('Your input contains potentially unsafe characters. Please remove any special symbols and try again.');
+           return;
+         }
+       }
+     }
+
+     setLoading(true);
+     try {
+       const user = auth?.currentUser;
+       
+       // Prepare data for Firestore submission
+       const feedbackData = {
+         userId: user?.uid || "anonymous",
+         userEmail: user?.email || "anonymous",
+         name: form.name || (user?.displayName ?? "Anonymous"),
+         cropType: form.cropType || null,
+         location: form.location || null,
+         category: form.category,
+         message: form.message.trim(),
+         rating: form.rating,
+         createdAt: new Date().toISOString(),
+       };
+
+       // Remove null values to keep Firestore clean
+       Object.keys(feedbackData).forEach(key => 
+         feedbackData[key] === null && delete feedbackData[key]
+       );
+
+       // Submit directly to Firestore
+       const docRef = await addDoc(collection(db, "feedback"), feedbackData);
+       
+       console.log("Feedback submitted successfully. ID:", docRef.id);
+       setSubmitted(true);
+     } catch (err) {
+       console.error("Feedback submit error:", err);
+       
+       // User-friendly error messages
+       let errorMessage = "Failed to submit feedback. Please try again.";
+       
+       if (err.message) {
+         const message = err.message.toLowerCase();
+         if (message.includes("message is required") || message.includes("at least 3 characters")) {
+           errorMessage = "Please enter a valid feedback message.";
+         } else if (message.includes("too long") || message.includes("maximum")) {
+           errorMessage = "Your feedback is too long. Please shorten it and try again.";
+         } else if (message.includes("rating")) {
+           errorMessage = "Please select a valid rating between 1 and 5 stars.";
+         } else if (message.includes("unsafe") || message.contains("special symbols")) {
+           errorMessage = "Your input contains potentially unsafe characters. Please remove any special symbols and try again.";
+         } else if (message.includes("permission") || message.includes("denied")) {
+           errorMessage = "You don't have permission to submit feedback. Please try again later.";
+         } else {
+           errorMessage = err.message || "Failed to submit feedback. Please try again.";
+         }
+       }
+       
+       setError(errorMessage);
+     } finally {
+       setLoading(false);
+     }
+   };
 
   const handleReset = () => {
     setForm({
@@ -211,7 +283,7 @@ export default function Feedback() {
 
         {/* Left Panel */}
         <div className="feedback-info-panel">
-          <div className="info-badge">🌾 Farmer Feedback</div>
+          <div className="info-badge"><Wheat size={14} aria-hidden="true" /> Farmer Feedback</div>
 
           <h1>Help Us Grow Better</h1>
 
@@ -234,12 +306,12 @@ export default function Feedback() {
 
           <div className="info-stats">
             {[
-              { icon: "⭐", label: "Average Rating", value: "4.8/5" },
-              { icon: "💬", label: "Feedbacks Received", value: "2,400+" },
-              { icon: "🚀", label: "Features Added from Feedback", value: "18+" },
+              { icon: <Star size={18} className="text-yellow-400" />, label: "Average Rating", value: "4.8/5" },
+              { icon: <MessageSquare size={18} />, label: "Feedbacks Received", value: "2,400+" },
+              { icon: <Rocket size={18} />, label: "Features Added from Feedback", value: "18+" },
             ].map((stat, i) => (
               <div key={i} className="info-stat-item">
-                <span className="stat-emoji">{stat.icon}</span>
+                <span className="stat-emoji" aria-hidden="true">{stat.icon}</span>
                 <div>
                   <div className="stat-value">{stat.value}</div>
                   <div className="stat-label">{stat.label}</div>
@@ -319,7 +391,10 @@ export default function Feedback() {
                     className={`cat-chip ${form.category === cat.value ? "active" : ""}`}
                     onClick={() => handleChange("category", cat.value)}
                   >
-                    {cat.label}
+                    <>
+                      <span aria-hidden="true">{cat.icon}</span>
+                      {cat.label}
+                    </>
                   </button>
                 ))}
               </div>

@@ -19,7 +19,7 @@ from typing import Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, Request, Form, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from pydantic import BaseModel, Field, ConfigDict, validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
 
 class SimulationRequest(BaseModel):
     crop_type: str
@@ -94,6 +94,7 @@ from ml.preprocessing import UnknownCategoryError, MissingFeatureError
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
+from csrf_protection import generate_token, reject_cross_origin
 from error_recovery_middleware import ErrorRecoveryMiddleware
 from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, resolve_subscription_regions, normalize_region_identifier
 from notification_auth import filter_notifications_for_user
@@ -162,13 +163,35 @@ async def lifespan(app: FastAPI):
     logger.info("Domain engines initialized with persistent repositories")
 
     # Router init hooks — run after engines are ready.
-    governance.init_governance(drift_detector, shadow_evaluator, version_manager)
+    governance.init_governance(drift_detector, shadow_evaluator, version_manager, verify_role)
     finance.init_finance(_farm_finance_ai, RBACManager, Permission)
     quality.init_quality(_crop_quality_grader, RBACManager, Permission)
     blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
-    referrals.init_referrals(lambda: db_firestore)
+    referrals.init_referrals(lambda: db_firestore, verify_role)
     reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
-    marketplace.init_marketplace(verify_role)
+    async def _notify_booking(booking: dict) -> None:
+        owner_uid = booking.get("ownerUid")
+        if not owner_uid:
+            return
+        msg = (
+            f"📦 New booking for *{booking.get('equipmentName', 'equipment')}* "
+            f"on {booking.get('date', 'unknown date')}."
+        )
+        await notification_broker.publish(
+            {"type": "booking", "booking": booking, "message": msg},
+            source="marketplace",
+        )
+        if db_firestore:
+            try:
+                owner_snap = db_firestore.collection("users").document(owner_uid).get()
+                owner_data = owner_snap.to_dict() if owner_snap.exists else {}
+                phone = owner_data.get("phone_number") or owner_data.get("phoneNumber") or owner_data.get("phone")
+                if phone:
+                    send_whatsapp_message(phone, msg)
+            except Exception as exc:
+                logger.warning("Failed to send WhatsApp notification for booking: %s", exc)
+
+    marketplace.init_marketplace(verify_role, _notify_booking)
     lms.init_lms(verify_role, db_firestore)
     advisory.init_advisory(verify_role)
 
@@ -242,7 +265,7 @@ async def lifespan(app: FastAPI):
     except Exception:
         model_trend = None
 
-    ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend)
+    ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend, verify_role)
 
     yield
     # Shutdown
@@ -395,14 +418,26 @@ class PredictRequest(BaseModel):
 class PredictResponse(BaseModel):
     predicted_ExpYield: float
 
+_E164_RE = re.compile(r"^\+[1-9]\d{6,14}$")
+
+
 class WhatsAppSubscribeRequest(BaseModel):
     phone_number: str
     name: str
     region_id: Optional[str] = Field(default=None, max_length=100)
     # user_id is accepted for backward compatibility but is IGNORED by the
-    # endpoint — the authoritative user identity is always derived from the
+    # endpoint -- the authoritative user identity is always derived from the
     # verified Firebase ID token, never from client-supplied data.
     user_id: Optional[str] = None
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_e164(cls, v: str) -> str:
+        if not _E164_RE.match(v):
+            raise ValueError(
+                "phone_number must be in E.164 format (e.g. +919876543210)"
+            )
+        return v
 
 class YieldInput(BaseModel):
     data: list[float]
@@ -701,6 +736,8 @@ async def predict_yield(data: PredictRequest, request: Request):
     missing required feature, so callers receive an actionable error message
     rather than a silently corrupted prediction.
     """
+    await verify_role(request)
+
     try:
         input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
         input_data = _coerce_prediction_inputs(input_data)
@@ -714,7 +751,12 @@ async def predict_yield(data: PredictRequest, request: Request):
         from celery_worker import predict_yield_task
         task = predict_yield_task.delay(input_data, context)
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, task.get)
+        # timeout=30 prevents executor threads from blocking indefinitely when
+        # a Celery worker is slow or the broker is unreachable.
+        try:
+            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
+        except Exception as celery_exc:
+            raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
 
         if "error" in result:
             err_type = result.get("type")
@@ -736,12 +778,17 @@ async def predict_yield(data: PredictRequest, request: Request):
 @app.post("/predict-yield-lag")
 @limiter.limit("5/minute")
 async def predict_yield_lag(payload: YieldInput, request: Request):
+    await verify_role(request)
+
     try:
         # Offload time-series lag model prediction to Celery worker pool
         from celery_worker import predict_yield_lag_task
         task = predict_yield_lag_task.delay(payload.data)
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, task.get)
+        try:
+            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
+        except Exception as celery_exc:
+            raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
 
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
@@ -755,12 +802,17 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
 @app.post("/predict-yield-trend")
 @limiter.limit("5/minute")
 async def predict_yield_trend(payload: YieldInput, request: Request):
+    await verify_role(request)
+
     try:
         # Offload heavy iterative trend forecasting to Celery worker pool
         from celery_worker import predict_yield_trend_task
         task = predict_yield_trend_task.delay(payload.data)
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, task.get)
+        try:
+            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
+        except Exception as celery_exc:
+            raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
 
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
@@ -922,6 +974,16 @@ async def get_rbac_audit(request: Request, limit: int = Query(default=50, ge=1, 
     """Return the most recent RBAC audit events for admins and experts."""
     await verify_role(request, required_roles=["admin", "expert"])
     return {"success": True, "data": rbac_audit_trail.snapshot(limit=limit)}
+
+@app.get("/api/csrf-token")
+@limiter.limit("30/minute")
+async def get_csrf_token(request: Request):
+    """Return a signed CSRF token tied to the authenticated user."""
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+    token = generate_token(uid)
+    return {"csrf_token": token}
+
 
 @app.post("/api/whatsapp/webhook")
 @limiter.limit("20/minute")
@@ -1148,6 +1210,8 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
 )
+import csrf_protection as _csrf
+_csrf.configure(_CORS_ORIGINS)
 app.add_middleware(RBACMiddleware)
 logger.info(print_rbac_matrix())
 
