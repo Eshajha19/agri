@@ -90,20 +90,56 @@ async def _get_uid_from_request(request: Request) -> str:
 def _ensure_user_referral_code(db, uid: str, user_data: Optional[Dict[str, Any]] = None) -> str:
     user_ref = db.collection("users").document(uid)
     data = user_data
-    if data is None:
-        user_snap = user_ref.get()
-        data = user_snap.to_dict() if user_snap.exists else {}
 
-    existing_code = _normalize_referral_code((data or {}).get("referralCode", ""))
-    if existing_code:
-        code_ref = db.collection("referral_codes").document(existing_code)
-        code_snap = code_ref.get()
-        if not code_snap.exists or code_snap.to_dict().get("uid") == uid:
+    # Use a Firestore transaction so concurrent requests for the same uid
+    # cannot both see "no existing code" and generate different codes.
+    @firestore.transactional
+    def _generate_in_transaction(transaction):
+        snap = user_ref.get(transaction=transaction)
+        current_data = snap.to_dict() if snap.exists else {}
+
+        existing_code = _normalize_referral_code((current_data or {}).get("referralCode", ""))
+        if existing_code:
+            code_ref = db.collection("referral_codes").document(existing_code)
+            code_snap = code_ref.get(transaction=transaction)
+            if not code_snap.exists or code_snap.to_dict().get("uid") == uid:
+                code_ref.set(
+                    {
+                        "uid": uid,
+                        "displayName": (current_data or {}).get("displayName") or "Farmer",
+                        "updatedAt": _now_iso(),
+                    },
+                    merge=True,
+                )
+                if (current_data or {}).get("referralCode") != existing_code:
+                    user_ref.set(
+                        {
+                            "referralCode": existing_code,
+                            "referralCodeIssuedAt": _now_iso(),
+                        },
+                        merge=True,
+                    )
+                return existing_code
+
+        for attempt in range(5):
+            generated_code = _generate_referral_code(uid, attempt)
+            code_ref = db.collection("referral_codes").document(generated_code)
+            code_snap = code_ref.get(transaction=transaction)
+            if code_snap.exists and code_snap.to_dict().get("uid") != uid:
+                continue
+
             code_ref.set(
                 {
                     "uid": uid,
-                    "displayName": (data or {}).get("displayName") or "Farmer",
+                    "displayName": (current_data or {}).get("displayName") or "Farmer",
+                    "createdAt": _now_iso(),
                     "updatedAt": _now_iso(),
+                },
+            )
+            user_ref.set(
+                {
+                    "referralCode": generated_code,
+                    "referralCodeIssuedAt": _now_iso(),
                 },
                 merge=True,
             )
@@ -126,25 +162,10 @@ def _ensure_user_referral_code(db, uid: str, user_data: Optional[Dict[str, Any]]
         if code_snap.exists and code_snap.to_dict().get("uid") != uid:
             continue
 
-        code_ref.set(
-            {
-                "uid": uid,
-                "displayName": (data or {}).get("displayName") or "Farmer",
-                "createdAt": _now_iso(),
-                "updatedAt": _now_iso(),
-            },
-            merge=True,
-        )
-        user_ref.set(
-            {
-                "referralCode": generated_code,
-                "referralCodeIssuedAt": _now_iso(),
-            },
-            merge=True,
-        )
-        return generated_code
+        raise HTTPException(status_code=500, detail="Failed to generate a referral code")
 
-    raise HTTPException(status_code=500, detail="Failed to generate a referral code")
+    transaction = db.transaction()
+    return _generate_in_transaction(transaction)
 
 
 def _history_entry(doc_snapshot) -> Dict[str, Any]:
