@@ -91,8 +91,18 @@ def build_secret_fingerprint(value: str) -> str:
         value = str(value)
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
-def redact_sensitive_payload(payload: Any) -> Any:
-    """Recursively traverses and masks PII / Secrets in request/response payloads."""
+_MAX_REDACT_DEPTH = 20
+
+
+def redact_sensitive_payload(payload: Any, _depth: int = 0) -> Any:
+    """Recursively traverses and masks PII / Secrets in request/response payloads.
+
+    Stops recursion at _MAX_REDACT_DEPTH (20) to prevent stack exhaustion
+    from deeply nested attacker-controlled payloads.
+    """
+    if _depth >= _MAX_REDACT_DEPTH:
+        return "[MAX_DEPTH]"
+
     if isinstance(payload, dict):
         new_payload = {}
         for k, v in payload.items():
@@ -102,14 +112,14 @@ def redact_sensitive_payload(payload: Any) -> Any:
             elif any(s in k_lower for s in ["key", "secret", "token", "password", "auth"]):
                 new_payload[k] = "[REDACTED_SECRET]"
             else:
-                new_payload[k] = redact_sensitive_payload(v)
+                new_payload[k] = redact_sensitive_payload(v, _depth + 1)
         return new_payload
     elif isinstance(payload, list):
-        return [redact_sensitive_payload(item) for item in payload]
+        return [redact_sensitive_payload(item, _depth + 1) for item in payload]
     elif isinstance(payload, str):
         email_pattern = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
         phone_pattern = re.compile(r"\+?[0-9]{1,4}[-.\s]?[0-9]{3,5}[-.\s]?[0-9]{4,5}")
-        
+
         redacted = payload
         redacted = email_pattern.sub("[REDACTED_EMAIL]", redacted)
         redacted = phone_pattern.sub("[REDACTED_PHONE]", redacted)
