@@ -508,7 +508,12 @@ class RBACMiddleware:
     avoid unnecessary latency and Firebase API calls.
     """
 
-    PUBLIC_PATH_PREFIXES = frozenset({"/", "/health", "/metrics", "/favicon"})
+    # /metrics is intentionally excluded from this set.  The endpoint
+    # requires admin authentication (verify_role with required_roles=["admin"])
+    # and must be logged by this middleware like any other protected route.
+    # Listing it here would suppress RBAC audit logging for denied access
+    # attempts and incorrectly classify it in the same trust tier as /health.
+    PUBLIC_PATH_PREFIXES = frozenset({"/", "/health", "/favicon"})
 
     def __init__(self, app):
         self.app = app
