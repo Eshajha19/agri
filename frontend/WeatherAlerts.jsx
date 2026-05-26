@@ -8,6 +8,7 @@ import {
   FaTint,
   FaEye,
 } from "react-icons/fa";
+import { Info, AlertTriangle, AlertCircle, Siren, MapPin, RefreshCw, ClipboardList, Wheat, Lightbulb, CheckCircle, History } from "lucide-react";
 import "./WeatherAlerts.css";
 
 /**
@@ -40,10 +41,10 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
   };
 
   const severityIcons = {
-    low: "ℹ️",
-    medium: "⚠️",
-    high: "🔴",
-    critical: "🚨",
+    low: <Info size={16} aria-hidden="true" />,
+    medium: <AlertTriangle size={16} aria-hidden="true" />,
+    high: <AlertCircle size={16} aria-hidden="true" />,
+    critical: <Siren size={16} aria-hidden="true" />,
   };
 
   // Fetch weather alerts
@@ -159,10 +160,10 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
         </span>
       </div>
       <p className="alert-message">{alert.message}</p>
-      {alert.crop && <p className="alert-crop">🌾 {alert.crop}</p>}
+      {alert.crop && <p className="alert-crop"><Wheat size={14} aria-hidden="true" /> {alert.crop}</p>}
       {alert.recommended_action && (
         <div className="alert-action">
-          <strong>💡 Action:</strong> {alert.recommended_action}
+          <strong><Lightbulb size={14} aria-hidden="true" /> Action:</strong> {alert.recommended_action}
         </div>
       )}
     </div>
@@ -201,7 +202,7 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
           )}
           {alert.recommended_action && (
             <div className="modal-action">
-              <strong>💡 Recommended Action:</strong>
+              <strong><Lightbulb size={14} aria-hidden="true" /> Recommended Action:</strong>
               <p>{alert.recommended_action}</p>
             </div>
           )}
@@ -214,7 +215,7 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
     return (
       <div className="weather-alerts-container">
         <div className="error-message">
-          📍 Please set your farm location to view weather alerts
+          <MapPin size={16} aria-hidden="true" /> Please set your farm location to view weather alerts
         </div>
       </div>
     );
@@ -223,14 +224,14 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
   return (
     <div className="weather-alerts-container">
       <div className="weather-alerts-header">
-        <h2>🌤️ Real-Time Weather Alerts</h2>
+        <h2><RefreshCw size={20} aria-hidden="true" /> Real-Time Weather Alerts</h2>
         <div className="header-actions">
           <button
             className="refresh-btn"
             onClick={fetchWeatherAlerts}
             disabled={loading}
           >
-            {loading ? "Fetching..." : "🔄 Refresh"}
+            {loading ? "Fetching..." : <><RefreshCw size={14} aria-hidden="true" /> Refresh</>}
           </button>
           <button
             className="history-btn"
@@ -239,21 +240,21 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
               if (!showHistory) fetchAlertHistory();
             }}
           >
-            📋 History
+            <ClipboardList size={14} aria-hidden="true" /> History
           </button>
         </div>
       </div>
 
       {error && (
         <div className="error-message">
-          ⚠️ {error}
+          <AlertTriangle size={16} aria-hidden="true" /> {error}
         </div>
       )}
 
       {weather && (
         <div className="weather-display">
           <div className="location-info">
-            <h3>📍 {location}</h3>
+            <h3><MapPin size={16} aria-hidden="true" /> {location}</h3>
             <p className="last-updated">
               Last updated: {lastUpdated?.toLocaleTimeString()}
             </p>
@@ -302,17 +303,17 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
           {alerts.length > 0 && (
             <div className="alert-summary">
               <span className="critical-count">
-                🚨 Critical: {alerts.filter((a) => a.severity === "critical").length}
+                <Siren size={14} aria-hidden="true" /> Critical: {alerts.filter((a) => a.severity === "critical").length}
               </span>
               <span className="high-count">
-                🔴 High: {alerts.filter((a) => a.severity === "high").length}
+                <AlertCircle size={14} aria-hidden="true" /> High: {alerts.filter((a) => a.severity === "high").length}
               </span>
             </div>
           )}
         </div>
 
         {alerts.length === 0 ? (
-          <div className="no-alerts">✅ No weather alerts at this time</div>
+          <div className="no-alerts"><CheckCircle size={16} aria-hidden="true" /> No weather alerts at this time</div>
         ) : (
           <div className="alerts-list">
             {alerts.map((alert) => (
@@ -324,7 +325,7 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
 
       {showHistory && (
         <div className="history-section">
-          <h3>📋 Alert History</h3>
+          <h3><History size={16} aria-hidden="true" /> Alert History</h3>
           {alertHistory.length === 0 ? (
             <p>No alert history available</p>
           ) : (

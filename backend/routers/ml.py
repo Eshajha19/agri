@@ -84,7 +84,8 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
         try:
             import joblib
             if os.path.exists(TREND_MODEL_PATH):
-                model_trend = joblib.load(TREND_MODEL_PATH)
+                from ml.security import verify_and_load_joblib
+                model_trend = verify_and_load_joblib(TREND_MODEL_PATH)
                 logger.info("Trend forecast model loaded from %s", TREND_MODEL_PATH)
             else:
                 raise FileNotFoundError(f"Trend model not found at {TREND_MODEL_PATH}")

@@ -21,6 +21,8 @@ from .citation_manager import (
     CitationIntegrityChecker,
     CitationManager,
 )
+from .vector_store import InMemoryVectorStore
+from .advisor import AdvisorDocument, RAGAdvisorService, redact_pii, has_privacy_opt_out
 
 __all__ = [
     # Retriever
@@ -36,4 +38,10 @@ __all__ = [
     "CitationContext",
     "CitationIntegrityChecker",
     "CitationManager",
+    # Advisor / vector store
+    "InMemoryVectorStore",
+    "AdvisorDocument",
+    "RAGAdvisorService",
+    "redact_pii",
+    "has_privacy_opt_out",
 ]
