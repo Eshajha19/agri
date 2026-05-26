@@ -87,10 +87,12 @@ _seed_listings()
 # Dependency injection
 # ---------------------------------------------------------------------------
 verify_role_fn = None
+notify_booking_fn = None
 
-def init_marketplace(vr_fn) -> None:
-    global verify_role_fn
+def init_marketplace(vr_fn, notify_fn=None) -> None:
+    global verify_role_fn, notify_booking_fn
     verify_role_fn = vr_fn
+    notify_booking_fn = notify_fn
 
 # ---------------------------------------------------------------------------
 # Pydantic models
@@ -245,6 +247,14 @@ async def book_equipment(request: Request, data: BookEquipmentRequest):
         "Booking %s created: equipment=%s booker=%s date=%s",
         bid, data.equipmentId, booker_uid, data.date,
     )
+
+    # Notify the equipment owner asynchronously.
+    if notify_booking_fn is not None:
+        try:
+            await notify_booking_fn(booking)
+        except Exception as exc:
+            logger.warning("Booking notification failed for %s: %s", bid, exc)
+
     return {"success": True, "booking": booking}
 
 
