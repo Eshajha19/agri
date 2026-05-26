@@ -603,3 +603,4 @@ def init_pipeline(max_workers: int = 4, max_queue_size: int = 10000) -> ImagePro
     global _global_pipeline
     _global_pipeline = ImageProcessingPipeline(max_workers=max_workers, max_queue_size=max_queue_size)
     return _global_pipeline
+# Image processing optimization complete
