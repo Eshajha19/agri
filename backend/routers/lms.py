@@ -9,14 +9,19 @@ authorization decisions.
 """
 import hashlib
 import logging
+import time
 from datetime import datetime, timezone
-from typing import Dict
+from typing import Dict, Tuple
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# Per-user per-course certificate request cooldown (seconds).
+_CERT_COOLDOWN_SECONDS = 60
+_last_cert_request: Dict[Tuple[str, str], float] = {}
 
 # ---------------------------------------------------------------------------
 # Injected dependencies (wired in main.py lifespan via init_lms)
@@ -211,6 +216,17 @@ async def get_certificate_data(request: Request, course_id: str):
 
     token_data = await _verify_role_fn(request)
     uid = token_data.get("uid")
+
+    # Per-user per-course cooldown to prevent Firestore cost abuse.
+    key = (uid, course_id)
+    now = time.time()
+    last = _last_cert_request.get(key)
+    if last is not None and (now - last) < _CERT_COOLDOWN_SECONDS:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Certificate already requested recently. Please wait {_CERT_COOLDOWN_SECONDS} seconds.",
+        )
+    _last_cert_request[key] = now
 
     progress = _get_progress(uid, course_id)
     if not _is_complete(progress, course_id):
