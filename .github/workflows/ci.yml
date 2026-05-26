@@ -2,36 +2,48 @@ name: Fast CI
 
 on:
   push:
-    branches: [main, master]
+    branches:
+      - main
+      - master
+
   pull_request:
 
 jobs:
   checks:
     runs-on: ubuntu-latest
 
-    steps:
-      - uses: actions/checkout@v4
+    env:
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
-      - uses: actions/setup-python@v5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
 
-      - name: Install dependencies
+      - name: Install lightweight CI dependencies
         run: |
           python -m pip install --upgrade pip
 
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          fi
-
-          pip install pytest ruff bandit
+          pip install \
+            fastapi \
+            pydantic \
+            pytest \
+            ruff \
+            bandit
 
       - name: Lint
-        run: ruff check .
+        run: |
+          ruff check .
 
-      - name: Security scan
-        run: bandit -r . -q
+      - name: Security Scan
+        run: |
+          bandit -r . -q
 
-      - name: Run tests
-        run: pytest -q --maxfail=1
+      - name: Run Tests
+        run: |
+          pytest -q --maxfail=1
