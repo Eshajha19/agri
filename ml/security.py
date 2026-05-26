@@ -8,18 +8,21 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+ALLOW_UNSIGNED_MODELS = (
+    os.getenv("ALLOW_UNSIGNED_MODELS", "false").lower() == "true"
+)
 
-def verify_and_load_joblib(model_path: str, sig_path: Optional[str] = None, key_env: str = "MODEL_SIGNING_KEY"):
+
+def verify_and_load_joblib(
+    model_path: str,
+    sig_path: Optional[str] = None,
+    key_env: str = "MODEL_SIGNING_KEY",
+):
     """
-    Verify an HMAC-SHA256 signature for a joblib model file and load it safely.
+    Verify a joblib model signature before loading.
 
-    - The signing key is read from the environment variable named by `key_env`.
-    - The expected hex signature is read from `sig_path` (defaults to model_path + '.sig').
-    - If verification succeeds the model is loaded from memory using joblib.load on
-      a BytesIO buffer to avoid re-reading the file after verification.
-    - If the signing key is not set or the signature file is missing, it logs a warning/integrity
-      diagnostic and falls back to standard loading to avoid service disruption.
-    - If the signature verification fails, it raises RuntimeError to prevent execution of tampered code.
+    Models are loaded only after successful HMAC-SHA256 verification unless
+    ALLOW_UNSIGNED_MODELS=true is explicitly enabled for development.
     """
     if sig_path is None:
         sig_path = model_path + ".sig"
@@ -27,12 +30,20 @@ def verify_and_load_joblib(model_path: str, sig_path: Optional[str] = None, key_
     key = os.getenv(key_env)
     if not key:
         logger.warning(
-            "Integrity diagnostic: Model signing key environment variable '%s' is not set. "
-            "Falling back to standard non-verified model loading for '%s' to prevent service outages.",
+            "Model signing key '%s' is not configured for '%s'",
             key_env,
             model_path
         )
-        return joblib.load(model_path)
+        if ALLOW_UNSIGNED_MODELS:
+            logger.warning(
+                "Loading unsigned model '%s' because ALLOW_UNSIGNED_MODELS=true",
+                model_path,
+            )
+            return joblib.load(model_path)
+
+        raise RuntimeError(
+            f"Model signing key '{key_env}' is not configured for '{model_path}'"
+        )
 
     # Read model bytes once
     try:
@@ -48,12 +59,20 @@ def verify_and_load_joblib(model_path: str, sig_path: Optional[str] = None, key_
             expected = sf.read().strip()
     except FileNotFoundError:
         logger.warning(
-            "Integrity diagnostic: Signature file not found at '%s' for model '%s'. "
-            "Falling back to standard non-verified model loading to prevent service outages.",
+            "Signature file '%s' not found for model '%s'",
             sig_path,
             model_path
         )
-        return joblib.load(model_path)
+        if ALLOW_UNSIGNED_MODELS:
+            logger.warning(
+                "Loading unsigned model '%s' because ALLOW_UNSIGNED_MODELS=true",
+                model_path,
+            )
+            return joblib.load(model_path)
+
+        raise RuntimeError(
+            f"Signature file missing for model '{model_path}'"
+        )
 
     # Compute HMAC-SHA256 and compare in constant time
     mac = hmac.new(key.encode("utf-8"), data, hashlib.sha256).hexdigest()
@@ -63,8 +82,13 @@ def verify_and_load_joblib(model_path: str, sig_path: Optional[str] = None, key_
             "Refusing to load model to prevent potential arbitrary code execution.",
             model_path
         )
-        raise RuntimeError("Model signature verification failed - refusing to load model")
+        raise RuntimeError(
+            "Model signature verification failed - refusing to load model"
+        )
 
     # Load model from verified bytes
-    logger.info("Successfully verified model signature and loaded '%s' securely.", model_path)
+    logger.info(
+        "Successfully verified and securely loaded model '%s'",
+        model_path,
+    )
     return joblib.load(io.BytesIO(data))
