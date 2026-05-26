@@ -4,7 +4,9 @@ with transaction atomicity and rollback support.
 """
 
 import hashlib
+import hmac
 import json
+import os
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -126,6 +128,7 @@ class SupplyChainBlockchain:
         self.verified_actors: Dict[str, Dict] = {}
         self._trace_batches: Dict[str, Dict] = {}
         self._repository = repository
+        self._qr_signing_secret = os.getenv("BLOCKCHAIN_QR_SECRET", "").strip()
 
     # ------------- Utilities for atomicity -------------
     def _snapshot_state(self):
@@ -147,6 +150,60 @@ class SupplyChainBlockchain:
             if cid in self.smart_contracts:
                 self.smart_contracts[cid].status = status
         self._trace_batches = _copy.deepcopy(snap["trace_batches_copy"])
+
+    def _canonical_json(self, payload: Dict) -> str:
+        """Serialize a payload deterministically for hashing/signing."""
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+
+    def _hash_text(self, text: str) -> str:
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    def _build_trace_proof(self, batch_id: str) -> Dict[str, str]:
+        """Create a tamper-evident proof for a batch and its journey."""
+        batch = self.products.get(batch_id)
+        if batch is None:
+            raise ValueError(f"Batch {batch_id} not found")
+
+        nodes = self.supply_chain_nodes.get(batch_id, [])
+        node_hashes = []
+        for node in nodes:
+            node_hashes.append(self._hash_text(self._canonical_json(asdict(node))))
+
+        batch_payload = self._canonical_json({
+            "batch": asdict(batch),
+            "node_hashes": node_hashes,
+            "chain_length": len(self.chain),
+        })
+        proof_hash = self._hash_text(batch_payload)
+
+        signature = ""
+        if self._qr_signing_secret:
+            signature = hmac.new(
+                self._qr_signing_secret.encode("utf-8"),
+                proof_hash.encode("utf-8"),
+                hashlib.sha256,
+            ).hexdigest()
+
+        latest_hash = self.chain[-1].hash if self.chain else ""
+        return {
+            "proof_hash": proof_hash,
+            "signature": signature,
+            "latest_block_hash": latest_hash,
+        }
+
+    def verify_trace_proof(self, batch_id: str, proof_hash: str, signature: str = "") -> bool:
+        """Verify a QR traceability proof against the current blockchain state."""
+        expected = self._build_trace_proof(batch_id)
+        if proof_hash != expected["proof_hash"]:
+            return False
+        if self._qr_signing_secret:
+            expected_signature = hmac.new(
+                self._qr_signing_secret.encode("utf-8"),
+                proof_hash.encode("utf-8"),
+                hashlib.sha256,
+            ).hexdigest()
+            return hmac.compare_digest(signature or "", expected_signature)
+        return True
 
     # ------------- Core operations -------------
     def register_actor(self, actor_id: str, name: str, actor_type: str, location: str) -> Dict:
@@ -366,6 +423,7 @@ class SupplyChainBlockchain:
             raise ValueError(f"Batch {batch_id} not found")
 
         batch = self.products[batch_id]
+        proof = self._build_trace_proof(batch_id)
         qr_data = {
             "batch_id": batch_id,
             "crop_type": batch.crop_type,
@@ -374,10 +432,14 @@ class SupplyChainBlockchain:
             "farmer": batch.farmer_name,
             "harvested": batch.harvesting_date,
             "verification_url": f"https://fasalsaathi.agri/verify/{batch_id}",
+            "trace_proof": proof["proof_hash"],
+            "block_hash": proof["latest_block_hash"],
         }
+        if proof["signature"]:
+            qr_data["trace_signature"] = proof["signature"]
 
         qr_code = qrcode.QRCode(version=1, box_size=10, border=5)
-        qr_code.add_data(json.dumps(qr_data))
+        qr_code.add_data(self._canonical_json(qr_data))
         qr_code.make(fit=True)
 
         qr_image = qr_code.make_image(fill_color="black", back_color="white")
@@ -386,6 +448,32 @@ class SupplyChainBlockchain:
         qr_base64 = base64.b64encode(qr_buffer.getvalue()).decode()
 
         return qr_base64
+
+    def get_traceability_qr_payload(self, batch_id: str) -> Dict:
+        """Return a signed payload suitable for QR encoding or API clients."""
+        if batch_id not in self.products:
+            raise ValueError(f"Batch {batch_id} not found")
+
+        batch = self.products[batch_id]
+        proof = self._build_trace_proof(batch_id)
+        payload = {
+            "batch_id": batch_id,
+            "crop_type": batch.crop_type,
+            "farmer": batch.farmer_name,
+            "verification_url": f"https://fasalsaathi.agri/verify/{batch_id}",
+            "trace_proof": proof["proof_hash"],
+            "block_hash": proof["latest_block_hash"],
+            "issued_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if proof["signature"]:
+            payload["trace_signature"] = proof["signature"]
+            payload["verification_url_with_proof"] = (
+                f"https://fasalsaathi.agri/verify/{batch_id}"
+                f"?proof={proof['proof_hash']}&sig={proof['signature']}"
+            )
+        else:
+            payload["verification_url_with_proof"] = payload["verification_url"] + f"?proof={proof['proof_hash']}"
+        return payload
 
     def verify_batch(self, batch_id: str) -> Dict:
         """Verify product batch authenticity"""
@@ -412,6 +500,7 @@ class SupplyChainBlockchain:
             verification_score += 5
 
         blockchain_intact = self._verify_blockchain_integrity()
+        trace_proof = self._build_trace_proof(batch_id)
         if blockchain_intact:
             verification_score = min(100, verification_score + 5)
 
@@ -428,6 +517,10 @@ class SupplyChainBlockchain:
             "certifications": batch.certifications,
             "quality_score": batch.quality_score,
             "harvested_date": batch.harvesting_date,
+            "integrity_ok": blockchain_intact,
+            "trace_proof": trace_proof["proof_hash"],
+            "trace_signature": trace_proof["signature"],
+            "latest_block_hash": trace_proof["latest_block_hash"],
         }
 
     def get_supply_chain_journey(self, batch_id: str) -> Dict:
@@ -576,4 +669,10 @@ class SupplyChainBlockchain:
 
     def get_trace_batch(self, batch_id: str) -> Optional[Dict]:
         """Fetch a QR-traceability batch by ID.  Returns None if not found."""
-        return self._trace_batches.get(batch_id)
+        batch = self._trace_batches.get(batch_id)
+        if not batch:
+            return None
+        batch_copy = _copy.deepcopy(batch)
+        if batch_id in self.products:
+            batch_copy["traceability"] = self.get_traceability_qr_payload(batch_id)
+        return batch_copy
