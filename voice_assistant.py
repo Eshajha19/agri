@@ -440,6 +440,19 @@ class VoiceAssistant:
                 schedule=irr_sched.get("frequency", "हर 10 दिन में"),
                 quantity=irr_sched.get("amount", "50 मिमी"),
             )
+        elif intent == "yield_prediction":
+            return (
+                "अनुमानित उत्पादन सामान्य से अच्छा हो सकता है।"
+                if language_code == "hi"
+                else "Expected crop yield looks stable and healthy."
+            )
+
+        elif intent == "pest_management":
+            return (
+                "कीटनाशक का नियंत्रित छिड़काव करें।"
+                if language_code == "hi"
+                else "Use recommended pesticide spray in controlled quantity."
+            )
         
         return templates.get("greeting", "नमस्ते! मैं आपके लिए यहाँ हूँ।")
     
