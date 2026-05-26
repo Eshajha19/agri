@@ -184,16 +184,23 @@ class NotificationBroadcastHub:
 
         return event
 
-    async def connect(self, websocket: WebSocket, uid: str, regions: Optional[Iterable[str]] = None) -> None:
+    async def connect(
+        self,
+        websocket: WebSocket,
+        uid: str,
+        regions: Optional[Iterable[str]] = None,
+    ) -> None:
         """Accept a websocket client and keep it subscribed until disconnect."""
-        await websocket.accept()
-        region_scopes = frozenset(resolve_subscription_regions({"role": "guest"}, regions))
-        async with self._connections_lock:
-            self._connections[websocket] = _ConnectionSubscription(
-                uid=uid,
-                regions=region_scopes,
-            )
 
+        await websocket.accept()
+
+        region_scopes = frozenset(
+            resolve_subscription_regions({"role": "guest"}, regions)
+        )
+
+        # Capture a stable snapshot before registering the socket
+        # for live broadcasts. This prevents duplicate/out-of-order
+        # delivery during concurrent publish() calls.
         async with self._history_lock:
             snapshot = self.snapshot_for_user(
                 uid,
@@ -209,6 +216,13 @@ class NotificationBroadcastHub:
             }
         )
 
+        # Register only after snapshot delivery completes.
+        async with self._connections_lock:
+            self._connections[websocket] = _ConnectionSubscription(
+                uid=uid,
+                regions=region_scopes,
+            )
+
         try:
             await asyncio.Event().wait()
         except asyncio.CancelledError:
@@ -218,7 +232,7 @@ class NotificationBroadcastHub:
         finally:
             async with self._connections_lock:
                 self._connections.pop(websocket, None)
-
+    
     async def _broadcast(
         self,
         payload: Dict[str, Any],
