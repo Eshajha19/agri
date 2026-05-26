@@ -1,16 +1,42 @@
 """ML Governance Router - Drift, shadow eval, versioning"""
+import re
 from fastapi import APIRouter, HTTPException, Request, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Dict, Any
 
 router = APIRouter()
 
+# Allowlist: only portable path characters.  Rejects path traversal sequences
+# (../, ..\) and shell metacharacters before the value reaches any filesystem
+# or joblib.load call.
+_SAFE_PATH_RE = re.compile(r"^[A-Za-z0-9_./ -]+$")
+
+
 class RegisterModelVersionRequest(BaseModel):
     model_name: str = Field(..., min_length=1, max_length=50)
-    model_path: str = Field(..., min_length=1)
+    # max_length=512 is generous for any real model path while preventing
+    # unbounded strings.  The regex validator below further restricts the
+    # character set and blocks traversal sequences.
+    model_path: str = Field(..., min_length=1, max_length=512)
     rmse: float = Field(..., gt=0)
     r2_score: float = Field(default=0, ge=-1, le=1)
     metadata: Optional[Dict[str, Any]] = None
+
+    @field_validator("model_path")
+    @classmethod
+    def validate_model_path(cls, v: str) -> str:
+        # Block path traversal sequences explicitly before the regex check so
+        # the error message is unambiguous.
+        components = re.split(r"[/\\]", v)
+        if ".." in components:
+            raise ValueError("model_path must not contain path traversal sequences (..)")
+        if not _SAFE_PATH_RE.match(v):
+            raise ValueError(
+                "model_path contains invalid characters. "
+                "Only letters, digits, underscores, dots, forward-slashes, "
+                "hyphens, and spaces are permitted."
+            )
+        return v
 
 drift_detector = None
 shadow_evaluator = None
