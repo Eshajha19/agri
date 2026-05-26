@@ -50,13 +50,6 @@ def _parse_acres(value: str) -> float:
     return float(cleaned)
 
 
-class ClientErrorReport(BaseModel):
-    message: str = Field(..., min_length=1, max_length=500)
-    source: Optional[str] = Field(default=None, max_length=200)
-    stack: Optional[str] = Field(default=None, max_length=2000)
-    level: str = Field(default="error", max_length=20)
-
-
 class ReportRequest(BaseModel):
     name: str = Field(..., max_length=100)
     crop: str = Field(..., max_length=50)
@@ -277,22 +270,7 @@ async def generate_signed_report(request: Request, data: ReportRequest):
     )
 
 
-@router.post("/log-error")
-async def log_error(request: Request, body: ClientErrorReport):
-    if sanitise_log_field_fn is None or logger_instance is None:
-        raise HTTPException(status_code=500, detail="Not initialized")
-    try:
-        message = sanitise_log_field_fn(body.message)
-        source = sanitise_log_field_fn(body.source or "")
-        level = sanitise_log_field_fn(body.level).upper()
-        logger_instance.info(f"Client [{level}] from {source}: {message}")
-        return {"success": True, "message": "Error logged"}
-    except Exception as e:
-        logger.error(f"Log error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to log error")
 
-
-# ---------------------------------------------------------------------------
 # Admin: role assignment with custom-claim sync
 # ---------------------------------------------------------------------------
 
