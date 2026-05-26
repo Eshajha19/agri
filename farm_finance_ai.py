@@ -42,6 +42,17 @@ class FinanceApplication:
     # by guessing or enumerating application IDs.
     owner_uid: Optional[str] = field(default=None)
 
+    def __post_init__(self) -> None:
+        """Normalise owner_uid so ownership checks behave consistently.
+
+        If owner_uid is an empty string (which could happen if the dataclass
+        previously had owner_uid: str = "" before the field was changed to
+        Optional[str]) we set it to None so that downstream checks of the
+        form 'owner_uid is not None' work predictably.
+        """
+        if self.owner_uid is not None and self.owner_uid.strip() == "":
+            self.owner_uid = None
+
 
 class FarmFinanceAI:
     """Deterministic finance-planning engine for farm loan recommendations."""
@@ -214,6 +225,8 @@ class FarmFinanceAI:
         }
 
     def create_application(self, payload: Dict[str, Any], owner_uid: Optional[str] = None) -> Dict[str, Any]:
+        if not owner_uid or not owner_uid.strip():
+            raise ValueError("owner_uid is required to create an application")
         analysis = self.analyze_financial_profile(payload)
         requested_lender = (payload.get("selected_lender") or "").strip()
         selected_product = self._select_product(requested_lender, analysis["lender_matches"], analysis["selected_product"])
@@ -237,29 +250,26 @@ class FarmFinanceAI:
             notes=analysis["action_plan"],
             owner_uid=owner_uid,
         )
-        self.applications[application_id] = application
-
         if self.repository:
-            try:
-                app_dict = {
-                    "application_id": application.application_id,
-                    "farmer_name": application.farmer_name,
-                    "crop_type": application.crop_type,
-                    "requested_amount": application.requested_amount,
-                    "recommended_amount": application.recommended_amount,
-                    "selected_lender": application.selected_lender,
-                    "status": application.status,
-                    "created_at": application.created_at,
-                    "assessment_score": application.assessment_score,
-                    "risk_level": application.risk_level,
-                    "owner_uid": application.owner_uid,
-                    "required_documents": application.required_documents,
-                    "notes": application.notes,
-                }
-                self.repository.create(app_dict)
-                logger.info("Application %s persisted to repository.", application_id)
-            except Exception as exc:
-                logger.error("Failed to persist application %s: %s", application_id, exc)
+            app_dict = {
+                "application_id": application.application_id,
+                "farmer_name": application.farmer_name,
+                "crop_type": application.crop_type,
+                "requested_amount": application.requested_amount,
+                "recommended_amount": application.recommended_amount,
+                "selected_lender": application.selected_lender,
+                "status": application.status,
+                "created_at": application.created_at,
+                "assessment_score": application.assessment_score,
+                "risk_level": application.risk_level,
+                "owner_uid": application.owner_uid,
+                "required_documents": application.required_documents,
+                "notes": application.notes,
+            }
+            self.repository.create(app_dict)
+            logger.info("Application %s persisted to repository.", application_id)
+
+        self.applications[application_id] = application
 
         return {
             "application_id": application.application_id,
@@ -302,8 +312,11 @@ class FarmFinanceAI:
                 app_dict = self.repository.get(application_id)
                 if app_dict:
                     stored_uid = app_dict.get("owner_uid")
-                    # Enforce ownership when a uid filter is supplied
-                    if owner_uid is not None and (stored_uid is None or stored_uid != owner_uid):
+                    # Reject records without an owner (orphaned).
+                    if not stored_uid:
+                        return None
+                    # Enforce ownership when a uid filter is supplied.
+                    if owner_uid is not None and stored_uid != owner_uid:
                         return None
                     return {
                         "application_id": app_dict.get("application_id"),
@@ -329,7 +342,10 @@ class FarmFinanceAI:
             return None
 
         # Enforce ownership on in-memory records too
-        if owner_uid is not None and (application.owner_uid is None or application.owner_uid != owner_uid):
+        # Reject orphaned records (None owner_uid) entirely.
+        if not application.owner_uid:
+            return None
+        if owner_uid is not None and application.owner_uid != owner_uid:
             return None
 
         return {
