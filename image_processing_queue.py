@@ -143,14 +143,6 @@ class ImageProcessingQueue:
             self._tasks_by_id[task.task_id] = task
             self._total_enqueued += 1
 
-        # Persist ack store if enabled
-        if self.enable_persistence:
-            try:
-                with open(self._ack_file, "w", encoding="utf-8") as f:
-                    json.dump(self._ack_store, f)
-            except Exception:
-                logger.debug("Failed to persist ack_store")
-
         logger.info(f"Task {task.task_id} enqueued (priority: {task.priority.name}, queue_size: {len(self._task_queue)})")
         return task.task_id
 

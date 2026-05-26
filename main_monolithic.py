@@ -1665,7 +1665,8 @@ async def get_qr_code(request: Request, batch_id: str):
     """Get QR code for batch"""
     try:
         qr_code = _supply_chain_blockchain.generate_qr_code(batch_id)
-        return {"success": True, "batch_id": batch_id, "qr_code_base64": qr_code}
+        qr_payload = _supply_chain_blockchain.get_traceability_qr_payload(batch_id)
+        return {"success": True, "batch_id": batch_id, "qr_code_base64": qr_code, "qr_payload": qr_payload}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
