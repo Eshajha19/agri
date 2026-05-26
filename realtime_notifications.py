@@ -87,9 +87,6 @@ class NotificationBroadcastHub:
     async def snapshot(self) -> list[Dict[str, Any]]:
         """Return a copy of the current history."""
 
-        async with self._history_lock:
-            return list(self._history)
-
     def snapshot_for_user(self, uid: str, regions: Optional[Iterable[str]] = None) -> list[Dict[str, Any]]:
         """Return history entries visible to the given user and region scope."""
         return [
@@ -164,14 +161,8 @@ class NotificationBroadcastHub:
             clients = [
                 (websocket, subscription)
                 for websocket, subscription in self._connections.items()
-                if notification_visible_to_user(
-                    notification,
-                    subscription.uid,
-                )
-                and notification_matches_regions(
-                    notification,
-                    subscription.regions,
-                )
+                if notification_visible_to_user(notification, subscription.uid)
+                and notification_matches_regions(notification, subscription.regions)
             ]
 
         await self._broadcast(payload, clients)
@@ -184,28 +175,14 @@ class NotificationBroadcastHub:
 
         return event
 
-    async def connect(
-        self,
-        websocket: WebSocket,
-        uid: str,
-        regions: Optional[Iterable[str]] = None,
-    ) -> None:
+    async def connect(self, websocket: WebSocket, uid: str, regions: Optional[Iterable[str]] = None) -> None:
         """Accept a websocket client and keep it subscribed until disconnect."""
 
         await websocket.accept()
-
-        region_scopes = frozenset(
-            resolve_subscription_regions({"role": "guest"}, regions)
-        )
-
-        # Capture a stable snapshot before registering the socket
-        # for live broadcasts. This prevents duplicate/out-of-order
-        # delivery during concurrent publish() calls.
+        region_scopes = frozenset(resolve_subscription_regions({"role": "guest"}, regions))
         async with self._history_lock:
-            snapshot = self.snapshot_for_user(
-                uid,
-                region_scopes,
-            )
+            self._connections[websocket] = _ConnectionSubscription(uid=uid, regions=region_scopes)
+            snapshot = self.snapshot_for_user(uid, region_scopes)
 
         await websocket.send_json(
             {
