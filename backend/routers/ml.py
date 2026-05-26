@@ -1,6 +1,7 @@
 """ML Prediction Router - Yield prediction endpoints"""
 import os
 import logging
+import threading
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field
 
@@ -29,6 +30,7 @@ class YieldInput(BaseModel):
 model_router = None
 model_lag = None
 model_trend = None
+_model_trend_lock = threading.Lock()
 
 TREND_MODEL_PATH = "trend_forecast_model.joblib"
 
@@ -81,21 +83,23 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
     global model_trend
 
     if model_trend is None:
-        try:
-            import joblib
-            if os.path.exists(TREND_MODEL_PATH):
-                model_trend = joblib.load(TREND_MODEL_PATH)
-                logger.info("Trend forecast model loaded from %s", TREND_MODEL_PATH)
-            else:
-                raise FileNotFoundError(f"Trend model not found at {TREND_MODEL_PATH}")
-        except Exception as load_err:
-            logger.error("Trend forecast model unavailable: %s. Endpoint cannot serve trend predictions.", load_err)
-            raise HTTPException(
-                status_code=503,
-                detail="Trend forecast model is not loaded. A dedicated trend model is required — "
-                       "the lag-feature model (used by /predict-yield-lag) is statistically invalid "
-                       "for multi-step trend forecasting."
-            )
+        with _model_trend_lock:
+            if model_trend is None:
+                try:
+                    import joblib
+                    if os.path.exists(TREND_MODEL_PATH):
+                        model_trend = joblib.load(TREND_MODEL_PATH)
+                        logger.info("Trend forecast model loaded from %s", TREND_MODEL_PATH)
+                    else:
+                        raise FileNotFoundError(f"Trend model not found at {TREND_MODEL_PATH}")
+                except Exception as load_err:
+                    logger.error("Trend forecast model unavailable: %s. Endpoint cannot serve trend predictions.", load_err)
+                    raise HTTPException(
+                        status_code=503,
+                        detail="Trend forecast model is not loaded. A dedicated trend model is required — "
+                               "the lag-feature model (used by /predict-yield-lag) is statistically invalid "
+                               "for multi-step trend forecasting."
+                    )
 
     try:
         trend = []
