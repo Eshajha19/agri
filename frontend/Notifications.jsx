@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import apiClient from "./lib/apiClient";
+import { auth } from "./lib/firebase";
 
 export default function useNotifications() {
   const seenIdsRef = useRef(new Set());
@@ -20,18 +22,29 @@ export default function useNotifications() {
     });
   };
 
-  const buildStreamUrl = () => {
+  const getIdToken = async () => {
+    const user = auth.currentUser;
+    if (!user) {
+      return null;
+    }
+    return user.getIdToken();
+  };
+
+  const buildStreamUrl = async () => {
     const apiBase = import.meta.env.VITE_API_BASE || window.location.origin;
     const url = new URL("/api/notifications/stream", apiBase);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    const token = await getIdToken();
+    if (token) {
+      url.searchParams.set("token", token);
+    }
     return url.toString();
   };
 
   const fetchNotifications = async () => {
     try {
-      const apiBase = import.meta.env.VITE_API_BASE || "";
-      const res = await fetch(`${apiBase}/api/notifications`);
-      const data = await res.json();
+      const res = await apiClient.get("/api/notifications");
+      const data = res.data;
 
       if (data.success) {
         data.data.forEach(markAndToast);
@@ -58,11 +71,27 @@ export default function useNotifications() {
       }
     };
 
-    fetchNotifications();
+    const connectWebSocket = async () => {
+      if (!auth.currentUser) {
+        startPollingFallback();
+        return;
+      }
 
-    if (typeof WebSocket !== "undefined") {
+      fetchNotifications();
+
+      if (typeof WebSocket === "undefined") {
+        startPollingFallback();
+        return;
+      }
+
       try {
-        websocket = new WebSocket(buildStreamUrl());
+        const streamUrl = await buildStreamUrl();
+        if (!streamUrl.includes("token=")) {
+          startPollingFallback();
+          return;
+        }
+
+        websocket = new WebSocket(streamUrl);
 
         websocket.onmessage = (event) => {
           try {
@@ -95,9 +124,9 @@ export default function useNotifications() {
         console.log("Notification websocket unavailable:", error);
         startPollingFallback();
       }
-    } else {
-      startPollingFallback();
-    }
+    };
+
+    connectWebSocket();
 
     return () => {
       cancelled = true;
