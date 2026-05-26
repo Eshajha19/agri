@@ -54,7 +54,9 @@ async def predict_yield(data: PredictRequest, request: Request):
     await verify_role_fn(request)
     try:
         input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
-        context = {"location": request.headers.get("X-User-Location", "Unknown"), "crop": data.Crop}
+        raw_location = request.headers.get("X-User-Location", "Unknown")
+        sanitised_location = re.sub(r"[^\w\s,.-]", "", raw_location)[:100].strip() or "Unknown"
+        context = {"location": sanitised_location, "crop": data.Crop}
         predicted_yield = model_router.predict(input_data, context)
         return {"predicted_ExpYield": float(predicted_yield)}
     except Exception as e:
