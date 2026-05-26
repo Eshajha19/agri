@@ -6,11 +6,12 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
-from firebase_admin import auth, firestore
+from firebase_admin import firestore
 
 router = APIRouter()
 
 get_db_fn = None
+verify_role_fn = None
 
 # Trusted domains for referral link generation — must match CORS allowlist.
 _TRUSTED_REFERRAL_DOMAINS = [
@@ -25,9 +26,10 @@ class RedeemReferralRequest(BaseModel):
     referral_code: str = Field(..., min_length=4, max_length=32)
 
 
-def init_referrals(db_resolver):
-    global get_db_fn
+def init_referrals(db_resolver, vr_fn):
+    global get_db_fn, verify_role_fn
     get_db_fn = db_resolver
+    verify_role_fn = vr_fn
 
 
 def _now_iso() -> str:
@@ -42,9 +44,14 @@ def _normalize_referral_code(code: str) -> str:
 
 def _generate_referral_code(uid: str, attempt: int = 0) -> str:
     import hashlib
+    import secrets
 
-    digest = hashlib.sha256(f"{uid}:{attempt}".encode("utf-8")).hexdigest().upper()
-    return f"FS{digest[:10]}"
+    if attempt < 100:
+        # Deterministic SHA256-based codes (primary path).
+        digest = hashlib.sha256(f"{uid}:{attempt}".encode("utf-8")).hexdigest().upper()
+        return f"FS{digest[:10]}"
+    # Fallback: random hex suffix — 2^64 collision space per attempt.
+    return f"FS{secrets.token_hex(8).upper()}"
 
 
 def _referral_badge(referral_count: int) -> str:
@@ -82,43 +89,65 @@ def _require_db():
 
 
 async def _get_uid_from_request(request: Request) -> str:
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing auth token")
-
-    token = auth_header.split(" ", 1)[1].strip()
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing auth token")
-
-    try:
-        decoded = auth.verify_id_token(token)
-        uid = decoded.get("uid")
-        if not uid:
-            raise HTTPException(status_code=401, detail="Invalid auth token")
-        return uid
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid auth token")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth not initialized")
+    token_data = await verify_role_fn(request)
+    return token_data["uid"]
 
 
 def _ensure_user_referral_code(db, uid: str, user_data: Optional[Dict[str, Any]] = None) -> str:
     user_ref = db.collection("users").document(uid)
     data = user_data
-    if data is None:
-        user_snap = user_ref.get()
-        data = user_snap.to_dict() if user_snap.exists else {}
 
-    existing_code = _normalize_referral_code((data or {}).get("referralCode", ""))
-    if existing_code:
-        code_ref = db.collection("referral_codes").document(existing_code)
-        code_snap = code_ref.get()
-        if not code_snap.exists or code_snap.to_dict().get("uid") == uid:
+    # Use a Firestore transaction so concurrent requests for the same uid
+    # cannot both see "no existing code" and generate different codes.
+    @firestore.transactional
+    def _generate_in_transaction(transaction):
+        snap = user_ref.get(transaction=transaction)
+        current_data = snap.to_dict() if snap.exists else {}
+
+        existing_code = _normalize_referral_code((current_data or {}).get("referralCode", ""))
+        if existing_code:
+            code_ref = db.collection("referral_codes").document(existing_code)
+            code_snap = code_ref.get(transaction=transaction)
+            if not code_snap.exists or code_snap.to_dict().get("uid") == uid:
+                code_ref.set(
+                    {
+                        "uid": uid,
+                        "displayName": (current_data or {}).get("displayName") or "Farmer",
+                        "updatedAt": _now_iso(),
+                    },
+                    merge=True,
+                )
+                if (current_data or {}).get("referralCode") != existing_code:
+                    user_ref.set(
+                        {
+                            "referralCode": existing_code,
+                            "referralCodeIssuedAt": _now_iso(),
+                        },
+                        merge=True,
+                    )
+                return existing_code
+
+        for attempt in range(5):
+            generated_code = _generate_referral_code(uid, attempt)
+            code_ref = db.collection("referral_codes").document(generated_code)
+            code_snap = code_ref.get(transaction=transaction)
+            if code_snap.exists and code_snap.to_dict().get("uid") != uid:
+                continue
+
             code_ref.set(
                 {
                     "uid": uid,
-                    "displayName": (data or {}).get("displayName") or "Farmer",
+                    "displayName": (current_data or {}).get("displayName") or "Farmer",
+                    "createdAt": _now_iso(),
                     "updatedAt": _now_iso(),
+                },
+            )
+            user_ref.set(
+                {
+                    "referralCode": generated_code,
+                    "referralCodeIssuedAt": _now_iso(),
                 },
                 merge=True,
             )
@@ -132,32 +161,19 @@ def _ensure_user_referral_code(db, uid: str, user_data: Optional[Dict[str, Any]]
                 )
             return existing_code
 
-    for attempt in range(5):
+    # Use a large attempt range: first 100 are deterministic SHA256 codes,
+    # subsequent attempts fall back to random hex (2^64 collision space).
+    for attempt in range(200):
         generated_code = _generate_referral_code(uid, attempt)
         code_ref = db.collection("referral_codes").document(generated_code)
         code_snap = code_ref.get()
         if code_snap.exists and code_snap.to_dict().get("uid") != uid:
             continue
 
-        code_ref.set(
-            {
-                "uid": uid,
-                "displayName": (data or {}).get("displayName") or "Farmer",
-                "createdAt": _now_iso(),
-                "updatedAt": _now_iso(),
-            },
-            merge=True,
-        )
-        user_ref.set(
-            {
-                "referralCode": generated_code,
-                "referralCodeIssuedAt": _now_iso(),
-            },
-            merge=True,
-        )
-        return generated_code
+        raise HTTPException(status_code=500, detail="Failed to generate a referral code")
 
-    raise HTTPException(status_code=500, detail="Failed to generate a referral code")
+    transaction = db.transaction()
+    return _generate_in_transaction(transaction)
 
 
 def _history_entry(doc_snapshot) -> Dict[str, Any]:
