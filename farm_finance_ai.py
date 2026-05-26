@@ -237,29 +237,26 @@ class FarmFinanceAI:
             notes=analysis["action_plan"],
             owner_uid=owner_uid,
         )
-        self.applications[application_id] = application
-
         if self.repository:
-            try:
-                app_dict = {
-                    "application_id": application.application_id,
-                    "farmer_name": application.farmer_name,
-                    "crop_type": application.crop_type,
-                    "requested_amount": application.requested_amount,
-                    "recommended_amount": application.recommended_amount,
-                    "selected_lender": application.selected_lender,
-                    "status": application.status,
-                    "created_at": application.created_at,
-                    "assessment_score": application.assessment_score,
-                    "risk_level": application.risk_level,
-                    "owner_uid": application.owner_uid,
-                    "required_documents": application.required_documents,
-                    "notes": application.notes,
-                }
-                self.repository.create(app_dict)
-                logger.info("Application %s persisted to repository.", application_id)
-            except Exception as exc:
-                logger.error("Failed to persist application %s: %s", application_id, exc)
+            app_dict = {
+                "application_id": application.application_id,
+                "farmer_name": application.farmer_name,
+                "crop_type": application.crop_type,
+                "requested_amount": application.requested_amount,
+                "recommended_amount": application.recommended_amount,
+                "selected_lender": application.selected_lender,
+                "status": application.status,
+                "created_at": application.created_at,
+                "assessment_score": application.assessment_score,
+                "risk_level": application.risk_level,
+                "owner_uid": application.owner_uid,
+                "required_documents": application.required_documents,
+                "notes": application.notes,
+            }
+            self.repository.create(app_dict)
+            logger.info("Application %s persisted to repository.", application_id)
+
+        self.applications[application_id] = application
 
         return {
             "application_id": application.application_id,
