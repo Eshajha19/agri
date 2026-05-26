@@ -169,7 +169,29 @@ async def lifespan(app: FastAPI):
     blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
     referrals.init_referrals(lambda: db_firestore, verify_role)
     reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
-    marketplace.init_marketplace(verify_role)
+    async def _notify_booking(booking: dict) -> None:
+        owner_uid = booking.get("ownerUid")
+        if not owner_uid:
+            return
+        msg = (
+            f"📦 New booking for *{booking.get('equipmentName', 'equipment')}* "
+            f"on {booking.get('date', 'unknown date')}."
+        )
+        await notification_broker.publish(
+            {"type": "booking", "booking": booking, "message": msg},
+            source="marketplace",
+        )
+        if db_firestore:
+            try:
+                owner_snap = db_firestore.collection("users").document(owner_uid).get()
+                owner_data = owner_snap.to_dict() if owner_snap.exists else {}
+                phone = owner_data.get("phone_number") or owner_data.get("phoneNumber") or owner_data.get("phone")
+                if phone:
+                    send_whatsapp_message(phone, msg)
+            except Exception as exc:
+                logger.warning("Failed to send WhatsApp notification for booking: %s", exc)
+
+    marketplace.init_marketplace(verify_role, _notify_booking)
     lms.init_lms(verify_role, db_firestore)
     advisory.init_advisory(verify_role)
 
