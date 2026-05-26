@@ -13,6 +13,14 @@ router = APIRouter()
 get_db_fn = None
 verify_role_fn = None
 
+# Trusted domains for referral link generation — must match CORS allowlist.
+_TRUSTED_REFERRAL_DOMAINS = [
+    "localhost:5173",
+    "127.0.0.1:3000",
+    "fasal-saathi.vercel.app",
+    "fasal-saathi.xyz",
+]
+
 
 class RedeemReferralRequest(BaseModel):
     referral_code: str = Field(..., min_length=4, max_length=32)
@@ -247,7 +255,14 @@ async def get_referral_dashboard(request: Request):
     referral_points = int((user_data or {}).get("referralPoints", _referral_points_for_count(referral_count)) or 0)
     referral_badge = (user_data or {}).get("referralBadge") or _referral_badge(referral_count)
 
-    app_url = os.getenv("REFERRAL_APP_URL") or str(request.base_url).rstrip("/")
+    app_url = str(request.base_url).rstrip("/")
+    configured_url = os.getenv("REFERRAL_APP_URL", "").strip()
+    if configured_url:
+        from urllib.parse import urlparse
+        parsed = urlparse(configured_url)
+        netloc = parsed.netloc or parsed.path  # handle missing scheme
+        if any(netloc.endswith(d) for d in _TRUSTED_REFERRAL_DOMAINS):
+            app_url = configured_url.rstrip("/")
     referral_link = f"{app_url}/login?ref={referral_code}"
 
     history_docs = (
