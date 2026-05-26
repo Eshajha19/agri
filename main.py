@@ -1,6 +1,7 @@
 # main.py
 import os
 import asyncio
+import itertools
 import io
 import json
 import logging
@@ -18,7 +19,7 @@ from typing import Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, Request, Form, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from pydantic import BaseModel, Field, ConfigDict, validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
 
 class SimulationRequest(BaseModel):
     crop_type: str
@@ -82,7 +83,7 @@ from backend.routers import (
 from blockchain_supply_chain import SupplyChainBlockchain
 from crop_quality_grading import CropQualityGrader
 from farm_finance_ai import FarmFinanceAI
-from feature_flags.routes import router as flags_router
+from feature_flags.routes import init_feature_flags, router as flags_router
 from ml.adapters.xgboost_adapter import XGBoostAdapter
 from ml.governance import DriftDetector, ModelVersionManager, ShadowEvaluator
 from ml.registry import ModelRegistry
@@ -93,7 +94,10 @@ from ml.preprocessing import UnknownCategoryError, MissingFeatureError
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
+from csrf_protection import generate_token, reject_cross_origin
 from error_recovery_middleware import ErrorRecoveryMiddleware
+from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, resolve_subscription_regions, normalize_region_identifier
+from notification_auth import filter_notifications_for_user
 from realtime_notifications import notification_broker
 from rbac_audit import audit_rbac_event, rbac_audit_trail, validate_required_roles
 from rbac import RBACMiddleware, print_rbac_matrix, RBACManager, Permission
@@ -159,13 +163,35 @@ async def lifespan(app: FastAPI):
     logger.info("Domain engines initialized with persistent repositories")
 
     # Router init hooks — run after engines are ready.
-    governance.init_governance(drift_detector, shadow_evaluator, version_manager)
+    governance.init_governance(drift_detector, shadow_evaluator, version_manager, verify_role)
     finance.init_finance(_farm_finance_ai, RBACManager, Permission)
     quality.init_quality(_crop_quality_grader, RBACManager, Permission)
     blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
-    referrals.init_referrals(lambda: db_firestore)
+    referrals.init_referrals(lambda: db_firestore, verify_role)
     reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
-    marketplace.init_marketplace(verify_role)
+    async def _notify_booking(booking: dict) -> None:
+        owner_uid = booking.get("ownerUid")
+        if not owner_uid:
+            return
+        msg = (
+            f"📦 New booking for *{booking.get('equipmentName', 'equipment')}* "
+            f"on {booking.get('date', 'unknown date')}."
+        )
+        await notification_broker.publish(
+            {"type": "booking", "booking": booking, "message": msg},
+            source="marketplace",
+        )
+        if db_firestore:
+            try:
+                owner_snap = db_firestore.collection("users").document(owner_uid).get()
+                owner_data = owner_snap.to_dict() if owner_snap.exists else {}
+                phone = owner_data.get("phone_number") or owner_data.get("phoneNumber") or owner_data.get("phone")
+                if phone:
+                    send_whatsapp_message(phone, msg)
+            except Exception as exc:
+                logger.warning("Failed to send WhatsApp notification for booking: %s", exc)
+
+    marketplace.init_marketplace(verify_role, _notify_booking)
     lms.init_lms(verify_role, db_firestore)
     advisory.init_advisory(verify_role)
 
@@ -190,7 +216,16 @@ async def lifespan(app: FastAPI):
         logger.warning("RAG init skipped: %s", exc)
 
     knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
-    alerts.init_alerts([], subscriber_store, lambda **kwargs: [], send_whatsapp_message, format_alert_message, verify_role)
+    alerts.init_alerts(
+        [],
+        subscriber_store,
+        lambda **kwargs: [],
+        send_whatsapp_message,
+        format_alert_message,
+        verify_role,
+        lambda uid: _get_firestore_user_profile(uid),
+    )
+    init_feature_flags(verify_role)
     platform.init_platform(
         verify_role,
         get_signing_keys,
@@ -230,7 +265,7 @@ async def lifespan(app: FastAPI):
     except Exception:
         model_trend = None
 
-    ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend)
+    ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend, verify_role)
 
     yield
     # Shutdown
@@ -278,13 +313,11 @@ if not firebase_admin._apps:
 
 async def verify_role(request: Request, required_roles: list = None):
     """
-    Verify the Firebase ID token and check the caller's role against Firestore.
-    Expects 'Authorization: Bearer <ID_TOKEN>' header.
+    Verify the Firebase ID token and check the caller's role.
 
-    Fail-closed design:
-    - If Firestore is unavailable the request is rejected with 503.
-    - If the user document does not exist the request is rejected with 403.
-    - The function never grants a role that was not explicitly stored in Firestore.
+    Delegates identity resolution to :meth:`RBACManager.resolve_auth_context`,
+    which treats Firestore ``users/{uid}.role`` as authoritative and rejects
+    stale JWT custom claims that disagree with Firestore.
     """
     action = f"{request.method} {request.url.path}"
     try:
@@ -299,108 +332,53 @@ async def verify_role(request: Request, required_roles: list = None):
         )
         raise HTTPException(status_code=500, detail="RBAC policy misconfiguration") from exc
 
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        audit_rbac_event(
-            request=request,
-            action=action,
-            outcome="denied",
-            reason="missing_authentication_token",
-            status_code=401,
-            required_roles=required_roles,
-        )
-        raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
-
-    # Use a slice instead of split()[1] to avoid IndexError when the header
-    # is exactly "Bearer " with no token following it.
-    id_token = auth_header[7:].strip()
-    if not id_token:
-        audit_rbac_event(
-            request=request,
-            action=action,
-            outcome="denied",
-            reason="missing_authentication_token",
-            status_code=401,
-            required_roles=required_roles,
-        )
-        raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
-
     try:
-        decoded_token = auth.verify_id_token(id_token)
-    except Exception:
-        audit_rbac_event(
-            request=request,
-            action=action,
-            outcome="denied",
-            reason="invalid_authentication_token",
-            status_code=401,
-            required_roles=required_roles,
+        ctx = await RBACManager.resolve_auth_context(
+            request,
+            allow_unauthenticated=False,
         )
-        raise HTTPException(status_code=401, detail="Authentication failed")
+    except HTTPException as exc:
+        uid = None
+        reason = "authorization_denied"
+        if exc.status_code == 401:
+            detail = str(exc.detail).lower()
+            reason = (
+                "missing_authentication_token"
+                if "missing" in detail
+                else "invalid_authentication_token"
+            )
+        elif exc.status_code == 403:
+            detail = str(exc.detail).lower()
+            if "profile not found" in detail:
+                reason = "user_profile_not_found"
+            elif "stale" in detail:
+                reason = "stale_authentication_token"
+            elif "invalid role" in detail:
+                reason = "invalid_profile_role"
+            else:
+                reason = "insufficient_permissions"
+        elif exc.status_code == 503:
+            reason = "authorization_service_unavailable"
 
-    uid = decoded_token["uid"]
-
-    # Firestore must be available to resolve the caller's role.
-    # Failing open (granting admin when Firestore is down) is a security bug,
-    # so we reject the request instead.
-    if not db_firestore:
         audit_rbac_event(
             request=request,
             action=action,
-            outcome="error",
+            outcome="denied" if exc.status_code in (401, 403) else "error",
             uid=uid,
-            reason="authorization_service_unavailable",
-            status_code=503,
+            reason=reason,
+            status_code=exc.status_code,
             required_roles=required_roles,
         )
-        raise HTTPException(
-            status_code=503,
-            detail="Authorization service temporarily unavailable"
-        )
+        raise
 
-    # Wrap the Firestore fetch so a transient network error (timeout, reset)
-    # returns the same clean 503 as a missing db_firestore, rather than an
-    # unhandled exception that leaks internal details as a raw 500.
-    try:
-        user_doc = db_firestore.collection("users").document(uid).get()
-    except Exception as e:
-        logger.error(
-            "Firestore fetch failed for uid=%s during role check: %s", uid, e
-        )
-        audit_rbac_event(
-            request=request,
-            action=action,
-            outcome="error",
-            uid=uid,
-            reason="role_lookup_failed",
-            status_code=503,
-            required_roles=required_roles,
-        )
-        raise HTTPException(
-            status_code=503,
-            detail="Authorization service temporarily unavailable"
-        )
-
-    if not user_doc.exists:
-        audit_rbac_event(
-            request=request,
-            action=action,
-            outcome="denied",
-            uid=uid,
-            reason="user_profile_not_found",
-            status_code=403,
-            required_roles=required_roles,
-        )
-        raise HTTPException(status_code=403, detail="User profile not found")
-
-    user_role = user_doc.to_dict().get("role", "farmer")
+    user_role = ctx.role
 
     if required_roles and user_role not in required_roles:
         audit_rbac_event(
             request=request,
             action=action,
             outcome="denied",
-            uid=uid,
+            uid=ctx.uid,
             role=user_role,
             reason="insufficient_permissions",
             status_code=403,
@@ -412,13 +390,13 @@ async def verify_role(request: Request, required_roles: list = None):
         request=request,
         action=action,
         outcome="allowed",
-        uid=uid,
+        uid=ctx.uid,
         role=user_role,
         required_roles=required_roles,
         status_code=200,
     )
 
-    return {"uid": uid, "role": user_role}
+    return {"uid": ctx.uid, "role": user_role}
 
 # --- Models ---
 
@@ -440,20 +418,55 @@ class PredictRequest(BaseModel):
 class PredictResponse(BaseModel):
     predicted_ExpYield: float
 
+_E164_RE = re.compile(r"^\+[1-9]\d{6,14}$")
+
+
 class WhatsAppSubscribeRequest(BaseModel):
-    phone_number: str
-    name: str
+    # E.164 format: + followed by 7-15 digits, no spaces or dashes.
+    # Examples: +919876543210, +14155552671
+    # max_length=16 covers the longest valid E.164 number (+<15 digits>).
+    phone_number: str = Field(..., min_length=8, max_length=16)
+    name: str = Field(..., min_length=1, max_length=100)
+    region_id: Optional[str] = Field(default=None, max_length=100)
     # user_id is accepted for backward compatibility but is IGNORED by the
-    # endpoint — the authoritative user identity is always derived from the
+    # endpoint -- the authoritative user identity is always derived from the
     # verified Firebase ID token, never from client-supplied data.
     user_id: Optional[str] = None
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_e164(cls, v: str) -> str:
+        if not _E164_RE.match(v):
+            raise ValueError(
+                "phone_number must be in E.164 format (e.g. +919876543210)"
+            )
+        return v
 
 class YieldInput(BaseModel):
     data: list[float]
 
 
+_ALLOWED_PREDICTION_FIELDS = frozenset({
+    "Crop", "CropCoveredArea", "CHeight", "CNext", "CLast", "CTransp",
+    "IrriType", "IrriSource", "IrriCount", "WaterCov", "Season",
+    "N", "P", "K", "ph", "pH", "temperature", "rainfall", "humidity",
+})
+
+
 def _coerce_prediction_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
     sanitized = dict(input_data)
+
+    # Defense-in-depth: reject any field not in the allowlist.
+    # PredictRequest already uses extra="forbid" at the schema level, but
+    # this check protects other code paths that may call this function.
+    extra = [k for k in sanitized if k not in _ALLOWED_PREDICTION_FIELDS]
+    if extra:
+        logger.warning("Rejecting unknown prediction fields: %s", extra)
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown field(s): {', '.join(sorted(extra))}",
+        )
+
     numeric_fields = {
         "N",
         "P",
@@ -492,6 +505,7 @@ def _coerce_prediction_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
 class AlertTriggerRequest(BaseModel):
     alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
     message: str = Field(..., min_length=1, max_length=500)
+    region_id: Optional[str] = Field(default=None, max_length=100)
 
 class ReportRequest(BaseModel):
     name: str = Field(..., max_length=100)
@@ -539,12 +553,22 @@ class NotificationStore:
         self._counter = itertools.count(start=1)
         self._ttl = timedelta(hours=ttl_hours)
 
-    def append(self, alert_type: str, message: str) -> dict:
+    def append(
+        self,
+        alert_type: str,
+        message: str,
+        *,
+        recipient_uid: Optional[str] = None,
+        region_id: Optional[str] = None,
+    ) -> dict:
         """
         Add a new notification entry and return it.
 
         The ID is assigned from a monotonically increasing counter so
         concurrent calls always produce distinct values.
+
+        When ``recipient_uid`` is None the notification is a broadcast visible
+        to every authenticated user; otherwise only that UID may receive it.
         """
         with self._lock:
             entry = {
@@ -552,6 +576,8 @@ class NotificationStore:
                 "type": alert_type,
                 "message": message,
                 "time": datetime.now().isoformat(),
+                "recipient_uid": recipient_uid,
+                "region_id": normalize_region_identifier(region_id) if region_id else None,
             }
             self._deque.append(entry)
         return entry
@@ -571,6 +597,10 @@ class NotificationStore:
             if datetime.fromisoformat(e["time"]) >= cutoff
         ]
 
+    def get_recent_for_user(self, uid: str) -> list:
+        """Return TTL-valid entries visible to the given Firebase UID."""
+        return filter_notifications_for_user(self.get_recent(), uid)
+
 
 # Seed the store with the initial weather advisory that was previously
 # hard-coded in the bare list.
@@ -582,11 +612,95 @@ _notification_store.append(
 notification_broker.seed_notifications(_notification_store.get_recent())
 
 
-async def publish_notification(alert_type: str, message: str) -> dict:
-    """Store a notification and broadcast it to websocket subscribers."""
-    entry = _notification_store.append(alert_type=alert_type, message=message)
+async def publish_notification(
+    alert_type: str,
+    message: str,
+    *,
+    recipient_uid: Optional[str] = None,
+    region_id: Optional[str] = None,
+) -> dict:
+    """Store a notification and fan it out to authorized websocket subscribers."""
+    entry = _notification_store.append(
+        alert_type=alert_type,
+        message=message,
+        recipient_uid=recipient_uid,
+        region_id=region_id,
+    )
     await notification_broker.publish(entry)
     return entry
+
+
+async def _authenticate_notification_websocket(websocket: WebSocket) -> Optional[str]:
+    """
+    Verify Firebase ID token from WebSocket query param before accepting.
+
+    Browsers cannot set Authorization headers on WebSocket handshakes, so clients
+    must pass ``?token=<Firebase ID token>``.
+    """
+    token = websocket.query_params.get("token")
+    if not token or not token.strip():
+        await websocket.close(code=1008, reason="Missing authentication token")
+        return None
+
+    try:
+        decoded = auth.verify_id_token(token.strip())
+    except Exception:
+        await websocket.close(code=1008, reason="Invalid authentication token")
+        return None
+
+    uid = decoded.get("uid")
+    if not uid:
+        await websocket.close(code=1008, reason="Invalid authentication token")
+        return None
+
+    if not db_firestore:
+        await websocket.close(code=1011, reason="Authorization service unavailable")
+        return None
+
+    try:
+        user_doc = db_firestore.collection("users").document(uid).get()
+    except Exception:
+        await websocket.close(code=1011, reason="Authorization service unavailable")
+        return None
+
+    if not user_doc.exists:
+        await websocket.close(code=1008, reason="User profile not found")
+        return None
+
+    return uid
+
+
+def _get_firestore_user_profile(uid: str) -> dict[str, Any]:
+    if not db_firestore:
+        return {}
+
+    try:
+        user_doc = db_firestore.collection("users").document(uid).get()
+    except Exception:
+        return {}
+
+    if not getattr(user_doc, "exists", False):
+        return {}
+    return dict(user_doc.to_dict() or {})
+
+
+def _parse_requested_regions(raw_value: Optional[str]) -> list[str]:
+    if not raw_value:
+        return []
+    return [normalize_region_identifier(part) for part in raw_value.split(",") if normalize_region_identifier(part)]
+
+
+def _resolve_websocket_regions(uid: str, websocket: WebSocket) -> frozenset[str]:
+    profile = _get_firestore_user_profile(uid)
+    requested_regions = _parse_requested_regions(websocket.query_params.get("regions") or websocket.query_params.get("region"))
+    return frozenset(resolve_subscription_regions(profile, requested_regions))
+
+
+def _subscriber_matches_region(subscriber_info: dict[str, Any], region_id: str) -> bool:
+    if not region_id:
+        return True
+    subscriber_regions = profile_regions(subscriber_info)
+    return any(region_matches(subscriber_region, region_id) for subscriber_region in subscriber_regions)
 
 
 def _normalize_dynamic_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -625,6 +739,8 @@ async def predict_yield(data: PredictRequest, request: Request):
     missing required feature, so callers receive an actionable error message
     rather than a silently corrupted prediction.
     """
+    await verify_role(request)
+
     try:
         input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
         input_data = _coerce_prediction_inputs(input_data)
@@ -638,7 +754,12 @@ async def predict_yield(data: PredictRequest, request: Request):
         from celery_worker import predict_yield_task
         task = predict_yield_task.delay(input_data, context)
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, task.get)
+        # timeout=30 prevents executor threads from blocking indefinitely when
+        # a Celery worker is slow or the broker is unreachable.
+        try:
+            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
+        except Exception as celery_exc:
+            raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
 
         if "error" in result:
             err_type = result.get("type")
@@ -660,12 +781,17 @@ async def predict_yield(data: PredictRequest, request: Request):
 @app.post("/predict-yield-lag")
 @limiter.limit("5/minute")
 async def predict_yield_lag(payload: YieldInput, request: Request):
+    await verify_role(request)
+
     try:
         # Offload time-series lag model prediction to Celery worker pool
         from celery_worker import predict_yield_lag_task
         task = predict_yield_lag_task.delay(payload.data)
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, task.get)
+        try:
+            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
+        except Exception as celery_exc:
+            raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
 
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
@@ -679,12 +805,17 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
 @app.post("/predict-yield-trend")
 @limiter.limit("5/minute")
 async def predict_yield_trend(payload: YieldInput, request: Request):
+    await verify_role(request)
+
     try:
         # Offload heavy iterative trend forecasting to Celery worker pool
         from celery_worker import predict_yield_trend_task
         task = predict_yield_trend_task.delay(payload.data)
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, task.get)
+        try:
+            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
+        except Exception as celery_exc:
+            raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
 
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
@@ -697,7 +828,7 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
 
 @app.get("/api/notifications")
 @limiter.limit("30/minute")
-def get_notifications(
+async def get_notifications(
     request: Request,
     crop: str = Query(default=None),
     irrigation_count: int = Query(default=None, ge=0),
@@ -708,17 +839,32 @@ def get_notifications(
     Return recent triggered-alert notifications combined with dynamic
     farm advisory alerts generated from the query parameters.
 
+    Requires Firebase authentication. Notifications are scoped to broadcast
+    entries and entries targeted at the caller's UID.
+
     Only notifications newer than the store's TTL window are included,
     so the response payload stays small regardless of how long the
     process has been running.
     """
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+    profile = _get_firestore_user_profile(uid)
+    user_regions = frozenset(profile_regions(profile))
     dynamic_alerts = generate_alerts(
         crop=crop,
         irrigation_count=irrigation_count,
         water_coverage=water_coverage,
         season=season
     )
-    return {"success": True, "data": _notification_store.get_recent() + _normalize_dynamic_alerts(dynamic_alerts)}
+    stored = [
+        notification
+        for notification in _notification_store.get_recent_for_user(uid)
+        if notification_matches_regions(notification, user_regions)
+    ]
+    return {
+        "success": True,
+        "data": stored + _normalize_dynamic_alerts(dynamic_alerts),
+    }
 
 # --- WhatsApp Service Endpoints ---
 #
@@ -738,12 +884,13 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     # allowed any caller to overwrite another user's subscription by sending
     # a known user_id with an attacker-controlled phone number.
     token_data = await verify_role(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
 
     subscriber = {
         "phone_number": data.phone_number,
         "name": data.name,
         "subscribed_at": datetime.now().isoformat(),
+        "region_id": normalize_region_identifier(data.region_id) or None,
     }
     try:
         subscriber_store.upsert(uid, subscriber)
@@ -777,14 +924,30 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     engineering attacks (fake market alerts, fake pest warnings) and
     consuming Twilio API credits at the attacker's discretion.
     """
-    # RBAC: only admins and experts may broadcast alerts to all farmers.
-    await verify_role(request, required_roles=["admin", "expert"])
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+    role = str(token_data.get("role", "")).strip().lower()
+    region_id = normalize_region_identifier(data.region_id) if data.region_id else ""
+
+    if region_id:
+        if role not in {"admin", "expert"}:
+            profile = _get_firestore_user_profile(uid)
+            if not profile_can_broadcast_region(profile, region_id):
+                raise HTTPException(status_code=403, detail="Access denied: insufficient regional authority")
+    elif role not in {"admin", "expert"}:
+        raise HTTPException(status_code=403, detail="Access denied: insufficient permissions")
 
     # get_all() acquires the lock and returns a stable snapshot, so this read
     # cannot race with a concurrent subscription write.
     subscribers = subscriber_store.get_all()
     formatted_msg = format_alert_message(data.alert_type, data.message)
     results = []
+    if region_id:
+        subscribers = {
+            user_id: info
+            for user_id, info in subscribers.items()
+            if _subscriber_matches_region(info, region_id)
+        }
     for user_id, info in subscribers.items():
         res = send_whatsapp_message(info["phone_number"], formatted_msg)
         results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})
@@ -793,6 +956,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     await publish_notification(
         alert_type=data.alert_type,
         message=data.message,
+        region_id=region_id or None,
     )
 
     delivered = sum(1 for r in results if r["success"])
@@ -801,7 +965,10 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
 
 @app.websocket("/api/notifications/stream")
 async def notifications_stream(websocket: WebSocket):
-    await notification_broker.connect(websocket)
+    uid = await _authenticate_notification_websocket(websocket)
+    if uid is None:
+        return
+    await notification_broker.connect(websocket, uid, regions=_resolve_websocket_regions(uid, websocket))
 
 
 @app.get("/api/admin/rbac-audit")
@@ -811,23 +978,23 @@ async def get_rbac_audit(request: Request, limit: int = Query(default=50, ge=1, 
     await verify_role(request, required_roles=["admin", "expert"])
     return {"success": True, "data": rbac_audit_trail.snapshot(limit=limit)}
 
+@app.get("/api/csrf-token")
+@limiter.limit("30/minute")
+async def get_csrf_token(request: Request):
+    """Return a signed CSRF token tied to the authenticated user."""
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+    token = generate_token(uid)
+    return {"csrf_token": token}
+
+
 @app.post("/api/whatsapp/webhook")
 @limiter.limit("20/minute")
-async def whatsapp_webhook(request: Request, Body: str = Form(...), From: str = Form(...)):
-    """
-    Handle incoming WhatsApp messages from Twilio.
-    
-    Processing is offloaded to a background Celery task to immediately
-    acknowledge the webhook (preventing Twilio timeout/penalties under burst traffic)
-    and process the message asynchronously.
-    """
-    sender_number = From.replace("whatsapp:", "")
-    
-    # Offload message processing to reliable background task queue
-    from celery_worker import process_whatsapp_webhook_task
-    process_whatsapp_webhook_task.delay(Body, sender_number)
-    
-    return {"status": "success"}
+async def whatsapp_webhook(request: Request):
+    """Handle inbound Twilio WhatsApp webhooks (signature-verified)."""
+    from twilio_webhook_security import handle_inbound_whatsapp_webhook
+
+    return await handle_inbound_whatsapp_webhook(request)
 
 # --- Cryptographic Reports ---
 #
@@ -859,8 +1026,9 @@ except Exception as e:
     _kms_init_error = str(e)
 
 ALLOW_INSECURE_FALLBACK = os.getenv("ALLOW_INSECURE_KEY_FALLBACK", "false").lower() == "true"
+REPORT_SIGNING_PRIVATE_KEY_PEM = os.getenv("REPORT_SIGNING_PRIVATE_KEY_PEM", "").strip()
 
-if os.getenv("GOOGLE_CLOUD_PROJECT") and not HAS_GCP_KMS:
+if os.getenv("GOOGLE_CLOUD_PROJECT") and not HAS_GCP_KMS and not REPORT_SIGNING_PRIVATE_KEY_PEM:
     logger.error(
         f"KMS initialization failed: GOOGLE_CLOUD_PROJECT is set but GCP Secret Manager is unavailable. "
         f"Error: {_kms_init_error}. Set ALLOW_INSECURE_KEY_FALLBACK=true to permit local key fallback (NOT RECOMMENDED)."
@@ -877,6 +1045,14 @@ def get_signing_keys():
     global _cached_private_key
 
     if _cached_private_key is not None:
+        return _cached_private_key
+
+    if REPORT_SIGNING_PRIVATE_KEY_PEM:
+        _cached_private_key = serialization.load_pem_private_key(
+            REPORT_SIGNING_PRIVATE_KEY_PEM.encode("utf-8"),
+            password=None,
+        )
+        logger.info("Successfully loaded signing key from REPORT_SIGNING_PRIVATE_KEY_PEM")
         return _cached_private_key
 
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
@@ -981,7 +1157,16 @@ except Exception as exc:
 try:
     from prometheus_fastapi_instrumentator import Instrumentator
 
-    Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+    Instrumentator().instrument(app)
+
+    @app.get("/metrics")
+    async def metrics(request: Request):
+        if verify_role is None:
+            raise HTTPException(status_code=500, detail="Auth service not initialized")
+        # Only admins may view operational telemetry.
+        await verify_role(request, required_roles=["admin"])
+        from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
 
@@ -1028,6 +1213,8 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
 )
+import csrf_protection as _csrf
+_csrf.configure(_CORS_ORIGINS)
 app.add_middleware(RBACMiddleware)
 logger.info(print_rbac_matrix())
 
@@ -1185,7 +1372,7 @@ app.include_router(referrals.router, prefix="/api/referrals", tags=["Referrals"]
 app.include_router(platform.router, prefix="/api", tags=["Platform"])
 app.include_router(advisory.router, prefix="/api", tags=["Advisory"])
 app.include_router(alerts.router, prefix="/api/notifications", tags=["Alerts"])
-app.include_router(flags_router, prefix="/api/flags", tags=["Feature Flags"])
+app.include_router(flags_router, tags=["Feature Flags"])
 app.include_router(lms.router, prefix="/api", tags=["LMS"])
 
 
@@ -1232,6 +1419,14 @@ try:
     logger.info("ML Model Management API loaded successfully")
 except Exception as e:
     logger.warning(f"Could not load ML Model Management API: {e}")
+
+# Include Crop Recommendation Router
+try:
+    from routers.crop_recommendation import router as crop_router
+    app.include_router(crop_router)
+    logger.info("Crop Recommendation API loaded successfully")
+except Exception as e:
+    logger.warning(f"Could not load Crop Recommendation API: {e}")
 
 if __name__ == "__main__":
     import uvicorn

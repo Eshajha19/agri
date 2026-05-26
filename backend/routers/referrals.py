@@ -6,20 +6,22 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
-from firebase_admin import auth, firestore
+from firebase_admin import firestore
 
 router = APIRouter()
 
 get_db_fn = None
+verify_role_fn = None
 
 
 class RedeemReferralRequest(BaseModel):
     referral_code: str = Field(..., min_length=4, max_length=32)
 
 
-def init_referrals(db_resolver):
-    global get_db_fn
+def init_referrals(db_resolver, vr_fn):
+    global get_db_fn, verify_role_fn
     get_db_fn = db_resolver
+    verify_role_fn = vr_fn
 
 
 def _now_iso() -> str:
@@ -79,24 +81,10 @@ def _require_db():
 
 
 async def _get_uid_from_request(request: Request) -> str:
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing auth token")
-
-    token = auth_header.split(" ", 1)[1].strip()
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing auth token")
-
-    try:
-        decoded = auth.verify_id_token(token)
-        uid = decoded.get("uid")
-        if not uid:
-            raise HTTPException(status_code=401, detail="Invalid auth token")
-        return uid
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid auth token")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth not initialized")
+    token_data = await verify_role_fn(request)
+    return token_data["uid"]
 
 
 def _ensure_user_referral_code(db, uid: str, user_data: Optional[Dict[str, Any]] = None) -> str:

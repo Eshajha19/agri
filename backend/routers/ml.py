@@ -29,24 +29,29 @@ class YieldInput(BaseModel):
 model_router = None
 model_lag = None
 model_trend = None
+verify_role_fn = None
 
 TREND_MODEL_PATH = "trend_forecast_model.joblib"
 
-def init_router(r_instance, model_lag_instance, model_trend_instance=None):
-    global model_router, model_lag, model_trend
+def init_router(r_instance, model_lag_instance, model_trend_instance=None, verify_role=None):
+    global model_router, model_lag, model_trend, verify_role_fn
     model_router = r_instance
     model_lag = model_lag_instance
     model_trend = model_trend_instance
+    verify_role_fn = verify_role
 
 @router.get("")
 def predict_get():
     return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
 
 @router.post("", response_model=PredictResponse)
-def predict_yield(data: PredictRequest, request: Request):
+async def predict_yield(data: PredictRequest, request: Request):
     """Yield prediction using ML router"""
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
     if model_router is None:
         raise HTTPException(status_code=500, detail="ML model not initialized")
+    await verify_role_fn(request)
     try:
         input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
         context = {"location": request.headers.get("X-User-Location", "Unknown"), "crop": data.Crop}
@@ -57,6 +62,9 @@ def predict_yield(data: PredictRequest, request: Request):
 
 @router.post("/predict-yield-lag")
 async def predict_yield_lag(payload: YieldInput, request: Request):
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    await verify_role_fn(request)
     if model_lag is None:
         raise HTTPException(status_code=500, detail="Model not loaded")
     try:
@@ -78,13 +86,18 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
     to generate multi-step future predictions. Raises a clear error
     if the trend model is unavailable instead of silently using the wrong model.
     """
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    await verify_role_fn(request)
+
     global model_trend
 
     if model_trend is None:
         try:
             import joblib
             if os.path.exists(TREND_MODEL_PATH):
-                model_trend = joblib.load(TREND_MODEL_PATH)
+                from ml.security import verify_and_load_joblib
+                model_trend = verify_and_load_joblib(TREND_MODEL_PATH)
                 logger.info("Trend forecast model loaded from %s", TREND_MODEL_PATH)
             else:
                 raise FileNotFoundError(f"Trend model not found at {TREND_MODEL_PATH}")
