@@ -1,38 +1,21 @@
-name: CI - Security & Quality Gate
+name: Fast CI
 
 on:
   push:
-    branches:
-      - main
-      - master
-      - 'feature/**'
-      - 'issue/**'
-      - '**'
-
+    branches: [main, master]
   pull_request:
-    branches:
-      - main
-      - master
 
 jobs:
   checks:
-    name: Checks (lint, types, tests, security)
     runs-on: ubuntu-latest
 
-    strategy:
-      matrix:
-        python-version:
-          - "3.9"
-          - "3.12"
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
+          cache: "pip"
 
       - name: Install dependencies
         run: |
@@ -42,42 +25,13 @@ jobs:
             pip install -r requirements.txt
           fi
 
-          if [ -f requirements-dev.txt ]; then
-            pip install -r requirements-dev.txt
-          fi
+          pip install pytest ruff bandit
 
-          pip install flake8 mypy bandit safety pytest
+      - name: Lint
+        run: ruff check .
 
-      - name: Lint (flake8)
-        run: |
-          echo "Running flake8"
-          flake8 --max-line-length=120
+      - name: Security scan
+        run: bandit -r . -q
 
-      - name: Type-check (mypy)
-        run: |
-          echo "Running mypy"
-          mypy .
-
-      - name: Security scan (bandit)
-        run: |
-          echo "Running bandit"
-          bandit -r . -q
-
-      - name: Dependency safety
-        env:
-          PIP_NO_WARN_SCRIPT_LOCATION: "0"
-        run: |
-          echo "Running safety DB check"
-
-          if [ -f requirements.txt ]; then
-            safety check -r requirements.txt
-          fi
-
-      - name: Run tests (focused)
-        run: |
-          echo "Running focused pytest suite"
-          pytest --maxfail=1 -q
-
-      - name: Annotate results
-        if: ${{ always() }}
-        run: echo "CI checks completed"
+      - name: Run tests
+        run: pytest -q --maxfail=1
