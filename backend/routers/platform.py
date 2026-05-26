@@ -405,7 +405,15 @@ async def rag_query(request: Request, body: RAGQuery):
 
 
 @router.post("/gemini/analyze-image")
-async def gemini_analyze_image(body: GeminiImageRequest):
+async def gemini_analyze_image(request: Request, body: GeminiImageRequest):
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+
+    # Require a valid Firebase ID token to prevent unauthenticated callers
+    # from proxying arbitrary images through the server's GEMINI_API_KEY,
+    # exhausting quota and incurring billing charges.
+    await verify_role_fn(request)
+
     import httpx
 
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
@@ -454,7 +462,15 @@ async def gemini_analyze_image(body: GeminiImageRequest):
 
 
 @router.post("/simulate-climate")
-async def simulate_climate(data: SimulationRequest):
+async def simulate_climate(request: Request, data: SimulationRequest):
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+
+    # Require a valid Firebase ID token to prevent unauthenticated callers
+    # from consuming compute resources and to keep this route consistent with
+    # the authenticated /api/knowledge/simulate-climate endpoint.
+    await verify_role_fn(request)
+
     sensitivities = {
         "rice": {"temp": -0.05, "rain": 0.02},
         "wheat": {"temp": -0.06, "rain": 0.03},
