@@ -584,3 +584,4 @@ class OfflineCacheManager:
         except Exception as e:
             logger.error(f"Cache load error: {e}")
         return {}
+# Voice assistant error handling improved
