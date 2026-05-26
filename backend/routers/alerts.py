@@ -1,16 +1,12 @@
 """Alerts & Notifications Router"""
-import base64
-import hashlib
-import hmac
-import os
-import re
-import urllib.parse
 from datetime import datetime
+from typing import Optional
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
+from twilio_webhook_security import handle_inbound_whatsapp_webhook
 from pydantic import BaseModel, Field
 
-import csrf_protection
+from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, normalize_region_identifier
 
 router = APIRouter()
 
@@ -18,6 +14,7 @@ router = APIRouter()
 class AlertTriggerRequest(BaseModel):
     alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
     message: str = Field(..., min_length=1, max_length=500)
+    region_id: Optional[str] = Field(default=None, max_length=100)
 
 
 notification_store = None
@@ -26,78 +23,19 @@ generate_alerts_fn = None
 send_whatsapp_fn = None
 format_alert_fn = None
 verify_role_fn = None
+resolve_user_profile_fn = None
 
 
-def init_alerts(ns, ss, ga_fn, sw_fn, fa_fn, vr_fn):
+def init_alerts(ns, ss, ga_fn, sw_fn, fa_fn, vr_fn, rp_fn=None):
     global notification_store, subscriber_store, generate_alerts_fn
-    global send_whatsapp_fn, format_alert_fn, verify_role_fn
+    global send_whatsapp_fn, format_alert_fn, verify_role_fn, resolve_user_profile_fn
     notification_store = ns
     subscriber_store = ss
     generate_alerts_fn = ga_fn
     send_whatsapp_fn = sw_fn
     format_alert_fn = fa_fn
     verify_role_fn = vr_fn
-
-
-def _verify_twilio_signature(request: Request, body: bytes) -> None:
-    """Validate the X-Twilio-Signature header using HMAC-SHA1.
-
-    Twilio signs every webhook request with:
-        HMAC-SHA1(auth_token, url + sorted_params)
-
-    If the signature is absent or does not match we raise HTTP 403 so
-    forged requests are rejected before any processing occurs.
-
-    Reference: https://www.twilio.com/docs/usage/webhooks/webhooks-security
-    """
-    auth_token = os.getenv("TWILIO_AUTH_TOKEN", "")
-    if not auth_token:
-        # If the token is not configured we cannot verify — fail closed.
-        raise HTTPException(
-            status_code=500,
-            detail="Webhook signature verification is not configured",
-        )
-
-    twilio_signature = request.headers.get("X-Twilio-Signature", "")
-    if not twilio_signature:
-        raise HTTPException(status_code=403, detail="Missing Twilio signature")
-
-    # Reconstruct the full URL exactly as Twilio sees it.
-    url = str(request.url)
-
-    # Parse the form-encoded body and sort parameters alphabetically.
-    try:
-        params = urllib.parse.parse_qsl(body.decode("utf-8"), keep_blank_values=True)
-    except Exception:
-        params = []
-    sorted_params = sorted(params, key=lambda kv: kv[0])
-
-    # Build the string Twilio signs: URL + key1value1key2value2...
-    signing_string = url + "".join(k + v for k, v in sorted_params)
-
-    expected = hmac.new(
-        auth_token.encode("utf-8"),
-        signing_string.encode("utf-8"),
-        hashlib.sha1,
-    ).digest()
-
-    expected_b64 = base64.b64encode(expected).decode("utf-8")
-
-    if not hmac.compare_digest(expected_b64, twilio_signature):
-        raise HTTPException(status_code=403, detail="Invalid Twilio signature")
-
-
-def _validate_whatsapp_number(raw: str) -> str:
-    """Strip the 'whatsapp:' prefix and do basic E.164 sanity check.
-
-    Raises HTTP 400 for values that don't look like a phone number so
-    the raw From field cannot be used to inject arbitrary strings.
-    """
-    number = raw.replace("whatsapp:", "").strip()
-    # E.164: optional leading +, then 7–15 digits
-    if not re.fullmatch(r"\+?\d{7,15}", number):
-        raise HTTPException(status_code=400, detail="Invalid sender number")
-    return number
+    resolve_user_profile_fn = rp_fn
 
 
 @router.get("/notifications")
@@ -108,15 +46,23 @@ async def get_notifications(
     water_coverage: int = Query(None, ge=0, le=100),
     season: str = Query(None),
 ):
-    if notification_store is None or generate_alerts_fn is None:
+    if notification_store is None or generate_alerts_fn is None or verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    token_data = await verify_role_fn(request)
+    uid = token_data["uid"]
+    user_regions = profile_regions(resolve_user_profile_fn(uid)) if resolve_user_profile_fn is not None else set()
     dynamic_alerts = generate_alerts_fn(
         crop=crop,
         irrigation_count=irrigation_count,
         water_coverage=water_coverage,
         season=season,
     )
-    return {"success": True, "data": notification_store.get_recent() + dynamic_alerts}
+    stored = [
+        notification
+        for notification in notification_store.get_recent_for_user(uid)
+        if notification_matches_regions(notification, user_regions)
+    ]
+    return {"success": True, "data": stored + dynamic_alerts}
 
 
 @router.post("/whatsapp/subscribe")
@@ -124,20 +70,18 @@ async def subscribe_whatsapp(
     request: Request,
     phone_number: str = Form(...),
     name: str = Form(...),
-    csrf_token: str = Form(""),
+    region_id: Optional[str] = Form(None),
 ):
     if not all([subscriber_store, send_whatsapp_fn, verify_role_fn]):
         raise HTTPException(status_code=500, detail="Not initialized")
     try:
         token_data = await verify_role_fn(request)
-        uid = token_data["uid"]
-        csrf_protection.reject_cross_origin(request)
-        if not csrf_protection.validate_token(csrf_token, uid):
-            raise HTTPException(status_code=403, detail="Invalid or missing CSRF token")
+        uid = token_data.get("uid")
         subscriber = {
             "phone_number": phone_number,
             "name": name,
             "subscribed_at": datetime.now().isoformat(),
+            "region_id": normalize_region_identifier(region_id) or None,
         }
         subscriber_store.upsert(uid, subscriber)
         welcome_msg = f"Namaste {name}! 🙏\nWelcome to *Fasal Saathi WhatsApp Alerts*."
@@ -154,10 +98,27 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
     if not all([subscriber_store, send_whatsapp_fn, format_alert_fn, notification_store, verify_role_fn]):
         raise HTTPException(status_code=500, detail="Not initialized")
     try:
-        await verify_role_fn(request, required_roles=["admin", "expert"])
+        token_data = await verify_role_fn(request)
+        uid = token_data["uid"]
+        role = str(token_data.get("role", "")).strip().lower()
+        region_id = normalize_region_identifier(data.region_id) if data.region_id else ""
+
+        if region_id:
+            if role not in {"admin", "expert"}:
+                if resolve_user_profile_fn is None or not profile_can_broadcast_region(resolve_user_profile_fn(uid), region_id):
+                    raise HTTPException(status_code=403, detail="Access denied: insufficient regional authority")
+        elif role not in {"admin", "expert"}:
+            raise HTTPException(status_code=403, detail="Access denied: insufficient permissions")
+
         subscribers = subscriber_store.get_all()
         results = []
         formatted_msg = format_alert_fn(data.alert_type, data.message)
+        if region_id:
+            subscribers = {
+                user_id: info
+                for user_id, info in subscribers.items()
+                if any(region_matches(owned_region, region_id) for owned_region in profile_regions(info))
+            }
         for user_id, info in subscribers.items():
             res = send_whatsapp_fn(info["phone_number"], formatted_msg)
             results.append({
@@ -165,7 +126,7 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
                 "success": res.get("success", False),
                 "status": res.get("status", "error"),
             })
-        notification_store.append(alert_type=data.alert_type, message=data.message)
+        notification_store.append(alert_type=data.alert_type, message=data.message, region_id=region_id or None)
         delivered = sum(1 for r in results if r["success"])
         return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
     except HTTPException:
@@ -175,45 +136,6 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
 
 
 @router.post("/whatsapp/webhook")
-async def whatsapp_webhook(
-    request: Request,
-    Body: str = Form(...),
-    From: str = Form(...),
-):
-    """Receive inbound WhatsApp messages from Twilio.
-
-    Security controls applied:
-    1. Twilio signature verification — every request is validated with
-       HMAC-SHA1 against TWILIO_AUTH_TOKEN before any processing.
-       Requests with a missing or invalid X-Twilio-Signature are
-       rejected with HTTP 403.
-    2. Sender number validation — the From field is checked against a
-       basic E.164 pattern after stripping the 'whatsapp:' prefix so
-       malformed values cannot propagate further.
-    """
-    if send_whatsapp_fn is None:
-        raise HTTPException(status_code=500, detail="Not initialized")
-
-    # Reject browser-originated cross-origin POSTs before processing.
-    csrf_protection.reject_cross_origin(request)
-
-    # Read the raw body for signature verification before FastAPI
-    # consumes it via Form parameters.
-    raw_body = await request.body()
-    _verify_twilio_signature(request, raw_body)
-
-    incoming_msg = Body.lower().strip()
-    sender_number = _validate_whatsapp_number(From)
-
-    responses = {
-        "weather": "🌡️ *Weather Update*\n\n28°C, Clear skies.",
-        "pest": "🐛 *Pest Assistant*\n\nPlease use the tool in-app.",
-        "hi": "🙏 *Namaste!*\n\nI am your AI Assistant.",
-        "hello": "🙏 *Namaste!*\n\nI am your AI Assistant.",
-    }
-    response = next(
-        (v for k, v in responses.items() if k in incoming_msg),
-        "Try 'Weather' or 'Pest' 🌱",
-    )
-    send_whatsapp_fn(sender_number, response)
-    return {"status": "success"}
+async def whatsapp_webhook(request: Request):
+    """Receive inbound WhatsApp messages from Twilio (delegates to shared handler)."""
+    return await handle_inbound_whatsapp_webhook(request)
