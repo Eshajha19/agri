@@ -527,7 +527,7 @@ export default function Dashboard({ userData }) {
       </section>
       <section className="dashboard-section-card" style={{ marginTop: "30px" }}>
         <div className="section-card-header">
-          <h2>📊 Crop Yield Insights</h2>
+          <h2><FaChartBar /> Crop Yield Insights</h2>
           <span className="section-badge">Analytics</span>
         </div>
 
@@ -686,7 +686,7 @@ export default function Dashboard({ userData }) {
       </section>
       <section className="dashboard-section-card" style={{ marginTop: "30px" }}>
         <div className="section-card-header">
-          <h2>🌦 Historical Weather Trends</h2>
+          <h2><FaCloudSun /> Historical Weather Trends</h2>
           <span className="section-badge">Weather</span>
         </div>
 
@@ -724,7 +724,7 @@ export default function Dashboard({ userData }) {
 
         {/* Insight */}
         <div style={{ marginTop: "15px", fontWeight: "500", color: "#374151" }}>
-          🌱 Insight: {
+          <FaSeedling /> Insight: {
             historicalWeather.length > 0
               ? (
                   historicalWeather.reduce((sum, d) => sum + d.rainfall, 0) /
