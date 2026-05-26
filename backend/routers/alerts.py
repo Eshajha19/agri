@@ -10,6 +10,8 @@ from datetime import datetime
 from fastapi import APIRouter, Form, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+import csrf_protection
+
 router = APIRouter()
 
 
@@ -122,12 +124,16 @@ async def subscribe_whatsapp(
     request: Request,
     phone_number: str = Form(...),
     name: str = Form(...),
+    csrf_token: str = Form(""),
 ):
     if not all([subscriber_store, send_whatsapp_fn, verify_role_fn]):
         raise HTTPException(status_code=500, detail="Not initialized")
     try:
         token_data = await verify_role_fn(request)
         uid = token_data["uid"]
+        csrf_protection.reject_cross_origin(request)
+        if not csrf_protection.validate_token(csrf_token, uid):
+            raise HTTPException(status_code=403, detail="Invalid or missing CSRF token")
         subscriber = {
             "phone_number": phone_number,
             "name": name,
@@ -187,6 +193,9 @@ async def whatsapp_webhook(
     """
     if send_whatsapp_fn is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+
+    # Reject browser-originated cross-origin POSTs before processing.
+    csrf_protection.reject_cross_origin(request)
 
     # Read the raw body for signature verification before FastAPI
     # consumes it via Form parameters.

@@ -93,6 +93,7 @@ from ml.preprocessing import UnknownCategoryError, MissingFeatureError
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
+from csrf_protection import generate_token, reject_cross_origin
 from error_recovery_middleware import ErrorRecoveryMiddleware
 from realtime_notifications import notification_broker
 from rbac_audit import audit_rbac_event, rbac_audit_trail, validate_required_roles
@@ -811,6 +812,16 @@ async def get_rbac_audit(request: Request, limit: int = Query(default=50, ge=1, 
     await verify_role(request, required_roles=["admin", "expert"])
     return {"success": True, "data": rbac_audit_trail.snapshot(limit=limit)}
 
+@app.get("/api/csrf-token")
+@limiter.limit("30/minute")
+async def get_csrf_token(request: Request):
+    """Return a signed CSRF token tied to the authenticated user."""
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+    token = generate_token(uid)
+    return {"csrf_token": token}
+
+
 @app.post("/api/whatsapp/webhook")
 @limiter.limit("20/minute")
 async def whatsapp_webhook(request: Request, Body: str = Form(...), From: str = Form(...)):
@@ -821,6 +832,7 @@ async def whatsapp_webhook(request: Request, Body: str = Form(...), From: str = 
     acknowledge the webhook (preventing Twilio timeout/penalties under burst traffic)
     and process the message asynchronously.
     """
+    reject_cross_origin(request)
     sender_number = From.replace("whatsapp:", "")
     
     # Offload message processing to reliable background task queue
@@ -1028,6 +1040,8 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
 )
+import csrf_protection as _csrf
+_csrf.configure(_CORS_ORIGINS)
 app.add_middleware(RBACMiddleware)
 logger.info(print_rbac_matrix())
 
