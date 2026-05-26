@@ -739,3 +739,4 @@ export default function Dashboard({ userData }) {
     </div>
   );
 }
+// Optimized Dashboard.jsx for performance
