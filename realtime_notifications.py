@@ -63,6 +63,10 @@ class NotificationBroadcastHub:
         self._history: Deque[Dict[str, Any]] = collections.deque(maxlen=history_limit)
         self._connections: dict[WebSocket, _ConnectionSubscription] = {}
         self._history_lock = asyncio.Lock()
+        # Dedicated lock for websocket connection registry mutations.
+        # Prevents concurrent connection updates from racing with
+        # broadcast fan-out and stale websocket cleanup.
+        self._connections_lock = asyncio.Lock()
         self._broadcast_lock = asyncio.Lock()
         self._redis_url = redis_url or os.getenv("REDIS_URL")
         self._redis_channel = redis_channel
@@ -71,14 +75,20 @@ class NotificationBroadcastHub:
         self._redis_listener_task: Optional[asyncio.Task] = None
         self._started = False
 
-    def seed_notifications(self, notifications: Iterable[Dict[str, Any]]) -> None:
+    def seed_notifications(
+        self,
+        notifications: Iterable[Dict[str, Any]],
+    ) -> None:
         """Seed the local history from existing notifications."""
+
         for notification in notifications:
             self._history.append(notification)
 
-    def snapshot(self) -> list[Dict[str, Any]]:
+    async def snapshot(self) -> list[Dict[str, Any]]:
         """Return a copy of the current history."""
-        return list(self._history)
+
+        async with self._history_lock:
+            return list(self._history)
 
     def snapshot_for_user(self, uid: str, regions: Optional[Iterable[str]] = None) -> list[Dict[str, Any]]:
         """Return history entries visible to the given user and region scope."""
@@ -149,11 +159,19 @@ class NotificationBroadcastHub:
 
         async with self._history_lock:
             self._history.append(notification)
+
+        async with self._connections_lock:
             clients = [
                 (websocket, subscription)
                 for websocket, subscription in self._connections.items()
-                if notification_visible_to_user(notification, subscription.uid)
-                and notification_matches_regions(notification, subscription.regions)
+                if notification_visible_to_user(
+                    notification,
+                    subscription.uid,
+                )
+                and notification_matches_regions(
+                    notification,
+                    subscription.regions,
+                )
             ]
 
         await self._broadcast(payload, clients)
@@ -166,13 +184,28 @@ class NotificationBroadcastHub:
 
         return event
 
-    async def connect(self, websocket: WebSocket, uid: str, regions: Optional[Iterable[str]] = None) -> None:
+    async def connect(
+        self,
+        websocket: WebSocket,
+        uid: str,
+        regions: Optional[Iterable[str]] = None,
+    ) -> None:
         """Accept a websocket client and keep it subscribed until disconnect."""
+
         await websocket.accept()
-        region_scopes = frozenset(resolve_subscription_regions({"role": "guest"}, regions))
+
+        region_scopes = frozenset(
+            resolve_subscription_regions({"role": "guest"}, regions)
+        )
+
+        # Capture a stable snapshot before registering the socket
+        # for live broadcasts. This prevents duplicate/out-of-order
+        # delivery during concurrent publish() calls.
         async with self._history_lock:
-            self._connections[websocket] = _ConnectionSubscription(uid=uid, regions=region_scopes)
-            snapshot = self.snapshot_for_user(uid, region_scopes)
+            snapshot = self.snapshot_for_user(
+                uid,
+                region_scopes,
+            )
 
         await websocket.send_json(
             {
@@ -183,6 +216,13 @@ class NotificationBroadcastHub:
             }
         )
 
+        # Register only after snapshot delivery completes.
+        async with self._connections_lock:
+            self._connections[websocket] = _ConnectionSubscription(
+                uid=uid,
+                regions=region_scopes,
+            )
+
         try:
             await asyncio.Event().wait()
         except asyncio.CancelledError:
@@ -190,9 +230,9 @@ class NotificationBroadcastHub:
         except WebSocketDisconnect:
             pass
         finally:
-            async with self._history_lock:
+            async with self._connections_lock:
                 self._connections.pop(websocket, None)
-
+    
     async def _broadcast(
         self,
         payload: Dict[str, Any],
@@ -210,7 +250,7 @@ class NotificationBroadcastHub:
                     stale_clients.append(websocket)
 
             if stale_clients:
-                async with self._history_lock:
+                async with self._connections_lock:
                     for websocket in stale_clients:
                         self._connections.pop(websocket, None)
 
@@ -224,6 +264,8 @@ class NotificationBroadcastHub:
                 if isinstance(notification, dict):
                     async with self._history_lock:
                         self._history.append(notification)
+
+                    async with self._connections_lock:
                         clients = [
                             (websocket, subscription)
                             for websocket, subscription in self._connections.items()
