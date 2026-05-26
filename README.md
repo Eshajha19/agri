@@ -57,6 +57,7 @@ Fasal Saathi is a smart agriculture assistance platform built with React (fronte
 - 🌱 Crop recommendation based on soil profile and regional climate
 - ☁️ Real-time weather updates and custom farming alerts
 - 🧪 Soil health analysis & nutrient suggestions
+- 🪴 AI-based crop disease detection from uploaded images
 - 🌾 Fertilizer and pesticide guidance
 - 📊 Responsive and user-friendly dashboard (React)
 - 🔐 Authentication & user profiles (Firebase)
@@ -218,6 +219,7 @@ For certified/bank report generation, the backend also needs a signing key sourc
 - `GET /api/weather?lat={lat}&lon={lon}` — Returns current weather + forecast
 - `POST /api/soil/analyze` — Send soil params (pH, NPK) to get recommendations
 - `POST /api/crop/recommend` — Returns recommended crops for given soil & climate
+- `POST /api/crop-disease/analyze-image` — Analyze an uploaded crop image and return the likely disease, confidence, and treatment guidance
 
 (Document exact request/response schemas in docs/ or OpenAPI spec.)
 
