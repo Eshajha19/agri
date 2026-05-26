@@ -49,7 +49,7 @@ def verify_and_load_joblib(
     try:
         with open(model_path, "rb") as f:
             data = f.read()
-    except FileNotFoundError:
+    except FileNotFoundError as e:
         logger.error("Model file not found: %s", model_path)
         raise
 
@@ -57,7 +57,7 @@ def verify_and_load_joblib(
     try:
         with open(sig_path, "r", encoding="utf-8") as sf:
             expected = sf.read().strip()
-    except FileNotFoundError:
+    except FileNotFoundError as e:
         logger.warning(
             "Signature file '%s' not found for model '%s'",
             sig_path,
@@ -72,7 +72,7 @@ def verify_and_load_joblib(
 
         raise RuntimeError(
             f"Signature file missing for model '{model_path}'"
-        )
+        ) from e
 
     # Compute HMAC-SHA256 and compare in constant time
     mac = hmac.new(key.encode("utf-8"), data, hashlib.sha256).hexdigest()
