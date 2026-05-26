@@ -13,6 +13,13 @@ class RegisterModelVersionRequest(BaseModel):
     r2_score: float = Field(default=0, ge=-1, le=1)
     metadata: Optional[Dict[str, Any]] = None
 
+
+class DriftCheckRequest(BaseModel):
+    model_name: str = Field(..., min_length=1, max_length=50)
+    prediction: float
+    actual_value: float
+
+
 drift_detector = None
 shadow_evaluator = None
 version_manager = None
@@ -115,12 +122,12 @@ async def set_drift_baseline(request: Request, model_name: str, predictions: lis
     return {"success": True, "message": f"Baseline set for {model_name}"}
 
 @router.post("/drift/check")
-async def check_drift(request: Request, model_name: str, prediction: float, actual_value: float):
+async def check_drift(request: Request, body: DriftCheckRequest):
     """Check for model drift. Requires authentication."""
     _require_auth(request)
     if drift_detector is None:
         raise HTTPException(status_code=500, detail="Not initialized")
-    drift_info = drift_detector.check_prediction_drift(model_name, prediction, actual_value)
+    drift_info = drift_detector.check_prediction_drift(body.model_name, body.prediction, body.actual_value)
     return {"success": True, "drift": drift_info}
 
 @router.get("/drift/alerts")
