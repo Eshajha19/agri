@@ -113,6 +113,8 @@ def init_knowledge(rg_fn, rbac, perm, sr, vr_fn):
     Permission = perm
     seed_registry = sr
     verify_role_fn = vr_fn
+    if not sr:
+        logger.warning("Seed registry is empty — all seed codes will return unverified")
 
 
 # ---------------------------------------------------------------------------

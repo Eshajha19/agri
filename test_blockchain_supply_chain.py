@@ -3,7 +3,7 @@ Test suite for Blockchain-Based Agricultural Supply Chain
 """
 
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 from blockchain_supply_chain import (
     SupplyChainBlockchain,
     BlockchainRecord,
@@ -372,8 +372,8 @@ class TestSupplyChainBlockchain:
             action="harvested",
             location="Farm",
             data={
-                "harvest_time": datetime.now(),
-                "created_at": datetime.utcnow()
+                "harvest_time": datetime.now(timezone.utc),
+                "created_at": datetime.now(timezone.utc)
             }
         )
         
