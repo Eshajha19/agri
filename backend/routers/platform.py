@@ -401,7 +401,8 @@ async def rag_query(request: Request, body: RAGQuery):
     try:
         return rag_generate_fn(body.query, top_k=body.top_k)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.exception("RAG query failed")
+        raise HTTPException(status_code=500, detail="RAG query failed") from exc
 
 
 @router.post("/gemini/analyze-image")
