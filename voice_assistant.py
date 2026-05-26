@@ -36,6 +36,33 @@ SUPPORTED_LANGUAGES = {
     "en": {"name": "English", "label": "English"},
 }
 
+# Allowed safe voice assistant intents
+SAFE_VOICE_INTENTS = {
+    "crop_health",
+    "weather_alert",
+    "fertilizer_guide",
+    "irrigation_advice",
+    "yield_prediction",
+    "pest_management",
+    "general_query",
+}
+
+# Dangerous command injection patterns
+COMMAND_INJECTION_PATTERNS = [
+    r";",
+    r"&&",
+    r"\|\|",
+    r"`.*`",
+    r"\$\(.*\)",
+    r"rm\s+-rf",
+    r"sudo",
+    r"wget\s+",
+    r"curl\s+",
+    r"chmod\s+",
+    r"exec\s*\(",
+    r"eval\s*\(",
+]
+
 # Query intent mapping for voice commands
 INTENT_PATTERNS = {
     "crop_health": [
@@ -72,6 +99,40 @@ INTENT_PATTERNS = {
         r"(?:pest|कीड़े)\s+control\s+(?:method|tarika)",
     ],
 }
+
+def validate_voice_command(transcript: str) -> str:
+    """
+    Validate and sanitize voice commands to prevent
+    command injection and unauthorized execution.
+    """
+
+    sanitized = transcript.strip().lower()
+
+    for pattern in COMMAND_INJECTION_PATTERNS:
+        if re.search(pattern, sanitized):
+            logger.warning(
+                "Potential command injection attempt detected: %s",
+                sanitized,
+            )
+
+            raise ValueError(
+                "Potential command injection detected"
+            )
+
+    return sanitized
+
+
+def validate_voice_intent(intent: str) -> str:
+    """
+    Restrict execution to approved voice assistant intents.
+    """
+
+    if intent not in SAFE_VOICE_INTENTS:
+        raise ValueError(
+            f"Unauthorized voice intent: {intent}"
+        )
+
+    return intent
 
 # Response templates in multiple languages
 RESPONSE_TEMPLATES = {
@@ -283,12 +344,25 @@ class VoiceAssistant:
         if not voice_input.transcript:
             voice_input.transcript = self._transcribe_offline(voice_input)
         
-        # Step 2: Detect intent
-        intent, confidence = self.language_model.detect_intent(voice_input.transcript)
+        # Step 2: Validate transcript against injection attacks
+        validated_transcript = validate_voice_command(
+            voice_input.transcript
+        )
+
+        # Step 3: Detect and sandbox intent
+        intent, confidence = self.language_model.detect_intent(
+            validated_transcript
+        )
+
+        intent = validate_voice_intent(intent)
+
         voice_input.intent = intent
-        
-        # Step 3: Extract entities
-        entities = self.language_model.extract_entities(voice_input.transcript, intent)
+
+        # Step 4: Extract entities
+        entities = self.language_model.extract_entities(
+            validated_transcript,
+            intent,
+        )
         
         # Step 4: Generate response
         response_text = self._generate_response(
@@ -313,7 +387,7 @@ class VoiceAssistant:
         
         # Update session context
         with self._session_lock:
-            session.last_query = voice_input.transcript
+            session.last_query = validated_transcript
             session.context = context or {}
         
         return response
