@@ -94,6 +94,7 @@ from ml.preprocessing import UnknownCategoryError, MissingFeatureError
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
+from csrf_protection import generate_token, reject_cross_origin
 from error_recovery_middleware import ErrorRecoveryMiddleware
 from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, resolve_subscription_regions, normalize_region_identifier
 from notification_auth import filter_notifications_for_user
@@ -242,7 +243,7 @@ async def lifespan(app: FastAPI):
     except Exception:
         model_trend = None
 
-    ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend)
+    ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend, verify_role)
 
     yield
     # Shutdown
@@ -701,6 +702,8 @@ async def predict_yield(data: PredictRequest, request: Request):
     missing required feature, so callers receive an actionable error message
     rather than a silently corrupted prediction.
     """
+    await verify_role(request)
+
     try:
         input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
         input_data = _coerce_prediction_inputs(input_data)
@@ -714,7 +717,12 @@ async def predict_yield(data: PredictRequest, request: Request):
         from celery_worker import predict_yield_task
         task = predict_yield_task.delay(input_data, context)
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, task.get)
+        # timeout=30 prevents executor threads from blocking indefinitely when
+        # a Celery worker is slow or the broker is unreachable.
+        try:
+            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
+        except Exception as celery_exc:
+            raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
 
         if "error" in result:
             err_type = result.get("type")
@@ -736,12 +744,17 @@ async def predict_yield(data: PredictRequest, request: Request):
 @app.post("/predict-yield-lag")
 @limiter.limit("5/minute")
 async def predict_yield_lag(payload: YieldInput, request: Request):
+    await verify_role(request)
+
     try:
         # Offload time-series lag model prediction to Celery worker pool
         from celery_worker import predict_yield_lag_task
         task = predict_yield_lag_task.delay(payload.data)
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, task.get)
+        try:
+            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
+        except Exception as celery_exc:
+            raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
 
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
@@ -755,12 +768,17 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
 @app.post("/predict-yield-trend")
 @limiter.limit("5/minute")
 async def predict_yield_trend(payload: YieldInput, request: Request):
+    await verify_role(request)
+
     try:
         # Offload heavy iterative trend forecasting to Celery worker pool
         from celery_worker import predict_yield_trend_task
         task = predict_yield_trend_task.delay(payload.data)
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, task.get)
+        try:
+            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
+        except Exception as celery_exc:
+            raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
 
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
@@ -922,6 +940,16 @@ async def get_rbac_audit(request: Request, limit: int = Query(default=50, ge=1, 
     """Return the most recent RBAC audit events for admins and experts."""
     await verify_role(request, required_roles=["admin", "expert"])
     return {"success": True, "data": rbac_audit_trail.snapshot(limit=limit)}
+
+@app.get("/api/csrf-token")
+@limiter.limit("30/minute")
+async def get_csrf_token(request: Request):
+    """Return a signed CSRF token tied to the authenticated user."""
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+    token = generate_token(uid)
+    return {"csrf_token": token}
+
 
 @app.post("/api/whatsapp/webhook")
 @limiter.limit("20/minute")
@@ -1148,6 +1176,8 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
 )
+import csrf_protection as _csrf
+_csrf.configure(_CORS_ORIGINS)
 app.add_middleware(RBACMiddleware)
 logger.info(print_rbac_matrix())
 
