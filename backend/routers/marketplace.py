@@ -165,7 +165,7 @@ async def list_equipment(request: Request, data: ListEquipmentRequest):
         raise HTTPException(status_code=500, detail="Not initialized")
 
     token_data = await verify_role_fn(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
 
     lid = str(uuid.uuid4())
     listing = {
@@ -207,7 +207,7 @@ async def book_equipment(request: Request, data: BookEquipmentRequest):
         raise HTTPException(status_code=500, detail="Not initialized")
 
     token_data = await verify_role_fn(request)
-    booker_uid = token_data["uid"]
+    booker_uid = token_data.get("uid")
 
     bid = str(uuid.uuid4())
     booking = None
@@ -265,7 +265,7 @@ async def get_bookings(request: Request):
         raise HTTPException(status_code=500, detail="Not initialized")
 
     token_data = await verify_role_fn(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
 
     with _lock:
         all_bookings = list(_bookings.values())
