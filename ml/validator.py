@@ -1,6 +1,6 @@
 """Model validation utilities: compute model hash and run basic smoke tests."""
 from typing import Tuple
-import joblib
+from .security import verify_and_load_joblib
 import os
 import numpy as np
 import traceback
@@ -28,8 +28,8 @@ def validate_model_file(path: str) -> Tuple[bool, dict]:
 
     # Try loading model via joblib
     try:
-        model = joblib.load(path)
-        details["loaded_via"] = "joblib"
+        model = verify_and_load_joblib(path)
+        details["loaded_via"] = "secure_verified_joblib"
 
         # If possible, attempt a smoke predict using n_features_in_
         n_features = getattr(model, "n_features_in_", None)
