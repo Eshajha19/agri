@@ -128,7 +128,7 @@ async def complete_lesson(request: Request, body: CompleteLessonRequest):
     _require_firestore()
 
     token_data = await _verify_role_fn(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
 
     lesson_id = body.lesson_id
     course_id = _LESSON_TO_COURSE.get(lesson_id)
@@ -173,7 +173,7 @@ async def get_progress(request: Request):
     _require_firestore()
 
     token_data = await _verify_role_fn(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
 
     result = {}
     for course_id in COURSES:
@@ -215,7 +215,7 @@ async def get_certificate_data(request: Request, course_id: str):
         raise HTTPException(status_code=404, detail="Course not found")
 
     token_data = await _verify_role_fn(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
 
     # Per-user per-course cooldown to prevent Firestore cost abuse.
     key = (uid, course_id)

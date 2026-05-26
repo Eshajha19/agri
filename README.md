@@ -202,8 +202,12 @@ BACKEND_PORT=5000
 REACT_APP_FIREBASE_API_KEY=xxxxxxxxxxxx
 REACT_APP_FIREBASE_AUTH_DOMAIN=your-app.firebaseapp.com
 REACT_APP_FIREBASE_PROJECT_ID=your-app
-REACT_APP_BACKEND_URL=http://localhost:5000
-```
+VITE_API_BASE_URL=https://your-backend.onrender.com
+# Alternative: VITE_BACKEND_URL is also supported as a fallback
+
+For Vercel deployments, set `VITE_API_BASE_URL` to the live backend origin in the project environment variables. Without it, browser requests stay on the static frontend host and marketplace API calls will fail.
+
+For certified/bank report generation, the backend also needs a signing key source. In production, configure either Google Cloud Secret Manager (`GOOGLE_CLOUD_PROJECT` + `REPORT_SIGNING_SECRET_NAME`) or `REPORT_SIGNING_PRIVATE_KEY_PEM` with a PEM-encoded Ed25519 private key.
 
 ---
 
