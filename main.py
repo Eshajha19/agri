@@ -242,7 +242,7 @@ async def lifespan(app: FastAPI):
     except Exception:
         model_trend = None
 
-    ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend)
+    ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend, verify_role)
 
     yield
     # Shutdown
@@ -701,6 +701,8 @@ async def predict_yield(data: PredictRequest, request: Request):
     missing required feature, so callers receive an actionable error message
     rather than a silently corrupted prediction.
     """
+    await verify_role(request)
+
     try:
         input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
         input_data = _coerce_prediction_inputs(input_data)
@@ -714,7 +716,12 @@ async def predict_yield(data: PredictRequest, request: Request):
         from celery_worker import predict_yield_task
         task = predict_yield_task.delay(input_data, context)
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, task.get)
+        # timeout=30 prevents executor threads from blocking indefinitely when
+        # a Celery worker is slow or the broker is unreachable.
+        try:
+            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
+        except Exception as celery_exc:
+            raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
 
         if "error" in result:
             err_type = result.get("type")
@@ -736,12 +743,17 @@ async def predict_yield(data: PredictRequest, request: Request):
 @app.post("/predict-yield-lag")
 @limiter.limit("5/minute")
 async def predict_yield_lag(payload: YieldInput, request: Request):
+    await verify_role(request)
+
     try:
         # Offload time-series lag model prediction to Celery worker pool
         from celery_worker import predict_yield_lag_task
         task = predict_yield_lag_task.delay(payload.data)
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, task.get)
+        try:
+            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
+        except Exception as celery_exc:
+            raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
 
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
@@ -755,12 +767,17 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
 @app.post("/predict-yield-trend")
 @limiter.limit("5/minute")
 async def predict_yield_trend(payload: YieldInput, request: Request):
+    await verify_role(request)
+
     try:
         # Offload heavy iterative trend forecasting to Celery worker pool
         from celery_worker import predict_yield_trend_task
         task = predict_yield_trend_task.delay(payload.data)
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, task.get)
+        try:
+            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
+        except Exception as celery_exc:
+            raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
 
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
