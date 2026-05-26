@@ -19,9 +19,12 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+limiter = Limiter(key_func=get_remote_address)
 
 
 class WhatsAppSubscribeRequest(BaseModel):
@@ -342,9 +345,26 @@ async def generate_signed_report(request: Request, data: ReportRequest):
 
 
 @router.post("/log-error")
-async def log_error(body: ClientErrorReport):
-    if sanitise_log_field_fn is None:
-        raise HTTPException(status_code=500, detail="Log sanitizer not initialized")
+@limiter.limit("10/minute")
+async def log_error(request: Request, body: ClientErrorReport):
+    """
+    Receive a client-side error report and write it to the server log.
+
+    Security controls applied:
+    - Authentication required (Firebase ID token) — prevents unauthenticated
+      callers from flooding the log pipeline.
+    - Rate-limited to 10 requests/minute per IP — caps log volume even from
+      authenticated users, preventing log-flooding DoS.
+    - All string fields are sanitised via sanitise_log_field_fn before being
+      written, preventing log-injection via ANSI escape sequences or newlines.
+    """
+    if sanitise_log_field_fn is None or verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Log service not initialized")
+
+    # Require a valid Firebase ID token.  Any authenticated user (farmer,
+    # expert, admin) may report errors; the token is not used for RBAC here,
+    # only to confirm the caller is a real registered user.
+    await verify_role_fn(request)
 
     level = sanitise_log_field_fn(body.level).lower()
     message = sanitise_log_field_fn(body.message)
