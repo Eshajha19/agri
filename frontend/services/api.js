@@ -424,3 +424,4 @@ const apiClient = {
 };
 
 export default apiClient;
+// Enhanced API validation
