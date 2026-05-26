@@ -34,9 +34,14 @@ def _normalize_referral_code(code: str) -> str:
 
 def _generate_referral_code(uid: str, attempt: int = 0) -> str:
     import hashlib
+    import secrets
 
-    digest = hashlib.sha256(f"{uid}:{attempt}".encode("utf-8")).hexdigest().upper()
-    return f"FS{digest[:10]}"
+    if attempt < 100:
+        # Deterministic SHA256-based codes (primary path).
+        digest = hashlib.sha256(f"{uid}:{attempt}".encode("utf-8")).hexdigest().upper()
+        return f"FS{digest[:10]}"
+    # Fallback: random hex suffix — 2^64 collision space per attempt.
+    return f"FS{secrets.token_hex(8).upper()}"
 
 
 def _referral_badge(referral_count: int) -> str:
@@ -124,7 +129,9 @@ def _ensure_user_referral_code(db, uid: str, user_data: Optional[Dict[str, Any]]
                 )
             return existing_code
 
-    for attempt in range(5):
+    # Use a large attempt range: first 100 are deterministic SHA256 codes,
+    # subsequent attempts fall back to random hex (2^64 collision space).
+    for attempt in range(200):
         generated_code = _generate_referral_code(uid, attempt)
         code_ref = db.collection("referral_codes").document(generated_code)
         code_snap = code_ref.get()
