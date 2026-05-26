@@ -12,8 +12,11 @@ import logging
 import os
 
 from .retriever import get_retriever
+from .safety import RAGSafetyValidator
 
 logger = logging.getLogger(__name__)
+
+_safety = RAGSafetyValidator()
 
 # ---------------------------------------------------------------------------
 # Gemini client — initialised lazily so missing keys don't crash the import
@@ -162,6 +165,19 @@ def generate_response(query: str, top_k: int = 3) -> dict:
     else:
         answer = _synthesise_fallback(docs)
         llm_used = False
+
+    # Validate the response before returning — reject unsafe content.
+    result = _safety.validate_response(query, answer)
+    if not result.is_safe:
+        logger.warning(
+            "LLM response failed safety validation (threat=%s, detail=%s). Returning safe fallback.",
+            result.threat_detected, result.details,
+        )
+        answer = (
+            "I'm unable to provide a safe answer to this query right now. "
+            "Please consult your local Krishi Vigyan Kendra (KVK) or "
+            "agricultural extension officer for personalised advice."
+        )
 
     citations = [
         {
