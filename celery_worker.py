@@ -1,5 +1,5 @@
 import os
-import joblib
+from ml.security import verify_and_load_joblib
 import numpy as np
 from celery import Celery
 import logging
