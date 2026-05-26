@@ -1,6 +1,7 @@
 # main.py
 import os
 import asyncio
+import itertools
 import io
 import json
 import logging
@@ -94,6 +95,7 @@ from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
 from error_recovery_middleware import ErrorRecoveryMiddleware
+from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, resolve_subscription_regions, normalize_region_identifier
 from notification_auth import filter_notifications_for_user
 from realtime_notifications import notification_broker
 from rbac_audit import audit_rbac_event, rbac_audit_trail, validate_required_roles
@@ -191,7 +193,15 @@ async def lifespan(app: FastAPI):
         logger.warning("RAG init skipped: %s", exc)
 
     knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
-    alerts.init_alerts([], subscriber_store, lambda **kwargs: [], send_whatsapp_message, format_alert_message, verify_role)
+    alerts.init_alerts(
+        [],
+        subscriber_store,
+        lambda **kwargs: [],
+        send_whatsapp_message,
+        format_alert_message,
+        verify_role,
+        lambda uid: _get_firestore_user_profile(uid),
+    )
     init_feature_flags(verify_role)
     platform.init_platform(
         verify_role,
@@ -388,6 +398,7 @@ class PredictResponse(BaseModel):
 class WhatsAppSubscribeRequest(BaseModel):
     phone_number: str
     name: str
+    region_id: Optional[str] = Field(default=None, max_length=100)
     # user_id is accepted for backward compatibility but is IGNORED by the
     # endpoint — the authoritative user identity is always derived from the
     # verified Firebase ID token, never from client-supplied data.
@@ -456,6 +467,7 @@ def _coerce_prediction_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
 class AlertTriggerRequest(BaseModel):
     alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
     message: str = Field(..., min_length=1, max_length=500)
+    region_id: Optional[str] = Field(default=None, max_length=100)
 
 class ReportRequest(BaseModel):
     name: str = Field(..., max_length=100)
@@ -509,6 +521,7 @@ class NotificationStore:
         message: str,
         *,
         recipient_uid: Optional[str] = None,
+        region_id: Optional[str] = None,
     ) -> dict:
         """
         Add a new notification entry and return it.
@@ -526,6 +539,7 @@ class NotificationStore:
                 "message": message,
                 "time": datetime.now().isoformat(),
                 "recipient_uid": recipient_uid,
+                "region_id": normalize_region_identifier(region_id) if region_id else None,
             }
             self._deque.append(entry)
         return entry
@@ -565,12 +579,14 @@ async def publish_notification(
     message: str,
     *,
     recipient_uid: Optional[str] = None,
+    region_id: Optional[str] = None,
 ) -> dict:
     """Store a notification and fan it out to authorized websocket subscribers."""
     entry = _notification_store.append(
         alert_type=alert_type,
         message=message,
         recipient_uid=recipient_uid,
+        region_id=region_id,
     )
     await notification_broker.publish(entry)
     return entry
@@ -614,6 +630,39 @@ async def _authenticate_notification_websocket(websocket: WebSocket) -> Optional
         return None
 
     return uid
+
+
+def _get_firestore_user_profile(uid: str) -> dict[str, Any]:
+    if not db_firestore:
+        return {}
+
+    try:
+        user_doc = db_firestore.collection("users").document(uid).get()
+    except Exception:
+        return {}
+
+    if not getattr(user_doc, "exists", False):
+        return {}
+    return dict(user_doc.to_dict() or {})
+
+
+def _parse_requested_regions(raw_value: Optional[str]) -> list[str]:
+    if not raw_value:
+        return []
+    return [normalize_region_identifier(part) for part in raw_value.split(",") if normalize_region_identifier(part)]
+
+
+def _resolve_websocket_regions(uid: str, websocket: WebSocket) -> frozenset[str]:
+    profile = _get_firestore_user_profile(uid)
+    requested_regions = _parse_requested_regions(websocket.query_params.get("regions") or websocket.query_params.get("region"))
+    return frozenset(resolve_subscription_regions(profile, requested_regions))
+
+
+def _subscriber_matches_region(subscriber_info: dict[str, Any], region_id: str) -> bool:
+    if not region_id:
+        return True
+    subscriber_regions = profile_regions(subscriber_info)
+    return any(region_matches(subscriber_region, region_id) for subscriber_region in subscriber_regions)
 
 
 def _normalize_dynamic_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -744,13 +793,19 @@ async def get_notifications(
     """
     token_data = await verify_role(request)
     uid = token_data["uid"]
+    profile = _get_firestore_user_profile(uid)
+    user_regions = frozenset(profile_regions(profile))
     dynamic_alerts = generate_alerts(
         crop=crop,
         irrigation_count=irrigation_count,
         water_coverage=water_coverage,
         season=season
     )
-    stored = _notification_store.get_recent_for_user(uid)
+    stored = [
+        notification
+        for notification in _notification_store.get_recent_for_user(uid)
+        if notification_matches_regions(notification, user_regions)
+    ]
     return {
         "success": True,
         "data": stored + _normalize_dynamic_alerts(dynamic_alerts),
@@ -780,6 +835,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
         "phone_number": data.phone_number,
         "name": data.name,
         "subscribed_at": datetime.now().isoformat(),
+        "region_id": normalize_region_identifier(data.region_id) or None,
     }
     try:
         subscriber_store.upsert(uid, subscriber)
@@ -813,14 +869,30 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     engineering attacks (fake market alerts, fake pest warnings) and
     consuming Twilio API credits at the attacker's discretion.
     """
-    # RBAC: only admins and experts may broadcast alerts to all farmers.
-    await verify_role(request, required_roles=["admin", "expert"])
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+    role = str(token_data.get("role", "")).strip().lower()
+    region_id = normalize_region_identifier(data.region_id) if data.region_id else ""
+
+    if region_id:
+        if role not in {"admin", "expert"}:
+            profile = _get_firestore_user_profile(uid)
+            if not profile_can_broadcast_region(profile, region_id):
+                raise HTTPException(status_code=403, detail="Access denied: insufficient regional authority")
+    elif role not in {"admin", "expert"}:
+        raise HTTPException(status_code=403, detail="Access denied: insufficient permissions")
 
     # get_all() acquires the lock and returns a stable snapshot, so this read
     # cannot race with a concurrent subscription write.
     subscribers = subscriber_store.get_all()
     formatted_msg = format_alert_message(data.alert_type, data.message)
     results = []
+    if region_id:
+        subscribers = {
+            user_id: info
+            for user_id, info in subscribers.items()
+            if _subscriber_matches_region(info, region_id)
+        }
     for user_id, info in subscribers.items():
         res = send_whatsapp_message(info["phone_number"], formatted_msg)
         results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})
@@ -829,6 +901,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     await publish_notification(
         alert_type=data.alert_type,
         message=data.message,
+        region_id=region_id or None,
     )
 
     delivered = sum(1 for r in results if r["success"])
@@ -840,7 +913,7 @@ async def notifications_stream(websocket: WebSocket):
     uid = await _authenticate_notification_websocket(websocket)
     if uid is None:
         return
-    await notification_broker.connect(websocket, uid)
+    await notification_broker.connect(websocket, uid, regions=_resolve_websocket_regions(uid, websocket))
 
 
 @app.get("/api/admin/rbac-audit")
