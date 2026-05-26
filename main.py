@@ -19,7 +19,7 @@ from typing import Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, Request, Form, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from pydantic import BaseModel, Field, ConfigDict, validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
 
 class SimulationRequest(BaseModel):
     crop_type: str
@@ -418,14 +418,29 @@ class PredictRequest(BaseModel):
 class PredictResponse(BaseModel):
     predicted_ExpYield: float
 
+_E164_RE = re.compile(r"^\+[1-9]\d{6,14}$")
+
+
 class WhatsAppSubscribeRequest(BaseModel):
-    phone_number: str
-    name: str
+    # E.164 format: + followed by 7-15 digits, no spaces or dashes.
+    # Examples: +919876543210, +14155552671
+    # max_length=16 covers the longest valid E.164 number (+<15 digits>).
+    phone_number: str = Field(..., min_length=8, max_length=16)
+    name: str = Field(..., min_length=1, max_length=100)
     region_id: Optional[str] = Field(default=None, max_length=100)
     # user_id is accepted for backward compatibility but is IGNORED by the
-    # endpoint — the authoritative user identity is always derived from the
+    # endpoint -- the authoritative user identity is always derived from the
     # verified Firebase ID token, never from client-supplied data.
     user_id: Optional[str] = None
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_e164(cls, v: str) -> str:
+        if not _E164_RE.match(v):
+            raise ValueError(
+                "phone_number must be in E.164 format (e.g. +919876543210)"
+            )
+        return v
 
 class YieldInput(BaseModel):
     data: list[float]
