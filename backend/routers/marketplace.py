@@ -221,6 +221,8 @@ async def book_equipment(request: Request, data: BookEquipmentRequest):
             raise HTTPException(status_code=404, detail="Equipment listing not found")
         if not listing["available"]:
             raise HTTPException(status_code=409, detail="Equipment is not available for booking")
+        if listing.get("ownerUid") is not None and listing["ownerUid"] == booker_uid:
+            raise HTTPException(status_code=400, detail="You cannot book your own equipment listing")
 
         booking = {
             "id": bid,
