@@ -87,13 +87,14 @@ async def register_trace_batch(request: Request, data: RegisterTraceBatchRequest
         raise HTTPException(status_code=500, detail="Not initialized")
 
     token_data = await verify_role_fn(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
 
     try:
         batch_payload = data.model_dump()
         batch_payload["registeredByUid"] = uid
         batch_payload["status"] = "Pending Verification"
         result = supply_chain_blockchain.register_trace_batch(batch_payload)
+        result["traceability"] = supply_chain_blockchain.get_traceability_qr_payload(result["id"])
         return {"success": True, "batch": result}
     except Exception as e:
         logger.error(f"Trace batch registration error: {e}")
@@ -177,7 +178,13 @@ async def get_qr_code(batch_id: str):
         raise HTTPException(status_code=500, detail="Not initialized")
     try:
         qr_code = supply_chain_blockchain.generate_qr_code(batch_id)
-        return {"success": True, "batch_id": batch_id, "qr_code_base64": qr_code}
+        qr_payload = supply_chain_blockchain.get_traceability_qr_payload(batch_id)
+        return {
+            "success": True,
+            "batch_id": batch_id,
+            "qr_code_base64": qr_code,
+            "qr_payload": qr_payload,
+        }
     except Exception as e:
         logger.error(f"QR error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
