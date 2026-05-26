@@ -52,14 +52,28 @@ service cloud.firestore {
       return request.resource.data[field] == request.time;
     }
 
-    // Cooldown enforcement belongs in the backend (slowapi rate limiting).
-    // These stubs keep the rules valid while the backend handles rate limits.
+    // Post cooldown: enforced server-side in Firestore rules so direct SDK
+    // writes cannot bypass the backend rate limiter.
+    //
+    // Reads lastPostAt from the caller's user document.  The field is written
+    // by the client as a serverTimestamp() immediately after a successful post
+    // (see Community.jsx handleCreatePost).  If the field is absent the user
+    // has never posted and the write is always allowed.
+    //
+    // 60-second minimum gap between posts (matches POST_COOLDOWN_MS in the
+    // frontend constants).
     function postCooldownOk() {
-      return true;
+      let userData = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return !("lastPostAt" in userData)
+        || (request.time - userData.lastPostAt) > duration.value(60, 's');
     }
 
+    // Comment cooldown: same pattern as postCooldownOk but with a 30-second
+    // gap (matches COMMENT_COOLDOWN_MS in the frontend constants).
     function commentCooldownOk() {
-      return true;
+      let userData = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return !("lastCommentAt" in userData)
+        || (request.time - userData.lastCommentAt) > duration.value(30, 's');
     }
 
     // Reputation-gain frequency cap enforced via lastReputationGain timestamp.
@@ -162,9 +176,13 @@ service cloud.firestore {
       allow delete: if hasRole('admin');
     }
 
-    // Notifications: authenticated users can read; system can write
+    // Notifications: each user may only read their own notifications.
+    // The document must carry a userId field that matches the caller's uid.
+    // Admins can read all notifications.
+    // Only admin or system roles may write notifications (backend-generated).
     match /notifications/{notificationId} {
-      allow read: if isAuthed();
+      allow read: if isAuthed()
+        && (resource.data.userId == request.auth.uid || hasRole('admin'));
       allow write: if hasAnyRole(['admin', 'system']);
     }
 
