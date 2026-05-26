@@ -189,7 +189,7 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("RAG init skipped: %s", exc)
 
-    knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
+    knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {}, verify_role)
     alerts.init_alerts([], subscriber_store, lambda **kwargs: [], send_whatsapp_message, format_alert_message, verify_role)
     platform.init_platform(
         verify_role,
