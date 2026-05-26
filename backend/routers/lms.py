@@ -99,9 +99,12 @@ def _is_complete(progress: dict, course_id: str) -> bool:
     return all(completed.get(lid) is True for lid in lessons)
 
 
-def _make_cert_id(uid: str, course_id: str, completed_at: str) -> str:
-    """Deterministic, non-guessable certificate ID tied to uid + course + date."""
-    raw = f"{uid}:{course_id}:{completed_at}"
+def _make_cert_id(uid: str, course_id: str) -> str:
+    """Deterministic certificate ID — uid + course_id only, so repeated calls
+    for the same user and course always return the same ID.  The mutable
+    completed_at timestamp is intentionally excluded from the hash to prevent
+    users from minting unlimited unique cert IDs by editing Firestore."""
+    raw = f"{uid}:{course_id}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16].upper()
 
 
@@ -234,7 +237,7 @@ async def get_certificate_data(request: Request, course_id: str):
     )
 
     completed_at = progress.get("completedAt", datetime.now(timezone.utc).isoformat())
-    cert_id = _make_cert_id(uid, course_id, completed_at)
+    cert_id = _make_cert_id(uid, course_id)
 
     return {
         "success": True,
