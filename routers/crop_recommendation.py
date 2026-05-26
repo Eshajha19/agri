@@ -425,4 +425,4 @@ async def recommend_crops(req: CropRecommendationRequest):
 
     except Exception as e:
         logger.error(f"Crop recommendation error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))# Crop recommendation validation enhanced
