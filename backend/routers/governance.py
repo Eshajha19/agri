@@ -90,12 +90,12 @@ async def set_drift_baseline(request: Request, model_name: str, predictions: lis
     return {"success": True, "message": f"Baseline set for {model_name}"}
 
 @router.post("/drift/check")
-async def check_drift(request: Request, model_name: str, prediction: float, actual_value: float):
+async def check_drift(request: Request, body: DriftCheckRequest):
     """Check for model drift. Requires authentication."""
     await _require_auth(request)
     if drift_detector is None:
         raise HTTPException(status_code=500, detail="Not initialized")
-    drift_info = drift_detector.check_prediction_drift(model_name, prediction, actual_value)
+    drift_info = drift_detector.check_prediction_drift(body.model_name, body.prediction, body.actual_value)
     return {"success": True, "drift": drift_info}
 
 @router.get("/drift/alerts")
