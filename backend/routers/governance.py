@@ -73,12 +73,19 @@ async def _require_admin_auth(request: Request) -> str:
 # Drift detection endpoints
 # ---------------------------------------------------------------------------
 
+_MAX_BASELINE_PREDICTIONS = 100_000
+
 @router.post("/drift/baseline")
 async def set_drift_baseline(request: Request, model_name: str, predictions: list[float]):
     """Set drift baseline. Requires admin or expert role."""
     await _require_admin_auth(request)
     if drift_detector is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    if len(predictions) > _MAX_BASELINE_PREDICTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Baseline prediction list exceeds maximum size of {_MAX_BASELINE_PREDICTIONS}",
+        )
     drift_detector.set_baseline(model_name, predictions)
     return {"success": True, "message": f"Baseline set for {model_name}"}
 
