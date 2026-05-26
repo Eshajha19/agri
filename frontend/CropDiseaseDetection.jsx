@@ -3,7 +3,7 @@ import * as tf from '@tensorflow/tfjs';
 import * as mobilenet from '@tensorflow-models/mobilenet';
 import { getDiseaseInfo, saveDiseaseHistory, getDiseaseHistory } from './utils/diseaseDatabase';
 import { useTranslation } from 'react-i18next';
-
+import { Leaf, ClipboardList, Bot, BrainCircuit, Camera, Search, Loader2, Bug, Pill, Shield, FlaskConical, Sprout, History, X } from 'lucide-react';
 export default function CropDiseaseDetection({ onClose }) {
   const { t, i18n } = useTranslation();
   const [image, setImage] = useState(null);
@@ -57,12 +57,12 @@ export default function CropDiseaseDetection({ onClose }) {
 
     // ✅ File validation
     if (!file.type.startsWith("image/")) {
-      setError("⚠️ Please upload a valid image file.");
+      setError("Please upload a valid image file.");
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      setError("⚠️ Image size should be less than 5MB.");
+      setError("Image size should be less than 5MB.");
       return;
     }
 
@@ -228,13 +228,13 @@ export default function CropDiseaseDetection({ onClose }) {
         // QuotaExceededError — history could not be saved but the detection
         // result is still shown.  Warn the user so they know to clear history.
         console.warn('Disease history not saved — localStorage quota exceeded:', storageErr);
-        setError('⚠️ Detection complete, but history could not be saved (storage full). Clear history to free space.');
+        setError('Detection complete, but history could not be saved (storage full). Clear history to free space.');
       }
 
       setResult(detectionResult);
 
     } catch (err) {
-      setError(err.message || "❌ Detection failed. Try again.");
+      setError(err.message || "Detection failed. Try again.");
     } finally {
       setLoading(false);
     }
@@ -262,8 +262,8 @@ export default function CropDiseaseDetection({ onClose }) {
 
       {/* Header with controls */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h2 style={{ color: "#16a34a", fontSize: "24px" }}>
-          🌿 Crop Disease Detection
+        <h2 style={{ color: "#16a34a", fontSize: "24px", display: "flex", alignItems: "center", gap: "8px" }}>
+          <Leaf size={24} aria-hidden="true" /> Crop Disease Detection
         </h2>
         <div style={{ display: 'flex', gap: '10px' }}>
           <button
@@ -277,14 +277,14 @@ export default function CropDiseaseDetection({ onClose }) {
               cursor: 'pointer'
             }}
           >
-            📋 History ({history.length})
+            <ClipboardList size={14} style={{ marginRight: '4px' }} aria-hidden="true" /> History ({history.length})
           </button>
           <button
             className="close-btn"
             onClick={onClose}
             aria-label="Close"
           >
-            ✕
+            <X size={16} aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -307,7 +307,7 @@ export default function CropDiseaseDetection({ onClose }) {
               cursor: 'pointer'
             }}
           >
-            🤖 AI Analysis
+            <Bot size={14} style={{ marginRight: '4px' }} aria-hidden="true" /> AI Analysis
           </button>
           <button
             onClick={() => setIsUsingAI(false)}
@@ -323,7 +323,7 @@ export default function CropDiseaseDetection({ onClose }) {
               opacity: modelLoading ? 0.5 : 1
             }}
           >
-            🧠 TensorFlow {modelLoading ? '(Loading...)' : ''}
+            <BrainCircuit size={14} style={{ marginRight: '4px' }} aria-hidden="true" /> TensorFlow {modelLoading ? '(Loading...)' : ''}
           </button>
         </div>
       </div>
@@ -353,7 +353,7 @@ export default function CropDiseaseDetection({ onClose }) {
           onChange={handleFileInput}
           style={{ display: 'none' }}
         />
-        <div style={{ fontSize: '48px', marginBottom: '12px' }}>📸</div>
+        <div style={{ marginBottom: '12px' }}><Camera size={48} color={isDragging ? '#16a34a' : '#9ca3af'} aria-hidden="true" /></div>
         <p style={{ fontSize: '16px', color: '#374151', marginBottom: '8px' }}>
           {isDragging ? 'Drop your image here' : 'Click to upload or drag & drop'}
         </p>
@@ -393,7 +393,7 @@ export default function CropDiseaseDetection({ onClose }) {
           opacity: !image || loading ? 0.7 : 1
         }}
       >
-        {loading ? "⏳ Analyzing image..." : "🔍 Detect Disease"}
+        {loading ? <><Loader2 size={16} className="spinner" style={{ marginRight: '4px' }} aria-hidden="true" /> Analyzing image...</> : <><Search size={16} style={{ marginRight: '4px' }} aria-hidden="true" /> Detect Disease</>}
       </button>
 
       {/* Error */}
@@ -413,8 +413,8 @@ export default function CropDiseaseDetection({ onClose }) {
           border: "1px solid #bbf7d0" 
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3 style={{ fontSize: "18px", fontWeight: "bold", color: "#111", margin: 0 }}>
-              🦠 Disease: 
+            <h3 style={{ fontSize: "18px", fontWeight: "bold", color: "#111", margin: 0, display: "flex", alignItems: "center", gap: "6px" }}>
+              <Bug size={18} aria-hidden="true" /> Disease: 
               <span style={{ 
                 color: result.disease.toLowerCase().includes('healthy') ? "#16a34a" : "#dc2626",
                 marginLeft: "6px"
@@ -445,8 +445,8 @@ export default function CropDiseaseDetection({ onClose }) {
           </div>
 
           <div style={{ marginBottom: '16px' }}>
-            <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#111', marginBottom: '8px' }}>
-              💊 Treatment:
+            <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#111', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Pill size={16} aria-hidden="true" /> Treatment:
             </h4>
             <p style={{ color: '#555', lineHeight: '1.5', margin: 0 }}>
               {result.treatment}
@@ -454,8 +454,8 @@ export default function CropDiseaseDetection({ onClose }) {
           </div>
 
           <div style={{ marginBottom: '16px' }}>
-            <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#111', marginBottom: '8px' }}>
-              🛡️ Prevention:
+            <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#111', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Shield size={16} aria-hidden="true" /> Prevention:
             </h4>
             <p style={{ color: '#555', lineHeight: '1.5', margin: 0 }}>
               {result.prevention}
@@ -466,8 +466,8 @@ export default function CropDiseaseDetection({ onClose }) {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
               {result.pesticides && (
                 <div>
-                  <h4 style={{ fontSize: '14px', fontWeight: '600', color: '#111', marginBottom: '8px' }}>
-                    🧪 Recommended Pesticides:
+                  <h4 style={{ fontSize: '14px', fontWeight: '600', color: '#111', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <FlaskConical size={14} aria-hidden="true" /> Recommended Pesticides:
                   </h4>
                   <ul style={{ margin: 0, paddingLeft: '16px' }}>
                     {result.pesticides.map((pesticide, index) => (
@@ -480,8 +480,8 @@ export default function CropDiseaseDetection({ onClose }) {
               )}
               {result.organic && (
                 <div>
-                  <h4 style={{ fontSize: '14px', fontWeight: '600', color: '#111', marginBottom: '8px' }}>
-                    🌿 Organic Options:
+                  <h4 style={{ fontSize: '14px', fontWeight: '600', color: '#111', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <Sprout size={14} aria-hidden="true" /> Organic Options:
                   </h4>
                   <ul style={{ margin: 0, paddingLeft: '16px' }}>
                     {result.organic.map((option, index) => (
@@ -495,8 +495,8 @@ export default function CropDiseaseDetection({ onClose }) {
             </div>
           )}
 
-          <div style={{ marginTop: '16px', fontSize: '12px', color: '#6b7280', textAlign: 'center' }}>
-            Detection method: {result.method === 'ai' ? '🤖 AI Analysis' : '🧠 TensorFlow.js'}
+          <div style={{ marginTop: '16px', fontSize: '12px', color: '#6b7280', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+            Detection method: {result.method === 'ai' ? <><Bot size={12} aria-hidden="true" /> AI Analysis</> : <><BrainCircuit size={12} aria-hidden="true" /> TensorFlow.js</>}
           </div>
         </div>
       )}
@@ -511,8 +511,8 @@ export default function CropDiseaseDetection({ onClose }) {
           border: '1px solid #e2e8f0'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-            <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#111', margin: 0 }}>
-              � Detection History
+            <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#111', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <History size={16} aria-hidden="true" /> Detection History
             </h3>
             {history.length > 0 && (
               <button
@@ -573,7 +573,7 @@ export default function CropDiseaseDetection({ onClose }) {
                       {entry.confidence}
                     </span>
                     <span style={{ color: '#6b7280', fontSize: '10px' }}>
-                      {entry.method === 'ai' ? '🤖' : '🧠'}
+                      {entry.method === 'ai' ? <Bot size={10} aria-hidden="true" /> : <BrainCircuit size={10} aria-hidden="true" />}
                     </span>
                   </div>
                 </div>
