@@ -5,7 +5,7 @@ import logging
 import threading
 from collections import deque
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -115,7 +115,7 @@ def audit_rbac_event(
     client_host = getattr(request.client, "host", None) if request else None
     return rbac_audit_trail.record(
         RBACAuditEvent(
-            timestamp=datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            timestamp=datetime.now(timezone.utc).isoformat(timespec="seconds") + "Z",
             action=action,
             path=str(getattr(getattr(request, "url", None), "path", "unknown")),
             method=str(getattr(request, "method", "UNKNOWN")),
