@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, validator
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 import firebase_admin
 from firebase_admin import credentials, firestore, auth as firebase_auth
 import os
@@ -260,7 +260,7 @@ async def submit_feedback(
             raise HTTPException(status_code=400, detail="Invalid data format")
         
         # Add timestamp
-        validated_data['createdAt'] = datetime.utcnow()
+        validated_data['createdAt'] = datetime.now(timezone.utc)
         validated_data['ipAddress'] = request.client.host if request.client else None
         validated_data['userAgent'] = request.headers.get("user-agent", "")
         
@@ -276,7 +276,7 @@ async def submit_feedback(
                 feedback_id=feedback_id,
                 message="Feedback submitted successfully",
                 validated_data=validated_data,
-                timestamp=datetime.utcnow().isoformat()
+                timestamp=datetime.now(timezone.utc).isoformat()
             )
             
         except Exception as firestore_error:
