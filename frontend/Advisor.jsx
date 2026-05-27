@@ -722,6 +722,23 @@ showGreenPractices,
             <p>Weather-aware spray scheduling &amp; rotation recommendations.</p>
           </div>
 
+          <div
+            className="card reveal"
+            role="button"
+            tabIndex={0}
+            onClick={() => setShowWeatherImpactGuide(true)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowWeatherImpactGuide(true); }}
+            aria-label="Weather Farming Impact Guide: Rain, temperature, wind, and seasonal tips"
+            style={{ border: '2px solid #1d4ed8', background: 'rgba(29, 78, 216, 0.03)' }}
+          >
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(29, 78, 216, 0.1)', color: '#1d4ed8' }}>
+              <CloudRain size={32} strokeWidth={2} />
+            </div>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#1d4ed8', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>GUIDE</div>
+            <h3><span className="notranslate">Weather Farming Impact Guide</span></h3>
+            <p>See how rain, temperature, wind, and seasons change irrigation, spraying, and crop decisions.</p>
+          </div>
+
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowYieldPopup(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowYieldPopup(true); }} aria-label="Yield Prediction: AI-based forecast">
             <div className="icon" aria-hidden="true"><BarChart3 size={32} /></div>
             <h3><span className="notranslate">Yield Prediction</span></h3>
