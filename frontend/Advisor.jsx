@@ -713,6 +713,14 @@ showGreenPractices,
             <p>Upload plant images to detect diseases and get remedies.</p>
           </div>
 
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowDiseaseLifecycle(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowDiseaseLifecycle(true); }} aria-label="Crop Disease Lifecycle Explorer: View progression and prevention" style={{ border: '2px solid #f97316', background: 'rgba(249, 115, 22, 0.03)' }}>
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(249, 115, 22, 0.08)', color: '#f97316' }}>
+              <Bug size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Crop Disease Lifecycle Explorer</span></h3>
+            <p>See disease progression (Early → Mid → Severe) with prevention timing and crop-wise filtering.</p>
+          </div>
+
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFertilizerPopup(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFertilizerPopup(true); }} aria-label="Fertilizer Recommendations: Plan your nutrition">
             <div className="icon" aria-hidden="true"><FlaskConical size={32} /></div>
             <h3><span className="notranslate">Fertilizer Recommendations</span></h3>
