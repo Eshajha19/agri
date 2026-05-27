@@ -300,6 +300,22 @@ class RAGSafetyValidator:
                 threat_detected="response_too_long",
             )
 
+        # Check for unsafe agricultural recommendations (hallucinated dosages, etc.)
+        ag_unsafe_patterns = [
+            r"\d+\s*(?:ml|g|kg|l)\s*(?:per|/)\s*(?:acre|hectare|litre|plant)",
+            r"apply\s+\d+\s*(?:ml|g|kg|l)\s+of\s+\w+",
+        ]
+        for pattern in ag_unsafe_patterns:
+            if re.search(pattern, response, re.IGNORECASE):
+                logger.warning("Unvalidated agricultural dosage recommendation detected in response")
+                return SafetyResult(
+                    is_safe=False,
+                    threat_level=ThreatLevel.WARNING,
+                    details="Response contains unvalidated agricultural dosage recommendations",
+                    threat_detected="unvalidated_ag_advice",
+                    remediation="Agricultural dosages should not be provided without verification. Blocked for safety.",
+                )
+
         # Check for system information leakage
         sensitive_patterns = [
             r"password",
