@@ -82,7 +82,6 @@ import {
    Phone,
    Users,
   CalendarClock,
-  GitBranch,
  } from "lucide-react";
 import { FaSync } from "react-icons/fa";
 import { useAdvisorStore } from "./stores/advisorStore";
