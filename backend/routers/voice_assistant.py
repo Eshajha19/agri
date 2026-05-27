@@ -152,12 +152,46 @@ ALLOWED_EXTENSIONS = {".wav", ".mp3", ".ogg", ".webm", ".m4a"}
 _rate_limit_store: Dict[str, tuple] = {}
 RATE_LIMIT_COUNT = 10   # max uploads per window
 RATE_LIMIT_WINDOW = 60  # seconds
+RATE_LIMIT_MAX_ENTRIES = 10_000  # max unique UIDs tracked before forced eviction
+_CLEANUP_FRACTION = 0.25  # evict oldest 25% of expired entries when at capacity
+
+
+def _evict_expired_entries() -> None:
+    """Remove entries whose rate-limit window has fully elapsed."""
+    import time
+    now = time.time()
+    expired = [
+        uid for uid, (_, window_start) in _rate_limit_store.items()
+        if now - window_start > RATE_LIMIT_WINDOW
+    ]
+    for uid in expired:
+        del _rate_limit_store[uid]
 
 
 def _check_rate_limit(uid: str) -> bool:
     """Return True if the request is within the rate limit for this uid."""
     import time
     now = time.time()
+
+    # Evict any expired entries to prevent unbounded growth.
+    if len(_rate_limit_store) >= RATE_LIMIT_MAX_ENTRIES:
+        # At capacity — evict half the expired entries in one pass.
+        cutoff = now - RATE_LIMIT_WINDOW
+        sorted_uids = sorted(
+            _rate_limit_store.keys(),
+            key=lambda u: _rate_limit_store[u][1],
+        )
+        to_evict = max(1, int(len(sorted_uids) * _CLEANUP_FRACTION))
+        evicted = 0
+        for uid_candidate in sorted_uids:
+            if evicted >= to_evict:
+                break
+            if _rate_limit_store[uid_candidate][1] < cutoff:
+                del _rate_limit_store[uid_candidate]
+                evicted += 1
+    else:
+        _evict_expired_entries()
+
     if uid not in _rate_limit_store:
         _rate_limit_store[uid] = (1, now)
         return True
