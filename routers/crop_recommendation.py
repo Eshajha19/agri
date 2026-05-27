@@ -3,11 +3,162 @@ Crop Recommendation API with Explanation Layer
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 import logging
+from dataclasses import dataclass
+from functools import lru_cache
+import hashlib
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/crop", tags=["crop"])
+
+
+# ── Validation Configuration ─────────────────────────────────────────────────────
+@dataclass
+class ValidationRules:
+    """Validation rules for soil and climate parameters"""
+    # Soil parameters
+    SOIL_PH_MIN: float = 4.5
+    SOIL_PH_MAX: float = 8.5
+    NITROGEN_MIN: float = 0
+    NITROGEN_MAX: float = 500
+    PHOSPHORUS_MIN: float = 0
+    PHOSPHORUS_MAX: float = 100
+    POTASSIUM_MIN: float = 0
+    POTASSIUM_MAX: float = 500
+    MOISTURE_MIN: float = 0
+    MOISTURE_MAX: float = 100
+
+    # Climate parameters
+    TEMP_MIN: float = -50
+    TEMP_MAX: float = 50
+    RAINFALL_MIN: float = 0
+    RAINFALL_MAX: float = 10000
+    HUMIDITY_MIN: float = 0
+    HUMIDITY_MAX: float = 100
+    ALTITUDE_MIN: float = 0
+    ALTITUDE_MAX: float = 10000
+
+
+class ValidationError:
+    """Container for validation errors and warnings"""
+    def __init__(self):
+        self.errors: List[str] = []
+        self.warnings: List[str] = []
+
+    def add_error(self, field: str, message: str):
+        self.errors.append(f"{field}: {message}")
+
+    def add_warning(self, field: str, message: str):
+        self.warnings.append(f"{field}: {message}")
+
+    def is_valid(self) -> bool:
+        return len(self.errors) == 0
+
+    def to_dict(self) -> Dict:
+        return {"errors": self.errors, "warnings": self.warnings}
+
+
+def validate_soil_parameters(ph: float, nitrogen: float, phosphorus: float,
+                            potassium: float, moisture: Optional[float] = None) -> ValidationError:
+    """Validate soil parameters"""
+    errors = ValidationError()
+    rules = ValidationRules()
+
+    # pH validation
+    if ph < rules.SOIL_PH_MIN or ph > rules.SOIL_PH_MAX:
+        errors.add_error("soil_ph", f"Must be between {rules.SOIL_PH_MIN} and {rules.SOIL_PH_MAX}")
+
+    # Nitrogen validation
+    if nitrogen < rules.NITROGEN_MIN or nitrogen > rules.NITROGEN_MAX:
+        errors.add_error("nitrogen", f"Must be between {rules.NITROGEN_MIN} and {rules.NITROGEN_MAX} ppm")
+    if nitrogen < 10:
+        errors.add_warning("nitrogen", "Low nitrogen levels may limit crop growth")
+
+    # Phosphorus validation
+    if phosphorus < rules.PHOSPHORUS_MIN or phosphorus > rules.PHOSPHORUS_MAX:
+        errors.add_error("phosphorus", f"Must be between {rules.PHOSPHORUS_MIN} and {rules.PHOSPHORUS_MAX} ppm")
+    if phosphorus < 5:
+        errors.add_warning("phosphorus", "Low phosphorus may affect root development")
+
+    # Potassium validation
+    if potassium < rules.POTASSIUM_MIN or potassium > rules.POTASSIUM_MAX:
+        errors.add_error("potassium", f"Must be between {rules.POTASSIUM_MIN} and {rules.POTASSIUM_MAX} ppm")
+    if potassium < 30:
+        errors.add_warning("potassium", "Low potassium may reduce disease resistance")
+
+    # Moisture validation (optional)
+    if moisture is not None:
+        if moisture < rules.MOISTURE_MIN or moisture > rules.MOISTURE_MAX:
+            errors.add_error("moisture", f"Must be between {rules.MOISTURE_MIN} and {rules.MOISTURE_MAX} %")
+
+    return errors
+
+
+def validate_climate_parameters(temperature: Optional[float] = None,
+                               rainfall: Optional[float] = None,
+                               humidity: Optional[float] = None) -> ValidationError:
+    """Validate climate parameters"""
+    errors = ValidationError()
+    rules = ValidationRules()
+
+    if temperature is not None:
+        if temperature < rules.TEMP_MIN or temperature > rules.TEMP_MAX:
+            errors.add_error("temperature", f"Must be between {rules.TEMP_MIN} and {rules.TEMP_MAX}°C")
+
+    if rainfall is not None:
+        if rainfall < rules.RAINFALL_MIN or rainfall > rules.RAINFALL_MAX:
+            errors.add_error("rainfall", f"Must be between {rules.RAINFALL_MIN} and {rules.RAINFALL_MAX}mm")
+
+    if humidity is not None:
+        if humidity < rules.HUMIDITY_MIN or humidity > rules.HUMIDITY_MAX:
+            errors.add_error("humidity", f"Must be between {rules.HUMIDITY_MIN} and {rules.HUMIDITY_MAX}%")
+
+    return errors
+
+
+def calculate_confidence_score(data_quality: float, climate_match: float,
+                              soil_match: float) -> float:
+    """Calculate recommendation confidence score (0-100)
+
+    Factors:
+    - Data quality (40%): How complete the input data is
+    - Climate match (35%): How well crop suits the climate
+    - Soil match (25%): How well crop suits the soil
+    """
+    confidence = (data_quality * 0.4) + (climate_match * 0.35) + (soil_match * 0.25)
+    return min(100, max(0, confidence))
+
+
+class RecommendationCache:
+    """Simple cache for recommendation results"""
+    def __init__(self, ttl_hours: int = 24):
+        self.cache: Dict[str, Tuple] = {}
+        self.ttl_hours = ttl_hours
+
+    def _generate_key(self, ph: float, nitrogen: float, phosphorus: float,
+                     potassium: float, season: str) -> str:
+        """Generate cache key from parameters"""
+        key_data = f"{ph}:{nitrogen}:{phosphorus}:{potassium}:{season}"
+        return hashlib.md5(key_data.encode()).hexdigest()
+
+    def get(self, ph: float, nitrogen: float, phosphorus: float,
+            potassium: float, season: str) -> Optional[Dict]:
+        """Get cached recommendation"""
+        key = self._generate_key(ph, nitrogen, phosphorus, potassium, season)
+        if key in self.cache:
+            return self.cache[key]
+        return None
+
+    def set(self, ph: float, nitrogen: float, phosphorus: float,
+            potassium: float, season: str, result: Dict):
+        """Cache recommendation result"""
+        key = self._generate_key(ph, nitrogen, phosphorus, potassium, season)
+        self.cache[key] = result
+
+
+recommendation_cache = RecommendationCache()
+
 
 
 # ── Request Model ─────────────────────────────────────────────────────────────
@@ -346,6 +497,33 @@ async def recommend_crops(req: CropRecommendationRequest):
     Returns compatibility scores, reasons, soil analysis, and warnings.
     """
     try:
+        # 0. Validate input parameters
+        soil_validation = validate_soil_parameters(
+            req.soil_ph, req.nitrogen, req.phosphorus, req.potassium
+        )
+
+        if not soil_validation.is_valid():
+            logger.error(f"Soil validation failed: {soil_validation.errors}")
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "Soil parameter validation failed",
+                    "validation": soil_validation.to_dict()
+                }
+            )
+
+        # Log validation warnings
+        if soil_validation.warnings:
+            logger.warning(f"Soil validation warnings: {soil_validation.warnings}")
+
+        # Check cache for existing recommendation
+        cached_result = recommendation_cache.get(
+            req.soil_ph, req.nitrogen, req.phosphorus, req.potassium, req.season
+        )
+        if cached_result:
+            logger.info("Returning cached recommendation")
+            return cached_result
+
         # 1. Analyze soil
         soil_analysis = analyze_soil(
             req.soil_ph, req.nitrogen,
@@ -413,7 +591,7 @@ async def recommend_crops(req: CropRecommendationRequest):
                 "warnings": warnings
             }
 
-        return {
+        result = {
             "success": True,
             "recommendations": top_results,
             "soil_analysis": soil_analysis,
@@ -423,6 +601,16 @@ async def recommend_crops(req: CropRecommendationRequest):
             "season": req.season
         }
 
+        # Cache the result for future queries
+        recommendation_cache.set(
+            req.soil_ph, req.nitrogen, req.phosphorus, req.potassium, req.season, result
+        )
+        logger.info(f"Cached recommendation for {req.location}/{req.season}")
+
+        return result
+
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Crop recommendation error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Crop recommendation error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Recommendation failed: {str(e)}")
