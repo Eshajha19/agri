@@ -89,37 +89,17 @@ agri/
 │   ├── components/
 │   ├── services/
 │   ├── stores/
-│   ├── utils/
-│   ├── hooks/
-│   ├── lib/
-│   ├── themes/
-│   ├── weather/
-│   └── public/
-├── main.py                   # FastAPI backend entry
-├── requirements.txt          # Python dependencies
 ├── ml/                       # Machine learning models
 ├── rag/                      # RAG advisor components
-├── firebase/
-│   └── firestore.rules
-├── .env.example
-├── README.md
-└── LICENSE
 ```
 
 ---
 
-## ⚙️ Installation & Local Setup
-
-> Requirements: Node.js (v16+), npm/yarn, Python 3.9+, pip, Firebase CLI (optional).
 
 ### 1. Clone Repository
 
 ```bash
 git clone https://github.com/KGFCH2/agri.git
-cd agri
-```
-
-### 2. Frontend (React + Vite)
 
 ```bash
 cd frontend
