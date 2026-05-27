@@ -106,11 +106,16 @@ class FeedbackRequest(BaseModel):
 
 
 class FeedbackResponse(BaseModel):
-    """Response model for feedback submission"""
+    """Response model for feedback submission.
+
+    validated_data is intentionally absent.  The stored document contains
+    server-collected PII fields (ipAddress, userAgent) that must never be
+    echoed back in the HTTP response body — they would be captured by CDN
+    access logs, browser devtools, and any proxy between client and server.
+    """
     success: bool
     feedback_id: Optional[str] = None
     message: str
-    validated_data: Optional[dict] = None
     timestamp: str
 
 
@@ -275,7 +280,6 @@ async def submit_feedback(
                 success=True,
                 feedback_id=feedback_id,
                 message="Feedback submitted successfully",
-                validated_data=validated_data,
                 timestamp=datetime.now(timezone.utc).isoformat()
             )
             
