@@ -306,7 +306,16 @@ class RBACManager:
                 detail="User profile not found",
             )
 
-        role_str = (user_doc.to_dict() or {}).get("role", DEFAULT_PROFILE_ROLE)
+        # Use the JWT custom claim (set via Firebase Admin SDK) as the
+        # primary role source so admins/expert assigned through Firebase
+        # Console or the Admin SDK are recognized immediately without
+        # requiring a separate Firestore write.  Fall back to the Firestore
+        # user-doc role for legacy profiles that predate custom claims.
+        claim_role = decoded_token.get("role")
+        if claim_role is not None:
+            role_str = str(claim_role).strip().lower()
+        else:
+            role_str = (user_doc.to_dict() or {}).get("role", DEFAULT_PROFILE_ROLE)
         if not isinstance(role_str, str):
             role_str = DEFAULT_PROFILE_ROLE
         role_str = role_str.strip().lower()
@@ -318,20 +327,16 @@ class RBACManager:
                 detail="Invalid role assigned to user profile",
             )
 
-        claim_role = decoded_token.get("role")
-        if claim_role is not None:
-            claim_normalized = str(claim_role).strip().lower()
-            if claim_normalized != role_str:
-                logger.warning(
-                    "Stale JWT role for uid=%s: claim=%s firestore=%s",
-                    uid,
-                    claim_normalized,
-                    role_str,
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=STALE_TOKEN_DETAIL,
-                )
+        # Warn if Firestore disagrees with the JWT claim so operators
+        # can reconcile the two sources; do NOT reject the request.
+        firestore_role = (user_doc.to_dict() or {}).get("role", DEFAULT_PROFILE_ROLE)
+        if claim_role is not None and firestore_role != role_str:
+            logger.warning(
+                "Firestore role for uid=%s (%s) differs from JWT claim (%s); using claim",
+                uid,
+                firestore_role,
+                role_str,
+            )
 
         return AuthContext(uid=uid, role=role_str)
 

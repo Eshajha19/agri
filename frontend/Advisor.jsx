@@ -37,10 +37,6 @@ import EquipmentManagement from "./EquipmentManagement";
 import CropQualityGrading from "./CropQualityGrading";
 import SustainabilityAnalytics from "./SustainabilityAnalytics";
 import FarmIntelligenceGraph from "./FarmIntelligenceGraph";
-import WeatherFarmingImpactGuide from "./WeatherFarmingImpactGuide";
-import CropGrowthStageGuide from "./CropGrowthStageGuide";
-import FarmingMistakesGuide from "./FarmingMistakesGuide";
-import CropDiseaseLifecycleExplorer from "./CropDiseaseLifecycleExplorer";
 import LastUpdated from "./LastUpdated";
 import ExpertDirectory from "./components/ExpertDirectory";
 import TeleConsultation from "./components/TeleConsultation";
@@ -224,10 +220,6 @@ showGreenPractices,
   const [showYieldHistory, setShowYieldHistory] = useState(false);
   const [locationQuery, setLocationQuery] = useState("");
   const [showFarmIntelligenceGraph, setShowFarmIntelligenceGraph] = useState(false);
-  const [showWeatherImpactGuide, setShowWeatherImpactGuide] = useState(false);
-  const [showCropGrowthGuide, setShowCropGrowthGuide] = useState(false);
-  const [showFarmingMistakesGuide, setShowFarmingMistakesGuide] = useState(false);
-  const [showDiseaseLifecycle, setShowDiseaseLifecycle] = useState(false);
 
   // ── Shared weather snapshot integration ──────────────────────────────────
   // Subscribe to the global WEATHER_SNAPSHOT_EVENT so any fetch by
@@ -1265,24 +1257,6 @@ showGreenPractices,
         </div>
       )}
 
-      {showDiseaseLifecycle && (
-        <div key="modal-disease-lifecycle" className="weather-overlay" onClick={() => setShowDiseaseLifecycle(false)}>
-          <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1100px', width: '95vw' }}>
-            <button className="close-btn" onClick={() => setShowDiseaseLifecycle(false)} aria-label="Close disease lifecycle explorer"><X /></button>
-            <CropDiseaseLifecycleExplorer onClose={() => setShowDiseaseLifecycle(false)} />
-          </div>
-        </div>
-      )}
-
-      {showFarmingMistakesGuide && (
-        <div key="modal-farming-mistakes" className="weather-overlay" onClick={() => setShowFarmingMistakesGuide(false)}>
-          <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1000px', width: '95vw' }}>
-            <button className="close-btn" onClick={() => setShowFarmingMistakesGuide(false)} aria-label="Close farming mistakes guide"><X /></button>
-            <FarmingMistakesGuide onClose={() => setShowFarmingMistakesGuide(false)} />
-          </div>
-        </div>
-      )}
-
       {showCropGrowthGuide && (
         <div key="modal-crop-growth" className="weather-overlay" onClick={() => setShowCropGrowthGuide(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1100px', width: '95vw' }}>
@@ -1741,14 +1715,6 @@ showGreenPractices,
           userData={userData}
           weatherData={weatherSnapshot}
           onClose={() => setShowFarmIntelligenceGraph(false)}
-        />
-      )}
-
-      {showWeatherImpactGuide && (
-        <WeatherFarmingImpactGuide
-          onClose={() => setShowWeatherImpactGuide(false)}
-          weatherSnapshot={weatherSnapshot}
-          season={userData?.season}
         />
       )}
 
