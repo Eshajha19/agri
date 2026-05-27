@@ -157,6 +157,7 @@ _last_rate_limit_prune = 0.0
 RATE_LIMIT_COUNT = 10   # max uploads per window
 RATE_LIMIT_WINDOW = 60  # seconds
 RATE_LIMIT_PRUNE_INTERVAL = RATE_LIMIT_WINDOW
+RATE_LIMIT_MAX_ENTRIES = 10_000
 
 
 def _prune_rate_limit_store(now: float) -> None:
@@ -182,6 +183,20 @@ def _check_rate_limit(uid: str) -> bool:
     now = monotonic()
     with _rate_limit_lock:
         _prune_rate_limit_store(now)
+
+        if len(_rate_limit_store) >= RATE_LIMIT_MAX_ENTRIES:
+            cutoff = now - RATE_LIMIT_WINDOW
+            sorted_uids = sorted(
+                _rate_limit_store.keys(),
+                key=lambda u: _rate_limit_store[u][1],
+            )
+            evicted = 0
+            for uid_candidate in sorted_uids:
+                if evicted >= max(1, len(sorted_uids) // 4):
+                    break
+                if _rate_limit_store[uid_candidate][1] < cutoff:
+                    _rate_limit_store.pop(uid_candidate, None)
+                    evicted += 1
 
         if uid not in _rate_limit_store:
             _rate_limit_store[uid] = (1, now)
