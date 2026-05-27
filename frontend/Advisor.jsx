@@ -37,9 +37,6 @@ import EquipmentManagement from "./EquipmentManagement";
 import CropQualityGrading from "./CropQualityGrading";
 import SustainabilityAnalytics from "./SustainabilityAnalytics";
 import FarmIntelligenceGraph from "./FarmIntelligenceGraph";
-import WeatherFarmingImpactGuide from "./WeatherFarmingImpactGuide";
-import CropGrowthStageGuide from "./CropGrowthStageGuide";
-import FarmingMistakesGuide from "./FarmingMistakesGuide";
 import LastUpdated from "./LastUpdated";
 import ExpertDirectory from "./components/ExpertDirectory";
 import TeleConsultation from "./components/TeleConsultation";
@@ -223,9 +220,6 @@ showGreenPractices,
   const [showYieldHistory, setShowYieldHistory] = useState(false);
   const [locationQuery, setLocationQuery] = useState("");
   const [showFarmIntelligenceGraph, setShowFarmIntelligenceGraph] = useState(false);
-  const [showWeatherImpactGuide, setShowWeatherImpactGuide] = useState(false);
-  const [showCropGrowthGuide, setShowCropGrowthGuide] = useState(false);
-  const [showFarmingMistakesGuide, setShowFarmingMistakesGuide] = useState(false);
 
   // ── Shared weather snapshot integration ──────────────────────────────────
   // Subscribe to the global WEATHER_SNAPSHOT_EVENT so any fetch by
@@ -1722,14 +1716,6 @@ showGreenPractices,
           userData={userData}
           weatherData={weatherSnapshot}
           onClose={() => setShowFarmIntelligenceGraph(false)}
-        />
-      )}
-
-      {showWeatherImpactGuide && (
-        <WeatherFarmingImpactGuide
-          onClose={() => setShowWeatherImpactGuide(false)}
-          weatherSnapshot={weatherSnapshot}
-          season={userData?.season}
         />
       )}
 
