@@ -246,3 +246,21 @@ Provide farmers with a lightweight, region-aware digital assistant that reduces 
 - SMS / WhatsApp alerts for farmers without smartphones
 - Integrate local market price data for crop sale recommendations
 - Train ML models using local farm historical data for precision recommendations
+
+## 🖼️ New Feature: Crop Growth Stage Visual Guide
+
+A responsive in-app visual guide that walks farmers through the crop lifecycle: Seed → Sprout → Growth → Harvest. The guide includes stage-wise care instructions, image-based examples for visual learning, and a lightweight lightbox for inspecting images.
+
+How to access: Open the app and go to the Advisor page — the "Crop Growth Stage Visual Guide" card opens the modal with the visual walkthrough and learning images.
+
+Acceptance criteria:
+
+- Seed → Sprout → Growth → Harvest stages represented visually.
+- Stage-wise care instructions are shown for each stage.
+- Image-based learning gallery with thumbnails and enlargements.
+- Responsive UI and no console errors when used in the Advisor view.
+
+Alternatives considered:
+
+- Linking externally to a knowledge article or PDF (rejected — offline and discoverability concerns).
+- A full LMS course module with video lessons (more content-heavy; deferred to Agri-LMS integration).
