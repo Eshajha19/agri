@@ -149,9 +149,10 @@ class FeedbackRequest(BaseModel):
 class FeedbackResponse(BaseModel):
     """Response model for feedback submission.
 
-    validated_data is intentionally absent — returning the stored document
-    back to the caller would echo PII fields (ipAddress, userAgent) that
-    were collected server-side and must not leave the server.
+    validated_data is intentionally absent.  The stored document contains
+    server-collected PII fields (ipAddress, userAgent) that must never be
+    echoed back in the HTTP response body — they would be captured by CDN
+    access logs, browser devtools, and any proxy between client and server.
     """
     success: bool
     feedback_id: Optional[str] = None
@@ -322,7 +323,16 @@ async def submit_feedback(
         try:
             doc_ref = db.collection("feedback").add(validated_data)
             feedback_id = doc_ref[1].id
-            logger.info("Feedback stored successfully. ID: %s uid: %s", feedback_id, uid)
+            
+            logger.info(f"Feedback stored successfully. ID: {feedback_id}")
+            
+            return FeedbackResponse(
+                success=True,
+                feedback_id=feedback_id,
+                message="Feedback submitted successfully",
+                timestamp=datetime.now(timezone.utc).isoformat()
+            )
+            
         except Exception as firestore_error:
             logger.error("Firestore error: %s", firestore_error)
             raise HTTPException(
