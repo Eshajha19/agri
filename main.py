@@ -425,8 +425,8 @@ async def verify_role(request: Request, required_roles: list = None):
     Verify the Firebase ID token and check the caller's role.
 
     Delegates identity resolution to :meth:`RBACManager.resolve_auth_context`,
-    which treats Firestore ``users/{uid}.role`` as authoritative and rejects
-    stale JWT custom claims that disagree with Firestore.
+    which uses the JWT custom claim (set via Firebase Admin SDK) as the
+    primary role source and falls back to Firestore ``users/{uid}.role``.
     """
     action = f"{request.method} {request.url.path}"
     try:
