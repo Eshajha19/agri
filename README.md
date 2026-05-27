@@ -227,6 +227,23 @@ Provide farmers with a lightweight, region-aware digital assistant that reduces 
 - Integrate local market price data for crop sale recommendations
 - Train ML models using local farm historical data for precision recommendations
 
+## 🚨 New Feature: Farming Mistakes Awareness System
+
+This in-app guide highlights common farming mistakes and practical steps to avoid them. Examples include:
+
+- Over-fertilization — how to test soil and dose correctly.
+- Wrong irrigation timing — when and how to irrigate for best results.
+- Poor seed selection — choosing certified, climate-appropriate varieties.
+
+How to access: Open the Advisor page and choose the "Farming Mistakes Awareness" card to open the modal with examples, images, and prevention tips.
+
+Acceptance criteria:
+
+- Common mistakes are listed with an explanation of the problem.
+- Each mistake includes clear, actionable prevention steps.
+- Image examples for visual recognition.
+- Responsive UI and no console errors in Advisor view.
+
 ## 🖼️ New Feature: Crop Growth Stage Visual Guide
 
 A responsive in-app visual guide that walks farmers through the crop lifecycle: Seed → Sprout → Growth → Harvest. The guide includes stage-wise care instructions, image-based examples for visual learning, and a lightweight lightbox for inspecting images.
