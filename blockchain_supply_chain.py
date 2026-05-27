@@ -72,6 +72,7 @@ class ProductBatch:
     planting_date: str
     harvesting_date: str
     farmer_name: str
+    owner_uid: str = ""
     certifications: List[str] = field(default_factory=list)
     quality_score: float = 0.0
     created_at: str = ""
@@ -106,6 +107,7 @@ class SmartContract:
     seller: str
     buyer: str
     price: float
+    created_by_uid: str = ""
     currency: str = "INR"
     terms: Dict = field(default_factory=dict)
     status: str = "pending"  # pending, executed, completed, disputed
@@ -305,6 +307,7 @@ class SupplyChainBlockchain:
         planting_date: str,
         harvesting_date: str,
         farmer_name: str,
+        owner_uid: str = "",
     ) -> ProductBatch:
         """Create new product batch atomically"""
         snap = self._snapshot_state()
@@ -330,6 +333,7 @@ class SupplyChainBlockchain:
                 planting_date=planting_date,
                 harvesting_date=harvesting_date,
                 farmer_name=farmer_name,
+                owner_uid=owner_uid,
             )
 
             prev_hash = self.chain[-1].hash if self.chain else ""
@@ -429,6 +433,7 @@ class SupplyChainBlockchain:
         buyer: str,
         price: float,
         terms: Optional[Dict] = None,
+        created_by_uid: str = "",
     ) -> SmartContract:
         """Create smart contract for transaction atomically"""
         if batch_id not in self.products:
@@ -452,6 +457,7 @@ class SupplyChainBlockchain:
                 seller=seller,
                 buyer=buyer,
                 price=price,
+                created_by_uid=created_by_uid,
                 terms=terms or {},
             )
 
