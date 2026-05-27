@@ -91,7 +91,9 @@ async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest)
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        logger.error("Financial analysis failed: %s", e)
+        raise HTTPException(status_code=500, detail="Financial analysis failed")
+
 
 @router.post("/applications")
 async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
@@ -113,7 +115,9 @@ async def create_finance_application(request: Request, body: FinanceAssessmentRe
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        logger.error("Application creation failed: %s", e)
+        raise HTTPException(status_code=500, detail="Application creation failed")
+
 
 @router.get("/applications/{application_id}")
 async def get_finance_application(application_id: str, request: Request):
@@ -152,7 +156,9 @@ async def get_finance_application(application_id: str, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        logger.error("Application retrieval failed: %s", e)
+        raise HTTPException(status_code=500, detail="Application retrieval failed")
+
 
 @router.get("/products")
 def get_finance_products():
