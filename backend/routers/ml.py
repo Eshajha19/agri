@@ -43,7 +43,10 @@ def init_router(r_instance, model_lag_instance, model_trend_instance=None, verif
 
 @router.get("")
 def predict_get():
-    return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
+    raise HTTPException(
+        status_code=404,
+        detail="This endpoint is disabled. Use POST /api/ml for authenticated yield predictions.",
+    )
 
 @router.post("", response_model=PredictResponse)
 async def predict_yield(data: PredictRequest, request: Request):
