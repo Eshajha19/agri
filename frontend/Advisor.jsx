@@ -578,6 +578,23 @@ showGreenPractices,
             <p>Plan your crops throughout the year with seasonal recommendations and crop rotation cycles.</p>
           </div>
 
+          <div
+            className="card reveal"
+            role="button"
+            tabIndex={0}
+            onClick={() => setShowCropGrowthGuide(true)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowCropGrowthGuide(true); }}
+            aria-label="Crop Growth Stage Visual Guide: Seed, Sprout, Growth, Harvest"
+            style={{ border: '2px solid #0ea5a4', background: 'rgba(14, 165, 164, 0.03)' }}
+          >
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(14, 165, 164, 0.1)', color: '#0ea5a4' }}>
+              <Sprout size={32} strokeWidth={2} />
+            </div>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#0ea5a4', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>GUIDE</div>
+            <h3><span className="notranslate">Crop Growth Stage Visual Guide</span></h3>
+            <p>Visual lifecycle: Seed → Sprout → Growth → Harvest, with stage-wise care and image examples.</p>
+          </div>
+
           
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/community")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/community"); }} aria-label="Farmer Community: Connect and share tips">
@@ -1219,6 +1236,15 @@ showGreenPractices,
         <div key="modal-weather" className="weather-overlay" onClick={() => setShowWeather(false)}>
           <div className="weather-popup" onClick={(e)=>e.stopPropagation()}>
             <WeatherCard onClose={() => setShowWeather(false)} />
+          </div>
+        </div>
+      )}
+
+      {showCropGrowthGuide && (
+        <div key="modal-crop-growth" className="weather-overlay" onClick={() => setShowCropGrowthGuide(false)}>
+          <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1100px', width: '95vw' }}>
+            <button className="close-btn" onClick={() => setShowCropGrowthGuide(false)} aria-label="Close crop growth guide"><X /></button>
+            <CropGrowthStageGuide onClose={() => setShowCropGrowthGuide(false)} />
           </div>
         </div>
       )}
