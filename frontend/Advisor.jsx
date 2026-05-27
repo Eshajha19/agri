@@ -78,6 +78,7 @@ import {
    Video,
    Phone,
    Users,
+  CalendarClock,
  } from "lucide-react";
 import { FaSync } from "react-icons/fa";
 import { useAdvisorStore } from "./stores/advisorStore";
@@ -818,12 +819,12 @@ showGreenPractices,
             <p>View your fields, weather data, and crop locations on an interactive map.</p>
           </div>
 
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/calendar")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/calendar"); }} aria-label="Activity Calendar: Task reminders">
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/calendar")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/calendar"); }} aria-label="Smart Crop Reminder Automation: Task reminders and exports">
             <div className="icon" aria-hidden="true">
-              <Calendar size={32} strokeWidth={2} />
+              <CalendarClock size={32} strokeWidth={2} />
             </div>
-            <h3><span className="notranslate">Activity Calendar</span></h3>
-            <p>Schedule sowing, watering, and harvesting with reminders.</p>
+            <h3><span className="notranslate">Smart Crop Reminder Automation</span></h3>
+            <p>Auto-generate sowing, irrigation, spraying, and harvest reminders with calendar export and SMS drafts.</p>
           </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/share-feedback")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/share-feedback"); }} aria-label="Share Feedback: Help us improve">
