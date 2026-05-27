@@ -22,6 +22,7 @@ from reportlab.pdfgen import canvas
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+from backend.compute_rate_limit import enforce_compute_rate_limit
 from backend.schemas import AlertTriggerRequest, RAGQuery
 
 router = APIRouter()
@@ -634,7 +635,16 @@ async def rag_query(request: Request, body: RAGQuery):
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth service not initialized")
 
-    await verify_role_fn(request)
+    token_data = await verify_role_fn(request)
+    rate_limited = enforce_compute_rate_limit(
+        request,
+        scope="platform.rag_query",
+        uid=(token_data or {}).get("uid"),
+        limit=12,
+        window_seconds=60,
+    )
+    if rate_limited is not None:
+        return rate_limited
 
     try:
         return rag_generate_fn(body.query, top_k=body.top_k)
@@ -651,7 +661,16 @@ async def gemini_analyze_image(request: Request, body: GeminiImageRequest):
     # Require a valid Firebase ID token to prevent unauthenticated callers
     # from proxying arbitrary images through the server's GEMINI_API_KEY,
     # exhausting quota and incurring billing charges.
-    await verify_role_fn(request)
+    token_data = await verify_role_fn(request)
+    rate_limited = enforce_compute_rate_limit(
+        request,
+        scope="platform.gemini_analyze_image",
+        uid=(token_data or {}).get("uid"),
+        limit=5,
+        window_seconds=60,
+    )
+    if rate_limited is not None:
+        return rate_limited
 
     import httpx
 
@@ -705,7 +724,16 @@ async def analyze_crop_disease_image(request: Request, body: CropDiseaseImageReq
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth service not initialized")
 
-    await verify_role_fn(request)
+    token_data = await verify_role_fn(request)
+    rate_limited = enforce_compute_rate_limit(
+        request,
+        scope="platform.crop_disease_analyze_image",
+        uid=(token_data or {}).get("uid"),
+        limit=5,
+        window_seconds=60,
+    )
+    if rate_limited is not None:
+        return rate_limited
 
     import base64
     import httpx
@@ -771,7 +799,16 @@ async def simulate_climate(request: Request, data: SimulationRequest):
     # Require a valid Firebase ID token to prevent unauthenticated callers
     # from consuming compute resources and to keep this route consistent with
     # the authenticated /api/knowledge/simulate-climate endpoint.
-    await verify_role_fn(request)
+    token_data = await verify_role_fn(request)
+    rate_limited = enforce_compute_rate_limit(
+        request,
+        scope="platform.simulate_climate",
+        uid=(token_data or {}).get("uid"),
+        limit=10,
+        window_seconds=60,
+    )
+    if rate_limited is not None:
+        return rate_limited
 
     sensitivities = {
         "rice": {"temp": -0.05, "rain": 0.02},

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field, validator
 import logging
 
+from backend.compute_rate_limit import enforce_compute_rate_limit
 from backend.schemas import RAGQuery
 
 router = APIRouter()
@@ -306,7 +307,16 @@ async def rag_query(request: Request, body: RAGQuery):
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     # Raises HTTP 401 if the Firebase token is missing or invalid.
-    await verify_role_fn(request)
+    token_data = await verify_role_fn(request)
+    rate_limited = enforce_compute_rate_limit(
+        request,
+        scope="knowledge.rag_query",
+        uid=(token_data or {}).get("uid"),
+        limit=12,
+        window_seconds=60,
+    )
+    if rate_limited is not None:
+        return rate_limited
     try:
         result = rag_generate_fn(body.query, body.top_k)
         return {"success": True, "query": body.query, "results": result}
@@ -327,7 +337,16 @@ async def simulate_climate(request: Request, data: SimulationRequest):
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     # Raises HTTP 401 if the Firebase token is missing or invalid.
-    await verify_role_fn(request)
+    token_data = await verify_role_fn(request)
+    rate_limited = enforce_compute_rate_limit(
+        request,
+        scope="knowledge.simulate_climate",
+        uid=(token_data or {}).get("uid"),
+        limit=10,
+        window_seconds=60,
+    )
+    if rate_limited is not None:
+        return rate_limited
     try:
         canonical_region = _resolve_region(data.region or "central")
         canonical_season = _resolve_season(data.season or "kharif")
