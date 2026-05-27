@@ -307,31 +307,24 @@ async def get_feedback_stats(
     request: Request,
     admin_user: dict = Depends(verify_admin),
 ):
-    """Get feedback statistics (admin only)"""
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing auth token")
+    """Get feedback statistics (admin only).
 
-    try:
-        id_token = auth_header.split(" ")[1]
-        decoded = firebase_auth.verify_id_token(id_token)
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    Authentication and role enforcement are handled entirely by the
+    verify_admin dependency — a single Firebase token verification and a
+    single Firestore role read per request.
 
-    uid = decoded["uid"]
+    The previous implementation re-verified the token and re-read the
+    Firestore role a second time inside the handler body, which:
+      1. Created a TOCTOU window: the role could change between the two
+         Firestore reads, making the authorization decision non-atomic.
+      2. Doubled Firebase SDK and Firestore round-trips on every request.
+      3. Used a default of 'farmer' for a missing role field on the second
+         read, which could produce inconsistent 403s for legitimate admins
+         whose documents were momentarily unavailable.
 
-    try:
-        user_doc = db.collection("users").document(uid).get()
-    except Exception:
-        raise HTTPException(status_code=503, detail="Authorization service unavailable")
-
-    if not user_doc.exists:
-        raise HTTPException(status_code=403, detail="User profile not found")
-
-    user_role = user_doc.to_dict().get("role", "farmer")
-    if user_role != "admin":
-        raise HTTPException(status_code=403, detail="Access denied: admin role required")
-
+    The uid resolved by verify_admin is passed through admin_user so the
+    handler has the caller's identity without any additional I/O.
+    """
     try:
         feedback_ref = db.collection("feedback")
         docs = feedback_ref.limit(1000).stream()
@@ -356,9 +349,7 @@ async def get_feedback_stats(
         total_count = len(feedbacks)
         avg_rating = total_rating / total_count if total_count > 0 else 0
 
-        # Return only the last 10 entries for the recent list, and strip
-        # PII fields (ipAddress, userAgent, userEmail) so sensitive data
-        # is never serialised into the HTTP response body.
+        # Strip PII fields before returning to the caller.
         _PII_FIELDS = {"ipAddress", "userAgent", "userEmail"}
         recent_raw = feedbacks[-10:] if len(feedbacks) > 10 else feedbacks
         recent = [
