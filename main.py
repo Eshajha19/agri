@@ -531,11 +531,8 @@ _E164_RE = re.compile(r"^\+[1-9]\d{6,14}$")
 
 
 class WhatsAppSubscribeRequest(BaseModel):
-    # E.164 format: + followed by 7-15 digits, no spaces or dashes.
-    # Examples: +919876543210, +14155552671
-    # max_length=16 covers the longest valid E.164 number (+<15 digits>).
-    phone_number: str = Field(..., min_length=8, max_length=16)
-    name: str = Field(..., min_length=1, max_length=100)
+    phone_number: str
+    name: str
     region_id: Optional[str] = Field(default=None, max_length=100)
     # user_id is accepted for backward compatibility but is IGNORED by the
     # endpoint -- the authoritative user identity is always derived from the
