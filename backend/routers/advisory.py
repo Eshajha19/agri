@@ -38,17 +38,27 @@ def _sanitise_alert_text(text: Any) -> str:
     return html.escape(str(text or ""), quote=True)
 
 
+def _sanitise_alert_value(value: Any) -> Any:
+    """Recursively convert alert values into render-safe primitives."""
+    if isinstance(value, dict):
+        return {str(key): _sanitise_alert_value(nested_value) for key, nested_value in value.items()}
+    if isinstance(value, list):
+        return [_sanitise_alert_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_sanitise_alert_value(item) for item in value]
+    if isinstance(value, set):
+        return [_sanitise_alert_value(item) for item in value]
+    return _sanitise_alert_text(value)
+
+
 def _sanitise_alert(alert: Any) -> dict:
     """Sanitise a single alert dict so stored content is safe to render."""
     if not isinstance(alert, dict):
-        return {"message": str(alert), "sanitised": True}
+        return {"message": _sanitise_alert_text(alert), "sanitised": "true"}
     safe = {}
     for k, v in alert.items():
-        if isinstance(v, str):
-            safe[k] = _sanitise_alert_text(v)
-        else:
-            safe[k] = v
-    safe.setdefault("sanitised", True)
+        safe[str(k)] = _sanitise_alert_value(v)
+    safe["sanitised"] = "true"
     return safe
 
 
@@ -119,6 +129,7 @@ async def create_advisory(payload: AdvisoryRequest, request: Request):
         soil=payload.soil,
         crop_type=payload.crop_type,
     )
+    safe_alerts = _sanitise_alerts(alerts)
 
     stored = False
     if payload.store_alerts:
@@ -126,12 +137,12 @@ async def create_advisory(payload: AdvisoryRequest, request: Request):
         uid = await _get_authenticated_uid(request)
 
         with _store_lock:
-            _stored_alerts[uid].extend(_sanitise_alerts(alerts))
+            _stored_alerts[uid].extend(safe_alerts)
         stored = True
 
     return {
         "success": True,
-        "data": alerts,
+        "data": safe_alerts,
         "count": len(alerts),
         "stored": stored,
     }
