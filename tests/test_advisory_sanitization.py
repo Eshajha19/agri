@@ -5,6 +5,7 @@ from backend.routers import advisory as advisory_router
 
 def setup_function():
     advisory_router._stored_alerts.clear()
+    advisory_router._graph_history.clear()
 
 
 def test_create_advisory_recursively_sanitises_alerts(monkeypatch):
