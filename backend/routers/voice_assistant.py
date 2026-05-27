@@ -26,6 +26,7 @@ Still requires admin/system role:
 
 import os
 import re
+import sys
 import logging
 from threading import Lock
 from time import monotonic
@@ -157,6 +158,7 @@ _last_rate_limit_prune = 0.0
 RATE_LIMIT_COUNT = 10   # max uploads per window
 RATE_LIMIT_WINDOW = 60  # seconds
 RATE_LIMIT_PRUNE_INTERVAL = RATE_LIMIT_WINDOW
+RATE_LIMIT_MAX_ENTRIES = 10_000
 
 
 def _prune_rate_limit_store(now: float) -> None:
@@ -182,6 +184,20 @@ def _check_rate_limit(uid: str) -> bool:
     now = monotonic()
     with _rate_limit_lock:
         _prune_rate_limit_store(now)
+
+        if len(_rate_limit_store) >= RATE_LIMIT_MAX_ENTRIES:
+            cutoff = now - RATE_LIMIT_WINDOW
+            sorted_uids = sorted(
+                _rate_limit_store.keys(),
+                key=lambda u: _rate_limit_store[u][1],
+            )
+            evicted = 0
+            for uid_candidate in sorted_uids:
+                if evicted >= max(1, len(sorted_uids) // 4):
+                    break
+                if _rate_limit_store[uid_candidate][1] < cutoff:
+                    _rate_limit_store.pop(uid_candidate, None)
+                    evicted += 1
 
         if uid not in _rate_limit_store:
             _rate_limit_store[uid] = (1, now)
@@ -523,29 +539,31 @@ async def analyze_query(request: Request, data: VoiceQueryRequest):
 
 @router.get("/offline-cache", tags=["Voice"])
 async def get_offline_cache(request: Request):
-    """Retrieve the offline knowledge cache.
+    """Return lightweight cache metadata.
 
-    Requires authentication to prevent unauthenticated enumeration of
-    the internal knowledge base.
+    Restricted to admin/system roles.  Returns entry count and a shallow
+    byte estimate instead of raw cache content or expensive full
+    serialization.
     """
     if voice_assistant is None:
         raise HTTPException(status_code=500, detail="Voice Assistant not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Authorization system not initialized")
 
-    await _require_auth(request)
+    await verify_role_fn(request, required_roles=["admin", "system"])
 
     try:
+        cache = voice_assistant.offline_cache
         return {
             "success": True,
-            "offline_cache": voice_assistant.offline_cache,
-            "cache_size_bytes": sum(
-                len(str(v).encode()) for v in voice_assistant.offline_cache.values()
-            ),
+            "cache_entries": len(cache),
+            "cache_size_bytes": sys.getsizeof(cache),
         }
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Cache retrieval error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Cache metadata retrieval error: %s", e)
+        raise HTTPException(status_code=500, detail="Cache metadata retrieval failed")
 
 
 @router.post("/sync-cache", tags=["Voice"])
