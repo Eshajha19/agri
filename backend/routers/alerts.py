@@ -4,17 +4,11 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
 from twilio_webhook_security import handle_inbound_whatsapp_webhook
-from pydantic import BaseModel, Field
 
 from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, normalize_region_identifier
+from backend.schemas import AlertTriggerRequest
 
 router = APIRouter()
-
-
-class AlertTriggerRequest(BaseModel):
-    alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
-    message: str = Field(..., min_length=1, max_length=500)
-    region_id: Optional[str] = Field(default=None, max_length=100)
 
 
 notification_store = None
