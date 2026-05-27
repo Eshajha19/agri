@@ -87,10 +87,12 @@ _seed_listings()
 # Dependency injection
 # ---------------------------------------------------------------------------
 verify_role_fn = None
+notify_booking_fn = None
 
-def init_marketplace(vr_fn) -> None:
-    global verify_role_fn
+def init_marketplace(vr_fn, notify_fn=None) -> None:
+    global verify_role_fn, notify_booking_fn
     verify_role_fn = vr_fn
+    notify_booking_fn = notify_fn
 
 # ---------------------------------------------------------------------------
 # Pydantic models
@@ -163,7 +165,7 @@ async def list_equipment(request: Request, data: ListEquipmentRequest):
         raise HTTPException(status_code=500, detail="Not initialized")
 
     token_data = await verify_role_fn(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
 
     lid = str(uuid.uuid4())
     listing = {
@@ -205,7 +207,7 @@ async def book_equipment(request: Request, data: BookEquipmentRequest):
         raise HTTPException(status_code=500, detail="Not initialized")
 
     token_data = await verify_role_fn(request)
-    booker_uid = token_data["uid"]
+    booker_uid = token_data.get("uid")
 
     bid = str(uuid.uuid4())
     booking = None
@@ -219,6 +221,8 @@ async def book_equipment(request: Request, data: BookEquipmentRequest):
             raise HTTPException(status_code=404, detail="Equipment listing not found")
         if not listing["available"]:
             raise HTTPException(status_code=409, detail="Equipment is not available for booking")
+        if listing.get("ownerUid") is not None and listing["ownerUid"] == booker_uid:
+            raise HTTPException(status_code=400, detail="You cannot book your own equipment listing")
 
         booking = {
             "id": bid,
@@ -245,6 +249,14 @@ async def book_equipment(request: Request, data: BookEquipmentRequest):
         "Booking %s created: equipment=%s booker=%s date=%s",
         bid, data.equipmentId, booker_uid, data.date,
     )
+
+    # Notify the equipment owner asynchronously.
+    if notify_booking_fn is not None:
+        try:
+            await notify_booking_fn(booking)
+        except Exception as exc:
+            logger.warning("Booking notification failed for %s: %s", bid, exc)
+
     return {"success": True, "booking": booking}
 
 
@@ -255,7 +267,7 @@ async def get_bookings(request: Request):
         raise HTTPException(status_code=500, detail="Not initialized")
 
     token_data = await verify_role_fn(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
 
     with _lock:
         all_bookings = list(_bookings.values())

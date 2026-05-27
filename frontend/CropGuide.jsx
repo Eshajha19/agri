@@ -2,6 +2,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import "./CropGuide.css";
 import { getBookmarks, toggleBookmark } from "./utils/bookmarkStorage";
+import { Wheat, Lightbulb, X } from "lucide-react";
 
 // 🖼️ DIRECT PUBLIC FOLDER TRACKING
 const CROP_IMAGES = {
@@ -73,7 +74,7 @@ export default function CropGuide() {
   return (
     <div className="crop-page">
       <header className="crop-hero">
-        <h1>🌾 Crop Guide</h1>
+        <h1><Wheat size={28} aria-hidden="true" /> Crop Guide</h1>
         <p>Explore crops based on season, soil & water needs</p>
       </header>
 
@@ -136,14 +137,14 @@ export default function CropGuide() {
             </div>
           ))
         ) : (
-          <p className="no-results">No crops found 🌾</p>
+          <p className="no-results">No crops found <Wheat size={16} aria-hidden="true" /></p>
         )}
       </div>
 
       {activeCrop && (
         <div className="crop-modal" onClick={() => setActiveCrop(null)}>
           <div className="crop-popup" onClick={(e) => e.stopPropagation()}>
-            <button className="close-btn" onClick={() => setActiveCrop(null)}>✖</button>
+            <button className="close-btn" onClick={() => setActiveCrop(null)} aria-label="Close crop details"><X size={16} /></button>
 
             {/* IMAGE HEADER IN MODAL */}
             <div className="modal-crop-image-wrapper">
@@ -155,7 +156,7 @@ export default function CropGuide() {
             </div>
 
             <div className="modal-header-row">
-              <h2>🌾 {activeCrop.name}</h2>
+              <h2><Wheat size={20} aria-hidden="true" /> {activeCrop.name}</h2>
               <button
                 className={`bookmark-btn modal-bookmark ${bookmarkedCropIds.includes(activeCrop.id) ? "active" : ""}`}
                 onClick={() => handleToggleCropBookmark(activeCrop)}
@@ -172,7 +173,7 @@ export default function CropGuide() {
               <p><strong>Yield:</strong> {activeCrop.yield}</p>
             </div>
 
-            <div className="tips">💡 {activeCrop.tips}</div>
+            <div className="tips"><Lightbulb size={16} aria-hidden="true" /> {activeCrop.tips}</div>
           </div>
         </div>
       )}
