@@ -381,73 +381,10 @@ const Auth = () => {
       } else {
         setError("Authentication failed. Please try again.");
       }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-        navigate(redirectAfterAuth, { replace: true });
-      } else {
-        // Sign Up Logic
-        const anonymousUser = auth.currentUser?.isAnonymous ? auth.currentUser : null;
-        
-        let user;
-        if (anonymousUser) {
-          // Link anonymous account to email/password
-          const credential = EmailAuthProvider.credential(email, password);
-          try {
-            const linkedCredential = await linkWithCredential(anonymousUser, credential);
-            user = linkedCredential.user;
-          } catch (linkErr) {
-            if (linkErr.code === "auth/email-already-in-use") {
-              setError("Email already in use. Please login instead to merge your guest data.");
-              setLoading(false);
-              return;
-            }
-            throw linkErr;
-          }
-        } else {
-          const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-          user = userCredential.user;
-        }
-
-        // Send verification email
-        await sendEmailVerification(user);
-
-        // Store/Update user info in Firestore
-        // role: "farmer" is written explicitly so the backend's verify_role
-        // function never has to fall back to a default — the field is always
-        // present from the moment the account is created.
-        await setDoc(doc(db, "users", user.uid), {
-          uid: user.uid,
-          displayName: displayName,
-          email: email,
-          phoneNumber: phoneNumber,
-          createdAt: new Date().toISOString(),
-          verified: false,
-          role: "farmer",
-          reputation: 0,
-          profileCompleted: false
-        }, { merge: true });
-
-        setMessage("Account created! Please check your email for verification link.");
-        setIsLogin(true); // Switch to login after signup
-      }
-    } catch (err) {
-      console.error(err);
-      if (err.code === "auth/email-already-in-use") {
-        setError("Email already in use. Try logging in.");
-      } else if (err.code === "auth/invalid-credential") {
-        setError("Invalid email or password.");
-      } else if (err.code === "auth/weak-password") {
-        setError("Password should be at least 6 characters.");
-      } else {
-        setError(err.message);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+     } finally {
+       setLoading(false);
+     }
+   };
 
   const handleGoogleLogin = async () => {
     const provider = new GoogleAuthProvider();
