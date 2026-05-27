@@ -37,6 +37,7 @@ import EquipmentManagement from "./EquipmentManagement";
 import CropQualityGrading from "./CropQualityGrading";
 import SustainabilityAnalytics from "./SustainabilityAnalytics";
 import FarmIntelligenceGraph from "./FarmIntelligenceGraph";
+import WeatherFarmingImpactGuide from "./WeatherFarmingImpactGuide";
 import LastUpdated from "./LastUpdated";
 import ExpertDirectory from "./components/ExpertDirectory";
 import TeleConsultation from "./components/TeleConsultation";
@@ -220,6 +221,7 @@ showGreenPractices,
   const [showYieldHistory, setShowYieldHistory] = useState(false);
   const [locationQuery, setLocationQuery] = useState("");
   const [showFarmIntelligenceGraph, setShowFarmIntelligenceGraph] = useState(false);
+  const [showWeatherImpactGuide, setShowWeatherImpactGuide] = useState(false);
 
   // ── Shared weather snapshot integration ──────────────────────────────────
   // Subscribe to the global WEATHER_SNAPSHOT_EVENT so any fetch by
@@ -720,6 +722,23 @@ showGreenPractices,
             <div className="icon" aria-hidden="true"><CloudRain size={32} /></div>
             <h3><span className="notranslate">Spray Scheduler</span></h3>
             <p>Weather-aware spray scheduling &amp; rotation recommendations.</p>
+          </div>
+
+          <div
+            className="card reveal"
+            role="button"
+            tabIndex={0}
+            onClick={() => setShowWeatherImpactGuide(true)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowWeatherImpactGuide(true); }}
+            aria-label="Weather Farming Impact Guide: Rain, temperature, wind, and seasonal tips"
+            style={{ border: '2px solid #1d4ed8', background: 'rgba(29, 78, 216, 0.03)' }}
+          >
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(29, 78, 216, 0.1)', color: '#1d4ed8' }}>
+              <CloudRain size={32} strokeWidth={2} />
+            </div>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#1d4ed8', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>GUIDE</div>
+            <h3><span className="notranslate">Weather Farming Impact Guide</span></h3>
+            <p>See how rain, temperature, wind, and seasons change irrigation, spraying, and crop decisions.</p>
           </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowYieldPopup(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowYieldPopup(true); }} aria-label="Yield Prediction: AI-based forecast">
@@ -1655,6 +1674,14 @@ showGreenPractices,
           userData={userData}
           weatherData={weatherSnapshot}
           onClose={() => setShowFarmIntelligenceGraph(false)}
+        />
+      )}
+
+      {showWeatherImpactGuide && (
+        <WeatherFarmingImpactGuide
+          onClose={() => setShowWeatherImpactGuide(false)}
+          weatherSnapshot={weatherSnapshot}
+          season={userData?.season}
         />
       )}
 
