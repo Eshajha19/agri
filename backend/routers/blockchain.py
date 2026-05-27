@@ -1,4 +1,5 @@
 """Blockchain Supply Chain Router"""
+from dataclasses import asdict
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
@@ -59,8 +60,17 @@ def init_blockchain(scb, vr_fn=None):
 
 @router.post("/register-actor")
 async def register_actor(request: Request, data: RegisterActorRequest):
+    """Register a supply chain actor. Requires admin or expert role.
+
+    Without authentication any caller could inject fake verified actors
+    (farms, warehouses, distributors) into the blockchain, inflating
+    verification scores and making fraudulent produce appear certified.
+    """
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    await verify_role_fn(request, required_roles=["admin", "expert"])
     try:
         actor = supply_chain_blockchain.register_actor(
             data.actor_id, data.name, data.actor_type, data.location
@@ -125,8 +135,17 @@ async def get_trace_batch(batch_id: str):
 
 @router.post("/create-batch")
 async def create_batch(request: Request, data: CreateProductBatchRequest):
+    """Create a product batch on the blockchain. Requires authentication.
+
+    Without authentication any caller could forge product batches attributed
+    to arbitrary farm IDs and farmer names, bypassing the ownership binding
+    enforced on the /trace-batch endpoint.
+    """
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    await verify_role_fn(request)
     try:
         batch = supply_chain_blockchain.create_product_batch(
             data.crop_type, data.farm_id, data.quantity, data.unit,
@@ -139,8 +158,17 @@ async def create_batch(request: Request, data: CreateProductBatchRequest):
 
 @router.post("/add-node")
 async def add_node(request: Request, batch_id: str, node_type: str, actor_name: str, location: str, action: str):
+    """Add a supply chain node to an existing batch. Requires authentication.
+
+    Without authentication any caller could append fraudulent journey steps
+    (e.g. quality_check=passed) to any batch, inflating its verification
+    score and making counterfeit produce appear certified to consumers.
+    """
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    await verify_role_fn(request)
     try:
         node = supply_chain_blockchain.add_supply_chain_node(batch_id, node_type, actor_name, location, action)
         return {"success": True, "node": node}
@@ -150,8 +178,16 @@ async def add_node(request: Request, batch_id: str, node_type: str, actor_name: 
 
 @router.post("/create-contract")
 async def create_contract(request: Request, data: CreateSmartContractRequest):
+    """Create a smart contract between a seller and buyer. Requires authentication.
+
+    Without authentication any caller could create contracts between arbitrary
+    parties, recording fake financial transactions on the blockchain.
+    """
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    await verify_role_fn(request)
     try:
         contract = supply_chain_blockchain.create_smart_contract(
             data.batch_id, data.seller, data.buyer, data.price, data.terms
@@ -163,8 +199,16 @@ async def create_contract(request: Request, data: CreateSmartContractRequest):
 
 @router.post("/execute-contract")
 async def execute_contract(request: Request, contract_id: str):
+    """Execute a smart contract. Requires authentication.
+
+    Without authentication any caller could execute contracts between
+    arbitrary parties, recording fake payment settlements on the blockchain.
+    """
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    await verify_role_fn(request)
     try:
         result = supply_chain_blockchain.execute_smart_contract(contract_id)
         return {"success": True, "result": result}
