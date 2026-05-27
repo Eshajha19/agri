@@ -36,6 +36,7 @@ import YieldHistory from "./YieldHistory";
 import EquipmentManagement from "./EquipmentManagement";
 import CropQualityGrading from "./CropQualityGrading";
 import SustainabilityAnalytics from "./SustainabilityAnalytics";
+import FarmIntelligenceGraph from "./FarmIntelligenceGraph";
 import LastUpdated from "./LastUpdated";
 import ExpertDirectory from "./components/ExpertDirectory";
 import TeleConsultation from "./components/TeleConsultation";
@@ -79,6 +80,7 @@ import {
    Phone,
    Users,
   CalendarClock,
+  GitBranch,
  } from "lucide-react";
 import { FaSync } from "react-icons/fa";
 import { useAdvisorStore } from "./stores/advisorStore";
@@ -217,6 +219,7 @@ showGreenPractices,
   const [weatherSnapshot, setWeatherSnapshot] = useState(() => getStoredWeatherSnapshot());
   const [showYieldHistory, setShowYieldHistory] = useState(false);
   const [locationQuery, setLocationQuery] = useState("");
+  const [showFarmIntelligenceGraph, setShowFarmIntelligenceGraph] = useState(false);
 
   // ── Shared weather snapshot integration ──────────────────────────────────
   // Subscribe to the global WEATHER_SNAPSHOT_EVENT so any fetch by
@@ -873,6 +876,23 @@ showGreenPractices,
             </div>
             <h3><span className="notranslate">Crop Advisor (Soil Analysis)</span></h3>
             <p>Enter soil parameters for detailed crop compatibility analysis and recommendations.</p>
+          </div>
+
+          <div
+            className="card reveal"
+            role="button"
+            tabIndex={0}
+            onClick={() => setShowFarmIntelligenceGraph(true)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFarmIntelligenceGraph(true); }}
+            aria-label="Farm Intelligence Graph: Cross-factor reasoning"
+            style={{ border: '2px solid #0f766e', background: 'rgba(15, 118, 110, 0.03)' }}
+          >
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(15, 118, 110, 0.1)', color: '#0f766e' }}>
+              <GitBranch size={32} strokeWidth={2} />
+            </div>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#0f766e', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>GRAPH</div>
+            <h3><span className="notranslate">Farm Intelligence Graph</span></h3>
+            <p>Link soil, weather, crop, pest, and market data into one reasoning graph with AI guidance.</p>
           </div>
 
           {(userData?.role === "expert" || userData?.role === "admin") && (
@@ -1628,6 +1648,14 @@ showGreenPractices,
             />
           </div>
         </div>
+      )}
+
+      {showFarmIntelligenceGraph && (
+        <FarmIntelligenceGraph
+          userData={userData}
+          weatherData={weatherSnapshot}
+          onClose={() => setShowFarmIntelligenceGraph(false)}
+        />
       )}
 
       {showExpertDirectory && (
