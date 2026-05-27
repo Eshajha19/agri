@@ -288,9 +288,14 @@ if not firebase_admin._apps:
             "return 503 until Firestore is reachable. Reason: %s", e
         )
 
-async def verify_role(request: Request, required_roles: list = None):
+async def verify_role(
+    request: Request,
+    required_roles: list = None,
+    required_tenant_id: str | None = None,
+    allow_cross_tenant_admin: bool = False,
+):
     """
-    Verify the Firebase ID token and check the caller's role.
+    Verify the Firebase ID token and check the caller's role and tenant scope.
 
     Delegates identity resolution to :meth:`RBACManager.resolve_auth_context`,
     which treats Firestore ``users/{uid}.role`` as authoritative and rejects
@@ -363,6 +368,29 @@ async def verify_role(request: Request, required_roles: list = None):
         )
         raise HTTPException(status_code=403, detail="Access denied: insufficient permissions")
 
+    if required_tenant_id:
+        try:
+            RBACManager.assert_tenant_scope(
+                ctx,
+                required_tenant_id,
+                allow_cross_tenant_admin=allow_cross_tenant_admin,
+            )
+        except HTTPException as exc:
+            reason = "cross_tenant_access_denied"
+            if "missing" in str(exc.detail).lower():
+                reason = "missing_tenant_context"
+            audit_rbac_event(
+                request=request,
+                action=action,
+                outcome="denied",
+                uid=ctx.uid,
+                role=user_role,
+                reason=reason,
+                status_code=exc.status_code,
+                required_roles=required_roles,
+            )
+            raise
+
     audit_rbac_event(
         request=request,
         action=action,
@@ -373,7 +401,12 @@ async def verify_role(request: Request, required_roles: list = None):
         status_code=200,
     )
 
-    return {"uid": ctx.uid, "role": user_role}
+    return {
+        "uid": ctx.uid,
+        "role": user_role,
+        "roles": list(ctx.roles),
+        "tenant_id": ctx.tenant_id,
+    }
 
 # --- Models ---
 
