@@ -280,9 +280,12 @@ async def execute_contract(request: Request, contract_id: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/qr-code/{batch_id}")
-async def get_qr_code(batch_id: str):
+async def get_qr_code(request: Request, batch_id: str):
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    await verify_role_fn(request)
     try:
         qr_code = supply_chain_blockchain.generate_qr_code(batch_id)
         qr_payload = supply_chain_blockchain.get_traceability_qr_payload(batch_id)
@@ -297,9 +300,12 @@ async def get_qr_code(batch_id: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/verify/{batch_id}")
-async def verify_batch(batch_id: str):
+async def verify_batch(request: Request, batch_id: str):
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    await verify_role_fn(request)
     try:
         verification = supply_chain_blockchain.verify_batch(batch_id)
         return {"success": True, "verification": verification}
@@ -308,9 +314,12 @@ async def verify_batch(batch_id: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/journey/{batch_id}")
-async def get_journey(batch_id: str):
+async def get_journey(request: Request, batch_id: str):
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    await verify_role_fn(request)
     try:
         journey = supply_chain_blockchain.get_supply_chain_journey(batch_id)
         return {"success": True, "data": journey}
@@ -319,9 +328,14 @@ async def get_journey(batch_id: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/analytics/{batch_id}")
-async def get_analytics(batch_id: str):
+async def get_analytics(request: Request, batch_id: str):
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    token_data = await verify_role_fn(request)
+    if not _is_privileged_role(token_data):
+        raise HTTPException(status_code=403, detail="Access denied: admin or expert role required")
     try:
         analytics = supply_chain_blockchain.get_supply_chain_analytics(batch_id)
         return {"success": True, "data": analytics}
@@ -330,9 +344,12 @@ async def get_analytics(batch_id: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/marketplace")
-async def get_marketplace():
+async def get_marketplace(request: Request):
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    await verify_role_fn(request)
     try:
         marketplace = supply_chain_blockchain.get_certified_products()
         return {"success": True, "marketplace": marketplace}
@@ -341,9 +358,14 @@ async def get_marketplace():
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/stats")
-async def get_stats():
+async def get_stats(request: Request):
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    token_data = await verify_role_fn(request)
+    if not _is_privileged_role(token_data):
+        raise HTTPException(status_code=403, detail="Access denied: admin or expert role required")
     try:
         stats = {
             "total_records": supply_chain_blockchain.get_blockchain_record_count(),
