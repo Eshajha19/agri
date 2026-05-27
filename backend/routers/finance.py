@@ -74,8 +74,10 @@ async def _has_permission(request: Request, permission) -> bool:
     try:
         await rbac_manager.raise_if_unauthorized(request, [permission], require_all=False)
         return True
-    except Exception:
-        return False
+    except HTTPException as e:
+        if e.status_code == 403:
+            return False
+        raise
 
 
 @router.post("/analyze")
