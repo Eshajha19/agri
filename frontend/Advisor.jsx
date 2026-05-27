@@ -11,6 +11,7 @@ import IrrigationGuidance from "./IrrigationGuidance";
 import CropProfitCalculator from "./CropProfitCalculator";
 import FarmingMap from "./FarmingMap";
 import FertilizerRecommendation from "./FertilizerRecommendation";
+import SoilImprovementPath from "./SoilImprovementPath";
 import AgriMarketplace from "./AgriMarketplace";
 import AgriLMS from "./AgriLMS";
 import BankReports from "./BankReports";
@@ -222,6 +223,7 @@ showGreenPractices,
   const [locationQuery, setLocationQuery] = useState("");
   const [showFarmIntelligenceGraph, setShowFarmIntelligenceGraph] = useState(false);
   const [showFertilizerOveruseGuide, setShowFertilizerOveruseGuide] = useState(false);
+  const [showSoilImprovementPath, setShowSoilImprovementPath] = useState(false);
 
   // ── Shared weather snapshot integration ──────────────────────────────────
   // Subscribe to the global WEATHER_SNAPSHOT_EVENT so any fetch by
@@ -865,6 +867,15 @@ showGreenPractices,
             </div>
             <h3><span className="notranslate">Farming Map</span></h3>
             <p>View your fields, weather data, and crop locations on an interactive map.</p>
+          </div>
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowSoilImprovementPath(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSoilImprovementPath(true); }} aria-label="Soil Improvement Learning Path: Seasonal, practical steps" style={{ border: '2px solid #065f46', background: 'rgba(6, 95, 70, 0.03)' }}>
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(6, 95, 70, 0.08)', color: '#065f46' }}>
+              <Leaf size={32} strokeWidth={2} />
+            </div>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#065f46', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>PATH</div>
+            <h3><span className="notranslate">Soil Improvement Learning Path</span></h3>
+            <p>Season-by-season practical guide to raise soil organic matter and correct fertility.</p>
           </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/calendar")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/calendar"); }} aria-label="Smart Crop Reminder Automation: Task reminders and exports">
@@ -1719,6 +1730,15 @@ showGreenPractices,
           weatherData={weatherSnapshot}
           onClose={() => setShowFarmIntelligenceGraph(false)}
         />
+      )}
+
+      {showSoilImprovementPath && (
+        <div key="modal-soil-improvement" className="weather-overlay" onClick={() => setShowSoilImprovementPath(false)}>
+          <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1000px', width: '95vw' }}>
+            <button className="close-btn" onClick={() => setShowSoilImprovementPath(false)} aria-label="Close soil improvement guide"><X /></button>
+            <SoilImprovementPath onClose={() => setShowSoilImprovementPath(false)} />
+          </div>
+        </div>
       )}
 
       {showExpertDirectory && (
