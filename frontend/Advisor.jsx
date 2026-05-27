@@ -11,6 +11,7 @@ import IrrigationGuidance from "./IrrigationGuidance";
 import CropProfitCalculator from "./CropProfitCalculator";
 import FarmingMap from "./FarmingMap";
 import FertilizerRecommendation from "./FertilizerRecommendation";
+import SeasonalFarmingStrategyGuide from "./SeasonalFarmingStrategyGuide";
 import AgriMarketplace from "./AgriMarketplace";
 import AgriLMS from "./AgriLMS";
 import BankReports from "./BankReports";
@@ -222,6 +223,7 @@ showGreenPractices,
   const [locationQuery, setLocationQuery] = useState("");
   const [showFarmIntelligenceGraph, setShowFarmIntelligenceGraph] = useState(false);
   const [showFertilizerOveruseGuide, setShowFertilizerOveruseGuide] = useState(false);
+  const [showSeasonalStrategy, setShowSeasonalStrategy] = useState(false);
 
   // ── Shared weather snapshot integration ──────────────────────────────────
   // Subscribe to the global WEATHER_SNAPSHOT_EVENT so any fetch by
@@ -892,6 +894,15 @@ showGreenPractices,
             <p>Auto-generate sowing, irrigation, spraying, and harvest reminders with calendar export and SMS drafts.</p>
           </div>
 
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowSeasonalStrategy(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSeasonalStrategy(true); }} aria-label="Seasonal Farming Strategy Guide: Kharif, Rabi, Zaid" style={{ border: '2px solid #0b5e3b', background: 'rgba(11, 94, 59, 0.03)' }}>
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(11, 94, 59, 0.08)', color: '#0b5e3b' }}>
+              <Calendar size={32} strokeWidth={2} />
+            </div>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#0b5e3b', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>SEASONS</div>
+            <h3><span className="notranslate">Seasonal Farming Strategy Guide</span></h3>
+            <p>Practical strategies for Kharif, Rabi, and Zaid seasons — timing, irrigation, and pest tips.</p>
+          </div>
+
           <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/share-feedback")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/share-feedback"); }} aria-label="Share Feedback: Help us improve">
             <div className="icon" aria-hidden="true">
               <MessageSquare size={32} strokeWidth={2} />
@@ -1487,6 +1498,15 @@ showGreenPractices,
           <div className="soil-analysis-popup" onClick={(e) => e.stopPropagation()}>
             <button className="close-btn" onClick={() => setShowSoilGuide(false)} style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 10 }}><X /></button>
             <SoilGuide userData={userData} />
+          </div>
+        </div>
+      )}
+
+      {showSeasonalStrategy && (
+        <div key="modal-seasonal-strategy" className="weather-overlay" onClick={() => setShowSeasonalStrategy(false)}>
+          <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1000px', width: '95vw' }}>
+            <button className="close-btn" onClick={() => setShowSeasonalStrategy(false)} aria-label="Close seasonal strategy"><X /></button>
+            <SeasonalFarmingStrategyGuide onClose={() => setShowSeasonalStrategy(false)} />
           </div>
         </div>
       )}

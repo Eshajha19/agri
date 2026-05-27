@@ -1,0 +1,12 @@
+.sfs-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:1300;padding:20px}
+.sfs-modal{background:#fff;max-width:980px;width:100%;border-radius:10px;box-shadow:0 14px 40px rgba(2,6,23,0.4);overflow:auto;max-height:92vh}
+.sfs-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #eef2f7}
+.sfs-close{background:transparent;border:0;font-size:18px;cursor:pointer}
+.sfs-body{display:flex;gap:12px;padding:16px}
+.sfs-nav{width:220px;display:flex;flex-direction:column;gap:8px;padding-right:12px;border-right:1px solid #f1f5f9}
+.sfs-nav-btn{background:transparent;border:1px solid #e6eef0;padding:8px;border-radius:6px;text-align:left;cursor:pointer}
+.sfs-nav-btn.active{background:#065f46;color:white;border-color:#065f46}
+.sfs-main{flex:1;padding-left:12px}
+.sfs-summary{color:#475569}
+.sfs-primary{background:#065f46;color:white;border:0;padding:8px 12px;border-radius:6px;cursor:pointer}
+@media (max-width:900px){.sfs-body{flex-direction:column}.sfs-nav{width:100%;flex-direction:row;overflow-x:auto;border-right:none;border-bottom:1px solid #f1f5f9;padding-bottom:8px}.sfs-nav-btn{min-width:160px}}

@@ -239,6 +239,20 @@ How to access: Open the Advisor page and choose the "Farming Mistakes Awareness"
 
 Acceptance criteria:
 
+---
+
+## 🌦️ New Feature: Seasonal Farming Strategy Guide
+
+Provides concise, actionable strategies for each Indian cropping season — Kharif, Rabi, and Zaid — covering timing, irrigation tips, nutrient planning, pest monitoring, and high-level crop choices.
+
+How to access: Open the Advisor page and select the "Seasonal Farming Strategy Guide" card to open a modal with season-specific checklists and practical actions.
+
+Acceptance criteria:
+- Kharif, Rabi, and Zaid sections are present with at least 4 practical strategy points each.
+- Guide opens as a modal from the Advisor dashboard and is keyboard-accessible.
+- Content is concise and actionable for smallholder farmers.
+
+
 - Common mistakes are listed with an explanation of the problem.
 - Each mistake includes clear, actionable prevention steps.
 - Image examples for visual recognition.
