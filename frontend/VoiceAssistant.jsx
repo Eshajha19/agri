@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import './VoiceAssistant.css';
 import apiClient from './lib/apiClient';
+import { Mic, MicOff, Wheat, User, Bot, Zap, AlertTriangle, Trash2, Lightbulb, Smartphone, Loader2, Send, CheckCircle } from 'lucide-react';
 
 const VoiceAssistant = () => {
   const [isListening, setIsListening] = useState(false);
@@ -188,7 +189,7 @@ const VoiceAssistant = () => {
   return (
     <div className="voice-assistant-container">
       <div className="voice-assistant-header">
-        <h1>🎤 Voice Assistant</h1>
+        <h1><Mic size={28} aria-hidden="true" /> Voice Assistant</h1>
         <p className="subtitle">Speak in your language • Get instant guidance</p>
       </div>
 
@@ -211,7 +212,7 @@ const VoiceAssistant = () => {
         </div>
         <div className="status-item">
           <span className={`status-badge ${isListening ? 'listening' : 'idle'}`}>
-            {isListening ? '🎙️ Listening...' : '✓ Ready'}
+            {isListening ? <><MicOff size={14} /> Listening...</> : <><CheckCircle size={14} /> Ready</>}
           </span>
         </div>
         {sessionId && (
@@ -227,7 +228,7 @@ const VoiceAssistant = () => {
       <div className="messages-container">
         {messages.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-icon">🌾</div>
+            <div className="empty-icon" aria-hidden="true"><Wheat size={48} /></div>
             <h3>Welcome to Voice Assistant!</h3>
             <p>Ask me about:</p>
             <ul className="suggestions">
@@ -244,7 +245,7 @@ const VoiceAssistant = () => {
             {messages.map((msg) => (
               <div key={msg.id} className={`message message-${msg.type}`}>
                 <div className="message-avatar">
-                  {msg.type === 'user' ? '👨‍🌾' : '🤖'}
+                  {msg.type === 'user' ? <User size={18} aria-label="User" /> : <Bot size={18} aria-label="Assistant" />}
                 </div>
                 <div className="message-content">
                   <p>{msg.text}</p>
@@ -254,7 +255,7 @@ const VoiceAssistant = () => {
                       <span className="intent-badge">{msg.intent.replace(/_/g, ' ')}</span>
                     )}
                     {msg.offline && (
-                      <span className="offline-badge">⚡ Offline</span>
+                      <span className="offline-badge"><Zap size={12} aria-hidden="true" /> Offline</span>
                     )}
                   </div>
                 </div>
@@ -262,7 +263,7 @@ const VoiceAssistant = () => {
             ))}
             {isLoading && (
               <div className="message message-assistant">
-                <div className="message-avatar">🤖</div>
+                <div className="message-avatar" aria-hidden="true"><Bot size={18} /></div>
                 <div className="message-content">
                   <div className="loading-dots">
                     <span></span>
@@ -280,7 +281,7 @@ const VoiceAssistant = () => {
       {/* Error Display */}
       {error && (
         <div className="error-message">
-          <span>⚠️ {error}</span>
+          <span><AlertTriangle size={16} aria-hidden="true" /> {error}</span>
           <button onClick={() => setError(null)} className="close-error">×</button>
         </div>
       )}
@@ -314,14 +315,14 @@ const VoiceAssistant = () => {
               title={isListening ? 'Stop listening' : 'Start listening'}
               disabled={isLoading}
             >
-              🎤
+              <Mic size={20} />
             </button>
             <button
               type="submit"
               className="send-button"
               disabled={!inputText.trim() || isLoading}
             >
-              {isLoading ? '⏳' : '📤'}
+              {isLoading ? <Loader2 size={18} className="spin" aria-hidden="true" /> : <Send size={18} aria-hidden="true" />}
             </button>
             {messages.length > 0 && (
               <button
@@ -330,7 +331,7 @@ const VoiceAssistant = () => {
                 className="clear-button"
                 title="Clear chat history"
               >
-                🗑️
+                <Trash2 size={18} aria-hidden="true" />
               </button>
             )}
           </div>
@@ -339,8 +340,8 @@ const VoiceAssistant = () => {
 
       {/* Info Footer */}
       <div className="voice-footer">
-        <p>💡 Tip: For best results, speak clearly and naturally in your regional language</p>
-        <p>📱 Works offline with pre-loaded knowledge base</p>
+        <p><Lightbulb size={14} aria-hidden="true" /> Tip: For best results, speak clearly and naturally in your regional language</p>
+        <p><Smartphone size={14} aria-hidden="true" /> Works offline with pre-loaded knowledge base</p>
       </div>
     </div>
   );
