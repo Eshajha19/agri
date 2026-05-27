@@ -264,6 +264,24 @@ Acceptance criteria:
 - Image examples for visual recognition.
 - Responsive UI and no console errors in Advisor view.
 
+## 🔬 New Feature: Crop Disease Lifecycle Explorer
+
+Interactive explorer that shows how a representative disease progresses through the crop lifecycle for common crops. Key capabilities:
+
+- Stage visuals for Early → Mid → Severe.
+- Short progression explanation to help users understand spread and risk factors.
+- Prevention timing suggestions (when to scout, when to apply protectants).
+- Crop-wise filtering (select crop to see disease examples relevant to that crop).
+
+How to access: Open the Advisor page and select the "Crop Disease Lifecycle Explorer" card to open the modal.
+
+Acceptance criteria:
+
+- Visual examples for early, mid, and severe stages.
+- Clear progression and timing guidance.
+- Crop filter selects appropriate disease examples.
+- Responsive UI and no console errors.
+
 ## 🖼️ New Feature: Crop Growth Stage Visual Guide
 
 A responsive in-app visual guide that walks farmers through the crop lifecycle: Seed → Sprout → Growth → Harvest. The guide includes stage-wise care instructions, image-based examples for visual learning, and a lightweight lightbox for inspecting images.

@@ -40,6 +40,7 @@ import FarmIntelligenceGraph from "./FarmIntelligenceGraph";
 import WeatherFarmingImpactGuide from "./WeatherFarmingImpactGuide";
 import CropGrowthStageGuide from "./CropGrowthStageGuide";
 import FarmingMistakesGuide from "./FarmingMistakesGuide";
+import CropDiseaseLifecycleExplorer from "./CropDiseaseLifecycleExplorer";
 import LastUpdated from "./LastUpdated";
 import ExpertDirectory from "./components/ExpertDirectory";
 import TeleConsultation from "./components/TeleConsultation";
@@ -226,6 +227,7 @@ showGreenPractices,
   const [showWeatherImpactGuide, setShowWeatherImpactGuide] = useState(false);
   const [showCropGrowthGuide, setShowCropGrowthGuide] = useState(false);
   const [showFarmingMistakesGuide, setShowFarmingMistakesGuide] = useState(false);
+  const [showDiseaseLifecycle, setShowDiseaseLifecycle] = useState(false);
 
   // ── Shared weather snapshot integration ──────────────────────────────────
   // Subscribe to the global WEATHER_SNAPSHOT_EVENT so any fetch by
@@ -717,6 +719,14 @@ showGreenPractices,
             <div className="icon" aria-hidden="true"><Sprout size={32} /></div>
             <h3><span className="notranslate">Crop Disease Detection</span></h3>
             <p>Upload plant images to detect diseases and get remedies.</p>
+          </div>
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowDiseaseLifecycle(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowDiseaseLifecycle(true); }} aria-label="Crop Disease Lifecycle Explorer: View progression and prevention" style={{ border: '2px solid #f97316', background: 'rgba(249, 115, 22, 0.03)' }}>
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(249, 115, 22, 0.08)', color: '#f97316' }}>
+              <Bug size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Crop Disease Lifecycle Explorer</span></h3>
+            <p>See disease progression (Early → Mid → Severe) with prevention timing and crop-wise filtering.</p>
           </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFertilizerPopup(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFertilizerPopup(true); }} aria-label="Fertilizer Recommendations: Plan your nutrition">
@@ -1251,6 +1261,15 @@ showGreenPractices,
         <div key="modal-weather" className="weather-overlay" onClick={() => setShowWeather(false)}>
           <div className="weather-popup" onClick={(e)=>e.stopPropagation()}>
             <WeatherCard onClose={() => setShowWeather(false)} />
+          </div>
+        </div>
+      )}
+
+      {showDiseaseLifecycle && (
+        <div key="modal-disease-lifecycle" className="weather-overlay" onClick={() => setShowDiseaseLifecycle(false)}>
+          <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1100px', width: '95vw' }}>
+            <button className="close-btn" onClick={() => setShowDiseaseLifecycle(false)} aria-label="Close disease lifecycle explorer"><X /></button>
+            <CropDiseaseLifecycleExplorer onClose={() => setShowDiseaseLifecycle(false)} />
           </div>
         </div>
       )}
