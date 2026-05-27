@@ -84,13 +84,14 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
                 f"Duration: {duration:.2f}s"
             )
 
-            # Half-open → closed on success
+            # Half-open → closed on success; otherwise retain failure
+            # timestamps so the rolling window can track instability.
             if self._circuit_state.get(endpoint) == self._HALF_OPEN:
                 logger.info("Circuit breaker closed for %s — probe succeeded", endpoint)
+                self._failure_timestamps.pop(endpoint, None)
+                self._circuit_open_since.pop(endpoint, None)
 
             self._circuit_state[endpoint] = self._CLOSED
-            self._failure_timestamps.pop(endpoint, None)
-            self._circuit_open_since.pop(endpoint, None)
 
             # Add request ID to response headers
             response.headers["X-Request-ID"] = request_id
@@ -226,6 +227,16 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
 
         # Append this failure
         self._failure_timestamps[endpoint].append(now)
+
+        # Half-open → open on the first probe failure (one strike, not five)
+        if self._circuit_state.get(endpoint) == self._HALF_OPEN:
+            self._circuit_state[endpoint] = self._OPEN
+            self._circuit_open_since[endpoint] = now
+            logger.warning(
+                "Circuit breaker re-opened for %s — probe failed",
+                endpoint,
+            )
+            return
 
         # Open the circuit if threshold reached within the rolling window
         if len(self._failure_timestamps[endpoint]) >= self._FAILURE_THRESHOLD:
