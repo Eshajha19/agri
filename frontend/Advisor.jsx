@@ -37,6 +37,7 @@ import EquipmentManagement from "./EquipmentManagement";
 import CropQualityGrading from "./CropQualityGrading";
 import SustainabilityAnalytics from "./SustainabilityAnalytics";
 import FarmIntelligenceGraph from "./FarmIntelligenceGraph";
+import FertilizerOveruseGuide from "./FertilizerOveruseGuide";
 import LastUpdated from "./LastUpdated";
 import ExpertDirectory from "./components/ExpertDirectory";
 import TeleConsultation from "./components/TeleConsultation";
@@ -220,6 +221,7 @@ showGreenPractices,
   const [showYieldHistory, setShowYieldHistory] = useState(false);
   const [locationQuery, setLocationQuery] = useState("");
   const [showFarmIntelligenceGraph, setShowFarmIntelligenceGraph] = useState(false);
+  const [showFertilizerOveruseGuide, setShowFertilizerOveruseGuide] = useState(false);
 
   // ── Shared weather snapshot integration ──────────────────────────────────
   // Subscribe to the global WEATHER_SNAPSHOT_EVENT so any fetch by
@@ -725,6 +727,15 @@ showGreenPractices,
             <div className="icon" aria-hidden="true"><FlaskConical size={32} /></div>
             <h3><span className="notranslate">Fertilizer Recommendations</span></h3>
             <p>Get a crop-aware fertilizer plan based on soil pH and nutrient status.</p>
+          </div>
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFertilizerOveruseGuide(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFertilizerOveruseGuide(true); }} aria-label="Fertilizer Overuse Awareness: Effects, symptoms, recovery" style={{ border: '2px solid #ef4444', background: 'rgba(239, 68, 68, 0.03)' }}>
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(239, 68, 68, 0.08)', color: '#ef4444' }}>
+              <FlaskConical size={32} strokeWidth={2} />
+            </div>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#ef4444', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>AWARE</div>
+            <h3><span className="notranslate">Fertilizer Overuse Awareness</span></h3>
+            <p>Understand soil degradation, crop symptoms, and recovery methods after fertilizer misuse.</p>
           </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowOfflineStatus(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowOfflineStatus(true); }} aria-label="Offline Access: PWA Enabled">
@@ -1271,6 +1282,15 @@ showGreenPractices,
           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1100px', width: '95vw' }}>
             <button className="close-btn" onClick={() => setShowCropGrowthGuide(false)} aria-label="Close crop growth guide"><X /></button>
             <CropGrowthStageGuide onClose={() => setShowCropGrowthGuide(false)} />
+          </div>
+        </div>
+      )}
+
+      {showFertilizerOveruseGuide && (
+        <div key="modal-fertilizer-overuse" className="weather-overlay" onClick={() => setShowFertilizerOveruseGuide(false)}>
+          <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1000px', width: '95vw' }}>
+            <button className="close-btn" onClick={() => setShowFertilizerOveruseGuide(false)} aria-label="Close fertilizer overuse guide"><X /></button>
+            <FertilizerOveruseGuide onClose={() => setShowFertilizerOveruseGuide(false)} />
           </div>
         </div>
       )}
