@@ -323,8 +323,8 @@ async def rag_query(request: Request, body: RAGQuery):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"RAG error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("RAG query failed: %s", e)
+        raise HTTPException(status_code=500, detail="RAG query failed")
 
 
 @router.post("/simulate-climate")
@@ -402,8 +402,8 @@ async def simulate_climate(request: Request, data: SimulationRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Climate simulation error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("Climate simulation failed: %s", e)
+        raise HTTPException(status_code=500, detail="Climate simulation failed")
 
 
 @router.post("/seeds/verify")
@@ -418,5 +418,5 @@ async def verify_seed(request: Request, data: SeedVerifyRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Seed error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("Seed verification failed: %s", e)
+        raise HTTPException(status_code=500, detail="Seed verification failed")

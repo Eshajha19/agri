@@ -120,7 +120,8 @@ async def subscribe_whatsapp(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("WhatsApp subscription failed: %s", e)
+        raise HTTPException(status_code=500, detail="WhatsApp subscription failed")
 
 
 @router.post("/whatsapp/trigger-alert")
@@ -162,7 +163,8 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Alert broadcast failed: %s", e)
+        raise HTTPException(status_code=500, detail="Alert broadcast failed")
 
 
 @router.post("/whatsapp/webhook")
