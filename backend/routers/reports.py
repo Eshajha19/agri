@@ -9,7 +9,7 @@ import hashlib
 import io
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -48,13 +48,6 @@ def _parse_acres(value: str) -> float:
     if not cleaned:
         raise ValueError("Value is empty")
     return float(cleaned)
-
-
-class ClientErrorReport(BaseModel):
-    message: str = Field(..., min_length=1, max_length=500)
-    source: Optional[str] = Field(default=None, max_length=200)
-    stack: Optional[str] = Field(default=None, max_length=2000)
-    level: str = Field(default="error", max_length=20)
 
 
 class ReportRequest(BaseModel):
@@ -132,7 +125,7 @@ def _build_pdf(data: ReportRequest, signature_hex: str, cert_id: str) -> bytes:
     c.setFillColor(colors.HexColor("#1B5E20"))
     c.setFont("Helvetica-Bold", 10)
     c.drawRightString(width - inch, height - 95, f"Certificate ID: {cert_id}")
-    c.drawRightString(width - inch, height - 110, f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}")
+    c.drawRightString(width - inch, height - 110, f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
 
     # ── Section: Farmer Details ──────────────────────────────────────────────
     y = height - 150
@@ -218,7 +211,7 @@ def _sign_report(private_key: Ed25519PrivateKey, data: ReportRequest, cert_id: s
 
 def _make_cert_id(data: ReportRequest) -> str:
     """Derive a short, deterministic certificate ID from the report fields."""
-    raw = f"{data.name}|{data.crop}|{data.season}|{datetime.utcnow().strftime('%Y%m%d')}"
+    raw = f"{data.name}|{data.crop}|{data.season}|{datetime.now(timezone.utc).strftime('%Y%m%d')}"
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:10].upper()
     return f"CERT-{digest}"
 
@@ -277,22 +270,7 @@ async def generate_signed_report(request: Request, data: ReportRequest):
     )
 
 
-@router.post("/log-error")
-async def log_error(request: Request, body: ClientErrorReport):
-    if sanitise_log_field_fn is None or logger_instance is None:
-        raise HTTPException(status_code=500, detail="Not initialized")
-    try:
-        message = sanitise_log_field_fn(body.message)
-        source = sanitise_log_field_fn(body.source or "")
-        level = sanitise_log_field_fn(body.level).upper()
-        logger_instance.info(f"Client [{level}] from {source}: {message}")
-        return {"success": True, "message": "Error logged"}
-    except Exception as e:
-        logger.error(f"Log error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to log error")
 
-
-# ---------------------------------------------------------------------------
 # Admin: role assignment with custom-claim sync
 # ---------------------------------------------------------------------------
 

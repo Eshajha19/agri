@@ -3,7 +3,8 @@ from typing import List
 
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.security import HTTPBearer
 from pydantic import BaseModel
 from sklearn.preprocessing import MinMaxScaler
 
@@ -12,6 +13,8 @@ SCALER_PATH = "lstm_yield_model.scaler.npz"
 SEQ_LENGTH = 5
 
 class PredictionRequest(BaseModel):
+    # Expecting sequential data for LSTM
+    # e.g., list of past 'seq_length' values
     features: List[List[float]]
 
 class PredictionResponse(BaseModel):
@@ -96,7 +99,7 @@ def load_model_and_scaler(
 
 app = FastAPI(
     title="LSTM Yield Inference API",
-    description="Simple LSTM inference service for yield forecasting.",
+    description="Dedicated inference server for LSTM yield model, loading model once on startup to avoid latency.",
     version="1.0.0",
 )
 
@@ -144,5 +147,4 @@ def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-
-    uvicorn.run("lstm_yield_model:app", host="0.0.0.0", port=8001, reload=False)
+    uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -8,14 +8,14 @@ import {
   FaTint,
   FaSeedling,
 } from "react-icons/fa";
+import { Wheat, Carrot, Leaf, Banana, Apple, Citrus, Grape, Salad, Bean, Cherry } from "lucide-react";
 import "./CropDiseaseAwareness.css";
 
 const diseaseData = [
   {
-    id: 1,
     name: "Late Blight",
     crop: "Potato & Tomato",
-    icon: "🥔",
+    icon: <Carrot size={40} aria-hidden="true" />,
     cause: "Caused by the fungus-like pathogen Phytophthora infestans.",
     symptoms:
       "Water-soaked spots on leaves that turn brown or black. White fungal growth appears under leaves in humid weather. Tubers and fruits develop brown decay.",
@@ -25,10 +25,9 @@ const diseaseData = [
       "Apply copper fungicides and remove infected plants immediately. Use resistant varieties where possible.",
   },
   {
-    id: 2,
     name: "Rice Blast",
     crop: "Rice",
-    icon: "🌾",
+    icon: <Wheat size={40} aria-hidden="true" />,
     cause: "Caused by the fungus Magnaporthe oryzae.",
     symptoms:
       "Diamond-shaped lesions with gray centers on leaves. Neck rot leads to grain failure and weak stems.",
@@ -38,10 +37,9 @@ const diseaseData = [
       "Spray Tricyclazole or Carbendazim. Destroy infected crop residues after harvest.",
   },
   {
-    id: 3,
     name: "Wheat Rust",
     crop: "Wheat",
-    icon: "🍞",
+    icon: <Wheat size={40} aria-hidden="true" />,
     cause: "Fungal infection spread by airborne spores.",
     symptoms:
       "Orange-red powdery pustules on leaves and stems. Severe infection causes yellowing and shriveled grains.",
@@ -51,10 +49,9 @@ const diseaseData = [
       "Apply systemic fungicides like Propiconazole or Tebuconazole.",
   },
   {
-    id: 4,
     name: "Black Rot",
     crop: "Cabbage & Cauliflower",
-    icon: "🥬",
+    icon: <Salad size={40} aria-hidden="true" />,
     cause: "Bacterial disease caused by Xanthomonas campestris.",
     symptoms:
       "Yellow V-shaped lesions on leaves with blackened veins.",
@@ -64,10 +61,9 @@ const diseaseData = [
       "Use copper sprays and remove infected debris from fields.",
   },
   {
-    id: 5,
     name: "Powdery Mildew",
     crop: "Peas & Cucurbits",
-    icon: "🎃",
+    icon: <Bean size={40} aria-hidden="true" />,
     cause: "Fungal disease thriving in warm dry climates.",
     symptoms:
       "White powdery growth on leaves and stems. Leaves curl and dry prematurely.",
@@ -77,10 +73,9 @@ const diseaseData = [
       "Apply sulfur fungicides, neem oil, or baking soda spray.",
   },
   {
-    id: 6,
     name: "Citrus Canker",
     crop: "Citrus Fruits",
-    icon: "🍋",
+    icon: <Citrus size={40} aria-hidden="true" />,
     cause: "Bacterial disease spread by wind and rain.",
     symptoms:
       "Raised corky lesions on fruits, leaves, and branches with yellow halos.",
@@ -93,10 +88,9 @@ const diseaseData = [
   /* NEW DISEASE CARDS */
 
   {
-    id: 7,
     name: "Downy Mildew",
     crop: "Grapes & Vegetables",
-    icon: "🍇",
+    icon: <Grape size={40} aria-hidden="true" />,
     cause: "Fungal-like pathogen favored by cool, humid conditions.",
     symptoms:
       "Yellow patches on upper leaf surfaces with gray mold underneath.",
@@ -106,10 +100,9 @@ const diseaseData = [
       "Apply Mancozeb or Metalaxyl-based fungicides.",
   },
   {
-    id: 8,
     name: "Bacterial Leaf Blight",
     crop: "Rice",
-    icon: "🌱",
+    icon: <Leaf size={40} aria-hidden="true" />,
     cause: "Bacterial infection caused by Xanthomonas oryzae.",
     symptoms:
       "Leaves turn yellow from tips downward and dry out.",
@@ -119,10 +112,9 @@ const diseaseData = [
       "Apply copper bactericides and avoid excessive nitrogen.",
   },
   {
-    id: 9,
     name: "Anthracnose",
     crop: "Chili & Mango",
-    icon: "🌶️",
+    icon: <Cherry size={40} aria-hidden="true" />,
     cause: "Fungal disease common during rainy weather.",
     symptoms:
       "Dark sunken lesions on fruits, leaves, and stems.",
@@ -132,10 +124,9 @@ const diseaseData = [
       "Use fungicides such as Chlorothalonil or Copper Oxychloride.",
   },
   {
-    id: 10,
     name: "Root Rot",
     crop: "Vegetables & Pulses",
-    icon: "🥕",
+    icon: <Carrot size={40} aria-hidden="true" />,
     cause: "Soil-borne fungi thriving in waterlogged soils.",
     symptoms:
       "Roots become brown and mushy. Plants wilt despite watering.",
@@ -145,10 +136,9 @@ const diseaseData = [
       "Treat soil with fungicides and remove infected plants.",
   },
   {
-    id: 11,
     name: "Mosaic Virus",
     crop: "Tomato & Tobacco",
-    icon: "🍅",
+    icon: <Apple size={40} aria-hidden="true" />,
     cause: "Virus spread through insects and infected tools.",
     symptoms:
       "Mottled yellow-green leaf patterns with stunted growth.",
@@ -158,10 +148,9 @@ const diseaseData = [
       "Remove infected plants immediately to stop spread.",
   },
   {
-    id: 12,
     name: "Stem Borer",
     crop: "Rice & Maize",
-    icon: "🌽",
+    icon: <Wheat size={40} aria-hidden="true" />,
     cause: "Insect pest larvae boring into stems.",
     symptoms:
       "Dead hearts in young plants and hollow stems.",
@@ -171,10 +160,9 @@ const diseaseData = [
       "Apply suitable insecticides and destroy crop residues.",
   },
   {
-    id: 13,
     name: "Leaf Curl Disease",
     crop: "Chili & Tomato",
-    icon: "🍃",
+    icon: <Leaf size={40} aria-hidden="true" />,
     cause: "Virus transmitted by whiteflies.",
     symptoms:
       "Leaves curl upward and plants become stunted.",
@@ -184,10 +172,9 @@ const diseaseData = [
       "Spray neem oil and remove infected plants.",
   },
   {
-    id: 14,
     name: "Wilt Disease",
     crop: "Banana & Tomato",
-    icon: "🍌",
+    icon: <Banana size={40} aria-hidden="true" />,
     cause: "Soil-borne fungal infection blocking water transport.",
     symptoms:
       "Sudden wilting and yellowing despite adequate moisture.",
@@ -197,10 +184,9 @@ const diseaseData = [
       "Apply bio-fungicides and remove infected plants.",
   },
   {
-    id: 15,
     name: "Scab Disease",
     crop: "Apple & Potato",
-    icon: "🍎",
+    icon: <Apple size={40} aria-hidden="true" />,
     cause: "Fungal infection affecting fruits and tubers.",
     symptoms:
       "Rough corky spots appear on fruit or potato skin.",
@@ -210,10 +196,9 @@ const diseaseData = [
       "Apply preventive fungicides during early growth stages.",
   },
   {
-    id: 16,
     name: "Fruit Rot",
     crop: "Tomato & Papaya",
-    icon: "🍍",
+    icon: <Apple size={40} aria-hidden="true" />,
     cause: "Fungal pathogens attacking ripening fruits.",
     symptoms:
       "Soft watery decay with foul smell on fruits.",
