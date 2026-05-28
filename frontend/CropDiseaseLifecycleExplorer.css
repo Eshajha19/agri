@@ -1,25 +1,36 @@
-.cdl-overlay{position:fixed;inset:0;background:rgba(2,6,23,0.6);display:flex;align-items:center;justify-content:center;z-index:1200;padding:18px}
-.cdl-modal{background:#fff;max-width:1100px;width:100%;max-height:94vh;overflow:auto;border-radius:10px;box-shadow:0 10px 40px rgba(2,6,23,0.6);position:relative}
-.cdl-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #eef2f7}
-.cdl-close{background:transparent;border:0;font-size:18px;cursor:pointer}
-.cdl-controls{padding:12px 18px;border-bottom:1px solid #f1f5f9}
-.cdl-controls select{margin-left:8px;padding:6px;border-radius:6px}
-.cdl-body{display:flex;gap:16px;padding:16px}
-.cdl-stages{width:220px;display:flex;flex-direction:column;gap:10px}
-.cdl-stage-btn{display:flex;gap:8px;align-items:center;border:0;background:transparent;padding:8px;cursor:pointer;text-align:left}
-.cdl-stage-btn img{width:72px;height:56px;object-fit:cover;border-radius:6px}
-.cdl-stage-btn.active{outline:2px solid #f59e0b;border-radius:6px}
-.cdl-detail{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:14px}
-.cdl-visual img{width:100%;height:auto;border-radius:8px;object-fit:cover}
-.cdl-note{font-size:0.95rem;color:#475569;margin-top:8px}
-.cdl-info h3{margin-top:0}
-.cdl-prevention ul{padding-left:18px}
-.cdl-primary{background:#10b981;color:#fff;border:0;padding:8px 12px;border-radius:6px;cursor:pointer}
-.cdl-lightbox{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(2,6,23,0.85);z-index:1300}
-.cdl-lightbox img{max-width:95%;max-height:90%;border-radius:6px}
+.cdl-overlay{position:fixed;inset:0;background:rgba(2,6,23,0.6);display:flex;align-items:center;justify-content:center;z-index:1200;padding:18px;animation:cdlFadeIn 0.2s ease-out}
+@keyframes cdlFadeIn{from{opacity:0}to{opacity:1}}
+.cdl-modal{background:#fff;max-width:900px;width:100%;max-height:92vh;overflow:auto;border-radius:12px;box-shadow:0 20px 60px rgba(2,6,23,0.4);position:relative}
+.cdl-header{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid #eef2f7;background:linear-gradient(135deg,#fef2f2,#fff5f5)}
+.cdl-header h2{margin:0;font-size:1.35rem;font-weight:600;color:#1e293b}
+.cdl-close{background:transparent;border:0;font-size:22px;cursor:pointer;color:#64748b;width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;transition:background 0.15s,color 0.15s}
+.cdl-close:hover{background:#e2e8f0;color:#1e293b}
+.cdl-controls{padding:14px 22px;border-bottom:1px solid #f1f5f9}
+.cdl-controls label{color:#334155;font-weight:500}
+.cdl-controls select{margin-left:8px;padding:6px 10px;border-radius:6px;border:1px solid #e2e8f0}
+.cdl-body{display:flex;gap:20px;padding:20px}
+.cdl-stages{width:240px;display:flex;flex-direction:column;gap:6px}
+.cdl-stage-btn{display:flex;gap:10px;align-items:center;border:0;background:transparent;padding:12px 14px;cursor:pointer;text-align:left;border-radius:8px;transition:all 0.2s;width:100%}
+.cdl-icon{font-size:1.5rem}
+.cdl-stage-btn span:last-child{font-size:0.925rem;color:#334155;font-weight:500}
+.cdl-stage-btn:hover{background:#f8fafc}
+.cdl-stage-btn.active{background:linear-gradient(135deg,#e0f2fe,#f0f9ff);outline:2px solid #0ea5a4}
+.cdl-detail{flex:1;display:flex;flex-direction:column;gap:16px}
+.cdl-detail-icon{font-size:5rem;align-self:center;margin:20px 0}
+.cdl-note{color:#475569;line-height:1.5;margin-bottom:16px}
+.cdl-info h3{margin-top:0;font-size:1.25rem;color:#1e293b;margin-bottom:8px}
+.cdl-progression p{color:#475569;line-height:1.6;margin-top:4px}
+.cdl-prevention ul{padding-left:20px;margin:0;color:#475569;line-height:1.8}
+.cdl-prevention li{margin-bottom:6px}
+.cdl-actions{margin-top:18px}
+.cdl-primary{background:#0ea5a4;color:white;border:0;padding:10px 20px;border-radius:6px;cursor:pointer;font-weight:500;transition:background 0.2s;min-width:100px}
+.cdl-primary:hover{background:#0d9488}
 
 @media (max-width: 920px){
-  .cdl-detail{grid-template-columns:1fr}
-  .cdl-stages{flex-direction:row;overflow-x:auto;width:100%}
-  .cdl-stage-btn img{width:64px;height:48px}
+  .cdl-body{flex-direction:column}
+  .cdl-stages{width:100%;flex-direction:row;overflow-x:auto;gap:8px;padding-bottom:12px}
+  .cdl-stage-btn{flex-direction:column;min-width:100px;max-width:120px;padding:8px}
+  .cdl-icon{font-size:2rem}
+  .cdl-stage-btn span:last-child{font-size:0.8rem;text-align:center}
+  .cdl-detail-icon{font-size:4rem;margin:12px 0}
 }

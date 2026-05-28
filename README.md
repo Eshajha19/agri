@@ -99,7 +99,7 @@ agri/
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/KGFCH2/agri.git
+git clone https://github.com/Eshajha19/agri.git
 
 ```bash
 cd frontend
