@@ -7,6 +7,9 @@ import numpy as np
 import os
 import hmac
 import hashlib
+import json
+from datetime import datetime
+from pathlib import Path
 
 df = pd.read_csv("Train.csv")
 # Convert SDate to datetime
@@ -15,10 +18,78 @@ df = df.dropna(subset=['SDate'])
 df = df.sort_values('SDate')
 print(df[['SDate', 'ExpYield']].head())
 
-X = df.drop(columns=["FarmID", "category", "State", "District", "Sub-District", "SDate", "HDate", "ExpYield", "geometry"])
+X = df.drop(columns=["FarmID", "category", "State", "District", "Sub-District", "SDate", "HDate", "ExpYield", "geometry"], errors='ignore')
 y = df["ExpYield"]
 
 categorical_cols = ['Crop', 'CNext', 'CLast', 'CTransp', 'IrriType', 'IrriSource', 'Season']
+numeric_cols = [c for c in X.columns if c not in categorical_cols]
+
+# ------------------------------------------------------------------
+# Save feature baseline BEFORE get_dummies so we capture raw values
+# ------------------------------------------------------------------
+def save_feature_baseline(df_raw, cat_cols, num_cols, output_path="feature_baseline.json"):
+    """
+    Saves training feature statistics to feature_baseline.json.
+    Called once after training so the drift detector has a reference
+    distribution to compare against at inference time.
+
+    Numeric features  : mean, std, min, max, up to 500 sample values
+    Categorical features : list of known categories + frequency fractions
+    """
+    numeric_features = {}
+    categorical_features = {}
+
+    for col in num_cols:
+        if col not in df_raw.columns:
+            continue
+        series = df_raw[col].dropna()
+        try:
+            series = series.astype(float)
+        except (TypeError, ValueError):
+            continue
+        sample = series.sample(min(500, len(series)), random_state=42).tolist()
+        numeric_features[col] = {
+            "mean": float(series.mean()),
+            "std": float(series.std()),
+            "min": float(series.min()),
+            "max": float(series.max()),
+            "sample_values": sample,
+        }
+
+    for col in cat_cols:
+        if col not in df_raw.columns:
+            continue
+        vc = df_raw[col].dropna().value_counts(normalize=True)
+        categorical_features[col] = {
+            "categories": vc.index.tolist(),
+            "value_counts": vc.to_dict(),
+        }
+
+    baseline = {
+        "generated_at": datetime.utcnow().isoformat(),
+        "csv_path": "Train.csv",
+        "numeric_features": numeric_features,
+        "categorical_features": categorical_features,
+    }
+
+    tmp_path = Path(output_path).with_suffix(".tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(baseline, f, indent=2)
+    os.replace(tmp_path, output_path)
+
+    num_count = len(numeric_features)
+    cat_count = len(categorical_features)
+    print(f"✅ Feature baseline saved to {output_path}")
+    print(f"   📊 {num_count} numeric features + {cat_count} categorical features = {num_count + cat_count} total")
+    return baseline
+
+# Save baseline from the raw X (before get_dummies) so we have
+# original category strings, not one-hot column names.
+save_feature_baseline(X, categorical_cols, numeric_cols)
+
+# ------------------------------------------------------------------
+# Model training (unchanged from original)
+# ------------------------------------------------------------------
 X = pd.get_dummies(X, columns=categorical_cols, drop_first=True)
 
 # Split data

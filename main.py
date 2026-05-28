@@ -1262,7 +1262,14 @@ try:
 except Exception as e:
     logger.warning(f"Could not load ML Model Management API: {e}")
 
+# Include Feature Drift Detection Router
+try:
+    from routers.feature_drift import router as feature_drift_router
+    app.include_router(feature_drift_router)
+    logger.info("Feature Drift Detection API loaded successfully")
+except Exception as e:
+    logger.warning(f"Could not load Feature Drift Detection API: {e}")
+
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
