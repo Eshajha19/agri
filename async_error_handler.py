@@ -423,9 +423,15 @@ class CircuitBreakerAsync:
         """Handle failed execution"""
         self.failure_count += 1
         self.last_failure_time = datetime.now()
-        
-        if self.failure_count >= self.failure_threshold:
+
+        if self.state == "half_open":
+            # Standard circuit breaker: a single half-open probe failure
+            # immediately reopens the circuit to protect the backend.
             self.state = "open"
+        elif self.failure_count >= self.failure_threshold:
+            self.state = "open"
+
+        if self.state == "open":
             logger.warning(
                 f"Circuit breaker {self.name} opened after "
                 f"{self.failure_count} failures"
