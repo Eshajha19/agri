@@ -23,7 +23,7 @@ Authentication
 import logging
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -78,7 +78,7 @@ def _seed_listings() -> None:
                 "ownerUid": None,   # seed listings have no registered owner
                 "available": item["available"],
                 "rating": 4.5,
-                "createdAt": datetime.utcnow().isoformat() + "Z",
+                "createdAt": datetime.now(timezone.utc).isoformat(),
             }
 
 _seed_listings()
@@ -179,7 +179,7 @@ async def list_equipment(request: Request, data: ListEquipmentRequest):
         "ownerUid": uid,
         "available": True,
         "rating": 5.0,
-        "createdAt": datetime.utcnow().isoformat() + "Z",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
     }
 
     with _lock:
@@ -238,7 +238,7 @@ async def book_equipment(request: Request, data: BookEquipmentRequest):
             "priceUnit": listing["priceUnit"],
             "totalCost": listing["price"] * data.duration,
             "status": "pending",   # pending → confirmed → completed / cancelled
-            "createdAt": datetime.utcnow().isoformat() + "Z",
+            "createdAt": datetime.now(timezone.utc).isoformat(),
         }
 
         _bookings[bid] = booking
