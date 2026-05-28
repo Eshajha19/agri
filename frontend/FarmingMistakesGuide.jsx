@@ -5,7 +5,7 @@ const MISTAKES = [
   {
     id: "over-fertilization",
     title: "Over-fertilization",
-    image: "https://images.unsplash.com/photo-1501004318641-b39e6451bec6?auto=format&fit=crop&w=900&q=60",
+    icon: "🌱",
     problem: "Applying too much fertilizer leading to nutrient burn and runoff.",
     avoid: [
       "Perform a soil test before applying fertilizers.",
@@ -16,7 +16,7 @@ const MISTAKES = [
   {
     id: "wrong-irrigation",
     title: "Wrong irrigation timing",
-    image: "https://images.unsplash.com/photo-1501004318641-4d1b8f9f2d12?auto=format&fit=crop&w=900&q=60",
+    icon: "💧",
     problem: "Irrigating at suboptimal times causing stress or disease.",
     avoid: [
       "Irrigate during early morning or late evening to reduce evaporation.",
@@ -27,7 +27,7 @@ const MISTAKES = [
   {
     id: "poor-seed-selection",
     title: "Poor seed selection",
-    image: "https://images.unsplash.com/photo-1498887964941-9c5b0a2d5f79?auto=format&fit=crop&w=900&q=60",
+    icon: "🌾",
     problem: "Using low-quality or inappropriate varieties for the region.",
     avoid: [
       "Choose certified seed suited to your agro-climatic zone.",
@@ -38,7 +38,7 @@ const MISTAKES = [
   {
     id: "late-harvest",
     title: "Late harvest & poor post-harvest handling",
-    image: "https://images.unsplash.com/photo-1501004318641-1f6f8c9d3b0d?auto=format&fit=crop&w=900&q=60",
+    icon: "⏰",
     problem: "Delaying harvest reduces quality and increases losses.",
     avoid: [
       "Monitor maturity indices and harvest at recommended windows.",
@@ -50,7 +50,6 @@ const MISTAKES = [
 
 export default function FarmingMistakesGuide({ onClose }) {
   const [active, setActive] = useState(MISTAKES[0]);
-  const [showLightbox, setShowLightbox] = useState(false);
 
   return (
     <div className="fm-overlay" onClick={onClose} role="dialog" aria-modal="true">
@@ -68,7 +67,7 @@ export default function FarmingMistakesGuide({ onClose }) {
                 className={`fm-list-item ${active.id === m.id ? "active" : ""}`}
                 onClick={() => setActive(m)}
               >
-                <img src={`${m.image}&w=160&q=40`} alt={m.title} />
+                <span className="fm-icon">{m.icon}</span>
                 <span>{m.title}</span>
               </button>
             ))}
@@ -76,8 +75,7 @@ export default function FarmingMistakesGuide({ onClose }) {
 
           <main className="fm-detail">
             <div className="fm-visual">
-              <img src={`${active.image}&w=900&q=70`} alt={active.title} onClick={() => setShowLightbox(true)} />
-              <button className="fm-enlarge" onClick={() => setShowLightbox(true)}>View Image</button>
+              <span className="fm-detail-icon">{active.icon}</span>
             </div>
 
             <div className="fm-info">
@@ -97,12 +95,6 @@ export default function FarmingMistakesGuide({ onClose }) {
             </div>
           </main>
         </div>
-
-        {showLightbox && (
-          <div className="fm-lightbox" onClick={() => setShowLightbox(false)}>
-            <img src={`${active.image}&w=1400&q=80`} alt={`${active.title} large`} />
-          </div>
-        )}
       </div>
     </div>
   );
