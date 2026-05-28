@@ -98,7 +98,8 @@ class ModelRouter:
                 "Preprocessing will not validate column alignment.",
                 active_name,
             )
-        preprocessor = FeaturePreprocessor(feature_cols=feature_cols)
+        category_vocab = getattr(model, 'category_vocab', None)
+        preprocessor = FeaturePreprocessor(feature_cols=feature_cols, category_vocab=category_vocab)
 
         # Raises UnknownCategoryError or MissingFeatureError on bad input —
         # never silently fills missing columns with 0.

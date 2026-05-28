@@ -55,6 +55,11 @@ def train_from_config(config_path: str):
     y = df["ExpYield"]
 
     categorical_cols = config.get('categorical_cols', ['Crop', 'CNext', 'CLast', 'CTransp', 'IrriType', 'IrriSource', 'Season'])
+    # Capture category vocabulary BEFORE one-hot encoding for inference validation
+    category_vocab = {}
+    for col in categorical_cols:
+        if col in X.columns:
+            category_vocab[col] = sorted(X[col].astype(str).unique().tolist())
     X = pd.get_dummies(X, columns=[c for c in categorical_cols if c in X.columns], drop_first=True)
 
     # Split data
@@ -74,6 +79,11 @@ def train_from_config(config_path: str):
 
     out_path = config.get('output_model', 'yield_model.joblib')
     joblib.dump(model, out_path)
+
+    # Persist category vocabulary alongside the model for inference validation
+    voc_path = os.path.splitext(out_path)[0] + '_vocab.json'
+    with open(voc_path, 'w', encoding='utf-8') as vf:
+        json.dump(category_vocab, vf)
 
     return manifest
 
