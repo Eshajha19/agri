@@ -57,6 +57,7 @@ import {
   FarmingMap,
   FarmingNews,
   Feedback,
+
   Glossary,
   Helpline,
   Home,
@@ -85,6 +86,7 @@ import {
 } from "./routes/lazyPages";
 
 const Weather = React.lazy(() => import("./Weather"));
+const FeatureDriftMonitor = React.lazy(() => import("./FeatureDriftMonitor"));
 import VoiceAssistant from "./VoiceAssistant";
 
 /**
@@ -637,7 +639,7 @@ function App() {
                 <Link to="/risk-index" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Risk Index</Link>
                 <Link to="/farm-finance" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaFileInvoiceDollar /> Farm Finance</Link>
                 <Link to="/glossary" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaBook /> Glossary</Link>
-                <Link to="/about" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> About Us</Link>
+                <Link to="/feature-drift" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> Feature Drift Monitor</Link>
                 <Link to="/contact" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> Contact</Link>
               </div>
             </div>
@@ -736,7 +738,7 @@ function App() {
             <Route path="/resources" element={<Resources />} />
             <Route path="/login" element={<Auth />} />
             <Route path="/profile-setup" element={<ProfileSetup user={user} profileCompleted={profileCompleted} />} />
-            <Route path="/calendar" element={<Calendar />} />
+            <Route path="/calendar" element={<Calendar userData={userData} />} />
             <Route path="/share-feedback" element={<Feedback />} />
             <Route path="/admin/feedback" element={<AdminFeedback />} />
             <Route path="/market-prices" element={<MarketPrices />} />
@@ -765,9 +767,11 @@ function App() {
             <Route path="/crop-rotation" element={<CropRotation />} />
             <Route path="/seed-verifier" element={<SeedVerifier />} />
             <Route path="/farm-finance" element={<FarmFinance />} />
+            <Route path="/feature-drift" element={<FeatureDriftMonitor />} />
             <Route path="/farming-news" element={<FarmingNews userData={userData} />} />
             <Route path="/yield-predictor" element={<YieldPredictor />} />
             <Route path="/smart-farm-autopilot" element={<SmartFarmAutopilot />} />
+            
             <Route
               path="/sustainability-analytics"
               element={<SustainabilityAnalyticsPage userData={userData} />}
