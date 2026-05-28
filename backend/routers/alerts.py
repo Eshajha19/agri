@@ -1,6 +1,7 @@
 """Alerts & Notifications Router"""
 from datetime import datetime
 from typing import Any, Optional
+import logging
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
 from twilio_webhook_security import handle_inbound_whatsapp_webhook
@@ -9,6 +10,7 @@ from geo_alerts import notification_matches_regions, profile_can_broadcast_regio
 from backend.schemas import AlertTriggerRequest
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 notification_store = None
