@@ -2,7 +2,7 @@
 import html
 import threading
 import uuid
-from collections import defaultdict, deque
+from collections import OrderedDict, deque
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -14,9 +14,77 @@ from advisory_rules import generate_advisories
 
 router = APIRouter()
 _MAX_STORED_ALERTS = 50
-_stored_alerts: dict[str, deque] = defaultdict(lambda: deque(maxlen=_MAX_STORED_ALERTS))
 _MAX_STORED_GRAPH_HISTORY = 25
-_graph_history: dict[str, deque] = defaultdict(lambda: deque(maxlen=_MAX_STORED_GRAPH_HISTORY))
+
+# Maximum number of distinct Firebase UIDs tracked in each in-process store.
+# When the limit is reached the oldest UID entry is evicted (LRU order via
+# OrderedDict) before the new one is inserted, keeping memory consumption
+# proportional to this constant regardless of how many users the process
+# has served over its lifetime.
+_MAX_TRACKED_UIDS = 500
+
+
+class _BoundedUidStore:
+    """
+    Thread-safe, UID-keyed store backed by an OrderedDict with a hard cap on
+    the number of distinct UIDs it will hold.
+
+    Each UID maps to a deque whose maximum length is fixed at construction
+    time.  When a new UID would exceed ``max_uids``, the least-recently-used
+    UID is evicted before the new entry is created.  Accessing an existing
+    UID moves it to the most-recently-used position so active users are
+    never evicted while idle ones are.
+
+    This replaces the previous ``defaultdict(lambda: deque(maxlen=N))``
+    pattern, which created one dict entry per UID and never removed any of
+    them, causing the outer dict to grow without bound for the lifetime of
+    the process.
+    """
+
+    def __init__(self, deque_maxlen: int, max_uids: int = _MAX_TRACKED_UIDS) -> None:
+        self._deque_maxlen = deque_maxlen
+        self._max_uids = max_uids
+        self._data: OrderedDict[str, deque] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def extend(self, uid: str, items) -> None:
+        """Append *items* to the deque for *uid*, creating it if necessary."""
+        with self._lock:
+            self._touch(uid)
+            self._data[uid].extend(items)
+
+    def appendleft(self, uid: str, item: Any) -> None:
+        """Prepend *item* to the deque for *uid*, creating it if necessary."""
+        with self._lock:
+            self._touch(uid)
+            self._data[uid].appendleft(item)
+
+    def get(self, uid: str) -> list:
+        """Return a snapshot list for *uid* (empty list if not present)."""
+        with self._lock:
+            if uid not in self._data:
+                return []
+            self._data.move_to_end(uid)
+            return list(self._data[uid])
+
+    def _touch(self, uid: str) -> None:
+        """Ensure *uid* has a deque entry, evicting the LRU entry if needed.
+
+        Must be called with ``self._lock`` already held.
+        """
+        if uid in self._data:
+            self._data.move_to_end(uid)
+        else:
+            if len(self._data) >= self._max_uids:
+                self._data.popitem(last=False)  # evict LRU
+            self._data[uid] = deque(maxlen=self._deque_maxlen)
+
+
+_stored_alerts = _BoundedUidStore(deque_maxlen=_MAX_STORED_ALERTS)
+_graph_history = _BoundedUidStore(deque_maxlen=_MAX_STORED_GRAPH_HISTORY)
+
+# Single module-level lock kept for any remaining code that needs it, but
+# _BoundedUidStore manages its own internal lock for all store operations.
 _store_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
@@ -332,8 +400,7 @@ def _store_graph_history(uid: str, entry: dict[str, Any]) -> str:
     history_id = entry.get("history_id") or uuid.uuid4().hex[:12]
     record = {**entry, "history_id": history_id}
 
-    with _store_lock:
-        _graph_history[uid].appendleft(record)
+    _graph_history.appendleft(uid, record)
 
     if _db is not None:
         try:
@@ -360,8 +427,7 @@ def _load_graph_history(uid: str) -> list[dict[str, Any]]:
         except Exception:
             pass
 
-    with _store_lock:
-        return list(_graph_history.get(uid, []))
+    return _graph_history.get(uid)
 
 
 async def _get_authenticated_uid(request: Request) -> str:
@@ -445,8 +511,7 @@ async def create_advisory(payload: AdvisoryRequest, request: Request):
         # Derive uid from the verified token — never from the request body.
         uid = await _get_authenticated_uid(request)
 
-        with _store_lock:
-            _stored_alerts[uid].extend(safe_alerts)
+        _stored_alerts.extend(uid, safe_alerts)
         stored = True
 
     return {
@@ -501,8 +566,7 @@ async def get_my_advisories(request: Request):
     """
     uid = await _get_authenticated_uid(request)
 
-    with _store_lock:
-        data = list(_stored_alerts.get(uid, []))
+    data = _stored_alerts.get(uid)
 
     return {"success": True, "data": data}
 
