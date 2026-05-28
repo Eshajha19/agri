@@ -86,6 +86,7 @@ import {
 } from "./routes/lazyPages";
 
 const Weather = React.lazy(() => import("./Weather"));
+const FeatureDriftMonitor = React.lazy(() => import("./FeatureDriftMonitor"));
 import VoiceAssistant from "./VoiceAssistant";
 
 /**
@@ -638,7 +639,7 @@ function App() {
                 <Link to="/risk-index" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Risk Index</Link>
                 <Link to="/farm-finance" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaFileInvoiceDollar /> Farm Finance</Link>
                 <Link to="/glossary" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaBook /> Glossary</Link>
-                <Link to="/about" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> About Us</Link>
+                <Link to="/feature-drift" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> Feature Drift Monitor</Link>
                 <Link to="/contact" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> Contact</Link>
               </div>
             </div>
