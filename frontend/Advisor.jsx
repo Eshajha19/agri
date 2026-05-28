@@ -11,6 +11,7 @@ import IrrigationGuidance from "./IrrigationGuidance";
 import CropProfitCalculator from "./CropProfitCalculator";
 import FarmingMap from "./FarmingMap";
 import FertilizerRecommendation from "./FertilizerRecommendation";
+import SoilImprovementPath from "./SoilImprovementPath";
 import AgriMarketplace from "./AgriMarketplace";
 import AgriLMS from "./AgriLMS";
 import BankReports from "./BankReports";
@@ -37,6 +38,7 @@ import EquipmentManagement from "./EquipmentManagement";
 import CropQualityGrading from "./CropQualityGrading";
 import SustainabilityAnalytics from "./SustainabilityAnalytics";
 import FarmIntelligenceGraph from "./FarmIntelligenceGraph";
+import FertilizerOveruseGuide from "./FertilizerOveruseGuide";
 import LastUpdated from "./LastUpdated";
 import ExpertDirectory from "./components/ExpertDirectory";
 import TeleConsultation from "./components/TeleConsultation";
@@ -220,6 +222,8 @@ showGreenPractices,
   const [showYieldHistory, setShowYieldHistory] = useState(false);
   const [locationQuery, setLocationQuery] = useState("");
   const [showFarmIntelligenceGraph, setShowFarmIntelligenceGraph] = useState(false);
+  const [showFertilizerOveruseGuide, setShowFertilizerOveruseGuide] = useState(false);
+  const [showSoilImprovementPath, setShowSoilImprovementPath] = useState(false);
 
   // ── Shared weather snapshot integration ──────────────────────────────────
   // Subscribe to the global WEATHER_SNAPSHOT_EVENT so any fetch by
@@ -578,6 +582,23 @@ showGreenPractices,
             <p>Plan your crops throughout the year with seasonal recommendations and crop rotation cycles.</p>
           </div>
 
+          <div
+            className="card reveal"
+            role="button"
+            tabIndex={0}
+            onClick={() => setShowCropGrowthGuide(true)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowCropGrowthGuide(true); }}
+            aria-label="Crop Growth Stage Visual Guide: Seed, Sprout, Growth, Harvest"
+            style={{ border: '2px solid #0ea5a4', background: 'rgba(14, 165, 164, 0.03)' }}
+          >
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(14, 165, 164, 0.1)', color: '#0ea5a4' }}>
+              <Sprout size={32} strokeWidth={2} />
+            </div>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#0ea5a4', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>GUIDE</div>
+            <h3><span className="notranslate">Crop Growth Stage Visual Guide</span></h3>
+            <p>Visual lifecycle: Seed → Sprout → Growth → Harvest, with stage-wise care and image examples.</p>
+          </div>
+
           
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/community")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/community"); }} aria-label="Farmer Community: Connect and share tips">
@@ -696,10 +717,27 @@ showGreenPractices,
             <p>Upload plant images to detect diseases and get remedies.</p>
           </div>
 
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowDiseaseLifecycle(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowDiseaseLifecycle(true); }} aria-label="Crop Disease Lifecycle Explorer: View progression and prevention" style={{ border: '2px solid #f97316', background: 'rgba(249, 115, 22, 0.03)' }}>
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(249, 115, 22, 0.08)', color: '#f97316' }}>
+              <Bug size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Crop Disease Lifecycle Explorer</span></h3>
+            <p>See disease progression (Early → Mid → Severe) with prevention timing and crop-wise filtering.</p>
+          </div>
+
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFertilizerPopup(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFertilizerPopup(true); }} aria-label="Fertilizer Recommendations: Plan your nutrition">
             <div className="icon" aria-hidden="true"><FlaskConical size={32} /></div>
             <h3><span className="notranslate">Fertilizer Recommendations</span></h3>
             <p>Get a crop-aware fertilizer plan based on soil pH and nutrient status.</p>
+          </div>
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFertilizerOveruseGuide(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFertilizerOveruseGuide(true); }} aria-label="Fertilizer Overuse Awareness: Effects, symptoms, recovery" style={{ border: '2px solid #ef4444', background: 'rgba(239, 68, 68, 0.03)' }}>
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(239, 68, 68, 0.08)', color: '#ef4444' }}>
+              <FlaskConical size={32} strokeWidth={2} />
+            </div>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#ef4444', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>AWARE</div>
+            <h3><span className="notranslate">Fertilizer Overuse Awareness</span></h3>
+            <p>Understand soil degradation, crop symptoms, and recovery methods after fertilizer misuse.</p>
           </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowOfflineStatus(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowOfflineStatus(true); }} aria-label="Offline Access: PWA Enabled">
@@ -722,6 +760,23 @@ showGreenPractices,
             <p>Weather-aware spray scheduling &amp; rotation recommendations.</p>
           </div>
 
+          <div
+            className="card reveal"
+            role="button"
+            tabIndex={0}
+            onClick={() => setShowWeatherImpactGuide(true)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowWeatherImpactGuide(true); }}
+            aria-label="Weather Farming Impact Guide: Rain, temperature, wind, and seasonal tips"
+            style={{ border: '2px solid #1d4ed8', background: 'rgba(29, 78, 216, 0.03)' }}
+          >
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(29, 78, 216, 0.1)', color: '#1d4ed8' }}>
+              <CloudRain size={32} strokeWidth={2} />
+            </div>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#1d4ed8', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>GUIDE</div>
+            <h3><span className="notranslate">Weather Farming Impact Guide</span></h3>
+            <p>See how rain, temperature, wind, and seasons change irrigation, spraying, and crop decisions.</p>
+          </div>
+
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowYieldPopup(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowYieldPopup(true); }} aria-label="Yield Prediction: AI-based forecast">
             <div className="icon" aria-hidden="true"><BarChart3 size={32} /></div>
             <h3><span className="notranslate">Yield Prediction</span></h3>
@@ -733,6 +788,15 @@ showGreenPractices,
             >
               Open full page →
             </button>
+          </div>
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFarmingMistakesGuide(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFarmingMistakesGuide(true); }} aria-label="Farming Mistakes Awareness: Common mistakes and prevention" style={{ border: '2px solid #ef4444', background: 'rgba(239, 68, 68, 0.03)' }}>
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(239, 68, 68, 0.08)', color: '#ef4444' }}>
+              <AlertTriangle size={32} strokeWidth={2} />
+            </div>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#ef4444', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>AWARE</div>
+            <h3><span className="notranslate">Farming Mistakes Awareness</span></h3>
+            <p>Learn common farming errors (over-fertilization, wrong irrigation timing, poor seed selection) and how to avoid them.</p>
           </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowYieldHistory(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowYieldHistory(true); }} aria-label="Yield History: Track past predictions and accuracy">
@@ -820,6 +884,15 @@ showGreenPractices,
             </div>
             <h3><span className="notranslate">Farming Map</span></h3>
             <p>View your fields, weather data, and crop locations on an interactive map.</p>
+          </div>
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowSoilImprovementPath(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSoilImprovementPath(true); }} aria-label="Soil Improvement Learning Path: Seasonal, practical steps" style={{ border: '2px solid #065f46', background: 'rgba(6, 95, 70, 0.03)' }}>
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(6, 95, 70, 0.08)', color: '#065f46' }}>
+              <Leaf size={32} strokeWidth={2} />
+            </div>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#065f46', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>PATH</div>
+            <h3><span className="notranslate">Soil Improvement Learning Path</span></h3>
+            <p>Season-by-season practical guide to raise soil organic matter and correct fertility.</p>
           </div>
 
           <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/calendar")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/calendar"); }} aria-label="Smart Crop Reminder Automation: Task reminders and exports">
@@ -1202,6 +1275,33 @@ showGreenPractices,
         <div key="modal-weather" className="weather-overlay" onClick={() => setShowWeather(false)}>
           <div className="weather-popup" onClick={(e)=>e.stopPropagation()}>
             <WeatherCard onClose={() => setShowWeather(false)} />
+          </div>
+        </div>
+      )}
+
+      {showFarmingMistakesGuide && (
+        <div key="modal-farming-mistakes" className="weather-overlay" onClick={() => setShowFarmingMistakesGuide(false)}>
+          <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1000px', width: '95vw' }}>
+            <button className="close-btn" onClick={() => setShowFarmingMistakesGuide(false)} aria-label="Close farming mistakes guide"><X /></button>
+            <FarmingMistakesGuide onClose={() => setShowFarmingMistakesGuide(false)} />
+          </div>
+        </div>
+      )}
+
+      {showCropGrowthGuide && (
+        <div key="modal-crop-growth" className="weather-overlay" onClick={() => setShowCropGrowthGuide(false)}>
+          <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1100px', width: '95vw' }}>
+            <button className="close-btn" onClick={() => setShowCropGrowthGuide(false)} aria-label="Close crop growth guide"><X /></button>
+            <CropGrowthStageGuide onClose={() => setShowCropGrowthGuide(false)} />
+          </div>
+        </div>
+      )}
+
+      {showFertilizerOveruseGuide && (
+        <div key="modal-fertilizer-overuse" className="weather-overlay" onClick={() => setShowFertilizerOveruseGuide(false)}>
+          <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1000px', width: '95vw' }}>
+            <button className="close-btn" onClick={() => setShowFertilizerOveruseGuide(false)} aria-label="Close fertilizer overuse guide"><X /></button>
+            <FertilizerOveruseGuide onClose={() => setShowFertilizerOveruseGuide(false)} />
           </div>
         </div>
       )}
@@ -1656,6 +1756,15 @@ showGreenPractices,
           weatherData={weatherSnapshot}
           onClose={() => setShowFarmIntelligenceGraph(false)}
         />
+      )}
+
+      {showSoilImprovementPath && (
+        <div key="modal-soil-improvement" className="weather-overlay" onClick={() => setShowSoilImprovementPath(false)}>
+          <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1000px', width: '95vw' }}>
+            <button className="close-btn" onClick={() => setShowSoilImprovementPath(false)} aria-label="Close soil improvement guide"><X /></button>
+            <SoilImprovementPath onClose={() => setShowSoilImprovementPath(false)} />
+          </div>
+        </div>
       )}
 
       {showExpertDirectory && (
