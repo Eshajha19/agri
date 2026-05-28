@@ -1,5 +1,4 @@
 import os
-import joblib
 from ml.security import verify_and_load_joblib
 import numpy as np
 from celery import Celery
@@ -35,7 +34,7 @@ def _get_lag_model():
     global _model_lag
     if _model_lag is None:
         try:
-            _model_lag = joblib.load("sklearn_yield_model.joblib")
+            _model_lag = verify_and_load_joblib("sklearn_yield_model.joblib")
         except Exception:
             logger.exception("Failed to load lag model")
     return _model_lag
@@ -45,7 +44,7 @@ def _get_trend_model():
     if _model_trend is None:
         try:
             if os.path.exists("trend_forecast_model.joblib"):
-                _model_trend = joblib.load("trend_forecast_model.joblib")
+                _model_trend = verify_and_load_joblib("trend_forecast_model.joblib")
         except Exception:
             logger.exception("Failed to load trend model")
     return _model_trend
