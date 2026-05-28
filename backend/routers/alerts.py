@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, normalize_region_identifier
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, normalize_region_identifier
 from backend.schemas import AlertTriggerRequest
