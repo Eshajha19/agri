@@ -34,6 +34,7 @@ import useNotifications from "./Notifications";
 import Footer from "./components/Footer";
 import { SkipLink } from "./NavigationManager";
 import { useTheme } from "./ThemeContext";
+import FarmingMythChecker from "./components/FarmingMythChecker";
 
 // Route-level code splitting
 import {
@@ -559,6 +560,11 @@ function App() {
           <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}>How It Works</Link></li>
           <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}> Crop Guide</Link></li>
           <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
+        <li>
+          <Link to="/myth-checker" onClick={() => setIsOpen(false)}>
+            Myth Checker
+          </Link>
+        </li>       
         </ul>
 
         <div className="nav-right">
@@ -780,6 +786,14 @@ function App() {
             <Route path="/blog/:id" element={<BlogDetail />} />
             <Route path="/weather" element={<Weather />} />
             <Route path="/voice-assistant" element={<VoiceAssistant />} />
+            <Route
+              path="/myth-checker"
+                element={
+            <div className="app-content">
+                <FarmingMythChecker />
+            </div>
+            }
+            />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </React.Suspense>
