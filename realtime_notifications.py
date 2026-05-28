@@ -142,6 +142,8 @@ class NotificationBroadcastHub:
         self._redis_client = None
         self._redis_pubsub = None
         self._redis_listener_task: Optional[asyncio.Task] = None
+        self._retry_processor_task: Optional[asyncio.Task] = None
+        self._priority_processor_task: Optional[asyncio.Task] = None
         self._started = False
 
         # Persistence and delivery tracking
@@ -175,17 +177,30 @@ class NotificationBroadcastHub:
 
     def snapshot_for_user(self, uid: str, regions: Optional[Iterable[str]] = None) -> list[Dict[str, Any]]:
         """Return history entries visible to the given user and region scope."""
+        # History stores full envelopes {"type": ..., "source": ..., "created_at": ..., "data": ...}
+        # Extract the inner "data" payload so filtering and snapshot consumers
+        # work with the notification content regardless of origin (local vs Redis).
+        inner_entries = [
+            entry["data"] if isinstance(entry, dict) and "data" in entry else entry
+            for entry in self._history
+        ]
         return [
             notification
-            for notification in filter_notifications_for_user(self._history, uid)
+            for notification in filter_notifications_for_user(inner_entries, uid)
             if notification_matches_regions(notification, regions)
         ]
 
     async def start(self) -> None:
-        """Start optional Redis pub-sub listener."""
+        """Start optional Redis pub-sub listener and background reliability tasks."""
         if self._started:
             return
         self._started = True
+
+        # Start retry queue processor (handles exponential-backoff retries)
+        self._retry_processor_task = asyncio.create_task(self._process_retry_queue())
+
+        # Start priority queue processor (drains critical/warning/info queues)
+        self._priority_processor_task = asyncio.create_task(self._process_priority_queues())
 
         if not self._redis_url:
             return
@@ -206,13 +221,15 @@ class NotificationBroadcastHub:
 
     async def stop(self) -> None:
         """Stop optional Redis listener and close resources."""
-        if self._redis_listener_task is not None:
-            self._redis_listener_task.cancel()
-            try:
-                await self._redis_listener_task
-            except asyncio.CancelledError:
-                pass
-            self._redis_listener_task = None
+        for task_name in ("_retry_processor_task", "_priority_processor_task", "_redis_listener_task"):
+            task = getattr(self, task_name, None)
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                setattr(self, task_name, None)
 
         if self._redis_pubsub is not None:
             try:
@@ -233,6 +250,20 @@ class NotificationBroadcastHub:
     async def publish(self, notification: Dict[str, Any], source: str = "local") -> NotificationEvent:
         """Persist notification locally and fan it out to subscribed clients."""
         event = NotificationEvent(type="notification", data=notification, source=source)
+
+        # Deduplication check: skip if identical content seen within dedup window
+        if self._is_duplicate_notification(event):
+            logger.info("Duplicate notification %s skipped", event.notification_id)
+            return event
+
+        # Route to priority queue for deferred delivery processing
+        await self._route_to_priority_queue(event)
+
+        # Persist for offline delivery and retry tracking
+        uid = notification.get("recipient_uid")
+        if uid:
+            await self._persist_notification(event, uid)
+
         payload = {
             "type": event.type,
             "source": event.source,
@@ -241,7 +272,7 @@ class NotificationBroadcastHub:
         }
 
         async with self._history_lock:
-            self._history.append(notification)
+            self._history.append(payload)
 
         async with self._connections_lock:
             clients = [
@@ -266,9 +297,21 @@ class NotificationBroadcastHub:
 
         await websocket.accept()
         region_scopes = frozenset(resolve_subscription_regions({"role": "guest"}, regions))
+
+        # Take snapshot under history lock BEFORE registering so history is
+        # consistent.  The client will receive live notifications (broadcast
+        # under connections_lock) after registration — it must handle
+        # out-of-order delivery (snapshot may arrive after a live event).
         async with self._history_lock:
-            self._connections[websocket] = _ConnectionSubscription(uid=uid, regions=region_scopes)
             snapshot = self.snapshot_for_user(uid, region_scopes)
+
+        # Register under the correct lock so concurrent publish() calls
+        # always see the new connection atomically.
+        async with self._connections_lock:
+            self._connections[websocket] = _ConnectionSubscription(
+                uid=uid,
+                regions=region_scopes,
+            )
 
         await websocket.send_json(
             {
@@ -278,13 +321,6 @@ class NotificationBroadcastHub:
                 "data": snapshot,
             }
         )
-
-        # Register only after snapshot delivery completes.
-        async with self._connections_lock:
-            self._connections[websocket] = _ConnectionSubscription(
-                uid=uid,
-                regions=region_scopes,
-            )
 
         try:
             await asyncio.Event().wait()
@@ -330,7 +366,7 @@ class NotificationBroadcastHub:
                 notification = payload.get("data")
                 if isinstance(notification, dict):
                     async with self._history_lock:
-                        self._history.append(notification)
+                        self._history.append(payload)
 
                     async with self._connections_lock:
                         clients = [
