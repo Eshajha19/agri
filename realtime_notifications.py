@@ -375,9 +375,21 @@ class NotificationBroadcastHub:
 
         await websocket.accept()
         region_scopes = frozenset(resolve_subscription_regions({"role": "guest"}, regions))
+
+        # Take snapshot under history lock BEFORE registering so history is
+        # consistent.  The client will receive live notifications (broadcast
+        # under connections_lock) after registration — it must handle
+        # out-of-order delivery (snapshot may arrive after a live event).
         async with self._history_lock:
-            self._connections[websocket] = _ConnectionSubscription(uid=uid, regions=region_scopes)
             snapshot = self.snapshot_for_user(uid, region_scopes)
+
+        # Register under the correct lock so concurrent publish() calls
+        # always see the new connection atomically.
+        async with self._connections_lock:
+            self._connections[websocket] = _ConnectionSubscription(
+                uid=uid,
+                regions=region_scopes,
+            )
 
         await websocket.send_json(
             {
@@ -387,13 +399,6 @@ class NotificationBroadcastHub:
                 "data": snapshot,
             }
         )
-
-        # Register only after snapshot delivery completes.
-        async with self._connections_lock:
-            self._connections[websocket] = _ConnectionSubscription(
-                uid=uid,
-                regions=region_scopes,
-            )
 
         try:
             await asyncio.Event().wait()
