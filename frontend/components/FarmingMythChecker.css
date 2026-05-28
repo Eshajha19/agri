@@ -1,0 +1,39 @@
+.myth-checker {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  box-shadow: var(--shadow-md);
+}
+
+.myth-checker h2 {
+  margin-bottom: 16px;
+  color: var(--accent);
+}
+
+.myth-checker ul {
+  list-style: none;
+  padding: 0;
+}
+
+.myth-checker li {
+  margin-bottom: 12px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  transition: all 0.3s ease;
+}
+
+.verdict-false {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.verdict-true {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.verdict-depends {
+  background: #fef3c7;
+  color: #d97706;
+}
