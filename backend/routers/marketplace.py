@@ -124,6 +124,10 @@ class BookEquipmentRequest(BaseModel):
             raise ValueError("date must be in YYYY-MM-DD format")
         return v
 
+
+class UpdateBookingRequest(BaseModel):
+    status: str = Field(..., pattern=r"^(confirmed|completed|cancelled)$")
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -278,3 +282,86 @@ async def get_bookings(request: Request):
     ]
     user_bookings.sort(key=lambda x: x["createdAt"], reverse=True)
     return {"success": True, "data": user_bookings}
+
+
+# ---------------------------------------------------------------------------
+# Allowed status transitions
+# ---------------------------------------------------------------------------
+_VALID_TRANSITIONS: dict[str, set[str]] = {
+    # Equipment owner confirms a pending booking.
+    "pending":   {"confirmed", "cancelled"},
+    # Owner marks job done; either party may cancel a confirmed booking.
+    "confirmed": {"completed", "cancelled"},
+    # Terminal states — no further transitions.
+    "completed": set(),
+    "cancelled":  set(),
+}
+
+# The new status values that release the equipment back to available.
+_RELEASES_EQUIPMENT: set[str] = {"completed", "cancelled"}
+
+
+@router.patch("/bookings/{booking_id}")
+async def update_booking_status(
+    booking_id: str,
+    data: UpdateBookingRequest,
+    request: Request,
+):
+    """Transition a booking to a new status.
+
+    Permission rules:
+    - ``confirmed``: only the equipment owner may confirm a pending booking.
+    - ``completed``: only the equipment owner may mark a booking completed.
+    - ``cancelled``: the booker or the equipment owner may cancel at any point
+      before completion.
+
+    When a booking moves to ``completed`` or ``cancelled`` the equipment
+    listing is restored to ``available=True`` so it can be rebooked.
+    """
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Not initialized")
+
+    token_data = await verify_role_fn(request)
+    uid = token_data.get("uid")
+    new_status = data.status
+
+    with _lock:
+        booking = _bookings.get(booking_id)
+        if booking is None:
+            raise HTTPException(status_code=404, detail="Booking not found")
+
+        # Authorisation check — only parties to the booking may update it.
+        is_owner = booking.get("ownerUid") == uid
+        is_booker = booking.get("bookerUid") == uid
+        if not is_owner and not is_booker:
+            raise HTTPException(status_code=403, detail="Not authorised to update this booking")
+
+        current_status = booking["status"]
+        allowed = _VALID_TRANSITIONS.get(current_status, set())
+        if new_status not in allowed:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot transition from '{current_status}' to '{new_status}'",
+            )
+
+        # Only the equipment owner may confirm or complete.
+        if new_status in {"confirmed", "completed"} and not is_owner:
+            raise HTTPException(
+                status_code=403,
+                detail="Only the equipment owner may confirm or complete a booking",
+            )
+
+        booking = {**booking, "status": new_status, "updatedAt": datetime.now(timezone.utc).isoformat()}
+        _bookings[booking_id] = booking
+
+        # Release the equipment back to available when the booking ends.
+        if new_status in _RELEASES_EQUIPMENT:
+            equipment_id = booking.get("equipmentId")
+            if equipment_id and equipment_id in _listings:
+                _listings[equipment_id] = {**_listings[equipment_id], "available": True}
+
+    logger.info(
+        "Booking %s transitioned %s -> %s by uid=%s",
+        booking_id, current_status, new_status, uid,
+    )
+    return {"success": True, "booking": booking}
