@@ -34,6 +34,8 @@ import useNotifications from "./Notifications";
 import Footer from "./components/Footer";
 import { SkipLink } from "./NavigationManager";
 import { useTheme } from "./ThemeContext";
+import FarmingMythChecker from "./components/FarmingMythChecker";
+import CropComparison from "./components/CropComparison";
 
 // Route-level code splitting
 import {
@@ -554,12 +556,12 @@ function App() {
         </div>
 
         <ul className={`nav-center ${isOpen ? "active" : ""}`}>
-          <li><Link to="/" onClick={() => setIsOpen(false)}>Home</Link></li>
-          <li><Link to="/about" onClick={() => setIsOpen(false)}>About</Link></li>
-          <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}>How It Works</Link></li>
-          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}> Crop Guide</Link></li>
-          <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
-        </ul>
+           <li><Link to="/" onClick={() => setIsOpen(false)}>Home</Link></li>
+           <li><Link to="/about" onClick={() => setIsOpen(false)}>About</Link></li>
+           <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}>How It Works</Link></li>
+           <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}> Crop Guide</Link></li>
+           <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
+         </ul>
 
         <div className="nav-right">
           <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Cycle Theme" title={`Current theme: ${theme}`}>
@@ -612,8 +614,10 @@ function App() {
                     ))}
                   </div>
                 </div>
-                <Link to="/voice-assistant" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMicrophone /> Voice Assistant</Link>
-                <div className="performance-toggle-section">
+      <Link to="/voice-assistant" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMicrophone /> Voice Assistant</Link>
+      <Link to="/myth-checker" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMedal /> Myth Checker</Link>
+      <Link to="/crop-comparison" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaLeaf /> Crop Comparison</Link>
+      <div className="performance-toggle-section">
                   <button
                     className={`lite-mode-toggle ${liteMode ? 'active' : ''}`}
                     onClick={() => setLiteMode(!liteMode)}
@@ -780,6 +784,15 @@ function App() {
             <Route path="/blog/:id" element={<BlogDetail />} />
             <Route path="/weather" element={<Weather />} />
             <Route path="/voice-assistant" element={<VoiceAssistant />} />
+            <Route
+              path="/myth-checker"
+                element={
+            <div className="app-content">
+                <FarmingMythChecker />
+            </div>
+            }
+            />
+            <Route path="/crop-comparison" element={<CropComparison />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </React.Suspense>
