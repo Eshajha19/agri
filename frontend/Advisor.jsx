@@ -7,6 +7,9 @@ import Forecast from "./Forecast";
 import SoilChatbot from "./SoilChatbot";
 import SoilAnalysis from "./SoilAnalysis";
 import SoilGuide from "./SoilGuide";
+import CropGrowthStageGuide from "./CropGrowthStageGuide";
+import WeatherFarmingImpactGuide from "./WeatherFarmingImpactGuide";
+import CropDiseaseLifecycleExplorer from "./CropDiseaseLifecycleExplorer";
 import IrrigationGuidance from "./IrrigationGuidance";
 import CropProfitCalculator from "./CropProfitCalculator";
 import FarmingMap from "./FarmingMap";
@@ -39,6 +42,7 @@ import CropQualityGrading from "./CropQualityGrading";
 import SustainabilityAnalytics from "./SustainabilityAnalytics";
 import FarmIntelligenceGraph from "./FarmIntelligenceGraph";
 import FertilizerOveruseGuide from "./FertilizerOveruseGuide";
+import FarmingMistakesGuide from "./FarmingMistakesGuide";
 import LastUpdated from "./LastUpdated";
 import ExpertDirectory from "./components/ExpertDirectory";
 import TeleConsultation from "./components/TeleConsultation";
@@ -216,14 +220,18 @@ showGreenPractices,
     closeYieldPopup,
   } = useYieldPrediction();
 
-  const [weatherStatus, setWeatherStatus] = useState("idle");
-  const [weatherError, setWeatherError] = useState("");
-  const [weatherSnapshot, setWeatherSnapshot] = useState(() => getStoredWeatherSnapshot());
-  const [showYieldHistory, setShowYieldHistory] = useState(false);
-  const [locationQuery, setLocationQuery] = useState("");
-  const [showFarmIntelligenceGraph, setShowFarmIntelligenceGraph] = useState(false);
-  const [showFertilizerOveruseGuide, setShowFertilizerOveruseGuide] = useState(false);
-  const [showSoilImprovementPath, setShowSoilImprovementPath] = useState(false);
+   const [weatherStatus, setWeatherStatus] = useState("idle");
+   const [weatherError, setWeatherError] = useState("");
+   const [weatherSnapshot, setWeatherSnapshot] = useState(() => getStoredWeatherSnapshot());
+const [showYieldHistory, setShowYieldHistory] = useState(false);
+    const [locationQuery, setLocationQuery] = useState("");
+    const [showFarmIntelligenceGraph, setShowFarmIntelligenceGraph] = useState(false);
+    const [showFertilizerOveruseGuide, setShowFertilizerOveruseGuide] = useState(false);
+    const [showSoilImprovementPath, setShowSoilImprovementPath] = useState(false);
+    const [showFarmingMistakesGuide, setShowFarmingMistakesGuide] = useState(false);
+    const [showCropGrowthGuide, setShowCropGrowthGuide] = useState(false);
+    const [showWeatherImpactGuide, setShowWeatherImpactGuide] = useState(false);
+    const [showDiseaseLifecycle, setShowDiseaseLifecycle] = useState(false);
 
   // ── Shared weather snapshot integration ──────────────────────────────────
   // Subscribe to the global WEATHER_SNAPSHOT_EVENT so any fetch by
@@ -1279,7 +1287,7 @@ showGreenPractices,
         </div>
       )}
 
-      {showFarmingMistakesGuide && (
+{showFarmingMistakesGuide && (
         <div key="modal-farming-mistakes" className="weather-overlay" onClick={() => setShowFarmingMistakesGuide(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1000px', width: '95vw' }}>
             <button className="close-btn" onClick={() => setShowFarmingMistakesGuide(false)} aria-label="Close farming mistakes guide"><X /></button>
@@ -1288,16 +1296,34 @@ showGreenPractices,
         </div>
       )}
 
-      {showCropGrowthGuide && (
-        <div key="modal-crop-growth" className="weather-overlay" onClick={() => setShowCropGrowthGuide(false)}>
-          <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1100px', width: '95vw' }}>
-            <button className="close-btn" onClick={() => setShowCropGrowthGuide(false)} aria-label="Close crop growth guide"><X /></button>
-            <CropGrowthStageGuide onClose={() => setShowCropGrowthGuide(false)} />
-          </div>
-        </div>
-      )}
+{showCropGrowthGuide && (
+         <div key="modal-crop-growth" className="weather-overlay" onClick={() => setShowCropGrowthGuide(false)}>
+           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1100px', width: '95vw' }}>
+             <button className="close-btn" onClick={() => setShowCropGrowthGuide(false)} aria-label="Close crop growth guide"><X /></button>
+             <CropGrowthStageGuide onClose={() => setShowCropGrowthGuide(false)} />
+           </div>
+         </div>
+       )}
 
-      {showFertilizerOveruseGuide && (
+       {showWeatherImpactGuide && (
+         <div key="modal-weather-impact" className="weather-overlay" onClick={() => setShowWeatherImpactGuide(false)}>
+           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1000px', width: '95vw' }}>
+             <button className="close-btn" onClick={() => setShowWeatherImpactGuide(false)} aria-label="Close weather impact guide"><X /></button>
+             <WeatherFarmingImpactGuide onClose={() => setShowWeatherImpactGuide(false)} />
+           </div>
+         </div>
+       )}
+
+       {showDiseaseLifecycle && (
+         <div key="modal-disease-lifecycle" className="weather-overlay" onClick={() => setShowDiseaseLifecycle(false)}>
+           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1100px', width: '95vw' }}>
+             <button className="close-btn" onClick={() => setShowDiseaseLifecycle(false)} aria-label="Close disease lifecycle explorer"><X /></button>
+             <CropDiseaseLifecycleExplorer onClose={() => setShowDiseaseLifecycle(false)} />
+           </div>
+         </div>
+       )}
+       
+       {showFertilizerOveruseGuide && (
         <div key="modal-fertilizer-overuse" className="weather-overlay" onClick={() => setShowFertilizerOveruseGuide(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1000px', width: '95vw' }}>
             <button className="close-btn" onClick={() => setShowFertilizerOveruseGuide(false)} aria-label="Close fertilizer overuse guide"><X /></button>

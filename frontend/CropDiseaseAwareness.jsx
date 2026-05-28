@@ -1,10 +1,11 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   FaShieldAlt,
   FaStethoscope,
   FaFlask,
   FaLeaf,
   FaBug,
+  FaSearch,
   FaTint,
   FaSeedling,
 } from "react-icons/fa";
@@ -13,6 +14,7 @@ import "./CropDiseaseAwareness.css";
 
 const diseaseData = [
   {
+    id: "late-blight",
     name: "Late Blight",
     crop: "Potato & Tomato",
     icon: <Carrot size={40} aria-hidden="true" />,
@@ -25,6 +27,7 @@ const diseaseData = [
       "Apply copper fungicides and remove infected plants immediately. Use resistant varieties where possible.",
   },
   {
+    id: "rice-blast",
     name: "Rice Blast",
     crop: "Rice",
     icon: <Wheat size={40} aria-hidden="true" />,
@@ -37,6 +40,7 @@ const diseaseData = [
       "Spray Tricyclazole or Carbendazim. Destroy infected crop residues after harvest.",
   },
   {
+    id: "wheat-rust",
     name: "Wheat Rust",
     crop: "Wheat",
     icon: <Wheat size={40} aria-hidden="true" />,
@@ -49,6 +53,7 @@ const diseaseData = [
       "Apply systemic fungicides like Propiconazole or Tebuconazole.",
   },
   {
+    id: "black-rot",
     name: "Black Rot",
     crop: "Cabbage & Cauliflower",
     icon: <Salad size={40} aria-hidden="true" />,
@@ -61,6 +66,7 @@ const diseaseData = [
       "Use copper sprays and remove infected debris from fields.",
   },
   {
+    id: "powdery-mildew",
     name: "Powdery Mildew",
     crop: "Peas & Cucurbits",
     icon: <Bean size={40} aria-hidden="true" />,
@@ -73,6 +79,7 @@ const diseaseData = [
       "Apply sulfur fungicides, neem oil, or baking soda spray.",
   },
   {
+    id: "citrus-canker",
     name: "Citrus Canker",
     crop: "Citrus Fruits",
     icon: <Citrus size={40} aria-hidden="true" />,
@@ -84,10 +91,8 @@ const diseaseData = [
     remedies:
       "Apply copper bactericides and prune infected branches.",
   },
-
-  /* NEW DISEASE CARDS */
-
   {
+    id: "downy-mildew",
     name: "Downy Mildew",
     crop: "Grapes & Vegetables",
     icon: <Grape size={40} aria-hidden="true" />,
@@ -100,6 +105,7 @@ const diseaseData = [
       "Apply Mancozeb or Metalaxyl-based fungicides.",
   },
   {
+    id: "bacterial-leaf-blight",
     name: "Bacterial Leaf Blight",
     crop: "Rice",
     icon: <Leaf size={40} aria-hidden="true" />,
@@ -112,6 +118,7 @@ const diseaseData = [
       "Apply copper bactericides and avoid excessive nitrogen.",
   },
   {
+    id: "anthracnose",
     name: "Anthracnose",
     crop: "Chili & Mango",
     icon: <Cherry size={40} aria-hidden="true" />,
@@ -124,6 +131,7 @@ const diseaseData = [
       "Use fungicides such as Chlorothalonil or Copper Oxychloride.",
   },
   {
+    id: "root-rot",
     name: "Root Rot",
     crop: "Vegetables & Pulses",
     icon: <Carrot size={40} aria-hidden="true" />,
@@ -136,6 +144,7 @@ const diseaseData = [
       "Treat soil with fungicides and remove infected plants.",
   },
   {
+    id: "mosaic-virus",
     name: "Mosaic Virus",
     crop: "Tomato & Tobacco",
     icon: <Apple size={40} aria-hidden="true" />,
@@ -148,6 +157,7 @@ const diseaseData = [
       "Remove infected plants immediately to stop spread.",
   },
   {
+    id: "stem-borer",
     name: "Stem Borer",
     crop: "Rice & Maize",
     icon: <Wheat size={40} aria-hidden="true" />,
@@ -160,6 +170,7 @@ const diseaseData = [
       "Apply suitable insecticides and destroy crop residues.",
   },
   {
+    id: "leaf-curl-disease",
     name: "Leaf Curl Disease",
     crop: "Chili & Tomato",
     icon: <Leaf size={40} aria-hidden="true" />,
@@ -172,6 +183,7 @@ const diseaseData = [
       "Spray neem oil and remove infected plants.",
   },
   {
+    id: "wilt-disease",
     name: "Wilt Disease",
     crop: "Banana & Tomato",
     icon: <Banana size={40} aria-hidden="true" />,
@@ -184,6 +196,7 @@ const diseaseData = [
       "Apply bio-fungicides and remove infected plants.",
   },
   {
+    id: "scab-disease",
     name: "Scab Disease",
     crop: "Apple & Potato",
     icon: <Apple size={40} aria-hidden="true" />,
@@ -196,6 +209,7 @@ const diseaseData = [
       "Apply preventive fungicides during early growth stages.",
   },
   {
+    id: "fruit-rot",
     name: "Fruit Rot",
     crop: "Tomato & Papaya",
     icon: <Apple size={40} aria-hidden="true" />,
@@ -210,69 +224,112 @@ const diseaseData = [
 ];
 
 const CropDiseaseAwareness = () => {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCrop, setSelectedCrop] = useState("All");
+
+  const crops = ["All", ...new Set(diseaseData.map(d => d.crop))];
+
+  const filteredDiseases = diseaseData.filter(disease => {
+    const matchesSearch = disease.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         disease.crop.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCrop = selectedCrop === "All" || disease.crop === selectedCrop;
+    return matchesSearch && matchesCrop;
+  });
+
   return (
     <div className="disease-awareness-container">
       <header className="disease-header">
         <h1>
-          <FaLeaf /> Crop Disease Awareness
+          <FaLeaf aria-hidden="true" /> Crop Disease Awareness
         </h1>
 
         <p>
           Learn about common crop diseases, their causes, prevention methods,
           and treatments to improve crop health and productivity.
         </p>
+
+        <div className="disease-filters">
+          <div className="search-wrapper">
+            <FaSearch className="search-icon" aria-hidden="true" />
+            <input
+              type="text"
+              placeholder="Search diseases or crops..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="disease-search"
+              aria-label="Search diseases"
+            />
+          </div>
+
+          <select
+            value={selectedCrop}
+            onChange={(e) => setSelectedCrop(e.target.value)}
+            className="crop-filter"
+            aria-label="Filter by crop"
+          >
+            {crops.map(crop => (
+              <option key={crop} value={crop}>{crop}</option>
+            ))}
+          </select>
+        </div>
       </header>
 
       <div className="disease-grid">
-        {diseaseData.map((disease) => (
-          <div key={disease.id} className="disease-card">
-            <div className="disease-image-placeholder">
-              {disease.icon}
-            </div>
-
-            <div className="disease-content">
-              <span className="crop-tag">{disease.crop}</span>
-
-              <h2 className="disease-title">{disease.name}</h2>
-
-              <div className="disease-section">
-                <h4>
-                  <FaBug /> Cause
-                </h4>
-                <p>{disease.cause}</p>
+        {filteredDiseases.length > 0 ? (
+          filteredDiseases.map((disease) => (
+            <article key={disease.id} className="disease-card">
+              <div className="disease-image-placeholder" aria-hidden="true">
+                {disease.icon}
               </div>
 
-              <div className="disease-section">
-                <h4>
-                  <FaStethoscope /> Symptoms
-                </h4>
-                <p>{disease.symptoms}</p>
+              <div className="disease-content">
+                <span className="crop-tag">{disease.crop}</span>
+
+                <h2 className="disease-title">{disease.name}</h2>
+
+                <section className="disease-section" aria-label="Cause">
+                  <h4>
+                    <FaBug aria-hidden="true" /> Cause
+                  </h4>
+                  <p>{disease.cause}</p>
+                </section>
+
+                <section className="disease-section" aria-label="Symptoms">
+                  <h4>
+                    <FaStethoscope aria-hidden="true" /> Symptoms
+                  </h4>
+                  <p>{disease.symptoms}</p>
+                </section>
+
+                <section className="disease-section" aria-label="Prevention">
+                  <h4>
+                    <FaShieldAlt aria-hidden="true" /> Prevention
+                  </h4>
+                  <p>{disease.prevention}</p>
+                </section>
               </div>
 
-              <div className="disease-section">
-                <h4>
-                  <FaShieldAlt /> Prevention
-                </h4>
-                <p>{disease.prevention}</p>
-              </div>
-            </div>
-
-            <div className="disease-footer">
-              <div className="remedy-badge">
-                <FaFlask size={20} style={{ marginTop: "4px" }} />
-
-                <p>
-                  <strong>Recommended Treatment:</strong>{" "}
-                  {disease.remedies}
-                </p>
-              </div>
-            </div>
+              <footer className="disease-footer">
+                <div className="remedy-badge">
+                  <FaFlask size={20} aria-hidden="true" />
+                  <p>
+                    <strong>Recommended Treatment:</strong> {disease.remedies}
+                  </p>
+                </div>
+              </footer>
+            </article>
+          ))
+        ) : (
+          <div className="no-results" role="status">
+            No diseases found matching your criteria.
           </div>
-        ))}
+        )}
       </div>
     </div>
   );
 };
+
+export default CropDiseaseAwareness;
 
 
 
