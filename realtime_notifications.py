@@ -169,9 +169,16 @@ class NotificationBroadcastHub:
 
     def snapshot_for_user(self, uid: str, regions: Optional[Iterable[str]] = None) -> list[Dict[str, Any]]:
         """Return history entries visible to the given user and region scope."""
+        # History stores full envelopes {"type": ..., "source": ..., "created_at": ..., "data": ...}
+        # Extract the inner "data" payload so filtering and snapshot consumers
+        # work with the notification content regardless of origin (local vs Redis).
+        inner_entries = [
+            entry["data"] if isinstance(entry, dict) and "data" in entry else entry
+            for entry in self._history
+        ]
         return [
             notification
-            for notification in filter_notifications_for_user(self._history, uid)
+            for notification in filter_notifications_for_user(inner_entries, uid)
             if notification_matches_regions(notification, regions)
         ]
 
@@ -350,7 +357,7 @@ class NotificationBroadcastHub:
         }
 
         async with self._history_lock:
-            self._history.append(notification)
+            self._history.append(payload)
 
         async with self._connections_lock:
             clients = [
@@ -438,7 +445,7 @@ class NotificationBroadcastHub:
                 notification = payload.get("data")
                 if isinstance(notification, dict):
                     async with self._history_lock:
-                        self._history.append(notification)
+                        self._history.append(payload)
 
                     async with self._connections_lock:
                         clients = [
