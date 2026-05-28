@@ -56,9 +56,14 @@ export default function SoilImprovementPath({ onClose }) {
         </header>
 
         <div className="sip-body">
-          <nav className="sip-nav">
-            {STEPS.map((s) => (
-              <button key={s.id} className={`sip-nav-btn ${active.id === s.id ? 'active' : ''}`} onClick={() => setActive(s)}>
+          <nav className="sip-nav" aria-label="Season navigation">
+            {STEPS.map((s, index) => (
+              <button
+                key={s.id}
+                className={`sip-nav-btn ${active.id === s.id ? "active" : ""}`}
+                onClick={() => setActive(s)}
+              >
+                <span className="sip-step-number">{index + 1}</span>
                 <span>{s.title}</span>
               </button>
             ))}
@@ -68,16 +73,22 @@ export default function SoilImprovementPath({ onClose }) {
             <h3>{active.title}</h3>
             <p className="sip-summary">{active.summary}</p>
 
-            <h4>Practical Actions</h4>
-            <ul>
-              {active.actions.map((a, i) => <li key={i}>{a}</li>)}
-            </ul>
-
-            <div className="sip-footer">
-              <button className="sip-primary" onClick={onClose}>Done</button>
-            </div>
+            <section className="sip-section">
+              <h4>Practical Actions</h4>
+              <ul className="sip-actions-list">
+                {active.actions.map((a, i) => (
+                  <li key={i} className="sip-action-item">{a}</li>
+                ))}
+              </ul>
+            </section>
           </main>
         </div>
+
+        <footer className="sip-footer">
+          <button className="sip-primary" onClick={onClose}>
+            Done
+          </button>
+        </footer>
       </div>
     </div>
   );
