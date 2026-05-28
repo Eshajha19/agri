@@ -330,7 +330,3 @@ const CropDiseaseAwareness = () => {
 };
 
 export default CropDiseaseAwareness;
-
-
-
-export default CropDiseaseAwareness;
