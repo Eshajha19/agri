@@ -22,11 +22,9 @@ export default function useNotifications() {
     });
   };
 
-  const getIdToken = async () => {
-    const user = auth.currentUser;
-    if (!user) {
-      return null;
-    }
+const getIdToken = async () => {
+    const user = auth?.currentUser;
+    if (!user) return null;
     return user.getIdToken();
   };
 
@@ -72,10 +70,11 @@ export default function useNotifications() {
     };
 
     const connectWebSocket = async () => {
-      if (!auth.currentUser) {
+      if (!auth?.currentUser) {
         startPollingFallback();
         return;
       }
+
 
       fetchNotifications();
 
