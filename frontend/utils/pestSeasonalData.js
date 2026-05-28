@@ -1,0 +1,51 @@
+export const pestSeasonalData = [
+  {
+    pestKey: "aphids",
+    crop: "Rice",
+    region: "Punjab",
+    activeMonths: ["September", "October", "November"],
+    severity: "Medium",
+  },
+  {
+    pestKey: "whiteflies",
+    crop: "Cotton",
+    region: "Karnataka",
+    activeMonths: ["July", "August", "September"],
+    severity: "High",
+  },
+  {
+    pestKey: "armyworms",
+    crop: "Maize",
+    region: "Maharashtra",
+    activeMonths: ["June", "July", "August"],
+    severity: "High",
+  },
+  {
+    pestKey: "thrips",
+    crop: "Chili",
+    region: "Tamil Nadu",
+    activeMonths: ["January", "February", "March"],
+    severity: "Medium",
+  },
+  {
+    pestKey: "cutworms",
+    crop: "Wheat",
+    region: "Punjab",
+    activeMonths: ["October", "November", "December"],
+    severity: "Medium",
+  },
+  {
+    pestKey: "leaf_miners",
+    crop: "Tomato",
+    region: "Maharashtra",
+    activeMonths: ["August", "September", "October"],
+    severity: "Medium",
+  },
+  {
+    pestKey: "spider_mites",
+    crop: "Cotton",
+    region: "Tamil Nadu",
+    activeMonths: ["March", "April", "May"],
+    severity: "High",
+  },
+];

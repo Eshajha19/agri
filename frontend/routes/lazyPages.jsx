@@ -31,6 +31,7 @@ export const SeasonalCropPlanner = lazyPage(() => import('../SeasonalCropPlanner
 export const SoilGuide = lazyPage(() => import('../SoilGuide'));
 export const CropDiseaseAwareness = lazyPage(() => import('../CropDiseaseAwareness'));
 export const PestDetection = lazyPage(() => import('../PestDetection'));
+export const PestCalendar = lazyPage(() => import('../PestCalendar'));
 export const EquipmentManagement = lazyPage(() => import('../EquipmentManagement'));
 export const Helpline = lazyPage(() => import('../Helpline'));
 export const Glossary = lazyPage(() => import('../Glossary'));

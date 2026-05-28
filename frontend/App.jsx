@@ -65,6 +65,7 @@ import {
   MarketPrices,
   NotFound,
   PestDetection,
+  PestCalendar,
   PrivacyPolicy,
   ProfileSetup,
   ProfileSettings,
@@ -757,6 +758,7 @@ function App() {
             <Route path="/crop-planner" element={<SeasonalCropPlanner />} />
             <Route path="/soil-guide" element={<SoilGuide />} />
             <Route path="/disease-awareness" element={<CropDiseaseAwareness />} />
+            <Route path="/seasonal-pest-calendar" element={<PestCalendar />} />
             <Route path="/pest-detection" element={<PestDetection />} />
             <Route path="/equipment-management" element={<EquipmentManagement />} />
             <Route path="/helpline" element={<Helpline />} />
