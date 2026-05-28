@@ -74,8 +74,10 @@ async def _has_permission(request: Request, permission) -> bool:
     try:
         await rbac_manager.raise_if_unauthorized(request, [permission], require_all=False)
         return True
-    except Exception:
-        return False
+    except HTTPException as e:
+        if e.status_code == 403:
+            return False
+        raise
 
 
 @router.post("/analyze")
@@ -89,7 +91,9 @@ async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest)
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        logger.error("Financial analysis failed: %s", e)
+        raise HTTPException(status_code=500, detail="Financial analysis failed")
+
 
 @router.post("/applications")
 async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
@@ -111,7 +115,9 @@ async def create_finance_application(request: Request, body: FinanceAssessmentRe
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        logger.error("Application creation failed: %s", e)
+        raise HTTPException(status_code=500, detail="Application creation failed")
+
 
 @router.get("/applications/{application_id}")
 async def get_finance_application(application_id: str, request: Request):
@@ -150,7 +156,9 @@ async def get_finance_application(application_id: str, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        logger.error("Application retrieval failed: %s", e)
+        raise HTTPException(status_code=500, detail="Application retrieval failed")
+
 
 @router.get("/products")
 def get_finance_products():
@@ -158,8 +166,11 @@ def get_finance_products():
         raise HTTPException(status_code=500, detail="Not initialized")
     return {"success": True, "data": farm_finance_ai.list_marketplace()}
 
+
+# /marketplace is kept as an alias for /products so existing frontend
+# integrations that call either path continue to work without changes.
+# Both routes delegate to the same handler — there is a single code path
+# and a single place to update if the response shape ever changes.
 @router.get("/marketplace")
 def get_finance_marketplace():
-    if farm_finance_ai is None:
-        raise HTTPException(status_code=500, detail="Not initialized")
-    return {"success": True, "data": farm_finance_ai.list_marketplace()}
+    return get_finance_products()

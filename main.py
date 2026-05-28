@@ -255,7 +255,7 @@ async def lifespan(app: FastAPI):
         logger.info("🔗 Initializing marketplace and LMS routers...")
         marketplace.init_marketplace(verify_role, _notify_booking)
         lms.init_lms(verify_role, db_firestore)
-        advisory.init_advisory(verify_role)
+        advisory.init_advisory(verify_role, db_firestore)
         logger.info("✅ Marketplace, LMS, and advisory routers initialized")
     except Exception as exc:
         logger.error("❌ Marketplace/LMS initialization failed: %s", exc, exc_info=True)
@@ -425,8 +425,8 @@ async def verify_role(request: Request, required_roles: list = None):
     Verify the Firebase ID token and check the caller's role.
 
     Delegates identity resolution to :meth:`RBACManager.resolve_auth_context`,
-    which treats Firestore ``users/{uid}.role`` as authoritative and rejects
-    stale JWT custom claims that disagree with Firestore.
+    which uses the JWT custom claim (set via Firebase Admin SDK) as the
+    primary role source and falls back to Firestore ``users/{uid}.role``.
     """
     action = f"{request.method} {request.url.path}"
     try:
@@ -1526,6 +1526,13 @@ try:
 except Exception as e:
     logger.warning(f"Could not load ML Model Management API: {e}")
 
+# Include Feature Drift Detection Router
+try:
+    from routers.feature_drift import router as feature_drift_router
+    app.include_router(feature_drift_router)
+    logger.info("Feature Drift Detection API loaded successfully")
+except Exception as e:
+    logger.warning(f"Could not load Feature Drift Detection API: {e}")
 # Include Crop Recommendation Router
 try:
     from routers.crop_recommendation import router as crop_router
@@ -1536,5 +1543,4 @@ except Exception as e:
 
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

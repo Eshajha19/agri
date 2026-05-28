@@ -323,31 +323,24 @@ async def submit_feedback(
         try:
             doc_ref = db.collection("feedback").add(validated_data)
             feedback_id = doc_ref[1].id
-            
-            logger.info(f"Feedback stored successfully. ID: {feedback_id}")
-            
+
+            logger.info("Feedback stored successfully. ID: %s", feedback_id)
+
+            # PII fields (ipAddress, userAgent) are stored server-side for
+            # audit purposes but must not be echoed back in the response.
             return FeedbackResponse(
                 success=True,
                 feedback_id=feedback_id,
                 message="Feedback submitted successfully",
-                timestamp=datetime.now(timezone.utc).isoformat()
+                timestamp=datetime.now(timezone.utc).isoformat(),
             )
-            
+
         except Exception as firestore_error:
             logger.error("Firestore error: %s", firestore_error)
             raise HTTPException(
                 status_code=500,
                 detail="Failed to store feedback. Please try again later.",
             )
-
-        # Return only non-PII fields — ipAddress and userAgent are stored
-        # server-side for audit purposes but must not be echoed back.
-        return FeedbackResponse(
-            success=True,
-            feedback_id=feedback_id,
-            message="Feedback submitted successfully",
-            timestamp=datetime.now(timezone.utc).isoformat(),
-        )
 
     except ValueError as ve:
         logger.warning("Validation error: %s", ve)

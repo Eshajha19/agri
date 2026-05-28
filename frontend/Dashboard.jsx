@@ -36,6 +36,7 @@ import { getHistoricalWeatherData } from "./weather/weatherService";
 import ErrorBoundary from "./ErrorBoundary";
 import apiClient from "./lib/apiClient";
 import { getBookmarks } from "./utils/bookmarkStorage";
+import AdvisoryPanel from "./AdvisoryPanel";
 
 // ============================================
 // Performance Utilities
