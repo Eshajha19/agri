@@ -402,23 +402,38 @@ class RBACManager:
 
         profile = user_doc.to_dict() or {}
         roles = RBACManager._normalize_roles(profile)
-        role_str = RBACManager._effective_role(roles)
         tenant_id = RBACManager._extract_tenant(profile)
 
+        # Use the JWT custom claim (set via Firebase Admin SDK) as the
+        # primary role source so admins/expert assigned through Firebase
+        # Console or the Admin SDK are recognized immediately without
+        # requiring a separate Firestore write. Fall back to the Firestore
+        # user-doc role for legacy profiles that predate custom claims.
         claim_role = decoded_token.get("role")
         if claim_role is not None:
-            claim_normalized = str(claim_role).strip().lower()
-            if claim_normalized not in roles:
-                logger.warning(
-                    "Stale JWT role for uid=%s: claim=%s firestore_roles=%s",
-                    uid,
-                    claim_normalized,
-                    roles,
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=STALE_TOKEN_DETAIL,
-                )
+            role_str = str(claim_role).strip().lower()
+        else:
+            role_str = RBACManager._effective_role(roles)
+
+        if role_str not in KNOWN_ROLES:
+            logger.warning("Invalid role for user %s: %s", uid, role_str)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Invalid role assigned to user profile",
+            )
+
+        # Warn if Firestore disagrees with the JWT claim so operators can
+        # reconcile the two sources; do NOT reject the request when the claim
+        # is present because it is the canonical source for authenticated API
+        # access.
+        firestore_role = str(profile.get("role", DEFAULT_PROFILE_ROLE)).strip().lower()
+        if claim_role is not None and firestore_role != role_str:
+            logger.warning(
+                "Firestore role for uid=%s (%s) differs from JWT claim (%s); using claim",
+                uid,
+                firestore_role,
+                role_str,
+            )
 
         claim_tenant = RBACManager._extract_tenant(decoded_token)
         if claim_tenant and tenant_id and claim_tenant != tenant_id:
@@ -608,7 +623,12 @@ class RBACMiddleware:
     avoid unnecessary latency and Firebase API calls.
     """
 
-    PUBLIC_PATH_PREFIXES = frozenset({"/", "/health", "/metrics", "/favicon"})
+    # /metrics is intentionally excluded from this set.  The endpoint
+    # requires admin authentication (verify_role with required_roles=["admin"])
+    # and must be logged by this middleware like any other protected route.
+    # Listing it here would suppress RBAC audit logging for denied access
+    # attempts and incorrectly classify it in the same trust tier as /health.
+    PUBLIC_PATH_PREFIXES = frozenset({"/", "/health", "/favicon"})
 
     def __init__(self, app):
         self.app = app

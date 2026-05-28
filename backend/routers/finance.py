@@ -75,8 +75,10 @@ async def _has_permission(request: Request, permission) -> bool:
     try:
         await rbac_manager.raise_if_unauthorized(request, [permission], require_all=False)
         return True
-    except Exception:
-        return False
+    except HTTPException as e:
+        if e.status_code == 403:
+            return False
+        raise
 
 
 @router.post("/analyze")
@@ -90,7 +92,9 @@ async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest)
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        logger.error("Financial analysis failed: %s", e)
+        raise HTTPException(status_code=500, detail="Financial analysis failed")
+
 
 @router.post("/applications")
 async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
@@ -112,7 +116,9 @@ async def create_finance_application(request: Request, body: FinanceAssessmentRe
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        logger.error("Application creation failed: %s", e)
+        raise HTTPException(status_code=500, detail="Application creation failed")
+
 
 @router.get("/applications/{application_id}")
 async def get_finance_application(application_id: str, request: Request, resource_tenant_id: Optional[str] = None):
@@ -188,7 +194,9 @@ async def get_finance_application(application_id: str, request: Request, resourc
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        logger.error("Application retrieval failed: %s", e)
+        raise HTTPException(status_code=500, detail="Application retrieval failed")
+
 
 @router.get("/products")
 def get_finance_products():

@@ -159,11 +159,9 @@ class AsyncErrorHandler:
             request_id=request_id
         )
         
-        self.error_history.append(error_context)
-        
-        # Keep history size manageable
-        if len(self.error_history) > self.max_error_history:
-            self.error_history = self.error_history[-self.max_error_history:]
+        # Keep history strictly bounded — trim before append so the list
+        # never temporarily exceeds max_error_history during bursts.
+        self.error_history = (self.error_history + [error_context])[-self.max_error_history:]
         
         # Call error callbacks
         for callback in self.error_callbacks:
