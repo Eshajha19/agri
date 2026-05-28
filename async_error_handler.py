@@ -159,11 +159,9 @@ class AsyncErrorHandler:
             request_id=request_id
         )
         
-        self.error_history.append(error_context)
-        
-        # Keep history size manageable
-        if len(self.error_history) > self.max_error_history:
-            self.error_history = self.error_history[-self.max_error_history:]
+        # Keep history strictly bounded — trim before append so the list
+        # never temporarily exceeds max_error_history during bursts.
+        self.error_history = (self.error_history + [error_context])[-self.max_error_history:]
         
         # Call error callbacks
         for callback in self.error_callbacks:
@@ -331,8 +329,27 @@ class AsyncErrorHandler:
 
 
 class CircuitBreakerAsync:
-    """Circuit breaker for async operations"""
-    
+    """Circuit breaker for async operations.
+
+    Callers MUST pass a coroutine factory (a zero-argument callable that
+    returns a fresh coroutine each time it is called) rather than a bare
+    coroutine object.  This is required because:
+
+    1. A coroutine object can only be awaited once.  If the circuit is open
+       and the coroutine is rejected without being awaited, the object must
+       be explicitly closed to release its frame resources and suppress the
+       ``RuntimeWarning: coroutine '...' was never awaited`` warning.
+       Passing a factory means the circuit breaker never even creates the
+       coroutine when the circuit is open, so there is nothing to leak.
+
+    2. The previous API accepted a raw ``Coroutine`` object.  When the
+       circuit was open it called ``coro.close()`` to suppress the warning,
+       but ``close()`` sends a ``GeneratorExit`` into the coroutine frame
+       which can raise ``RuntimeError`` if the coroutine has already started
+       executing (e.g. in a half-open retry scenario).  Using a factory
+       avoids this entirely.
+    """
+
     def __init__(
         self,
         failure_threshold: int = 5,
@@ -342,37 +359,59 @@ class CircuitBreakerAsync:
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
         self.name = name
-        
+
         self.failure_count = 0
         self.last_failure_time = None
         self.state = "closed"  # closed, open, half_open
-    
+
     async def execute(
         self,
-        coro: Coroutine[Any, Any, T]
+        coro_factory: Callable[[], Coroutine[Any, Any, T]],
     ) -> tuple[Optional[T], bool]:
         """
-        Execute coroutine with circuit breaker
-        
-        Returns:
-            (result, is_healthy)
+        Execute a coroutine produced by *coro_factory* with circuit-breaker
+        protection.
+
+        Parameters
+        ----------
+        coro_factory:
+            A zero-argument callable that returns a **fresh** coroutine each
+            time it is called.  Example::
+
+                await cb.execute(lambda: my_async_fn(arg1, arg2))
+
+        Returns
+        -------
+        (result, is_healthy)
+            *result* is ``None`` and *is_healthy* is ``False`` when the
+            circuit is open or the execution raised an exception.
         """
-        
-        # Check if circuit should be opened
+        # When the circuit is open, reject immediately without creating a
+        # coroutine at all — nothing to close, nothing to leak.
         if self.state == "open":
             if self._should_attempt_recovery():
                 self.state = "half_open"
             else:
+                logger.debug(
+                    "Circuit breaker %s is open — request rejected", self.name
+                )
                 return None, False
-        
-        # Execute
+
+        # Create a fresh coroutine from the factory for this attempt.
+        coro = coro_factory()
         try:
             result = await coro
             self._on_success()
             return result, True
         except Exception as e:
             self._on_failure()
-            logger.warning(f"Circuit breaker {self.name}: {e}")
+            logger.warning("Circuit breaker %s caught exception: %s", self.name, e)
+            # Explicitly close the coroutine in case it was only partially
+            # driven before the exception propagated, ensuring frame cleanup.
+            try:
+                coro.close()
+            except Exception:
+                pass
             return None, False
     
     def _on_success(self):
