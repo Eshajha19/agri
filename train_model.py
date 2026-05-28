@@ -2,114 +2,92 @@ import pandas as pd
 import xgboost as xgb
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
+import argparse
+import json
+import os
+import random
+
+import pandas as pd
+import xgboost as xgb
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
 import joblib
 import numpy as np
-import os
-import hmac
-import hashlib
-import json
-from datetime import datetime
-from pathlib import Path
 
-df = pd.read_csv("Train.csv")
-# Convert SDate to datetime
-df['SDate'] = pd.to_datetime(df['SDate'], errors='coerce')
-df = df.dropna(subset=['SDate'])
-df = df.sort_values('SDate')
-print(df[['SDate', 'ExpYield']].head())
+from ml.repro import create_run_manifest
 
-X = df.drop(columns=["FarmID", "category", "State", "District", "Sub-District", "SDate", "HDate", "ExpYield", "geometry"], errors='ignore')
-y = df["ExpYield"]
 
-categorical_cols = ['Crop', 'CNext', 'CLast', 'CTransp', 'IrriType', 'IrriSource', 'Season']
-numeric_cols = [c for c in X.columns if c not in categorical_cols]
+def set_seeds(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    try:
+        import tensorflow as tf
+        tf.random.set_seed(seed)
+    except Exception:
+        pass
 
-# ------------------------------------------------------------------
-# Save feature baseline BEFORE get_dummies so we capture raw values
-# ------------------------------------------------------------------
-def save_feature_baseline(df_raw, cat_cols, num_cols, output_path="feature_baseline.json"):
-    """
-    Saves training feature statistics to feature_baseline.json.
-    Called once after training so the drift detector has a reference
-    distribution to compare against at inference time.
 
-    Numeric features  : mean, std, min, max, up to 500 sample values
-    Categorical features : list of known categories + frequency fractions
-    """
-    numeric_features = {}
-    categorical_features = {}
+def train_from_config(config_path: str):
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
 
-    for col in num_cols:
-        if col not in df_raw.columns:
-            continue
-        series = df_raw[col].dropna()
-        try:
-            series = series.astype(float)
-        except (TypeError, ValueError):
-            continue
-        sample = series.sample(min(500, len(series)), random_state=42).tolist()
-        numeric_features[col] = {
-            "mean": float(series.mean()),
-            "std": float(series.std()),
-            "min": float(series.min()),
-            "max": float(series.max()),
-            "sample_values": sample,
-        }
+    seed = config.get('seed', 42)
+    set_seeds(seed)
 
-    for col in cat_cols:
-        if col not in df_raw.columns:
-            continue
-        vc = df_raw[col].dropna().value_counts(normalize=True)
-        categorical_features[col] = {
-            "categories": vc.index.tolist(),
-            "value_counts": vc.to_dict(),
-        }
+    dataset_path = config.get('dataset', 'Train.csv')
+    dry_run = config.get('dry_run', False)
 
-    baseline = {
-        "generated_at": datetime.utcnow().isoformat(),
-        "csv_path": "Train.csv",
-        "numeric_features": numeric_features,
-        "categorical_features": categorical_features,
-    }
+    # create run manifest (data provenance)
+    manifest = create_run_manifest([dataset_path], config)
+    print('Run manifest created with id:', manifest['run_id'])
 
-    tmp_path = Path(output_path).with_suffix(".tmp")
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump(baseline, f, indent=2)
-    os.replace(tmp_path, output_path)
+    if dry_run:
+        print('Dry run requested; skipping training.')
+        return manifest
 
-    num_count = len(numeric_features)
-    cat_count = len(categorical_features)
-    print(f"✅ Feature baseline saved to {output_path}")
-    print(f"   📊 {num_count} numeric features + {cat_count} categorical features = {num_count + cat_count} total")
-    return baseline
+    df = pd.read_csv(dataset_path)
+    # Convert SDate to datetime
+    df['SDate'] = pd.to_datetime(df['SDate'], errors='coerce')
+    df = df.dropna(subset=['SDate'])
+    df = df.sort_values('SDate')
 
-# Save baseline from the raw X (before get_dummies) so we have
-# original category strings, not one-hot column names.
-save_feature_baseline(X, categorical_cols, numeric_cols)
+    X = df.drop(columns=["FarmID", "category", "State", "District", "Sub-District", "SDate", "HDate", "ExpYield", "geometry"], errors='ignore')
+    y = df["ExpYield"]
 
-# ------------------------------------------------------------------
-# Model training (unchanged from original)
-# ------------------------------------------------------------------
-X = pd.get_dummies(X, columns=categorical_cols, drop_first=True)
+    categorical_cols = config.get('categorical_cols', ['Crop', 'CNext', 'CLast', 'CTransp', 'IrriType', 'IrriSource', 'Season'])
+    X = pd.get_dummies(X, columns=[c for c in categorical_cols if c in X.columns], drop_first=True)
 
-# Split data
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
+    # Split data
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=config.get('test_size', 0.2), random_state=seed
+    )
 
-# Train model
-model = xgb.XGBRegressor(n_estimators=200, max_depth=6, random_state=42)
-model.fit(X_train, y_train)
+    # Train model
+    model = xgb.XGBRegressor(n_estimators=config.get('n_estimators', 200), max_depth=config.get('max_depth', 6), random_state=seed)
+    model.fit(X_train, y_train)
 
-# Evaluate
-preds = model.predict(X_test)
-rmse = np.sqrt(mean_squared_error(y_test, preds))
-print("✅ Model trained successfully")
-print("📊 RMSE:", rmse)
+    # Evaluate
+    preds = model.predict(X_test)
+    rmse = np.sqrt(mean_squared_error(y_test, preds))
+    print("✅ Model trained successfully")
+    print("📊 RMSE:", rmse)
 
-# Save model
-joblib.dump(model, "yield_model.joblib")
+    out_path = config.get('output_model', 'yield_model.joblib')
+    joblib.dump(model, out_path)
 
+    return manifest
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', '-c', required=True, help='Path to JSON config file')
+    args = parser.parse_args()
+
+    train_from_config(args.config)
+
+
+if __name__ == '__main__':
+    main()
 # Optionally sign the model if a signing key is available in environment
 signing_key = os.getenv("MODEL_SIGNING_KEY")
 if signing_key:

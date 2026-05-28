@@ -737,7 +737,7 @@ function App() {
             <Route path="/resources" element={<Resources />} />
             <Route path="/login" element={<Auth />} />
             <Route path="/profile-setup" element={<ProfileSetup user={user} profileCompleted={profileCompleted} />} />
-            <Route path="/calendar" element={<Calendar />} />
+            <Route path="/calendar" element={<Calendar userData={userData} />} />
             <Route path="/share-feedback" element={<Feedback />} />
             <Route path="/admin/feedback" element={<AdminFeedback />} />
             <Route path="/market-prices" element={<MarketPrices />} />

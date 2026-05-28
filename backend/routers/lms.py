@@ -9,14 +9,19 @@ authorization decisions.
 """
 import hashlib
 import logging
+import time
 from datetime import datetime, timezone
-from typing import Dict
+from typing import Dict, Tuple
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# Per-user per-course certificate request cooldown (seconds).
+_CERT_COOLDOWN_SECONDS = 60
+_last_cert_request: Dict[Tuple[str, str], float] = {}
 
 # ---------------------------------------------------------------------------
 # Injected dependencies (wired in main.py lifespan via init_lms)
@@ -99,9 +104,12 @@ def _is_complete(progress: dict, course_id: str) -> bool:
     return all(completed.get(lid) is True for lid in lessons)
 
 
-def _make_cert_id(uid: str, course_id: str, completed_at: str) -> str:
-    """Deterministic, non-guessable certificate ID tied to uid + course + date."""
-    raw = f"{uid}:{course_id}:{completed_at}"
+def _make_cert_id(uid: str, course_id: str) -> str:
+    """Deterministic certificate ID — uid + course_id only, so repeated calls
+    for the same user and course always return the same ID.  The mutable
+    completed_at timestamp is intentionally excluded from the hash to prevent
+    users from minting unlimited unique cert IDs by editing Firestore."""
+    raw = f"{uid}:{course_id}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16].upper()
 
 
@@ -123,7 +131,7 @@ async def complete_lesson(request: Request, body: CompleteLessonRequest):
     _require_firestore()
 
     token_data = await _verify_role_fn(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
 
     lesson_id = body.lesson_id
     course_id = _LESSON_TO_COURSE.get(lesson_id)
@@ -168,7 +176,7 @@ async def get_progress(request: Request):
     _require_firestore()
 
     token_data = await _verify_role_fn(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
 
     result = {}
     for course_id in COURSES:
@@ -210,7 +218,18 @@ async def get_certificate_data(request: Request, course_id: str):
         raise HTTPException(status_code=404, detail="Course not found")
 
     token_data = await _verify_role_fn(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
+
+    # Per-user per-course cooldown to prevent Firestore cost abuse.
+    key = (uid, course_id)
+    now = time.time()
+    last = _last_cert_request.get(key)
+    if last is not None and (now - last) < _CERT_COOLDOWN_SECONDS:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Certificate already requested recently. Please wait {_CERT_COOLDOWN_SECONDS} seconds.",
+        )
+    _last_cert_request[key] = now
 
     progress = _get_progress(uid, course_id)
     if not _is_complete(progress, course_id):
@@ -234,7 +253,7 @@ async def get_certificate_data(request: Request, course_id: str):
     )
 
     completed_at = progress.get("completedAt", datetime.now(timezone.utc).isoformat())
-    cert_id = _make_cert_id(uid, course_id, completed_at)
+    cert_id = _make_cert_id(uid, course_id)
 
     return {
         "success": True,

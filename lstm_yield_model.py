@@ -3,7 +3,8 @@ import numpy as np
 import logging
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import List
 from sklearn.preprocessing import MinMaxScaler
@@ -108,20 +109,59 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+_bearer = HTTPBearer(auto_error=False)
+
+
+async def _require_firebase_auth(request: Request) -> str:
+    """Verify a Firebase ID token from the Authorization: Bearer header.
+
+    Returns the verified UID on success.  Raises HTTP 401 on any failure so
+    unauthenticated callers cannot reach the inference endpoint.
+    """
+    credentials: HTTPAuthorizationCredentials | None = await _bearer(request)
+    if credentials is None or not credentials.credentials:
+        raise HTTPException(status_code=401, detail="Missing authentication token")
+
+    token = credentials.credentials.strip()
+    try:
+        import firebase_admin
+        from firebase_admin import auth as firebase_auth
+
+        # Initialize the Firebase app lazily if it hasn't been done yet.
+        # In production the app is typically initialized by the parent process;
+        # this guard makes the standalone server self-contained.
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app()
+
+        decoded = firebase_auth.verify_id_token(token)
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail="Invalid or expired authentication token") from exc
+
+    uid = decoded.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+    return uid
+
 
 @app.post("/predict", response_model=PredictionResponse)
-async def predict(request: PredictionRequest):
+async def predict(request: Request, body: PredictionRequest):
     """
     Inference endpoint.
     Expects input features matching the sequence length used during training.
+
+    Requires a valid Firebase ID token in the Authorization: Bearer header.
+    Unauthenticated requests are rejected with HTTP 401 to prevent quota
+    exhaustion and automated scraping of model behaviour.
     """
+    await _require_firebase_auth(request)
+
     if model is None:
         raise HTTPException(status_code=503, detail="Model is not loaded. Cannot serve predictions.")
     
     try:
         # Convert request data to numpy array
         # Reshape to match the expected input shape: (batch_size, sequence_length, num_features)
-        input_data = np.array(request.features)
+        input_data = np.array(body.features)
         
         if len(input_data.shape) == 2:
             input_data = np.expand_dims(input_data, axis=0)
@@ -150,4 +190,4 @@ if __name__ == "__main__":
     # When run as a script, we start the inference server locally
     import uvicorn
     # Note: Run it on a specific port for the dedicated inference server
-    uvicorn.run("lstm_yield_model:app", host="0.0.0.0", port=8001, reload=False)
+    uvicorn.run("lstm_yield_model:app", host="0.0.0.0", port=8001, reload=False)
