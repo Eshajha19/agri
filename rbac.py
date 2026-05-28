@@ -1,18 +1,48 @@
 """
 Role-Based Access Control (RBAC) Enforcement Layer
 Provides fine-grained access control across all API routes.
+
+Authorization model
+-------------------
+* **Authoritative role source (API):** Firestore ``users/{uid}.role``.
+* **JWT custom claim ``role``:** Mirror of Firestore, set via ``role_sync.sync_role_claim``.
+  The API rejects requests when the claim is present but disagrees with Firestore
+  (stale token after demotion or role change).
+* **Firestore security rules:** Read ``request.auth.token.role`` only (no ``get()`` on
+  users). Claims must be kept in sync by the backend; rules do not default missing
+  claims to elevated roles.
+* **Unauthenticated callers:** Treated as ``Role.GUEST`` only when no Bearer token is
+  supplied. Valid tokens without a user profile fail closed (403), never guest.
 """
 
+from __future__ import annotations
+
 import logging
-from typing import List, Dict, Optional, Callable
+from dataclasses import dataclass
 from enum import Enum
 from functools import wraps
+from typing import Callable, Dict, List, Optional
 
-from fastapi import HTTPException, status, Request
 import firebase_admin
+from fastapi import HTTPException, Request, status
 from firebase_admin import auth as firebase_auth, firestore
 
 logger = logging.getLogger(__name__)
+
+# Must match role_sync.VALID_ROLES and firestore.rules role strings.
+KNOWN_ROLES = frozenset({"admin", "expert", "farmer", "vendor", "system", "guest"})
+DEFAULT_PROFILE_ROLE = "farmer"
+STALE_TOKEN_DETAIL = (
+    "Authorization token is stale. Sign out and sign in again to refresh your session."
+)
+
+
+@dataclass(frozen=True, slots=True)
+class AuthContext:
+    """Resolved identity for an authenticated API request."""
+
+    uid: str
+    role: str
 
 
 class Role(Enum):
@@ -208,74 +238,124 @@ class RBACManager:
             return None
 
     @staticmethod
-    async def get_user_role(request: Request) -> Optional[Role]:
+    def _parse_bearer_token(request: Request) -> Optional[str]:
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return None
+        token = auth_header[7:].strip()
+        return token or None
+
+    @staticmethod
+    async def resolve_auth_context(
+        request: Request,
+        *,
+        allow_unauthenticated: bool = False,
+    ) -> Optional[AuthContext]:
         """
-        Extract user role from Firebase token and Firestore.
-        
-        Returns
-        -------
-        Role or None
-            User role, or None if not authenticated
+        Resolve the caller's UID and role from Firestore (authoritative).
+
+        When ``allow_unauthenticated`` is True and no Bearer token is present,
+        returns None. Otherwise fail-closed with 401/403/503 matching ``verify_role``.
         """
-        try:
-            # Get token from Authorization header
-            auth_header = request.headers.get("Authorization", "")
-            if not auth_header:
-                return Role.GUEST
-            if not auth_header.startswith("Bearer "):
-                logger.warning("Missing or invalid Authorization header format")
-                return Role.GUEST
-
-            token = auth_header.split(" ")[1]
-
-            # Verify Firebase token
-            try:
-                decoded_token = firebase_auth.verify_id_token(token)
-                uid = decoded_token.get("uid")
-            except Exception as exc:
-                logger.error("Token verification failed: %s", exc)
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Invalid or expired authorization token"
-                )
-
-            # Get user role from Firestore
-            db = RBACManager.get_db()
-            if db is None:
-                logger.error("Firestore not available; cannot retrieve user role")
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Authentication database service temporarily unavailable"
-                )
-
-            try:
-                user_doc = db.collection("users").document(uid).get()
-            except Exception as exc:
-                logger.error("Firestore query failed for user %s: %s", uid, exc)
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Authentication database lookup failed"
-                )
-
-            if not user_doc.exists:
-                logger.warning("User %s not found in Firestore", uid)
-                return Role.GUEST
-
-            role_str = user_doc.get("role", "guest").lower()
-            try:
-                return Role(role_str)
-            except ValueError:
-                logger.warning("Invalid role for user %s: %s", uid, role_str)
-                return Role.GUEST
-
-        except HTTPException:
-            raise
-        except Exception as exc:
-            logger.error("Unexpected error getting user role: %s", exc)
+        token = RBACManager._parse_bearer_token(request)
+        if token is None:
+            if allow_unauthenticated:
+                return None
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Internal server error during authorization verification"
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Missing or invalid authentication token",
             )
+
+        try:
+            decoded_token = firebase_auth.verify_id_token(token)
+        except Exception as exc:
+            logger.error("Token verification failed: %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired authorization token",
+            ) from exc
+
+        uid = decoded_token.get("uid")
+        if not uid:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired authorization token",
+            )
+
+        db = RBACManager.get_db()
+        if db is None:
+            logger.error("Firestore not available; cannot retrieve user role")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Authentication database service temporarily unavailable",
+            )
+
+        try:
+            user_doc = db.collection("users").document(uid).get()
+        except Exception as exc:
+            logger.error("Firestore query failed for user %s: %s", uid, exc)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Authentication database lookup failed",
+            ) from exc
+
+        if not user_doc.exists:
+            logger.warning("User %s not found in Firestore", uid)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User profile not found",
+            )
+
+        # Use the JWT custom claim (set via Firebase Admin SDK) as the
+        # primary role source so admins/expert assigned through Firebase
+        # Console or the Admin SDK are recognized immediately without
+        # requiring a separate Firestore write.  Fall back to the Firestore
+        # user-doc role for legacy profiles that predate custom claims.
+        claim_role = decoded_token.get("role")
+        if claim_role is not None:
+            role_str = str(claim_role).strip().lower()
+        else:
+            role_str = (user_doc.to_dict() or {}).get("role", DEFAULT_PROFILE_ROLE)
+        if not isinstance(role_str, str):
+            role_str = DEFAULT_PROFILE_ROLE
+        role_str = role_str.strip().lower()
+
+        if role_str not in KNOWN_ROLES:
+            logger.warning("Invalid role for user %s: %s", uid, role_str)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Invalid role assigned to user profile",
+            )
+
+        # Warn if Firestore disagrees with the JWT claim so operators
+        # can reconcile the two sources; do NOT reject the request.
+        firestore_role = (user_doc.to_dict() or {}).get("role", DEFAULT_PROFILE_ROLE)
+        if claim_role is not None and firestore_role != role_str:
+            logger.warning(
+                "Firestore role for uid=%s (%s) differs from JWT claim (%s); using claim",
+                uid,
+                firestore_role,
+                role_str,
+            )
+
+        return AuthContext(uid=uid, role=role_str)
+
+    @staticmethod
+    async def get_user_role(request: Request) -> Role:
+        """
+        Return the caller's role.
+
+        Unauthenticated requests (no Bearer token) map to ``Role.GUEST``.
+        Authenticated requests use Firestore and fail closed on missing profiles
+        or stale JWT claims.
+        """
+        ctx = await RBACManager.resolve_auth_context(
+            request,
+            allow_unauthenticated=True,
+        )
+        if ctx is None:
+            return Role.GUEST
+        return Role(ctx.role)
 
     @staticmethod
     async def verify_permission(
@@ -301,12 +381,15 @@ class RBACManager:
         bool
             True if user has required permissions
         """
-        user_role = await RBACManager.get_user_role(request)
+        ctx = await RBACManager.resolve_auth_context(
+            request,
+            allow_unauthenticated=False,
+        )
+        user_role = Role(ctx.role)
 
         if require_all:
             return RBACMatrix.has_all_permissions(user_role, required_permissions)
-        else:
-            return RBACMatrix.has_any_permission(user_role, required_permissions)
+        return RBACMatrix.has_any_permission(user_role, required_permissions)
 
     @staticmethod
     async def raise_if_unauthorized(
@@ -339,10 +422,17 @@ class RBACManager:
         )
 
         if not has_permission:
-            user_role = await RBACManager.get_user_role(request)
+            try:
+                ctx = await RBACManager.resolve_auth_context(
+                    request,
+                    allow_unauthenticated=False,
+                )
+                role_label = ctx.role
+            except HTTPException:
+                role_label = "unknown"
             logger.warning(
                 "Unauthorized access attempt with role: %s, required: %s",
-                user_role.value if user_role else "unknown",
+                role_label,
                 [p.value for p in required_permissions],
             )
             raise HTTPException(
@@ -419,20 +509,36 @@ def require_permission(*permissions: Permission, require_all: bool = False):
 class RBACMiddleware:
     """
     RBAC logging middleware for tracking access attempts.
+    Skips Firebase/Firestore verification for public endpoints to
+    avoid unnecessary latency and Firebase API calls.
     """
+
+    # /metrics is intentionally excluded from this set.  The endpoint
+    # requires admin authentication (verify_role with required_roles=["admin"])
+    # and must be logged by this middleware like any other protected route.
+    # Listing it here would suppress RBAC audit logging for denied access
+    # attempts and incorrectly classify it in the same trust tier as /health.
+    PUBLIC_PATH_PREFIXES = frozenset({"/", "/health", "/favicon"})
 
     def __init__(self, app):
         self.app = app
 
     async def __call__(self, request: Request, call_next):
         """Log all API requests with user role."""
-        user_role = await RBACManager.get_user_role(request)
-        
+        path = request.url.path
+        if any(path.startswith(prefix) for prefix in self.PUBLIC_PATH_PREFIXES):
+            user_role = Role.GUEST
+        else:
+            try:
+                user_role = await RBACManager.get_user_role(request)
+            except HTTPException:
+                user_role = Role.GUEST
+
         # Log the access attempt
         logger.info(
             "API Request - Method: %s, Path: %s, Role: %s",
             request.method,
-            request.url.path,
+            path,
             user_role.value if user_role else "unknown",
         )
 
