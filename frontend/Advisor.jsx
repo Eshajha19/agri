@@ -94,6 +94,7 @@ import {
   fetchWeatherByIP,
   searchLocationByName,
 } from "./weather/weatherService";
+import IrrigationCard from "./components/IrrigationCard";
 
 export default function Advisor({ userData }) {
   const navigate = useNavigate();
@@ -1223,6 +1224,11 @@ showGreenPractices,
           </div>
         </div>
       )}
+      <section className="advisor-section">
+          <IrrigationCard />
+      </section>
+
+
 
       {showBankReport && (
         <div className="weather-overlay" onClick={() => setShowBankReport(false)}>
