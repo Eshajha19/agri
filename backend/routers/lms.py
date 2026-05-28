@@ -10,6 +10,7 @@ authorization decisions.
 import hashlib
 import logging
 import time
+from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Dict, Tuple
 
@@ -21,7 +22,19 @@ logger = logging.getLogger(__name__)
 
 # Per-user per-course certificate request cooldown (seconds).
 _CERT_COOLDOWN_SECONDS = 60
-_last_cert_request: Dict[Tuple[str, str], float] = {}
+
+# Maximum number of (uid, course_id) pairs tracked in the cooldown store.
+# Each entry is a single float timestamp (~56 bytes), so 10 000 entries
+# consume roughly 560 KB — a safe upper bound for a long-running process.
+# When the cap is reached the least-recently-used entry is evicted before
+# the new one is inserted, keeping memory proportional to this constant
+# regardless of how many distinct users the process has served.
+_CERT_COOLDOWN_MAX_ENTRIES = 10_000
+
+# OrderedDict used as an LRU store: move_to_end() on every access keeps
+# the most-recently-used entries at the tail; popitem(last=False) evicts
+# the least-recently-used entry from the head when the cap is reached.
+_last_cert_request: OrderedDict[Tuple[str, str], float] = OrderedDict()
 
 # ---------------------------------------------------------------------------
 # Injected dependencies (wired in main.py lifespan via init_lms)
@@ -229,7 +242,12 @@ async def get_certificate_data(request: Request, course_id: str):
             status_code=429,
             detail=f"Certificate already requested recently. Please wait {_CERT_COOLDOWN_SECONDS} seconds.",
         )
+    # Evict the LRU entry before inserting when the cap is reached, then
+    # record the current timestamp and move the key to the MRU position.
+    if key not in _last_cert_request and len(_last_cert_request) >= _CERT_COOLDOWN_MAX_ENTRIES:
+        _last_cert_request.popitem(last=False)
     _last_cert_request[key] = now
+    _last_cert_request.move_to_end(key)
 
     progress = _get_progress(uid, course_id)
     if not _is_complete(progress, course_id):

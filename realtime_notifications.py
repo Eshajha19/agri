@@ -413,18 +413,21 @@ class NotificationBroadcastHub:
         if not clients:
             return
 
+        stale_clients: list[WebSocket] = []
         async with self._broadcast_lock:
-            stale_clients: list[WebSocket] = []
             for websocket, _subscription in clients:
                 try:
                     await websocket.send_json(payload)
                 except Exception:
                     stale_clients.append(websocket)
 
-            if stale_clients:
-                async with self._connections_lock:
-                    for websocket in stale_clients:
-                        self._connections.pop(websocket, None)
+        # Clean up stale connections outside broadcast_lock to avoid
+        # lock-order inversion with connections_lock (acquired by publish
+        # before calling _broadcast).  See publish().
+        if stale_clients:
+            async with self._connections_lock:
+                for websocket in stale_clients:
+                    self._connections.pop(websocket, None)
 
     async def _redis_listener(self) -> None:
         try:

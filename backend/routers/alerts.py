@@ -1,6 +1,7 @@
 """Alerts & Notifications Router"""
 from datetime import datetime
 from typing import Any, Optional
+import logging
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
 from twilio_webhook_security import handle_inbound_whatsapp_webhook
@@ -9,6 +10,7 @@ from geo_alerts import notification_matches_regions, profile_can_broadcast_regio
 from backend.schemas import AlertTriggerRequest
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 notification_store = None
@@ -120,7 +122,8 @@ async def subscribe_whatsapp(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("WhatsApp subscription failed: %s", e)
+        raise HTTPException(status_code=500, detail="WhatsApp subscription failed")
 
 
 @router.post("/whatsapp/trigger-alert")
@@ -162,7 +165,8 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Alert broadcast failed: %s", e)
+        raise HTTPException(status_code=500, detail="Alert broadcast failed")
 
 
 @router.post("/whatsapp/webhook")
