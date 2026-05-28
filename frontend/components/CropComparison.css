@@ -1,0 +1,23 @@
+.comparison-tool {
+  background: var(--bg-primary);
+  padding: 20px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.selectors {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.comparison-table th, .comparison-table td {
+  border: 1px solid var(--border-default);
+  padding: 8px;
+  text-align: center;
+}
