@@ -409,16 +409,7 @@ class ImageProcessingQueue:
             task.status = TaskStatus.CANCELLED
 
             with self._queue_lock:
-                # Rebuild the heap without the cancelled task.
-                # The previous code used `deque(t for t in self._task_queue if
-                # t.task_id != task_id)` which had three bugs:
-                #   1. `deque` was never imported.
-                #   2. Heap tuples are (priority, counter, task) — they have no
-                #      `.task_id` attribute, so the filter always raised AttributeError.
-                #   3. Replacing the heap list with a deque broke all future
-                #      heappush / heappop calls.
-                # Fix: filter the heap list by inspecting entry[2].task_id (the task
-                # inside each tuple), then heapify to restore the heap invariant.
+           
                 self._task_queue = [
                     entry for entry in self._task_queue
                     if entry[2].task_id != task_id
