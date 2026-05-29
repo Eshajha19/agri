@@ -1,4 +1,6 @@
 import pandas as pd
+import os
+import json
 from ml.base import YieldModel
 from ml.security import verify_and_load_joblib
 
@@ -10,6 +12,7 @@ class XGBoostAdapter(YieldModel):
     def __init__(self):
         self.model = None
         self._feature_names = []
+        self._category_vocab = None
 
     def load(self, model_path: str):
         try:
@@ -24,6 +27,11 @@ class XGBoostAdapter(YieldModel):
                 self._feature_names = list(self.model.get_booster().feature_names)
             elif hasattr(self.model, 'feature_names_in_'):
                 self._feature_names = list(self.model.feature_names_in_)
+            # Load category vocabulary from companion file
+            voc_path = os.path.splitext(model_path)[0] + '_vocab.json'
+            if os.path.exists(voc_path):
+                with open(voc_path, 'r', encoding='utf-8') as vf:
+                    self._category_vocab = json.load(vf)
             print(f"XGBoost model loaded from {model_path}")
         except Exception as e:
             print(f"Error loading XGBoost model: {e}")
@@ -57,3 +65,7 @@ class XGBoostAdapter(YieldModel):
     @property
     def feature_names(self):
         return self._feature_names
+    
+    @property
+    def category_vocab(self):
+        return self._category_vocab

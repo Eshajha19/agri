@@ -1,9 +1,11 @@
 """Knowledge Base Router - RAG, Climate Simulation, Seeds"""
-import re
 from typing import Optional
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field, validator
 import logging
+
+from backend.compute_rate_limit import enforce_compute_rate_limit
+from backend.schemas import RAGQuery
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -11,50 +13,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Pydantic models
 # ---------------------------------------------------------------------------
-
-class RAGQuery(BaseModel):
-    query: str = Field(..., min_length=3, max_length=500)
-    top_k: int = Field(default=3, ge=1, le=5)
-
-    @validator("query")
-    def sanitize_and_normalize_query(cls, v):
-        if not v or not isinstance(v, str):
-            raise ValueError("Query must be a non-empty string.")
-
-        v = re.sub(r'<script.*?>.*?</script>', '', v, flags=re.IGNORECASE | re.DOTALL)
-        v = re.sub(r'</?script.*?>', '', v, flags=re.IGNORECASE)
-        v = re.sub(r'on\w+\s*=', '', v, flags=re.IGNORECASE)
-        v = re.sub(r'javascript:', '', v, flags=re.IGNORECASE)
-        v = re.sub(r'data:', '', v, flags=re.IGNORECASE)
-        v = re.sub(r'vbscript:', '', v, flags=re.IGNORECASE)
-        v = re.sub(r'<[^>]*>', '', v)
-        v = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'\1 (\2)', v)
-        v = re.sub(r'[*_~`#]', '', v)
-        v = v.strip()
-        v = re.sub(r'\s+', ' ', v)
-
-        forbidden_patterns = [
-            r"ignore\s+(?:all\s+)?previous\s+instructions",
-            r"ignore\s+(?:the\s+)?system\s+prompt",
-            r"override\s+system\s+constraints",
-            r"developer\s+mode",
-            r"bypass\s+safety\s+filter",
-            r"disregard\s+(?:all\s+)?prior\s+instructions",
-            r"act\s+as\s+(?:a\s+)?(?:different|unrestricted|unfiltered)\s+(?:ai|model|assistant)",
-            r"pretend\s+(?:you\s+are|to\s+be)\s+(?:a\s+)?(?:different|unrestricted)",
-            r"jailbreak",
-            r"prompt\s+injection",
-        ]
-        v_lower = v.lower()
-        for pattern in forbidden_patterns:
-            if re.search(pattern, v_lower):
-                raise ValueError("Query contains disallowed phrases or prompt injection attempts.")
-
-        if len(v) < 3:
-            raise ValueError("Query must be at least 3 characters long after sanitization.")
-
-        return v
-
 
 class SimulationRequest(BaseModel):
     """Climate simulation request.
@@ -349,15 +307,24 @@ async def rag_query(request: Request, body: RAGQuery):
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     # Raises HTTP 401 if the Firebase token is missing or invalid.
-    await verify_role_fn(request)
+    token_data = await verify_role_fn(request)
+    rate_limited = enforce_compute_rate_limit(
+        request,
+        scope="knowledge.rag_query",
+        uid=(token_data or {}).get("uid"),
+        limit=12,
+        window_seconds=60,
+    )
+    if rate_limited is not None:
+        return rate_limited
     try:
         result = rag_generate_fn(body.query, body.top_k)
         return {"success": True, "query": body.query, "results": result}
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"RAG error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("RAG query failed: %s", e)
+        raise HTTPException(status_code=500, detail="RAG query failed")
 
 
 @router.post("/simulate-climate")
@@ -370,7 +337,16 @@ async def simulate_climate(request: Request, data: SimulationRequest):
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     # Raises HTTP 401 if the Firebase token is missing or invalid.
-    await verify_role_fn(request)
+    token_data = await verify_role_fn(request)
+    rate_limited = enforce_compute_rate_limit(
+        request,
+        scope="knowledge.simulate_climate",
+        uid=(token_data or {}).get("uid"),
+        limit=10,
+        window_seconds=60,
+    )
+    if rate_limited is not None:
+        return rate_limited
     try:
         canonical_region = _resolve_region(data.region or "central")
         canonical_season = _resolve_season(data.season or "kharif")
@@ -426,8 +402,8 @@ async def simulate_climate(request: Request, data: SimulationRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Climate simulation error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("Climate simulation failed: %s", e)
+        raise HTTPException(status_code=500, detail="Climate simulation failed")
 
 
 @router.post("/seeds/verify")
@@ -442,5 +418,5 @@ async def verify_seed(request: Request, data: SeedVerifyRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Seed error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("Seed verification failed: %s", e)
+        raise HTTPException(status_code=500, detail="Seed verification failed")

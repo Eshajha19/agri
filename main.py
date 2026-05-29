@@ -123,64 +123,123 @@ try:
 except ImportError:
     HAS_GCP_KMS = False
 
-# Logger must be configured before lifespan so startup log calls work.
-logging.basicConfig(level=logging.INFO)
+# Logger configuration with structured output and context tracking
+class ContextFilter(logging.Filter):
+    """Add request/operation context to all log records."""
+    def __init__(self):
+        super().__init__()
+        self.context = {}
+
+    def filter(self, record):
+        record.context = self.context
+        return True
+
+# Configure structured logging with detailed formatting
+_context_filter = ContextFilter()
+_handler = logging.StreamHandler()
+_formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - [%(context)s] - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+_handler.setFormatter(_formatter)
+
+logging.basicConfig(
+    level=logging.INFO,
+    handlers=[_handler],
+    format='%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
+)
 logger = logging.getLogger(__name__)
+logger.addFilter(_context_filter)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    FastAPI lifespan context manager.
+    FastAPI lifespan context manager with comprehensive logging.
 
-    Runs inside **every** Uvicorn/Gunicorn worker process on startup, so the
-    ML pipeline is always initialised regardless of how many workers are
-    spawned.  This replaces the previous bare ``init_ml_pipeline()`` call at
-    module level, which only ran reliably in single-worker deployments.
-
-    Multi-worker guarantee
-    ----------------------
-    When Uvicorn is started with ``--workers N``, each worker forks/spawns
-    from the main process and imports ``main.py`` independently.  The
-    ``lifespan`` hook is invoked by FastAPI in every worker's event loop,
-    ensuring ``ModelRegistry`` is populated in every process before the
-    first request is served.
+    Runs inside every Uvicorn/Gunicorn worker process on startup, ensuring
+    ML pipeline and services are always initialized. Provides detailed logging
+    for startup sequence and error tracking.
     """
-    logger.info("Starting up: initializing services")
-    init_ml_pipeline()
-    await notification_broker.start()
+    startup_time = time.time()
+    logger.info("🚀 Starting up: initializing FastAPI services")
 
-    # Domain engines — initialized exactly once here at startup.
-    drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
-    shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
-    version_manager = ModelVersionManager(versions_dir="./model_versions")
+    try:
+        logger.info("📊 Initializing ML pipeline...")
+        init_ml_pipeline()
+        logger.info("✅ ML pipeline initialized successfully")
+    except Exception as exc:
+        logger.error("❌ ML pipeline initialization failed: %s", exc, exc_info=True)
+        raise
 
-    _finance_repository = FinanceApplicationRepository()
-    _notification_repository = NotificationRepository()  # noqa: F841 — kept for symmetry / future use
-    _supply_chain_repository = SupplyChainRepository()
-    _farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
-    _supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
-    _crop_quality_grader = CropQualityGrader()
-    logger.info("Domain engines initialized with persistent repositories")
+    try:
+        logger.info("📢 Starting notification broker...")
+        await notification_broker.start()
+        logger.info("✅ Notification broker started")
+    except Exception as exc:
+        logger.error("❌ Notification broker startup failed: %s", exc, exc_info=True)
+        raise
 
-    # Router init hooks — run after engines are ready.
-    governance.init_governance(drift_detector, shadow_evaluator, version_manager, verify_role)
-    finance.init_finance(_farm_finance_ai, RBACManager, Permission)
-    quality.init_quality(_crop_quality_grader, RBACManager, Permission)
-    blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
-    referrals.init_referrals(lambda: db_firestore, verify_role)
-    reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
+    try:
+        logger.info("🔧 Initializing domain engines...")
+        drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
+        shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
+        version_manager = ModelVersionManager(versions_dir="./model_versions")
+        logger.info("✅ Domain engines initialized: drift_detector, shadow_evaluator, version_manager")
+    except Exception as exc:
+        logger.error("❌ Domain engines initialization failed: %s", exc, exc_info=True)
+        raise
+
+    try:
+        logger.info("💾 Initializing persistent repositories...")
+        _finance_repository = FinanceApplicationRepository()
+        _notification_repository = NotificationRepository()
+        _supply_chain_repository = SupplyChainRepository()
+        logger.info("✅ Repositories initialized")
+    except Exception as exc:
+        logger.error("❌ Repository initialization failed: %s", exc, exc_info=True)
+        raise
+
+    try:
+        logger.info("🤖 Initializing AI engines...")
+        _farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
+        _supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
+        _crop_quality_grader = CropQualityGrader()
+        logger.info("✅ AI engines initialized: farm_finance, blockchain, quality_grader")
+    except Exception as exc:
+        logger.error("❌ AI engines initialization failed: %s", exc, exc_info=True)
+        raise
+
+    try:
+        logger.info("🔗 Initializing routers with domain engines...")
+        governance.init_governance(drift_detector, shadow_evaluator, version_manager, verify_role)
+        finance.init_finance(_farm_finance_ai, RBACManager, Permission)
+        quality.init_quality(_crop_quality_grader, RBACManager, Permission)
+        blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
+        referrals.init_referrals(lambda: db_firestore, verify_role)
+        reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
+        logger.info("✅ Core routers initialized")
+    except Exception as exc:
+        logger.error("❌ Router initialization failed: %s", exc, exc_info=True)
+        raise
+
     async def _notify_booking(booking: dict) -> None:
         owner_uid = booking.get("ownerUid")
         if not owner_uid:
+            logger.debug("Skipping booking notification: no owner_uid")
             return
         msg = (
             f"📦 New booking for *{booking.get('equipmentName', 'equipment')}* "
             f"on {booking.get('date', 'unknown date')}."
         )
-        await notification_broker.publish(
-            {"type": "booking", "booking": booking, "message": msg},
-            source="marketplace",
-        )
+        try:
+            await notification_broker.publish(
+                {"type": "booking", "booking": booking, "message": msg},
+                source="marketplace",
+            )
+            logger.info("Booking notification published: %s", booking.get('id', 'unknown'))
+        except Exception as exc:
+            logger.error("Failed to publish booking notification: %s", exc)
+
         if db_firestore:
             try:
                 owner_snap = db_firestore.collection("users").document(owner_uid).get()
@@ -188,30 +247,36 @@ async def lifespan(app: FastAPI):
                 phone = owner_data.get("phone_number") or owner_data.get("phoneNumber") or owner_data.get("phone")
                 if phone:
                     send_whatsapp_message(phone, msg)
+                    logger.info("WhatsApp notification sent for booking")
             except Exception as exc:
                 logger.warning("Failed to send WhatsApp notification for booking: %s", exc)
 
-    marketplace.init_marketplace(verify_role, _notify_booking)
-    lms.init_lms(verify_role, db_firestore)
-    advisory.init_advisory(verify_role)
+    try:
+        logger.info("🔗 Initializing marketplace and LMS routers...")
+        marketplace.init_marketplace(verify_role, _notify_booking)
+        lms.init_lms(verify_role, db_firestore)
+        advisory.init_advisory(verify_role, db_firestore)
+        logger.info("✅ Marketplace, LMS, and advisory routers initialized")
+    except Exception as exc:
+        logger.error("❌ Marketplace/LMS initialization failed: %s", exc, exc_info=True)
+        raise
 
-    # Backfill Firebase custom-claim 'role' for all existing users so that
-    # Firestore security rules (request.auth.token.role) are consistent with
-    # the Firestore users/{uid}.role field from day one.
-    # Runs in a thread-pool executor so it doesn't block the event loop.
-    # Safe to run on every startup — idempotent.
     if db_firestore:
         try:
+            logger.info("🔄 Backfilling Firebase role claims...")
             from role_sync import backfill_role_claims
             import asyncio as _asyncio
             loop = _asyncio.get_event_loop()
             await loop.run_in_executor(None, backfill_role_claims, db_firestore)
+            logger.info("✅ Firebase role claims backfilled successfully")
         except Exception as _exc:
             logger.warning("Role-claim backfill skipped: %s", _exc)
 
     rag_generate_fn = None
     try:
+        logger.info("📚 Initializing RAG generator...")
         from rag.generator import generate_response as rag_generate_fn
+        logger.info("✅ RAG generator initialized")
     except Exception as exc:
         logger.warning("RAG init skipped: %s", exc)
 
@@ -241,36 +306,57 @@ async def lifespan(app: FastAPI):
 
     if voice_assistant_router is not None:
         try:
+            logger.info("🎤 Initializing voice assistant...")
             from voice_assistant import OfflineCacheManager, VoiceAssistant
 
             voice_asst = VoiceAssistant(offline_mode=True)
             cache_mgr = OfflineCacheManager(cache_dir="./voice_assistant_cache")
             voice_assistant_router.init_voice_assistant(voice_asst, cache_mgr, verify_role)
+            logger.info("✅ Voice assistant initialized")
         except Exception as exc:
             logger.warning("Voice assistant init skipped: %s", exc)
 
     try:
+        logger.info("🧠 Loading ML models...")
         import joblib as _joblib
-
         model_lag = _joblib.load("sklearn_yield_model.joblib")
-    except Exception:
+        logger.info("✅ Sklearn yield model loaded")
+    except Exception as exc:
+        logger.warning("Sklearn yield model not found: %s", exc)
         model_lag = None
 
     model_trend = None
     try:
         if os.path.exists("trend_forecast_model.joblib"):
+            logger.info("📈 Loading trend forecast model...")
             import joblib as _joblib2
             model_trend = _joblib2.load("trend_forecast_model.joblib")
-            logger.info("Dedicated trend forecast model loaded")
-    except Exception:
+            logger.info("✅ Trend forecast model loaded successfully")
+    except Exception as exc:
+        logger.warning("Trend forecast model loading failed: %s", exc)
         model_trend = None
 
-    ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend, verify_role)
+    try:
+        logger.info("🤖 Initializing ML router...")
+        ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend, verify_role)
+        logger.info("✅ ML router initialized")
+    except Exception as exc:
+        logger.error("❌ ML router initialization failed: %s", exc, exc_info=True)
+
+    startup_duration = time.time() - startup_time
+    logger.info("✅ All services started successfully in %.2fs", startup_duration)
 
     yield
-    # Shutdown
-    await notification_broker.stop()
-    logger.info("Shutting down")
+
+    # Shutdown phase with logging
+    logger.info("🛑 Shutting down services...")
+    try:
+        await notification_broker.stop()
+        logger.info("✅ Notification broker stopped")
+    except Exception as exc:
+        logger.error("❌ Error stopping notification broker: %s", exc, exc_info=True)
+
+    logger.info("✅ Shutdown complete")
 
 
 app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
@@ -311,13 +397,18 @@ if not firebase_admin._apps:
             "return 503 until Firestore is reachable. Reason: %s", e
         )
 
-async def verify_role(request: Request, required_roles: list = None):
+async def verify_role(
+    request: Request,
+    required_roles: list = None,
+    required_tenant_id: str | None = None,
+    allow_cross_tenant_admin: bool = False,
+):
     """
-    Verify the Firebase ID token and check the caller's role.
+    Verify the Firebase ID token and check the caller's role and tenant scope.
 
     Delegates identity resolution to :meth:`RBACManager.resolve_auth_context`,
-    which treats Firestore ``users/{uid}.role`` as authoritative and rejects
-    stale JWT custom claims that disagree with Firestore.
+    which uses the JWT custom claim (set via Firebase Admin SDK) as the
+    primary role source and falls back to Firestore ``users/{uid}.role``.
     """
     action = f"{request.method} {request.url.path}"
     try:
@@ -386,6 +477,29 @@ async def verify_role(request: Request, required_roles: list = None):
         )
         raise HTTPException(status_code=403, detail="Access denied: insufficient permissions")
 
+    if required_tenant_id:
+        try:
+            RBACManager.assert_tenant_scope(
+                ctx,
+                required_tenant_id,
+                allow_cross_tenant_admin=allow_cross_tenant_admin,
+            )
+        except HTTPException as exc:
+            reason = "cross_tenant_access_denied"
+            if "missing" in str(exc.detail).lower():
+                reason = "missing_tenant_context"
+            audit_rbac_event(
+                request=request,
+                action=action,
+                outcome="denied",
+                uid=ctx.uid,
+                role=user_role,
+                reason=reason,
+                status_code=exc.status_code,
+                required_roles=required_roles,
+            )
+            raise
+
     audit_rbac_event(
         request=request,
         action=action,
@@ -396,7 +510,12 @@ async def verify_role(request: Request, required_roles: list = None):
         status_code=200,
     )
 
-    return {"uid": ctx.uid, "role": user_role}
+    return {
+        "uid": ctx.uid,
+        "role": user_role,
+        "roles": list(ctx.roles),
+        "tenant_id": ctx.tenant_id,
+    }
 
 # --- Models ---
 
@@ -1189,7 +1308,7 @@ _CORS_ORIGINS: list[str] = [
     "http://localhost:5173",
     "http://127.0.0.1:3000",
     "https://fasal-saathi.vercel.app",
-    "https://fasal-saathi.xyz/"
+    "https://fasal-saathi.xyz"
 ]
 
 _frontend_url = os.getenv("FRONTEND_URL", "").strip()
@@ -1417,6 +1536,13 @@ try:
 except Exception as e:
     logger.warning(f"Could not load ML Model Management API: {e}")
 
+# Include Feature Drift Detection Router
+try:
+    from routers.feature_drift import router as feature_drift_router
+    app.include_router(feature_drift_router)
+    logger.info("Feature Drift Detection API loaded successfully")
+except Exception as e:
+    logger.warning(f"Could not load Feature Drift Detection API: {e}")
 # Include Crop Recommendation Router
 try:
     from routers.crop_recommendation import router as crop_router
@@ -1427,5 +1553,4 @@ except Exception as e:
 
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

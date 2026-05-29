@@ -9,7 +9,10 @@ from pydantic import BaseModel, Field
 from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, normalize_region_identifier
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
+from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, normalize_region_identifier
+from backend.schemas import AlertTriggerRequest
 
 class AlertTriggerRequest(BaseModel):
     alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
@@ -90,7 +93,8 @@ async def subscribe_whatsapp(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("WhatsApp subscription failed: %s", e)
+        raise HTTPException(status_code=500, detail="WhatsApp subscription failed")
 
 
 @router.post("/whatsapp/trigger-alert")
@@ -132,7 +136,8 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Alert broadcast failed: %s", e)
+        raise HTTPException(status_code=500, detail="Alert broadcast failed")
 
 
 @router.post("/whatsapp/webhook")
