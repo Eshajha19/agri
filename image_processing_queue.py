@@ -218,23 +218,33 @@ class ImageProcessingQueue:
             return None
 
     def cancel_task(self, task_id: str) -> bool:
-        """Cancel a queued or processing task"""
-        with self._queue_lock:
+        """Cancel a queued or retrying task"""
+        # Acquire both locks in a consistent order (_task_lock before
+        # _queue_lock) to avoid deadlock with fail_task, which also nests
+        # _queue_lock inside _task_lock.
+        with self._task_lock:
             if task_id not in self._tasks_by_id:
                 return False
 
             task = self._tasks_by_id[task_id]
-            if task.status in (TaskStatus.QUEUED, TaskStatus.RETRYING):
-                task.status = TaskStatus.CANCELLED
-                self._task_queue = deque(
-                    t for t in self._task_queue if t.task_id != task_id
-                )
-                del self._tasks_by_id[task_id]
-                self._completed_tasks[task_id] = task
-                logger.info(f"Task {task_id} cancelled")
-                return True
+            if task.status not in (TaskStatus.QUEUED, TaskStatus.RETRYING):
+                return False
 
-            return False
+            task.status = TaskStatus.CANCELLED
+
+            with self._queue_lock:
+                # Rebuild the heap without the cancelled task.
+                # Heap entries are (priority, counter, task) tuples.
+                self._task_queue = [
+                    entry for entry in self._task_queue
+                    if entry[2].task_id != task_id
+                ]
+                heapq.heapify(self._task_queue)
+
+            del self._tasks_by_id[task_id]
+            self._completed_tasks[task_id] = task
+            logger.info(f"Task {task_id} cancelled")
+            return True
 
     def register_worker(self, worker_id: str) -> WorkerStats:
         """Register a worker"""
