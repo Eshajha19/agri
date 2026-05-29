@@ -1,3 +1,27 @@
+.seasonal-guide-shell{
+  padding:1rem;
+  font-family:inherit;
+  color:var(--text-color, #0f172a);
+}
+.seasonal-guide-header h2{margin:0 0 .25rem}
+.seasonal-guide-header .lead{margin:0 0 1rem;color:#475569}
+.seasonal-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem}
+.season-card{background:#fff;border-radius:8px;padding:1rem;border:1px solid #e6eef0;box-shadow:0 1px 4px rgba(2,6,23,0.04)}
+.season-card h3{margin-top:0;color:#064e3b}
+.season-card ul{margin:0;padding-left:1rem}
+.season-card li{margin-bottom:.5rem;color:#0f172a;font-size:.95rem}
+.seasonal-actions{display:flex;gap:.75rem;margin-top:1rem;justify-content:flex-end}
+.btn{padding:.5rem .85rem;border-radius:6px;text-decoration:none;display:inline-flex;align-items:center;gap:.5rem}
+.btn.close{background:#e6eef0;border:1px solid #c7e0d8}
+.btn.print{background:#0b5e3b;color:#fff;border:1px solid #0b5e3b}
+
+@media (max-width:900px){
+  .seasonal-grid{grid-template-columns:repeat(2,1fr)}
+}
+@media (max-width:560px){
+  .seasonal-grid{grid-template-columns:1fr}
+  .seasonal-actions{justify-content:center}
+}
 .sfs-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:1300;padding:20px}
 .sfs-modal{background:#fff;max-width:980px;width:100%;border-radius:10px;box-shadow:0 14px 40px rgba(2,6,23,0.4);overflow:auto;max-height:92vh}
 .sfs-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #eef2f7}

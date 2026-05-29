@@ -1,3 +1,56 @@
+import React from "react";
+import "./SeasonalFarmingStrategyGuide.css";
+
+export default function SeasonalFarmingStrategyGuide({ onClose }) {
+  return (
+    <div className="seasonal-guide-shell">
+      <header className="seasonal-guide-header">
+        <h2>Seasonal Farming Strategy Guide</h2>
+        <p className="lead">Practical, crop-agnostic strategies for Kharif, Rabi and Zaid seasons.</p>
+      </header>
+
+      <div className="seasonal-grid">
+        <section className="season-card kharif">
+          <h3>Kharif (Monsoon)</h3>
+          <ul>
+            <li><strong>Sowing:</strong> Start with timely sowing aligned to monsoon onset; use short-duration varieties if rains are uncertain.</li>
+            <li><strong>Irrigation:</strong> Prefer rain-fed sowing; establish drainage and avoid waterlogging during heavy rains.</li>
+            <li><strong>Soil & Nutrition:</strong> Apply basal NPK and consider green manures; monitor for leaching after heavy showers.</li>
+            <li><strong>Pests & Diseases:</strong> Watch for fungal diseases and stem borers; schedule early scouting after rains.</li>
+            <li><strong>Harvest:</strong> Plan harvest windows avoiding peak monsoon to reduce quality loss.</li>
+          </ul>
+        </section>
+
+        <section className="season-card rabi">
+          <h3>Rabi (Winter)</h3>
+          <ul>
+            <li><strong>Sowing:</strong> Sow after soil moisture is retained from monsoon or after irrigation; choose varieties for cool season growth.</li>
+            <li><strong>Irrigation:</strong> Use supplemental irrigation at critical stages (tillering, flowering); conserve soil moisture with mulches.</li>
+            <li><strong>Soil & Nutrition:</strong> Apply phosphorus and potassium at sowing; nitrogen top-ups timed to growth stages.</li>
+            <li><strong>Pests & Diseases:</strong> Monitor aphids and rusts; dry, cool conditions favour some pests — scout regularly.</li>
+            <li><strong>Harvest:</strong> Harvest in dry weather; manage drying and storage to avoid post-harvest losses.</li>
+          </ul>
+        </section>
+
+        <section className="season-card zaid">
+          <h3>Zaid (Summer interim)</h3>
+          <ul>
+            <li><strong>Sowing:</strong> Short-duration vegetables and fodder crops fit Zaid; select tolerant varieties for heat and water stress.</li>
+            <li><strong>Irrigation:</strong> Plan light, frequent irrigations and adopt micro-irrigation where possible.</li>
+            <li><strong>Soil & Nutrition:</strong> Ensure balanced N and timely fertiliser splits; consider organic mulches to reduce evaporation.</li>
+            <li><strong>Pests & Diseases:</strong> High temperatures can increase pest pressure — apply IPM and biological controls early.</li>
+            <li><strong>Harvest:</strong> Fast harvest cycles; use post-harvest cooling where feasible for perishables.</li>
+          </ul>
+        </section>
+      </div>
+
+      <div className="seasonal-actions">
+        <button className="btn close" onClick={onClose}>Close</button>
+        <a className="btn print" href="#" onClick={(e) => { e.preventDefault(); window.print(); }}>Print Guide</a>
+      </div>
+    </div>
+  );
+}
 import React, { useState } from "react";
 import "./SeasonalFarmingStrategyGuide.css";
 
