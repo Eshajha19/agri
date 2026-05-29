@@ -32,6 +32,8 @@ logger = logging.getLogger(__name__)
 # Must match role_sync.VALID_ROLES and firestore.rules role strings.
 KNOWN_ROLES = frozenset({"admin", "expert", "farmer", "vendor", "system", "guest"})
 DEFAULT_PROFILE_ROLE = "farmer"
+ROLE_PRECEDENCE = ("admin", "expert", "system", "vendor", "farmer", "guest")
+TENANT_FIELD_CANDIDATES = ("tenant_id", "tenantId", "organization_id", "org_id")
 STALE_TOKEN_DETAIL = (
     "Authorization token is stale. Sign out and sign in again to refresh your session."
 )
@@ -43,6 +45,8 @@ class AuthContext:
 
     uid: str
     role: str
+    roles: tuple[str, ...] = ()
+    tenant_id: Optional[str] = None
 
 
 class Role(Enum):
@@ -230,6 +234,96 @@ class RBACManager:
     """Manager for authentication and authorization."""
 
     @staticmethod
+    def _normalize_roles(profile: Dict) -> List[str]:
+        """Return normalized roles from user profile, falling back to `role`."""
+        raw_roles = profile.get("roles")
+        normalized: List[str] = []
+
+        if isinstance(raw_roles, list):
+            for item in raw_roles:
+                role = str(item).strip().lower()
+                if role in KNOWN_ROLES and role not in normalized:
+                    normalized.append(role)
+
+        if not normalized:
+            role_str = profile.get("role", DEFAULT_PROFILE_ROLE)
+            role = str(role_str).strip().lower()
+            if role not in KNOWN_ROLES:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Invalid role assigned to user profile",
+                )
+            normalized.append(role)
+
+        return normalized
+
+    @staticmethod
+    def _effective_role(roles: List[str]) -> str:
+        """Pick the most privileged role for compatibility with role-based checks."""
+        for preferred in ROLE_PRECEDENCE:
+            if preferred in roles:
+                return preferred
+        return DEFAULT_PROFILE_ROLE
+
+    @staticmethod
+    def _extract_tenant(value: Dict) -> Optional[str]:
+        for field in TENANT_FIELD_CANDIDATES:
+            tenant = value.get(field)
+            if isinstance(tenant, str) and tenant.strip():
+                return tenant.strip()
+        return None
+
+    @staticmethod
+    def can_admin_or_expert_override(
+        ctx: AuthContext,
+        *,
+        resource_owner_uid: Optional[str] = None,
+        resource_tenant_id: Optional[str] = None,
+        allow_cross_tenant: bool = False,
+    ) -> bool:
+        """Return True if caller may override ownership constraints."""
+        if ctx.role not in ("admin", "expert"):
+            return False
+
+        if resource_owner_uid and resource_owner_uid == ctx.uid:
+            return True
+
+        if resource_tenant_id and ctx.tenant_id and not allow_cross_tenant:
+            return resource_tenant_id == ctx.tenant_id
+
+        if resource_tenant_id and ctx.tenant_id is None and not allow_cross_tenant:
+            return False
+
+        return True
+
+    @staticmethod
+    def assert_tenant_scope(
+        ctx: AuthContext,
+        resource_tenant_id: Optional[str],
+        *,
+        allow_cross_tenant_admin: bool = False,
+    ) -> None:
+        """Raise 403 when caller crosses tenant boundary without explicit allowance."""
+        if not resource_tenant_id:
+            return
+        if not ctx.tenant_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Tenant context missing for authenticated user",
+            )
+
+        if ctx.tenant_id == resource_tenant_id:
+            return
+
+        if allow_cross_tenant_admin and ctx.role == "admin":
+            return
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: cross-tenant request not permitted",
+        )
+
+    @staticmethod
     def get_db():
         """Get Firestore client."""
         try:
@@ -306,19 +400,20 @@ class RBACManager:
                 detail="User profile not found",
             )
 
+        profile = user_doc.to_dict() or {}
+        roles = RBACManager._normalize_roles(profile)
+        tenant_id = RBACManager._extract_tenant(profile)
+
         # Use the JWT custom claim (set via Firebase Admin SDK) as the
         # primary role source so admins/expert assigned through Firebase
         # Console or the Admin SDK are recognized immediately without
-        # requiring a separate Firestore write.  Fall back to the Firestore
+        # requiring a separate Firestore write. Fall back to the Firestore
         # user-doc role for legacy profiles that predate custom claims.
         claim_role = decoded_token.get("role")
         if claim_role is not None:
             role_str = str(claim_role).strip().lower()
         else:
-            role_str = (user_doc.to_dict() or {}).get("role", DEFAULT_PROFILE_ROLE)
-        if not isinstance(role_str, str):
-            role_str = DEFAULT_PROFILE_ROLE
-        role_str = role_str.strip().lower()
+            role_str = RBACManager._effective_role(roles)
 
         if role_str not in KNOWN_ROLES:
             logger.warning("Invalid role for user %s: %s", uid, role_str)
@@ -327,9 +422,11 @@ class RBACManager:
                 detail="Invalid role assigned to user profile",
             )
 
-        # Warn if Firestore disagrees with the JWT claim so operators
-        # can reconcile the two sources; do NOT reject the request.
-        firestore_role = (user_doc.to_dict() or {}).get("role", DEFAULT_PROFILE_ROLE)
+        # Warn if Firestore disagrees with the JWT claim so operators can
+        # reconcile the two sources; do NOT reject the request when the claim
+        # is present because it is the canonical source for authenticated API
+        # access.
+        firestore_role = str(profile.get("role", DEFAULT_PROFILE_ROLE)).strip().lower()
         if claim_role is not None and firestore_role != role_str:
             logger.warning(
                 "Firestore role for uid=%s (%s) differs from JWT claim (%s); using claim",
@@ -338,7 +435,20 @@ class RBACManager:
                 role_str,
             )
 
-        return AuthContext(uid=uid, role=role_str)
+        claim_tenant = RBACManager._extract_tenant(decoded_token)
+        if claim_tenant and tenant_id and claim_tenant != tenant_id:
+            logger.warning(
+                "Stale JWT tenant for uid=%s: claim=%s firestore=%s",
+                uid,
+                claim_tenant,
+                tenant_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=STALE_TOKEN_DETAIL,
+            )
+
+        return AuthContext(uid=uid, role=role_str, roles=tuple(roles), tenant_id=tenant_id)
 
     @staticmethod
     async def get_user_role(request: Request) -> Role:
