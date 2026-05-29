@@ -38,6 +38,9 @@ Fix
 
 import logging
 import os
+import threading
+import time
+from collections import deque
 
 from dotenv import load_dotenv
 from twilio.base.exceptions import TwilioRestException
@@ -51,6 +54,18 @@ logger = logging.getLogger(__name__)
 TWILIO_ACCOUNT_SID    = os.getenv("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN     = os.getenv("TWILIO_AUTH_TOKEN", "")
 TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER", "+14155238886")
+
+# ── Rate limiting ──────────────────────────────────────────────────────────────
+# Per-number: max 1 msg/sec, 30 msg/min
+WHATSAPP_RATE_LIMIT_PER_SECOND = 1
+WHATSAPP_RATE_LIMIT_PER_MINUTE = 30
+# Global broadcast ceiling: 50 msg/min to avoid sudden Twilio 429 bursts
+WHATSAPP_BROADCAST_RATE_LIMIT_PER_MINUTE = 50
+
+_global_bucket: deque = deque()
+_global_bucket_lock = threading.Lock()
+_per_number_buckets: dict[str, deque] = {}
+_per_number_lock = threading.Lock()
 
 # ── Shared client singleton ───────────────────────────────────────────────────
 # Initialised once at module import time.  The Twilio SDK maintains an internal
@@ -124,6 +139,30 @@ def send_whatsapp_message(to_number: str, message_body: str) -> dict:
     # Normalise the recipient number to the whatsapp: URI scheme.
     if not to_number.startswith("whatsapp:"):
         to_number = f"whatsapp:{to_number}"
+    numeric = to_number
+
+    # Per-number rate limiting (check + append under lock to prevent TOCTOU)
+    with _per_number_lock:
+        bucket = _per_number_buckets.get(numeric)
+        if bucket is None:
+            bucket = deque()
+            _per_number_buckets[numeric] = bucket
+        while bucket and bucket[0] <= time.time() - 60:
+            bucket.popleft()
+        recent_secs = [t for t in bucket if t > time.time() - 1]
+        if len(recent_secs) >= WHATSAPP_RATE_LIMIT_PER_SECOND:
+            return {"success": False, "status": "throttled", "error": "Per-second rate limit exceeded"}
+        if len(bucket) >= WHATSAPP_RATE_LIMIT_PER_MINUTE:
+            return {"success": False, "status": "throttled", "error": "Per-minute rate limit exceeded"}
+        bucket.append(time.time())
+
+    # Global broadcast rate limiting (check + append under lock)
+    with _global_bucket_lock:
+        while _global_bucket and _global_bucket[0] <= time.time() - 60:
+            _global_bucket.popleft()
+        if len(_global_bucket) >= WHATSAPP_BROADCAST_RATE_LIMIT_PER_MINUTE:
+            return {"success": False, "status": "throttled", "error": "Global broadcast rate limit exceeded"}
+        _global_bucket.append(time.time())
 
     try:
         message = client.messages.create(
