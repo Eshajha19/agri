@@ -211,6 +211,67 @@ For certified/bank report generation, the backend also needs a signing key sourc
 - Backend: pytest / unittest
 - Add CI with GitHub Actions for linting + tests + deploy
 
+## 🔒 Differential Privacy (DP-SGD) Proof of Concept
+
+Yield model training now supports an optional differential privacy mode.
+
+### What is included
+
+- `training_mode=dp_sgd` in `train_model.py` using optional `torch + opacus`
+- Configurable privacy targets via `epsilon` and `delta`
+- Privacy accounting logs during training (target epsilon, spent epsilon, noise multiplier)
+- Manifest/registry metadata now include privacy fields when DP mode is used
+- A reproducible comparison script to evaluate baseline vs DP utility
+
+### DP config example
+
+```json
+{
+	"dataset": "Train.csv",
+	"seed": 42,
+	"training_mode": "dp_sgd",
+	"epsilon": 3.0,
+	"delta": 0.00001,
+	"dp_epochs": 8,
+	"dp_batch_size": 64,
+	"dp_learning_rate": 0.05,
+	"dp_max_grad_norm": 1.0,
+	"output_model": "yield_model_dp.pt"
+}
+```
+
+### Baseline config example
+
+```json
+{
+	"dataset": "Train.csv",
+	"seed": 42,
+	"training_mode": "baseline",
+	"output_model": "yield_model.joblib"
+}
+```
+
+### Run reproducible utility comparison
+
+```bash
+python scripts/compare_dp_utility.py --dataset Train.csv --epsilon 3.0 --delta 1e-5 --seed 42 --output dp_utility_comparison.json
+```
+
+### Optional dependencies for DP mode
+
+DP mode is optional and requires extra packages:
+
+```bash
+pip install torch opacus
+```
+
+### Tradeoffs
+
+- Better privacy guarantees usually require stronger noise (lower utility).
+- Lower epsilon means stronger privacy but can increase RMSE.
+- DP training is typically slower than baseline training.
+- This implementation is a research proof-of-concept and should be calibrated before production use.
+
 ---
 
 ## 🎯 Objective
