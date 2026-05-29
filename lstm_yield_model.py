@@ -31,11 +31,14 @@ class PredictionResponse(BaseModel):
 
 def train_and_save_model():
     """Original script functionality: Train and save the model."""
+    global scaler
     logger.info("Starting model training process...")
     try:
         from tensorflow.keras.models import Sequential
         from tensorflow.keras.layers import LSTM, Dense
         
+        scaler = MinMaxScaler()
+
         # Load data
         df = pd.read_csv("Train.csv")
 
