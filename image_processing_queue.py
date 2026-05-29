@@ -184,6 +184,9 @@ class ImageProcessingQueue:
         self._task_queue: List[tuple] = []
         self._tasks_by_id: Dict[str, ImageProcessingTask] = {}
         self._counter = 0
+        self._total_enqueued = 0
+        self._total_processed = 0
+        self._total_failed = 0
         self._completed_tasks: Dict[str, ImageProcessingTask] = {}  # History
         # Ack store for exactly-once semantics: maps task_id -> status
         self._ack_store: Dict[str, str] = {}
