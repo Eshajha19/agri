@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import logging
 import os
+import joblib
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -15,9 +16,10 @@ logger = logging.getLogger(__name__)
 
 # Global variables for model and scaler caching
 model = None
-scaler = MinMaxScaler()
+scaler = None
 
 MODEL_PATH = "lstm_yield_model.keras"
+SCALER_PATH = "lstm_scaler.pkl"
 
 class PredictionRequest(BaseModel):
     # Expecting sequential data for LSTM
@@ -29,11 +31,14 @@ class PredictionResponse(BaseModel):
 
 def train_and_save_model():
     """Original script functionality: Train and save the model."""
+    global scaler
     logger.info("Starting model training process...")
     try:
         from tensorflow.keras.models import Sequential
         from tensorflow.keras.layers import LSTM, Dense
         
+        scaler = MinMaxScaler()
+
         # Load data
         df = pd.read_csv("Train.csv")
 
@@ -69,6 +74,7 @@ def train_and_save_model():
         model_seq.compile(optimizer='adam', loss='mse')
         model_seq.fit(X, y, epochs=20, batch_size=16)
         model_seq.save(MODEL_PATH)
+        joblib.dump(scaler, SCALER_PATH)
         logger.info("✅ LSTM model trained and saved successfully.")
     except Exception as e:
         logger.error(f"Error during training: {str(e)}")
@@ -77,7 +83,7 @@ def train_and_save_model():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic: Load the model into memory ONCE during application startup
-    global model
+    global model, scaler
     logger.info("Starting up FastAPI application...")
     
     # We delay keras import to avoid slow startup if not needed
@@ -90,6 +96,13 @@ async def lifespan(app: FastAPI):
         logger.info(f"Loading model from {MODEL_PATH}...")
         model = load_model(MODEL_PATH)
         logger.info("✅ Model loaded into memory successfully.")
+
+        if os.path.exists(SCALER_PATH):
+            scaler = joblib.load(SCALER_PATH)
+            logger.info("✅ Scaler loaded from disk successfully.")
+        else:
+            logger.error(f"Scaler file {SCALER_PATH} not found. Predictions will be in normalized scale.")
+            scaler = None
     except Exception as e:
         logger.error(f"Failed to load model on startup: {str(e)}")
         # If model is None, endpoints will handle it gracefully.
@@ -99,6 +112,7 @@ async def lifespan(app: FastAPI):
     # Shutdown logic
     logger.info("Shutting down FastAPI application... Cleaning up resources.")
     model = None
+    scaler = None
 
 
 # Initialize FastAPI application with lifespan event
@@ -157,6 +171,8 @@ async def predict(request: Request, body: PredictionRequest):
 
     if model is None:
         raise HTTPException(status_code=503, detail="Model is not loaded. Cannot serve predictions.")
+    if scaler is None:
+        raise HTTPException(status_code=503, detail="Scaler is not loaded. Cannot serve predictions.")
     
     try:
         # Convert request data to numpy array
@@ -171,8 +187,9 @@ async def predict(request: Request, body: PredictionRequest):
         # The model is cached in memory, so prediction is fast and doesn't hit disk
         prediction_scaled = model.predict(input_data)
         
-        # Extract the float prediction
-        pred_value = float(prediction_scaled[0][0])
+        # Inverse transform to convert from normalized [0,1] back to actual yield units
+        prediction_unscaled = scaler.inverse_transform(prediction_scaled.reshape(-1, 1))
+        pred_value = float(prediction_unscaled[0][0])
         
         return PredictionResponse(prediction=pred_value)
     
