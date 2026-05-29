@@ -243,8 +243,12 @@ class ConflictResolver:
         has_conflict = ConflictDetector.detect_conflict(local_version, server_version)
         
         if not has_conflict:
-            # No conflict, use server version (more authoritative)
-            merged_version = server_version
+            if local_version.version_vector.happened_before(server_version.version_vector):
+                # Server is causally newer — server version wins
+                merged_version = server_version
+            else:
+                # Local is causally newer (or identical) — local version wins
+                merged_version = local_version
             conflicting_fields = []
         else:
             # Conflict detected, apply resolution strategy
