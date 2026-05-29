@@ -152,6 +152,8 @@ async def complete_lesson(request: Request, body: CompleteLessonRequest):
 
     token_data = await _verify_role_fn(request)
     uid = token_data.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="User identity missing from authentication token")
 
     lesson_id = body.lesson_id
     course_id = _LESSON_TO_COURSE.get(lesson_id)
@@ -197,6 +199,8 @@ async def get_progress(request: Request):
 
     token_data = await _verify_role_fn(request)
     uid = token_data.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="User identity missing from authentication token")
 
     result = {}
     for course_id in COURSES:
@@ -239,14 +243,20 @@ async def get_certificate_data(request: Request, course_id: str):
 
     token_data = await _verify_role_fn(request)
     uid = token_data.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="User identity missing from authentication token")
 
     # Per-user per-course cooldown to prevent Firestore cost abuse.
     # The entire check-then-update block is serialised with an asyncio lock
     # to prevent a TOCTOU race where two concurrent requests both pass the
     # cooldown check before either one records its timestamp.
+    # time.monotonic() is used instead of time.time() because monotonic
+    # time never runs backwards. A backward NTP jump on time.time() would
+    # reset (now - last) to a large positive number, clearing the cooldown
+    # and allowing repeated Firestore reads until the clock catches up again.
     key = (uid, course_id)
     async with _cert_cooldown_lock:
-        now = time.time()
+        now = time.monotonic()
         last = _last_cert_request.get(key)
         if last is not None and (now - last) < _CERT_COOLDOWN_SECONDS:
             raise HTTPException(
