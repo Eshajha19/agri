@@ -5,6 +5,7 @@ import logging
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional
+from rbac_audit import audit_rbac_event
 
 logger = logging.getLogger(__name__)
 
@@ -74,8 +75,10 @@ async def _has_permission(request: Request, permission) -> bool:
     try:
         await rbac_manager.raise_if_unauthorized(request, [permission], require_all=False)
         return True
-    except Exception:
-        return False
+    except HTTPException as e:
+        if e.status_code == 403:
+            return False
+        raise
 
 
 @router.post("/analyze")
@@ -89,7 +92,9 @@ async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest)
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        logger.error("Financial analysis failed: %s", e)
+        raise HTTPException(status_code=500, detail="Financial analysis failed")
+
 
 @router.post("/applications")
 async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
@@ -111,10 +116,12 @@ async def create_finance_application(request: Request, body: FinanceAssessmentRe
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        logger.error("Application creation failed: %s", e)
+        raise HTTPException(status_code=500, detail="Application creation failed")
+
 
 @router.get("/applications/{application_id}")
-async def get_finance_application(application_id: str, request: Request):
+async def get_finance_application(application_id: str, request: Request, resource_tenant_id: Optional[str] = None):
     """
     Retrieve a single finance application.
 
@@ -135,11 +142,48 @@ async def get_finance_application(application_id: str, request: Request):
         )
 
         caller_uid = _extract_uid_from_verified_token(request)
+        ctx = await rbac_manager.resolve_auth_context(request, allow_unauthenticated=False)
 
-        # Admins/experts with FINANCE_READ_ALL bypass the ownership filter;
-        # farmers with only FINANCE_READ_OWN are scoped to their own records.
+        # Admins/experts with FINANCE_READ_ALL can override ownership in-tenant.
+        # Farmers with only FINANCE_READ_OWN remain scoped to their own records.
         has_read_all = await _has_permission(request, Permission.FINANCE_READ_ALL)
-        owner_uid_filter = None if has_read_all else caller_uid
+        owner_uid_filter = caller_uid
+
+        if has_read_all:
+            try:
+                can_override = rbac_manager.can_admin_or_expert_override(
+                    ctx,
+                    resource_owner_uid=None,
+                    resource_tenant_id=resource_tenant_id,
+                    allow_cross_tenant=False,
+                )
+            except Exception:
+                can_override = False
+
+            if can_override:
+                owner_uid_filter = None
+                audit_rbac_event(
+                    request=request,
+                    action=f"GET /api/finance/applications/{application_id}",
+                    outcome="allowed",
+                    uid=ctx.uid,
+                    role=ctx.role,
+                    required_roles=["admin", "expert"],
+                    reason="admin_expert_override",
+                    status_code=200,
+                )
+            else:
+                audit_rbac_event(
+                    request=request,
+                    action=f"GET /api/finance/applications/{application_id}",
+                    outcome="denied",
+                    uid=ctx.uid,
+                    role=ctx.role,
+                    required_roles=["admin", "expert"],
+                    reason="cross_tenant_override_denied",
+                    status_code=403,
+                )
+                raise HTTPException(status_code=403, detail="Access denied: cross-tenant override not permitted")
 
         application = farm_finance_ai.get_application(
             application_id, owner_uid=owner_uid_filter
@@ -150,7 +194,9 @@ async def get_finance_application(application_id: str, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        logger.error("Application retrieval failed: %s", e)
+        raise HTTPException(status_code=500, detail="Application retrieval failed")
+
 
 @router.get("/products")
 def get_finance_products():
@@ -158,8 +204,11 @@ def get_finance_products():
         raise HTTPException(status_code=500, detail="Not initialized")
     return {"success": True, "data": farm_finance_ai.list_marketplace()}
 
+
+# /marketplace is kept as an alias for /products so existing frontend
+# integrations that call either path continue to work without changes.
+# Both routes delegate to the same handler — there is a single code path
+# and a single place to update if the response shape ever changes.
 @router.get("/marketplace")
 def get_finance_marketplace():
-    if farm_finance_ai is None:
-        raise HTTPException(status_code=500, detail="Not initialized")
-    return {"success": True, "data": farm_finance_ai.list_marketplace()}
+    return get_finance_products()

@@ -38,13 +38,22 @@ Fix
 
 import logging
 import os
-import threading
+import re
+import hmac
+import hashlib
 import time
+import json
 from collections import deque
+import threading
+from typing import Optional
 
 from dotenv import load_dotenv
-from twilio.base.exceptions import TwilioRestException
-from twilio.rest import Client
+try:
+    from twilio.base.exceptions import TwilioRestException
+    from twilio.rest import Client
+except Exception:  # pragma: no cover - optional dependency
+    TwilioRestException = Exception
+    Client = None
 
 load_dotenv()
 
@@ -54,6 +63,21 @@ logger = logging.getLogger(__name__)
 TWILIO_ACCOUNT_SID    = os.getenv("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN     = os.getenv("TWILIO_AUTH_TOKEN", "")
 TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER", "+14155238886")
+WHATSAPP_MESSAGE_SECRET = os.getenv("WHATSAPP_MESSAGE_SECRET", "")
+
+# Rate limiting configuration (per-number and global)
+WHATSAPP_RATE_LIMIT_PER_MINUTE = int(os.getenv("WHATSAPP_RATE_LIMIT_PER_MINUTE", "30"))
+WHATSAPP_RATE_LIMIT_PER_SECOND = int(os.getenv("WHATSAPP_RATE_LIMIT_PER_SECOND", "1"))
+WHATSAPP_BROADCAST_RATE_LIMIT_PER_MINUTE = int(os.getenv("WHATSAPP_BROADCAST_RATE_LIMIT_PER_MINUTE", "200"))
+
+# Audit log path
+_WHATSAPP_AUDIT_PATH = os.getenv("WHATSAPP_AUDIT_PATH", "whatsapp_messages.jsonl")
+
+# In-memory rate trackers
+_per_number_lock = threading.Lock()
+_per_number_buckets: dict[str, deque[float]] = {}
+_global_bucket: deque[float] = deque()
+_audit_lock = threading.Lock()
 
 # ── Rate limiting ──────────────────────────────────────────────────────────────
 # Per-number: max 1 msg/sec, 30 msg/min
@@ -71,9 +95,9 @@ _per_number_lock = threading.Lock()
 # Initialised once at module import time.  The Twilio SDK maintains an internal
 # connection pool, so all send operations reuse the same pool of persistent
 # HTTP connections — no per-message TCP/TLS overhead.
-_twilio_client: Client | None = None
+_twilio_client = None
 
-def _init_client() -> Client | None:
+def _init_client() -> Optional[Client]:
     """Create and return the Twilio Client, or None if credentials are missing."""
     if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN:
         logger.warning(
@@ -92,7 +116,7 @@ def _init_client() -> Client | None:
 _twilio_client = _init_client()
 
 
-def get_twilio_client() -> Client | None:
+def get_twilio_client() -> Optional[Client]:
     """
     Return the shared Twilio client singleton.
 
@@ -164,6 +188,33 @@ def send_whatsapp_message(to_number: str, message_body: str) -> dict:
             return {"success": False, "status": "throttled", "error": "Global broadcast rate limit exceeded"}
         _global_bucket.append(time.time())
 
+    # Rate limiting: per-number and global
+    numeric = to_number
+    now = time.time()
+    # per-number
+    with _per_number_lock:
+        bucket = _per_number_buckets.get(numeric)
+        if bucket is None:
+            bucket = deque()
+            _per_number_buckets[numeric] = bucket
+        # remove old entries > 60s
+        while bucket and bucket[0] <= now - 60:
+            bucket.popleft()
+        # check per-second
+        recent_secs = [t for t in bucket if t > now - 1]
+        if len(recent_secs) >= WHATSAPP_RATE_LIMIT_PER_SECOND:
+            return {"success": False, "status": "throttled", "error": "Per-second rate limit exceeded"}
+        if len(bucket) >= WHATSAPP_RATE_LIMIT_PER_MINUTE:
+            return {"success": False, "status": "throttled", "error": "Per-minute rate limit exceeded"}
+        # provisional add (will append on success path)
+
+    # global
+    now = time.time()
+    while _global_bucket and _global_bucket[0] <= now - 60:
+        _global_bucket.popleft()
+    if len(_global_bucket) >= WHATSAPP_BROADCAST_RATE_LIMIT_PER_MINUTE:
+        return {"success": False, "status": "throttled", "error": "Global broadcast rate limit exceeded"}
+
     try:
         message = client.messages.create(
             from_=f"whatsapp:{TWILIO_WHATSAPP_NUMBER}",
@@ -171,7 +222,27 @@ def send_whatsapp_message(to_number: str, message_body: str) -> dict:
             to=to_number,
         )
         logger.debug("WhatsApp message sent to %s — SID: %s", to_number, message.sid)
-        return {"success": True, "status": "success", "sid": message.sid}
+        sid = getattr(message, "sid", "")
+        # produce signature for end-to-end traceability
+        ts = int(time.time())
+        signature = _sign_message(sid, to_number, message_body, ts)
+
+        # record audit
+        _record_audit({
+            "sid": sid,
+            "to": to_number,
+            "body": message_body,
+            "timestamp": ts,
+            "status": "sent",
+            "signature": signature,
+        })
+
+        # update rate trackers on success
+        with _per_number_lock:
+            _per_number_buckets[numeric].append(now)
+        _global_bucket.append(now)
+
+        return {"success": True, "status": "success", "sid": sid, "signature": signature, "signature_ts": ts}
 
     except TwilioRestException as exc:
         # Distinguish rate-limit errors from other Twilio API errors so
@@ -213,6 +284,31 @@ def send_whatsapp_message(to_number: str, message_body: str) -> dict:
     except Exception as exc:
         logger.exception("Unexpected error sending WhatsApp message to %s", to_number)
         return {"success": False, "status": "error", "error": str(exc)}
+
+
+def _sign_message(sid: str, to: str, body: str, ts: int) -> str:
+    if not WHATSAPP_MESSAGE_SECRET:
+        return ""
+    payload = f"{sid}|{to}|{body}|{ts}"
+    return hmac.new(WHATSAPP_MESSAGE_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
+
+
+def verify_signature(sid: str, to: str, body: str, ts: int, signature: str, max_age: int = 300) -> bool:
+    if not WHATSAPP_MESSAGE_SECRET or not signature:
+        return False
+    if abs(int(time.time()) - int(ts)) > max_age:
+        return False
+    expected = _sign_message(sid, to, body, ts)
+    return hmac.compare_digest(expected, signature)
+
+
+def _record_audit(entry: dict) -> None:
+    try:
+        with _audit_lock:
+            with open(_WHATSAPP_AUDIT_PATH, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        logger.exception("Failed to write WhatsApp audit record")
 
 
 def format_alert_message(alert_type: str, content: str) -> str:
@@ -259,5 +355,8 @@ def process_webhook_message(body: str, sender_number: str) -> dict:
         "hello": "🙏 *Namaste!*\n\nI am your AI Farming Assistant. Try 'Weather' or 'Pest'."
     }
     
-    response = next((v for k, v in responses.items() if k in incoming_msg), f"Received: '{body}'. Try 'Weather' or 'Pest' 🌱")
+    response = next(
+        (v for k, v in responses.items() if re.search(rf"\b{re.escape(k)}\b", incoming_msg)),
+        f"Received: '{body}'. Try 'Weather' or 'Pest' 🌱",
+    )
     return send_whatsapp_message(sender_number, response)
