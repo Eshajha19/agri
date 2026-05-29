@@ -5,6 +5,13 @@ import re
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
+_DANGEROUS_HTML_BLOCK_RE = re.compile(
+    r"<(script|style|iframe|object|embed)\b[^>]*>.*?</\1\s*>",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+_HTML_TAG_RE = re.compile(r"</?[A-Za-z][A-Za-z0-9:-]*(?:\s+[^<>]*?)?/?>")
+
+
 class RAGQuery(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
@@ -17,13 +24,13 @@ class RAGQuery(BaseModel):
         if not value or not isinstance(value, str):
             raise ValueError("Query must be a non-empty string.")
 
-        value = re.sub(r"<script.*?>.*?</script>", "", value, flags=re.IGNORECASE | re.DOTALL)
+        value = _DANGEROUS_HTML_BLOCK_RE.sub("", value)
         value = re.sub(r"</?script.*?>", "", value, flags=re.IGNORECASE)
         value = re.sub(r"on\w+\s*=", "", value, flags=re.IGNORECASE)
         value = re.sub(r"javascript:", "", value, flags=re.IGNORECASE)
         value = re.sub(r"data:", "", value, flags=re.IGNORECASE)
         value = re.sub(r"vbscript:", "", value, flags=re.IGNORECASE)
-        value = re.sub(r"<[^>]*>", "", value)
+        value = _HTML_TAG_RE.sub("", value)
         value = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1 (\2)", value)
         value = re.sub(r"[*_~`#]", "", value)
         value = re.sub(r"\s+", " ", value.strip())
