@@ -1,0 +1,71 @@
+name: Security CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  secret-scan:
+    name: Secret scanning and policy enforcement
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install minimal dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run secret scan
+        run: |
+          python scripts/security_ci.py scan --root . --policy .github/security-policy.json --output secret-scan-report.json
+
+      - name: Run repository policy enforcement
+        run: |
+          python scripts/security_ci.py policy --root . --policy .github/security-policy.json --output security-policy-report.json
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-ci-reports
+          path: |
+            secret-scan-report.json
+            security-policy-report.json
+
+  dependency-sca:
+    name: Dependency SCA
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install SCA tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit safety
+
+      - name: Pip audit requirements
+        run: |
+          pip-audit -r requirements.txt -r requirements-dev.txt --desc || true
+
+      - name: Safety check requirements
+        run: |
+          safety check -r requirements.txt -r requirements-dev.txt || true
+
+      - name: Dependency SCA summary
+        if: always()
+        run: echo "Dependency scanning completed"
