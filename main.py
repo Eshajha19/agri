@@ -246,7 +246,7 @@ async def lifespan(app: FastAPI):
                 owner_data = owner_snap.to_dict() if owner_snap.exists else {}
                 phone = owner_data.get("phone_number") or owner_data.get("phoneNumber") or owner_data.get("phone")
                 if phone:
-                    send_whatsapp_message(phone, msg)
+                    await asyncio.to_thread(send_whatsapp_message, phone, msg)
                     logger.info("WhatsApp notification sent for booking")
             except Exception as exc:
                 logger.warning("Failed to send WhatsApp notification for booking: %s", exc)
@@ -280,52 +280,29 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("RAG init skipped: %s", exc)
 
-    try:
-        logger.info("📖 Initializing knowledge router...")
-        knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
-        logger.info("✅ Knowledge router initialized")
-    except Exception as exc:
-        logger.error("❌ Knowledge router initialization failed: %s", exc, exc_info=True)
-
-    try:
-        logger.info("🚨 Initializing alerts router...")
-        alerts.init_alerts(
-            [],
-            subscriber_store,
-            lambda **kwargs: [],
-            send_whatsapp_message,
-            format_alert_message,
-            verify_role,
-            lambda uid: _get_firestore_user_profile(uid),
-        )
-        logger.info("✅ Alerts router initialized")
-    except Exception as exc:
-        logger.error("❌ Alerts router initialization failed: %s", exc, exc_info=True)
-
-    try:
-        logger.info("🚩 Initializing feature flags...")
-        init_feature_flags(verify_role)
-        logger.info("✅ Feature flags initialized")
-    except Exception as exc:
-        logger.error("❌ Feature flags initialization failed: %s", exc, exc_info=True)
-
-    try:
-        logger.info("🎛️ Initializing platform router...")
-        platform.init_platform(
-            verify_role,
-            get_signing_keys,
-            sanitise_log_field,
-            rag_generate_fn,
-            subscriber_store,
-            send_whatsapp_message,
-            format_alert_message,
-            weather_service,
-            RBACManager,
-            Permission,
-        )
-        logger.info("✅ Platform router initialized")
-    except Exception as exc:
-        logger.error("❌ Platform router initialization failed: %s", exc, exc_info=True)
+    knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
+    alerts.init_alerts(
+        [],
+        subscriber_store,
+        lambda **kwargs: [],
+        send_whatsapp_message,
+        format_alert_message,
+        verify_role,
+        lambda uid: _get_firestore_user_profile(uid),
+    )
+    init_feature_flags(verify_role)
+    platform.init_platform(
+        verify_role,
+        get_signing_keys,
+        sanitise_log_field,
+        rag_generate_fn,
+        subscriber_store,
+        send_whatsapp_message,
+        format_alert_message,
+        weather_service,
+        RBACManager,
+        Permission,
+    )
 
     if voice_assistant_router is not None:
         try:
@@ -420,9 +397,14 @@ if not firebase_admin._apps:
             "return 503 until Firestore is reachable. Reason: %s", e
         )
 
-async def verify_role(request: Request, required_roles: list = None):
+async def verify_role(
+    request: Request,
+    required_roles: list = None,
+    required_tenant_id: str | None = None,
+    allow_cross_tenant_admin: bool = False,
+):
     """
-    Verify the Firebase ID token and check the caller's role.
+    Verify the Firebase ID token and check the caller's role and tenant scope.
 
     Delegates identity resolution to :meth:`RBACManager.resolve_auth_context`,
     which uses the JWT custom claim (set via Firebase Admin SDK) as the
@@ -495,6 +477,29 @@ async def verify_role(request: Request, required_roles: list = None):
         )
         raise HTTPException(status_code=403, detail="Access denied: insufficient permissions")
 
+    if required_tenant_id:
+        try:
+            RBACManager.assert_tenant_scope(
+                ctx,
+                required_tenant_id,
+                allow_cross_tenant_admin=allow_cross_tenant_admin,
+            )
+        except HTTPException as exc:
+            reason = "cross_tenant_access_denied"
+            if "missing" in str(exc.detail).lower():
+                reason = "missing_tenant_context"
+            audit_rbac_event(
+                request=request,
+                action=action,
+                outcome="denied",
+                uid=ctx.uid,
+                role=user_role,
+                reason=reason,
+                status_code=exc.status_code,
+                required_roles=required_roles,
+            )
+            raise
+
     audit_rbac_event(
         request=request,
         action=action,
@@ -505,7 +510,12 @@ async def verify_role(request: Request, required_roles: list = None):
         status_code=200,
     )
 
-    return {"uid": ctx.uid, "role": user_role}
+    return {
+        "uid": ctx.uid,
+        "role": user_role,
+        "roles": list(ctx.roles),
+        "tenant_id": ctx.tenant_id,
+    }
 
 # --- Models ---
 
@@ -1011,7 +1021,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
         "Welcome to *Fasal Saathi WhatsApp Alerts*. "
         "You will now receive real-time updates directly here."
     )
-    send_whatsapp_message(data.phone_number, welcome_msg)
+    await asyncio.to_thread(send_whatsapp_message, data.phone_number, welcome_msg)
     return {"success": True, "message": "Successfully subscribed"}
 
 _broadcast_rate_limit = {}
@@ -1055,7 +1065,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
             if _subscriber_matches_region(info, region_id)
         }
     for user_id, info in subscribers.items():
-        res = send_whatsapp_message(info["phone_number"], formatted_msg)
+        res = await asyncio.to_thread(send_whatsapp_message, info["phone_number"], formatted_msg)
         results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})
 
     # Persist the alert through the bounded, thread-safe notification store.
@@ -1298,7 +1308,7 @@ _CORS_ORIGINS: list[str] = [
     "http://localhost:5173",
     "http://127.0.0.1:3000",
     "https://fasal-saathi.vercel.app",
-    "https://fasal-saathi.xyz/"
+    "https://fasal-saathi.xyz"
 ]
 
 _frontend_url = os.getenv("FRONTEND_URL", "").strip()
@@ -1528,7 +1538,8 @@ except Exception as e:
 
 # Include Feature Drift Detection Router
 try:
-    from routers.feature_drift import router as feature_drift_router
+    from routers.feature_drift import router as feature_drift_router, init_auth as init_drift_auth
+    init_drift_auth(verify_role)
     app.include_router(feature_drift_router)
     logger.info("Feature Drift Detection API loaded successfully")
 except Exception as e:
