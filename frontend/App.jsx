@@ -12,18 +12,17 @@ import {
   FaChevronDown,
   FaChevronUp,
   FaWhatsapp,
-  FaInfoCircle,
   FaBook,
   FaShieldAlt,
   FaBolt,
   FaUserSecret,
   FaFileInvoiceDollar,
-  FaHome,
   FaTrophy,
   FaUserPlus,
   FaMedal,
   FaCog,
-  FaMicrophone
+  FaMicrophone,
+  FaInfoCircle
 } from "react-icons/fa";
 import { usePerformanceStore } from "./stores/performanceStore";
 import { useBrowserCacheBudget } from "./lib/cacheBudget";
@@ -35,6 +34,8 @@ import useNotifications from "./Notifications";
 import Footer from "./components/Footer";
 import { SkipLink } from "./NavigationManager";
 import { useTheme } from "./ThemeContext";
+import FarmingMythChecker from "./components/FarmingMythChecker";
+import CropComparison from "./components/CropComparison";
 
 // Route-level code splitting
 import {
@@ -58,6 +59,7 @@ import {
   FarmingMap,
   FarmingNews,
   Feedback,
+
   Glossary,
   Helpline,
   Home,
@@ -86,6 +88,7 @@ import {
 } from "./routes/lazyPages";
 
 const Weather = React.lazy(() => import("./Weather"));
+const FeatureDriftMonitor = React.lazy(() => import("./FeatureDriftMonitor"));
 import VoiceAssistant from "./VoiceAssistant";
 
 /**
@@ -100,6 +103,8 @@ function SustainabilityAnalyticsPage({ userData }) {
 // Libs
 import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc, getDoc } from "./lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
+import { loadAppState, loadUserProfileSnapshot, persistAppState, persistUserProfileSnapshot } from "./lib/offlinePersistence";
+import { syncOfflineRequests } from "./lib/syncOfflineRequests";
 
 // CSS
 import "./App.css";
@@ -124,8 +129,19 @@ const getInitialLanguage = () => {
   return "en";
 };
 
+const normalizeUserProfile = (profile) => {
+  if (!profile) return profile;
+
+  return {
+    ...profile,
+    farmArea: profile.farmArea ?? profile.farmSize ?? "",
+    irrigationType: profile.irrigationType ?? profile.irrigationMethod ?? "",
+  };
+};
+
 /**
  * Helper to apply Google Translate selection to the hidden widget
+ * Uses MutationObserver for reliable widget detection instead of polling
  */
 const applyGoogleTranslate = (langCode) => {
   try {
@@ -143,12 +159,60 @@ const applyGoogleTranslate = (langCode) => {
   return false;
 };
 
+/**
+ * Robustly wait for Google Translate widget using MutationObserver
+ * Returns a promise that resolves when widget is ready or times out
+ */
+const waitForGoogleTranslateWidget = (timeoutMs = 15000) => {
+  return new Promise((resolve, reject) => {
+    const existingWidget = document.querySelector(".goog-te-combo");
+    if (existingWidget) {
+      resolve(existingWidget);
+      return;
+    }
+
+    let observer = null;
+    const timeoutId = setTimeout(() => {
+      if (observer) observer.disconnect();
+      reject(new Error("Google Translate widget not found within timeout"));
+    }, timeoutMs);
+
+    observer = new MutationObserver((mutations) => {
+      const widget = document.querySelector(".goog-te-combo");
+      if (widget) {
+        clearTimeout(timeoutId);
+        observer?.disconnect();
+        resolve(widget);
+      }
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+  });
+};
+
+/**
+ * Apply translation with robust widget detection
+ */
+const applyGoogleTranslateRobust = async (langCode, onReady, onError) => {
+  try {
+    await waitForGoogleTranslateWidget(15000);
+    applyGoogleTranslate(langCode);
+    onReady?.();
+  } catch (error) {
+    console.warn("Google Translate widget initialization failed:", error.message);
+    onError?.(error);
+  }
+};
+
 const GuestBanner = () => (
   <div className="guest-banner">
     <div className="guest-banner-content">
       <FaUserSecret className="banner-icon" />
       <span>
-        <strong>Guest Session Active:</strong> Explore the platform freely! 
+        <strong>Guest Session Active:</strong> Explore the platform freely!
         <Link to="/auth" className="banner-link"> Sign Up</Link> to save your progress permanently.
       </span>
     </div>
@@ -157,7 +221,13 @@ const GuestBanner = () => (
 
 function App() {
   const scorecardRef = useRef(null);
-  const [preferredLang, setPreferredLang] = useState(getInitialLanguage);
+  const [preferredLang, setPreferredLang] = useState(() => {
+    try {
+      return localStorage.getItem("agri:preferredLanguage") || getInitialLanguage();
+    } catch {
+      return getInitialLanguage();
+    }
+  });
   const [isOpen, setIsOpen] = useState(false);
   const { theme, toggleTheme, setTheme } = useTheme();
   const [user, setUser] = useState(null);
@@ -169,12 +239,58 @@ function App() {
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
-  
+
   const { liteMode, setLiteMode, detectAndSetLiteMode } = usePerformanceStore();
 
   useEffect(() => {
     detectAndSetLiteMode();
   }, [detectAndSetLiteMode]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateOfflineState = async () => {
+      try {
+        const storedState = await loadAppState();
+        if (!cancelled && storedState?.preferredLang) {
+          setPreferredLang(storedState.preferredLang);
+        }
+      } catch (error) {
+        console.warn("Failed to restore offline app state:", error);
+      }
+    };
+
+    const syncQueuedRequests = async () => {
+      try {
+        await syncOfflineRequests();
+      } catch (error) {
+        console.warn("Offline request sync failed:", error);
+      }
+    };
+
+    void hydrateOfflineState();
+    void syncQueuedRequests();
+
+    const handleOnline = () => {
+      setIsOffline(false);
+      void syncQueuedRequests();
+    };
+
+    const handleOffline = () => setIsOffline(true);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    void persistAppState({ preferredLang });
+  }, [preferredLang]);
 
   const { i18n } = useTranslation();
   const location = useLocation();
@@ -190,10 +306,10 @@ function App() {
   /* ---------------- LANGUAGE AUTO-TRANS ---------------- */
   useEffect(() => {
     if (applyGoogleTranslate(preferredLang)) return;
-    
+
     let retries = 0;
     const MAX_RETRIES = 20; // Try for ~6 seconds
-    
+
     const id = setInterval(() => {
       retries++;
       if (applyGoogleTranslate(preferredLang)) {
@@ -203,9 +319,66 @@ function App() {
         console.warn("Google Translate widget initialization timed out or was blocked. Graceful fallback applied.");
       }
     }, 300);
-    
+
     return () => clearInterval(id);
+    const applyTranslation = async () => {
+      if (applyGoogleTranslate(preferredLang)) return;
+
+      try {
+        await applyGoogleTranslateRobust(
+          preferredLang,
+          () => console.log("Google Translate initialized successfully"),
+          () => console.warn("Google Translate unavailable - using default language")
+        );
+      } catch (error) {
+        console.warn("Translation initialization failed - graceful fallback applied");
+      }
+    };
+
+    applyTranslation();
+
+    const handleWidgetLoad = () => {
+      if (!applyGoogleTranslate(preferredLang)) {
+        applyGoogleTranslateRobust(preferredLang);
+      }
+    };
+
+    const widgetCheckInterval = setInterval(() => {
+      if (document.querySelector(".goog-te-combo") && !applyGoogleTranslate(preferredLang)) {
+        applyGoogleTranslateRobust(preferredLang);
+      }
+    }, 2000);
+
+    document.addEventListener("googleTranslateWidgetLoaded", handleWidgetLoad);
+
+    return () => {
+      clearInterval(widgetCheckInterval);
+      document.removeEventListener("googleTranslateWidgetLoaded", handleWidgetLoad);
+    };
   }, [preferredLang]);
+
+  /* ---------------- HIDE GOOGLE TRANSLATE BANNER ---------------- */
+  useEffect(() => {
+    const hideGoogleTranslateBanner = () => {
+      const bannerFrame = document.querySelector(".goog-te-banner-frame");
+      if (bannerFrame) {
+        bannerFrame.style.display = "none";
+      }
+
+      document.body.style.top = "0px";
+
+      const translateElement = document.querySelector(".goog-te-balloon-frame");
+      if (translateElement) {
+        translateElement.style.display = "none";
+      }
+    };
+
+    hideGoogleTranslateBanner();
+
+    const interval = setInterval(hideGoogleTranslateBanner, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   /* ---------------- AUTH & FIRESTORE SYNC ---------------- */
   useEffect(() => {
@@ -214,15 +387,30 @@ function App() {
       return;
     }
 
-    // Deterministic auth-readiness sync
+    const userDocUnsubscribeRef = { current: null };
+
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      
+
+      const hydrateUserSnapshot = async () => {
+        if (!currentUser?.uid) return false;
+        try {
+          const snapshot = await loadUserProfileSnapshot(currentUser.uid);
+          if (snapshot) {
+            setUserData(normalizeUserProfile(snapshot));
+            setProfileCompleted(snapshot.profileCompleted === true);
+            return true;
+          }
+        } catch (error) {
+          console.warn("Failed to restore offline user profile snapshot:", error);
+        }
+        return false;
+      };
+
       if (currentUser) {
-        // Wait for profile data sync before hiding loader
-        const unsubscribeDoc = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
+        userDocUnsubscribeRef.current = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
           if (userDoc.exists()) {
-            const data = userDoc.data();
+            const data = normalizeUserProfile(userDoc.data());
             setUserData(data);
             setProfileCompleted(data.profileCompleted === true);
           } else if (currentUser.isAnonymous) {
@@ -231,14 +419,16 @@ function App() {
           } else {
             setUserData(null);
             setProfileCompleted(false);
+            void hydrateUserSnapshot().finally(() => setLoading(false));
+            return;
           }
           setLoading(false);
         }, (error) => {
           console.error("Firestore sync error:", error);
-          // Still disable loading to avoid hanging, but only after deterministic failure
-          setLoading(false);
+          setUserData(null);
+          setProfileCompleted(false);
+          void hydrateUserSnapshot().finally(() => setLoading(false));
         });
-        return () => unsubscribeDoc();
       } else {
         setUserData(null);
         setProfileCompleted(true);
@@ -246,7 +436,12 @@ function App() {
       }
     });
 
-    return () => unsubscribeAuth();
+    return () => {
+      unsubscribeAuth();
+      if (userDocUnsubscribeRef.current) {
+        userDocUnsubscribeRef.current();
+      }
+    };
   }, []);
 
   // E2EE Key Generation Sync
@@ -278,6 +473,16 @@ function App() {
 
     ensurePublicKey();
   }, [user]);
+
+  useEffect(() => {
+    if (!user?.uid || !userData) return;
+
+    void persistUserProfileSnapshot(user.uid, {
+      ...normalizeUserProfile(userData),
+      profileCompleted,
+      savedAt: new Date().toISOString(),
+    });
+  }, [user?.uid, userData, profileCompleted]);
 
   // Online/Offline detection
   useEffect(() => {
@@ -351,12 +556,12 @@ function App() {
         </div>
 
         <ul className={`nav-center ${isOpen ? "active" : ""}`}>
-          <li><Link to="/" onClick={() => setIsOpen(false)}><FaHome /> Home</Link></li>
-          <li><Link to="/about" onClick={() => setIsOpen(false)}><FaInfoCircle /> About</Link></li>
-          <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}><FaInfoCircle /> How It Works</Link></li>
-          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}> Crop Guide</Link></li>
-          <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
-        </ul>
+           <li><Link to="/" onClick={() => setIsOpen(false)}>Home</Link></li>
+           <li><Link to="/about" onClick={() => setIsOpen(false)}>About</Link></li>
+           <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}>How It Works</Link></li>
+           <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}> Crop Guide</Link></li>
+           <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
+         </ul>
 
         <div className="nav-right">
           <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Cycle Theme" title={`Current theme: ${theme}`}>
@@ -384,6 +589,7 @@ function App() {
                       setPreferredLang(lang);
                       i18n.changeLanguage(lang);
                       localStorage.setItem("agri:preferredLanguage", lang);
+                      void persistAppState({ preferredLang: lang });
                     }}
                   />
                 </div>
@@ -408,8 +614,10 @@ function App() {
                     ))}
                   </div>
                 </div>
-                <Link to="/voice-assistant" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMicrophone /> Voice Assistant</Link>
-                <div className="performance-toggle-section">
+      <Link to="/voice-assistant" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMicrophone /> Voice Assistant</Link>
+      <Link to="/myth-checker" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMedal /> Myth Checker</Link>
+      <Link to="/crop-comparison" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaLeaf /> Crop Comparison</Link>
+      <div className="performance-toggle-section">
                   <button
                     className={`lite-mode-toggle ${liteMode ? 'active' : ''}`}
                     onClick={() => setLiteMode(!liteMode)}
@@ -435,7 +643,7 @@ function App() {
                 <Link to="/risk-index" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Risk Index</Link>
                 <Link to="/farm-finance" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaFileInvoiceDollar /> Farm Finance</Link>
                 <Link to="/glossary" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaBook /> Glossary</Link>
-                <Link to="/about" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> About Us</Link>
+                <Link to="/feature-drift" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> Feature Drift Monitor</Link>
                 <Link to="/contact" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> Contact</Link>
               </div>
             </div>
@@ -492,7 +700,7 @@ function App() {
             <div className="verify-icon">✉️</div>
             <h2>Verify Your Email</h2>
             <p>We've sent a link to <b>{user.email}</b>.<br /> Please verify your email to unlock all features.</p>
-            <button 
+            <button
               onClick={() => {
                 if (auth.currentUser) {
                   auth.currentUser.reload().then(() => {
@@ -507,7 +715,7 @@ function App() {
                     console.error("Error reloading user:", err);
                   });
                 }
-              }} 
+              }}
               className="btn-refresh"
             >
               I've Verified My Email
@@ -534,7 +742,7 @@ function App() {
             <Route path="/resources" element={<Resources />} />
             <Route path="/login" element={<Auth />} />
             <Route path="/profile-setup" element={<ProfileSetup user={user} profileCompleted={profileCompleted} />} />
-            <Route path="/calendar" element={<Calendar />} />
+            <Route path="/calendar" element={<Calendar userData={userData} />} />
             <Route path="/share-feedback" element={<Feedback />} />
             <Route path="/admin/feedback" element={<AdminFeedback />} />
             <Route path="/market-prices" element={<MarketPrices />} />
@@ -563,9 +771,11 @@ function App() {
             <Route path="/crop-rotation" element={<CropRotation />} />
             <Route path="/seed-verifier" element={<SeedVerifier />} />
             <Route path="/farm-finance" element={<FarmFinance />} />
+            <Route path="/feature-drift" element={<FeatureDriftMonitor />} />
             <Route path="/farming-news" element={<FarmingNews userData={userData} />} />
             <Route path="/yield-predictor" element={<YieldPredictor />} />
             <Route path="/smart-farm-autopilot" element={<SmartFarmAutopilot />} />
+            
             <Route
               path="/sustainability-analytics"
               element={<SustainabilityAnalyticsPage userData={userData} />}
@@ -574,6 +784,15 @@ function App() {
             <Route path="/blog/:id" element={<BlogDetail />} />
             <Route path="/weather" element={<Weather />} />
             <Route path="/voice-assistant" element={<VoiceAssistant />} />
+            <Route
+              path="/myth-checker"
+                element={
+            <div className="app-content">
+                <FarmingMythChecker />
+            </div>
+            }
+            />
+            <Route path="/crop-comparison" element={<CropComparison />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </React.Suspense>

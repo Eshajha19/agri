@@ -1,0 +1,23 @@
+.irrigation-card {
+  background: var(--bg-primary);
+  padding: 20px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.irrigation-card-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.irrigation-method-card {
+  background: var(--bg-secondary);
+  padding: 16px;
+  border-radius: var(--radius-sm);
+  transition: transform 0.2s ease;
+}
+
+.irrigation-method-card:hover {
+  transform: translateY(-4px);
+}

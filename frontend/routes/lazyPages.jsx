@@ -47,3 +47,4 @@ export const Blog = lazyPage(() => import('../Blog'));
 export const BlogDetail = lazyPage(() => import('../BlogDetail'));
 export const ProfileSettings = lazyPage(() => import('../ProfileSettings'));
 export const NotFound = lazyPage(() => import('../NotFound'));
+export const FeatureDriftMonitor = lazyPage(() => import('../FeatureDriftMonitor'));
