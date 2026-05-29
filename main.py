@@ -101,6 +101,7 @@ from notification_auth import filter_notifications_for_user
 from realtime_notifications import notification_broker
 from rbac_audit import audit_rbac_event, rbac_audit_trail, validate_required_roles
 from rbac import RBACMiddleware, print_rbac_matrix, RBACManager, Permission
+from gdpr_deletion import GDPRDeletionManager, DeletionTarget
 from persistence.repositories import (
     FinanceApplicationRepository,
     NotificationRepository,
@@ -405,6 +406,7 @@ limiter.limit = _safe_limit
 
 
 db_firestore = None
+gdpr_deletion_manager = GDPRDeletionManager()
 
 if not firebase_admin._apps:
     try:
@@ -707,6 +709,15 @@ class NotificationStore:
         """Return TTL-valid entries visible to the given Firebase UID."""
         return filter_notifications_for_user(self.get_recent(), uid)
 
+    def remove_by_uid(self, uid: str) -> int:
+        """Remove in-memory notifications targeted at a specific UID."""
+        with self._lock:
+            snapshot = list(self._deque)
+            retained = [entry for entry in snapshot if entry.get("recipient_uid") != uid]
+            removed = len(snapshot) - len(retained)
+            self._deque = collections.deque(retained, maxlen=self._deque.maxlen)
+            return removed
+
 
 # Seed the store with the initial weather advisory that was previously
 # hard-coded in the bare list.
@@ -824,6 +835,71 @@ def sanitise_log_field(value: str) -> str:
         value = str(value)
     sanitised = "".join(ch if ord(ch) >= 32 or ch == "\t" else f"\\x{ord(ch):02x}" for ch in value)
     return sanitised[:1000]
+
+
+class GDPRDeletionRequestBody(BaseModel):
+    retention_days: int = Field(default=30, ge=0, le=365)
+    reason: str = Field(default="user_requested_erasure", min_length=1, max_length=200)
+
+
+def _delete_firestore_documents_by_field(collection_name: str, field_name: str, uid: str) -> int:
+    if not db_firestore:
+        return 0
+
+    deleted = 0
+    docs = db_firestore.collection(collection_name).where(field_name, "==", uid).stream()
+    for doc in docs:
+        doc.reference.delete()
+        deleted += 1
+    return deleted
+
+
+def _build_gdpr_deletion_targets(uid: str) -> list[DeletionTarget]:
+    targets: list[DeletionTarget] = []
+
+    def delete_user_profile(target_uid: str) -> dict[str, int | str]:
+        if not db_firestore:
+            return {"deleted": 0, "retained": 1, "notes": "firestore_unavailable"}
+        doc = db_firestore.collection("users").document(target_uid)
+        snapshot = doc.get()
+        if not snapshot.exists:
+            return {"deleted": 0, "retained": 1, "notes": "profile_missing"}
+        doc.delete()
+        return {"deleted": 1, "retained": 0, "notes": "profile_deleted"}
+
+    def delete_feedback(target_uid: str) -> dict[str, int | str]:
+        deleted = _delete_firestore_documents_by_field("feedback", "userId", target_uid)
+        return {"deleted": deleted, "retained": 0 if deleted else 1, "notes": "feedback_deleted" if deleted else "no_feedback_found"}
+
+    def delete_finance_applications(target_uid: str) -> dict[str, int | str]:
+        deleted = _delete_firestore_documents_by_field("finance_applications", "owner_uid", target_uid)
+        return {
+            "deleted": deleted,
+            "retained": 0 if deleted else 1,
+            "notes": "finance_applications_deleted" if deleted else "no_finance_applications_found",
+        }
+
+    def purge_whatsapp_subscription(target_uid: str) -> dict[str, int | str]:
+        removed = subscriber_store.remove(target_uid)
+        return {"deleted": int(removed), "retained": 0 if removed else 1, "notes": "subscriber_removed" if removed else "subscriber_missing"}
+
+    def purge_in_memory_notifications(target_uid: str) -> dict[str, int | str]:
+        removed = _notification_store.remove_by_uid(target_uid)
+        return {"deleted": removed, "retained": 0 if removed else 1, "notes": "notifications_removed" if removed else "notifications_missing"}
+
+    targets.append(DeletionTarget(name="user_profile", delete=delete_user_profile))
+    targets.append(DeletionTarget(name="feedback_records", delete=delete_feedback))
+    targets.append(DeletionTarget(name="finance_applications", delete=delete_finance_applications))
+    targets.append(DeletionTarget(name="whatsapp_subscription", delete=purge_whatsapp_subscription))
+    targets.append(DeletionTarget(name="notification_cache", delete=purge_in_memory_notifications))
+    targets.append(
+        DeletionTarget(
+            name="immutable_supply_chain_ledger",
+            delete=None,
+            retain_reason="retained_for_legal_and_audit_integrity",
+        )
+    )
+    return targets
 
 @app.get("/")
 @limiter.limit("60/minute")
@@ -1092,6 +1168,35 @@ async def get_csrf_token(request: Request):
     uid = token_data["uid"]
     token = generate_token(uid)
     return {"csrf_token": token}
+
+
+@app.post("/api/privacy/deletion-requests")
+@limiter.limit("5/minute")
+async def request_gdpr_deletion(
+    request: Request,
+    body: GDPRDeletionRequestBody,
+):
+    """Create a retention-aware deletion request for the authenticated user."""
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+    deletion_request = gdpr_deletion_manager.create_request(
+        uid,
+        requested_by=uid,
+        reason=body.reason,
+        retention_days=body.retention_days,
+    )
+    deletion_request["target_names"] = [target.name for target in _build_gdpr_deletion_targets(uid)]
+    return {"success": True, "data": deletion_request}
+
+
+@app.post("/api/admin/privacy/deletion-requests/process-due")
+@limiter.limit("5/minute")
+async def process_due_gdpr_deletions(request: Request):
+    """Execute any deletion requests whose retention window has elapsed."""
+    await verify_role(request, required_roles=["admin", "expert"])
+    targets = _build_gdpr_deletion_targets("system")
+    processed = gdpr_deletion_manager.process_due_requests(targets)
+    return {"success": True, "processed": processed, "count": len(processed)}
 
 
 @app.post("/api/whatsapp/webhook")
