@@ -102,6 +102,12 @@ class _ConnectionSubscription:
     regions: frozenset[str]
 
 
+@dataclass(slots=True)
+class _ConnectionSubscription:
+    uid: str
+    regions: frozenset[str]
+
+
 class NotificationBroadcastHub:
     """Broadcasts notifications to connected WebSocket clients.
 
@@ -136,6 +142,8 @@ class NotificationBroadcastHub:
         self._redis_client = None
         self._redis_pubsub = None
         self._redis_listener_task: Optional[asyncio.Task] = None
+        self._retry_processor_task: Optional[asyncio.Task] = None
+        self._priority_processor_task: Optional[asyncio.Task] = None
         self._started = False
 
         # Persistence and delivery tracking
@@ -169,132 +177,30 @@ class NotificationBroadcastHub:
 
     def snapshot_for_user(self, uid: str, regions: Optional[Iterable[str]] = None) -> list[Dict[str, Any]]:
         """Return history entries visible to the given user and region scope."""
+        # History stores full envelopes {"type": ..., "source": ..., "created_at": ..., "data": ...}
+        # Extract the inner "data" payload so filtering and snapshot consumers
+        # work with the notification content regardless of origin (local vs Redis).
+        inner_entries = [
+            entry["data"] if isinstance(entry, dict) and "data" in entry else entry
+            for entry in self._history
+        ]
         return [
             notification
-            for notification in filter_notifications_for_user(self._history, uid)
+            for notification in filter_notifications_for_user(inner_entries, uid)
             if notification_matches_regions(notification, regions)
         ]
 
-    def _is_duplicate_notification(self, notification: NotificationEvent) -> bool:
-        """Check if notification is a duplicate within the dedup window"""
-        content_hash = notification.get_content_hash()
-        current_time = time.time()
-
-        # Clean old hashes
-        expired_hashes = [h for h, t in self._recent_hashes.items() if current_time - t > self._dedup_window]
-        for h in expired_hashes:
-            del self._recent_hashes[h]
-
-        if content_hash in self._recent_hashes:
-            logger.info(f"Notification {notification.notification_id} is duplicate (skipped)")
-            return True
-
-        self._recent_hashes[content_hash] = current_time
-        return False
-
-    async def _route_to_priority_queue(self, notification: NotificationEvent) -> None:
-        """Route notification to appropriate priority queue"""
-        if notification.priority == NotificationPriority.CRITICAL:
-            self._critical_queue.append(notification)
-        elif notification.priority == NotificationPriority.WARNING:
-            self._warning_queue.append(notification)
-        else:
-            self._info_queue.append(notification)
-
-    def _get_retry_delay(self, retry_count: int) -> float:
-        """Calculate exponential backoff delay in seconds: 1, 2, 4, 8, 16"""
-        base_delay = 1
-        return min(base_delay * (2 ** retry_count), 16)
-
-    async def _persist_notification(self, notification: NotificationEvent, user_id: str) -> None:
-        """Persist notification for offline delivery"""
-        if not self._enable_persistence:
-            return
-
-        async with self._persistence_lock:
-            record = NotificationDeliveryRecord(
-                notification_id=notification.notification_id,
-                user_id=user_id,
-                priority=notification.priority,
-                status=DeliveryStatus.PENDING,
-                created_at=notification.created_at,
-            )
-            self._delivery_records[notification.notification_id] = record
-            self._pending_notifications.append(notification)
-            logger.info(f"Persisted notification {notification.notification_id} for user {user_id}")
-
-    async def _mark_as_failed(self, record: NotificationDeliveryRecord, error: str) -> None:
-        """Move notification to dead letter queue on permanent failure"""
-        async with self._persistence_lock:
-            record.status = DeliveryStatus.FAILED
-            record.error_message = error
-            self._dead_letter_queue.append(record)
-            if record.notification_id in self._delivery_records:
-                del self._delivery_records[record.notification_id]
-            logger.error(f"Notification {record.notification_id} failed: {error}")
-
-    async def _schedule_retry(self, record: NotificationDeliveryRecord) -> None:
-        """Schedule notification for retry with exponential backoff"""
-        if record.retry_count >= record.max_retries:
-            await self._mark_as_failed(record, f"Max retries ({record.max_retries}) exceeded")
-            return
-
-        record.retry_count += 1
-        delay = self._get_retry_delay(record.retry_count)
-        retry_time = time.time() + delay
-
-        async with self._persistence_lock:
-            import heapq
-            heapq.heappush(self._retry_queue, (retry_time, record))
-            record.last_retry_at = datetime.now().isoformat()
-            logger.info(f"Scheduled retry for {record.notification_id} in {delay}s (attempt {record.retry_count})")
-
-    async def _process_retry_queue(self) -> None:
-        """Process notifications in retry queue when ready"""
-        while True:
-            async with self._persistence_lock:
-                if not self._retry_queue:
-                    await asyncio.sleep(1)
-                    continue
-
-                import heapq
-                current_time = time.time()
-                ready_records = []
-
-                while self._retry_queue and self._retry_queue[0][0] <= current_time:
-                    _, record = heapq.heappop(self._retry_queue)
-                    ready_records.append(record)
-
-            for record in ready_records:
-                record.status = DeliveryStatus.PENDING
-                async with self._persistence_lock:
-                    self._delivery_records[record.notification_id] = record
-                logger.info(f"Retrying notification {record.notification_id} (attempt {record.retry_count})")
-
-            await asyncio.sleep(1)
-
-    def get_delivery_status(self, notification_id: str) -> Optional[Dict]:
-        """Get delivery status for a notification"""
-        if notification_id in self._delivery_records:
-            return self._delivery_records[notification_id].to_dict()
-        return None
-
-    def get_dead_letter_queue_stats(self) -> Dict[str, Any]:
-        """Get statistics about failed notifications"""
-        dlq_list = list(self._dead_letter_queue)
-        return {
-            "size": len(dlq_list),
-            "critical_count": sum(1 for r in dlq_list if r.priority == NotificationPriority.CRITICAL),
-            "warning_count": sum(1 for r in dlq_list if r.priority == NotificationPriority.WARNING),
-            "info_count": sum(1 for r in dlq_list if r.priority == NotificationPriority.INFO),
-            "oldest_notification": dlq_list[0].created_at if dlq_list else None,
-        }
-
     async def start(self) -> None:
-        """Start optional Redis pub-sub listener."""
+        """Start optional Redis pub-sub listener and background reliability tasks."""
         if self._started:
             return
         self._started = True
+
+        # Start retry queue processor (handles exponential-backoff retries)
+        self._retry_processor_task = asyncio.create_task(self._process_retry_queue())
+
+        # Start priority queue processor (drains critical/warning/info queues)
+        self._priority_processor_task = asyncio.create_task(self._process_priority_queues())
 
         if not self._redis_url:
             return
@@ -315,13 +221,15 @@ class NotificationBroadcastHub:
 
     async def stop(self) -> None:
         """Stop optional Redis listener and close resources."""
-        if self._redis_listener_task is not None:
-            self._redis_listener_task.cancel()
-            try:
-                await self._redis_listener_task
-            except asyncio.CancelledError:
-                pass
-            self._redis_listener_task = None
+        for task_name in ("_retry_processor_task", "_priority_processor_task", "_redis_listener_task"):
+            task = getattr(self, task_name, None)
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                setattr(self, task_name, None)
 
         if self._redis_pubsub is not None:
             try:
@@ -342,6 +250,20 @@ class NotificationBroadcastHub:
     async def publish(self, notification: Dict[str, Any], source: str = "local") -> NotificationEvent:
         """Persist notification locally and fan it out to subscribed clients."""
         event = NotificationEvent(type="notification", data=notification, source=source)
+
+        # Deduplication check: skip if identical content seen within dedup window
+        if self._is_duplicate_notification(event):
+            logger.info("Duplicate notification %s skipped", event.notification_id)
+            return event
+
+        # Route to priority queue for deferred delivery processing
+        await self._route_to_priority_queue(event)
+
+        # Persist for offline delivery and retry tracking
+        uid = notification.get("recipient_uid")
+        if uid:
+            await self._persist_notification(event, uid)
+
         payload = {
             "type": event.type,
             "source": event.source,
@@ -350,7 +272,7 @@ class NotificationBroadcastHub:
         }
 
         async with self._history_lock:
-            self._history.append(notification)
+            self._history.append(payload)
 
         async with self._connections_lock:
             clients = [
@@ -375,9 +297,21 @@ class NotificationBroadcastHub:
 
         await websocket.accept()
         region_scopes = frozenset(resolve_subscription_regions({"role": "guest"}, regions))
+
+        # Take snapshot under history lock BEFORE registering so history is
+        # consistent.  The client will receive live notifications (broadcast
+        # under connections_lock) after registration — it must handle
+        # out-of-order delivery (snapshot may arrive after a live event).
         async with self._history_lock:
-            self._connections[websocket] = _ConnectionSubscription(uid=uid, regions=region_scopes)
             snapshot = self.snapshot_for_user(uid, region_scopes)
+
+        # Register under the correct lock so concurrent publish() calls
+        # always see the new connection atomically.
+        async with self._connections_lock:
+            self._connections[websocket] = _ConnectionSubscription(
+                uid=uid,
+                regions=region_scopes,
+            )
 
         await websocket.send_json(
             {
@@ -387,13 +321,6 @@ class NotificationBroadcastHub:
                 "data": snapshot,
             }
         )
-
-        # Register only after snapshot delivery completes.
-        async with self._connections_lock:
-            self._connections[websocket] = _ConnectionSubscription(
-                uid=uid,
-                regions=region_scopes,
-            )
 
         try:
             await asyncio.Event().wait()
@@ -415,6 +342,7 @@ class NotificationBroadcastHub:
 
         stale_clients: list[WebSocket] = []
         async with self._broadcast_lock:
+            stale_clients: list[WebSocket] = []
             for websocket, _subscription in clients:
                 try:
                     await websocket.send_json(payload)
@@ -438,7 +366,7 @@ class NotificationBroadcastHub:
                 notification = payload.get("data")
                 if isinstance(notification, dict):
                     async with self._history_lock:
-                        self._history.append(notification)
+                        self._history.append(payload)
 
                     async with self._connections_lock:
                         clients = [

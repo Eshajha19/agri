@@ -7,6 +7,7 @@ Certificates are only issued when the server confirms 100% completion from
 Firestore. localStorage is used only as a UI cache; it is never trusted for
 authorization decisions.
 """
+import asyncio
 import hashlib
 import logging
 import time
@@ -35,6 +36,12 @@ _CERT_COOLDOWN_MAX_ENTRIES = 10_000
 # the most-recently-used entries at the tail; popitem(last=False) evicts
 # the least-recently-used entry from the head when the cap is reached.
 _last_cert_request: OrderedDict[Tuple[str, str], float] = OrderedDict()
+
+# Asyncio lock that serialises all reads and writes to _last_cert_request.
+# Without this lock, two concurrent requests for the same (uid, course_id)
+# can both pass the cooldown check before either one records a timestamp,
+# allowing the cooldown to be bypassed under load.
+_cert_cooldown_lock: asyncio.Lock = asyncio.Lock()
 
 # ---------------------------------------------------------------------------
 # Injected dependencies (wired in main.py lifespan via init_lms)
@@ -145,6 +152,8 @@ async def complete_lesson(request: Request, body: CompleteLessonRequest):
 
     token_data = await _verify_role_fn(request)
     uid = token_data.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="User identity missing from authentication token")
 
     lesson_id = body.lesson_id
     course_id = _LESSON_TO_COURSE.get(lesson_id)
@@ -190,6 +199,8 @@ async def get_progress(request: Request):
 
     token_data = await _verify_role_fn(request)
     uid = token_data.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="User identity missing from authentication token")
 
     result = {}
     for course_id in COURSES:
@@ -232,22 +243,32 @@ async def get_certificate_data(request: Request, course_id: str):
 
     token_data = await _verify_role_fn(request)
     uid = token_data.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="User identity missing from authentication token")
 
     # Per-user per-course cooldown to prevent Firestore cost abuse.
+    # The entire check-then-update block is serialised with an asyncio lock
+    # to prevent a TOCTOU race where two concurrent requests both pass the
+    # cooldown check before either one records its timestamp.
+    # time.monotonic() is used instead of time.time() because monotonic
+    # time never runs backwards. A backward NTP jump on time.time() would
+    # reset (now - last) to a large positive number, clearing the cooldown
+    # and allowing repeated Firestore reads until the clock catches up again.
     key = (uid, course_id)
-    now = time.time()
-    last = _last_cert_request.get(key)
-    if last is not None and (now - last) < _CERT_COOLDOWN_SECONDS:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Certificate already requested recently. Please wait {_CERT_COOLDOWN_SECONDS} seconds.",
-        )
-    # Evict the LRU entry before inserting when the cap is reached, then
-    # record the current timestamp and move the key to the MRU position.
-    if key not in _last_cert_request and len(_last_cert_request) >= _CERT_COOLDOWN_MAX_ENTRIES:
-        _last_cert_request.popitem(last=False)
-    _last_cert_request[key] = now
-    _last_cert_request.move_to_end(key)
+    async with _cert_cooldown_lock:
+        now = time.monotonic()
+        last = _last_cert_request.get(key)
+        if last is not None and (now - last) < _CERT_COOLDOWN_SECONDS:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Certificate already requested recently. Please wait {_CERT_COOLDOWN_SECONDS} seconds.",
+            )
+        # Evict the LRU entry before inserting when the cap is reached, then
+        # record the current timestamp and move the key to the MRU position.
+        if key not in _last_cert_request and len(_last_cert_request) >= _CERT_COOLDOWN_MAX_ENTRIES:
+            _last_cert_request.popitem(last=False)
+        _last_cert_request[key] = now
+        _last_cert_request.move_to_end(key)
 
     progress = _get_progress(uid, course_id)
     if not _is_complete(progress, course_id):
