@@ -25,17 +25,31 @@ import json
 import logging
 import math
 import os
+import re
 import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from scipy.stats import ks_2samp
 
 logger = logging.getLogger(__name__)
+
+# Auth — injected at startup by main.py
+verify_role_fn = None
+
+# Allowlist: only portable path characters.  Rejects path traversal sequences
+# (../, ..\) and shell metacharacters before the value reaches any filesystem.
+_SAFE_PATH_RE = re.compile(r"^[A-Za-z0-9_./ -]+$")
+
+
+def init_auth(vr_fn):
+    global verify_role_fn
+    verify_role_fn = vr_fn
+
 
 # ---------------------------------------------------------------------------
 # Paths (relative to the process working directory, i.e. the repo root)
@@ -572,7 +586,7 @@ async def get_drift_status():
 
 
 @router.post("/baseline/update", response_model=UpdateBaselineResponse)
-async def update_baseline(csv_path: str = "Train.csv"):
+async def update_baseline(request: Request, csv_path: str = "Train.csv"):
     """
     Admin endpoint: rebuild the feature baseline from the training CSV.
 
@@ -581,6 +595,22 @@ async def update_baseline(csv_path: str = "Train.csv"):
 
     csv_path: path to the training CSV (default: Train.csv in working dir).
     """
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth not initialized")
+    await verify_role_fn(request, required_roles=["admin", "expert"])
+
+    components = re.split(r"[/\\]", csv_path)
+    if ".." in components:
+        raise HTTPException(
+            status_code=400,
+            detail="csv_path must not contain path traversal sequences (..)",
+        )
+    if not _SAFE_PATH_RE.match(csv_path):
+        raise HTTPException(
+            status_code=400,
+            detail="csv_path contains invalid characters.",
+        )
+
     if not Path(csv_path).exists():
         raise HTTPException(
             status_code=404,

@@ -1538,7 +1538,8 @@ except Exception as e:
 
 # Include Feature Drift Detection Router
 try:
-    from routers.feature_drift import router as feature_drift_router
+    from routers.feature_drift import router as feature_drift_router, init_auth as init_drift_auth
+    init_drift_auth(verify_role)
     app.include_router(feature_drift_router)
     logger.info("Feature Drift Detection API loaded successfully")
 except Exception as e:
