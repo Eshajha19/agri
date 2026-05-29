@@ -5,6 +5,7 @@ import logging
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional
+from rbac_audit import audit_rbac_event
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +121,7 @@ async def create_finance_application(request: Request, body: FinanceAssessmentRe
 
 
 @router.get("/applications/{application_id}")
-async def get_finance_application(application_id: str, request: Request):
+async def get_finance_application(application_id: str, request: Request, resource_tenant_id: Optional[str] = None):
     """
     Retrieve a single finance application.
 
@@ -141,11 +142,48 @@ async def get_finance_application(application_id: str, request: Request):
         )
 
         caller_uid = _extract_uid_from_verified_token(request)
+        ctx = await rbac_manager.resolve_auth_context(request, allow_unauthenticated=False)
 
-        # Admins/experts with FINANCE_READ_ALL bypass the ownership filter;
-        # farmers with only FINANCE_READ_OWN are scoped to their own records.
+        # Admins/experts with FINANCE_READ_ALL can override ownership in-tenant.
+        # Farmers with only FINANCE_READ_OWN remain scoped to their own records.
         has_read_all = await _has_permission(request, Permission.FINANCE_READ_ALL)
-        owner_uid_filter = None if has_read_all else caller_uid
+        owner_uid_filter = caller_uid
+
+        if has_read_all:
+            try:
+                can_override = rbac_manager.can_admin_or_expert_override(
+                    ctx,
+                    resource_owner_uid=None,
+                    resource_tenant_id=resource_tenant_id,
+                    allow_cross_tenant=False,
+                )
+            except Exception:
+                can_override = False
+
+            if can_override:
+                owner_uid_filter = None
+                audit_rbac_event(
+                    request=request,
+                    action=f"GET /api/finance/applications/{application_id}",
+                    outcome="allowed",
+                    uid=ctx.uid,
+                    role=ctx.role,
+                    required_roles=["admin", "expert"],
+                    reason="admin_expert_override",
+                    status_code=200,
+                )
+            else:
+                audit_rbac_event(
+                    request=request,
+                    action=f"GET /api/finance/applications/{application_id}",
+                    outcome="denied",
+                    uid=ctx.uid,
+                    role=ctx.role,
+                    required_roles=["admin", "expert"],
+                    reason="cross_tenant_override_denied",
+                    status_code=403,
+                )
+                raise HTTPException(status_code=403, detail="Access denied: cross-tenant override not permitted")
 
         application = farm_finance_ai.get_application(
             application_id, owner_uid=owner_uid_filter
