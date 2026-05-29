@@ -103,6 +103,7 @@ import {
   fetchWeatherByIP,
   searchLocationByName,
 } from "./weather/weatherService";
+import IrrigationCard from "./components/IrrigationCard";
 
 export default function Advisor({ userData }) {
   const navigate = useNavigate();
@@ -1417,6 +1418,11 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
           </div>
         </div>
       )}
+      <section className="advisor-section">
+          <IrrigationCard />
+      </section>
+
+
 
       {showBankReport && (
         <div key="modal-bank-report" className="weather-overlay" onClick={() => setShowBankReport(false)}>
