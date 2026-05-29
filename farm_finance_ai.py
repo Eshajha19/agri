@@ -8,6 +8,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Sentinel used by FarmFinanceAI.get_application() to distinguish between
+# "caller explicitly passed None (admin bypass)" and "caller omitted the
+# argument (deny by default)".
+#
+# Defined at module level rather than as a class attribute so that:
+# 1. It cannot be read via FarmFinanceAI._IDOR_GUARD and passed back to
+#    bypass the ownership check.
+# 2. It is created exactly once for the lifetime of the module, regardless
+#    of how many FarmFinanceAI instances are created or destroyed.
+_OWNER_UID_NOT_PROVIDED = object()
+
 
 @dataclass(frozen=True)
 class LoanProduct:
@@ -287,9 +298,7 @@ class FarmFinanceAI:
             "estimated_emi": analysis["estimated_emi"],
         }
 
-    _IDOR_GUARD = object()
-
-    def get_application(self, application_id: str, owner_uid: Any = _IDOR_GUARD) -> Optional[Dict[str, Any]]:
+    def get_application(self, application_id: str, owner_uid: Any = _OWNER_UID_NOT_PROVIDED) -> Optional[Dict[str, Any]]:
         """
         Retrieve a finance application by ID.
 
@@ -304,7 +313,7 @@ class FarmFinanceAI:
             Pass None to bypass the ownership check (admins / experts).
             When omitted, access is denied by default.
         """
-        if owner_uid is self._IDOR_GUARD:
+        if owner_uid is _OWNER_UID_NOT_PROVIDED:
             return None
         # Try repository first
         if self.repository:
@@ -363,6 +372,48 @@ class FarmFinanceAI:
             "required_documents": application.required_documents,
             "notes": application.notes,
         }
+
+    def delete_application(self, application_id: str) -> bool:
+        """Delete a finance application from both the repository and the
+        in-memory cache.
+
+        The previous design had no delete method on FarmFinanceAI.  Callers
+        that needed to remove a record could only call
+        ``self.repository.delete(application_id)`` directly, which deleted
+        the record from Firestore but left the stale ``FinanceApplication``
+        object in ``self.applications``.  A subsequent call to
+        ``get_application`` would find nothing in the repository (correct)
+        but then fall through to the in-memory dict and return the deleted
+        record — silently serving data that should no longer exist.
+
+        This method is the single deletion entry point.  It:
+        1. Removes the entry from ``self.applications`` first so the
+           in-memory cache is immediately consistent.
+        2. Delegates to the repository for durable deletion.
+        3. Returns True only when the record existed in at least one of the
+           two stores and was successfully removed.
+        """
+        deleted_from_memory = self.applications.pop(application_id, None) is not None
+        deleted_from_repo = False
+
+        if self.repository:
+            try:
+                deleted_from_repo = self.repository.delete(application_id)
+            except Exception as exc:
+                logger.error(
+                    "Failed to delete application %s from repository: %s",
+                    application_id,
+                    exc,
+                )
+
+        deleted = deleted_from_memory or deleted_from_repo
+        if deleted:
+            logger.info("Application %s deleted (memory=%s, repo=%s).",
+                        application_id, deleted_from_memory, deleted_from_repo)
+        else:
+            logger.warning("delete_application: application %s not found.", application_id)
+
+        return deleted
 
     def list_marketplace(self) -> List[Dict[str, Any]]:
         return [self._product_payload(product) for product in self.loan_products]
