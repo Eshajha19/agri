@@ -8,6 +8,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Sentinel used by FarmFinanceAI.get_application() to distinguish between
+# "caller explicitly passed None (admin bypass)" and "caller omitted the
+# argument (deny by default)".
+#
+# Defined at module level rather than as a class attribute so that:
+# 1. It cannot be read via FarmFinanceAI._IDOR_GUARD and passed back to
+#    bypass the ownership check.
+# 2. It is created exactly once for the lifetime of the module, regardless
+#    of how many FarmFinanceAI instances are created or destroyed.
+_OWNER_UID_NOT_PROVIDED = object()
+
 
 @dataclass(frozen=True)
 class LoanProduct:
@@ -287,9 +298,7 @@ class FarmFinanceAI:
             "estimated_emi": analysis["estimated_emi"],
         }
 
-    _IDOR_GUARD = object()
-
-    def get_application(self, application_id: str, owner_uid: Any = _IDOR_GUARD) -> Optional[Dict[str, Any]]:
+    def get_application(self, application_id: str, owner_uid: Any = _OWNER_UID_NOT_PROVIDED) -> Optional[Dict[str, Any]]:
         """
         Retrieve a finance application by ID.
 
@@ -304,7 +313,7 @@ class FarmFinanceAI:
             Pass None to bypass the ownership check (admins / experts).
             When omitted, access is denied by default.
         """
-        if owner_uid is self._IDOR_GUARD:
+        if owner_uid is _OWNER_UID_NOT_PROVIDED:
             return None
         # Try repository first
         if self.repository:
