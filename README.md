@@ -59,6 +59,7 @@ Fasal Saathi is a smart agriculture assistance platform built with React (fronte
 - 🧪 Soil health analysis & nutrient suggestions
 - 🪴 AI-based crop disease detection from uploaded images
 - 🌾 Fertilizer and pesticide guidance
+- 🧪 A/B testing runner with traffic split, metrics pipeline, and auto-promotion
 - 📊 Responsive and user-friendly dashboard (React)
 - 🔐 Authentication & user profiles (Firebase)
 - 🌐 Multi-language support (planned / optional)
@@ -200,6 +201,9 @@ For certified/bank report generation, the backend also needs a signing key sourc
 - `POST /api/soil/analyze` — Send soil params (pH, NPK) to get recommendations
 - `POST /api/crop/recommend` — Returns recommended crops for given soil & climate
 - `POST /api/crop-disease/analyze-image` — Analyze an uploaded crop image and return the likely disease, confidence, and treatment guidance
+- `POST /api/experiments/{exp_id}/traffic-split` — Update experiment traffic split for A/B testing
+- `POST /api/experiments/{exp_id}/evaluate` — Evaluate experiment metrics and auto-promote a winner when the lift is clear
+- `POST /api/experiments/assign` — Assign a user to a variant and emit an impression event
 
 (Document exact request/response schemas in docs/ or OpenAPI spec.)
 
@@ -282,6 +286,36 @@ python benchmarks/benchmark_inference.py --model model.onnx --input-shape 1,39 -
 ```
 
 The inference wrapper `inference/onnx_runtime.py` selects `CUDAExecutionProvider` when available, otherwise falls back to `CPUExecutionProvider`.
+
+## 🧪 A/B Testing Runner
+
+The feature-flag A/B testing stack now includes a runner that handles deterministic traffic splits, metric ingestion, and automatic winner promotion.
+
+### What it does
+
+- Assigns users to variants using the configured traffic split.
+- Logs impression and conversion events into the experiment metrics pipeline.
+- Evaluates conversion-rate lift and promotes the winning variant automatically when the threshold is met.
+- After promotion, the winner receives 100% traffic and future assignments route to the promoted variant.
+
+### Key endpoints
+
+```bash
+POST /api/experiments/{exp_id}/traffic-split
+POST /api/experiments/{exp_id}/evaluate
+POST /api/experiments/assign
+```
+
+### Example traffic split payload
+
+```json
+{
+	"variants": [
+		{"id": "control", "weight": 40},
+		{"id": "treatment", "weight": 60}
+	]
+}
+```
 
 
 ### Tradeoffs
