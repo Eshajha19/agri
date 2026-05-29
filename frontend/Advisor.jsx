@@ -1418,11 +1418,6 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
           </div>
         </div>
       )}
-      <section className="advisor-section">
-          <IrrigationCard />
-      </section>
-
-
 
       {showBankReport && (
         <div key="modal-bank-report" className="weather-overlay" onClick={() => setShowBankReport(false)}>
