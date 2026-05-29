@@ -20,6 +20,7 @@ Authentication
 - POST /marketplace/bookings  — requires auth (farmer must be logged in)
 - GET  /marketplace/bookings  — requires auth (returns caller's bookings)
 """
+import hashlib
 import logging
 import threading
 import uuid
@@ -61,12 +62,30 @@ _SEED_LISTINGS = [
     {"name": "Massey Ferguson 9500",          "type": "Tractor",   "price": 950,  "priceUnit": "hr",  "location": "Patna, Bihar",           "owner": "Manoj Singh",         "available": False},
 ]
 
+def _stable_seed_id(item: dict) -> str:
+    """Derive a deterministic listing ID from the seed item's content.
+
+    Using uuid.uuid4() produced a different ID on every process start,
+    so each Uvicorn worker seeded the same 16 logical listings with
+    different UUIDs.  A client that bookmarked a listing ID from worker A
+    would get a 404 from worker B.
+
+    The ID is derived from the item name (unique across seed data) via
+    SHA-256 so every worker always produces the same stable ID for the
+    same logical listing, regardless of restart order or worker count.
+    """
+    digest = hashlib.sha256(item["name"].encode("utf-8")).hexdigest()
+    # Format as a UUID-shaped string so it is indistinguishable from
+    # user-created listing IDs in API responses.
+    return f"{digest[:8]}-{digest[8:12]}-{digest[12:16]}-{digest[16:20]}-{digest[20:32]}"
+
+
 def _seed_listings() -> None:
     with _lock:
         if _listings:
             return
         for item in _SEED_LISTINGS:
-            lid = str(uuid.uuid4())
+            lid = _stable_seed_id(item)
             _listings[lid] = {
                 "id": lid,
                 "name": item["name"],
