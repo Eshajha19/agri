@@ -103,6 +103,7 @@ import {
   fetchWeatherByIP,
   searchLocationByName,
 } from "./weather/weatherService";
+import IrrigationCard from "./components/IrrigationCard";
 
 export default function Advisor({ userData }) {
   const navigate = useNavigate();

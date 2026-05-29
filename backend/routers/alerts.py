@@ -1,16 +1,23 @@
 """Alerts & Notifications Router"""
 from datetime import datetime
-from typing import Any, Optional
-import logging
+from typing import Optional
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
 from twilio_webhook_security import handle_inbound_whatsapp_webhook
+from pydantic import BaseModel, Field
+
+from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, normalize_region_identifier
+
+router = APIRouter()
+logger = logging.getLogger(__name__)
 
 from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, normalize_region_identifier
 from backend.schemas import AlertTriggerRequest
 
-router = APIRouter()
-logger = logging.getLogger(__name__)
+class AlertTriggerRequest(BaseModel):
+    alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
+    message: str = Field(..., min_length=1, max_length=500)
+    region_id: Optional[str] = Field(default=None, max_length=100)
 
 
 notification_store = None
@@ -20,42 +27,6 @@ send_whatsapp_fn = None
 format_alert_fn = None
 verify_role_fn = None
 resolve_user_profile_fn = None
-
-
-def _normalise_region_set(value: Any) -> set[str]:
-    """Return a validated set of normalized region tokens."""
-    if not value:
-        return set()
-
-    candidates = value if isinstance(value, (set, frozenset, list, tuple)) else [value]
-    normalized: set[str] = set()
-    for candidate in candidates:
-        region = normalize_region_identifier(candidate)
-        if region:
-            normalized.add(region)
-    return normalized
-
-
-def _profile_regions_from_store(profile: Any) -> set[str]:
-    """Safely extract normalized regions from store-backed profile data."""
-    if not isinstance(profile, dict):
-        return set()
-    return _normalise_region_set(profile_regions(profile))
-
-
-def _notification_matches_requested_regions(notification: Any, requested_regions: set[str]) -> bool:
-    """Return True only for well-formed notifications matching requested regions."""
-    if not isinstance(notification, dict):
-        return False
-    return notification_matches_regions(notification, requested_regions)
-
-
-def _subscriber_matches_region(info: Any, region_id: str) -> bool:
-    """Return True for subscribers whose stored profile matches the region."""
-    if not isinstance(info, dict):
-        return False
-
-    return any(region_matches(owned_region, region_id) for owned_region in _profile_regions_from_store(info))
 
 
 def init_alerts(ns, ss, ga_fn, sw_fn, fa_fn, vr_fn, rp_fn=None):
@@ -82,7 +53,7 @@ async def get_notifications(
         raise HTTPException(status_code=500, detail="Not initialized")
     token_data = await verify_role_fn(request)
     uid = token_data["uid"]
-    user_regions = _profile_regions_from_store(resolve_user_profile_fn(uid)) if resolve_user_profile_fn is not None else set()
+    user_regions = profile_regions(resolve_user_profile_fn(uid)) if resolve_user_profile_fn is not None else set()
     dynamic_alerts = generate_alerts_fn(
         crop=crop,
         irrigation_count=irrigation_count,
@@ -92,7 +63,7 @@ async def get_notifications(
     stored = [
         notification
         for notification in notification_store.get_recent_for_user(uid)
-        if _notification_matches_requested_regions(notification, user_regions)
+        if notification_matches_regions(notification, user_regions)
     ]
     return {"success": True, "data": stored + dynamic_alerts}
 
@@ -150,7 +121,7 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
             subscribers = {
                 user_id: info
                 for user_id, info in subscribers.items()
-                if _subscriber_matches_region(info, region_id)
+                if any(region_matches(owned_region, region_id) for owned_region in profile_regions(info))
             }
         for user_id, info in subscribers.items():
             res = send_whatsapp_fn(info["phone_number"], formatted_msg)
