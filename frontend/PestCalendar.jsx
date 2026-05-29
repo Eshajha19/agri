@@ -58,16 +58,21 @@ export default function PestCalendar() {
     return matchesRegion && matchesCrop && matchesMonth;
   });
 
-  const groupedEntries = useMemo(
-    () =>
-      monthOrder
-        .map((month) => ({
-          month,
-          pests: filteredEntries.filter((entry) => entry.activeMonths.includes(month)),
-        }))
-        .filter((monthGroup) => monthGroup.pests.length > 0),
-    [filteredEntries],
-  );
+  const groupedEntries = useMemo(() => {
+    const monthsToRender =
+      selectedMonth === "All"
+        ? monthOrder
+        : [selectedMonth];
+
+    return monthsToRender
+      .map((month) => ({
+        month,
+        pests: filteredEntries.filter((entry) =>
+          entry.activeMonths.includes(month)
+        ),
+      }))
+      .filter((monthGroup) => monthGroup.pests.length > 0);
+  }, [filteredEntries, selectedMonth]);
 
   return (
     <div style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
