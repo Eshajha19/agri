@@ -364,6 +364,48 @@ class FarmFinanceAI:
             "notes": application.notes,
         }
 
+    def delete_application(self, application_id: str) -> bool:
+        """Delete a finance application from both the repository and the
+        in-memory cache.
+
+        The previous design had no delete method on FarmFinanceAI.  Callers
+        that needed to remove a record could only call
+        ``self.repository.delete(application_id)`` directly, which deleted
+        the record from Firestore but left the stale ``FinanceApplication``
+        object in ``self.applications``.  A subsequent call to
+        ``get_application`` would find nothing in the repository (correct)
+        but then fall through to the in-memory dict and return the deleted
+        record — silently serving data that should no longer exist.
+
+        This method is the single deletion entry point.  It:
+        1. Removes the entry from ``self.applications`` first so the
+           in-memory cache is immediately consistent.
+        2. Delegates to the repository for durable deletion.
+        3. Returns True only when the record existed in at least one of the
+           two stores and was successfully removed.
+        """
+        deleted_from_memory = self.applications.pop(application_id, None) is not None
+        deleted_from_repo = False
+
+        if self.repository:
+            try:
+                deleted_from_repo = self.repository.delete(application_id)
+            except Exception as exc:
+                logger.error(
+                    "Failed to delete application %s from repository: %s",
+                    application_id,
+                    exc,
+                )
+
+        deleted = deleted_from_memory or deleted_from_repo
+        if deleted:
+            logger.info("Application %s deleted (memory=%s, repo=%s).",
+                        application_id, deleted_from_memory, deleted_from_repo)
+        else:
+            logger.warning("delete_application: application %s not found.", application_id)
+
+        return deleted
+
     def list_marketplace(self) -> List[Dict[str, Any]]:
         return [self._product_payload(product) for product in self.loan_products]
 
