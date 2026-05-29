@@ -22,7 +22,7 @@ export const pestSeasonalData = [
   },
   {
     pestKey: "thrips",
-    crop: "Chili",
+    crop: "Chilli",
     region: "Tamil Nadu",
     activeMonths: ["January", "February", "March"],
     severity: "Medium",
