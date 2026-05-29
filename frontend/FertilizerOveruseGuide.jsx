@@ -5,7 +5,7 @@ const TOPICS = [
   {
     id: "soil-degradation",
     title: "Soil Degradation",
-    image: "https://images.unsplash.com/photo-1501004318641-b39e6451bec6?auto=format&fit=crop&w=1000&q=60",
+    icon: "🌍",
     summary: "Excess fertilizers alter soil chemistry, reduce microbial diversity, and increase salinity or acidity over time.",
     details: [
       "Nutrient imbalances (excess N or P) can lock out micronutrients.",
@@ -16,7 +16,7 @@ const TOPICS = [
   {
     id: "crop-damage",
     title: "Crop Damage Symptoms",
-    image: "https://images.unsplash.com/photo-1498887964941-9c5b0a2d5f79?auto=format&fit=crop&w=1000&q=60",
+    icon: "🍂",
     summary: "Symptoms include leaf burn, stunted roots, wilting despite moist soil, and increased pest/disease susceptibility.",
     details: [
       "Leaf tip burn or chlorosis from excess soluble salts.",
@@ -27,7 +27,7 @@ const TOPICS = [
   {
     id: "recovery-methods",
     title: "Recovery Methods",
-    image: "https://images.unsplash.com/photo-1501004318641-4d1b8f9f2d12?auto=format&fit=crop&w=1000&q=60",
+    icon: "♻️",
     summary: "Steps to recover degraded soil and mitigate plant damage.",
     details: [
       "Leaching salts with clean irrigation where drainage permits.",
@@ -40,7 +40,6 @@ const TOPICS = [
 
 export default function FertilizerOveruseGuide({ onClose }) {
   const [active, setActive] = useState(TOPICS[0]);
-  const [showLightbox, setShowLightbox] = useState(false);
 
   return (
     <div className="fo-overlay" onClick={onClose} role="dialog" aria-modal="true">
@@ -54,7 +53,7 @@ export default function FertilizerOveruseGuide({ onClose }) {
           <nav className="fo-nav">
             {TOPICS.map((t) => (
               <button key={t.id} className={`fo-nav-btn ${active.id === t.id ? 'active' : ''}`} onClick={() => setActive(t)}>
-                <img src={`${t.image}&w=160&q=40`} alt={t.title} />
+                <span className="fo-icon">{t.icon}</span>
                 <span>{t.title}</span>
               </button>
             ))}
@@ -62,7 +61,7 @@ export default function FertilizerOveruseGuide({ onClose }) {
 
           <main className="fo-main">
             <div className="fo-visual">
-              <img src={`${active.image}&w=900&q=70`} alt={active.title} onClick={() => setShowLightbox(true)} />
+              <span className="fo-detail-icon">{active.icon}</span>
               <p className="fo-summary">{active.summary}</p>
             </div>
 
@@ -78,12 +77,6 @@ export default function FertilizerOveruseGuide({ onClose }) {
             </div>
           </main>
         </div>
-
-        {showLightbox && (
-          <div className="fo-lightbox" onClick={() => setShowLightbox(false)}>
-            <img src={`${active.image}&w=1400&q=80`} alt="Large" />
-          </div>
-        )}
       </div>
     </div>
   );
