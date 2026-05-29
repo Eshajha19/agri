@@ -169,23 +169,5 @@
     ></script>
     
     <script type="module" src="/main.jsx"></script>
-    <script>
-      // Register a basic service worker only outside local development.
-      (function registerSW() {
-        const isLocalDev = ['localhost', '127.0.0.1'].includes(window.location.hostname);
-
-        if (isLocalDev || !('serviceWorker' in navigator)) {
-          return;
-        }
-
-        window.addEventListener('load', function() {
-          navigator.serviceWorker.register('/sw.js').then(function(reg) {
-            console.log('Service worker registered.', reg);
-          }).catch(function(err) {
-            console.warn('Service worker registration failed:', err);
-          });
-        });
-      })();
-    </script>
   </body>
 </html>

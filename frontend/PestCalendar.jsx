@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { getPestInfo } from "./utils/pestDatabase";
 import { pestSeasonalData } from "./utils/pestSeasonalData";
+import { useTranslation } from "react-i18next";
 
 const formatPestLabel = (pestKey) =>
   pestKey
@@ -27,6 +28,7 @@ export default function PestCalendar() {
   const [selectedRegion, setSelectedRegion] = useState("All");
   const [selectedCrop, setSelectedCrop] = useState("All");
   const [selectedMonth, setSelectedMonth] = useState("All");
+  const { i18n } = useTranslation();
 
   const regionOptions = useMemo(
     () => ["All", ...new Set(pestSeasonalData.map((entry) => entry.region))],
@@ -143,7 +145,7 @@ export default function PestCalendar() {
                     <div style={pestTitleStyle}>{formatPestLabel(entry.pestKey)}</div>
                     <div style={pestSubtitleStyle}>Seasonal pest alert</div>
                     {(() => {
-                      const pestInfo = getPestInfo(entry.pestKey);
+                      const pestInfo = getPestInfo(entry.pestKey, i18n.language);
 
                       return (
                         <>

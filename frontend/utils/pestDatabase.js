@@ -34,7 +34,14 @@ export const pestDatabase = {
       locusts: "टिड्डी",
       beetles: "बीटल्स",
       caterpillars: "कैटरपिलर्स",
-      healthy: "स्वस्थ"
+      healthy: "स्वस्थ",
+      stem_borers: "तना छेदक",
+      pink_bollworm: "गुलाबी बॉलवर्म",
+      pod_borers: "फली छेदक",
+      shoot_fruit_borer: "शूट और फल छेदक",
+      mustard_aphids: "सरसों एफिड्स",
+      red_hairy_caterpillar: "लाल रोएंदार इल्ली",
+      diamondback_moth: "डायमंडबैक मॉथ",
     },
     te: {
       aphids: "ఎఫిడ్స్",
@@ -48,7 +55,14 @@ export const pestDatabase = {
       locusts: "తెల్లపల్లు",
       beetles: "బీటల్స్",
       caterpillars: "కాటర్‌పిల్లర్లు",
-      healthy: "ఆరోగ్యంగా"
+      healthy: "ఆరోగ్యంగా",
+      stem_borers: "కాండం తొలిచే పురుగులు",
+      pink_bollworm: "పింక్ బోల్‌వార్మ్",
+      pod_borers: "పాడ్ బోరర్లు",
+      shoot_fruit_borer: "షూట్ & ఫ్రూట్ బోరర్",
+      mustard_aphids: "ఆవాల ఎఫిడ్స్",
+      red_hairy_caterpillar: "ఎర్ర వెంట్రుకల పురుగు",
+      diamondback_moth: "డైమండ్‌బ్యాక్ మోత్",
     }
   },
 
