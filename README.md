@@ -265,6 +265,25 @@ DP mode is optional and requires extra packages:
 pip install torch opacus
 ```
 
+## 🔁 ONNX conversion, GPU inference path, and benchmarking
+
+We provide utilities to convert models to ONNX, run inference preferring GPU (if available) with CPU fallback, and run inference benchmarks.
+
+Conversion script:
+
+```bash
+python scripts/convert_model_to_onnx.py --model path/to/model.joblib --n-features 39 --out model.onnx
+```
+
+Run ONNX inference benchmark (example):
+
+```bash
+python benchmarks/benchmark_inference.py --model model.onnx --input-shape 1,39 --iterations 200 --warmup 20 --output bench.json
+```
+
+The inference wrapper `inference/onnx_runtime.py` selects `CUDAExecutionProvider` when available, otherwise falls back to `CPUExecutionProvider`.
+
+
 ### Tradeoffs
 
 - Better privacy guarantees usually require stronger noise (lower utility).
