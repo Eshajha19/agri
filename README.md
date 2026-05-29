@@ -57,6 +57,7 @@ Fasal Saathi is a smart agriculture assistance platform built with React (fronte
 - 🌱 Crop recommendation based on soil profile and regional climate
 - ☁️ Real-time weather updates and custom farming alerts
 - 🧪 Soil health analysis & nutrient suggestions
+- 🪴 AI-based crop disease detection from uploaded images
 - 🌾 Fertilizer and pesticide guidance
 - 📊 Responsive and user-friendly dashboard (React)
 - 🔐 Authentication & user profiles (Firebase)
@@ -88,37 +89,17 @@ agri/
 │   ├── components/
 │   ├── services/
 │   ├── stores/
-│   ├── utils/
-│   ├── hooks/
-│   ├── lib/
-│   ├── themes/
-│   ├── weather/
-│   └── public/
-├── main.py                   # FastAPI backend entry
-├── requirements.txt          # Python dependencies
 ├── ml/                       # Machine learning models
 ├── rag/                      # RAG advisor components
-├── firebase/
-│   └── firestore.rules
-├── .env.example
-├── README.md
-└── LICENSE
 ```
 
 ---
 
-## ⚙️ Installation & Local Setup
-
-> Requirements: Node.js (v16+), npm/yarn, Python 3.9+, pip, Firebase CLI (optional).
 
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/KGFCH2/agri.git
-cd agri
-```
-
-### 2. Frontend (React + Vite)
+git clone https://github.com/Eshajha19/agri.git
 
 ```bash
 cd frontend
@@ -202,8 +183,12 @@ BACKEND_PORT=5000
 REACT_APP_FIREBASE_API_KEY=xxxxxxxxxxxx
 REACT_APP_FIREBASE_AUTH_DOMAIN=your-app.firebaseapp.com
 REACT_APP_FIREBASE_PROJECT_ID=your-app
-REACT_APP_BACKEND_URL=http://localhost:5000
-```
+VITE_API_BASE_URL=https://your-backend.onrender.com
+# Alternative: VITE_BACKEND_URL is also supported as a fallback
+
+For Vercel deployments, set `VITE_API_BASE_URL` to the live backend origin in the project environment variables. Without it, browser requests stay on the static frontend host and marketplace API calls will fail.
+
+For certified/bank report generation, the backend also needs a signing key source. In production, configure either Google Cloud Secret Manager (`GOOGLE_CLOUD_PROJECT` + `REPORT_SIGNING_SECRET_NAME`) or `REPORT_SIGNING_PRIVATE_KEY_PEM` with a PEM-encoded Ed25519 private key.
 
 ---
 
@@ -214,6 +199,7 @@ REACT_APP_BACKEND_URL=http://localhost:5000
 - `GET /api/weather?lat={lat}&lon={lon}` — Returns current weather + forecast
 - `POST /api/soil/analyze` — Send soil params (pH, NPK) to get recommendations
 - `POST /api/crop/recommend` — Returns recommended crops for given soil & climate
+- `POST /api/crop-disease/analyze-image` — Analyze an uploaded crop image and return the likely disease, confidence, and treatment guidance
 
 (Document exact request/response schemas in docs/ or OpenAPI spec.)
 
@@ -240,3 +226,38 @@ Provide farmers with a lightweight, region-aware digital assistant that reduces 
 - SMS / WhatsApp alerts for farmers without smartphones
 - Integrate local market price data for crop sale recommendations
 - Train ML models using local farm historical data for precision recommendations
+
+## 🚨 New Feature: Farming Mistakes Awareness System
+
+This in-app guide highlights common farming mistakes and practical steps to avoid them. Examples include:
+
+- Over-fertilization — how to test soil and dose correctly.
+- Wrong irrigation timing — when and how to irrigate for best results.
+- Poor seed selection — choosing certified, climate-appropriate varieties.
+
+How to access: Open the Advisor page and choose the "Farming Mistakes Awareness" card to open the modal with examples, images, and prevention tips.
+
+Acceptance criteria:
+
+- Common mistakes are listed with an explanation of the problem.
+- Each mistake includes clear, actionable prevention steps.
+- Image examples for visual recognition.
+- Responsive UI and no console errors in Advisor view.
+
+## 🖼️ New Feature: Crop Growth Stage Visual Guide
+
+A responsive in-app visual guide that walks farmers through the crop lifecycle: Seed → Sprout → Growth → Harvest. The guide includes stage-wise care instructions, image-based examples for visual learning, and a lightweight lightbox for inspecting images.
+
+How to access: Open the app and go to the Advisor page — the "Crop Growth Stage Visual Guide" card opens the modal with the visual walkthrough and learning images.
+
+Acceptance criteria:
+
+- Seed → Sprout → Growth → Harvest stages represented visually.
+- Stage-wise care instructions are shown for each stage.
+- Image-based learning gallery with thumbnails and enlargements.
+- Responsive UI and no console errors when used in the Advisor view.
+
+Alternatives considered:
+
+- Linking externally to a knowledge article or PDF (rejected — offline and discoverability concerns).
+- A full LMS course module with video lessons (more content-heavy; deferred to Agri-LMS integration).
