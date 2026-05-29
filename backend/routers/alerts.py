@@ -1,4 +1,5 @@
 """Alerts & Notifications Router"""
+import asyncio
 from datetime import datetime
 from typing import Optional
 
@@ -9,7 +10,10 @@ from pydantic import BaseModel, Field
 from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, normalize_region_identifier
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
+from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, normalize_region_identifier
+from backend.schemas import AlertTriggerRequest
 
 class AlertTriggerRequest(BaseModel):
     alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
@@ -85,12 +89,13 @@ async def subscribe_whatsapp(
         }
         subscriber_store.upsert(uid, subscriber)
         welcome_msg = f"Namaste {name}! 🙏\nWelcome to *Fasal Saathi WhatsApp Alerts*."
-        send_whatsapp_fn(phone_number, welcome_msg)
+        await asyncio.to_thread(send_whatsapp_fn, phone_number, welcome_msg)
         return {"success": True, "message": "Successfully subscribed"}
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("WhatsApp subscription failed: %s", e)
+        raise HTTPException(status_code=500, detail="WhatsApp subscription failed")
 
 
 @router.post("/whatsapp/trigger-alert")
@@ -120,7 +125,7 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
                 if any(region_matches(owned_region, region_id) for owned_region in profile_regions(info))
             }
         for user_id, info in subscribers.items():
-            res = send_whatsapp_fn(info["phone_number"], formatted_msg)
+            res = await asyncio.to_thread(send_whatsapp_fn, info["phone_number"], formatted_msg)
             results.append({
                 "user_id": user_id,
                 "success": res.get("success", False),
@@ -132,7 +137,8 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Alert broadcast failed: %s", e)
+        raise HTTPException(status_code=500, detail="Alert broadcast failed")
 
 
 @router.post("/whatsapp/webhook")

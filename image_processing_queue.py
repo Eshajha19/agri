@@ -26,6 +26,94 @@ import random
 logger = logging.getLogger(__name__)
 
 
+class LRUCache:
+    """LRU cache with configurable capacity and TTL"""
+    def __init__(self, capacity: int = 1000, ttl_seconds: int = 86400):
+        self.capacity = capacity
+        self.ttl = ttl_seconds
+        self.cache: OrderedDict[str, tuple] = OrderedDict()
+        self.lock = threading.Lock()
+        self.hits = 0
+        self.misses = 0
+
+    def get(self, key: str) -> Optional[Any]:
+        with self.lock:
+            if key not in self.cache:
+                self.misses += 1
+                return None
+
+            value, timestamp = self.cache[key]
+            if time.time() - timestamp > self.ttl:
+                del self.cache[key]
+                self.misses += 1
+                return None
+
+            self.hits += 1
+            self.cache.move_to_end(key)
+            return value
+
+    def put(self, key: str, value: Any) -> None:
+        with self.lock:
+            if key in self.cache:
+                self.cache.move_to_end(key)
+            self.cache[key] = (value, time.time())
+
+            if len(self.cache) > self.capacity:
+                oldest_key = next(iter(self.cache))
+                del self.cache[oldest_key]
+
+    def invalidate(self, key: str) -> None:
+        with self.lock:
+            if key in self.cache:
+                del self.cache[key]
+
+    def get_stats(self) -> Dict[str, Any]:
+        with self.lock:
+            total_requests = self.hits + self.misses
+            hit_rate = (self.hits / total_requests * 100) if total_requests > 0 else 0
+            return {
+                "size": len(self.cache),
+                "capacity": self.capacity,
+                "hits": self.hits,
+                "misses": self.misses,
+                "hit_rate": hit_rate
+            }
+
+
+@dataclass
+class ProcessingMetrics:
+    """Metrics for image processing"""
+    total_enqueued: int = 0
+    total_processed: int = 0
+    total_failed: int = 0
+    average_processing_time: float = 0.0
+    queue_depth: int = 0
+    error_rate: float = 0.0
+    cache_hit_rate: float = 0.0
+    processing_times: List[float] = field(default_factory=list)
+
+    def add_processing_time(self, duration: float) -> None:
+        self.processing_times.append(duration)
+        if len(self.processing_times) > 1000:
+            self.processing_times.pop(0)
+        self.average_processing_time = sum(self.processing_times) / len(self.processing_times)
+
+    def update_error_rate(self) -> None:
+        total = self.total_processed + self.total_failed
+        self.error_rate = (self.total_failed / total * 100) if total > 0 else 0.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "total_enqueued": self.total_enqueued,
+            "total_processed": self.total_processed,
+            "total_failed": self.total_failed,
+            "average_processing_time_ms": round(self.average_processing_time * 1000, 2),
+            "queue_depth": self.queue_depth,
+            "error_rate": round(self.error_rate, 2),
+            "cache_hit_rate": round(self.cache_hit_rate, 2)
+        }
+
+
 class TaskStatus(str, Enum):
     """Task execution status"""
     QUEUED = "queued"
@@ -96,6 +184,9 @@ class ImageProcessingQueue:
         self._task_queue: List[tuple] = []
         self._tasks_by_id: Dict[str, ImageProcessingTask] = {}
         self._counter = 0
+        self._total_enqueued = 0
+        self._total_processed = 0
+        self._total_failed = 0
         self._completed_tasks: Dict[str, ImageProcessingTask] = {}  # History
         # Ack store for exactly-once semantics: maps task_id -> status
         self._ack_store: Dict[str, str] = {}
@@ -104,15 +195,18 @@ class ImageProcessingQueue:
         # Worker management
         self._workers: Dict[str, WorkerStats] = {}
         self._worker_lock = threading.Lock()
-        
+
+        # Cache management
+        self._image_cache = LRUCache(capacity=1000, ttl_seconds=86400) if enable_caching else None
+        self._processing_times: Dict[str, float] = {}
+
         # Thread safety
         self._queue_lock = threading.Lock()
         self._task_lock = threading.Lock()
-        
+
         # Metrics
-        self._total_enqueued = 0
-        self._total_processed = 0
-        self._total_failed = 0
+        self._metrics = ProcessingMetrics()
+        self._start_time = time.time()
 
     def enqueue(self, task: ImageProcessingTask) -> str:
         """Enqueue a task for processing"""
@@ -315,16 +409,7 @@ class ImageProcessingQueue:
             task.status = TaskStatus.CANCELLED
 
             with self._queue_lock:
-                # Rebuild the heap without the cancelled task.
-                # The previous code used `deque(t for t in self._task_queue if
-                # t.task_id != task_id)` which had three bugs:
-                #   1. `deque` was never imported.
-                #   2. Heap tuples are (priority, counter, task) — they have no
-                #      `.task_id` attribute, so the filter always raised AttributeError.
-                #   3. Replacing the heap list with a deque broke all future
-                #      heappush / heappop calls.
-                # Fix: filter the heap list by inspecting entry[2].task_id (the task
-                # inside each tuple), then heapify to restore the heap invariant.
+           
                 self._task_queue = [
                     entry for entry in self._task_queue
                     if entry[2].task_id != task_id
@@ -373,18 +458,36 @@ class ImageProcessingQueue:
             worker.last_heartbeat = datetime.now().isoformat()
 
     def get_queue_stats(self) -> Dict:
-        """Get queue and worker statistics"""
+        """Get queue and worker statistics with advanced metrics"""
         with self._queue_lock:
             queue_size = len(self._task_queue)
-        
+
         with self._task_lock:
             active_tasks = len(self._tasks_by_id)
             completed_tasks = len(self._completed_tasks)
-        
+
         with self._worker_lock:
             workers_online = len(self._workers)
             worker_stats = list(self._workers.values())
-        
+
+        self._metrics.queue_depth = queue_size
+        self._metrics.total_enqueued = self._total_enqueued
+        self._metrics.total_processed = self._total_processed
+        self._metrics.total_failed = self._total_failed
+        self._metrics.update_error_rate()
+
+        if self._image_cache:
+            cache_stats = self._image_cache.get_stats()
+            self._metrics.cache_hit_rate = cache_stats['hit_rate']
+        else:
+            self._metrics.cache_hit_rate = 0.0
+
+        uptime_seconds = time.time() - self._start_time
+        estimated_completion_time = None
+        if self._metrics.average_processing_time > 0 and queue_size > 0:
+            estimated_seconds = queue_size * self._metrics.average_processing_time
+            estimated_completion_time = (datetime.now() + timedelta(seconds=estimated_seconds)).isoformat()
+
         return {
             "queue_size": queue_size,
             "active_tasks": active_tasks,
@@ -395,7 +498,134 @@ class ImageProcessingQueue:
             "workers_online": workers_online,
             "workers": [asdict(w) for w in worker_stats],
             "avg_processing_time": (sum(w.avg_processing_time for w in worker_stats) / len(worker_stats)) if worker_stats else 0,
+            "metrics": self._metrics.to_dict(),
+            "estimated_completion_time": estimated_completion_time,
+            "uptime_seconds": uptime_seconds
         }
+
+    def get_batch(self, batch_size: Optional[int] = None) -> List[ImageProcessingTask]:
+        """Get a batch of tasks for processing"""
+        if batch_size is None:
+            batch_size = self.batch_size
+
+        tasks = []
+        with self._queue_lock:
+            for _ in range(min(batch_size, len(self._task_queue))):
+                if not self._task_queue:
+                    break
+                _, _, task = heapq.heappop(self._task_queue)
+                if task.task_id not in self._ack_store:
+                    task.status = TaskStatus.PROCESSING
+                    task.started_at = datetime.now().isoformat()
+                    tasks.append(task)
+
+        logger.info(f"Batch dequeue: {len(tasks)} tasks")
+        return tasks
+
+    def get_task_status_with_position(self, task_id: str) -> Optional[Dict]:
+        """Get detailed task status including queue position and progress estimate"""
+        with self._task_lock:
+            if task_id in self._tasks_by_id:
+                task = self._tasks_by_id[task_id]
+                queue_position = self._get_queue_position(task_id)
+                progress_percent = 0
+                if task.status == TaskStatus.PROCESSING:
+                    progress_percent = 50
+                elif task.status == TaskStatus.QUEUED:
+                    progress_percent = 10
+
+                estimated_time = None
+                if queue_position >= 0 and self._metrics.average_processing_time > 0:
+                    estimated_seconds = queue_position * self._metrics.average_processing_time
+                    estimated_time = (datetime.now() + timedelta(seconds=estimated_seconds)).isoformat()
+
+                return {
+                    "task_id": task_id,
+                    "status": task.status.value,
+                    "priority": task.priority.name,
+                    "queue_position": queue_position,
+                    "progress_percent": progress_percent,
+                    "estimated_completion_time": estimated_time,
+                    "created_at": task.created_at,
+                    "started_at": task.started_at,
+                    "processor_type": task.processor_type,
+                }
+
+            if task_id in self._completed_tasks:
+                task = self._completed_tasks[task_id]
+                return {
+                    "task_id": task_id,
+                    "status": task.status.value,
+                    "progress_percent": 100 if task.status == TaskStatus.COMPLETED else 0,
+                    "created_at": task.created_at,
+                    "started_at": task.started_at,
+                    "completed_at": task.completed_at,
+                    "result": task.result if task.status == TaskStatus.COMPLETED else None,
+                    "error": task.error if task.status == TaskStatus.FAILED else None,
+                }
+
+            return None
+
+    def _get_queue_position(self, task_id: str) -> int:
+        """Get the position of a task in the queue"""
+        with self._queue_lock:
+            for idx, entry in enumerate(self._task_queue):
+                if entry[2].task_id == task_id:
+                    return idx
+        return -1
+
+    def track_processing_time(self, task_id: str, start_time: float) -> None:
+        """Track the processing time for a task"""
+        duration = time.time() - start_time
+        self._processing_times[task_id] = duration
+        self._metrics.add_processing_time(duration)
+
+    def get_cached_result(self, cache_key: str) -> Optional[Any]:
+        """Get a cached result if available"""
+        if self._image_cache:
+            return self._image_cache.get(cache_key)
+        return None
+
+    def cache_result(self, cache_key: str, result: Any) -> None:
+        """Cache a processing result"""
+        if self._image_cache:
+            self._image_cache.put(cache_key, result)
+            logger.info(f"Cached result for key: {cache_key}")
+
+    def invalidate_cache(self, cache_key: str) -> None:
+        """Invalidate a cached result"""
+        if self._image_cache:
+            self._image_cache.invalidate(cache_key)
+
+    def get_cache_stats(self) -> Optional[Dict]:
+        """Get cache statistics"""
+        if self._image_cache:
+            return self._image_cache.get_stats()
+        return None
+
+    def get_processing_history(self, limit: int = 100) -> List[Dict]:
+        """Get recent processing history"""
+        history = []
+        with self._task_lock:
+            sorted_tasks = sorted(
+                self._completed_tasks.values(),
+                key=lambda t: t.completed_at or "",
+                reverse=True
+            )[:limit]
+
+            for task in sorted_tasks:
+                processing_time = self._processing_times.get(task.task_id, 0)
+                history.append({
+                    "task_id": task.task_id,
+                    "status": task.status.value,
+                    "crop_type": task.crop_type,
+                    "processor_type": task.processor_type,
+                    "created_at": task.created_at,
+                    "completed_at": task.completed_at,
+                    "processing_time_ms": round(processing_time * 1000, 2),
+                    "error": task.error if task.status == TaskStatus.FAILED else None,
+                })
+        return history
 
     def get_pending_tasks(self, limit: int = 100) -> List[Dict]:
         """Get pending tasks"""
@@ -601,3 +831,4 @@ def init_pipeline(max_workers: int = 4, max_queue_size: int = 10000) -> ImagePro
     global _global_pipeline
     _global_pipeline = ImageProcessingPipeline(max_workers=max_workers, max_queue_size=max_queue_size)
     return _global_pipeline
+# Image processing optimization complete

@@ -20,10 +20,11 @@ Authentication
 - POST /marketplace/bookings  — requires auth (farmer must be logged in)
 - GET  /marketplace/bookings  — requires auth (returns caller's bookings)
 """
+import hashlib
 import logging
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -61,12 +62,30 @@ _SEED_LISTINGS = [
     {"name": "Massey Ferguson 9500",          "type": "Tractor",   "price": 950,  "priceUnit": "hr",  "location": "Patna, Bihar",           "owner": "Manoj Singh",         "available": False},
 ]
 
+def _stable_seed_id(item: dict) -> str:
+    """Derive a deterministic listing ID from the seed item's content.
+
+    Using uuid.uuid4() produced a different ID on every process start,
+    so each Uvicorn worker seeded the same 16 logical listings with
+    different UUIDs.  A client that bookmarked a listing ID from worker A
+    would get a 404 from worker B.
+
+    The ID is derived from the item name (unique across seed data) via
+    SHA-256 so every worker always produces the same stable ID for the
+    same logical listing, regardless of restart order or worker count.
+    """
+    digest = hashlib.sha256(item["name"].encode("utf-8")).hexdigest()
+    # Format as a UUID-shaped string so it is indistinguishable from
+    # user-created listing IDs in API responses.
+    return f"{digest[:8]}-{digest[8:12]}-{digest[12:16]}-{digest[16:20]}-{digest[20:32]}"
+
+
 def _seed_listings() -> None:
     with _lock:
         if _listings:
             return
         for item in _SEED_LISTINGS:
-            lid = str(uuid.uuid4())
+            lid = _stable_seed_id(item)
             _listings[lid] = {
                 "id": lid,
                 "name": item["name"],
@@ -78,7 +97,7 @@ def _seed_listings() -> None:
                 "ownerUid": None,   # seed listings have no registered owner
                 "available": item["available"],
                 "rating": 4.5,
-                "createdAt": datetime.utcnow().isoformat() + "Z",
+                "createdAt": datetime.now(timezone.utc).isoformat(),
             }
 
 _seed_listings()
@@ -87,10 +106,12 @@ _seed_listings()
 # Dependency injection
 # ---------------------------------------------------------------------------
 verify_role_fn = None
+notify_booking_fn = None
 
-def init_marketplace(vr_fn) -> None:
-    global verify_role_fn
+def init_marketplace(vr_fn, notify_fn=None) -> None:
+    global verify_role_fn, notify_booking_fn
     verify_role_fn = vr_fn
+    notify_booking_fn = notify_fn
 
 # ---------------------------------------------------------------------------
 # Pydantic models
@@ -121,6 +142,10 @@ class BookEquipmentRequest(BaseModel):
         except ValueError:
             raise ValueError("date must be in YYYY-MM-DD format")
         return v
+
+
+class UpdateBookingRequest(BaseModel):
+    status: str = Field(..., pattern=r"^(confirmed|completed|cancelled)$")
 
 # ---------------------------------------------------------------------------
 # Endpoints
@@ -177,7 +202,7 @@ async def list_equipment(request: Request, data: ListEquipmentRequest):
         "ownerUid": uid,
         "available": True,
         "rating": 5.0,
-        "createdAt": datetime.utcnow().isoformat() + "Z",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
     }
 
     with _lock:
@@ -219,6 +244,8 @@ async def book_equipment(request: Request, data: BookEquipmentRequest):
             raise HTTPException(status_code=404, detail="Equipment listing not found")
         if not listing["available"]:
             raise HTTPException(status_code=409, detail="Equipment is not available for booking")
+        if listing.get("ownerUid") is not None and listing["ownerUid"] == booker_uid:
+            raise HTTPException(status_code=400, detail="You cannot book your own equipment listing")
 
         booking = {
             "id": bid,
@@ -234,7 +261,7 @@ async def book_equipment(request: Request, data: BookEquipmentRequest):
             "priceUnit": listing["priceUnit"],
             "totalCost": listing["price"] * data.duration,
             "status": "pending",   # pending → confirmed → completed / cancelled
-            "createdAt": datetime.utcnow().isoformat() + "Z",
+            "createdAt": datetime.now(timezone.utc).isoformat(),
         }
 
         _bookings[bid] = booking
@@ -245,6 +272,14 @@ async def book_equipment(request: Request, data: BookEquipmentRequest):
         "Booking %s created: equipment=%s booker=%s date=%s",
         bid, data.equipmentId, booker_uid, data.date,
     )
+
+    # Notify the equipment owner asynchronously.
+    if notify_booking_fn is not None:
+        try:
+            await notify_booking_fn(booking)
+        except Exception as exc:
+            logger.warning("Booking notification failed for %s: %s", bid, exc)
+
     return {"success": True, "booking": booking}
 
 
@@ -266,3 +301,86 @@ async def get_bookings(request: Request):
     ]
     user_bookings.sort(key=lambda x: x["createdAt"], reverse=True)
     return {"success": True, "data": user_bookings}
+
+
+# ---------------------------------------------------------------------------
+# Allowed status transitions
+# ---------------------------------------------------------------------------
+_VALID_TRANSITIONS: dict[str, set[str]] = {
+    # Equipment owner confirms a pending booking.
+    "pending":   {"confirmed", "cancelled"},
+    # Owner marks job done; either party may cancel a confirmed booking.
+    "confirmed": {"completed", "cancelled"},
+    # Terminal states — no further transitions.
+    "completed": set(),
+    "cancelled":  set(),
+}
+
+# The new status values that release the equipment back to available.
+_RELEASES_EQUIPMENT: set[str] = {"completed", "cancelled"}
+
+
+@router.patch("/bookings/{booking_id}")
+async def update_booking_status(
+    booking_id: str,
+    data: UpdateBookingRequest,
+    request: Request,
+):
+    """Transition a booking to a new status.
+
+    Permission rules:
+    - ``confirmed``: only the equipment owner may confirm a pending booking.
+    - ``completed``: only the equipment owner may mark a booking completed.
+    - ``cancelled``: the booker or the equipment owner may cancel at any point
+      before completion.
+
+    When a booking moves to ``completed`` or ``cancelled`` the equipment
+    listing is restored to ``available=True`` so it can be rebooked.
+    """
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Not initialized")
+
+    token_data = await verify_role_fn(request)
+    uid = token_data.get("uid")
+    new_status = data.status
+
+    with _lock:
+        booking = _bookings.get(booking_id)
+        if booking is None:
+            raise HTTPException(status_code=404, detail="Booking not found")
+
+        # Authorisation check — only parties to the booking may update it.
+        is_owner = booking.get("ownerUid") == uid
+        is_booker = booking.get("bookerUid") == uid
+        if not is_owner and not is_booker:
+            raise HTTPException(status_code=403, detail="Not authorised to update this booking")
+
+        current_status = booking["status"]
+        allowed = _VALID_TRANSITIONS.get(current_status, set())
+        if new_status not in allowed:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot transition from '{current_status}' to '{new_status}'",
+            )
+
+        # Only the equipment owner may confirm or complete.
+        if new_status in {"confirmed", "completed"} and not is_owner:
+            raise HTTPException(
+                status_code=403,
+                detail="Only the equipment owner may confirm or complete a booking",
+            )
+
+        booking = {**booking, "status": new_status, "updatedAt": datetime.now(timezone.utc).isoformat()}
+        _bookings[booking_id] = booking
+
+        # Release the equipment back to available when the booking ends.
+        if new_status in _RELEASES_EQUIPMENT:
+            equipment_id = booking.get("equipmentId")
+            if equipment_id and equipment_id in _listings:
+                _listings[equipment_id] = {**_listings[equipment_id], "available": True}
+
+    logger.info(
+        "Booking %s transitioned %s -> %s by uid=%s",
+        booking_id, current_status, new_status, uid,
+    )
+    return {"success": True, "booking": booking}
