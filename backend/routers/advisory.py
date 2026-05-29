@@ -400,15 +400,31 @@ def _store_graph_history(uid: str, entry: dict[str, Any]) -> str:
     history_id = entry.get("history_id") or uuid.uuid4().hex[:12]
     record = {**entry, "history_id": history_id}
 
-    _graph_history.appendleft(uid, record)
-
+    # Write to Firestore first so it is the authoritative source of truth.
+    #
+    # The previous order was: in-memory write → Firestore write.  That
+    # created a race: if the Firestore write was slow and another concurrent
+    # request triggered LRU eviction of this UID's entry from _graph_history
+    # between the two writes, the in-memory record would be gone before
+    # Firestore confirmed the write.  _load_graph_history would then fall
+    # back to the in-memory store and return an empty list, silently losing
+    # the history entry for the lifetime of the process even though Firestore
+    # eventually persisted it correctly.
+    #
+    # Correct order: Firestore first (durable), in-memory second (cache).
+    # If Firestore fails, we still populate the in-memory cache so the
+    # current request's response is correct and the user sees their history
+    # within the same process session.  If the in-memory entry is later
+    # evicted, _load_graph_history will correctly re-read from Firestore.
     if _db is not None:
         try:
             _db.collection("users").document(uid).collection("farm_intelligence_history").document(history_id).set(record, merge=True)
         except Exception:
-            # The in-memory record above still preserves the user-facing history
-            # if Firestore is temporarily unavailable.
+            # Firestore unavailable — the in-memory write below still
+            # preserves the entry for the current process session.
             pass
+
+    _graph_history.appendleft(uid, record)
 
     return history_id
 
