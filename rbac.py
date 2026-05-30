@@ -433,19 +433,6 @@ class RBACManager:
                 detail=STALE_TOKEN_DETAIL,
             )
 
-        claim_tenant = RBACManager._extract_tenant(decoded_token)
-        if claim_tenant and tenant_id and claim_tenant != tenant_id:
-            logger.warning(
-                "Stale JWT tenant for uid=%s: claim=%s firestore=%s",
-                uid,
-                claim_tenant,
-                tenant_id,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=STALE_TOKEN_DETAIL,
-            )
-
         return AuthContext(uid=uid, role=role_str, roles=tuple(roles), tenant_id=tenant_id)
 
     @staticmethod
