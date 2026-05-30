@@ -8,6 +8,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Sentinel used by FarmFinanceAI.get_application() to distinguish between
+# "caller explicitly passed None (admin bypass)" and "caller omitted the
+# argument (deny by default)".
+#
+# Defined at module level rather than as a class attribute so that:
+# 1. It cannot be read via FarmFinanceAI._IDOR_GUARD and passed back to
+#    bypass the ownership check.
+# 2. It is created exactly once for the lifetime of the module, regardless
+#    of how many FarmFinanceAI instances are created or destroyed.
+_OWNER_UID_NOT_PROVIDED = object()
+
 
 @dataclass(frozen=True)
 class LoanProduct:
@@ -41,6 +52,17 @@ class FinanceApplication:
     # IDOR — a farmer must not be able to read another farmer's loan profile
     # by guessing or enumerating application IDs.
     owner_uid: Optional[str] = field(default=None)
+
+    def __post_init__(self) -> None:
+        """Normalise owner_uid so ownership checks behave consistently.
+
+        If owner_uid is an empty string (which could happen if the dataclass
+        previously had owner_uid: str = "" before the field was changed to
+        Optional[str]) we set it to None so that downstream checks of the
+        form 'owner_uid is not None' work predictably.
+        """
+        if self.owner_uid is not None and self.owner_uid.strip() == "":
+            self.owner_uid = None
 
 
 class FarmFinanceAI:
@@ -214,6 +236,8 @@ class FarmFinanceAI:
         }
 
     def create_application(self, payload: Dict[str, Any], owner_uid: Optional[str] = None) -> Dict[str, Any]:
+        if not owner_uid or not owner_uid.strip():
+            raise ValueError("owner_uid is required to create an application")
         analysis = self.analyze_financial_profile(payload)
         requested_lender = (payload.get("selected_lender") or "").strip()
         selected_product = self._select_product(requested_lender, analysis["lender_matches"], analysis["selected_product"])
@@ -237,29 +261,26 @@ class FarmFinanceAI:
             notes=analysis["action_plan"],
             owner_uid=owner_uid,
         )
-        self.applications[application_id] = application
-
         if self.repository:
-            try:
-                app_dict = {
-                    "application_id": application.application_id,
-                    "farmer_name": application.farmer_name,
-                    "crop_type": application.crop_type,
-                    "requested_amount": application.requested_amount,
-                    "recommended_amount": application.recommended_amount,
-                    "selected_lender": application.selected_lender,
-                    "status": application.status,
-                    "created_at": application.created_at,
-                    "assessment_score": application.assessment_score,
-                    "risk_level": application.risk_level,
-                    "required_documents": application.required_documents,
-                    "notes": application.notes,
-                    "owner_uid": application.owner_uid,
-                }
-                self.repository.create(app_dict)
-                logger.info("Application %s persisted to repository.", application_id)
-            except Exception as exc:
-                logger.error("Failed to persist application %s: %s", application_id, exc)
+            app_dict = {
+                "application_id": application.application_id,
+                "farmer_name": application.farmer_name,
+                "crop_type": application.crop_type,
+                "requested_amount": application.requested_amount,
+                "recommended_amount": application.recommended_amount,
+                "selected_lender": application.selected_lender,
+                "status": application.status,
+                "created_at": application.created_at,
+                "assessment_score": application.assessment_score,
+                "risk_level": application.risk_level,
+                "owner_uid": application.owner_uid,
+                "required_documents": application.required_documents,
+                "notes": application.notes,
+            }
+            self.repository.create(app_dict)
+            logger.info("Application %s persisted to repository.", application_id)
+
+        self.applications[application_id] = application
 
         return {
             "application_id": application.application_id,
@@ -277,7 +298,7 @@ class FarmFinanceAI:
             "estimated_emi": analysis["estimated_emi"],
         }
 
-    def get_application(self, application_id: str, owner_uid: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def get_application(self, application_id: str, owner_uid: Any = _OWNER_UID_NOT_PROVIDED) -> Optional[Dict[str, Any]]:
         """
         Retrieve a finance application by ID.
 
@@ -290,15 +311,21 @@ class FarmFinanceAI:
             owner_uid matches — preventing IDOR where a farmer reads another
             farmer's loan profile by guessing an application ID.
             Pass None to bypass the ownership check (admins / experts).
+            When omitted, access is denied by default.
         """
+        if owner_uid is _OWNER_UID_NOT_PROVIDED:
+            return None
         # Try repository first
         if self.repository:
             try:
                 app_dict = self.repository.get(application_id)
                 if app_dict:
                     stored_uid = app_dict.get("owner_uid")
-                    # Enforce ownership when a uid filter is supplied
-                    if owner_uid is not None and stored_uid is not None and stored_uid != owner_uid:
+                    # Reject records without an owner (orphaned).
+                    if not stored_uid:
+                        return None
+                    # Enforce ownership when a uid filter is supplied.
+                    if owner_uid is not None and stored_uid != owner_uid:
                         return None
                     return {
                         "application_id": app_dict.get("application_id"),
@@ -311,6 +338,7 @@ class FarmFinanceAI:
                         "created_at": app_dict.get("created_at"),
                         "assessment_score": app_dict.get("assessment_score"),
                         "risk_level": app_dict.get("risk_level"),
+                        "owner_uid": app_dict.get("owner_uid", ""),
                         "required_documents": app_dict.get("required_documents", []),
                         "notes": app_dict.get("notes", []),
                     }
@@ -323,7 +351,10 @@ class FarmFinanceAI:
             return None
 
         # Enforce ownership on in-memory records too
-        if owner_uid is not None and application.owner_uid is not None and application.owner_uid != owner_uid:
+        # Reject orphaned records (None owner_uid) entirely.
+        if not application.owner_uid:
+            return None
+        if owner_uid is not None and application.owner_uid != owner_uid:
             return None
 
         return {
@@ -337,9 +368,52 @@ class FarmFinanceAI:
             "created_at": application.created_at,
             "assessment_score": application.assessment_score,
             "risk_level": application.risk_level,
+            "owner_uid": application.owner_uid,
             "required_documents": application.required_documents,
             "notes": application.notes,
         }
+
+    def delete_application(self, application_id: str) -> bool:
+        """Delete a finance application from both the repository and the
+        in-memory cache.
+
+        The previous design had no delete method on FarmFinanceAI.  Callers
+        that needed to remove a record could only call
+        ``self.repository.delete(application_id)`` directly, which deleted
+        the record from Firestore but left the stale ``FinanceApplication``
+        object in ``self.applications``.  A subsequent call to
+        ``get_application`` would find nothing in the repository (correct)
+        but then fall through to the in-memory dict and return the deleted
+        record — silently serving data that should no longer exist.
+
+        This method is the single deletion entry point.  It:
+        1. Removes the entry from ``self.applications`` first so the
+           in-memory cache is immediately consistent.
+        2. Delegates to the repository for durable deletion.
+        3. Returns True only when the record existed in at least one of the
+           two stores and was successfully removed.
+        """
+        deleted_from_memory = self.applications.pop(application_id, None) is not None
+        deleted_from_repo = False
+
+        if self.repository:
+            try:
+                deleted_from_repo = self.repository.delete(application_id)
+            except Exception as exc:
+                logger.error(
+                    "Failed to delete application %s from repository: %s",
+                    application_id,
+                    exc,
+                )
+
+        deleted = deleted_from_memory or deleted_from_repo
+        if deleted:
+            logger.info("Application %s deleted (memory=%s, repo=%s).",
+                        application_id, deleted_from_memory, deleted_from_repo)
+        else:
+            logger.warning("delete_application: application %s not found.", application_id)
+
+        return deleted
 
     def list_marketplace(self) -> List[Dict[str, Any]]:
         return [self._product_payload(product) for product in self.loan_products]
