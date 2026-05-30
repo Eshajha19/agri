@@ -60,3 +60,17 @@ def test_organic_practices_reduce_emissions():
         {"crop_type": "Cotton", "season": "Kharif", "acreage": 3, "organic_practices": True}
     )
     assert organic["carbon_emissions_kg_co2e"] < base["carbon_emissions_kg_co2e"]
+
+
+def test_firestore_initialization_failure_logs_error(caplog):
+    import logging
+    from unittest.mock import patch
+    
+    engine = SustainabilityAnalytics()
+    with patch("firebase_admin.firestore.client", side_effect=Exception("Database connection failure")):
+        with patch("firebase_admin._apps", new=[True]):
+            with caplog.at_level(logging.ERROR):
+                db = engine._get_db()
+                assert db is None
+                assert any("Firestore initialization failed" in record.message for record in caplog.records)
+
