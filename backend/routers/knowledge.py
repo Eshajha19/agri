@@ -1,6 +1,6 @@
 """Knowledge Base Router - RAG, Climate Simulation, Seeds"""
 from typing import Optional
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Depends, Request, HTTPException
 from pydantic import BaseModel, Field, validator
 import logging
 
@@ -62,6 +62,30 @@ rbac_manager = None
 Permission = None
 seed_registry = None
 verify_role_fn = None
+
+
+def _require_verify_role_fn():
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Not initialized")
+    return verify_role_fn
+
+
+def _require_rag_runtime():
+    verify_fn = _require_verify_role_fn()
+    if rag_generate_fn is None:
+        raise HTTPException(status_code=503, detail="RAG not available")
+    return rag_generate_fn, verify_fn
+
+
+def _require_simulation_runtime():
+    return _require_verify_role_fn()
+
+
+def _require_seed_runtime():
+    verify_fn = _require_verify_role_fn()
+    if seed_registry is None:
+        raise HTTPException(status_code=503, detail="Seed registry not initialized")
+    return verify_fn, seed_registry
 
 
 def init_knowledge(rg_fn, rbac, perm, sr, vr_fn):
@@ -295,19 +319,16 @@ def _build_recommendations(
 # ---------------------------------------------------------------------------
 
 @router.post("/rag/query")
-async def rag_query(request: Request, body: RAGQuery):
+async def rag_query(request: Request, body: RAGQuery, runtime=Depends(_require_rag_runtime)):
     """Query the AI knowledge base (RAG).
 
     Authentication is required to prevent unauthenticated callers from
     consuming Gemini API quota on the project's billing account and to
     enable per-user rate limiting in the future.
     """
-    if rag_generate_fn is None:
-        raise HTTPException(status_code=503, detail="RAG not available")
-    if verify_role_fn is None:
-        raise HTTPException(status_code=500, detail="Not initialized")
+    rag_fn, verify_fn = runtime
     # Raises HTTP 401 if the Firebase token is missing or invalid.
-    token_data = await verify_role_fn(request)
+    token_data = await verify_fn(request)
     rate_limited = enforce_compute_rate_limit(
         request,
         scope="knowledge.rag_query",
@@ -318,7 +339,7 @@ async def rag_query(request: Request, body: RAGQuery):
     if rate_limited is not None:
         return rate_limited
     try:
-        result = rag_generate_fn(body.query, body.top_k)
+        result = rag_fn(body.query, body.top_k)
         return {"success": True, "query": body.query, "results": result}
     except HTTPException:
         raise
@@ -328,16 +349,14 @@ async def rag_query(request: Request, body: RAGQuery):
 
 
 @router.post("/simulate-climate")
-async def simulate_climate(request: Request, data: SimulationRequest):
+async def simulate_climate(request: Request, data: SimulationRequest, verify_fn=Depends(_require_simulation_runtime)):
     """Run a climate impact simulation for a given crop.
 
     Authentication is required so that the endpoint is not freely
     accessible to scrapers and bots under the global rate limit.
     """
-    if verify_role_fn is None:
-        raise HTTPException(status_code=500, detail="Not initialized")
     # Raises HTTP 401 if the Firebase token is missing or invalid.
-    token_data = await verify_role_fn(request)
+    token_data = await verify_fn(request)
     rate_limited = enforce_compute_rate_limit(
         request,
         scope="knowledge.simulate_climate",
@@ -407,13 +426,12 @@ async def simulate_climate(request: Request, data: SimulationRequest):
 
 
 @router.post("/seeds/verify")
-async def verify_seed(request: Request, data: SeedVerifyRequest):
-    if verify_role_fn is None:
-        raise HTTPException(status_code=500, detail="Not initialized")
+async def verify_seed(request: Request, data: SeedVerifyRequest, runtime=Depends(_require_seed_runtime)):
+    verify_fn, registry = runtime
     try:
-        await verify_role_fn(request)
-        is_verified = seed_registry.get(data.code, {}).get("verified", False) if seed_registry else False
-        seed_info = seed_registry.get(data.code, {}) if seed_registry else {}
+        await verify_fn(request)
+        is_verified = registry.get(data.code, {}).get("verified", False)
+        seed_info = registry.get(data.code, {})
         return {"success": True, "code": data.code, "verified": is_verified, "seed_info": seed_info}
     except HTTPException:
         raise
