@@ -246,7 +246,7 @@ async def lifespan(app: FastAPI):
                 owner_data = owner_snap.to_dict() if owner_snap.exists else {}
                 phone = owner_data.get("phone_number") or owner_data.get("phoneNumber") or owner_data.get("phone")
                 if phone:
-                    send_whatsapp_message(phone, msg)
+                    await asyncio.to_thread(send_whatsapp_message, phone, msg)
                     logger.info("WhatsApp notification sent for booking")
             except Exception as exc:
                 logger.warning("Failed to send WhatsApp notification for booking: %s", exc)
@@ -1021,7 +1021,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
         "Welcome to *Fasal Saathi WhatsApp Alerts*. "
         "You will now receive real-time updates directly here."
     )
-    send_whatsapp_message(data.phone_number, welcome_msg)
+    await asyncio.to_thread(send_whatsapp_message, data.phone_number, welcome_msg)
     return {"success": True, "message": "Successfully subscribed"}
 
 _broadcast_rate_limit = {}
@@ -1065,7 +1065,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
             if _subscriber_matches_region(info, region_id)
         }
     for user_id, info in subscribers.items():
-        res = send_whatsapp_message(info["phone_number"], formatted_msg)
+        res = await asyncio.to_thread(send_whatsapp_message, info["phone_number"], formatted_msg)
         results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})
 
     # Persist the alert through the bounded, thread-safe notification store.
@@ -1538,7 +1538,8 @@ except Exception as e:
 
 # Include Feature Drift Detection Router
 try:
-    from routers.feature_drift import router as feature_drift_router
+    from routers.feature_drift import router as feature_drift_router, init_auth as init_drift_auth
+    init_drift_auth(verify_role)
     app.include_router(feature_drift_router)
     logger.info("Feature Drift Detection API loaded successfully")
 except Exception as e:
