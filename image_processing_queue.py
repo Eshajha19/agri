@@ -239,45 +239,67 @@ class ImageProcessingQueue:
         return task.task_id
 
     def dequeue(self, worker_id: str) -> Optional[ImageProcessingTask]:
-        """Dequeue highest priority task for worker"""
-        with self._queue_lock:
-            if not self._task_queue:
-                return None
+        """
+        Dequeue highest priority task for worker.
 
-            # Pop until we find an eligible task (available_at in past and not acked)
-            popped = []
-            selected = None
-            now_iso = datetime.now().isoformat()
-            while self._task_queue:
-                _, _, task = heapq.heappop(self._task_queue)
+        Race-condition fix: the transition from QUEUED/RETRYING → PROCESSING is
+        performed while holding *both* _queue_lock (to pop from the heap) and
+        _task_lock (to mutate task.status).  cancel_task() also holds _task_lock
+        when it checks and mutates task.status, so the two operations are now
+        mutually exclusive — a task cannot be simultaneously dequeued and
+        cancelled.
 
-                # Skip if task already processed (exactly-once)
-                if task.task_id in self._ack_store and self._ack_store[task.task_id] in (TaskStatus.COMPLETED.value, TaskStatus.FAILED.value):
-                    continue
+        Lock ordering is always _task_lock → _queue_lock (same as cancel_task)
+        to prevent deadlock.
+        """
+        with self._task_lock:
+            with self._queue_lock:
+                if not self._task_queue:
+                    return None
 
-                available_at = task.metadata.get("available_at")
-                if available_at and available_at > now_iso:
-                    # not ready yet — postpone
-                    popped.append((task.priority.value, self._counter, task))
-                    self._counter += 1
-                    continue
+                # Pop until we find an eligible task (available_at in past and not acked)
+                popped = []
+                selected = None
+                now_iso = datetime.now().isoformat()
+                while self._task_queue:
+                    _, _, task = heapq.heappop(self._task_queue)
 
-                # eligible
-                selected = task
-                break
+                    # Skip if task already processed (exactly-once)
+                    if task.task_id in self._ack_store and self._ack_store[task.task_id] in (TaskStatus.COMPLETED.value, TaskStatus.FAILED.value):
+                        continue
 
-            # reinsert postponed tasks
-            for entry in popped:
-                heapq.heappush(self._task_queue, entry)
+                    # Skip if task was cancelled between enqueue and dequeue
+                    # (race-condition guard: cancel_task() also holds _task_lock
+                    # when it sets status = CANCELLED, so this check is atomic
+                    # with respect to that transition).
+                    if task.status == TaskStatus.CANCELLED:
+                        continue
 
-            if not selected:
-                return None
+                    available_at = task.metadata.get("available_at")
+                    if available_at and available_at > now_iso:
+                        # not ready yet — postpone
+                        popped.append((task.priority.value, self._counter, task))
+                        self._counter += 1
+                        continue
 
-            task = selected
-            # Update task status
-            task.status = TaskStatus.PROCESSING
-            task.started_at = datetime.now().isoformat()
-            task.worker_id = worker_id
+                    # eligible
+                    selected = task
+                    break
+
+                # reinsert postponed tasks
+                for entry in popped:
+                    heapq.heappush(self._task_queue, entry)
+
+                if not selected:
+                    return None
+
+                task = selected
+                # Atomically transition to PROCESSING while still holding
+                # _task_lock so cancel_task() cannot sneak in between the
+                # status check (QUEUED/RETRYING guard) and this assignment.
+                task.status = TaskStatus.PROCESSING
+                task.started_at = datetime.now().isoformat()
+                task.worker_id = worker_id
 
             logger.info(f"Task {task.task_id} assigned to worker {worker_id}")
             return task
