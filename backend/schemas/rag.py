@@ -114,8 +114,9 @@ def _rewrite_markdown_links_safe(text: str) -> str:
 
 
 def _normalize_for_injection_checks(value: str) -> str:
-    """Collapse text into a lowercase alphanumeric token stream for checks."""
-    value = re.sub(r"[^a-z0-9]+", " ", value.lower())
+    """Normalize text for prompt-injection checks while preserving safe punctuation."""
+    safe_punctuation = "#*"
+    value = re.sub(rf"[^a-z0-9{re.escape(safe_punctuation)}]+", " ", value.lower())
     return re.sub(r"\s+", " ", value).strip()
 
 
