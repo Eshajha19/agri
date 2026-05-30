@@ -14,11 +14,11 @@
 .yield-predictor-container {
   position: relative;
   width: 100%;
-  max-width: 720px;
+  max-width: 680px;
   background: #ffffff;
   border-radius: 20px;
-  padding: 40px 36px;
-  box-shadow: 0 12px 36px rgba(0,0,0,0.08);
+  padding: 40px 36px 36px;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.1);
 }
 
 /* Back / close button */
@@ -129,74 +129,4 @@
 .theme-dark .yield-predictor-back-btn:focus-visible {
   background: #475569;
   color: #f1f5f9;
-}
-
-/* ===== FORM GROUPS ===== */
-.form-group {
-  display: flex;
-  flex-direction: column;
-  margin-bottom: 20px;
-}
-
-.form-group label {
-  font-weight: 600;
-  color: #374151;
-  margin-bottom: 6px;
-  font-size: 0.95rem;
-}
-
-/* ===== INPUTS & SELECTS ===== */
-.form-group input,
-.form-group select {
-  padding: 10px 14px;
-  border-radius: 10px;
-  border: 1px solid #d1d5db;
-  font-size: 0.95rem;
-  transition: all 0.2s ease;
-  background: #f9fafb;
-}
-
-.form-group input:focus,
-.form-group select:focus {
-  border-color: #22c55e;
-  box-shadow: 0 0 0 3px rgba(34,197,94,0.3);
-  outline: none;
-}
-
-/* Dropdown hover/focus */
-.form-group select:hover {
-  background: #f1f5f9;
-}
-
-/* ===== BUTTON ===== */
-.predict-btn {
-  width: 100%;
-  padding: 12px 18px;
-  border: none;
-  border-radius: 30px;
-  background: #22c55e;
-  color: white;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.3s ease;
-}
-
-.predict-btn:hover {
-  background: #16a34a;
-}
-
-/* ===== RESPONSIVENESS ===== */
-@media (max-width: 768px) {
-  .yield-predictor-container {
-    padding: 24px 20px;
-  }
-
-  .form-group {
-    margin-bottom: 16px;
-  }
-
-  .yield-form-title {
-    font-size: 1.3rem;
-  }
 }
