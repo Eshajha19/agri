@@ -394,7 +394,13 @@ class ImageProcessingQueue:
             return None
 
     def cancel_task(self, task_id: str) -> bool:
-        """Cancel a queued or retrying task"""
+        """
+        Cancel a queued or retrying task.
+        
+        Note: The internal queue is managed as a heap list, not a collections.deque.
+        Cancellation is performed safely by filtering the list and re-heapifying
+        to maintain priority queue invariants.
+        """
         # Acquire both locks in a consistent order (_task_lock before
         # _queue_lock) to avoid deadlock with fail_task, which also nests
         # _queue_lock inside _task_lock.
