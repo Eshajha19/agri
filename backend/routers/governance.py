@@ -38,6 +38,11 @@ class RegisterModelVersionRequest(BaseModel):
             )
         return v
 
+class DriftCheckRequest(BaseModel):
+    model_name: str = Field(..., min_length=1, max_length=50)
+    prediction: float
+    actual_value: float
+
 drift_detector = None
 shadow_evaluator = None
 version_manager = None

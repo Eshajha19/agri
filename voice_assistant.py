@@ -720,10 +720,15 @@ def detect_language(text: str) -> str:
     """
     # Devanagari range (Hindi, Marathi, etc.)
     if any('\u0900' <= char <= '\u097F' for char in text):
-        # Simple heuristic - could be hi, mr, bho
-        if 'ि' in text or 'ु' in text:  # Hindi-specific marks
-            return "hi"
-        return "mr"  # Default to Marathi
+        marathi_words = {"आहे", "नाही", "करा", "साठी", "काय", "आणि", "पाणी", "शेत", "माती", "पीक", "आले", "केले", "द्या"}
+        bhojpuri_words = {"बा", "राउर", "काहें", "इहाँ", "केहू", "का", "हमार", "रउवा", "अउर"}
+        
+        words = set(text.split())
+        if words.intersection(marathi_words):
+            return "mr"
+        if words.intersection(bhojpuri_words):
+            return "bho"
+        return "hi"
     
     # Gujarati
     if any('\u0A80' <= char <= '\u0AFF' for char in text):
