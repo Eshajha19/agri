@@ -304,3 +304,5 @@ async def get_certificate_data(request: Request, course_id: str):
             "cert_id": cert_id,
         },
     }
+
+# The certificate cooldown atomicity issue (asyncio.Lock wrapping the check-then-update) was already addressed in commit 22821c0 and further hardened in 69cb52f.
