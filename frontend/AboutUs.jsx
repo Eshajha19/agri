@@ -3,10 +3,11 @@ import { Link } from "react-router-dom";
 import {
   FaLeaf, FaBullseye, FaEye, FaHeart, FaSeedling,
   FaBrain, FaSun, FaHandHoldingWater, FaChartLine,
-  FaShieldAlt, FaRocket, FaGlobe,
-  FaGithub, FaLinkedin,
+  FaShieldAlt, FaRocket, FaGlobe, FaGlobeAsia,
+  FaGithub, FaLinkedin, FaLightbulb, FaRobot,
   FaArrowRight,
 } from "react-icons/fa";
+import { Wheat, Tractor, Bird, Sprout, UserCheck } from "lucide-react";
 import "./AboutUs.css";
 
 const VALUES = [
@@ -26,11 +27,11 @@ const FEATURES = [
 ];
 
 const TIMELINE = [
-  { year: "2022", title: "Idea Born", desc: <><span className="notranslate" translate="no">Fasal Saathi</span> started as a college project to solve real problems faced by Indian farmers.</>, emoji: "💡" },
-  { year: "2023", title: "First Prototype", desc: "Launched MVP with crop recommendations and basic weather alerts for 3 states.", emoji: "🚀" },
-  { year: "2024", title: "Multi-language Launch", desc: "Expanded to 12 Indian languages and onboarded 10,000+ farmers.", emoji: "🌍" },
-  { year: "2025", title: "AI Integration", desc: "Integrated machine learning models for yield prediction and soil analysis.", emoji: "🤖" },
-  { year: "2026", title: "Growing Strong", desc: "50,000+ farmers, community features, and expanding to more regions.", emoji: "🌱" },
+  { year: "2022", title: "Idea Born", desc: <><span className="notranslate" translate="no">Fasal Saathi</span> started as a college project to solve real problems faced by Indian farmers.</>, emoji: <FaLightbulb /> },
+  { year: "2023", title: "First Prototype", desc: "Launched MVP with crop recommendations and basic weather alerts for 3 states.", emoji: <FaRocket /> },
+  { year: "2024", title: "Multi-language Launch", desc: "Expanded to 12 Indian languages and onboarded 10,000+ farmers.", emoji: <FaGlobeAsia /> },
+  { year: "2025", title: "AI Integration", desc: "Integrated machine learning models for yield prediction and soil analysis.", emoji: <FaRobot /> },
+  { year: "2026", title: "Growing Strong", desc: "50,000+ farmers, community features, and expanding to more regions.", emoji: <FaSeedling /> },
 ];
 
 const TEAM = [
@@ -260,8 +261,12 @@ export default function AboutUs() {
       {/* CTA */}
       <section className="about-cta">
         <div className="about-cta-inner">
-          <div className="about-cta-farm-row">
-            <span>🌾</span><span>🚜</span><span>🐄</span><span>🌽</span><span>👩‍🌾</span>
+          <div className="about-cta-farm-row" aria-hidden="true">
+            <span><Wheat size={24} /></span>
+            <span><Tractor size={24} /></span>
+            <span><Bird size={24} /></span>
+            <span><Sprout size={24} /></span>
+            <span><UserCheck size={24} /></span>
           </div>
           <FaLeaf className="about-cta-icon" />
           <h2>Ready to Farm Smarter?</h2>
