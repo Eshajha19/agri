@@ -73,4 +73,15 @@ def test_history_limits_and_returns_newest():
     assert len(history) == 2
     assert history[0]["crop_type"] == "Cotton"
     assert history[1]["crop_type"] == "Rice"
+def test_firestore_initialization_failure_logs_error(caplog):
+    import logging
+    from unittest.mock import patch
+    
+    engine = SustainabilityAnalytics()
+    with patch("firebase_admin.firestore.client", side_effect=Exception("Database connection failure")):
+        with patch("firebase_admin._apps", new=[True]):
+            with caplog.at_level(logging.ERROR):
+                db = engine._get_db()
+                assert db is None
+                assert any("Firestore initialization failed" in record.message for record in caplog.records)
 

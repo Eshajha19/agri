@@ -7,10 +7,13 @@ certified carbon accounting.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 
 # kg CO2e per kg of nutrient applied (cradle-to-field, simplified)
@@ -104,8 +107,14 @@ class SustainabilityAnalytics:
             from firebase_admin import firestore
             if firebase_admin._apps:
                 return firestore.client()
-        except Exception:
-            pass
+            else:
+                if not getattr(self, "is_testing", False):
+                    logger.warning("Firestore client requested but Firebase Admin SDK has not been initialized.")
+        except ImportError as exc:
+            if not getattr(self, "is_testing", False):
+                logger.warning("Firebase Admin SDK is not installed: %s. Using local fallback.", exc)
+        except Exception as exc:
+            logger.error("Firestore initialization failed: %s", exc, exc_info=True)
         return None
 
     def _get_local_file_path(self) -> str:
