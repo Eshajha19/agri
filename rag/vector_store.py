@@ -107,10 +107,8 @@ class InMemoryVectorStore:
         if not self.storage_path:
             return
         payload = [asdict(record) for record in self._records.values()]
-        tmp_path = self.storage_path + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as handle:
+        with open(self.storage_path, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, ensure_ascii=True, indent=2)
-        os.replace(tmp_path, self.storage_path)
 
     def load(self) -> None:
         if not self.storage_path or not os.path.exists(self.storage_path):

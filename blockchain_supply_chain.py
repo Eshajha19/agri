@@ -281,6 +281,60 @@ class SupplyChainBlockchain:
             return hmac.compare_digest(signature or "", expected_signature)
         return True
 
+    def _canonical_json(self, payload: Dict) -> str:
+        """Serialize a payload deterministically for hashing/signing."""
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+
+    def _hash_text(self, text: str) -> str:
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    def _build_trace_proof(self, batch_id: str) -> Dict[str, str]:
+        """Create a tamper-evident proof for a batch and its journey."""
+        batch = self.products.get(batch_id)
+        if batch is None:
+            raise ValueError(f"Batch {batch_id} not found")
+
+        nodes = self.supply_chain_nodes.get(batch_id, [])
+        node_hashes = []
+        for node in nodes:
+            node_hashes.append(self._hash_text(self._canonical_json(asdict(node))))
+
+        batch_payload = self._canonical_json({
+            "batch": asdict(batch),
+            "node_hashes": node_hashes,
+            "chain_length": len(self.chain),
+        })
+        proof_hash = self._hash_text(batch_payload)
+
+        signature = ""
+        if self._qr_signing_secret:
+            signature = hmac.new(
+                self._qr_signing_secret.encode("utf-8"),
+                proof_hash.encode("utf-8"),
+                hashlib.sha256,
+            ).hexdigest()
+
+        latest_hash = self.chain[-1].hash if self.chain else ""
+        return {
+            "proof_hash": proof_hash,
+            "signature": signature,
+            "latest_block_hash": latest_hash,
+        }
+
+    def verify_trace_proof(self, batch_id: str, proof_hash: str, signature: str = "") -> bool:
+        """Verify a QR traceability proof against the current blockchain state."""
+        expected = self._build_trace_proof(batch_id)
+        if proof_hash != expected["proof_hash"]:
+            return False
+        if self._qr_signing_secret:
+            expected_signature = hmac.new(
+                self._qr_signing_secret.encode("utf-8"),
+                proof_hash.encode("utf-8"),
+                hashlib.sha256,
+            ).hexdigest()
+            return hmac.compare_digest(signature or "", expected_signature)
+        return True
+
     # ------------- Core operations -------------
     def register_actor(self, actor_id: str, name: str, actor_type: str, location: str) -> Dict:
         """Register supply chain participant"""
