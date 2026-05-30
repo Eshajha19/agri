@@ -388,6 +388,19 @@ Acceptance criteria:
 - Image-based learning gallery with thumbnails and enlargements.
 - Responsive UI and no console errors when used in the Advisor view.
 
+## 🌦️ New Feature: Seasonal Farming Strategy Guide
+
+A responsive in-app strategy guide that explains how farming priorities change across the Indian crop seasons: Kharif, Rabi, and Zaid. The guide highlights season-specific crop focus, irrigation posture, key field priorities, and common risks so farmers can adapt their plan throughout the year.
+
+How to access: Open the Advisor page and choose the "Seasonal Farming Strategy Guide" card to open the modal with the season-by-season playbook.
+
+Acceptance criteria:
+
+- Kharif, Rabi, and Zaid strategies are shown clearly in one guided view.
+- Each season includes field priorities, irrigation guidance, and risks to watch.
+- The UI stays responsive across desktop and mobile layouts.
+- The guide opens cleanly in the Advisor view with no console errors.
+
 Alternatives considered:
 
 - Linking externally to a knowledge article or PDF (rejected — offline and discoverability concerns).
