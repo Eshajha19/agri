@@ -173,7 +173,7 @@ class ImageProcessingQueue:
     horizontal scaling support.
     """
 
-    def __init__(self, max_queue_size: int = 10000, enable_persistence: bool = False, enable_backoff: bool = False, backoff_base: float = 1.0):
+    def __init__(self, max_queue_size: int = 10000, enable_persistence: bool = False, enable_backoff: bool = False, backoff_base: float = 1.0, enable_caching: bool = False):
         self.max_queue_size = max_queue_size
         self.enable_persistence = enable_persistence
         # Backoff controls (opt-in to preserve previous behavior in tests)
