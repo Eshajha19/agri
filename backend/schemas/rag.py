@@ -2,14 +2,17 @@
 
 import re
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class RAGQuery(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+
     query: str = Field(..., min_length=3, max_length=500)
     top_k: int = Field(default=3, ge=1, le=5)
 
-    @validator("query")
+    @field_validator("query", mode="before")
+    @classmethod
     def sanitize_and_normalize_query(cls, value):
         if not value or not isinstance(value, str):
             raise ValueError("Query must be a non-empty string.")
