@@ -6,46 +6,53 @@ import os
 import hmac
 import hashlib
 
-# Load data
-df = pd.read_csv("Train.csv")
 
-# Convert date
-df['SDate'] = pd.to_datetime(df['SDate'], errors='coerce', dayfirst=True)
-df = df.dropna(subset=['SDate'])
-df = df.sort_values('SDate')
+def load_model(path: str = "sklearn_yield_model.pkl"):
+    """Load a trained sklearn yield model from disk."""
+    return joblib.load(path)
 
-# Group by date
-df = df.groupby('SDate')['ExpYield'].mean().reset_index()
 
-# 🔥 CREATE LAG FEATURES (THIS REPLACES LSTM)
-for i in range(1, 6):
-    df[f'lag_{i}'] = df['ExpYield'].shift(i)
+if __name__ == "__main__":
+    # Load data
+    df = pd.read_csv("Train.csv")
 
-# Drop missing rows
-df = df.dropna()
+    # Convert date
+    df['SDate'] = pd.to_datetime(df['SDate'], errors='coerce', dayfirst=True)
+    df = df.dropna(subset=['SDate'])
+    df = df.sort_values('SDate')
 
-# Features and target
-X = df[[f'lag_{i}' for i in range(1, 6)]]
-y = df['ExpYield']
+    # Group by date
+    df = df.groupby('SDate')['ExpYield'].mean().reset_index()
 
-# Train model
-model = RandomForestRegressor(n_estimators=100)
-model.fit(X, y)
+    # 🔥 CREATE LAG FEATURES (THIS REPLACES LSTM)
+    for i in range(1, 6):
+        df[f'lag_{i}'] = df['ExpYield'].shift(i)
 
-# Save model
-joblib.dump(model, "sklearn_yield_model.pkl")
+    # Drop missing rows
+    df = df.dropna()
 
-# If a model signing key is available, create a signature file to allow
-# verification when the model is loaded in production.
-signing_key = os.getenv("MODEL_SIGNING_KEY")
-if signing_key:
-    with open("sklearn_yield_model.pkl", "rb") as f:
-        data = f.read()
-    sig = hmac.new(signing_key.encode("utf-8"), data, hashlib.sha256).hexdigest()
-    with open("sklearn_yield_model.pkl.sig", "w", encoding="utf-8") as sf:
-        sf.write(sig)
-    print("Wrote signature to sklearn_yield_model.pkl.sig")
-else:
-    print("MODEL_SIGNING_KEY not set; no signature file written")
+    # Features and target
+    X = df[[f'lag_{i}' for i in range(1, 6)]]
+    y = df['ExpYield']
 
-print("✅ Sklearn time-series model trained and saved")
+    # Train model
+    model = RandomForestRegressor(n_estimators=100)
+    model.fit(X, y)
+
+    # Save model
+    joblib.dump(model, "sklearn_yield_model.pkl")
+
+    # If a model signing key is available, create a signature file to allow
+    # verification when the model is loaded in production.
+    signing_key = os.getenv("MODEL_SIGNING_KEY")
+    if signing_key:
+        with open("sklearn_yield_model.pkl", "rb") as f:
+            data = f.read()
+        sig = hmac.new(signing_key.encode("utf-8"), data, hashlib.sha256).hexdigest()
+        with open("sklearn_yield_model.pkl.sig", "w", encoding="utf-8") as sf:
+            sf.write(sig)
+        print("Wrote signature to sklearn_yield_model.pkl.sig")
+    else:
+        print("MODEL_SIGNING_KEY not set; no signature file written")
+
+    print("✅ Sklearn time-series model trained and saved")

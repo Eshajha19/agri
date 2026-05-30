@@ -1,0 +1,209 @@
+.weather-impact-modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(2, 6, 23, 0.72);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  z-index: 85;
+}
+
+.weather-impact-shell {
+  width: min(1160px, 100%);
+  max-height: min(92vh, 980px);
+  overflow: auto;
+  border-radius: 28px;
+  padding: 28px;
+  background:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.14), transparent 34%),
+    radial-gradient(circle at top right, rgba(16, 185, 129, 0.12), transparent 28%),
+    linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  box-shadow: 0 32px 90px rgba(15, 23, 42, 0.34);
+}
+
+.weather-impact-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.weather-impact-header h2 {
+  margin: 10px 0 8px;
+  font-size: clamp(1.7rem, 2.8vw, 2.4rem);
+  color: #0f172a;
+}
+
+.weather-impact-header p {
+  margin: 0;
+  color: #475569;
+  max-width: 70ch;
+}
+
+.impact-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.tone-good { background: rgba(16, 185, 129, 0.12); color: #047857; }
+.tone-caution { background: rgba(245, 158, 11, 0.14); color: #b45309; }
+.tone-critical { background: rgba(239, 68, 68, 0.14); color: #b91c1c; }
+
+.current-status {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  border-radius: 22px;
+  padding: 18px 20px;
+  margin-bottom: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.current-status h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 1.15rem;
+}
+
+.section-label {
+  margin: 0 0 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.76rem;
+  font-weight: 800;
+  color: #64748b;
+}
+
+.status-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.status-pills span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  color: #334155;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.rule-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.rule-card {
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 22px;
+  padding: 18px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+}
+
+.rule-card h3 {
+  margin: 0 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.05rem;
+  color: #0f172a;
+}
+
+.rule-list {
+  display: grid;
+  gap: 12px;
+}
+
+.rule-item {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: #fff;
+}
+
+.rule-kicker {
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.rule-item strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #0f172a;
+}
+
+.rule-item p {
+  margin: 0;
+  color: #475569;
+  line-height: 1.55;
+}
+
+.season-tips {
+  display: grid;
+  gap: 12px;
+}
+
+.season-tip {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(15, 118, 110, 0.06), rgba(16, 185, 129, 0.04));
+  color: #334155;
+}
+
+.bottom-grid {
+  margin-bottom: 0;
+}
+
+@media (max-width: 920px) {
+  .rule-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .weather-impact-header,
+  .current-status {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .weather-impact-modal {
+    padding: 12px;
+  }
+
+  .weather-impact-shell {
+    padding: 18px;
+    max-height: 96vh;
+  }
+
+  .rule-item {
+    grid-template-columns: 1fr;
+  }
+}
