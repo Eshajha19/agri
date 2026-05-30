@@ -80,7 +80,7 @@ _PHONE_E164_RE = re.compile(r"^\+?[1-9]\d{6,14}$")
 @router.post("/whatsapp/subscribe")
 async def subscribe_whatsapp(
     request: Request,
-    phone_number: str = Form(..., max_length=20),
+    phone_number: str = Form(..., max_length=16),
     name: str = Form(..., min_length=1, max_length=100),
     region_id: Optional[str] = Form(None, max_length=100),
 ):
