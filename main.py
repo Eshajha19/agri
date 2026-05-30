@@ -1262,6 +1262,14 @@ try:
 except Exception as e:
     logger.warning(f"Could not load ML Model Management API: {e}")
 
+# Include SHAP Explainability Router
+try:
+    from routers.shap_explainer import router as shap_router
+    app.include_router(shap_router)
+    logger.info("SHAP Explainability API loaded successfully")
+except Exception as e:
+    logger.warning(f"Could not load SHAP Explainability API: {e}")
+
 if __name__ == "__main__":
     import uvicorn
 
