@@ -226,6 +226,7 @@ class SupplyChainBlockchain:
             return hmac.compare_digest(signature or "", expected_signature)
         return True
 
+
     def _canonical_json(self, payload: Dict) -> str:
         """Serialize a payload deterministically for hashing/signing."""
         return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)

@@ -108,6 +108,12 @@ class _ConnectionSubscription:
     regions: frozenset[str]
 
 
+@dataclass(slots=True)
+class _ConnectionSubscription:
+    uid: str
+    regions: frozenset[str]
+
+
 class NotificationBroadcastHub:
     """Broadcasts notifications to connected WebSocket clients.
 
@@ -177,16 +183,9 @@ class NotificationBroadcastHub:
 
     def snapshot_for_user(self, uid: str, regions: Optional[Iterable[str]] = None) -> list[Dict[str, Any]]:
         """Return history entries visible to the given user and region scope."""
-        # History stores full envelopes {"type": ..., "source": ..., "created_at": ..., "data": ...}
-        # Extract the inner "data" payload so filtering and snapshot consumers
-        # work with the notification content regardless of origin (local vs Redis).
-        inner_entries = [
-            entry["data"] if isinstance(entry, dict) and "data" in entry else entry
-            for entry in self._history
-        ]
         return [
             notification
-            for notification in filter_notifications_for_user(inner_entries, uid)
+            for notification in filter_notifications_for_user(self._history, uid)
             if notification_matches_regions(notification, regions)
         ]
 
@@ -297,21 +296,9 @@ class NotificationBroadcastHub:
 
         await websocket.accept()
         region_scopes = frozenset(resolve_subscription_regions({"role": "guest"}, regions))
-
-        # Take snapshot under history lock BEFORE registering so history is
-        # consistent.  The client will receive live notifications (broadcast
-        # under connections_lock) after registration — it must handle
-        # out-of-order delivery (snapshot may arrive after a live event).
         async with self._history_lock:
+            self._connections[websocket] = _ConnectionSubscription(uid=uid, regions=region_scopes)
             snapshot = self.snapshot_for_user(uid, region_scopes)
-
-        # Register under the correct lock so concurrent publish() calls
-        # always see the new connection atomically.
-        async with self._connections_lock:
-            self._connections[websocket] = _ConnectionSubscription(
-                uid=uid,
-                regions=region_scopes,
-            )
 
         await websocket.send_json(
             {
