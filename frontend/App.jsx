@@ -34,6 +34,7 @@ import useNotifications from "./Notifications";
 import Footer from "./components/Footer";
 import { SkipLink } from "./NavigationManager";
 import { useTheme } from "./ThemeContext";
+import SprayReminder from "./SprayReminder";
 import FarmingMythChecker from "./components/FarmingMythChecker";
 import CropComparison from "./components/CropComparison";
 
@@ -572,6 +573,7 @@ function App() {
   </Link>
 </li>
     
+        </li>       
         </ul>
            <li><Link to="/" onClick={() => setIsOpen(false)}>Home</Link></li>
            <li><Link to="/about" onClick={() => setIsOpen(false)}>About</Link></li>
@@ -801,6 +803,7 @@ function App() {
             <Route path="/blog/:id" element={<BlogDetail />} />
             <Route path="/weather" element={<Weather />} />
             <Route path="/voice-assistant" element={<VoiceAssistant />} />
+            <Route path="/spray-scheduler" element={<SprayReminder />} />
             <Route
               path="/myth-checker"
                 element={
