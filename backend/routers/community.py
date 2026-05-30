@@ -48,7 +48,12 @@ def _get_cached_contributors():
 
 
 def _set_cached_contributors(data):
-    _contributors_cache["data"] = data
+    # Store a shallow copy so the cached list is independent of the caller's
+    # reference. If the caller (or any future code path) mutates the original
+    # list after calling this function, the cached data remains unchanged.
+    # Equally, callers that receive the cached list via _get_cached_contributors
+    # cannot corrupt the cache by mutating the returned reference.
+    _contributors_cache["data"] = list(data)
     _contributors_cache["expires_at"] = time.time() + CACHE_TTL_SECONDS
 
 
