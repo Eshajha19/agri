@@ -1,19 +1,18 @@
-/* ===== MODAL CONTAINER ===== */
 .spray-reminder-modal {
-  max-width: 640px;
+  max-width: 600px;
   margin: 40px auto;
+  padding: 0;
   background: var(--bg-primary, #ffffff);
-  border-radius: 20px;
-  box-shadow: 0 12px 36px rgba(0,0,0,0.12);
+  border-radius: 16px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+  position: relative;
   border: 1px solid var(--border-color, #e5e7eb);
   color: var(--text-primary, #111111);
   overflow: hidden;
   max-height: 90vh;
   overflow-y: auto;
-  font-family: "Inter", sans-serif;
 }
 
-/* ===== HEADER ===== */
 .modal-header {
   display: flex;
   justify-content: space-between;
@@ -36,20 +35,19 @@
 }
 
 .modal-title {
-  font-size: 1.5rem;
+  font-size: 24px;
   font-weight: 700;
   margin: 0;
   color: white;
 }
 
 .modal-subtitle {
-  font-size: 0.95rem;
+  font-size: 13px;
   color: rgba(255, 255, 255, 0.9);
-  margin-top: 4px;
+  margin: 4px 0 0 0;
   line-height: 1.4;
 }
 
-/* Close button */
 .close-btn {
   background: rgba(255, 255, 255, 0.2);
   border: none;
@@ -61,21 +59,22 @@
   align-items: center;
   justify-content: center;
   transition: all 0.2s;
+  flex-shrink: 0;
 }
 
 .close-btn:hover {
   background: rgba(255, 255, 255, 0.3);
 }
 
-/* ===== TABS ===== */
+/* Tabs */
 .tabs {
   display: flex;
   border-bottom: 1px solid var(--border-color, #e5e7eb);
   padding: 0 24px;
+  gap: 0;
 }
 
 .tab {
-  flex: 1;
   padding: 12px 20px;
   background: none;
   border: none;
@@ -96,12 +95,12 @@
   color: var(--text-primary, #111);
 }
 
-/* ===== CONTENT ===== */
+/* Modal Content */
 .modal-content {
   padding: 24px;
 }
 
-/* ===== WEATHER ALERT ===== */
+/* Weather Alert */
 .weather-alert {
   padding: 16px;
   border-radius: 12px;
@@ -125,6 +124,7 @@
   gap: 8px;
   font-weight: 600;
   margin-bottom: 8px;
+  color: var(--text-primary, #111);
 }
 
 .weather-alert.good .weather-status {
@@ -144,7 +144,7 @@
   margin-top: 8px;
 }
 
-/* ===== INPUTS ===== */
+/* Input Groups */
 .input-group {
   margin-bottom: 16px;
 }
@@ -171,48 +171,24 @@
   font-family: inherit;
 }
 
+.sr-input::placeholder {
+  color: var(--text-secondary, #999);
+}
+
 .sr-input:focus,
 .sr-select:focus {
-  border-color: #16a34a;
-  box-shadow: 0 0 0 3px rgba(22,163,74,0.25);
   outline: none;
+  border-color: var(--brand-primary, #16a34a);
+  box-shadow: 0 0 0 3px var(--focus-ring, rgba(22, 163, 74, 0.2));
 }
 
-/* ===== BUTTONS ===== */
-.get-recommendations-btn,
-.schedule-btn {
-  width: 100%;
-  padding: 12px 18px;
-  border: none;
-  border-radius: 30px;
-  background: #16a34a;
-  color: white;
-  font-size: 1rem;
-  font-weight: 600;
+.sr-select {
   cursor: pointer;
-  transition: background 0.3s ease;
-  margin-top: 10px;
-}
-
-.get-recommendations-btn:hover,
-.schedule-btn:hover {
-  background: #15803d;
-}
-
-.get-recommendations-btn:disabled,
-.schedule-btn:disabled {
-  background: #9ca3af;
-  cursor: not-allowed;
-}
-
-/* ===== RESPONSIVE ===== */
-@media (max-width: 768px) {
-  .spray-reminder-modal {
-    margin: 20px;
-  }
-  .modal-title {
-    font-size: 1.3rem;
-  }
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
 }
 
 /* Buttons */
