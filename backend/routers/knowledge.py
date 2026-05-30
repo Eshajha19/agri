@@ -2,8 +2,10 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, Request, HTTPException
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, ValidationError, validator
 import logging
+from threading import Lock
+from time import monotonic
 
 from backend.compute_rate_limit import enforce_compute_rate_limit
 from backend.schemas import RAGQuery
@@ -63,6 +65,99 @@ rbac_manager = None
 Permission = None
 seed_registry = None
 verify_role_fn = None
+_RAG_REJECTION_LOG_INTERVAL_SECONDS = 60
+_last_rag_rejection_log = 0.0
+_rag_rejection_log_lock = Lock()
+
+
+def _require_verify_role_fn():
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Not initialized")
+    return verify_role_fn
+
+
+def _require_rag_runtime():
+    verify_fn = _require_verify_role_fn()
+    if rag_generate_fn is None:
+        raise HTTPException(status_code=503, detail="RAG not available")
+    return rag_generate_fn, verify_fn
+
+
+def _require_simulation_runtime():
+    return _require_verify_role_fn()
+
+
+def _require_seed_runtime():
+    verify_fn = _require_verify_role_fn()
+    if seed_registry is None:
+        raise HTTPException(status_code=503, detail="Seed registry not initialized")
+    return verify_fn, seed_registry
+
+
+def _log_rag_rejection(request: Request, exc: ValidationError) -> None:
+    global _last_rag_rejection_log
+
+    now = monotonic()
+    with _rag_rejection_log_lock:
+        if now - _last_rag_rejection_log < _RAG_REJECTION_LOG_INTERVAL_SECONDS:
+            return
+        _last_rag_rejection_log = now
+
+    errors = exc.errors()
+    first_error = errors[0] if errors else {}
+    error_code = first_error.get("type", "validation_error")
+    context = first_error.get("ctx") or {}
+
+    logger.warning(
+        "Rejected RAG query: error_code=%s threat_type=%s threat_match=%s client=%s path=%s",
+        error_code,
+        context.get("threat_type"),
+        context.get("threat_match"),
+        request.client.host if request.client and request.client.host else "unknown",
+        request.url.path,
+    )
+
+
+async def _parse_rag_query(request: Request) -> RAGQuery:
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "invalid_json",
+                "message": "Request body must be valid JSON.",
+            },
+        ) from exc
+
+    try:
+        return RAGQuery.model_validate(payload)
+    except ValidationError as exc:
+        _log_rag_rejection(request, exc)
+        errors = exc.errors()
+        first_error = errors[0] if errors else {}
+        error_code = first_error.get("type", "validation_error")
+        context = first_error.get("ctx") or {}
+
+        detail = {
+            "code": error_code,
+            "message": first_error.get("msg", "Invalid RAG query."),
+            "errors": errors,
+        }
+        if error_code == "threat_detected":
+            detail["message"] = "Query contains disallowed phrases or prompt injection attempts."
+            detail["threat_type"] = context.get("threat_type", "prompt_injection")
+            detail["threat_match"] = context.get("threat_match")
+
+        raise HTTPException(status_code=422, detail=detail) from exc
+
+
+def _coerce_rate_limit_response(rate_limited):
+    if rate_limited is None:
+        return None
+    if isinstance(rate_limited, JSONResponse):
+        return rate_limited
+    return JSONResponse(status_code=429, content=rate_limited)
 
 
 def _require_verify_role_fn():
@@ -328,7 +423,7 @@ def _build_recommendations(
 # ---------------------------------------------------------------------------
 
 @router.post("/rag/query")
-async def rag_query(request: Request, body: RAGQuery, runtime=Depends(_require_rag_runtime)):
+async def rag_query(request: Request, body: RAGQuery = Depends(_parse_rag_query), runtime=Depends(_require_rag_runtime)):
     """Query the AI knowledge base (RAG).
 
     Authentication is required to prevent unauthenticated callers from

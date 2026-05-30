@@ -5,6 +5,7 @@ import re
 
 import bleach
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic_core import PydanticCustomError
 
 _DANGEROUS_HTML_BLOCK_TAGS = {"script", "style", "iframe", "object", "embed"}
 
@@ -164,18 +165,21 @@ _PROMPT_INJECTION_TOKEN_SETS = (
 )
 
 
-def _looks_like_prompt_injection(value: str) -> bool:
+def _prompt_injection_match(value: str) -> str | None:
     if any(phrase in value for phrase in _PROMPT_INJECTION_PHRASES):
-        return True
+        return "phrase_match"
 
     words = set(value.split())
     for token_set in _PROMPT_INJECTION_TOKEN_SETS:
         if token_set.issubset(words):
-            return True
+            return "token_cluster"
 
     suspicious_tokens = {"ignore", "override", "bypass", "disregard", "jailbreak", "pretend"}
     context_tokens = {"instructions", "instruction", "prompt", "system", "assistant", "developer", "mode", "msgs", "messages", "prior", "previous"}
-    return bool(words & suspicious_tokens) and len(words & context_tokens) >= 2
+    if bool(words & suspicious_tokens) and len(words & context_tokens) >= 2:
+        return "heuristic_cluster"
+
+    return None
 
 
 class RAGQuery(BaseModel):
@@ -205,8 +209,17 @@ class RAGQuery(BaseModel):
         value = re.sub(r"\s+", " ", value.strip())
 
         normalized = _normalize_for_injection_checks(value)
-        if _looks_like_prompt_injection(normalized):
-            raise ValueError("Query contains disallowed phrases or prompt injection attempts.")
+        threat_match = _prompt_injection_match(normalized)
+        if threat_match is not None:
+            raise PydanticCustomError(
+                "threat_detected",
+                "Query contains disallowed phrases or prompt injection attempts.",
+                {
+                    "error_code": "threat_detected",
+                    "threat_type": "prompt_injection",
+                    "threat_match": threat_match,
+                },
+            )
 
         if len(value) < 3:
             raise ValueError("Query must be at least 3 characters long after sanitization.")
