@@ -160,6 +160,38 @@ def _coerce_rate_limit_response(rate_limited):
     return JSONResponse(status_code=429, content=rate_limited)
 
 
+def _require_verify_role_fn():
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Not initialized")
+    return verify_role_fn
+
+
+def _require_rag_runtime():
+    verify_fn = _require_verify_role_fn()
+    if rag_generate_fn is None:
+        raise HTTPException(status_code=503, detail="RAG not available")
+    return rag_generate_fn, verify_fn
+
+
+def _require_simulation_runtime():
+    return _require_verify_role_fn()
+
+
+def _require_seed_runtime():
+    verify_fn = _require_verify_role_fn()
+    if seed_registry is None:
+        raise HTTPException(status_code=503, detail="Seed registry not initialized")
+    return verify_fn, seed_registry
+
+
+def _coerce_rate_limit_response(rate_limited):
+    if rate_limited is None:
+        return None
+    if isinstance(rate_limited, JSONResponse):
+        return rate_limited
+    return JSONResponse(status_code=429, content=rate_limited)
+
+
 def init_knowledge(rg_fn, rbac, perm, sr, vr_fn):
     global rag_generate_fn, rbac_manager, Permission, seed_registry, verify_role_fn
     rag_generate_fn = rg_fn
