@@ -1,15 +1,47 @@
 """Shared request schema for RAG-style query routes."""
 
+from html.parser import HTMLParser
 import re
 
+import bleach
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+_DANGEROUS_HTML_BLOCK_TAGS = {"script", "style", "iframe", "object", "embed"}
 
-_DANGEROUS_HTML_BLOCK_RE = re.compile(
-    r"<(script|style|iframe|object|embed)\b[^>]*>.*?</\1\s*>",
-    flags=re.IGNORECASE | re.DOTALL,
-)
-_HTML_TAG_RE = re.compile(r"</?[A-Za-z][A-Za-z0-9:-]*(?:\s+[^<>]*?)?/?>")
+
+class _DangerousHtmlBlockStripper(HTMLParser):
+    """Remove dangerous block elements and their contents from a string."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self._parts: list[str] = []
+        self._drop_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() in _DANGEROUS_HTML_BLOCK_TAGS:
+            self._drop_depth += 1
+
+    def handle_startendtag(self, tag, attrs):
+        if tag.lower() not in _DANGEROUS_HTML_BLOCK_TAGS:
+            return
+
+    def handle_endtag(self, tag):
+        if tag.lower() in _DANGEROUS_HTML_BLOCK_TAGS and self._drop_depth:
+            self._drop_depth -= 1
+
+    def handle_data(self, data):
+        if self._drop_depth == 0:
+            self._parts.append(data)
+
+    def get_text(self) -> str:
+        return "".join(self._parts)
+
+
+def _strip_dangerous_html_blocks(value: str) -> str:
+    parser = _DangerousHtmlBlockStripper()
+    parser.feed(value)
+    parser.close()
+    return parser.get_text()
 
 
 def _rewrite_markdown_links_safe(text: str) -> str:
@@ -93,13 +125,17 @@ class RAGQuery(BaseModel):
         if not value or not isinstance(value, str):
             raise ValueError("Query must be a non-empty string.")
 
-        value = _DANGEROUS_HTML_BLOCK_RE.sub("", value)
-        value = re.sub(r"</?script.*?>", "", value, flags=re.IGNORECASE)
-        value = re.sub(r"on\w+\s*=", "", value, flags=re.IGNORECASE)
-        value = re.sub(r"javascript:", "", value, flags=re.IGNORECASE)
-        value = re.sub(r"data:", "", value, flags=re.IGNORECASE)
-        value = re.sub(r"vbscript:", "", value, flags=re.IGNORECASE)
-        value = _HTML_TAG_RE.sub("", value)
+        value = _strip_dangerous_html_blocks(value)
+        value = bleach.clean(
+            value,
+            tags=[],
+            attributes={},
+            protocols=[],
+            strip=True,
+            strip_comments=True,
+        )
+        value = re.sub(r"&lt;(?=\s)", "<", value)
+        value = re.sub(r"&gt;(?=\s)", ">", value)
         value = _rewrite_markdown_links_safe(value)
         value = re.sub(r"[*_~`#]", "", value)
         value = re.sub(r"\s+", " ", value.strip())
