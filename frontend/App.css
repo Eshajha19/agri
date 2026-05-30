@@ -1467,8 +1467,8 @@ html body {
 /* WhatsApp Floating Button */
 .whatsapp-float {
   position: fixed;
-  bottom: 30px;
-  right: 30px;
+  bottom: 20px;
+  right: 20px;
   width: 60px;
   height: 60px;
   background-color: #25d366;
@@ -1517,8 +1517,8 @@ html body {
 /* Scroll to Top Button */
 .scroll-to-top {
   position: fixed;
-  bottom: 2rem;
-  right: 2rem;
+  bottom: 90px;
+  right: 20px;
   width: 3rem;
   height: 3rem;
   border-radius: 50%;
@@ -1531,13 +1531,10 @@ html body {
   justify-content: center;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
   transition: all 0.3s ease;
-  z-index: 100;
+  z-index: 9999;
+  animation: scroll-to-top-fade-in 0.3s ease;
 }
 
-.scroll-to-top:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 6px 30px rgba(0, 0, 0, 0.2);
-}
 
 /* Scroll Progress Bar */
 .scroll-progress-bar {
@@ -1551,29 +1548,35 @@ html body {
 }
 
 .scroll-to-top:hover {
-  transform: translateY(-5px);
+  transform: translateY(-4px);
   background: var(--brand-hover, #1b5e20);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 6px 25px rgba(0, 0, 0, 0.25);
 }
 
 .scroll-to-top:active {
   transform: translateY(0) scale(0.9);
 }
 
+/* Mobile fix */
 @media (max-width: 768px) {
   .scroll-to-top {
-    bottom: calc(140px + constant(safe-area-inset-bottom));
     bottom: calc(140px + env(safe-area-inset-bottom));
-    right: calc(15px + constant(safe-area-inset-right));
     right: calc(15px + env(safe-area-inset-right));
     width: 50px;
     height: 50px;
   }
 }
 
+/* Fade animation */
 @keyframes scroll-to-top-fade-in {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .nav-whatsapp-link {
@@ -2130,4 +2133,19 @@ html body {
 .lite-mode .card .icon {
   background: var(--bg-secondary, #f1f5f9) !important;
   animation: none !important;
+}
+
+/* Hide Google Translate Banner */
+.goog-te-banner-frame.skiptranslate,
+.goog-te-gadget-icon,
+.goog-te-balloon-frame {
+  display: none !important;
+}
+
+body {
+  top: 0px !important;
+}
+
+.skiptranslate iframe {
+  display: none !important;
 }
