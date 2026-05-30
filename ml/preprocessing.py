@@ -81,8 +81,9 @@ class FeaturePreprocessor:
         encoding (i.e. the caller omitted a required field entirely).
     """
 
-    def __init__(self, feature_cols: List[str] = None):
+    def __init__(self, feature_cols: List[str] = None, category_vocab: dict = None):
         self.feature_cols = feature_cols
+        self.category_vocab = category_vocab or {}
         self.dummy_cols = [
             "Crop", "CNext", "CLast", "CTransp",
             "IrriType", "IrriSource", "Season",
@@ -116,6 +117,23 @@ class FeaturePreprocessor:
         validated_data = validate_ml_inputs(input_data)
         
         df = pd.DataFrame([validated_data])
+
+        # --- Validate categorical values against training vocabulary ---
+        if self.category_vocab:
+            for col in self.dummy_cols:
+                if col in df.columns:
+                    val = str(df[col].iloc[0])
+                    valid_values = self.category_vocab.get(col)
+                    if valid_values and val not in valid_values:
+                        expected_columns = [
+                            c for c in (self.feature_cols or [])
+                            if c.startswith(f"{col}_")
+                        ]
+                        raise UnknownCategoryError(
+                            column=col,
+                            value=val,
+                            expected_columns=expected_columns,
+                        )
 
         # --- One-hot encode with drop_first=False ---
         # Using drop_first=True on a single-row DataFrame silently drops ALL
