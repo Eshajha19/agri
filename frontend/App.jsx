@@ -82,6 +82,7 @@ import {
   Terms,
   YieldPredictor,
   EquipmentManagement,
+  RetrainingPipelineMonitor
 } from "./routes/lazyPages";
 
 const Weather = React.lazy(() => import("./Weather"));
@@ -776,6 +777,7 @@ function App() {
             <Route path="/blog/:id" element={<BlogDetail />} />
             <Route path="/weather" element={<Weather />} />
             <Route path="/voice-assistant" element={<VoiceAssistant />} />
+            <Route path="/retraining-monitor" element={<RetrainingPipelineMonitor />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </React.Suspense>
