@@ -1641,6 +1641,13 @@ try:
 except Exception as e:
     logger.warning(f"Could not load ML Model Management API: {e}")
 
+# Include Retraining Pipeline Router
+try:
+    from routers.retraining_pipeline import router as retraining_router
+    app.include_router(retraining_router)
+    logger.info("Retraining Pipeline API loaded successfully")
+except Exception as e:
+    logger.warning(f"Could not load Retraining Pipeline API: {e}")
 # Include Feature Drift Detection Router
 try:
     from routers.feature_drift import router as feature_drift_router, init_auth as init_drift_auth
