@@ -69,9 +69,11 @@ async def assess_single_crop(request: Request, data: CropQualityGradingRequest):
         image_bytes = base64.b64decode(data.image_base64)
         result = crop_quality_grader.assess_crop_image(image_bytes, data.crop_type)
         return {"success": True, "crop_type": data.crop_type, "assessment": result}
-    except Exception as e:
-        logger.error(f"Assessment error: {e}")
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("assess_single_crop error: %s", e)
+        raise HTTPException(status_code=500, detail="An unexpected error occurred during quality assessment.")
 
 @router.post("/assess-batch")
 async def assess_batch_crops(request: Request, data: CropQualityBatchRequest):
@@ -128,9 +130,11 @@ async def assess_batch_crops(request: Request, data: CropQualityBatchRequest):
         return {"success": True, "crop_type": data.crop_type, "batch_results": assessments}
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error("Batch error: %s", e)
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("assess_batch_crops error: %s", e)
+        raise HTTPException(status_code=500, detail="An unexpected error occurred during batch assessment.")
 
 @router.post("/trends")
 async def get_quality_trends(request: Request, data: QualityTrendsRequest):
@@ -146,9 +150,11 @@ async def get_quality_trends(request: Request, data: QualityTrendsRequest):
     try:
         trends = crop_quality_grader.get_quality_trends(data.crop_type, data.days)
         return {"success": True, "crop_type": data.crop_type, "days": data.days, "trends": trends}
-    except Exception as e:
-        logger.error(f"Trends error: {e}")
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("get_quality_trends error: %s", e)
+        raise HTTPException(status_code=500, detail="An unexpected error occurred fetching quality trends.")
 
 @router.get("/supported-crops")
 async def get_supported_crops(request: Request):
@@ -180,6 +186,8 @@ async def calculate_market_price(request: Request, data: CropQualityGradingReque
         image_bytes = base64.b64decode(data.image_base64)
         assessment = crop_quality_grader.assess_crop_image(image_bytes, data.crop_type)
         return {"success": True, "crop_type": data.crop_type, "grade": getattr(assessment, 'grade', 'A'), "assessment": assessment}
-    except Exception as e:
-        logger.error(f"Price error: {e}")
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("calculate_market_price error: %s", e)
+        raise HTTPException(status_code=500, detail="An unexpected error occurred calculating market price.")
