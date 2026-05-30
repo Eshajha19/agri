@@ -8,6 +8,14 @@ def test_rag_query_sanitizes_incoming_text_and_validates_assignment():
 
     assert query.query == "What is the best fertilizer for rice?"
 
+    scripted = RAGQuery(query='<ScRiPt type="text/javascript">alert(1)</sCrIpT>How to irrigate wheat?', top_k=3)
+
+    assert scripted.query == "How to irrigate wheat?"
+
+    dangerous_attr = RAGQuery(query='<img src="x" onerror="alert(1)">Can I use drip irrigation?', top_k=3)
+
+    assert dangerous_attr.query == "Can I use drip irrigation?"
+
     comparison_query = RAGQuery(query="Use 2 < 3 and 5 > 4 when comparing thresholds.", top_k=3)
 
     assert comparison_query.query == "Use 2 < 3 and 5 > 4 when comparing thresholds."
