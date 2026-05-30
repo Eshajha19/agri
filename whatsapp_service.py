@@ -79,18 +79,6 @@ _per_number_buckets: dict[str, deque[float]] = {}
 _global_bucket: deque[float] = deque()
 _audit_lock = threading.Lock()
 
-# ── Rate limiting ──────────────────────────────────────────────────────────────
-# Per-number: max 1 msg/sec, 30 msg/min
-WHATSAPP_RATE_LIMIT_PER_SECOND = 1
-WHATSAPP_RATE_LIMIT_PER_MINUTE = 30
-# Global broadcast ceiling: 50 msg/min to avoid sudden Twilio 429 bursts
-WHATSAPP_BROADCAST_RATE_LIMIT_PER_MINUTE = 50
-
-_global_bucket: deque = deque()
-_global_bucket_lock = threading.Lock()
-_per_number_buckets: dict[str, deque] = {}
-_per_number_lock = threading.Lock()
-
 # ── Shared client singleton ───────────────────────────────────────────────────
 # Initialised once at module import time.  The Twilio SDK maintains an internal
 # connection pool, so all send operations reuse the same pool of persistent
@@ -187,6 +175,33 @@ def send_whatsapp_message(to_number: str, message_body: str) -> dict:
         if len(_global_bucket) >= WHATSAPP_BROADCAST_RATE_LIMIT_PER_MINUTE:
             return {"success": False, "status": "throttled", "error": "Global broadcast rate limit exceeded"}
         _global_bucket.append(time.time())
+
+    # Rate limiting: per-number and global
+    numeric = to_number
+    now = time.time()
+    # per-number
+    with _per_number_lock:
+        bucket = _per_number_buckets.get(numeric)
+        if bucket is None:
+            bucket = deque()
+            _per_number_buckets[numeric] = bucket
+        # remove old entries > 60s
+        while bucket and bucket[0] <= now - 60:
+            bucket.popleft()
+        # check per-second
+        recent_secs = [t for t in bucket if t > now - 1]
+        if len(recent_secs) >= WHATSAPP_RATE_LIMIT_PER_SECOND:
+            return {"success": False, "status": "throttled", "error": "Per-second rate limit exceeded"}
+        if len(bucket) >= WHATSAPP_RATE_LIMIT_PER_MINUTE:
+            return {"success": False, "status": "throttled", "error": "Per-minute rate limit exceeded"}
+        # provisional add (will append on success path)
+
+    # global
+    now = time.time()
+    while _global_bucket and _global_bucket[0] <= now - 60:
+        _global_bucket.popleft()
+    if len(_global_bucket) >= WHATSAPP_BROADCAST_RATE_LIMIT_PER_MINUTE:
+        return {"success": False, "status": "throttled", "error": "Global broadcast rate limit exceeded"}
 
     # Rate limiting: per-number and global
     numeric = to_number
