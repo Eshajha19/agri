@@ -1,6 +1,7 @@
 """Knowledge Base Router - RAG, Climate Simulation, Seeds"""
 from typing import Optional
 from fastapi import APIRouter, Depends, Request, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, validator
 import logging
 
@@ -86,6 +87,14 @@ def _require_seed_runtime():
     if seed_registry is None:
         raise HTTPException(status_code=503, detail="Seed registry not initialized")
     return verify_fn, seed_registry
+
+
+def _coerce_rate_limit_response(rate_limited):
+    if rate_limited is None:
+        return None
+    if isinstance(rate_limited, JSONResponse):
+        return rate_limited
+    return JSONResponse(status_code=429, content=rate_limited)
 
 
 def init_knowledge(rg_fn, rbac, perm, sr, vr_fn):
@@ -336,6 +345,7 @@ async def rag_query(request: Request, body: RAGQuery, runtime=Depends(_require_r
         limit=12,
         window_seconds=60,
     )
+    rate_limited = _coerce_rate_limit_response(rate_limited)
     if rate_limited is not None:
         return rate_limited
     try:
@@ -364,6 +374,7 @@ async def simulate_climate(request: Request, data: SimulationRequest, verify_fn=
         limit=10,
         window_seconds=60,
     )
+    rate_limited = _coerce_rate_limit_response(rate_limited)
     if rate_limited is not None:
         return rate_limited
     try:
