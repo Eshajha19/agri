@@ -114,25 +114,67 @@ class SustainabilityAnalytics:
         return "sustainability_history.json"
 
     def _load_local_history(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Read history from disk. Returns {} and logs a warning on any read/parse error."""
         import json
         import os
         path = self._get_local_file_path()
-        if os.path.exists(path):
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                pass
+        if not os.path.exists(path):
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except json.JSONDecodeError as exc:
+            logger.warning(
+                "Sustainability history file '%s' contains invalid JSON and could "
+                "not be parsed: %s. Returning empty history.",
+                path,
+                exc,
+            )
+        except OSError as exc:
+            logger.warning(
+                "Could not read sustainability history file '%s': %s. "
+                "Returning empty history.",
+                path,
+                exc,
+            )
         return {}
 
     def _save_local_history(self, history: Dict[str, List[Dict[str, Any]]]) -> None:
+        """
+        Atomically persist *history* to disk.
+
+        Writes to a sibling ``.tmp`` file first, flushes OS write buffers via
+        ``fsync()``, then replaces the target file with ``os.replace()``.
+        ``os.replace()`` is atomic on POSIX and effectively atomic on Windows
+        (same-volume rename), so readers always see either the previous complete
+        file or the new complete file — never a partial or empty write.
+
+        If the write or rename fails, the ``.tmp`` file is cleaned up and a
+        warning is logged. Existing history is never truncated on failure.
+        """
         import json
+        import os
         path = self._get_local_file_path()
+        tmp_path = path + ".tmp"
         try:
-            with open(path, "w", encoding="utf-8") as f:
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(history, f, indent=2, ensure_ascii=False)
-        except Exception:
-            pass
+                f.flush()
+                os.fsync(f.fileno())  # flush OS write buffers before rename
+            os.replace(tmp_path, path)  # atomic swap — never exposes partial write
+        except OSError as exc:
+            logger.warning(
+                "Failed to atomically write sustainability history to '%s': %s. "
+                "Existing history on disk is preserved.",
+                path,
+                exc,
+            )
+            # Remove the incomplete temp file so it cannot be mistaken for valid data.
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except OSError:
+                pass
 
     def get_formula_config(self) -> Dict[str, Any]:
         return {
