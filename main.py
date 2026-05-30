@@ -774,7 +774,7 @@ async def _authenticate_notification_websocket(websocket: WebSocket) -> Optional
         return None
 
     try:
-        user_doc = db_firestore.collection("users").document(uid).get()
+        user_doc = await loop.run_in_executor(None, lambda: db_firestore.collection("users").document(uid).get()
     except Exception:
         await websocket.close(code=1011, reason="Authorization service unavailable")
         return None
@@ -791,7 +791,7 @@ def _get_firestore_user_profile(uid: str) -> dict[str, Any]:
         return {}
 
     try:
-        user_doc = db_firestore.collection("users").document(uid).get()
+        user_doc = await loop.run_in_executor(None, lambda: db_firestore.collection("users").document(uid).get()
     except Exception:
         return {}
 
