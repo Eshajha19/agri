@@ -15,9 +15,28 @@ export default function CropComparison() {
   const c1 = cropsData[crop1];
   const c2 = cropsData[crop2];
 
+  // helper to highlight better metric
+  const highlight = (metric, val1, val2) => {
+    if (val1 === val2) return ["", ""];
+    if (metric === "risk" || metric === "water") {
+      return val1 === "Low" ? ["highlight", ""] : val2 === "Low" ? ["", "highlight"] : ["", ""];
+    }
+    if (metric === "profitability") {
+      return val1 === "High" ? ["highlight", ""] : val2 === "High" ? ["", "highlight"] : ["", ""];
+    }
+    if (metric === "duration") {
+      const d1 = parseInt(val1);
+      const d2 = parseInt(val2);
+      return d1 < d2 ? ["highlight", ""] : ["", "highlight"];
+    }
+    return ["", ""];
+  };
+
   return (
     <div className="comparison-tool">
       <h2>🌾 Crop Comparison Tool</h2>
+      <p className="subtitle">Compare crops side‑by‑side by key metrics</p>
+
       <div className="selectors">
         <select value={crop1} onChange={(e) => setCrop1(e.target.value)}>
           {Object.keys(cropsData).map(c => <option key={c} value={c}>{c}</option>)}
@@ -36,10 +55,21 @@ export default function CropComparison() {
           </tr>
         </thead>
         <tbody>
-          <tr><td>Profitability</td><td>{c1.profitability}</td><td>{c2.profitability}</td></tr>
-          <tr><td>Water Usage</td><td>{c1.water}</td><td>{c2.water}</td></tr>
-          <tr><td>Risk Level</td><td>{c1.risk}</td><td>{c2.risk}</td></tr>
-          <tr><td>Growth Duration</td><td>{c1.duration}</td><td>{c2.duration}</td></tr>
+          {[
+            ["Profitability", c1.profitability, c2.profitability, "profitability"],
+            ["Water Usage", c1.water, c2.water, "water"],
+            ["Risk Level", c1.risk, c2.risk, "risk"],
+            ["Growth Duration", c1.duration, c2.duration, "duration"],
+          ].map(([metric, val1, val2, key], idx) => {
+            const [h1, h2] = highlight(key, val1, val2);
+            return (
+              <tr key={idx}>
+                <td>{metric}</td>
+                <td className={h1}>{val1}</td>
+                <td className={h2}>{val2}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
