@@ -169,19 +169,5 @@
     ></script>
     
     <script type="module" src="/main.jsx"></script>
-    <script>
-      // Register a basic service worker to enable offline support and caching
-      (function registerSW() {
-        if ('serviceWorker' in navigator) {
-          window.addEventListener('load', function() {
-            navigator.serviceWorker.register('/sw.js').then(function(reg) {
-              console.log('Service worker registered.', reg);
-            }).catch(function(err) {
-              console.warn('Service worker registration failed:', err);
-            });
-          });
-        }
-      })();
-    </script>
   </body>
 </html>

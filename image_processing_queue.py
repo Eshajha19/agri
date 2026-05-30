@@ -173,7 +173,7 @@ class ImageProcessingQueue:
     horizontal scaling support.
     """
 
-    def __init__(self, max_queue_size: int = 10000, enable_persistence: bool = False, enable_backoff: bool = False, backoff_base: float = 1.0):
+    def __init__(self, max_queue_size: int = 10000, enable_persistence: bool = False, enable_backoff: bool = False, backoff_base: float = 1.0, enable_caching: bool = False):
         self.max_queue_size = max_queue_size
         self.enable_persistence = enable_persistence
         # Backoff controls (opt-in to preserve previous behavior in tests)
@@ -394,7 +394,13 @@ class ImageProcessingQueue:
             return None
 
     def cancel_task(self, task_id: str) -> bool:
-        """Cancel a queued or retrying task"""
+        """
+        Cancel a queued or retrying task.
+        
+        Note: The internal queue is managed as a heap list, not a collections.deque.
+        Cancellation is performed safely by filtering the list and re-heapifying
+        to maintain priority queue invariants.
+        """
         # Acquire both locks in a consistent order (_task_lock before
         # _queue_lock) to avoid deadlock with fail_task, which also nests
         # _queue_lock inside _task_lock.
@@ -409,16 +415,7 @@ class ImageProcessingQueue:
             task.status = TaskStatus.CANCELLED
 
             with self._queue_lock:
-                # Rebuild the heap without the cancelled task.
-                # The previous code used `deque(t for t in self._task_queue if
-                # t.task_id != task_id)` which had three bugs:
-                #   1. `deque` was never imported.
-                #   2. Heap tuples are (priority, counter, task) — they have no
-                #      `.task_id` attribute, so the filter always raised AttributeError.
-                #   3. Replacing the heap list with a deque broke all future
-                #      heappush / heappop calls.
-                # Fix: filter the heap list by inspecting entry[2].task_id (the task
-                # inside each tuple), then heapify to restore the heap invariant.
+           
                 self._task_queue = [
                     entry for entry in self._task_queue
                     if entry[2].task_id != task_id

@@ -101,6 +101,7 @@ from notification_auth import filter_notifications_for_user
 from realtime_notifications import notification_broker
 from rbac_audit import audit_rbac_event, rbac_audit_trail, validate_required_roles
 from rbac import RBACMiddleware, print_rbac_matrix, RBACManager, Permission
+from gdpr_deletion import GDPRDeletionManager, DeletionTarget
 from persistence.repositories import (
     FinanceApplicationRepository,
     NotificationRepository,
@@ -246,7 +247,7 @@ async def lifespan(app: FastAPI):
                 owner_data = owner_snap.to_dict() if owner_snap.exists else {}
                 phone = owner_data.get("phone_number") or owner_data.get("phoneNumber") or owner_data.get("phone")
                 if phone:
-                    send_whatsapp_message(phone, msg)
+                    await asyncio.to_thread(send_whatsapp_message, phone, msg)
                     logger.info("WhatsApp notification sent for booking")
             except Exception as exc:
                 logger.warning("Failed to send WhatsApp notification for booking: %s", exc)
@@ -382,6 +383,7 @@ limiter.limit = _safe_limit
 
 
 db_firestore = None
+gdpr_deletion_manager = GDPRDeletionManager()
 
 if not firebase_admin._apps:
     try:
@@ -717,6 +719,15 @@ class NotificationStore:
         """Return TTL-valid entries visible to the given Firebase UID."""
         return filter_notifications_for_user(self.get_recent(), uid)
 
+    def remove_by_uid(self, uid: str) -> int:
+        """Remove in-memory notifications targeted at a specific UID."""
+        with self._lock:
+            snapshot = list(self._deque)
+            retained = [entry for entry in snapshot if entry.get("recipient_uid") != uid]
+            removed = len(snapshot) - len(retained)
+            self._deque = collections.deque(retained, maxlen=self._deque.maxlen)
+            return removed
+
 
 # Seed the store with the initial weather advisory that was previously
 # hard-coded in the bare list.
@@ -758,12 +769,8 @@ async def _authenticate_notification_websocket(websocket: WebSocket) -> Optional
         await websocket.close(code=1008, reason="Missing authentication token")
         return None
 
-    loop = asyncio.get_running_loop()
-
     try:
-        decoded = await loop.run_in_executor(
-            None, auth.verify_id_token, token.strip()
-        )
+        decoded = auth.verify_id_token(token.strip())
     except Exception:
         await websocket.close(code=1008, reason="Invalid authentication token")
         return None
@@ -778,9 +785,7 @@ async def _authenticate_notification_websocket(websocket: WebSocket) -> Optional
         return None
 
     try:
-        user_doc = await loop.run_in_executor(
-            None, db_firestore.collection("users").document(uid).get
-        )
+        user_doc = db_firestore.collection("users").document(uid).get()
     except Exception:
         await websocket.close(code=1011, reason="Authorization service unavailable")
         return None
@@ -812,8 +817,9 @@ def _parse_requested_regions(raw_value: Optional[str]) -> list[str]:
     return [normalize_region_identifier(part) for part in raw_value.split(",") if normalize_region_identifier(part)]
 
 
-def _resolve_websocket_regions(profile: dict[str, Any], raw_regions: Optional[str]) -> frozenset[str]:
-    requested_regions = _parse_requested_regions(raw_regions)
+def _resolve_websocket_regions(uid: str, websocket: WebSocket) -> frozenset[str]:
+    profile = _get_firestore_user_profile(uid)
+    requested_regions = _parse_requested_regions(websocket.query_params.get("regions") or websocket.query_params.get("region"))
     return frozenset(resolve_subscription_regions(profile, requested_regions))
 
 
@@ -839,6 +845,71 @@ def sanitise_log_field(value: str) -> str:
         value = str(value)
     sanitised = "".join(ch if ord(ch) >= 32 or ch == "\t" else f"\\x{ord(ch):02x}" for ch in value)
     return sanitised[:1000]
+
+
+class GDPRDeletionRequestBody(BaseModel):
+    retention_days: int = Field(default=30, ge=0, le=365)
+    reason: str = Field(default="user_requested_erasure", min_length=1, max_length=200)
+
+
+def _delete_firestore_documents_by_field(collection_name: str, field_name: str, uid: str) -> int:
+    if not db_firestore:
+        return 0
+
+    deleted = 0
+    docs = db_firestore.collection(collection_name).where(field_name, "==", uid).stream()
+    for doc in docs:
+        doc.reference.delete()
+        deleted += 1
+    return deleted
+
+
+def _build_gdpr_deletion_targets(uid: str) -> list[DeletionTarget]:
+    targets: list[DeletionTarget] = []
+
+    def delete_user_profile(target_uid: str) -> dict[str, int | str]:
+        if not db_firestore:
+            return {"deleted": 0, "retained": 1, "notes": "firestore_unavailable"}
+        doc = db_firestore.collection("users").document(target_uid)
+        snapshot = doc.get()
+        if not snapshot.exists:
+            return {"deleted": 0, "retained": 1, "notes": "profile_missing"}
+        doc.delete()
+        return {"deleted": 1, "retained": 0, "notes": "profile_deleted"}
+
+    def delete_feedback(target_uid: str) -> dict[str, int | str]:
+        deleted = _delete_firestore_documents_by_field("feedback", "userId", target_uid)
+        return {"deleted": deleted, "retained": 0 if deleted else 1, "notes": "feedback_deleted" if deleted else "no_feedback_found"}
+
+    def delete_finance_applications(target_uid: str) -> dict[str, int | str]:
+        deleted = _delete_firestore_documents_by_field("finance_applications", "owner_uid", target_uid)
+        return {
+            "deleted": deleted,
+            "retained": 0 if deleted else 1,
+            "notes": "finance_applications_deleted" if deleted else "no_finance_applications_found",
+        }
+
+    def purge_whatsapp_subscription(target_uid: str) -> dict[str, int | str]:
+        removed = subscriber_store.remove(target_uid)
+        return {"deleted": int(removed), "retained": 0 if removed else 1, "notes": "subscriber_removed" if removed else "subscriber_missing"}
+
+    def purge_in_memory_notifications(target_uid: str) -> dict[str, int | str]:
+        removed = _notification_store.remove_by_uid(target_uid)
+        return {"deleted": removed, "retained": 0 if removed else 1, "notes": "notifications_removed" if removed else "notifications_missing"}
+
+    targets.append(DeletionTarget(name="user_profile", delete=delete_user_profile))
+    targets.append(DeletionTarget(name="feedback_records", delete=delete_feedback))
+    targets.append(DeletionTarget(name="finance_applications", delete=delete_finance_applications))
+    targets.append(DeletionTarget(name="whatsapp_subscription", delete=purge_whatsapp_subscription))
+    targets.append(DeletionTarget(name="notification_cache", delete=purge_in_memory_notifications))
+    targets.append(
+        DeletionTarget(
+            name="immutable_supply_chain_ledger",
+            delete=None,
+            retain_reason="retained_for_legal_and_audit_integrity",
+        )
+    )
+    return targets
 
 @app.get("/")
 @limiter.limit("60/minute")
@@ -969,8 +1040,7 @@ async def get_notifications(
     """
     token_data = await verify_role(request)
     uid = token_data["uid"]
-    loop = asyncio.get_running_loop()
-    profile = await loop.run_in_executor(None, _get_firestore_user_profile, uid)
+    profile = _get_firestore_user_profile(uid)
     user_regions = frozenset(profile_regions(profile))
     dynamic_alerts = generate_alerts(
         crop=crop,
@@ -1027,7 +1097,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
         "Welcome to *Fasal Saathi WhatsApp Alerts*. "
         "You will now receive real-time updates directly here."
     )
-    send_whatsapp_message(data.phone_number, welcome_msg)
+    await asyncio.to_thread(send_whatsapp_message, data.phone_number, welcome_msg)
     return {"success": True, "message": "Successfully subscribed"}
 
 _broadcast_rate_limit = {}
@@ -1053,8 +1123,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
 
     if region_id:
         if role not in {"admin", "expert"}:
-            loop = asyncio.get_running_loop()
-            profile = await loop.run_in_executor(None, _get_firestore_user_profile, uid)
+            profile = _get_firestore_user_profile(uid)
             if not profile_can_broadcast_region(profile, region_id):
                 raise HTTPException(status_code=403, detail="Access denied: insufficient regional authority")
     elif role not in {"admin", "expert"}:
@@ -1072,7 +1141,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
             if _subscriber_matches_region(info, region_id)
         }
     for user_id, info in subscribers.items():
-        res = send_whatsapp_message(info["phone_number"], formatted_msg)
+        res = await asyncio.to_thread(send_whatsapp_message, info["phone_number"], formatted_msg)
         results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})
 
     # Persist the alert through the bounded, thread-safe notification store.
@@ -1091,11 +1160,7 @@ async def notifications_stream(websocket: WebSocket):
     uid = await _authenticate_notification_websocket(websocket)
     if uid is None:
         return
-    loop = asyncio.get_running_loop()
-    profile = await loop.run_in_executor(None, _get_firestore_user_profile, uid)
-    raw_regions = websocket.query_params.get("regions") or websocket.query_params.get("region")
-    regions = _resolve_websocket_regions(profile, raw_regions)
-    await notification_broker.connect(websocket, uid, regions=regions)
+    await notification_broker.connect(websocket, uid, regions=_resolve_websocket_regions(uid, websocket))
 
 
 @app.get("/api/admin/rbac-audit")
@@ -1113,6 +1178,35 @@ async def get_csrf_token(request: Request):
     uid = token_data["uid"]
     token = generate_token(uid)
     return {"csrf_token": token}
+
+
+@app.post("/api/privacy/deletion-requests")
+@limiter.limit("5/minute")
+async def request_gdpr_deletion(
+    request: Request,
+    body: GDPRDeletionRequestBody,
+):
+    """Create a retention-aware deletion request for the authenticated user."""
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+    deletion_request = gdpr_deletion_manager.create_request(
+        uid,
+        requested_by=uid,
+        reason=body.reason,
+        retention_days=body.retention_days,
+    )
+    deletion_request["target_names"] = [target.name for target in _build_gdpr_deletion_targets(uid)]
+    return {"success": True, "data": deletion_request}
+
+
+@app.post("/api/admin/privacy/deletion-requests/process-due")
+@limiter.limit("5/minute")
+async def process_due_gdpr_deletions(request: Request):
+    """Execute any deletion requests whose retention window has elapsed."""
+    await verify_role(request, required_roles=["admin", "expert"])
+    targets = _build_gdpr_deletion_targets("system")
+    processed = gdpr_deletion_manager.process_due_requests(targets)
+    return {"success": True, "processed": processed, "count": len(processed)}
 
 
 @app.post("/api/whatsapp/webhook")
@@ -1547,9 +1641,17 @@ try:
 except Exception as e:
     logger.warning(f"Could not load ML Model Management API: {e}")
 
+# Include Retraining Pipeline Router
+try:
+    from routers.retraining_pipeline import router as retraining_router
+    app.include_router(retraining_router)
+    logger.info("Retraining Pipeline API loaded successfully")
+except Exception as e:
+    logger.warning(f"Could not load Retraining Pipeline API: {e}")
 # Include Feature Drift Detection Router
 try:
-    from routers.feature_drift import router as feature_drift_router
+    from routers.feature_drift import router as feature_drift_router, init_auth as init_drift_auth
+    init_drift_auth(verify_role)
     app.include_router(feature_drift_router)
     logger.info("Feature Drift Detection API loaded successfully")
 except Exception as e:
