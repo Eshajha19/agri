@@ -353,6 +353,20 @@ class SustainabilityAnalytics:
         return list(reversed(entries[-limit:]))
 
     def _append_history(self, user_id: str, result: Dict[str, Any]) -> None:
+        """
+        Persist a new sustainability record then update the in-memory cache.
+
+        Persistence order
+        -----------------
+        1. Firestore (primary).  Errors are logged; a failure does NOT update
+           the in-memory cache so the two layers stay consistent.
+        2. Local JSON file (fallback / offline).  Errors are logged; they do not
+           prevent the Firestore path from succeeding.
+
+        The in-memory cache is only updated after at least one durable persistence
+        layer has accepted the record.  If both layers fail, the record is not
+        added to the cache, preventing divergence between memory and storage.
+        """
         key = user_id or "anonymous"
         record = {
             "record_id": result["record_id"],
@@ -366,22 +380,25 @@ class SustainabilityAnalytics:
             "sustainability_score": result["sustainability_score"],
         }
 
-        # Save to memory cache
-        if key not in self._history:
-            self._history[key] = []
-        self._history[key].append(record)
-        if len(self._history[key]) > 50:
-            self._history[key] = self._history[key][-50:]
-
-        # Save to Firestore primarilly
+        # ── 1. Persist to Firestore (primary) ─────────────────────────────
+        firestore_ok = False
         db = self._get_db()
         if db is not None:
             try:
                 db.collection("sustainability_history").document(record["record_id"]).set(record)
-            except Exception:
-                pass
+                firestore_ok = True
+            except Exception as exc:
+                logger.warning(
+                    "Firestore write failed for sustainability record '%s' "
+                    "(user=%s): %s. In-memory cache will not be updated until "
+                    "at least one persistence layer succeeds.",
+                    record["record_id"],
+                    key,
+                    exc,
+                )
 
-        # Save to local persistent file as fallback
+        # ── 2. Persist to local JSON file (fallback / offline) ────────────
+        local_ok = False
         try:
             local_hist = self._load_local_history()
             if key not in local_hist:
@@ -390,8 +407,34 @@ class SustainabilityAnalytics:
             if len(local_hist[key]) > 50:
                 local_hist[key] = local_hist[key][-50:]
             self._save_local_history(local_hist)
-        except Exception:
-            pass
+            local_ok = True
+        except Exception as exc:
+            logger.warning(
+                "Local-file write failed for sustainability record '%s' "
+                "(user=%s): %s.",
+                record["record_id"],
+                key,
+                exc,
+            )
+
+        # ── 3. Update in-memory cache only when at least one layer persisted ──
+        # This keeps the cache consistent with durable storage. If both layers
+        # fail the record is absent from memory AND from disk — no divergence.
+        if not (firestore_ok or local_ok):
+            logger.error(
+                "All persistence layers failed for sustainability record '%s' "
+                "(user=%s). Record will NOT be added to the in-memory cache to "
+                "prevent cache/storage divergence.",
+                record["record_id"],
+                key,
+            )
+            return
+
+        if key not in self._history:
+            self._history[key] = []
+        self._history[key].append(record)
+        if len(self._history[key]) > 50:
+            self._history[key] = self._history[key][-50:]
 
     def _normalize_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return {

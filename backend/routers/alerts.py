@@ -3,6 +3,7 @@ import asyncio
 import re
 from datetime import datetime
 from typing import Optional
+import logging
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
 from twilio_webhook_security import handle_inbound_whatsapp_webhook
