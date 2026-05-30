@@ -35,6 +35,7 @@ import useNotifications from "./Notifications";
 import Footer from "./components/Footer";
 import { SkipLink } from "./NavigationManager";
 import { useTheme } from "./ThemeContext";
+import SprayReminder from "./SprayReminder";
 
 // Route-level code splitting
 import {
@@ -574,6 +575,7 @@ function App() {
             <Route path="/blog/:id" element={<BlogDetail />} />
             <Route path="/weather" element={<Weather />} />
             <Route path="/voice-assistant" element={<VoiceAssistant />} />
+            <Route path="/spray-scheduler" element={<SprayReminder />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </React.Suspense>
