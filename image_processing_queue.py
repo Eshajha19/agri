@@ -691,6 +691,35 @@ class ImageProcessingQueue:
             return len(to_remove)
 
 
+
+# ---------------------------------------------------------------------------
+# Failure classification
+# ---------------------------------------------------------------------------
+
+# Exceptions that represent permanent, deterministic failures.
+# Retrying these wastes capacity — the outcome will never change.
+# Examples: malformed image bytes (ValueError), wrong argument types
+# (TypeError), unimplemented processor paths (NotImplementedError),
+# images that exceed hard size limits (MemoryError).
+NON_RETRYABLE_ERRORS = (
+    ValueError,        # Bad input data / validation failures
+    TypeError,         # Programming errors / wrong argument types
+    NotImplementedError,  # Unimplemented processor paths
+    MemoryError,       # Image too large to ever process
+    KeyError,          # Missing required field in task metadata
+    AttributeError,    # Structural errors in task or result objects
+)
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """
+    Return True if *exc* represents a transient failure that is worth
+    retrying (e.g. a network hiccup or a temporarily unavailable resource),
+    and False if it is a permanent failure that will never succeed on retry.
+    """
+    return not isinstance(exc, NON_RETRYABLE_ERRORS)
+
+
 class ImageProcessingWorker:
     """
     Worker process that consumes tasks from queue and processes images.
@@ -749,9 +778,21 @@ class ImageProcessingWorker:
         except Exception as e:
             processing_time = time.time() - start_time
             error_msg = str(e)
-            self.queue.fail_task(task.task_id, error_msg, retry=True)
+            # Distinguish permanent failures from transient ones.
+            # Permanent failures (bad input, type errors, etc.) must not
+            # be retried — they waste capacity and delay legitimate work.
+            should_retry = _is_retryable(e)
+            self.queue.fail_task(task.task_id, error_msg, retry=should_retry)
             self.queue.update_worker_stats(self.worker_id, processing_time, success=False)
-            logger.error(f"Task {task.task_id} failed: {error_msg}")
+            if should_retry:
+                logger.warning(
+                    f"Task {task.task_id} failed with transient error (will retry): {error_msg}"
+                )
+            else:
+                logger.error(
+                    f"Task {task.task_id} failed with permanent error (no retry): "
+                    f"{type(e).__name__}: {error_msg}"
+                )
 
     def stop(self):
         """Stop worker gracefully"""
