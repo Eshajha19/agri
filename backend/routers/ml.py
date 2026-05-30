@@ -26,7 +26,12 @@ class PredictResponse(BaseModel):
     predicted_ExpYield: float
 
 class YieldInput(BaseModel):
-    data: list[float]
+    # Cap the list length to prevent a single request from allocating an
+    # arbitrarily large numpy array. predict_yield_lag expects exactly 5
+    # values; predict_yield_trend uses 5 values internally. 1000 items is
+    # several orders of magnitude above any legitimate use case and keeps
+    # peak memory bounded at roughly 8 kB (1000 float64 values).
+    data: list[float] = Field(..., min_items=1, max_items=1000)
 
 model_router = None
 model_lag = None
@@ -64,8 +69,11 @@ async def predict_yield(data: PredictRequest, request: Request):
         context = {"location": sanitised_location, "crop": data.Crop}
         predicted_yield = model_router.predict(input_data, context)
         return {"predicted_ExpYield": float(predicted_yield)}
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("predict_yield error: %s", e)
+        raise HTTPException(status_code=500, detail="An unexpected error occurred during prediction.")
 
 @router.post("/predict-yield-lag")
 async def predict_yield_lag(payload: YieldInput, request: Request):
@@ -81,8 +89,11 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
             raise ValueError("Exactly 5 values required")
         prediction = model_lag.predict(data)
         return {"prediction": round(float(prediction[0]), 2), "model": "RandomForest Time Series"}
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("predict_yield_lag error: %s", e)
+        raise HTTPException(status_code=500, detail="An unexpected error occurred during prediction.")
 
 @router.post("/predict-yield-trend")
 async def predict_yield_trend(payload: YieldInput, request: Request):
@@ -128,5 +139,8 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
             temp = temp[1:] + [pred_value]
 
         return {"trend": trend, "prediction": trend[-1], "model": "Dedicated Trend Forecast"}
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("predict_yield_trend error: %s", e)
+        raise HTTPException(status_code=500, detail="An unexpected error occurred during prediction.")
