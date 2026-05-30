@@ -17,6 +17,7 @@ Authorization model
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from enum import Enum
@@ -25,6 +26,7 @@ from typing import Callable, Dict, List, Optional
 
 import firebase_admin
 from fastapi import HTTPException, Request, status
+from starlette.middleware.base import BaseHTTPMiddleware
 from firebase_admin import auth as firebase_auth, firestore
 
 logger = logging.getLogger(__name__)
@@ -360,8 +362,14 @@ class RBACManager:
                 detail="Missing or invalid authentication token",
             )
 
+        loop = asyncio.get_running_loop()
+
         try:
-            decoded_token = firebase_auth.verify_id_token(token)
+            # Offload synchronous Firebase Admin SDK call to thread pool so
+            # the event loop remains free to serve other concurrent requests.
+            decoded_token = await loop.run_in_executor(
+                None, firebase_auth.verify_id_token, token
+            )
         except Exception as exc:
             logger.error("Token verification failed: %s", exc)
             raise HTTPException(
@@ -385,7 +393,11 @@ class RBACManager:
             )
 
         try:
-            user_doc = db.collection("users").document(uid).get()
+            # Firestore's .get() is a blocking network call; run it off the
+            # event loop to avoid stalling concurrent coroutines.
+            user_doc = await loop.run_in_executor(
+                None, db.collection("users").document(uid).get
+            )
         except Exception as exc:
             logger.error("Firestore query failed for user %s: %s", uid, exc)
             raise HTTPException(
@@ -614,7 +626,7 @@ def require_permission(*permissions: Permission, require_all: bool = False):
     return decorator
 
 
-class RBACMiddleware:
+class RBACMiddleware(BaseHTTPMiddleware):
     """
     RBAC logging middleware for tracking access attempts.
     Skips Firebase/Firestore verification for public endpoints to
@@ -624,9 +636,9 @@ class RBACMiddleware:
     PUBLIC_PATH_PREFIXES = frozenset({"/", "/health", "/metrics", "/favicon"})
 
     def __init__(self, app):
-        self.app = app
+        super().__init__(app)
 
-    async def __call__(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next):
         """Log all API requests with user role."""
         path = request.url.path
         if any(path.startswith(prefix) for prefix in self.PUBLIC_PATH_PREFIXES):

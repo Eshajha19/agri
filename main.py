@@ -758,8 +758,12 @@ async def _authenticate_notification_websocket(websocket: WebSocket) -> Optional
         await websocket.close(code=1008, reason="Missing authentication token")
         return None
 
+    loop = asyncio.get_running_loop()
+
     try:
-        decoded = auth.verify_id_token(token.strip())
+        decoded = await loop.run_in_executor(
+            None, auth.verify_id_token, token.strip()
+        )
     except Exception:
         await websocket.close(code=1008, reason="Invalid authentication token")
         return None
@@ -774,7 +778,9 @@ async def _authenticate_notification_websocket(websocket: WebSocket) -> Optional
         return None
 
     try:
-        user_doc = db_firestore.collection("users").document(uid).get()
+        user_doc = await loop.run_in_executor(
+            None, db_firestore.collection("users").document(uid).get
+        )
     except Exception:
         await websocket.close(code=1011, reason="Authorization service unavailable")
         return None
@@ -806,9 +812,8 @@ def _parse_requested_regions(raw_value: Optional[str]) -> list[str]:
     return [normalize_region_identifier(part) for part in raw_value.split(",") if normalize_region_identifier(part)]
 
 
-def _resolve_websocket_regions(uid: str, websocket: WebSocket) -> frozenset[str]:
-    profile = _get_firestore_user_profile(uid)
-    requested_regions = _parse_requested_regions(websocket.query_params.get("regions") or websocket.query_params.get("region"))
+def _resolve_websocket_regions(profile: dict[str, Any], raw_regions: Optional[str]) -> frozenset[str]:
+    requested_regions = _parse_requested_regions(raw_regions)
     return frozenset(resolve_subscription_regions(profile, requested_regions))
 
 
@@ -964,7 +969,8 @@ async def get_notifications(
     """
     token_data = await verify_role(request)
     uid = token_data["uid"]
-    profile = _get_firestore_user_profile(uid)
+    loop = asyncio.get_running_loop()
+    profile = await loop.run_in_executor(None, _get_firestore_user_profile, uid)
     user_regions = frozenset(profile_regions(profile))
     dynamic_alerts = generate_alerts(
         crop=crop,
@@ -1047,7 +1053,8 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
 
     if region_id:
         if role not in {"admin", "expert"}:
-            profile = _get_firestore_user_profile(uid)
+            loop = asyncio.get_running_loop()
+            profile = await loop.run_in_executor(None, _get_firestore_user_profile, uid)
             if not profile_can_broadcast_region(profile, region_id):
                 raise HTTPException(status_code=403, detail="Access denied: insufficient regional authority")
     elif role not in {"admin", "expert"}:
@@ -1084,7 +1091,11 @@ async def notifications_stream(websocket: WebSocket):
     uid = await _authenticate_notification_websocket(websocket)
     if uid is None:
         return
-    await notification_broker.connect(websocket, uid, regions=_resolve_websocket_regions(uid, websocket))
+    loop = asyncio.get_running_loop()
+    profile = await loop.run_in_executor(None, _get_firestore_user_profile, uid)
+    raw_regions = websocket.query_params.get("regions") or websocket.query_params.get("region")
+    regions = _resolve_websocket_regions(profile, raw_regions)
+    await notification_broker.connect(websocket, uid, regions=regions)
 
 
 @app.get("/api/admin/rbac-audit")

@@ -1,5 +1,6 @@
 """Alerts & Notifications Router"""
 from datetime import datetime
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
