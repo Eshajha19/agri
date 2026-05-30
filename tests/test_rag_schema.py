@@ -20,6 +20,10 @@ def test_rag_query_sanitizes_incoming_text_and_validates_assignment():
 
     assert comparison_query.query == "Use 2 < 3 and 5 > 4 when comparing thresholds."
 
+    preserved_symbols = RAGQuery(query="Crop #12 *urgent* irrigation notes", top_k=3)
+
+    assert preserved_symbols.query == "Crop #12 *urgent* irrigation notes"
+
     query.query = "<b>Need irrigation advice for wheat</b>"
 
     assert query.query == "Need irrigation advice for wheat"

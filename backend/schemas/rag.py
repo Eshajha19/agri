@@ -137,7 +137,6 @@ class RAGQuery(BaseModel):
         value = re.sub(r"&lt;(?=\s)", "<", value)
         value = re.sub(r"&gt;(?=\s)", ">", value)
         value = _rewrite_markdown_links_safe(value)
-        value = re.sub(r"[*_~`#]", "", value)
         value = re.sub(r"\s+", " ", value.strip())
 
         forbidden_patterns = [
