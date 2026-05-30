@@ -7,10 +7,13 @@ certified carbon accounting.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 
 # kg CO2e per kg of nutrient applied (cradle-to-field, simplified)
@@ -104,8 +107,14 @@ class SustainabilityAnalytics:
             from firebase_admin import firestore
             if firebase_admin._apps:
                 return firestore.client()
-        except Exception:
-            pass
+            else:
+                if not getattr(self, "is_testing", False):
+                    logger.warning("Firestore client requested but Firebase Admin SDK has not been initialized.")
+        except ImportError as exc:
+            if not getattr(self, "is_testing", False):
+                logger.warning("Firebase Admin SDK is not installed: %s. Using local fallback.", exc)
+        except Exception as exc:
+            logger.error("Firestore initialization failed: %s", exc, exc_info=True)
         return None
 
     def _get_local_file_path(self) -> str:
@@ -114,25 +123,67 @@ class SustainabilityAnalytics:
         return "sustainability_history.json"
 
     def _load_local_history(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Read history from disk. Returns {} and logs a warning on any read/parse error."""
         import json
         import os
         path = self._get_local_file_path()
-        if os.path.exists(path):
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                pass
+        if not os.path.exists(path):
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except json.JSONDecodeError as exc:
+            logger.warning(
+                "Sustainability history file '%s' contains invalid JSON and could "
+                "not be parsed: %s. Returning empty history.",
+                path,
+                exc,
+            )
+        except OSError as exc:
+            logger.warning(
+                "Could not read sustainability history file '%s': %s. "
+                "Returning empty history.",
+                path,
+                exc,
+            )
         return {}
 
     def _save_local_history(self, history: Dict[str, List[Dict[str, Any]]]) -> None:
+        """
+        Atomically persist *history* to disk.
+
+        Writes to a sibling ``.tmp`` file first, flushes OS write buffers via
+        ``fsync()``, then replaces the target file with ``os.replace()``.
+        ``os.replace()`` is atomic on POSIX and effectively atomic on Windows
+        (same-volume rename), so readers always see either the previous complete
+        file or the new complete file — never a partial or empty write.
+
+        If the write or rename fails, the ``.tmp`` file is cleaned up and a
+        warning is logged. Existing history is never truncated on failure.
+        """
         import json
+        import os
         path = self._get_local_file_path()
+        tmp_path = path + ".tmp"
         try:
-            with open(path, "w", encoding="utf-8") as f:
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(history, f, indent=2, ensure_ascii=False)
-        except Exception:
-            pass
+                f.flush()
+                os.fsync(f.fileno())  # flush OS write buffers before rename
+            os.replace(tmp_path, path)  # atomic swap — never exposes partial write
+        except OSError as exc:
+            logger.warning(
+                "Failed to atomically write sustainability history to '%s': %s. "
+                "Existing history on disk is preserved.",
+                path,
+                exc,
+            )
+            # Remove the incomplete temp file so it cannot be mistaken for valid data.
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except OSError:
+                pass
 
     def get_formula_config(self) -> Dict[str, Any]:
         return {
@@ -280,7 +331,14 @@ class SustainabilityAnalytics:
         db = self._get_db()
         if db is not None:
             try:
-                docs = db.collection("sustainability_history").where("user_id", "==", key).limit(limit).get()
+                from firebase_admin import firestore
+                docs = (
+                    db.collection("sustainability_history")
+                    .where("user_id", "==", key)
+                    .order_by("created_at", direction=firestore.Query.DESCENDING)
+                    .limit(limit)
+                    .get()
+                )
                 entries = [d.to_dict() for d in docs]
                 # Sort entries by created_at descending (newest first)
                 entries.sort(key=lambda x: x.get("created_at", ""), reverse=True)
@@ -295,6 +353,20 @@ class SustainabilityAnalytics:
         return list(reversed(entries[-limit:]))
 
     def _append_history(self, user_id: str, result: Dict[str, Any]) -> None:
+        """
+        Persist a new sustainability record then update the in-memory cache.
+
+        Persistence order
+        -----------------
+        1. Firestore (primary).  Errors are logged; a failure does NOT update
+           the in-memory cache so the two layers stay consistent.
+        2. Local JSON file (fallback / offline).  Errors are logged; they do not
+           prevent the Firestore path from succeeding.
+
+        The in-memory cache is only updated after at least one durable persistence
+        layer has accepted the record.  If both layers fail, the record is not
+        added to the cache, preventing divergence between memory and storage.
+        """
         key = user_id or "anonymous"
         record = {
             "record_id": result["record_id"],
@@ -308,22 +380,25 @@ class SustainabilityAnalytics:
             "sustainability_score": result["sustainability_score"],
         }
 
-        # Save to memory cache
-        if key not in self._history:
-            self._history[key] = []
-        self._history[key].append(record)
-        if len(self._history[key]) > 50:
-            self._history[key] = self._history[key][-50:]
-
-        # Save to Firestore primarilly
+        # ── 1. Persist to Firestore (primary) ─────────────────────────────
+        firestore_ok = False
         db = self._get_db()
         if db is not None:
             try:
                 db.collection("sustainability_history").document(record["record_id"]).set(record)
-            except Exception:
-                pass
+                firestore_ok = True
+            except Exception as exc:
+                logger.warning(
+                    "Firestore write failed for sustainability record '%s' "
+                    "(user=%s): %s. In-memory cache will not be updated until "
+                    "at least one persistence layer succeeds.",
+                    record["record_id"],
+                    key,
+                    exc,
+                )
 
-        # Save to local persistent file as fallback
+        # ── 2. Persist to local JSON file (fallback / offline) ────────────
+        local_ok = False
         try:
             local_hist = self._load_local_history()
             if key not in local_hist:
@@ -332,8 +407,34 @@ class SustainabilityAnalytics:
             if len(local_hist[key]) > 50:
                 local_hist[key] = local_hist[key][-50:]
             self._save_local_history(local_hist)
-        except Exception:
-            pass
+            local_ok = True
+        except Exception as exc:
+            logger.warning(
+                "Local-file write failed for sustainability record '%s' "
+                "(user=%s): %s.",
+                record["record_id"],
+                key,
+                exc,
+            )
+
+        # ── 3. Update in-memory cache only when at least one layer persisted ──
+        # This keeps the cache consistent with durable storage. If both layers
+        # fail the record is absent from memory AND from disk — no divergence.
+        if not (firestore_ok or local_ok):
+            logger.error(
+                "All persistence layers failed for sustainability record '%s' "
+                "(user=%s). Record will NOT be added to the in-memory cache to "
+                "prevent cache/storage divergence.",
+                record["record_id"],
+                key,
+            )
+            return
+
+        if key not in self._history:
+            self._history[key] = []
+        self._history[key].append(record)
+        if len(self._history[key]) > 50:
+            self._history[key] = self._history[key][-50:]
 
     def _normalize_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return {
