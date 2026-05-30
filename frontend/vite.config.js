@@ -180,16 +180,16 @@ export default defineConfig(() => ({
       hmr: {
         overlay: true
       },
-      proxy: {
-        '/predict': {
-          target: 'http://127.0.0.1:8000',
-          changeOrigin: true
-        },
-        '/api': {
-          target: 'http://127.0.0.1:8000',
-          changeOrigin: true
-        }
-      }
+       proxy: {
+         '/predict': {
+           target: 'http://127.0.0.1:8000',
+           changeOrigin: true
+         },
+         '/api': {
+           target: 'http://127.0.0.1:8000',
+           changeOrigin: true
+         }
+       }
     },
     build: {
       outDir: 'build',

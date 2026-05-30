@@ -9,13 +9,67 @@ import collections
 import json
 import logging
 import os
-from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Deque, Dict, Iterable, Optional
+import hashlib
+import time
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from enum import Enum
+from typing import Any, Deque, Dict, Iterable, Optional, List
 
 from fastapi import WebSocket, WebSocketDisconnect
+from geo_alerts import notification_matches_regions, resolve_subscription_regions
+
+from notification_auth import filter_notifications_for_user, notification_visible_to_user
 
 logger = logging.getLogger(__name__)
+
+
+class NotificationPriority(str, Enum):
+    """Priority levels for notifications"""
+    CRITICAL = "critical"
+    WARNING = "warning"
+    INFO = "info"
+
+
+class DeliveryStatus(str, Enum):
+    """Delivery status for notifications"""
+    PENDING = "pending"
+    SENT = "sent"
+    DELIVERED = "delivered"
+    FAILED = "failed"
+
+
+@dataclass
+class NotificationDeliveryRecord:
+    """Record of notification delivery attempt"""
+    notification_id: str
+    user_id: str
+    priority: NotificationPriority
+    status: DeliveryStatus
+    created_at: str
+    sent_at: Optional[str] = None
+    delivered_at: Optional[str] = None
+    retry_count: int = 0
+    max_retries: int = 5
+    last_retry_at: Optional[str] = None
+    error_message: Optional[str] = None
+    user_device_info: Optional[Dict] = None
+    user_ip: Optional[str] = None
+
+    def to_dict(self) -> Dict:
+        return {
+            "notification_id": self.notification_id,
+            "user_id": self.user_id,
+            "priority": self.priority.value,
+            "status": self.status.value,
+            "created_at": self.created_at,
+            "sent_at": self.sent_at,
+            "delivered_at": self.delivered_at,
+            "retry_count": self.retry_count,
+            "max_retries": self.max_retries,
+            "last_retry_at": self.last_retry_at,
+            "error_message": self.error_message,
+        }
 
 
 @dataclass(slots=True)
@@ -26,10 +80,38 @@ class NotificationEvent:
     data: Dict[str, Any]
     source: str = "local"
     created_at: str = ""
+    priority: NotificationPriority = NotificationPriority.INFO
+    user_id: Optional[str] = None
+    notification_id: Optional[str] = None
 
     def __post_init__(self) -> None:
         if not self.created_at:
             self.created_at = datetime.now().isoformat()
+        if not self.notification_id:
+            self.notification_id = f"{self.type}-{int(time.time() * 1000)}"
+
+    def get_content_hash(self) -> str:
+        """Generate hash of notification content for deduplication"""
+        content = json.dumps(self.data, sort_keys=True)
+        return hashlib.md5(content.encode()).hexdigest()
+
+
+@dataclass(slots=True)
+class _ConnectionSubscription:
+    uid: str
+    regions: frozenset[str]
+
+
+@dataclass(slots=True)
+class _ConnectionSubscription:
+    uid: str
+    regions: frozenset[str]
+
+
+@dataclass(slots=True)
+class _ConnectionSubscription:
+    uid: str
+    regions: frozenset[str]
 
 
 class NotificationBroadcastHub:
@@ -39,6 +121,10 @@ class NotificationBroadcastHub:
     immediate snapshot. If REDIS_URL is configured and redis.asyncio is
     available, the hub also publishes to a Redis channel so multiple workers can
     fan out the same event across processes.
+
+    Each WebSocket connection is bound to a Firebase UID; snapshots and live
+    events are filtered so clients only receive notifications they are allowed
+    to see (broadcast or targeted to their UID).
     """
 
     def __init__(
@@ -46,32 +132,74 @@ class NotificationBroadcastHub:
         history_limit: int = 200,
         redis_url: Optional[str] = None,
         redis_channel: str = "fasal_saathi.notifications",
+        enable_persistence: bool = True,
+        dedup_window_seconds: int = 300,
     ) -> None:
         self._history: Deque[Dict[str, Any]] = collections.deque(maxlen=history_limit)
-        self._connections: set[WebSocket] = set()
+        self._connections: dict[WebSocket, _ConnectionSubscription] = {}
         self._history_lock = asyncio.Lock()
+        # Dedicated lock for websocket connection registry mutations.
+        # Prevents concurrent connection updates from racing with
+        # broadcast fan-out and stale websocket cleanup.
+        self._connections_lock = asyncio.Lock()
         self._broadcast_lock = asyncio.Lock()
         self._redis_url = redis_url or os.getenv("REDIS_URL")
         self._redis_channel = redis_channel
         self._redis_client = None
         self._redis_pubsub = None
         self._redis_listener_task: Optional[asyncio.Task] = None
+        self._retry_processor_task: Optional[asyncio.Task] = None
+        self._priority_processor_task: Optional[asyncio.Task] = None
         self._started = False
 
-    def seed_notifications(self, notifications: Iterable[Dict[str, Any]]) -> None:
+        # Persistence and delivery tracking
+        self._enable_persistence = enable_persistence
+        self._delivery_records: Dict[str, NotificationDeliveryRecord] = {}
+        self._pending_notifications: Deque[NotificationEvent] = collections.deque()
+        self._dead_letter_queue: Deque[NotificationDeliveryRecord] = collections.deque(maxlen=10000)
+        self._retry_queue: List[tuple[float, NotificationDeliveryRecord]] = []
+        self._persistence_lock = asyncio.Lock()
+
+        # Deduplication
+        self._dedup_window = dedup_window_seconds
+        self._recent_hashes: Dict[str, float] = {}  # content_hash -> timestamp
+
+        # Priority queues
+        self._critical_queue: Deque[NotificationEvent] = collections.deque()
+        self._warning_queue: Deque[NotificationEvent] = collections.deque()
+        self._info_queue: Deque[NotificationEvent] = collections.deque()
+
+    def seed_notifications(
+        self,
+        notifications: Iterable[Dict[str, Any]],
+    ) -> None:
         """Seed the local history from existing notifications."""
+
         for notification in notifications:
             self._history.append(notification)
 
-    def snapshot(self) -> list[Dict[str, Any]]:
+    async def snapshot(self) -> list[Dict[str, Any]]:
         """Return a copy of the current history."""
-        return list(self._history)
+
+    def snapshot_for_user(self, uid: str, regions: Optional[Iterable[str]] = None) -> list[Dict[str, Any]]:
+        """Return history entries visible to the given user and region scope."""
+        return [
+            notification
+            for notification in filter_notifications_for_user(self._history, uid)
+            if notification_matches_regions(notification, regions)
+        ]
 
     async def start(self) -> None:
-        """Start optional Redis pub-sub listener."""
+        """Start optional Redis pub-sub listener and background reliability tasks."""
         if self._started:
             return
         self._started = True
+
+        # Start retry queue processor (handles exponential-backoff retries)
+        self._retry_processor_task = asyncio.create_task(self._process_retry_queue())
+
+        # Start priority queue processor (drains critical/warning/info queues)
+        self._priority_processor_task = asyncio.create_task(self._process_priority_queues())
 
         if not self._redis_url:
             return
@@ -92,13 +220,15 @@ class NotificationBroadcastHub:
 
     async def stop(self) -> None:
         """Stop optional Redis listener and close resources."""
-        if self._redis_listener_task is not None:
-            self._redis_listener_task.cancel()
-            try:
-                await self._redis_listener_task
-            except asyncio.CancelledError:
-                pass
-            self._redis_listener_task = None
+        for task_name in ("_retry_processor_task", "_priority_processor_task", "_redis_listener_task"):
+            task = getattr(self, task_name, None)
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                setattr(self, task_name, None)
 
         if self._redis_pubsub is not None:
             try:
@@ -117,8 +247,22 @@ class NotificationBroadcastHub:
         self._started = False
 
     async def publish(self, notification: Dict[str, Any], source: str = "local") -> NotificationEvent:
-        """Persist notification locally and fan it out to connected clients."""
+        """Persist notification locally and fan it out to subscribed clients."""
         event = NotificationEvent(type="notification", data=notification, source=source)
+
+        # Deduplication check: skip if identical content seen within dedup window
+        if self._is_duplicate_notification(event):
+            logger.info("Duplicate notification %s skipped", event.notification_id)
+            return event
+
+        # Route to priority queue for deferred delivery processing
+        await self._route_to_priority_queue(event)
+
+        # Persist for offline delivery and retry tracking
+        uid = notification.get("recipient_uid")
+        if uid:
+            await self._persist_notification(event, uid)
+
         payload = {
             "type": event.type,
             "source": event.source,
@@ -127,8 +271,15 @@ class NotificationBroadcastHub:
         }
 
         async with self._history_lock:
-            self._history.append(notification)
-            clients = list(self._connections)
+            self._history.append(payload)
+
+        async with self._connections_lock:
+            clients = [
+                (websocket, subscription)
+                for websocket, subscription in self._connections.items()
+                if notification_visible_to_user(notification, subscription.uid)
+                and notification_matches_regions(notification, subscription.regions)
+            ]
 
         await self._broadcast(payload, clients)
 
@@ -140,12 +291,14 @@ class NotificationBroadcastHub:
 
         return event
 
-    async def connect(self, websocket: WebSocket) -> None:
+    async def connect(self, websocket: WebSocket, uid: str, regions: Optional[Iterable[str]] = None) -> None:
         """Accept a websocket client and keep it subscribed until disconnect."""
+
         await websocket.accept()
+        region_scopes = frozenset(resolve_subscription_regions({"role": "guest"}, regions))
         async with self._history_lock:
-            self._connections.add(websocket)
-            snapshot = list(self._history)
+            self._connections[websocket] = _ConnectionSubscription(uid=uid, regions=region_scopes)
+            snapshot = self.snapshot_for_user(uid, region_scopes)
 
         await websocket.send_json(
             {
@@ -163,25 +316,33 @@ class NotificationBroadcastHub:
         except WebSocketDisconnect:
             pass
         finally:
-            async with self._history_lock:
-                self._connections.discard(websocket)
-
-    async def _broadcast(self, payload: Dict[str, Any], clients: list[WebSocket]) -> None:
+            async with self._connections_lock:
+                self._connections.pop(websocket, None)
+    
+    async def _broadcast(
+        self,
+        payload: Dict[str, Any],
+        clients: list[tuple[WebSocket, _ConnectionSubscription]],
+    ) -> None:
         if not clients:
             return
 
+        stale_clients: list[WebSocket] = []
         async with self._broadcast_lock:
             stale_clients: list[WebSocket] = []
-            for websocket in clients:
+            for websocket, _subscription in clients:
                 try:
                     await websocket.send_json(payload)
                 except Exception:
                     stale_clients.append(websocket)
 
-            if stale_clients:
-                async with self._history_lock:
-                    for websocket in stale_clients:
-                        self._connections.discard(websocket)
+        # Clean up stale connections outside broadcast_lock to avoid
+        # lock-order inversion with connections_lock (acquired by publish
+        # before calling _broadcast).  See publish().
+        if stale_clients:
+            async with self._connections_lock:
+                for websocket in stale_clients:
+                    self._connections.pop(websocket, None)
 
     async def _redis_listener(self) -> None:
         try:
@@ -192,8 +353,15 @@ class NotificationBroadcastHub:
                 notification = payload.get("data")
                 if isinstance(notification, dict):
                     async with self._history_lock:
-                        self._history.append(notification)
-                        clients = list(self._connections)
+                        self._history.append(payload)
+
+                    async with self._connections_lock:
+                        clients = [
+                            (websocket, subscription)
+                            for websocket, subscription in self._connections.items()
+                            if notification_visible_to_user(notification, subscription.uid)
+                            and notification_matches_regions(notification, subscription.regions)
+                        ]
                     await self._broadcast(payload, clients)
         except asyncio.CancelledError:
             raise
@@ -202,3 +370,4 @@ class NotificationBroadcastHub:
 
 
 notification_broker = NotificationBroadcastHub()
+# Enhanced realtime notifications
