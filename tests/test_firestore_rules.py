@@ -30,13 +30,21 @@ try:
     app = firebase_admin.get_app(name="test-app")
 except ValueError:
     try:
-        cred = credentials.Certificate('firebase_credentials.json')
-        app = firebase_admin.initialize_app(cred, name="test-app")
-    except Exception as e:
-        logger.warning(f"Could not load credentials: {e}, using emulator only")
-        app = firebase_admin.initialize_app(options={'projectId': 'test-project'}, name="test-app")
-
-db = firestore.client(app=app)
+        app = firebase_admin.get_app(name="test-app")
+    except ValueError:
+        # App not yet initialized – create it now
+        try:
+            cred = credentials.Certificate('firebase_credentials.json')
+            app = firebase_admin.initialize_app(cred, name="test-app")
+        except Exception as e:
+            logger.warning(f"Could not load credentials: {e}, using emulator only")
+            app = firebase_admin.initialize_app(options={'projectId': 'test-project'}, name="test-app")
+    db = firestore.client(app=app)
+except Exception as _firebase_init_error:
+    pytest.skip(
+        f"Firebase credentials / emulator not available: {_firebase_init_error}",
+        allow_module_level=True,
+    )
 
 
 class TestUser:
