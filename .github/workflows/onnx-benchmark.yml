@@ -28,14 +28,11 @@ jobs:
           pytest -q tests/test_onnx_conversion.py
 
       - name: Run benchmark (CPU)
+        continue-on-error: true
         run: |
-          if [ -f tests/dummy.onnx ]; then
-            python benchmarks/benchmark_inference.py \
-              --model tests/dummy.onnx \
-              --input-shape 1,5 \
-              --iterations 20 \
-              --warmup 5 \
-              --output bench_out.json
-          else
-            echo "tests/dummy.onnx not found; skipping benchmark."
-          fi
+          python benchmarks/benchmark_inference.py \
+            --model tests/dummy.onnx \
+            --input-shape 1,5 \
+            --iterations 20 \
+            --warmup 5 \
+            --output bench_out.json
