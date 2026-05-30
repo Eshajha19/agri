@@ -34,6 +34,8 @@ import useNotifications from "./Notifications";
 import Footer from "./components/Footer";
 import { SkipLink } from "./NavigationManager";
 import { useTheme } from "./ThemeContext";
+import FarmingMythChecker from "./components/FarmingMythChecker";
+import CropComparison from "./components/CropComparison";
 
 // Route-level code splitting
 import {
@@ -66,6 +68,7 @@ import {
   MarketPrices,
   NotFound,
   PestDetection,
+  PestCalendar,
   PrivacyPolicy,
   ProfileSetup,
   ProfileSettings,
@@ -83,6 +86,7 @@ import {
   Terms,
   YieldPredictor,
   EquipmentManagement,
+  RetrainingPipelineMonitor
 } from "./routes/lazyPages";
 
 const Weather = React.lazy(() => import("./Weather"));
@@ -231,7 +235,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [profileCompleted, setProfileCompleted] = useState(true);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [showScorecard, setShowScorecard] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
@@ -381,8 +385,9 @@ function App() {
   /* ---------------- AUTH & FIRESTORE SYNC ---------------- */
   useEffect(() => {
     if (!isFirebaseConfigured()) {
+      const timeout = setTimeout(() => setLoading(false), 3000);
       setLoading(false);
-      return;
+      return () => clearTimeout(timeout);;
     }
 
     const userDocUnsubscribeRef = { current: null };
@@ -613,6 +618,8 @@ function App() {
                   </div>
                 </div>
                 <Link to="/voice-assistant" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMicrophone /> Voice Assistant</Link>
+                <Link to="/myth-checker" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMedal /> Myth Checker</Link>
+                <Link to="/crop-comparison" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaLeaf /> Crop Comparison</Link>
                 <div className="performance-toggle-section">
                   <button
                     className={`lite-mode-toggle ${liteMode ? 'active' : ''}`}
@@ -759,6 +766,7 @@ function App() {
             <Route path="/crop-planner" element={<SeasonalCropPlanner />} />
             <Route path="/soil-guide" element={<SoilGuide />} />
             <Route path="/disease-awareness" element={<CropDiseaseAwareness />} />
+            <Route path="/seasonal-pest-calendar" element={<PestCalendar />} />
             <Route path="/pest-detection" element={<PestDetection />} />
             <Route path="/equipment-management" element={<EquipmentManagement />} />
             <Route path="/helpline" element={<Helpline />} />
@@ -771,7 +779,7 @@ function App() {
             <Route path="/farming-news" element={<FarmingNews userData={userData} />} />
             <Route path="/yield-predictor" element={<YieldPredictor />} />
             <Route path="/smart-farm-autopilot" element={<SmartFarmAutopilot />} />
-            
+
             <Route
               path="/sustainability-analytics"
               element={<SustainabilityAnalyticsPage userData={userData} />}
@@ -780,6 +788,16 @@ function App() {
             <Route path="/blog/:id" element={<BlogDetail />} />
             <Route path="/weather" element={<Weather />} />
             <Route path="/voice-assistant" element={<VoiceAssistant />} />
+            <Route path="/retraining-monitor" element={<RetrainingPipelineMonitor />} />
+            <Route
+              path="/myth-checker"
+              element={
+                <div className="app-content">
+                  <FarmingMythChecker />
+                </div>
+              }
+            />
+            <Route path="/crop-comparison" element={<CropComparison />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </React.Suspense>

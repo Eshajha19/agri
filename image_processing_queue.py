@@ -22,7 +22,6 @@ import threading
 import time
 import os
 import random
-from collections import OrderedDict
 
 logger = logging.getLogger(__name__)
 
@@ -174,33 +173,25 @@ class ImageProcessingQueue:
     horizontal scaling support.
     """
 
-    def __init__(self, max_queue_size: int = 10000, enable_persistence: bool = False, enable_backoff: bool = False, backoff_base: float = 1.0, enable_caching: bool = True, batch_size: int = 10):
+    def __init__(self, max_queue_size: int = 10000, enable_persistence: bool = False, enable_backoff: bool = False, backoff_base: float = 1.0):
         self.max_queue_size = max_queue_size
         self.enable_persistence = enable_persistence
         # Backoff controls (opt-in to preserve previous behavior in tests)
         self.enable_backoff = enable_backoff
         self.backoff_base = backoff_base
-        self.batch_size = batch_size
-
+        
         # Task storage (heap of (priority, counter, task) tuples)
         self._task_queue: List[tuple] = []
         self._tasks_by_id: Dict[str, ImageProcessingTask] = {}
         self._counter = 0
+        self._total_enqueued = 0
+        self._total_processed = 0
+        self._total_failed = 0
         self._completed_tasks: Dict[str, ImageProcessingTask] = {}  # History
         # Ack store for exactly-once semantics: maps task_id -> status
         self._ack_store: Dict[str, str] = {}
-        self._ack_file = os.getenv("IMAGE_PROCESSING_QUEUE_ACK_FILE", "queue_acks.json") if enable_persistence else None
-        if self._ack_file and os.path.exists(self._ack_file):
-            try:
-                with open(self._ack_file, "r", encoding="utf-8") as ack_file:
-                    persisted_acks = json.load(ack_file)
-                if isinstance(persisted_acks, dict):
-                    self._ack_store = {str(task_id): str(status) for task_id, status in persisted_acks.items()}
-                else:
-                    logger.warning("Ignoring invalid ack store format in %s: expected object", self._ack_file)
-            except (OSError, json.JSONDecodeError) as exc:
-                logger.warning("Failed to load ack store from %s: %s", self._ack_file, exc)
-
+        self._ack_file = "queue_acks.json" if enable_persistence else None
+        
         # Worker management
         self._workers: Dict[str, WorkerStats] = {}
         self._worker_lock = threading.Lock()
@@ -235,6 +226,14 @@ class ImageProcessingQueue:
             self._counter += 1
             self._tasks_by_id[task.task_id] = task
             self._total_enqueued += 1
+
+        # Persist ack store if enabled
+        if self.enable_persistence:
+            try:
+                with open(self._ack_file, "w", encoding="utf-8") as f:
+                    json.dump(self._ack_store, f)
+            except Exception:
+                logger.debug("Failed to persist ack_store")
 
         logger.info(f"Task {task.task_id} enqueued (priority: {task.priority.name}, queue_size: {len(self._task_queue)})")
         return task.task_id
@@ -395,7 +394,13 @@ class ImageProcessingQueue:
             return None
 
     def cancel_task(self, task_id: str) -> bool:
-        """Cancel a queued or retrying task"""
+        """
+        Cancel a queued or retrying task.
+        
+        Note: The internal queue is managed as a heap list, not a collections.deque.
+        Cancellation is performed safely by filtering the list and re-heapifying
+        to maintain priority queue invariants.
+        """
         # Acquire both locks in a consistent order (_task_lock before
         # _queue_lock) to avoid deadlock with fail_task, which also nests
         # _queue_lock inside _task_lock.
@@ -410,16 +415,7 @@ class ImageProcessingQueue:
             task.status = TaskStatus.CANCELLED
 
             with self._queue_lock:
-                # Rebuild the heap without the cancelled task.
-                # The previous code used `deque(t for t in self._task_queue if
-                # t.task_id != task_id)` which had three bugs:
-                #   1. `deque` was never imported.
-                #   2. Heap tuples are (priority, counter, task) — they have no
-                #      `.task_id` attribute, so the filter always raised AttributeError.
-                #   3. Replacing the heap list with a deque broke all future
-                #      heappush / heappop calls.
-                # Fix: filter the heap list by inspecting entry[2].task_id (the task
-                # inside each tuple), then heapify to restore the heap invariant.
+           
                 self._task_queue = [
                     entry for entry in self._task_queue
                     if entry[2].task_id != task_id

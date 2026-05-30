@@ -8,6 +8,7 @@ import SoilChatbot from "./SoilChatbot";
 import SoilAnalysis from "./SoilAnalysis";
 import SoilGuide from "./SoilGuide";
 import CropGrowthStageGuide from "./CropGrowthStageGuide";
+import SeasonalFarmingStrategyGuide from "./SeasonalFarmingStrategyGuide";
 import WeatherFarmingImpactGuide from "./WeatherFarmingImpactGuide";
 import CropDiseaseLifecycleExplorer from "./CropDiseaseLifecycleExplorer";
 import IrrigationGuidance from "./IrrigationGuidance";
@@ -103,6 +104,7 @@ import {
   fetchWeatherByIP,
   searchLocationByName,
 } from "./weather/weatherService";
+import IrrigationCard from "./components/IrrigationCard";
 
 export default function Advisor({ userData }) {
   const navigate = useNavigate();
@@ -230,6 +232,7 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
     const [showSoilImprovementPath, setShowSoilImprovementPath] = useState(false);
     const [showFarmingMistakesGuide, setShowFarmingMistakesGuide] = useState(false);
     const [showCropGrowthGuide, setShowCropGrowthGuide] = useState(false);
+    const [showSeasonalStrategyGuide, setShowSeasonalStrategyGuide] = useState(false);
     const [showWeatherImpactGuide, setShowWeatherImpactGuide] = useState(false);
     const [showDiseaseLifecycle, setShowDiseaseLifecycle] = useState(false);
 
@@ -605,6 +608,23 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#0ea5a4', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>GUIDE</div>
             <h3><span className="notranslate">Crop Growth Stage Visual Guide</span></h3>
             <p>Visual lifecycle: Seed → Sprout → Growth → Harvest, with stage-wise care and image examples.</p>
+          </div>
+
+          <div
+            className="card reveal"
+            role="button"
+            tabIndex={0}
+            onClick={() => setShowSeasonalStrategyGuide(true)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSeasonalStrategyGuide(true); }}
+            aria-label="Seasonal Farming Strategy Guide: Kharif, Rabi, and Zaid planning"
+            style={{ border: '2px solid #2563eb', background: 'rgba(37, 99, 235, 0.03)' }}
+          >
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(37, 99, 235, 0.1)', color: '#2563eb' }}>
+              <Calendar size={32} strokeWidth={2} />
+            </div>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#2563eb', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>GUIDE</div>
+            <h3><span className="notranslate">Seasonal Farming Strategy Guide</span></h3>
+            <p>Season-specific checklists for Kharif, Rabi, and Zaid with field priorities and risk controls.</p>
           </div>
 
           
@@ -1301,6 +1321,15 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
            <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1100px', width: '95vw' }}>
              <button className="close-btn" onClick={() => setShowCropGrowthGuide(false)} aria-label="Close crop growth guide"><X /></button>
              <CropGrowthStageGuide onClose={() => setShowCropGrowthGuide(false)} />
+           </div>
+         </div>
+       )}
+
+       {showSeasonalStrategyGuide && (
+         <div key="modal-seasonal-strategy" className="weather-overlay" onClick={() => setShowSeasonalStrategyGuide(false)}>
+           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1120px', width: '95vw' }}>
+             <button className="close-btn" onClick={() => setShowSeasonalStrategyGuide(false)} aria-label="Close seasonal farming strategy guide"><X /></button>
+             <SeasonalFarmingStrategyGuide onClose={() => setShowSeasonalStrategyGuide(false)} />
            </div>
          </div>
        )}
