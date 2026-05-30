@@ -280,7 +280,14 @@ class SustainabilityAnalytics:
         db = self._get_db()
         if db is not None:
             try:
-                docs = db.collection("sustainability_history").where("user_id", "==", key).limit(limit).get()
+                from firebase_admin import firestore
+                docs = (
+                    db.collection("sustainability_history")
+                    .where("user_id", "==", key)
+                    .order_by("created_at", direction=firestore.Query.DESCENDING)
+                    .limit(limit)
+                    .get()
+                )
                 entries = [d.to_dict() for d in docs]
                 # Sort entries by created_at descending (newest first)
                 entries.sort(key=lambda x: x.get("created_at", ""), reverse=True)
