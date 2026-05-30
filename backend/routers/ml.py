@@ -26,7 +26,12 @@ class PredictResponse(BaseModel):
     predicted_ExpYield: float
 
 class YieldInput(BaseModel):
-    data: list[float]
+    # Cap the list length to prevent a single request from allocating an
+    # arbitrarily large numpy array. predict_yield_lag expects exactly 5
+    # values; predict_yield_trend uses 5 values internally. 1000 items is
+    # several orders of magnitude above any legitimate use case and keeps
+    # peak memory bounded at roughly 8 kB (1000 float64 values).
+    data: list[float] = Field(..., min_items=1, max_items=1000)
 
 model_router = None
 model_lag = None
