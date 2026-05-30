@@ -235,7 +235,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [profileCompleted, setProfileCompleted] = useState(true);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [showScorecard, setShowScorecard] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
@@ -385,8 +385,9 @@ function App() {
   /* ---------------- AUTH & FIRESTORE SYNC ---------------- */
   useEffect(() => {
     if (!isFirebaseConfigured()) {
+      const timeout = setTimeout(() => setLoading(false), 3000);
       setLoading(false);
-      return;
+      return () => clearTimeout(timeout);;
     }
 
     const userDocUnsubscribeRef = { current: null };
@@ -558,12 +559,12 @@ function App() {
         </div>
 
         <ul className={`nav-center ${isOpen ? "active" : ""}`}>
-           <li><Link to="/" onClick={() => setIsOpen(false)}>Home</Link></li>
-           <li><Link to="/about" onClick={() => setIsOpen(false)}>About</Link></li>
-           <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}>How It Works</Link></li>
-           <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}> Crop Guide</Link></li>
-           <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
-         </ul>
+          <li><Link to="/" onClick={() => setIsOpen(false)}>Home</Link></li>
+          <li><Link to="/about" onClick={() => setIsOpen(false)}>About</Link></li>
+          <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}>How It Works</Link></li>
+          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}> Crop Guide</Link></li>
+          <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
+        </ul>
 
         <div className="nav-right">
           <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Cycle Theme" title={`Current theme: ${theme}`}>
@@ -616,10 +617,10 @@ function App() {
                     ))}
                   </div>
                 </div>
-      <Link to="/voice-assistant" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMicrophone /> Voice Assistant</Link>
-      <Link to="/myth-checker" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMedal /> Myth Checker</Link>
-      <Link to="/crop-comparison" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaLeaf /> Crop Comparison</Link>
-      <div className="performance-toggle-section">
+                <Link to="/voice-assistant" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMicrophone /> Voice Assistant</Link>
+                <Link to="/myth-checker" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMedal /> Myth Checker</Link>
+                <Link to="/crop-comparison" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaLeaf /> Crop Comparison</Link>
+                <div className="performance-toggle-section">
                   <button
                     className={`lite-mode-toggle ${liteMode ? 'active' : ''}`}
                     onClick={() => setLiteMode(!liteMode)}
@@ -778,7 +779,7 @@ function App() {
             <Route path="/farming-news" element={<FarmingNews userData={userData} />} />
             <Route path="/yield-predictor" element={<YieldPredictor />} />
             <Route path="/smart-farm-autopilot" element={<SmartFarmAutopilot />} />
-            
+
             <Route
               path="/sustainability-analytics"
               element={<SustainabilityAnalyticsPage userData={userData} />}
@@ -790,11 +791,11 @@ function App() {
             <Route path="/retraining-monitor" element={<RetrainingPipelineMonitor />} />
             <Route
               path="/myth-checker"
-                element={
-            <div className="app-content">
-                <FarmingMythChecker />
-            </div>
-            }
+              element={
+                <div className="app-content">
+                  <FarmingMythChecker />
+                </div>
+              }
             />
             <Route path="/crop-comparison" element={<CropComparison />} />
             <Route path="*" element={<NotFound />} />
