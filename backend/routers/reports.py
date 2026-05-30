@@ -210,8 +210,18 @@ def _sign_report(private_key: Ed25519PrivateKey, data: ReportRequest, cert_id: s
 
 
 def _make_cert_id(data: ReportRequest) -> str:
-    """Derive a short, deterministic certificate ID from the report fields."""
-    raw = f"{data.name}|{data.crop}|{data.season}|{datetime.now(timezone.utc).strftime('%Y%m%d')}"
+    """Generate a unique certificate ID for each report request.
+
+    A random 8-byte nonce is mixed into the hash input so that two requests
+    with identical field values (same farmer name, crop, and season on the
+    same day) always produce different IDs. Without the nonce, the ID is fully
+    deterministic and collides silently on repeated submissions, causing the
+    second PDF to overwrite or be confused with the first in any downstream
+    system that indexes by certificate ID.
+    """
+    import secrets
+    nonce = secrets.token_hex(8)
+    raw = f"{data.name}|{data.crop}|{data.season}|{datetime.now(timezone.utc).strftime('%Y%m%d')}|{nonce}"
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:10].upper()
     return f"CERT-{digest}"
 
