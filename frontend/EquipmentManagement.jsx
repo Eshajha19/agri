@@ -21,7 +21,7 @@ export default function EquipmentManagement({ onClose }) {
 
    // Load equipment data – runs once on mount; `loadEquipmentData` and
    // `updateSensorData` are intentionally excluded from the dep array.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   useEffect(() => {
     loadEquipmentData();
     const interval = setInterval(() => {
