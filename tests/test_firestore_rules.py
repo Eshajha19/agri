@@ -25,9 +25,10 @@ os.environ["FIRESTORE_EMULATOR_HOST"] = FIREBASE_EMULATOR_HOST
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
 
-# Initialize Firebase with emulator (idempotent).
-# Skip the entire module gracefully when no credentials/emulator are available.
+# Initialize Firebase with emulator
 try:
+    app = firebase_admin.get_app(name="test-app")
+except ValueError:
     try:
         app = firebase_admin.get_app(name="test-app")
     except ValueError:
