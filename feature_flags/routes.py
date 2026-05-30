@@ -34,6 +34,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from feature_flags import experiment_engine, flag_store, metrics_collector
+from feature_flags.ab_testing_runner import get_runner
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +114,15 @@ class EventBatchRequest(BaseModel):
     events: List[EventRequest] = Field(..., max_items=100)
 
 
+class TrafficSplitVariant(BaseModel):
+    id: str
+    weight: int = Field(..., ge=0, le=100)
+
+
+class TrafficSplitRequest(BaseModel):
+    variants: List[TrafficSplitVariant] = Field(..., min_items=2)
+
+
 # ── Feature Flag endpoints ─────────────────────────────────────────────────────
 
 @router.get("/flags", summary="List all feature flags (public read)")
@@ -173,7 +183,7 @@ async def create_experiment(request: Request, body: ExperimentCreateRequest):
 @router.post("/experiments/assign", summary="Assign user to experiment variant (authenticated)")
 async def assign_user(request: Request, body: AssignRequest):
     await _require_authenticated(request)
-    assignment = experiment_engine.assign_user(body.user_id, body.experiment_id)
+    assignment = get_runner(body.experiment_id).record_assignment(body.user_id)
     return assignment
 
 
@@ -190,6 +200,32 @@ async def update_status(request: Request, exp_id: str, body: StatusUpdateRequest
 async def get_metrics(request: Request, exp_id: str):
     await _require_admin(request)
     return metrics_collector.get_experiment_metrics(exp_id)
+
+
+@router.post("/experiments/{exp_id}/traffic-split", summary="Update experiment traffic split (admin)")
+async def update_traffic_split(request: Request, exp_id: str, body: TrafficSplitRequest):
+    await _require_admin(request)
+    runner = get_runner(exp_id)
+    updated = runner.set_traffic_split({variant.id: variant.weight for variant in body.variants})
+    return {"success": True, "experiment": updated}
+
+
+@router.post("/experiments/{exp_id}/evaluate", summary="Evaluate and auto-promote a winner (admin)")
+async def evaluate_experiment(request: Request, exp_id: str):
+    await _require_admin(request)
+    runner = get_runner(exp_id)
+    decision = runner.process()
+    return {
+        "success": True,
+        "decision": {
+            "experiment_id": decision.experiment_id,
+            "winner_variant": decision.winner_variant,
+            "runner_up_variant": decision.runner_up_variant,
+            "promoted": decision.promoted,
+            "reason": decision.reason,
+        },
+        "metrics": decision.metrics,
+    }
 
 
 # ── Analytics endpoints ────────────────────────────────────────────────────────

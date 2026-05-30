@@ -78,7 +78,6 @@ define(['./workbox-d20fdc50'], (function (workbox) { 'use strict';
    */
   workbox.precacheAndRoute([{
     "url": "index.html",
-    "revision": "0.ubb4234fno"
     "revision": "0.982cd4ft7rk"
   }], {});
   workbox.cleanupOutdatedCaches();
