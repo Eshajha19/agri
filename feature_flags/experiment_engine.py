@@ -59,6 +59,18 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _persist_experiment(exp_id: str) -> None:
+    if not _FIRESTORE_AVAILABLE:
+        return
+    exp = _exp_cache.get(exp_id)
+    if not exp:
+        return
+    try:
+        _fs_client.collection(EXP_COLLECTION).document(exp_id).set(exp)
+    except Exception as exc:
+        logger.error("Failed to persist experiment '%s': %s", exp_id, exc)
+
+
 # ── Deterministic assignment ───────────────────────────────────────────────────
 
 def _assign_variant(user_id: str, experiment_id: str, salt: str,
@@ -168,11 +180,73 @@ def create_experiment(data: Dict) -> Dict:
     _exp_cache[exp_id] = exp
     _exp_cache_at = time.monotonic()
     
-    if _FIRESTORE_AVAILABLE:
-        try:
-            _fs_client.collection(EXP_COLLECTION).document(exp_id).set(exp)
-        except Exception as e:
-            logger.error("Failed to persist experiment: %s", e)
+    _persist_experiment(exp_id)
+    return exp
+
+
+def set_traffic_split(exp_id: str, traffic_split: Dict[str, int]) -> Optional[Dict]:
+    """Set variant weights for an experiment and persist the updated split."""
+    _ensure_exp_cache()
+    exp = _exp_cache.get(exp_id)
+    if not exp:
+        return None
+
+    variants = exp.get("variants", [])
+    if not variants:
+        return None
+
+    normalized_weights = []
+    total_weight = 0
+    for variant in variants:
+        variant_id = variant.get("id")
+        if variant_id not in traffic_split:
+            raise ValueError(f"Missing traffic weight for variant '{variant_id}'")
+        weight = int(traffic_split[variant_id])
+        if weight < 0:
+            raise ValueError("Traffic weights must be non-negative")
+        normalized_weights.append((variant_id, weight))
+        total_weight += weight
+
+    if total_weight <= 0:
+        raise ValueError("Traffic split must allocate positive weight")
+    if total_weight != 100:
+        raise ValueError("Traffic split weights must sum to 100")
+
+    exp["variants"] = [
+        {**variant, "weight": dict(normalized_weights)[variant.get("id")]} 
+        for variant in variants
+    ]
+    exp["traffic_split"] = {variant_id: weight for variant_id, weight in normalized_weights}
+    exp["updated_at"] = _now_iso()
+    _persist_experiment(exp_id)
+    return exp
+
+
+def promote_winner(exp_id: str, winner_variant_id: str, reason: str = "auto_winner_promotion") -> Optional[Dict]:
+    """Promote the winning variant to 100% traffic and mark the experiment completed."""
+    _ensure_exp_cache()
+    exp = _exp_cache.get(exp_id)
+    if not exp:
+        return None
+
+    variants = exp.get("variants", [])
+    if not any(variant.get("id") == winner_variant_id for variant in variants):
+        raise ValueError(f"Variant '{winner_variant_id}' not found in experiment '{exp_id}'")
+
+    exp["status"] = "completed"
+    exp["winner_variant"] = winner_variant_id
+    exp["promotion_reason"] = reason
+    exp["promoted_at"] = _now_iso()
+    exp["updated_at"] = _now_iso()
+    exp["variants"] = [
+        {**variant, "weight": 100 if variant.get("id") == winner_variant_id else 0}
+        for variant in variants
+    ]
+    exp["traffic_split"] = {
+        variant.get("id"): (100 if variant.get("id") == winner_variant_id else 0)
+        for variant in variants
+    }
+    _persist_experiment(exp_id)
     return exp
 
 
@@ -186,6 +260,14 @@ def assign_user(user_id: str, experiment_id: str) -> Dict:
     if not exp:
         return {"user_id": user_id, "experiment_id": experiment_id,
                 "variant": "control", "reason": "experiment_not_found"}
+
+    if exp.get("status") == "completed" and exp.get("winner_variant"):
+        return {
+            "user_id": user_id,
+            "experiment_id": experiment_id,
+            "variant": exp["winner_variant"],
+            "reason": "winner_promoted",
+        }
 
     if exp.get("status") not in ("running",):
         return {"user_id": user_id, "experiment_id": experiment_id,
