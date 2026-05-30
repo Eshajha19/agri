@@ -113,6 +113,70 @@ def _rewrite_markdown_links_safe(text: str) -> str:
     return "".join(result)
 
 
+def _normalize_for_injection_checks(value: str) -> str:
+    """Collapse text into a lowercase alphanumeric token stream for checks."""
+    value = re.sub(r"[^a-z0-9]+", " ", value.lower())
+    return re.sub(r"\s+", " ", value).strip()
+
+
+_PROMPT_INJECTION_PHRASES = (
+    "ignore previous instructions",
+    "ignore prior instructions",
+    "ignore prior msgs",
+    "ignore prior messages",
+    "ignore system prompt",
+    "ignore the system prompt",
+    "override system constraints",
+    "developer mode",
+    "bypass safety filter",
+    "disregard prior instructions",
+    "disregard all prior instructions",
+    "act as different ai",
+    "act as unrestricted ai",
+    "act as unfiltered ai",
+    "pretend you are different",
+    "pretend to be different",
+    "jailbreak",
+    "prompt injection",
+)
+
+
+_PROMPT_INJECTION_TOKEN_SETS = (
+    {"ignore", "previous", "instructions"},
+    {"ignore", "prior", "instructions"},
+    {"ignore", "prior", "msgs"},
+    {"ignore", "prior", "messages"},
+    {"ignore", "system", "prompt"},
+    {"ignore", "the", "system", "prompt"},
+    {"override", "system", "constraints"},
+    {"developer", "mode"},
+    {"bypass", "safety", "filter"},
+    {"disregard", "prior", "instructions"},
+    {"disregard", "all", "prior", "instructions"},
+    {"act", "as", "different", "ai"},
+    {"act", "as", "unrestricted", "ai"},
+    {"act", "as", "unfiltered", "ai"},
+    {"pretend", "you", "are", "different"},
+    {"pretend", "to", "be", "different"},
+    {"jailbreak"},
+    {"prompt", "injection"},
+)
+
+
+def _looks_like_prompt_injection(value: str) -> bool:
+    if any(phrase in value for phrase in _PROMPT_INJECTION_PHRASES):
+        return True
+
+    words = set(value.split())
+    for token_set in _PROMPT_INJECTION_TOKEN_SETS:
+        if token_set.issubset(words):
+            return True
+
+    suspicious_tokens = {"ignore", "override", "bypass", "disregard", "jailbreak", "pretend"}
+    context_tokens = {"instructions", "instruction", "prompt", "system", "assistant", "developer", "mode", "msgs", "messages", "prior", "previous"}
+    return bool(words & suspicious_tokens) and len(words & context_tokens) >= 2
+
+
 class RAGQuery(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
@@ -139,23 +203,9 @@ class RAGQuery(BaseModel):
         value = _rewrite_markdown_links_safe(value)
         value = re.sub(r"\s+", " ", value.strip())
 
-        forbidden_patterns = [
-            r"ignore\s+(?:all\s+)?previous\s+instructions",
-            r"ignore\s+(?:the\s+)?system\s+prompt",
-            r"override\s+system\s+constraints",
-            r"developer\s+mode",
-            r"bypass\s+safety\s+filter",
-            r"disregard\s+(?:all\s+)?prior\s+instructions",
-            r"act\s+as\s+(?:a\s+)?(?:different|unrestricted|unfiltered)\s+(?:ai|model|assistant)",
-            r"pretend\s+(?:you\s+are|to\s+be)\s+(?:a\s+)?(?:different|unrestricted)",
-            r"jailbreak",
-            r"prompt\s+injection",
-        ]
-
-        lowered = value.lower()
-        for pattern in forbidden_patterns:
-            if re.search(pattern, lowered):
-                raise ValueError("Query contains disallowed phrases or prompt injection attempts.")
+        normalized = _normalize_for_injection_checks(value)
+        if _looks_like_prompt_injection(normalized):
+            raise ValueError("Query contains disallowed phrases or prompt injection attempts.")
 
         if len(value) < 3:
             raise ValueError("Query must be at least 3 characters long after sanitization.")
