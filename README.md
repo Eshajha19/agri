@@ -215,6 +215,23 @@ For certified/bank report generation, the backend also needs a signing key sourc
 - Backend: pytest / unittest
 - Add CI with GitHub Actions for linting + tests + deploy
 
+## 🔒 Security CI
+
+The repository now includes a dedicated security gate for secret scanning, dependency SCA, and policy enforcement.
+
+Local policy check:
+
+```bash
+python scripts/security_ci.py policy --root . --policy .github/security-policy.json
+```
+
+The GitHub Actions workflow at [`.github/workflows/security-ci.yml`](.github/workflows/security-ci.yml) runs:
+
+- secret scanning and repository policy enforcement via `scripts/security_ci.py`
+- dependency SCA via `pip-audit` and `safety`
+
+Test fixtures are excluded from the secret scan so synthetic examples in the test suite do not fail the gate.
+
 ## 🔒 Differential Privacy (DP-SGD) Proof of Concept
 
 Yield model training now supports an optional differential privacy mode.
