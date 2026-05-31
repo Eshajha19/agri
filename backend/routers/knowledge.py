@@ -152,44 +152,42 @@ async def _parse_rag_query(request: Request) -> RAGQuery:
         raise HTTPException(status_code=422, detail=detail) from exc
 
 
-def _coerce_rate_limit_response(rate_limited):
-    if rate_limited is None:
-        return None
-    if isinstance(rate_limited, JSONResponse):
-        return rate_limited
-    return JSONResponse(status_code=429, content=rate_limited)
+def _enforce_rate_limit(request: Request, scope: str, uid: Optional[str], limit: int, window_seconds: int) -> None:
+    """Enforce compute rate limit, raising HTTPException(429) on exhaustion.
 
+    Replaces the previous return-value contract where callers checked
+    `if rate_limited is not None: return rate_limited`. That pattern had
+    two failure modes:
+      1. An empty dict {} from the limiter would be returned as HTTP 200.
+      2. Any non-None, non-JSONResponse value would be returned verbatim,
+         producing an unstructured response the frontend could not parse.
 
-def _require_verify_role_fn():
-    if verify_role_fn is None:
-        raise HTTPException(status_code=500, detail="Not initialized")
-    return verify_role_fn
-
-
-def _require_rag_runtime():
-    verify_fn = _require_verify_role_fn()
-    if rag_generate_fn is None:
-        raise HTTPException(status_code=503, detail="RAG not available")
-    return rag_generate_fn, verify_fn
-
-
-def _require_simulation_runtime():
-    return _require_verify_role_fn()
-
-
-def _require_seed_runtime():
-    verify_fn = _require_verify_role_fn()
-    if seed_registry is None:
-        raise HTTPException(status_code=503, detail="Seed registry not initialized")
-    return verify_fn, seed_registry
-
-
-def _coerce_rate_limit_response(rate_limited):
-    if rate_limited is None:
-        return None
-    if isinstance(rate_limited, JSONResponse):
-        return rate_limited
-    return JSONResponse(status_code=429, content=rate_limited)
+    Raising HTTPException(429) is consistent with the rest of the codebase
+    and guarantees the error path is always deterministic regardless of what
+    enforce_compute_rate_limit returns.
+    """
+    rate_limited = enforce_compute_rate_limit(
+        request,
+        scope=scope,
+        uid=uid,
+        limit=limit,
+        window_seconds=window_seconds,
+    )
+    if rate_limited is not None:
+        # Extract retry_after from the JSONResponse if available so the
+        # Retry-After header is preserved in the HTTPException detail.
+        retry_after = None
+        if isinstance(rate_limited, JSONResponse):
+            try:
+                import json as _json
+                body = _json.loads(rate_limited.body)
+                retry_after = body.get("error", {}).get("retry_after")
+            except Exception:
+                pass
+        detail = "Rate limit exceeded. Please retry later."
+        if retry_after:
+            detail = f"Rate limit exceeded. Retry after {retry_after} seconds."
+        raise HTTPException(status_code=429, detail=detail)
 
 
 def init_knowledge(rg_fn, rbac, perm, sr, vr_fn):
@@ -433,16 +431,13 @@ async def rag_query(request: Request, body: RAGQuery = Depends(_parse_rag_query)
     rag_fn, verify_fn = runtime
     # Raises HTTP 401 if the Firebase token is missing or invalid.
     token_data = await verify_fn(request)
-    rate_limited = enforce_compute_rate_limit(
+    _enforce_rate_limit(
         request,
         scope="knowledge.rag_query",
         uid=(token_data or {}).get("uid"),
         limit=12,
         window_seconds=60,
     )
-    rate_limited = _coerce_rate_limit_response(rate_limited)
-    if rate_limited is not None:
-        return rate_limited
     try:
         result = rag_fn(body.query, body.top_k)
         return {"success": True, "query": body.query, "results": result}
@@ -462,16 +457,13 @@ async def simulate_climate(request: Request, data: SimulationRequest, verify_fn=
     """
     # Raises HTTP 401 if the Firebase token is missing or invalid.
     token_data = await verify_fn(request)
-    rate_limited = enforce_compute_rate_limit(
+    _enforce_rate_limit(
         request,
         scope="knowledge.simulate_climate",
         uid=(token_data or {}).get("uid"),
         limit=10,
         window_seconds=60,
     )
-    rate_limited = _coerce_rate_limit_response(rate_limited)
-    if rate_limited is not None:
-        return rate_limited
     try:
         canonical_region = _resolve_region(data.region or "central")
         canonical_season = _resolve_season(data.season or "kharif")
