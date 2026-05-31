@@ -161,6 +161,12 @@ class _CommodityModel:
         X = np.array(X).reshape(-1, SEQ_LEN, 1)
         y = np.array(y)
 
+        # Time-based validation split — last 10% of chronologically ordered sequences
+        val_size = max(1, int(len(X) * 0.1))
+        X_train, X_val = X[:-val_size], X[-val_size:]
+        y_train, y_val = y[:-val_size], y[-val_size:]
+        logger.info("Time-based split: %d train, %d validation sequences", len(X_train), len(X_val))
+
         # Build model
         model = tf.keras.Sequential([
             tf.keras.layers.LSTM(32, activation="tanh", input_shape=(SEQ_LEN, 1)),
@@ -171,16 +177,16 @@ class _CommodityModel:
 
         # Suppress TF progress output
         model.fit(
-            X, y,
+            X_train, y_train,
             epochs=30,
             batch_size=8,
             verbose=0,
-            validation_split=0.1,
+            validation_data=(X_val, y_val),
         )
 
         # Estimate residual std on training data for confidence intervals
-        preds = model.predict(X, verbose=0).flatten()
-        residuals = y - preds
+        preds = model.predict(X_train, verbose=0).flatten()
+        residuals = y_train - preds
         self._residual_std = float(np.std(residuals))
 
         self._model = model
