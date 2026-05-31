@@ -9,7 +9,7 @@ import hmac
 import hashlib
 import secrets
 import time
-import
+import os
 from typing import List, Optional
 from urllib.parse import urlparse
 
@@ -47,6 +47,11 @@ def reject_cross_origin(request: Request) -> None:
     (e.g. Twilio webhooks), while browser-originated cross-origin POSTs
     are rejected.
     """
+    if not _TRUSTED_ORIGINS:
+        import logging
+        logging.getLogger(__name__).warning(
+            "CSRF: _TRUSTED_ORIGINS is empty — all browser requests will be rejected. Call configure() on startup."
+        )
     client_origin = _extract_origin(request)
     if client_origin is None:
         return
@@ -55,7 +60,6 @@ def reject_cross_origin(request: Request) -> None:
             status_code=403,
             detail="Cross-origin request rejected",
         )
-
 
 def generate_token(uid: str) -> str:
     """Return a stateless HMAC-signed token tied to *uid*, valid 1 hour."""
