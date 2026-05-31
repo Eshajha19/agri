@@ -139,12 +139,43 @@ async def register_trace_batch(request: Request, data: RegisterTraceBatchRequest
     uid = token_data.get("uid")
 
     try:
-        batch_payload = data.model_dump()
-        batch_payload["registeredByUid"] = uid
-        batch_payload["status"] = "Pending Verification"
-        result = supply_chain_blockchain.register_trace_batch(batch_payload)
-        result["traceability"] = supply_chain_blockchain.get_traceability_qr_payload(result["id"])
-        return {"success": True, "batch": result}
+        # register_trace_batch() does not exist on SupplyChainBlockchain.
+        # Map the RegisterTraceBatchRequest fields to create_product_batch(),
+        # which is the correct method for persisting a new batch server-side.
+        #
+        # Field mapping:
+        #   data.crop      → crop_type   (crop name, e.g. "Rice")
+        #   data.farm      → farm_id     (farm identifier / name)
+        #   data.variety   → farmer_name (closest available field; variety
+        #                                 is stored in the batch metadata)
+        #   data.harvestDate → harvesting_date
+        #   quantity / unit  → defaults (not in RegisterTraceBatchRequest)
+        batch = supply_chain_blockchain.create_product_batch(
+            crop_type=data.crop,
+            farm_id=data.farm,
+            quantity=1.0,           # not provided by this request schema
+            unit="unit",            # not provided by this request schema
+            planting_date="",       # not provided by this request schema
+            harvesting_date=data.harvestDate,
+            farmer_name=data.variety,
+            owner_uid=uid or "",
+        )
+        batch_id = batch.batch_id
+        traceability = supply_chain_blockchain.get_traceability_qr_payload(batch_id)
+        return {
+            "success": True,
+            "batch": {
+                "id": batch_id,
+                "crop": data.crop,
+                "variety": data.variety,
+                "harvestDate": data.harvestDate,
+                "farm": data.farm,
+                "journey": [step.model_dump() for step in data.journey],
+                "registeredByUid": uid,
+                "status": "Pending Verification",
+                "traceability": traceability,
+            },
+        }
     except Exception as e:
         logger.error(f"Trace batch registration error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -162,10 +193,14 @@ async def get_trace_batch(batch_id: str):
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     try:
-        batch = supply_chain_blockchain.get_trace_batch(batch_id)
+        # get_trace_batch() does not exist on SupplyChainBlockchain.
+        # Use products.get() to look up the batch by ID, which is the
+        # correct way to retrieve a persisted batch.
+        from dataclasses import asdict
+        batch = supply_chain_blockchain.products.get(batch_id)
         if batch is None:
             raise HTTPException(status_code=404, detail="Batch not found")
-        return {"success": True, "batch": batch}
+        return {"success": True, "batch": asdict(batch)}
     except HTTPException:
         raise
     except Exception as e:
