@@ -27,6 +27,7 @@ Solutions
 - Errors are logged with full tracebacks instead of being swallowed.
 """
 
+import copy
 import json
 import logging
 import os
@@ -133,13 +134,28 @@ class SubscriberStore:
 
     def get_all(self) -> Dict[str, Subscriber]:
         """
-        Return a snapshot of all subscribers.
+        Return a deep copy snapshot of all subscribers.
 
-        The returned dict is a copy — callers cannot accidentally mutate
-        the in-memory state.
+        Each subscriber value is itself a dict (e.g. {"phone_number": ...,
+        "name": ..., "subscribed_at": ...}).  The previous implementation
+        returned ``dict(self._read_locked())``, which created a new
+        top-level dict but left the nested subscriber dicts as shared
+        references to the objects returned by ``json.load``.
+
+        A caller that mutated a nested field — e.g.
+            result["uid123"]["phone_number"] = "new_number"
+        — would silently modify the same object that was just parsed from
+        disk.  While that object is not cached in memory (every call
+        re-reads the file), any code path that holds a reference to the
+        returned dict across an await point could observe stale or
+        corrupted data if another coroutine mutated the same reference.
+
+        Returning a deep copy guarantees that callers always receive a
+        fully independent snapshot — mutations to any level of the
+        returned structure cannot affect any other reference.
         """
         with self._lock, self._filelock:
-            return dict(self._read_locked())
+            return copy.deepcopy(self._read_locked())
 
     def upsert(self, user_id: str, subscriber: Subscriber) -> None:
         """
