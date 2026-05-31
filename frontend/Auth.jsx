@@ -250,7 +250,14 @@ const Auth = () => {
 
   const navigate = useNavigate();
   const location = useLocation();
-
+  const cleanupGuestSession = async () => {
+    try {
+      sessionStorage.removeItem("guest_migration_pending");
+      sessionStorage.removeItem("guest_uid");
+    } catch (error) {
+      console.error("Guest cleanup failed");
+    }
+  };
   // Security refs
   const rateLimiter = useRef(new AuthRateLimiter());
   const tokenManager = useRef(new SecureTokenManager());
@@ -309,8 +316,17 @@ const Auth = () => {
   const handleGuestLogin = async () => {
     setLoading(true);
     setError("");
+
     try {
       await signInAnonymously(auth);
+
+      try {
+        sessionStorage.setItem(
+          "guest_uid",
+          auth.currentUser?.uid || ""
+        );
+      } catch {}
+
       navigate(redirectAfterAuth, { replace: true });
     } catch (err) {
       console.error("Guest login error");
@@ -374,13 +390,38 @@ const Auth = () => {
         tokenManager.current.storeToken(token, expirationTime);
 
         // If there was a guest session, migrate data to the logged-in account
-        if (anonymousUid && user.uid !== anonymousUid) {
+        if (
+          anonymousUid &&
+          user.uid !== anonymousUid &&
+          !migrationInProgress.current
+        ) {
           try {
+            if (!anonymousUid || !user?.uid) {
+              throw new Error("Invalid migration state");
+            }
+
+            migrationInProgress.current = true;
+
+            try {
+              sessionStorage.setItem(
+                "guest_migration_pending",
+                "true"
+              );
+            } catch {}
+
             await migrateUserData(anonymousUid, user.uid);
-            setMessage("Guest data successfully merged with your account!");
+
+            await cleanupGuestSession();
+
+            setMessage(
+              "Guest data successfully merged with your account!"
+            );
           } catch (migrateErr) {
             console.error("Migration error");
-            // Non-fatal, user is logged in
+
+            await cleanupGuestSession();
+          } finally {
+            migrationInProgress.current = false;
           }
         }
 
