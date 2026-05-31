@@ -3,6 +3,7 @@ Feedback API Endpoint
 Provides secure server-side API for feedback submission with validation.
 """
 
+import asyncio
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -218,6 +219,13 @@ async def verify_admin(request: Request) -> dict:
     verifies it with the Firebase Admin SDK, then reads the caller's
     Firestore user document and checks that role == 'admin'.
 
+    Both the Firebase token verification and the Firestore role lookup are
+    synchronous SDK calls.  Running them directly inside an async function
+    would block the event loop and serialise all concurrent requests behind
+    the network round-trips.  They are therefore offloaded to asyncio's
+    default ThreadPoolExecutor via run_in_executor so the event loop
+    remains free to process other requests while I/O is in flight.
+
     Fail-closed design — any missing or invalid token, unavailable
     Firestore, missing user document, or non-admin role results in a
     4xx response.  The endpoint never falls through to a default that
@@ -237,15 +245,23 @@ async def verify_admin(request: Request) -> dict:
     if not id_token:
         raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
 
+    loop = asyncio.get_event_loop()
+
+    # Offload blocking Firebase SDK call to thread pool.
     try:
-        decoded = firebase_auth.verify_id_token(id_token)
+        decoded = await loop.run_in_executor(
+            None, lambda: firebase_auth.verify_id_token(id_token)
+        )
     except Exception:
         raise HTTPException(status_code=401, detail="Authentication failed")
 
     uid = decoded["uid"]
 
+    # Offload blocking Firestore network call to thread pool.
     try:
-        user_doc = db.collection("users").document(uid).get()
+        user_doc = await loop.run_in_executor(
+            None, lambda: db.collection("users").document(uid).get()
+        )
     except Exception as exc:
         logger.error("Firestore role check failed for uid=%s: %s", uid, exc)
         raise HTTPException(status_code=503, detail="Authorization service temporarily unavailable")
@@ -381,6 +397,9 @@ async def get_feedback_stats(
     The uid resolved by verify_admin is passed through admin_user so the
     handler has the caller's identity without any additional I/O.
     """
+    # Audit trail: record which admin uid triggered the stats fetch.
+    logger.info("Feedback stats accessed by admin uid=%s", admin_user["uid"])
+
     try:
         feedback_ref = db.collection("feedback")
         docs = feedback_ref.limit(1000).stream()
@@ -406,7 +425,8 @@ async def get_feedback_stats(
         avg_rating = total_rating / total_count if total_count > 0 else 0
 
         # Strip PII fields before returning to the caller.
-        _PII_FIELDS = {"ipAddress", "userAgent", "userEmail"}
+        # Use the module-level _PII_FIELDS constant — avoids shadowing it
+        # with a local re-definition that could silently diverge over time.
         recent_raw = feedbacks[-10:] if len(feedbacks) > 10 else feedbacks
         recent = [
             {k: v for k, v in entry.items() if k not in _PII_FIELDS}
