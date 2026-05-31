@@ -1,9 +1,14 @@
 """Knowledge Base Router - RAG, Climate Simulation, Seeds"""
-import re
 from typing import Optional
-from fastapi import APIRouter, Request, HTTPException
-from pydantic import BaseModel, Field, validator
+from fastapi import APIRouter, Depends, Request, HTTPException
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, ValidationError, validator
 import logging
+from threading import Lock
+from time import monotonic
+
+from backend.compute_rate_limit import enforce_compute_rate_limit
+from backend.schemas import RAGQuery
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -11,50 +16,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Pydantic models
 # ---------------------------------------------------------------------------
-
-class RAGQuery(BaseModel):
-    query: str = Field(..., min_length=3, max_length=500)
-    top_k: int = Field(default=3, ge=1, le=5)
-
-    @validator("query")
-    def sanitize_and_normalize_query(cls, v):
-        if not v or not isinstance(v, str):
-            raise ValueError("Query must be a non-empty string.")
-
-        v = re.sub(r'<script.*?>.*?</script>', '', v, flags=re.IGNORECASE | re.DOTALL)
-        v = re.sub(r'</?script.*?>', '', v, flags=re.IGNORECASE)
-        v = re.sub(r'on\w+\s*=', '', v, flags=re.IGNORECASE)
-        v = re.sub(r'javascript:', '', v, flags=re.IGNORECASE)
-        v = re.sub(r'data:', '', v, flags=re.IGNORECASE)
-        v = re.sub(r'vbscript:', '', v, flags=re.IGNORECASE)
-        v = re.sub(r'<[^>]*>', '', v)
-        v = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'\1 (\2)', v)
-        v = re.sub(r'[*_~`#]', '', v)
-        v = v.strip()
-        v = re.sub(r'\s+', ' ', v)
-
-        forbidden_patterns = [
-            r"ignore\s+(?:all\s+)?previous\s+instructions",
-            r"ignore\s+(?:the\s+)?system\s+prompt",
-            r"override\s+system\s+constraints",
-            r"developer\s+mode",
-            r"bypass\s+safety\s+filter",
-            r"disregard\s+(?:all\s+)?prior\s+instructions",
-            r"act\s+as\s+(?:a\s+)?(?:different|unrestricted|unfiltered)\s+(?:ai|model|assistant)",
-            r"pretend\s+(?:you\s+are|to\s+be)\s+(?:a\s+)?(?:different|unrestricted)",
-            r"jailbreak",
-            r"prompt\s+injection",
-        ]
-        v_lower = v.lower()
-        for pattern in forbidden_patterns:
-            if re.search(pattern, v_lower):
-                raise ValueError("Query contains disallowed phrases or prompt injection attempts.")
-
-        if len(v) < 3:
-            raise ValueError("Query must be at least 3 characters long after sanitization.")
-
-        return v
-
 
 class SimulationRequest(BaseModel):
     """Climate simulation request.
@@ -104,6 +65,129 @@ rbac_manager = None
 Permission = None
 seed_registry = None
 verify_role_fn = None
+_RAG_REJECTION_LOG_INTERVAL_SECONDS = 60
+_last_rag_rejection_log = 0.0
+_rag_rejection_log_lock = Lock()
+
+
+def _require_verify_role_fn():
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Not initialized")
+    return verify_role_fn
+
+
+def _require_rag_runtime():
+    verify_fn = _require_verify_role_fn()
+    if rag_generate_fn is None:
+        raise HTTPException(status_code=503, detail="RAG not available")
+    return rag_generate_fn, verify_fn
+
+
+def _require_simulation_runtime():
+    return _require_verify_role_fn()
+
+
+def _require_seed_runtime():
+    verify_fn = _require_verify_role_fn()
+    if seed_registry is None:
+        raise HTTPException(status_code=503, detail="Seed registry not initialized")
+    return verify_fn, seed_registry
+
+
+def _log_rag_rejection(request: Request, exc: ValidationError) -> None:
+    global _last_rag_rejection_log
+
+    now = monotonic()
+    with _rag_rejection_log_lock:
+        if now - _last_rag_rejection_log < _RAG_REJECTION_LOG_INTERVAL_SECONDS:
+            return
+        _last_rag_rejection_log = now
+
+    errors = exc.errors()
+    first_error = errors[0] if errors else {}
+    error_code = first_error.get("type", "validation_error")
+    context = first_error.get("ctx") or {}
+
+    logger.warning(
+        "Rejected RAG query: error_code=%s threat_type=%s threat_match=%s client=%s path=%s",
+        error_code,
+        context.get("threat_type"),
+        context.get("threat_match"),
+        request.client.host if request.client and request.client.host else "unknown",
+        request.url.path,
+    )
+
+
+async def _parse_rag_query(request: Request) -> RAGQuery:
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "invalid_json",
+                "message": "Request body must be valid JSON.",
+            },
+        ) from exc
+
+    try:
+        return RAGQuery.model_validate(payload)
+    except ValidationError as exc:
+        _log_rag_rejection(request, exc)
+        errors = exc.errors()
+        first_error = errors[0] if errors else {}
+        error_code = first_error.get("type", "validation_error")
+        context = first_error.get("ctx") or {}
+
+        detail = {
+            "code": error_code,
+            "message": first_error.get("msg", "Invalid RAG query."),
+            "errors": errors,
+        }
+        if error_code == "threat_detected":
+            detail["message"] = "Query contains disallowed phrases or prompt injection attempts."
+            detail["threat_type"] = context.get("threat_type", "prompt_injection")
+            detail["threat_match"] = context.get("threat_match")
+
+        raise HTTPException(status_code=422, detail=detail) from exc
+
+
+def _enforce_rate_limit(request: Request, scope: str, uid: Optional[str], limit: int, window_seconds: int) -> None:
+    """Enforce compute rate limit, raising HTTPException(429) on exhaustion.
+
+    Replaces the previous return-value contract where callers checked
+    `if rate_limited is not None: return rate_limited`. That pattern had
+    two failure modes:
+      1. An empty dict {} from the limiter would be returned as HTTP 200.
+      2. Any non-None, non-JSONResponse value would be returned verbatim,
+         producing an unstructured response the frontend could not parse.
+
+    Raising HTTPException(429) is consistent with the rest of the codebase
+    and guarantees the error path is always deterministic regardless of what
+    enforce_compute_rate_limit returns.
+    """
+    rate_limited = enforce_compute_rate_limit(
+        request,
+        scope=scope,
+        uid=uid,
+        limit=limit,
+        window_seconds=window_seconds,
+    )
+    if rate_limited is not None:
+        # Extract retry_after from the JSONResponse if available so the
+        # Retry-After header is preserved in the HTTPException detail.
+        retry_after = None
+        if isinstance(rate_limited, JSONResponse):
+            try:
+                import json as _json
+                body = _json.loads(rate_limited.body)
+                retry_after = body.get("error", {}).get("retry_after")
+            except Exception:
+                pass
+        detail = "Rate limit exceeded. Please retry later."
+        if retry_after:
+            detail = f"Rate limit exceeded. Retry after {retry_after} seconds."
+        raise HTTPException(status_code=429, detail=detail)
 
 
 def init_knowledge(rg_fn, rbac, perm, sr, vr_fn):
@@ -113,6 +197,8 @@ def init_knowledge(rg_fn, rbac, perm, sr, vr_fn):
     Permission = perm
     seed_registry = sr
     verify_role_fn = vr_fn
+    if not sr:
+        logger.warning("Seed registry is empty — all seed codes will return unverified")
 
 
 # ---------------------------------------------------------------------------
@@ -335,40 +421,49 @@ def _build_recommendations(
 # ---------------------------------------------------------------------------
 
 @router.post("/rag/query")
-async def rag_query(request: Request, body: RAGQuery):
+async def rag_query(request: Request, body: RAGQuery = Depends(_parse_rag_query), runtime=Depends(_require_rag_runtime)):
     """Query the AI knowledge base (RAG).
 
     Authentication is required to prevent unauthenticated callers from
     consuming Gemini API quota on the project's billing account and to
     enable per-user rate limiting in the future.
     """
-    if rag_generate_fn is None:
-        raise HTTPException(status_code=503, detail="RAG not available")
-    if verify_role_fn is None:
-        raise HTTPException(status_code=500, detail="Not initialized")
+    rag_fn, verify_fn = runtime
     # Raises HTTP 401 if the Firebase token is missing or invalid.
-    await verify_role_fn(request)
+    token_data = await verify_fn(request)
+    _enforce_rate_limit(
+        request,
+        scope="knowledge.rag_query",
+        uid=(token_data or {}).get("uid"),
+        limit=12,
+        window_seconds=60,
+    )
     try:
-        result = rag_generate_fn(body.query, body.top_k)
+        result = rag_fn(body.query, body.top_k)
         return {"success": True, "query": body.query, "results": result}
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"RAG error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("RAG query failed: %s", e)
+        raise HTTPException(status_code=500, detail="RAG query failed")
 
 
 @router.post("/simulate-climate")
-async def simulate_climate(request: Request, data: SimulationRequest):
+async def simulate_climate(request: Request, data: SimulationRequest, verify_fn=Depends(_require_simulation_runtime)):
     """Run a climate impact simulation for a given crop.
 
     Authentication is required so that the endpoint is not freely
     accessible to scrapers and bots under the global rate limit.
     """
-    if verify_role_fn is None:
-        raise HTTPException(status_code=500, detail="Not initialized")
     # Raises HTTP 401 if the Firebase token is missing or invalid.
-    await verify_role_fn(request)
+    token_data = await verify_fn(request)
+    _enforce_rate_limit(
+        request,
+        scope="knowledge.simulate_climate",
+        uid=(token_data or {}).get("uid"),
+        limit=10,
+        window_seconds=60,
+    )
     try:
         canonical_region = _resolve_region(data.region or "central")
         canonical_season = _resolve_season(data.season or "kharif")
@@ -424,21 +519,20 @@ async def simulate_climate(request: Request, data: SimulationRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Climate simulation error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("Climate simulation failed: %s", e)
+        raise HTTPException(status_code=500, detail="Climate simulation failed")
 
 
 @router.post("/seeds/verify")
-async def verify_seed(request: Request, data: SeedVerifyRequest):
-    if verify_role_fn is None:
-        raise HTTPException(status_code=500, detail="Not initialized")
+async def verify_seed(request: Request, data: SeedVerifyRequest, runtime=Depends(_require_seed_runtime)):
+    verify_fn, registry = runtime
     try:
-        await verify_role_fn(request)
-        is_verified = seed_registry.get(data.code, {}).get("verified", False) if seed_registry else False
-        seed_info = seed_registry.get(data.code, {}) if seed_registry else {}
+        await verify_fn(request)
+        is_verified = registry.get(data.code, {}).get("verified", False)
+        seed_info = registry.get(data.code, {})
         return {"success": True, "code": data.code, "verified": is_verified, "seed_info": seed_info}
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Seed error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("Seed verification failed: %s", e)
+        raise HTTPException(status_code=500, detail="Seed verification failed")
