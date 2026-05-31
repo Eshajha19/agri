@@ -4,6 +4,7 @@ This module hosts endpoints that don't belong to a single domain router,
 keeping main.py focused on application wiring only.
 """
 
+import asyncio
 import hashlib
 import io
 import json
@@ -467,7 +468,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
             "Welcome to Fasal Saathi WhatsApp Alerts. "
             "You will now receive real-time updates directly here."
         )
-        send_whatsapp_message_fn(data.phone_number, welcome_msg)
+        await asyncio.to_thread(send_whatsapp_message_fn, data.phone_number, welcome_msg)
 
     return {"success": True, "message": "Successfully subscribed"}
 
@@ -497,7 +498,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     formatted_msg = format_alert_message_fn(data.alert_type, data.message)
 
     for user_id, info in subscribers.items():
-        result = send_whatsapp_message_fn(info["phone_number"], formatted_msg)
+        result = await asyncio.to_thread(send_whatsapp_message_fn, info["phone_number"], formatted_msg)
         results.append({"user_id": user_id, "success": result.get("success", False)})
 
     delivered = sum(1 for r in results if r["success"])

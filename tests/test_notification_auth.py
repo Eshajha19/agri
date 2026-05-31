@@ -47,8 +47,10 @@ def _make_fake_firestore(roles):
 
 @pytest.fixture()
 def notification_client(monkeypatch):
-    monkeypatch.setattr(main.firebase_auth, "verify_id_token", lambda token: {"uid": token})
-    monkeypatch.setattr(main, "db_firestore", _make_fake_firestore({"farmer-user": "farmer"}))
+    fake_db = _make_fake_firestore({"farmer-user": "farmer"})
+    monkeypatch.setattr(main.auth, "verify_id_token", lambda token: {"uid": token})
+    monkeypatch.setattr(main, "db_firestore", fake_db)
+    monkeypatch.setattr(main.RBACManager, "get_db", lambda: fake_db)
     return TestClient(main.app)
 
 
@@ -85,7 +87,7 @@ def test_websocket_rejects_missing_token():
 
 
 def test_websocket_scoped_snapshot(monkeypatch):
-    monkeypatch.setattr(main.firebase_auth, "verify_id_token", lambda token: {"uid": token})
+    monkeypatch.setattr(main.auth, "verify_id_token", lambda token: {"uid": token})
     monkeypatch.setattr(main, "db_firestore", _make_fake_firestore({"alice": "farmer", "bob": "farmer"}))
 
     app = FastAPI()

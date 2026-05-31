@@ -40,6 +40,11 @@ _lock = threading.RLock()
 _listings: Dict[str, Dict[str, Any]] = {}
 _bookings: Dict[str, Dict[str, Any]] = {}
 
+# Caps that prevent a single authenticated user from exhausting the
+# in-process store and causing denial of service for other users.
+_MAX_TOTAL_LISTINGS = 1000
+_MAX_LISTINGS_PER_USER = 10
+
 # Seed with the 16 canonical listings so the marketplace is not empty on
 # first boot.  These are stored server-side — the frontend no longer
 # carries INITIAL_EQUIPMENT.
@@ -157,8 +162,14 @@ async def get_listings(
     location: str = Query(default="", max_length=100),
     type: Optional[str] = Query(default=None, max_length=50),
     available_only: bool = Query(default=False),
+    page: int = Query(default=1, ge=1, description="1-based page number"),
+    limit: int = Query(default=20, ge=1, le=100, description="Results per page (max 100)"),
 ):
-    """Return all equipment listings.  Public — no auth required."""
+    """Return equipment listings with pagination.  Public -- no auth required.
+
+    Pagination prevents large in-memory copies and unbounded JSON payloads
+    when the listing store is large or has been flooded.
+    """
     with _lock:
         items = list(_listings.values())
 
@@ -178,7 +189,21 @@ async def get_listings(
         results.append(item)
 
     results.sort(key=lambda x: x["createdAt"], reverse=True)
-    return {"success": True, "data": results}
+
+    total = len(results)
+    start = (page - 1) * limit
+    page_data = results[start : start + limit]
+
+    return {
+        "success": True,
+        "data": page_data,
+        "pagination": {
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "pages": max(1, -(-total // limit)),  # ceiling division
+        },
+    }
 
 
 @router.post("/listings")
@@ -206,6 +231,21 @@ async def list_equipment(request: Request, data: ListEquipmentRequest):
     }
 
     with _lock:
+        # Global cap: prevent unbounded heap growth from listing floods.
+        if len(_listings) >= _MAX_TOTAL_LISTINGS:
+            raise HTTPException(
+                status_code=503,
+                detail="Marketplace capacity reached. Please try again later.",
+            )
+        # Per-user cap: prevent a single user from monopolising the store.
+        user_listing_count = sum(
+            1 for lst in _listings.values() if lst.get("ownerUid") == uid
+        )
+        if user_listing_count >= _MAX_LISTINGS_PER_USER:
+            raise HTTPException(
+                status_code=429,
+                detail=f"You have reached the maximum of {_MAX_LISTINGS_PER_USER} active listings.",
+            )
         _listings[lid] = listing
 
     logger.info("New equipment listing %s by uid=%s", lid, uid)

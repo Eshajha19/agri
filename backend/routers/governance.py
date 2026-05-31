@@ -12,6 +12,13 @@ router = APIRouter()
 _SAFE_PATH_RE = re.compile(r"^[A-Za-z0-9_./ -]+$")
 
 
+class DriftCheckRequest(BaseModel):
+    """Request body for the POST /drift/check endpoint."""
+    model_name: str = Field(..., min_length=1, max_length=50)
+    prediction: float
+    actual_value: float
+
+
 class RegisterModelVersionRequest(BaseModel):
     model_name: str = Field(..., min_length=1, max_length=50)
     # max_length=512 is generous for any real model path while preventing
