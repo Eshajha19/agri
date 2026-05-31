@@ -8,6 +8,7 @@ import cv2
 from PIL import Image
 import io
 import json
+from collections import deque
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 import base64
@@ -71,9 +72,18 @@ class QualityAssessment:
 class CropQualityGrader:
     """Main crop quality grading system"""
 
+    # Maximum number of assessments retained in the in-process history.
+    # Each QualityAssessment is a small dataclass (~200 bytes), so 1 000
+    # entries consume roughly 200 KB — a safe upper bound for a long-running
+    # process.  When the cap is reached the oldest entry is automatically
+    # evicted by the deque before the new one is appended.
+    _MAX_HISTORY = 1_000
+
     def __init__(self):
         self.supported_crops = list(CROP_QUALITY_PARAMS.keys())
-        self.quality_history = []
+        # Bounded deque: oldest assessments are evicted automatically when
+        # the cap is reached, preventing unbounded memory growth.
+        self.quality_history: deque = deque(maxlen=self._MAX_HISTORY)
 
     def assess_crop_image(
         self, image_data: bytes, crop_type: str
