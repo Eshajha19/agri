@@ -220,11 +220,7 @@ class SupplyChainBlockchain:
 
         signature = ""
         if self._qr_signing_secret:
-            signature = hmac.new(
-                self._qr_signing_secret.encode("utf-8"),
-                proof_hash.encode("utf-8"),
-                hashlib.sha256,
-            ).hexdigest()
+            signature = hmac.new(self._qr_signing_secret.encode("utf-8"), proof_hash.encode("utf-8"), digestmod=hashlib.sha256).hexdigest()
 
         latest_hash = self.chain[-1].hash if self.chain else ""
         return {
@@ -239,11 +235,7 @@ class SupplyChainBlockchain:
         if proof_hash != expected["proof_hash"]:
             return False
         if self._qr_signing_secret:
-            expected_signature = hmac.new(
-                self._qr_signing_secret.encode("utf-8"),
-                proof_hash.encode("utf-8"),
-                hashlib.sha256,
-            ).hexdigest()
+            expected_signature = hmac.new(self._qr_signing_secret.encode("utf-8"), proof_hash.encode("utf-8"), digestmod=hashlib.sha256).hexdigest()
             return hmac.compare_digest(signature or "", expected_signature)
         return True
 
@@ -275,11 +267,7 @@ class SupplyChainBlockchain:
 
         signature = ""
         if self._qr_signing_secret:
-            signature = hmac.new(
-                self._qr_signing_secret.encode("utf-8"),
-                proof_hash.encode("utf-8"),
-                hashlib.sha256,
-            ).hexdigest()
+            signature = hmac.new(self._qr_signing_secret.encode("utf-8"), proof_hash.encode("utf-8"), digestmod=hashlib.sha256).hexdigest()
 
         latest_hash = self.chain[-1].hash if self.chain else ""
         return {
@@ -294,11 +282,7 @@ class SupplyChainBlockchain:
         if proof_hash != expected["proof_hash"]:
             return False
         if self._qr_signing_secret:
-            expected_signature = hmac.new(
-                self._qr_signing_secret.encode("utf-8"),
-                proof_hash.encode("utf-8"),
-                hashlib.sha256,
-            ).hexdigest()
+            expected_signature = hmac.new(self._qr_signing_secret.encode("utf-8"), proof_hash.encode("utf-8"), digestmod=hashlib.sha256).hexdigest()
             return hmac.compare_digest(signature or "", expected_signature)
         return True
 
@@ -329,11 +313,7 @@ class SupplyChainBlockchain:
 
         signature = ""
         if self._qr_signing_secret:
-            signature = hmac.new(
-                self._qr_signing_secret.encode("utf-8"),
-                proof_hash.encode("utf-8"),
-                hashlib.sha256,
-            ).hexdigest()
+            signature = hmac.new(self._qr_signing_secret.encode("utf-8"), proof_hash.encode("utf-8"), digestmod=hashlib.sha256).hexdigest()
 
         latest_hash = self.chain[-1].hash if self.chain else ""
         return {
@@ -348,11 +328,7 @@ class SupplyChainBlockchain:
         if proof_hash != expected["proof_hash"]:
             return False
         if self._qr_signing_secret:
-            expected_signature = hmac.new(
-                self._qr_signing_secret.encode("utf-8"),
-                proof_hash.encode("utf-8"),
-                hashlib.sha256,
-            ).hexdigest()
+            expected_signature = hmac.new(self._qr_signing_secret.encode("utf-8"), proof_hash.encode("utf-8"), digestmod=hashlib.sha256).hexdigest()
             return hmac.compare_digest(signature or "", expected_signature)
         return True
 
