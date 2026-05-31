@@ -176,21 +176,40 @@ class FeedbackValidator:
     def validate_rating(cls, rating: int) -> int:
         """
         Validate rating (1-5).
-        
+
         Args:
             rating: User rating (1-5)
-            
+
         Returns:
-            Validated rating (clamped to 1-5 range)
+            Validated rating in the range [1, 5]
+
+        Raises:
+            ValueError: If the value cannot be coerced to an integer or is
+                outside the valid range [1, 5].
+
+        The previous implementation silently returned the default value 3
+        for any non-coercible input (e.g. "banana", None, {}) and clamped
+        out-of-range integers without raising an error.  A caller that
+        bypasses the Pydantic model and calls validate_feedback_data()
+        directly would silently store a fabricated rating of 3 in Firestore
+        for any invalid input.  Raising ValueError makes the contract
+        explicit and consistent with validate_message(), which also raises
+        on invalid input.
         """
         if not isinstance(rating, int):
             try:
                 rating = int(rating)
             except (ValueError, TypeError):
-                return 3  # Default rating
-                
-        # Clamp to valid range
-        return max(1, min(5, rating))
+                raise ValueError(
+                    f"Rating must be an integer between 1 and 5, got: {rating!r}"
+                )
+
+        if not (1 <= rating <= 5):
+            raise ValueError(
+                f"Rating must be between 1 and 5, got: {rating}"
+            )
+
+        return rating
     
     @classmethod
     def validate_message(cls, message: str) -> Optional[str]:
@@ -270,10 +289,20 @@ class FeedbackValidator:
         if 'userId' in data:
             validated['userId'] = str(data['userId'])
         if 'userEmail' in data:
-            # Basic email validation
-            email = str(data['userEmail'])
-            if '@' in email and '.' in email and len(email) <= 254:
-                validated['userEmail'] = email
+            # Apply the same sanitization and dangerous-pattern checks used
+            # for every other string field.  The previous implementation only
+            # checked for '@', '.', and length — a crafted email containing a
+            # MongoDB operator (e.g. {"$where":"..."}@example.com) or a script
+            # tag would pass those checks and be stored in Firestore unsanitised.
+            email = cls.sanitize_string(str(data['userEmail']), 254)
+            if email and '@' in email and '.' in email:
+                safe = True
+                for pattern in cls.DANGEROUS_PATTERNS:
+                    if re.search(pattern, email, re.IGNORECASE):
+                        safe = False
+                        break
+                if safe:
+                    validated['userEmail'] = email
                 
         return validated
     
