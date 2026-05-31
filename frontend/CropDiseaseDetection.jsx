@@ -224,11 +224,23 @@ export default function CropDiseaseDetection({ onClose }) {
   const [error, setError] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const HISTORY_STORAGE_KEY = "diseaseHistory";
   const [history, setHistory] = useState([]);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
-    setHistory(getDiseaseHistory());
+    try {
+      const storedHistory = getDiseaseHistory();
+
+      if (Array.isArray(storedHistory)) {
+        setHistory(storedHistory.slice(0, 25));
+      } else {
+        setHistory([]);
+      }
+    } catch (error) {
+      console.warn("Failed to load disease history");
+      setHistory([]);
+    }
   }, []);
 
   useEffect(() => {
@@ -268,7 +280,9 @@ export default function CropDiseaseDetection({ onClose }) {
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
+    const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
+
+    if (file.size > MAX_IMAGE_SIZE_BYTES) {
       setError("Image size should be less than 5MB.");
       return;
     }
@@ -664,7 +678,7 @@ export default function CropDiseaseDetection({ onClose }) {
               <button
                 onClick={() => {
                   if (window.confirm("Clear all disease history?")) {
-                    localStorage.removeItem("diseaseHistory");
+                    localStorage.removeItem(HISTORY_STORAGE_KEY);
                     setHistory([]);
                   }
                 }}

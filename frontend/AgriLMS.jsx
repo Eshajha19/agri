@@ -110,9 +110,30 @@ function downloadCertificate({ recipient_name, course_title, completed_at, cert_
 // ---------------------------------------------------------------------------
 
 export default function AgriLMS() {
-  const [activeCourse, setActiveCourse]   = useState(null);
-  const [activeLesson, setActiveLesson]   = useState(null);
-  const [showAdvisor, setShowAdvisor]     = useState(false);
+  const SESSION_KEYS = {
+    ACTIVE_COURSE: 'agri:lms:active-course',
+    ACTIVE_LESSON: 'agri:lms:active-lesson',
+  };
+
+  const getSessionValue = (key) => {
+    try {
+      return sessionStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  };
+
+  const [activeCourse, setActiveCourse] = useState(() => {
+  const stored = getSessionValue(SESSION_KEYS.ACTIVE_COURSE);
+  return stored ? JSON.parse(stored) : null;
+  });
+
+  const [activeLesson, setActiveLesson] = useState(() => {
+  const stored = getSessionValue(SESSION_KEYS.ACTIVE_LESSON);
+  return stored ? JSON.parse(stored) : null;
+  });
+
+  const [showAdvisor, setShowAdvisor] = useState(false);
 
   // Server-authoritative progress: { [courseId]: { lessons: { [lessonId]: true }, completedAt } }
   const [serverProgress, setServerProgress] = useState({});
@@ -124,6 +145,31 @@ export default function AgriLMS() {
 
   // Per-course "fetching certificate" state
   const [fetchingCert, setFetchingCert] = useState(null);
+  const [fetchingCert, setFetchingCert] = useState(null);
+
+  useEffect(() => {
+    try {
+      if (activeCourse?.id) {
+        sessionStorage.setItem(
+          SESSION_KEYS.ACTIVE_COURSE,
+          JSON.stringify(activeCourse)
+        );
+      } else {
+        sessionStorage.removeItem(SESSION_KEYS.ACTIVE_COURSE);
+      }
+
+      if (activeLesson?.id) {
+        sessionStorage.setItem(
+          SESSION_KEYS.ACTIVE_LESSON,
+          JSON.stringify(activeLesson)
+        );
+      } else {
+        sessionStorage.removeItem(SESSION_KEYS.ACTIVE_LESSON);
+      }
+    } catch (error) {
+      console.warn("Unable to persist LMS session state");
+    }
+  }, [activeCourse, activeLesson]);
 
   // ---------------------------------------------------------------------------
   // Load server-side progress on mount

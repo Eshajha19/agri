@@ -224,12 +224,16 @@ const GuestBanner = () => (
 
 function App() {
   const scorecardRef = useRef(null);
-  const [preferredLang, setPreferredLang] = useState(() => {
+  const getStoredLanguagePreference = () => {
     try {
-      return localStorage.getItem("agri:preferredLanguage") || getInitialLanguage();
+      return sessionStorage.getItem("agri:preferredLanguage");
     } catch {
-      return getInitialLanguage();
+      return null;
     }
+  };
+
+  const [preferredLang, setPreferredLang] = useState(() => {
+    return getStoredLanguagePreference() || getInitialLanguage();
   });
   const [isOpen, setIsOpen] = useState(false);
   const { theme, toggleTheme, setTheme } = useTheme();
@@ -592,7 +596,11 @@ function App() {
                     onChange={(lang) => {
                       setPreferredLang(lang);
                       i18n.changeLanguage(lang);
-                      localStorage.setItem("agri:preferredLanguage", lang);
+                      try {
+                        sessionStorage.setItem("agri:preferredLanguage", lang);
+                      } catch (error) {
+                        console.warn("Unable to persist language preference");
+                      }
                       void persistAppState({ preferredLang: lang });
                     }}
                   />
