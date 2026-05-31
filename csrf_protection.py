@@ -9,12 +9,18 @@ import hmac
 import hashlib
 import secrets
 import time
+import os
 from typing import List, Optional
 from urllib.parse import urlparse
 
 from fastapi import HTTPException, Request
 
-_SECRET = secrets.token_hex(32)
+_SECRET = os.environ.get("CSRF_SECRET") or secrets.token_hex(32)
+if not os.environ.get("CSRF_SECRET"):
+    import logging
+    logging.getLogger(__name__).warning(
+        "CSRF_SECRET env var not set — generated ephemeral secret. All tokens will be invalidated on server restart."
+    )
 _TRUSTED_ORIGINS: List[str] = []
 
 
@@ -41,6 +47,11 @@ def reject_cross_origin(request: Request) -> None:
     (e.g. Twilio webhooks), while browser-originated cross-origin POSTs
     are rejected.
     """
+    if not _TRUSTED_ORIGINS:
+        import logging
+        logging.getLogger(__name__).warning(
+            "CSRF: _TRUSTED_ORIGINS is empty — all browser requests will be rejected. Call configure() on startup."
+        )
     client_origin = _extract_origin(request)
     if client_origin is None:
         return
@@ -49,7 +60,6 @@ def reject_cross_origin(request: Request) -> None:
             status_code=403,
             detail="Cross-origin request rejected",
         )
-
 
 def generate_token(uid: str) -> str:
     """Return a stateless HMAC-signed token tied to *uid*, valid 1 hour."""
