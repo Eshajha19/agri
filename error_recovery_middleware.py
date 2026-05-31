@@ -116,7 +116,8 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
             
             # Increment error count
             self.error_counts[endpoint] = self.error_counts.get(endpoint, 0) + 1
-            
+            self.error_timestamps[endpoint] = time.time()
+
             return JSONResponse(
                 status_code=504,
                 content={
@@ -143,7 +144,8 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
             
             # Increment error count
             self.error_counts[endpoint] = self.error_counts.get(endpoint, 0) + 1
-            
+            self.error_timestamps[endpoint] = time.time()
+
             # Check circuit breaker
             is_broken = self._check_circuit_breaker(endpoint)
             
@@ -201,23 +203,20 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
         error_count = self.error_counts.get(endpoint, 0)
         error_time = self.error_timestamps.get(endpoint, time.time())
         
-        # Update timestamp
-        self.error_timestamps[endpoint] = time.time()
-        
         # Open circuit if more than 5 errors in 60 seconds
         time_since_error = time.time() - error_time
-        
+
         if error_count >= 5 and time_since_error < 60:
             logger.warning(
                 f"Circuit breaker opened for {endpoint}: "
                 f"{error_count} errors in {time_since_error:.0f}s"
             )
             return True
-        
+
         # Reset if 60 seconds have passed
         if time_since_error >= 60:
             self.error_counts[endpoint] = 0
-        
+
         return False
     
     def get_error_stats(self) -> dict:
