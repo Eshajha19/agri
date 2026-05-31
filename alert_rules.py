@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 import logging
 from functools import lru_cache
@@ -208,7 +208,7 @@ def generate_alerts(
         List of unique, non-duplicate alerts with time and type.
     """
     alerts: list[dict] = []
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
 
     try:
         crop = crop.strip().lower() if crop else None

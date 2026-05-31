@@ -28,6 +28,9 @@ celery_app.conf.update(
 _model_lag = None
 _model_trend = None
 _ml_router = None
+_model_lag_lock = threading.Lock()
+_model_trend_lock = threading.Lock()
+_ml_router_lock = threading.Lock()
 
 
 def _get_lag_model():
@@ -145,6 +148,115 @@ def predict_yield_trend_task(self, data: list):
     except Exception:
         logger.exception("Trend prediction task failed")
         raise
+
+@celery_app.task(bind=True, name="retrain_yield_model_task", time_limit=1800, soft_time_limit=1500)
+def retrain_yield_model_task(self, csv_path="Train.csv", model_output="yield_model.joblib"):
+    """
+    Retrain the XGBoost yield model, compare RMSE against last promoted run,
+    promote if improved (lower RMSE), discard otherwise.
+    Writes every run to retraining_history.json.
+    """
+    import json
+    from datetime import datetime as _dt
+    from pathlib import Path
+
+    history_path = Path("retraining_history.json")
+
+    def _append_history(record):
+        try:
+            data = json.loads(history_path.read_text()) if history_path.exists() else {"runs": []}
+            data["runs"].append(record)
+            data["runs"] = data["runs"][-100:]
+            tmp = str(history_path) + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            os.replace(tmp, str(history_path))
+        except Exception:
+            pass
+
+    try:
+        # Read last known RMSE from history
+        current_rmse = None
+        if history_path.exists():
+            try:
+                data = json.loads(history_path.read_text())
+                promoted = [r for r in data.get("runs", []) if r.get("outcome") == "promoted"]
+                if promoted:
+                    current_rmse = promoted[-1].get("rmse")
+            except Exception:
+                pass
+
+        self.update_state(state="PROGRESS", meta={"step": "training"})
+
+        from train_model import train_yield_model
+        result = train_yield_model(
+            csv_path=csv_path,
+            model_output=model_output + ".candidate",
+            baseline_output="feature_baseline.candidate.json",
+        )
+        candidate_rmse = result["rmse"]
+
+        self.update_state(state="PROGRESS", meta={"step": "validating", "candidate_rmse": candidate_rmse})
+
+        # Promote if no previous run or candidate is equal/better
+        if current_rmse is None or candidate_rmse <= current_rmse:
+            # Atomic model promotion
+            if os.path.exists(model_output):
+                os.replace(model_output, model_output + ".prev")
+            os.replace(model_output + ".candidate", model_output)
+
+            # Atomic baseline promotion
+            if os.path.exists("feature_baseline.json"):
+                os.replace("feature_baseline.json", "feature_baseline.prev.json")
+            if os.path.exists("feature_baseline.candidate.json"):
+                os.replace("feature_baseline.candidate.json", "feature_baseline.json")
+
+            # Hot-reload into ML registry so live requests use new model immediately
+            try:
+                from ml.adapters.xgboost_adapter import XGBoostAdapter
+                from ml.registry import ModelRegistry
+                xgb_adapter = XGBoostAdapter()
+                xgb_adapter.load(model_output)
+                ModelRegistry.register("xgboost", xgb_adapter)
+            except Exception:
+                pass  # Non-fatal — next cold start will reload
+
+            outcome = "promoted"
+        else:
+            # Candidate is worse — discard cleanly
+            for f in [model_output + ".candidate", "feature_baseline.candidate.json"]:
+                try:
+                    os.remove(f)
+                except OSError:
+                    pass
+            outcome = "rejected"
+
+        record = {
+            "triggered_at": result["trained_at"],
+            "completed_at": _dt.utcnow().isoformat(),
+            "rmse": candidate_rmse,
+            "previous_rmse": current_rmse,
+            "outcome": outcome,
+            "csv_path": csv_path,
+        }
+        _append_history(record)
+
+        return {
+            "outcome": outcome,
+            "candidate_rmse": round(candidate_rmse, 4),
+            "previous_rmse": round(current_rmse, 4) if current_rmse is not None else None,
+            "promoted": outcome == "promoted",
+        }
+
+    except Exception as exc:
+        _append_history({
+            "triggered_at": _dt.utcnow().isoformat(),
+            "completed_at": _dt.utcnow().isoformat(),
+            "outcome": "failed",
+            "error": str(exc),
+        })
+        return {"error": str(exc), "type": type(exc).__name__}
+
 
 if __name__ == "__main__":
     celery_app.start()
