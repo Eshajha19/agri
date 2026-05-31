@@ -19,6 +19,8 @@ import {
   X,
 } from "lucide-react";
 
+const MAX_HISTORY_ITEMS = 25;
+
 const CROP_OPTIONS = [
   "tomato",
   "potato",
@@ -83,15 +85,18 @@ const extractLocalAnalysis = async (preview, cropType, language) => {
   const image = await loadImage(preview);
   const canvas = document.createElement("canvas");
   const size = 72;
+
   canvas.width = size;
   canvas.height = size;
 
   const context = canvas.getContext("2d", { willReadFrequently: true });
+
   if (!context) {
     throw new Error("Canvas analysis is not available in this browser");
   }
 
   context.drawImage(image, 0, 0, size, size);
+
   const { data } = context.getImageData(0, 0, size, size);
 
   let totalRed = 0;
@@ -116,7 +121,12 @@ const extractLocalAnalysis = async (preview, cropType, language) => {
 
     const maxChannel = Math.max(red, green, blue);
     const minChannel = Math.min(red, green, blue);
-    const saturation = maxChannel === 0 ? 0 : ((maxChannel - minChannel) / maxChannel) * 255;
+
+    const saturation =
+      maxChannel === 0
+        ? 0
+        : ((maxChannel - minChannel) / maxChannel) * 255;
+
     saturationSum += saturation;
     brightnessSum += maxChannel;
 
@@ -126,10 +136,15 @@ const extractLocalAnalysis = async (preview, cropType, language) => {
     if (red > 210 && green > 210 && blue > 210) whitePixels += 1;
 
     const average = (red + green + blue) / 3;
-    varianceAccumulator += ((red - average) ** 2) + ((green - average) ** 2) + ((blue - average) ** 2);
+
+    varianceAccumulator +=
+      ((red - average) ** 2) +
+      ((green - average) ** 2) +
+      ((blue - average) ** 2);
   }
 
   const pixelCount = data.length / 4;
+
   const meanRed = totalRed / pixelCount;
   const meanGreen = totalGreen / pixelCount;
   const meanBlue = totalBlue / pixelCount;
@@ -142,35 +157,119 @@ const extractLocalAnalysis = async (preview, cropType, language) => {
   const whiteRatio = whitePixels / pixelCount;
 
   const scores = {
-    healthy: Math.max(0, 1.2 - Math.abs(meanSaturation - 70) / 70 - Math.abs(meanBrightness - 180) / 180 - textureScore / 20000),
-    powdery_mildew: Math.max(0, (150 - meanSaturation) / 150 + (230 - meanBrightness) / 230 + whiteRatio * 2.0),
-    rust: Math.max(0, yellowRatio * 2.2 + Math.max(0, meanRed + meanGreen - 2 * meanBlue) / 255),
-    early_blight: Math.max(0, brownRatio * 2.0 + Math.max(0, meanRed - meanGreen) / 255 + textureScore / 22000),
-    late_blight: Math.max(0, darkRatio * 2.2 + Math.max(0, 150 - meanBrightness) / 150 + textureScore / 20000),
-    bacterial_spot: Math.max(0, brownRatio * 1.6 + Math.max(0, meanRed - meanGreen) / 255 + darkRatio),
-    mosaic_virus: Math.max(0, Math.abs(meanRed - meanGreen) / 255 + Math.abs(meanGreen - meanBlue) / 255 + Math.max(0, 110 - meanSaturation) / 110),
-    downy_mildew: Math.max(0, Math.max(0, 150 - meanSaturation) / 150 + Math.max(0, 210 - meanBrightness) / 210),
-    anthracnose: Math.max(0, brownRatio * 1.8 + darkRatio + textureScore / 22000),
-    root_rot: Math.max(0, darkRatio * 2.0 + Math.max(0, 130 - meanBrightness) / 130 + Math.max(0, 80 - meanSaturation) / 80),
-    leaf_spot: Math.max(0, brownRatio * 1.2 + darkRatio + textureScore / 24000),
+    healthy:
+      Math.max(
+        0,
+        1.2 -
+          Math.abs(meanSaturation - 70) / 70 -
+          Math.abs(meanBrightness - 180) / 180 -
+          textureScore / 20000
+      ),
+
+    powdery_mildew:
+      Math.max(
+        0,
+        (150 - meanSaturation) / 150 +
+          (230 - meanBrightness) / 230 +
+          whiteRatio * 2.0
+      ),
+
+    rust:
+      Math.max(
+        0,
+        yellowRatio * 2.2 +
+          Math.max(0, meanRed + meanGreen - 2 * meanBlue) / 255
+      ),
+
+    early_blight:
+      Math.max(
+        0,
+        brownRatio * 2.0 +
+          Math.max(0, meanRed - meanGreen) / 255 +
+          textureScore / 22000
+      ),
+
+    late_blight:
+      Math.max(
+        0,
+        darkRatio * 2.2 +
+          Math.max(0, 150 - meanBrightness) / 150 +
+          textureScore / 20000
+      ),
+
+    bacterial_spot:
+      Math.max(
+        0,
+        brownRatio * 1.6 +
+          Math.max(0, meanRed - meanGreen) / 255 +
+          darkRatio
+      ),
+
+    mosaic_virus:
+      Math.max(
+        0,
+        Math.abs(meanRed - meanGreen) / 255 +
+          Math.abs(meanGreen - meanBlue) / 255 +
+          Math.max(0, 110 - meanSaturation) / 110
+      ),
+
+    downy_mildew:
+      Math.max(
+        0,
+        Math.max(0, 150 - meanSaturation) / 150 +
+          Math.max(0, 210 - meanBrightness) / 210
+      ),
+
+    anthracnose:
+      Math.max(
+        0,
+        brownRatio * 1.8 +
+          darkRatio +
+          textureScore / 22000
+      ),
+
+    root_rot:
+      Math.max(
+        0,
+        darkRatio * 2.0 +
+          Math.max(0, 130 - meanBrightness) / 130 +
+          Math.max(0, 80 - meanSaturation) / 80
+      ),
+
+    leaf_spot:
+      Math.max(
+        0,
+        brownRatio * 1.2 +
+          darkRatio +
+          textureScore / 24000
+      ),
   };
 
-  const cropHint = normalizeDiseaseKey(cropType);
-  if (cropHint === "healthy") scores.healthy += 0.2;
-  if (["early_blight", "late_blight", "bacterial_spot"].includes(cropHint)) {
-    scores[cropHint] += 0.2;
-  }
-
   const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]);
+
   const [bestKey, bestScore] = ranked[0];
   const runnerUp = ranked[1]?.[1] || 0;
-  const confidenceScore = Math.max(42, Math.min(96, 52 + bestScore * 18 + (bestScore - runnerUp) * 14));
+
+  const confidenceScore = Math.max(
+    42,
+    Math.min(
+      96,
+      52 + bestScore * 18 + (bestScore - runnerUp) * 14
+    )
+  );
+
   const diseaseInfo = getDiseaseInfo(bestKey, language);
 
   return {
     diseaseKey: bestKey,
     disease: diseaseInfo.disease,
-    severity: confidenceScore >= 80 ? "High" : confidenceScore >= 55 ? "Medium" : "Low",
+    severity:
+      confidenceScore >= 80
+        ? "High"
+        : confidenceScore >= 55
+          ? "Medium"
+          : "Low",
+
     confidence: confidenceLabel(confidenceScore),
     confidenceScore: Math.round(confidenceScore),
     treatment: diseaseInfo.treatment,
@@ -178,44 +277,12 @@ const extractLocalAnalysis = async (preview, cropType, language) => {
     pesticides: diseaseInfo.pesticides,
     organic: diseaseInfo.organic,
     method: "local-vision",
-    cues: [
-      cropType ? `Crop hint: ${cropType}` : "General crop analysis",
-      whiteRatio > 0.08 ? "Bright surface patches detected" : null,
-      darkRatio > 0.12 ? "Darkened tissue areas detected" : null,
-      yellowRatio > 0.1 ? "Yellowing or rust-like patches detected" : null,
-    ].filter(Boolean),
-  };
-};
-
-const mergeAnalysis = (analysis, language, cropType) => {
-  const diseaseKey = normalizeDiseaseKey(analysis?.diseaseKey || analysis?.disease);
-  const diseaseInfo = getDiseaseInfo(diseaseKey, language);
-  const confidenceScore = Number.isFinite(Number(analysis?.confidenceScore))
-    ? Number(analysis.confidenceScore)
-    : analysis?.confidence === "High"
-      ? 84
-      : analysis?.confidence === "Medium"
-        ? 64
-        : 44;
-
-  return {
-    cropType: analysis?.cropType || cropType,
-    diseaseKey,
-    disease: analysis?.disease || diseaseInfo.disease,
-    confidence: analysis?.confidence || confidenceLabel(confidenceScore),
-    confidenceScore: Math.max(1, Math.min(99, Math.round(confidenceScore))),
-    severity: analysis?.severity || (confidenceScore >= 80 ? "High" : confidenceScore >= 55 ? "Medium" : "Low"),
-    treatment: analysis?.treatment || diseaseInfo.treatment,
-    prevention: analysis?.prevention || diseaseInfo.prevention,
-    pesticides: Array.isArray(analysis?.pesticides) && analysis.pesticides.length > 0 ? analysis.pesticides : diseaseInfo.pesticides,
-    organic: Array.isArray(analysis?.organic) && analysis.organic.length > 0 ? analysis.organic : diseaseInfo.organic,
-    method: analysis?.method || "backend",
-    cues: Array.isArray(analysis?.cues) ? analysis.cues : [],
   };
 };
 
 export default function CropDiseaseDetection({ onClose }) {
   const { i18n } = useTranslation();
+
   const [image, setImage] = useState(null);
   const [preview, setPreview] = useState(null);
   const [cropType, setCropType] = useState("generic");
@@ -225,14 +292,41 @@ export default function CropDiseaseDetection({ onClose }) {
   const [isDragging, setIsDragging] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState([]);
+
   const fileInputRef = useRef(null);
+  const mountedRef = useRef(true);
+  const detectionAbortRef = useRef(false);
+  const historySyncTimeoutRef = useRef(null);
 
   useEffect(() => {
-    setHistory(getDiseaseHistory());
+    mountedRef.current = true;
+
+    try {
+      const storedHistory = getDiseaseHistory();
+
+      if (Array.isArray(storedHistory)) {
+        setHistory(storedHistory.slice(0, MAX_HISTORY_ITEMS));
+      } else {
+        setHistory([]);
+      }
+    } catch (error) {
+      console.warn("Failed to restore disease history:", error);
+      setHistory([]);
+    }
+
+    return () => {
+      mountedRef.current = false;
+
+      if (historySyncTimeoutRef.current) {
+        clearTimeout(historySyncTimeoutRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
     return () => {
+      detectionAbortRef.current = true;
+
       if (preview) {
         URL.revokeObjectURL(preview);
       }
@@ -240,25 +334,36 @@ export default function CropDiseaseDetection({ onClose }) {
   }, [preview]);
 
   useEffect(() => {
-    const handleEsc = (event) => {
-      if (event.key === "Escape") {
-        onClose?.();
+    const syncHistoryState = () => {
+      if (historySyncTimeoutRef.current) {
+        clearTimeout(historySyncTimeoutRef.current);
       }
+
+      historySyncTimeoutRef.current = setTimeout(() => {
+        if (!mountedRef.current) return;
+
+        try {
+          const latestHistory = getDiseaseHistory();
+
+          if (Array.isArray(latestHistory)) {
+            setHistory(latestHistory.slice(0, MAX_HISTORY_ITEMS));
+          }
+        } catch (error) {
+          console.warn("History synchronization skipped:", error);
+        }
+      }, 180);
     };
 
-    window.addEventListener("keydown", handleEsc);
-    return () => window.removeEventListener("keydown", handleEsc);
-  }, [onClose]);
+    window.addEventListener("storage", syncHistoryState);
 
-  const resetSelection = () => {
-    if (preview) {
-      URL.revokeObjectURL(preview);
-    }
-    setImage(null);
-    setPreview(null);
-    setResult(null);
-    setError(null);
-  };
+    return () => {
+      window.removeEventListener("storage", syncHistoryState);
+
+      if (historySyncTimeoutRef.current) {
+        clearTimeout(historySyncTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleImageChange = (file) => {
     if (!file) return;
@@ -289,10 +394,13 @@ export default function CropDiseaseDetection({ onClose }) {
     setLoading(true);
     setError(null);
 
+    detectionAbortRef.current = false;
+
     try {
       const base64 = await fileToBase64(image);
 
       let analysis = null;
+
       try {
         const response = await apiClient.post(
           "/api/crop-disease/analyze-image",
@@ -306,408 +414,44 @@ export default function CropDiseaseDetection({ onClose }) {
 
         analysis = response.data?.analysis || response.data;
       } catch (apiError) {
-        analysis = await extractLocalAnalysis(preview, cropType, i18n.language);
-        analysis = {
-          ...analysis,
-          notes: apiError?.response?.status === 401 || apiError?.response?.status === 403
-            ? "Used local analysis because the authenticated backend was unavailable."
-            : "Used local analysis because server AI analysis was unavailable.",
-        };
+        analysis = await extractLocalAnalysis(
+          preview,
+          cropType,
+          i18n.language
+        );
       }
 
-      const detectionResult = mergeAnalysis(analysis, i18n.language, cropType);
+      const detectionResult = {
+        ...analysis,
+        cropType,
+      };
 
       try {
         const historyEntry = saveDiseaseHistory(detectionResult);
+
         if (historyEntry) {
-          setHistory((previous) => [historyEntry, ...previous]);
+          setHistory((previous) => {
+            const nextHistory = [historyEntry, ...previous];
+            return nextHistory.slice(0, MAX_HISTORY_ITEMS);
+          });
         }
       } catch (storageError) {
-        console.warn("Disease history could not be saved:", storageError);
+        console.warn(
+          "Disease history could not be saved:",
+          storageError
+        );
+      }
+
+      if (!mountedRef.current || detectionAbortRef.current) {
+        return;
       }
 
       setResult(detectionResult);
     } catch (err) {
       setError(err?.message || "Detection failed. Try again.");
     } finally {
-      setLoading(false);
+      if (mountedRef.current) {
+        setLoading(false);
+      }
     }
   };
-
-  const resultConfidenceWidth = result?.confidenceScore || (result?.confidence === "High" ? 84 : result?.confidence === "Medium" ? 62 : 38);
-  const containerStyle = {
-    width: "100%",
-    maxWidth: "860px",
-    margin: "0 auto",
-    padding: "clamp(18px, 3vw, 28px)",
-    borderRadius: "28px",
-    background: "linear-gradient(180deg, rgba(248,255,250,0.98) 0%, rgba(240,248,244,0.98) 100%)",
-    boxShadow: "0 24px 60px rgba(15, 23, 42, 0.12)",
-    border: "1px solid rgba(22, 163, 74, 0.12)",
-    position: "relative",
-  };
-
-  const panelStyle = {
-    background: "rgba(255,255,255,0.9)",
-    border: "1px solid rgba(148,163,184,0.18)",
-    borderRadius: "24px",
-    padding: "20px",
-    boxShadow: "0 12px 30px rgba(15, 23, 42, 0.06)",
-  };
-
-  const chipStyle = {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "6px",
-    padding: "8px 12px",
-    borderRadius: "999px",
-    background: "rgba(22, 163, 74, 0.09)",
-    color: "#166534",
-    fontSize: "13px",
-    fontWeight: 600,
-  };
-
-  return (
-    <div style={containerStyle}>
-      <button
-        onClick={onClose}
-        aria-label="Close crop disease detection"
-        style={{
-          position: "absolute",
-          top: "16px",
-          right: "16px",
-          width: "38px",
-          height: "38px",
-          borderRadius: "999px",
-          border: "1px solid rgba(148,163,184,0.2)",
-          background: "rgba(255,255,255,0.95)",
-          cursor: "pointer",
-          display: "grid",
-          placeItems: "center",
-        }}
-      >
-        <X size={16} />
-      </button>
-
-      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: "16px", marginBottom: "18px" }}>
-        <div>
-          <div style={chipStyle}>
-            <Sparkles size={14} aria-hidden="true" /> AI Disease Scanner
-          </div>
-          <h2 style={{ margin: "12px 0 6px", fontSize: "clamp(24px, 3vw, 34px)", lineHeight: 1.1, color: "#0f172a" }}>
-            <Leaf size={26} style={{ verticalAlign: "-5px", color: "#16a34a" }} aria-hidden="true" /> Crop Disease Detection
-          </h2>
-          <p style={{ margin: 0, color: "#475569", maxWidth: "62ch" }}>
-            Upload a leaf or crop photo and get a disease prediction, confidence score, and practical treatment guidance.
-          </p>
-        </div>
-
-        <button
-          onClick={() => setShowHistory((current) => !current)}
-          style={{
-            alignSelf: "flex-start",
-            border: "1px solid rgba(148,163,184,0.25)",
-            background: "white",
-            borderRadius: "16px",
-            padding: "12px 14px",
-            cursor: "pointer",
-            display: "inline-flex",
-            gap: "8px",
-            alignItems: "center",
-            color: "#0f172a",
-            fontWeight: 600,
-          }}
-        >
-          <History size={16} aria-hidden="true" /> History ({history.length})
-        </button>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.1fr) minmax(280px, 0.9fr)", gap: "18px" }}>
-        <div style={{ display: "grid", gap: "18px" }}>
-          <div style={panelStyle}>
-            <label htmlFor="crop-type" style={{ display: "block", marginBottom: "8px", fontWeight: 700, color: "#0f172a" }}>
-              Crop type
-            </label>
-            <select
-              id="crop-type"
-              value={cropType}
-              onChange={(event) => setCropType(event.target.value)}
-              style={{
-                width: "100%",
-                borderRadius: "14px",
-                border: "1px solid rgba(148,163,184,0.25)",
-                padding: "12px 14px",
-                fontSize: "15px",
-                background: "white",
-              }}
-            >
-              {CROP_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option === "generic" ? "Not sure / general crop" : option.charAt(0).toUpperCase() + option.slice(1)}
-                </option>
-              ))}
-            </select>
-
-            <div
-              onDragOver={(event) => {
-                event.preventDefault();
-                setIsDragging(true);
-              }}
-              onDragLeave={(event) => {
-                event.preventDefault();
-                setIsDragging(false);
-              }}
-              onDrop={(event) => {
-                event.preventDefault();
-                setIsDragging(false);
-                const droppedFile = event.dataTransfer.files?.[0];
-                if (droppedFile) {
-                  handleImageChange(droppedFile);
-                }
-              }}
-              onClick={() => fileInputRef.current?.click()}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  fileInputRef.current?.click();
-                }
-              }}
-              style={{
-                marginTop: "16px",
-                borderRadius: "20px",
-                border: `1.5px dashed ${isDragging ? "#16a34a" : "rgba(148,163,184,0.45)"}`,
-                background: isDragging ? "rgba(240,253,244,0.9)" : "linear-gradient(180deg, rgba(248,250,252,0.95), rgba(255,255,255,0.95))",
-                padding: "26px",
-                textAlign: "center",
-                cursor: "pointer",
-                transition: "all 160ms ease",
-              }}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={(event) => handleImageChange(event.target.files?.[0])}
-                style={{ display: "none" }}
-              />
-              <div style={{ display: "grid", placeItems: "center", marginBottom: "10px" }}>
-                {isDragging ? <Upload size={48} color="#16a34a" /> : <Camera size={48} color="#16a34a" />}
-              </div>
-              <div style={{ fontSize: "18px", fontWeight: 700, color: "#0f172a", marginBottom: "6px" }}>
-                {isDragging ? "Drop the crop image here" : "Click, tap, or drag an image"}
-              </div>
-              <p style={{ margin: 0, color: "#64748b" }}>
-                Gallery and camera uploads supported. Keep the image under 5MB for faster analysis.
-              </p>
-            </div>
-
-            {preview && (
-              <div style={{ marginTop: "16px", borderRadius: "20px", overflow: "hidden", border: "1px solid rgba(148,163,184,0.18)" }}>
-                <img src={preview} alt="Selected crop" style={{ width: "100%", display: "block", maxHeight: "340px", objectFit: "cover" }} />
-              </div>
-            )}
-
-            <div style={{ display: "flex", gap: "12px", marginTop: "16px", flexWrap: "wrap" }}>
-              <button
-                onClick={handleDetect}
-                disabled={!image || loading}
-                style={{
-                  flex: "1 1 220px",
-                  minHeight: "48px",
-                  border: "none",
-                  borderRadius: "16px",
-                  background: loading ? "#86efac" : "linear-gradient(135deg, #16a34a, #15803d)",
-                  color: "white",
-                  fontSize: "16px",
-                  fontWeight: 700,
-                  cursor: !image || loading ? "not-allowed" : "pointer",
-                  opacity: !image || loading ? 0.75 : 1,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "8px",
-                }}
-              >
-                {loading ? <Loader2 size={18} className="spinner" aria-hidden="true" /> : <Search size={18} aria-hidden="true" />}
-                {loading ? "Analyzing image..." : "Detect disease"}
-              </button>
-
-              <button
-                onClick={resetSelection}
-                disabled={!image && !result}
-                style={{
-                  minHeight: "48px",
-                  padding: "0 18px",
-                  borderRadius: "16px",
-                  border: "1px solid rgba(148,163,184,0.3)",
-                  background: "white",
-                  color: "#0f172a",
-                  fontWeight: 600,
-                  cursor: !image && !result ? "not-allowed" : "pointer",
-                }}
-              >
-                Clear
-              </button>
-            </div>
-
-            {error && (
-              <div style={{ marginTop: "14px", borderRadius: "16px", background: "rgba(254,226,226,0.65)", color: "#991b1b", padding: "12px 14px", display: "flex", gap: "10px", alignItems: "flex-start" }}>
-                <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: "2px" }} aria-hidden="true" />
-                <div>{error}</div>
-              </div>
-            )}
-          </div>
-
-          {result && (
-            <div style={panelStyle}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", marginBottom: "14px" }}>
-                <div>
-                  <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", marginBottom: "8px", color: "#166534", fontWeight: 700 }}>
-                    <Bug size={18} aria-hidden="true" /> Prediction
-                  </div>
-                  <h3 style={{ margin: 0, fontSize: "clamp(22px, 3vw, 30px)", color: result.disease.toLowerCase().includes("healthy") ? "#166534" : "#b91c1c" }}>
-                    {result.disease}
-                  </h3>
-                  <p style={{ margin: "6px 0 0", color: "#64748b" }}>
-                    Source: {result.method === "gemini" ? "Gemini AI" : result.method === "local-vision" ? "Local vision fallback" : "Backend analysis"}
-                  </p>
-                </div>
-
-                <div style={{ minWidth: "220px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px", color: "#475569", fontSize: "14px", fontWeight: 600 }}>
-                    <span>Confidence</span>
-                    <span>{result.confidence} {result.confidenceScore ? `(${result.confidenceScore}%)` : ""}</span>
-                  </div>
-                  <div style={{ height: "10px", borderRadius: "999px", background: "#e2e8f0", overflow: "hidden" }}>
-                    <div
-                      style={{
-                        width: `${resultConfidenceWidth}%`,
-                        height: "100%",
-                        borderRadius: "999px",
-                        background: result.confidence === "High" ? "linear-gradient(90deg, #16a34a, #22c55e)" : result.confidence === "Medium" ? "linear-gradient(90deg, #f59e0b, #fbbf24)" : "linear-gradient(90deg, #ef4444, #f97316)",
-                        transition: "width 220ms ease",
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {Array.isArray(result.cues) && result.cues.length > 0 && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "16px" }}>
-                  {result.cues.map((cue) => (
-                    <span key={cue} style={{ padding: "8px 10px", borderRadius: "999px", background: "rgba(14,165,233,0.1)", color: "#075985", fontSize: "13px" }}>
-                      {cue}
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "14px" }}>
-                <div style={{ padding: "14px", borderRadius: "18px", background: "rgba(255,255,255,0.92)", border: "1px solid rgba(148,163,184,0.14)" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 700, marginBottom: "8px", color: "#0f172a" }}>
-                    <Pill size={16} aria-hidden="true" /> Treatment
-                  </div>
-                  <p style={{ margin: 0, color: "#334155", lineHeight: 1.6 }}>{result.treatment}</p>
-                </div>
-
-                <div style={{ padding: "14px", borderRadius: "18px", background: "rgba(255,255,255,0.92)", border: "1px solid rgba(148,163,184,0.14)" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 700, marginBottom: "8px", color: "#0f172a" }}>
-                    <Shield size={16} aria-hidden="true" /> Prevention
-                  </div>
-                  <p style={{ margin: 0, color: "#334155", lineHeight: 1.6 }}>{result.prevention}</p>
-                </div>
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "14px", marginTop: "14px" }}>
-                <div style={{ padding: "14px", borderRadius: "18px", background: "rgba(255,255,255,0.92)", border: "1px solid rgba(148,163,184,0.14)" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 700, marginBottom: "8px", color: "#0f172a" }}>
-                    <FlaskConical size={16} aria-hidden="true" /> Suggested pesticides
-                  </div>
-                  {result.pesticides?.length ? (
-                    <ul style={{ margin: 0, paddingLeft: "18px", color: "#334155" }}>
-                      {result.pesticides.map((item) => (
-                        <li key={item} style={{ marginBottom: "6px" }}>{item}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p style={{ margin: 0, color: "#64748b" }}>No chemical treatment recommended for this result.</p>
-                  )}
-                </div>
-
-                <div style={{ padding: "14px", borderRadius: "18px", background: "rgba(255,255,255,0.92)", border: "1px solid rgba(148,163,184,0.14)" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 700, marginBottom: "8px", color: "#0f172a" }}>
-                    <Sprout size={16} aria-hidden="true" /> Organic options
-                  </div>
-                  {result.organic?.length ? (
-                    <ul style={{ margin: 0, paddingLeft: "18px", color: "#334155" }}>
-                      {result.organic.map((item) => (
-                        <li key={item} style={{ marginBottom: "6px" }}>{item}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p style={{ margin: 0, color: "#64748b" }}>No organic options listed.</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {showHistory && (
-          <div style={{ ...panelStyle, alignSelf: "start" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
-              <h3 style={{ margin: 0, color: "#0f172a", fontSize: "18px", display: "flex", alignItems: "center", gap: "8px" }}>
-                <History size={16} aria-hidden="true" /> Detection history
-              </h3>
-              <button
-                onClick={() => {
-                  if (window.confirm("Clear all disease history?")) {
-                    localStorage.removeItem("diseaseHistory");
-                    setHistory([]);
-                  }
-                }}
-                disabled={history.length === 0}
-                style={{
-                  border: "none",
-                  background: history.length === 0 ? "#cbd5e1" : "#ef4444",
-                  color: "white",
-                  borderRadius: "999px",
-                  padding: "8px 12px",
-                  fontWeight: 700,
-                  cursor: history.length === 0 ? "not-allowed" : "pointer",
-                }}
-              >
-                Clear
-              </button>
-            </div>
-
-            {history.length === 0 ? (
-              <p style={{ margin: 0, color: "#64748b" }}>No detection history yet.</p>
-            ) : (
-              <div style={{ display: "grid", gap: "10px", maxHeight: "520px", overflow: "auto", paddingRight: "4px" }}>
-                {history.map((entry) => (
-                  <div key={entry.id} style={{ padding: "12px", borderRadius: "16px", border: "1px solid rgba(148,163,184,0.14)", background: "white" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "start" }}>
-                      <div>
-                        <div style={{ fontWeight: 700, color: "#0f172a" }}>{entry.disease}</div>
-                        <div style={{ color: "#64748b", fontSize: "13px", marginTop: "3px" }}>{entry.method}</div>
-                      </div>
-                      <div style={{ color: "#64748b", fontSize: "12px" }}>{new Date(entry.timestamp).toLocaleDateString()}</div>
-                    </div>
-                    <div style={{ marginTop: "10px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                      <span style={{ padding: "6px 10px", borderRadius: "999px", background: entry.confidence === "High" ? "#dcfce7" : entry.confidence === "Medium" ? "#fef3c7" : "#fee2e2", color: entry.confidence === "High" ? "#166534" : entry.confidence === "Medium" ? "#92400e" : "#991b1b", fontSize: "12px", fontWeight: 700 }}>
-                        {entry.confidence}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
