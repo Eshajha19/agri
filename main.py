@@ -13,7 +13,7 @@ import collections
 import threading
 import time
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 import numpy as np
 from fastapi import Query, Form, Response
@@ -746,7 +746,7 @@ class NotificationStore:
         Takes a snapshot under the lock so callers always see a consistent
         view even if append() is running concurrently.
         """
-        cutoff = datetime.now() - self._ttl
+        cutoff = datetime.now(timezone.utc) - self._ttl
         with self._lock:
             snapshot = list(self._deque)
         return [

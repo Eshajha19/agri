@@ -226,7 +226,7 @@ async def get_governance_status(request: Request):
     return {
         "success": True,
         "governance_status": {
-            "drift_alerts": len(drift_detector.get_alerts("all")),
+            "drift_alerts": len(drift_detector.get_alerts()),
             "active_evals": len(shadow_evaluator.get_evaluations()),
             "total_versions": len(version_manager.list_versions()),
         },
