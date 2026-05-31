@@ -9,12 +9,18 @@ import hmac
 import hashlib
 import secrets
 import time
+import
 from typing import List, Optional
 from urllib.parse import urlparse
 
 from fastapi import HTTPException, Request
 
-_SECRET = secrets.token_hex(32)
+_SECRET = os.environ.get("CSRF_SECRET") or secrets.token_hex(32)
+if not os.environ.get("CSRF_SECRET"):
+    import logging
+    logging.getLogger(__name__).warning(
+        "CSRF_SECRET env var not set — generated ephemeral secret. All tokens will be invalidated on server restart."
+    )
 _TRUSTED_ORIGINS: List[str] = []
 
 
