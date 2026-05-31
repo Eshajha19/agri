@@ -1,5 +1,5 @@
 import React, { Suspense, useEffect, useState, useRef } from "react";
-import { Routes, Route, Link, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Routes, Route, Link, NavLink, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -560,11 +560,11 @@ function App() {
         </div>
 
         <ul className={`nav-center ${isOpen ? "active" : ""}`}>
-          <li><Link to="/" onClick={() => setIsOpen(false)}>Home</Link></li>
-          <li><Link to="/about" onClick={() => setIsOpen(false)}>About</Link></li>
-          <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}>How It Works</Link></li>
-          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}> Crop Guide</Link></li>
-          <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
+          <li><NavLink to="/" onClick={() => setIsOpen(false)}>Home</NavLink></li>
+          <li><NavLink to="/about" onClick={() => setIsOpen(false)}>About</NavLink></li>
+          <li><NavLink to="/how-it-works" onClick={() => setIsOpen(false)}>How It Works</NavLink></li>
+          <li><NavLink to="/crop-guide" onClick={() => setIsOpen(false)}> Crop Guide</NavLink></li>
+          <li><NavLink to="/resources" onClick={() => setIsOpen(false)}>Resources</NavLink></li>
         </ul>
 
         <div className="nav-right">
