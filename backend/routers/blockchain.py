@@ -43,6 +43,13 @@ class CreateProductBatchRequest(BaseModel):
     harvesting_date: str = Field(..., min_length=1)
     farmer_name: str = Field(..., min_length=1, max_length=100)
 
+class AddSupplyChainNodeRequest(BaseModel):
+    batch_id: str = Field(..., min_length=1, max_length=100)
+    node_type: str = Field(..., min_length=1, max_length=50)
+    actor_name: str = Field(..., min_length=1, max_length=100)
+    location: str = Field(..., min_length=1, max_length=200)
+    action: str = Field(..., min_length=1, max_length=100)
+
 class CreateSmartContractRequest(BaseModel):
     batch_id: str = Field(..., min_length=1)
     seller: str = Field(..., min_length=1, max_length=100)
@@ -229,12 +236,17 @@ async def create_batch(request: Request, data: CreateProductBatchRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/add-node")
-async def add_node(request: Request, batch_id: str, node_type: str, actor_name: str, location: str, action: str):
+async def add_node(request: Request, data: AddSupplyChainNodeRequest):
     """Add a supply chain node to an existing batch. Requires authentication.
 
     Without authentication any caller could append fraudulent journey steps
     (e.g. quality_check=passed) to any batch, inflating its verification
     score and making counterfeit produce appear certified to consumers.
+
+    Parameters are accepted as a JSON request body rather than query
+    parameters so that sensitive supply-chain data (actor names, locations,
+    actions) is not logged in server access logs, browser history, or HTTP
+    referrer headers as part of the URL.
     """
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
@@ -242,14 +254,16 @@ async def add_node(request: Request, batch_id: str, node_type: str, actor_name: 
         raise HTTPException(status_code=500, detail="Auth service not initialized")
     token_data = await verify_role_fn(request)
     uid = _require_owner_uid(token_data)
-    batch = _get_batch(batch_id)
+    batch = _get_batch(data.batch_id)
     if not _is_privileged_role(token_data):
         if batch.owner_uid and batch.owner_uid != uid:
             raise HTTPException(status_code=403, detail="Access denied: only the batch owner can modify this batch")
         if not batch.owner_uid:
             raise HTTPException(status_code=403, detail="Access denied: batch is not bound to an owner")
     try:
-        node = supply_chain_blockchain.add_supply_chain_node(batch_id, node_type, actor_name, location, action)
+        node = supply_chain_blockchain.add_supply_chain_node(
+            data.batch_id, data.node_type, data.actor_name, data.location, data.action
+        )
         return {"success": True, "node": node}
     except Exception as e:
         logger.error(f"Node error: {e}")
