@@ -1,16 +1,25 @@
 """Alerts & Notifications Router"""
+import asyncio
+import re
 from datetime import datetime
+import logging
+from typing import Optional
+import logging
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
 from twilio_webhook_security import handle_inbound_whatsapp_webhook
 from pydantic import BaseModel, Field
 
-router = APIRouter()
+from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, normalize_region_identifier
+from backend.schemas import AlertTriggerRequest
 
+router = APIRouter()
+logger = logging.getLogger(__name__)
 
 class AlertTriggerRequest(BaseModel):
     alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
     message: str = Field(..., min_length=1, max_length=500)
+    region_id: Optional[str] = Field(default=None, max_length=100)
 
 
 notification_store = None
@@ -19,17 +28,19 @@ generate_alerts_fn = None
 send_whatsapp_fn = None
 format_alert_fn = None
 verify_role_fn = None
+resolve_user_profile_fn = None
 
 
-def init_alerts(ns, ss, ga_fn, sw_fn, fa_fn, vr_fn):
+def init_alerts(ns, ss, ga_fn, sw_fn, fa_fn, vr_fn, rp_fn=None):
     global notification_store, subscriber_store, generate_alerts_fn
-    global send_whatsapp_fn, format_alert_fn, verify_role_fn
+    global send_whatsapp_fn, format_alert_fn, verify_role_fn, resolve_user_profile_fn
     notification_store = ns
     subscriber_store = ss
     generate_alerts_fn = ga_fn
     send_whatsapp_fn = sw_fn
     format_alert_fn = fa_fn
     verify_role_fn = vr_fn
+    resolve_user_profile_fn = rp_fn
 
 
 @router.get("/notifications")
@@ -44,40 +55,71 @@ async def get_notifications(
         raise HTTPException(status_code=500, detail="Not initialized")
     token_data = await verify_role_fn(request)
     uid = token_data["uid"]
+    user_regions = profile_regions(resolve_user_profile_fn(uid)) if resolve_user_profile_fn is not None else set()
     dynamic_alerts = generate_alerts_fn(
         crop=crop,
         irrigation_count=irrigation_count,
         water_coverage=water_coverage,
         season=season,
     )
-    stored = notification_store.get_recent_for_user(uid)
+    stored = [
+        notification
+        for notification in notification_store.get_recent_for_user(uid)
+        if notification_matches_regions(notification, user_regions)
+    ]
     return {"success": True, "data": stored + dynamic_alerts}
+
+
+# E.164 phone number: optional leading '+', then 7-15 digits with a
+# non-zero leading digit. Rejects empty strings, letters, and numbers
+# that are too short or too long to be valid phone numbers.
+_PHONE_E164_RE = re.compile(r"^\+?[1-9]\d{6,14}$")
 
 
 @router.post("/whatsapp/subscribe")
 async def subscribe_whatsapp(
     request: Request,
-    phone_number: str = Form(...),
-    name: str = Form(...),
+    phone_number: str = Form(..., max_length=16),
+    name: str = Form(..., min_length=1, max_length=100),
+    region_id: Optional[str] = Form(None, max_length=100),
 ):
     if not all([subscriber_store, send_whatsapp_fn, verify_role_fn]):
         raise HTTPException(status_code=500, detail="Not initialized")
+
+    # Validate phone_number format before passing it to Twilio.
+    # Without this check an oversized or malformed value is forwarded
+    # directly to the Twilio API, potentially causing unexpected billing
+    # events or injection into Twilio's URL parameters.
+    if not _PHONE_E164_RE.match(phone_number):
+        raise HTTPException(
+            status_code=422,
+            detail="phone_number must be a valid E.164 number (e.g. +919876543210).",
+        )
+
+    # Strip control characters and leading/trailing whitespace from name
+    # before embedding it into the WhatsApp welcome message.
+    clean_name = re.sub(r"[\x00-\x1f\x7f]", "", name).strip()
+    if not clean_name:
+        raise HTTPException(status_code=422, detail="name must not be empty after sanitisation.")
+
     try:
         token_data = await verify_role_fn(request)
-        uid = token_data["uid"]
+        uid = token_data.get("uid")
         subscriber = {
             "phone_number": phone_number,
-            "name": name,
+            "name": clean_name,
             "subscribed_at": datetime.now().isoformat(),
+            "region_id": normalize_region_identifier(region_id) or None,
         }
         subscriber_store.upsert(uid, subscriber)
-        welcome_msg = f"Namaste {name}! 🙏\nWelcome to *Fasal Saathi WhatsApp Alerts*."
-        send_whatsapp_fn(phone_number, welcome_msg)
+        welcome_msg = f"Namaste {clean_name}! \U0001f64f\nWelcome to *Fasal Saathi WhatsApp Alerts*."
+        await asyncio.to_thread(send_whatsapp_fn, phone_number, welcome_msg)
         return {"success": True, "message": "Successfully subscribed"}
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("WhatsApp subscription failed: %s", e)
+        raise HTTPException(status_code=500, detail="WhatsApp subscription failed")
 
 
 @router.post("/whatsapp/trigger-alert")
@@ -85,24 +127,42 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
     if not all([subscriber_store, send_whatsapp_fn, format_alert_fn, notification_store, verify_role_fn]):
         raise HTTPException(status_code=500, detail="Not initialized")
     try:
-        await verify_role_fn(request, required_roles=["admin", "expert"])
+        token_data = await verify_role_fn(request)
+        uid = token_data["uid"]
+        role = str(token_data.get("role", "")).strip().lower()
+        region_id = normalize_region_identifier(data.region_id) if data.region_id else ""
+
+        if region_id:
+            if role not in {"admin", "expert"}:
+                if resolve_user_profile_fn is None or not profile_can_broadcast_region(resolve_user_profile_fn(uid), region_id):
+                    raise HTTPException(status_code=403, detail="Access denied: insufficient regional authority")
+        elif role not in {"admin", "expert"}:
+            raise HTTPException(status_code=403, detail="Access denied: insufficient permissions")
+
         subscribers = subscriber_store.get_all()
         results = []
         formatted_msg = format_alert_fn(data.alert_type, data.message)
+        if region_id:
+            subscribers = {
+                user_id: info
+                for user_id, info in subscribers.items()
+                if any(region_matches(owned_region, region_id) for owned_region in profile_regions(info))
+            }
         for user_id, info in subscribers.items():
-            res = send_whatsapp_fn(info["phone_number"], formatted_msg)
+            res = await asyncio.to_thread(send_whatsapp_fn, info["phone_number"], formatted_msg)
             results.append({
                 "user_id": user_id,
                 "success": res.get("success", False),
                 "status": res.get("status", "error"),
             })
-        notification_store.append(alert_type=data.alert_type, message=data.message)
+        notification_store.append(alert_type=data.alert_type, message=data.message, region_id=region_id or None)
         delivered = sum(1 for r in results if r["success"])
         return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Alert broadcast failed: %s", e)
+        raise HTTPException(status_code=500, detail="Alert broadcast failed")
 
 
 @router.post("/whatsapp/webhook")

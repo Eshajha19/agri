@@ -844,6 +844,7 @@
 
 .features-section {
   padding: 100px 5%;
+  text-align: center;
   background: var(--white);
   position: relative;
 }
@@ -863,6 +864,7 @@
 /* Contributors Home Section */
 .contributors-home-section {
   padding: 100px 5%;
+  text-align: center;
   background: var(--white);
   position: relative;
 }
@@ -2095,8 +2097,9 @@
 .home-section-header h2 .notranslate {
   font-size: 3.5rem !important;
 }
-testimonials-section {
+.testimonials-section {
   padding: 100px 8%;
+  text-align: center;
   background: linear-gradient(to bottom, #f0fdf4, #ffffff);
   position: relative;
   overflow: hidden;
@@ -2213,7 +2216,8 @@ testimonials-section {
   }
 }
 .quote-awareness-section {
-  padding: 100px 5%;
+  text-align: center;
+  padding: 80px 20px;
   background: linear-gradient(135deg, #ecfdf5 0%, #ddf4ea 100%);
   position: relative;
   overflow: hidden;
