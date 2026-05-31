@@ -336,7 +336,7 @@ class _CommodityModel:
         result = []
         for i in range(1, steps + 1):
             result.append(last_val + slope * i)
-        return np.array(result)
+        return np.maximum(np.array(result), 0.0)
 
 
 class PriceForecaster:
