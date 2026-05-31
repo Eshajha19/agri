@@ -1,6 +1,5 @@
 # main.py
 import os
-import asyncio
 import itertools
 import io
 import json
@@ -16,10 +15,6 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 import numpy as np
-from fastapi import Query, Form, Response
-import hashlib
-from fastapi import FastAPI, HTTPException, Request, Form, Query, Response, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
 
@@ -52,20 +47,26 @@ class RAGQuery(BaseModel):
     top_k: int = Field(default=3, ge=1, le=5)
 
 # Rate Limiting
-from slowapi import Limiter
-from slowapi.errors import RateLimitExceeded
 from rate_limit_config import build_limiter, rate_limit_exceeded_handler
 
 import firebase_admin
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
-from firebase_admin import auth, credentials, firestore, storage
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    Request,
+    Query,
+    Response,
+    Form,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
-
+from backend.core.cors import setup_cors
+from backend.core.observability import setup_observability
 from backend.routers import (
     advisory,
     alerts,
@@ -114,10 +115,7 @@ from weather_alerts import weather_service
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
-from cryptography.hazmat.primitives.asymmetric import ed25519
-from cryptography.hazmat.primitives import serialization
 
 # KMS Support
 try:
@@ -126,33 +124,9 @@ try:
 except ImportError:
     HAS_GCP_KMS = False
 
-# Logger configuration with structured output and context tracking
-class ContextFilter(logging.Filter):
-    """Add request/operation context to all log records."""
-    def __init__(self):
-        super().__init__()
-        self.context = {}
+from backend.core.logging_config import setup_logging
 
-    def filter(self, record):
-        record.context = self.context
-        return True
-
-# Configure structured logging with detailed formatting
-_context_filter = ContextFilter()
-_handler = logging.StreamHandler()
-_formatter = logging.Formatter(
-    '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - [%(context)s] - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-_handler.setFormatter(_formatter)
-
-logging.basicConfig(
-    level=logging.INFO,
-    handlers=[_handler],
-    format='%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
-)
-logger = logging.getLogger(__name__)
-logger.addFilter(_context_filter)
+logger = setup_logging()
 
 # Global ML model cache
 MODEL_CACHE = {}
@@ -330,7 +304,7 @@ async def lifespan(app: FastAPI):
         send_whatsapp_message,
         format_alert_message,
         verify_role,
-        lambda uid: _get_firestore_user_profile(uid),
+        lambda uid: get_firestore_user_profile(uid),
     )
     init_feature_flags(verify_role)
     platform.init_platform(
@@ -402,41 +376,19 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
 
 
-# Initialize Limiter
-limiter = build_limiter(default_limits=["120/minute"])
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
-# Wrap limiter.limit so decoration-time checks don't raise during test imports.
-# Some endpoints are defined without an explicit `request` parameter which
-# slowapi's decorator validates eagerly; replace with a safe wrapper that
-# falls back to a no-op decorator when the underlying limiter raises.
-_orig_limit = limiter.limit
-def _safe_limit(rate):
-    def _decorator(fn):
-        try:
-            return _orig_limit(rate)(fn)
-        except Exception:
-            return fn
-    return _decorator
-limiter.limit = _safe_limit
+from backend.core.limiter import setup_rate_limiter
+
+limiter = setup_rate_limiter(app)
 
 
-db_firestore = None
+from backend.core.firebase import (
+    initialize_firebase,
+    get_firestore_user_profile,
+)
+
+db_firestore = initialize_firebase(logger)
+
 gdpr_deletion_manager = GDPRDeletionManager()
-
-if not firebase_admin._apps:
-    try:
-        # In a GCP environment this picks up Application Default Credentials
-        # automatically.  For local dev set GOOGLE_APPLICATION_CREDENTIALS to
-        # the path of a service-account key file.
-        firebase_admin.initialize_app()
-        db_firestore = firestore.client()
-        logger.info("Firebase Admin: successfully initialized")
-    except Exception as e:
-        logger.warning(
-            "Firebase Admin: could not initialize — role-gated endpoints will "
-            "return 503 until Firestore is reachable. Reason: %s", e
-        )
 
 async def verify_role(
     request: Request,
@@ -836,19 +788,6 @@ async def _authenticate_notification_websocket(websocket: WebSocket) -> Optional
     return uid
 
 
-def _get_firestore_user_profile(uid: str) -> dict[str, Any]:
-    if not db_firestore:
-        return {}
-
-    try:
-        user_doc = db_firestore.collection("users").document(uid).get()
-    except Exception:
-        return {}
-
-    if not getattr(user_doc, "exists", False):
-        return {}
-    return dict(user_doc.to_dict() or {})
-
 
 def _parse_requested_regions(raw_value: Optional[str]) -> list[str]:
     if not raw_value:
@@ -857,7 +796,7 @@ def _parse_requested_regions(raw_value: Optional[str]) -> list[str]:
 
 
 def _resolve_websocket_regions(uid: str, websocket: WebSocket) -> frozenset[str]:
-    profile = _get_firestore_user_profile(uid)
+    profile = get_firestore_user_profile(uid)
     requested_regions = _parse_requested_regions(websocket.query_params.get("regions") or websocket.query_params.get("region"))
     return frozenset(resolve_subscription_regions(profile, requested_regions))
 
@@ -1090,7 +1029,7 @@ async def get_notifications(
     """
     token_data = await verify_role(request)
     uid = token_data["uid"]
-    profile = _get_firestore_user_profile(uid)
+    profile = get_firestore_user_profile(uid)
     user_regions = frozenset(profile_regions(profile))
     dynamic_alerts = generate_alerts(
         crop=crop,
@@ -1173,7 +1112,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
 
     if region_id:
         if role not in {"admin", "expert"}:
-            profile = _get_firestore_user_profile(uid)
+            profile = get_firestore_user_profile(uid)
             if not profile_can_broadcast_region(profile, region_id):
                 raise HTTPException(status_code=403, detail="Access denied: insufficient regional authority")
     elif role not in {"admin", "expert"}:
@@ -1416,90 +1355,13 @@ def init_ml_pipeline() -> None:
         logger.warning("ML Pipeline initialization failed: %s", exc)
 
 
-# Observability setup
-try:
-    from opentelemetry import trace
-    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-    from opentelemetry.sdk.resources import Resource
-    from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor
-
-    service_name = os.environ.get("OTEL_SERVICE_NAME", "fasal-saathi-backend")
-    resource = Resource.create({"service.name": service_name})
-    provider = TracerProvider(resource=resource)
-    trace.set_tracer_provider(provider)
-    otlp_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
-    if otlp_endpoint:
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-
-        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=otlp_endpoint)))
-    else:
-        provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
-    FastAPIInstrumentor().instrument_app(app)
-except Exception as exc:
-    logger.warning("Tracing setup skipped: %s", exc)
-
-try:
-    from prometheus_fastapi_instrumentator import Instrumentator
-
-    Instrumentator().instrument(app)
-
-    @app.get("/metrics")
-    async def metrics(request: Request):
-        if verify_role is None:
-            raise HTTPException(status_code=500, detail="Auth service not initialized")
-        # Only admins may view operational telemetry.
-        await verify_role(request, required_roles=["admin"])
-        from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
-except Exception as exc:
-    logger.warning("Prometheus setup skipped: %s", exc)
+setup_observability(app, verify_role, logger)
 
 # Middleware and rate-limits — the limiter was already configured above;
 # only the exception handler alias from slowapi's public API is wired here.
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# ---------------------------------------------------------------------------
-# CORS — explicit origin allowlist
-#
-# allow_origins=["*"] combined with allow_credentials=True is forbidden by
-# the CORS specification and rejected by browsers. It would also allow any
-# origin on the internet to make credentialed requests on behalf of a
-# logged-in farmer if a non-browser client ever relaxed the check.
-#
-# Origins are built from:
-#   1. Hard-coded local development origins (always included).
-#   2. FRONTEND_URL env var — set this to the production deployment URL.
-#   3. ADDITIONAL_ALLOWED_ORIGINS env var — comma-separated list for staging
-#      or preview deployments (e.g. Vercel preview URLs).
-# ---------------------------------------------------------------------------
-_CORS_ORIGINS: list[str] = [
-    "http://localhost:5173",
-    "http://127.0.0.1:3000",
-    "https://fasal-saathi.vercel.app",
-    "https://fasal-saathi.xyz"
-]
-
-_frontend_url = os.getenv("FRONTEND_URL", "").strip()
-if _frontend_url and _frontend_url not in _CORS_ORIGINS:
-    _CORS_ORIGINS.append(_frontend_url)
-
-_extra_origins = os.getenv("ADDITIONAL_ALLOWED_ORIGINS", "").strip()
-if _extra_origins:
-    for _origin in _extra_origins.split(","):
-        _origin = _origin.strip()
-        if _origin and _origin not in _CORS_ORIGINS:
-            _CORS_ORIGINS.append(_origin)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
-)
-import csrf_protection as _csrf
-_csrf.configure(_CORS_ORIGINS)
+setup_cors(app)
 app.add_middleware(RBACMiddleware)
 logger.info(print_rbac_matrix())
 
@@ -1640,25 +1502,26 @@ except Exception as exc:
         exc
     )
 
-# Router registration
-app.include_router(ml.router, prefix="/api/yield", tags=["ML Prediction"])
-app.include_router(governance.router, prefix="/api/ml-governance", tags=["ML Governance"])
-app.include_router(finance.router, prefix="/api/farm-finance", tags=["Finance"])
-app.include_router(finance.router, prefix="/api/finance", tags=["Finance Legacy"])
-app.include_router(quality.router, prefix="/api/crop-quality", tags=["Quality"])
-app.include_router(blockchain.router, prefix="/api/supply-chain", tags=["Blockchain"])
-app.include_router(reports.router, prefix="/api/admin", tags=["Reports"])
-app.include_router(marketplace.router, prefix="/api/marketplace", tags=["Marketplace"])
-app.include_router(knowledge.router, prefix="/api/knowledge", tags=["Knowledge"])
-app.include_router(community.router, prefix="/api/community", tags=["Community"])
-if voice_assistant_router is not None:
-    app.include_router(voice_assistant_router.router, prefix="/api/voice", tags=["Voice Assistant"])
-app.include_router(referrals.router, prefix="/api/referrals", tags=["Referrals"])
-app.include_router(platform.router, prefix="/api", tags=["Platform"])
-app.include_router(advisory.router, prefix="/api", tags=["Advisory"])
-app.include_router(alerts.router, prefix="/api/notifications", tags=["Alerts"])
-app.include_router(flags_router, tags=["Feature Flags"])
-app.include_router(lms.router, prefix="/api", tags=["LMS"])
+from backend.core.router_registry import register_routers
+register_routers(
+    app,
+    ml,
+    governance,
+    finance,
+    quality,
+    blockchain,
+    reports,
+    marketplace,
+    knowledge,
+    community,
+    referrals,
+    platform,
+    advisory,
+    alerts,
+    flags_router,
+    lms,
+    voice_assistant_router,
+)
 
 
 # --- Smart Farm Autopilot ---
