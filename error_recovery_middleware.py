@@ -127,10 +127,18 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
             # timestamps so the rolling window can track instability.
             if self._circuit_state.get(endpoint) == self._HALF_OPEN:
                 logger.info("Circuit breaker closed for %s — probe succeeded", endpoint)
-                self._failure_timestamps.pop(endpoint, None)
-                self._circuit_open_since.pop(endpoint, None)
 
-            self._circuit_state[endpoint] = self._CLOSED
+            # Remove all state for this endpoint when it transitions to CLOSED.
+            # Keeping a CLOSED entry in _circuit_state causes the dict to grow
+            # without bound — one entry per distinct endpoint ever seen.
+            # Absent from the dict is semantically identical to CLOSED, so we
+            # pop the key instead of writing "closed" to it.  The failure
+            # timestamps and open-since entries are also pruned so the dicts
+            # stay bounded to only currently-open or recently-failing endpoints.
+            self._circuit_state.pop(endpoint, None)
+            self._failure_timestamps.pop(endpoint, None)
+            self._circuit_open_since.pop(endpoint, None)
+            self._circuit_open_since.pop(f"{endpoint}.__jitter__", None)
 
             # Add request ID to response headers
             response.headers["X-Request-ID"] = request_id
@@ -295,6 +303,12 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
                     self._RESET_TIMEOUT,
                     jitter,
                 )
+        else:
+            # Failure recorded but threshold not yet reached — prune the
+            # failure_timestamps list if it is now empty so the dict does
+            # not accumulate entries for endpoints that recovered naturally.
+            if not self._failure_timestamps[endpoint]:
+                self._failure_timestamps.pop(endpoint, None)
 
     def reset_circuit(self, endpoint: str) -> bool:
         """Manually reset the circuit breaker for *endpoint* to CLOSED.
