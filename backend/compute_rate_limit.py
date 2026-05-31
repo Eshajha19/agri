@@ -1,7 +1,25 @@
-"""Shared in-process rate limiting for expensive authenticated endpoints."""
+"""Shared rate limiting for expensive authenticated endpoints.
+
+Backend selection
+-----------------
+When the REDIS_URL environment variable is set, rate-limit counters are
+stored in Redis so all Gunicorn / Uvicorn workers share the same bucket.
+Without Redis, each worker process has its own independent in-process dict
+and a user can exceed their quota by distributing requests across workers.
+
+Set REDIS_URL to any redis:// or rediss:// URL to enable the shared
+backend, e.g.:
+
+    REDIS_URL=redis://localhost:6379/0
+
+The in-process fallback is retained for local development and single-worker
+deployments where Redis is not available.
+"""
 
 from __future__ import annotations
 
+import logging
+import os
 from datetime import datetime, timezone
 from math import ceil
 from threading import Lock
@@ -11,6 +29,33 @@ from typing import Optional
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Redis client (optional)
+# ---------------------------------------------------------------------------
+
+_redis_client = None
+
+_REDIS_URL = os.getenv("REDIS_URL", "")
+if _REDIS_URL:
+    try:
+        import redis as _redis_lib  # type: ignore[import]
+        _redis_client = _redis_lib.from_url(_REDIS_URL, decode_responses=True)
+        # Validate connectivity at import time so misconfigured URLs fail early.
+        _redis_client.ping()
+        logger.info("compute_rate_limit: using Redis backend (%s)", _REDIS_URL.split("@")[-1])
+    except Exception as _redis_err:  # noqa: BLE001
+        logger.warning(
+            "compute_rate_limit: Redis unavailable (%s); falling back to in-process store. "
+            "Rate limits will not be shared across workers.",
+            _redis_err,
+        )
+        _redis_client = None
+
+# ---------------------------------------------------------------------------
+# In-process store (used when Redis is not configured or unavailable)
+# ---------------------------------------------------------------------------
 
 _compute_rate_limit_store: dict[str, tuple[int, float, int]] = {}
 _compute_rate_limit_lock = Lock()
@@ -80,6 +125,43 @@ def build_compute_rate_limit_response(
     )
 
 
+def _enforce_redis(
+    key: str,
+    *,
+    scope: str,
+    limit: int,
+    window_seconds: int,
+    request: Request,
+) -> Optional[JSONResponse]:
+    """Redis-backed fixed-window rate limit using atomic INCR + EXPIRE.
+
+    Uses a pipeline to increment the counter and set the expiry in a single
+    round-trip.  The INCR-then-EXPIRE pattern is not perfectly atomic (a
+    process crash between the two commands would leave a key without expiry),
+    but it is safe enough for rate limiting where the worst case is a counter
+    that persists one extra window.  For strict atomic semantics a Lua script
+    or a Redis transaction could be used.
+    """
+    try:
+        pipe = _redis_client.pipeline()
+        pipe.incr(key)
+        pipe.expire(key, window_seconds)
+        count, _ = pipe.execute()
+        if count > limit:
+            # Remaining TTL for Retry-After header.
+            ttl = _redis_client.ttl(key)
+            retry_after = max(1, ttl if ttl > 0 else window_seconds)
+            return build_compute_rate_limit_response(
+                request, scope=scope, retry_after_seconds=retry_after
+            )
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Redis rate-limit check failed (%s); allowing request.", exc)
+        # Fail open: prefer a missed rate limit over a false 429 that blocks
+        # legitimate users during a Redis outage.
+        return None
+
+
 def enforce_compute_rate_limit(
     request: Request,
     *,
@@ -88,21 +170,37 @@ def enforce_compute_rate_limit(
     limit: int,
     window_seconds: int,
 ) -> Optional[JSONResponse]:
-    """Return a structured 429 response when the bucket is exhausted."""
-    now = monotonic()
-    key = f"{scope}:{_request_actor_key(request, uid)}"
+    """Return a structured 429 response when the caller's bucket is exhausted.
 
+    Uses Redis when REDIS_URL is configured so the quota is shared across all
+    Gunicorn workers.  Falls back to the in-process dict when Redis is not
+    available, with the caveat that each worker tracks its own counters.
+    """
+    actor_key = _request_actor_key(request, uid)
+    full_key = f"compute_rl:{scope}:{actor_key}"
+
+    if _redis_client is not None:
+        return _enforce_redis(
+            full_key,
+            scope=scope,
+            limit=limit,
+            window_seconds=window_seconds,
+            request=request,
+        )
+
+    # In-process fallback.
+    now = monotonic()
     with _compute_rate_limit_lock:
         _prune_expired_entries(now)
 
-        current = _compute_rate_limit_store.get(key)
+        current = _compute_rate_limit_store.get(full_key)
         if current is None:
-            _compute_rate_limit_store[key] = (1, now, window_seconds)
+            _compute_rate_limit_store[full_key] = (1, now, window_seconds)
             return None
 
         count, window_start, stored_window_seconds = current
         if now - window_start >= stored_window_seconds:
-            _compute_rate_limit_store[key] = (1, now, window_seconds)
+            _compute_rate_limit_store[full_key] = (1, now, window_seconds)
             return None
 
         if count >= limit:
@@ -113,5 +211,5 @@ def enforce_compute_rate_limit(
                 retry_after_seconds=retry_after,
             )
 
-        _compute_rate_limit_store[key] = (count + 1, window_start, stored_window_seconds)
+        _compute_rate_limit_store[full_key] = (count + 1, window_start, stored_window_seconds)
         return None
