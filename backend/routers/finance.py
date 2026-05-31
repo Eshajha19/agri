@@ -199,7 +199,7 @@ async def get_finance_application(application_id: str, request: Request, resourc
 
 
 @router.get("/products")
-def get_finance_products():
+async def get_finance_products():
     if farm_finance_ai is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     return {"success": True, "data": farm_finance_ai.list_marketplace()}
@@ -210,5 +210,5 @@ def get_finance_products():
 # Both routes delegate to the same handler — there is a single code path
 # and a single place to update if the response shape ever changes.
 @router.get("/marketplace")
-def get_finance_marketplace():
-    return get_finance_products()
+async def get_finance_marketplace():
+    return await get_finance_products()
