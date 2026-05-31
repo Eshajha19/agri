@@ -41,7 +41,19 @@ def _set_claim_sync(uid: str, role: str) -> None:
     logger.info("Custom claim set: uid=%s role=%s", uid, role)
 
 
-async def sync_role_claim(uid: str, role: str) -> None:
+def _revoke_refresh_tokens_sync(uid: str) -> None:
+    """Invalidate outstanding refresh tokens so ID tokens are re-issued promptly."""
+    import firebase_admin
+    from firebase_admin import auth as firebase_auth
+
+    if not firebase_admin._apps:
+        raise RuntimeError("Firebase Admin SDK is not initialised")
+
+    firebase_auth.revoke_refresh_tokens(uid)
+    logger.info("Refresh tokens revoked: uid=%s", uid)
+
+
+async def sync_role_claim(uid: str, role: str, *, revoke_sessions: bool = True) -> None:
     """
     Set the 'role' custom claim on the Firebase Auth user identified by uid.
 
@@ -49,9 +61,12 @@ async def sync_role_claim(uid: str, role: str) -> None:
     rules (which read request.auth.token.role) stay consistent with the
     Firestore users/{uid}.role field.
 
-    The caller's next ID-token refresh will include the updated claim.
-    Existing tokens remain valid until they expire (≤ 1 hour), after which
-    the new claim takes effect automatically.
+    By default this also revokes refresh tokens so the user must sign in again
+    and cannot keep using a stale JWT with the previous ``role`` claim (closes
+    the demotion / privilege-escalation window documented in issue #1130).
+
+    Authoritative role source for the API is Firestore ``users/{uid}.role``.
+    Custom claims are a mirror for Firestore security rules only.
 
     Raises RuntimeError if Firebase Admin is not initialised.
     Raises firebase_admin.auth.UserNotFoundError if uid does not exist.
@@ -61,9 +76,11 @@ async def sync_role_claim(uid: str, role: str) -> None:
 
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, _set_claim_sync, uid, role)
+    if revoke_sessions:
+        await loop.run_in_executor(None, _revoke_refresh_tokens_sync, uid)
 
 
-def sync_role_claim_sync(uid: str, role: str) -> None:
+def sync_role_claim_sync(uid: str, role: str, *, revoke_sessions: bool = True) -> None:
     """
     Synchronous variant for use in non-async contexts (e.g. startup scripts,
     Celery tasks, or test fixtures).
@@ -71,6 +88,8 @@ def sync_role_claim_sync(uid: str, role: str) -> None:
     if role not in VALID_ROLES:
         raise ValueError(f"Invalid role '{role}'. Must be one of: {sorted(VALID_ROLES)}")
     _set_claim_sync(uid, role)
+    if revoke_sessions:
+        _revoke_refresh_tokens_sync(uid)
 
 
 def backfill_role_claims(db_client, batch_size: int = 100) -> dict:
