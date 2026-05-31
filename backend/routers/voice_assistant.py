@@ -423,7 +423,12 @@ async def upload_audio(
         raise HTTPException(status_code=400, detail=str(e))
 
     os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
-    temp_path = os.path.join(TEMP_UPLOAD_DIR, f"{uid}_{safe_filename}")
+    # Sanitize uid before embedding it in a filesystem path. Firebase UIDs are
+    # currently 28-character alphanumeric strings, but a defensive strip prevents
+    # path traversal if the auth provider is ever changed or the token is crafted
+    # to contain special characters.
+    safe_uid = re.sub(r"[^a-zA-Z0-9_-]", "_", uid)
+    temp_path = os.path.join(TEMP_UPLOAD_DIR, f"{safe_uid}_{safe_filename}")
     bytes_written = 0
 
     try:
@@ -460,8 +465,15 @@ async def upload_audio(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Audio upload error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        # Log the full error server-side for debugging but return only a
+        # generic message to the client. Forwarding str(e) can expose
+        # filesystem paths, internal library names, or other implementation
+        # details that aid attackers in fingerprinting the server environment.
+        logger.error("Audio upload error for uid=%s: %s", uid, e, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected error occurred during audio upload.",
+        )
     finally:
         try:
             if os.path.exists(temp_path):
