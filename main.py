@@ -15,7 +15,9 @@ import time
 import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
-
+import numpy as np
+from fastapi import Query, Form, Response
+import hashlib
 from fastapi import FastAPI, HTTPException, Request, Form, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -152,6 +154,45 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 logger.addFilter(_context_filter)
 
+# Global ML model cache
+MODEL_CACHE = {}
+
+def get_model(model_name: str, model_path: str):
+    """
+    Lazy-load and cache ML models.
+    """
+    if model_name not in MODEL_CACHE:
+        start = time.time()
+
+        logger.info("Loading ML model: %s", model_name)
+
+        MODEL_CACHE[model_name] = joblib.load(model_path)
+
+        logger.info(
+            "Loaded model '%s' in %.2fs",
+            model_name,
+            time.time() - start
+        )
+
+    return MODEL_CACHE[model_name]
+
+
+async def warmup_models():
+    """
+    Background ML warmup task.
+    """
+    try:
+        await asyncio.to_thread(
+            get_model,
+            "yield_prediction_model",
+            "sklearn_yield_model.joblib"
+        )
+
+        logger.info("ML warmup completed successfully")
+
+    except Exception as exc:
+        logger.warning("ML warmup skipped: %s", exc)
+        
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -317,29 +358,27 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.warning("Voice assistant init skipped: %s", exc)
 
-    try:
-        logger.info("🧠 Loading ML models...")
-        import joblib as _joblib
-        model_lag = _joblib.load("sklearn_yield_model.joblib")
-        logger.info("✅ Sklearn yield model loaded")
-    except Exception as exc:
-        logger.warning("Sklearn yield model not found: %s", exc)
-        model_lag = None
+    logger.info("🚀 Starting background ML warmup...")
+    asyncio.create_task(warmup_models())
+
+    model_lag = None
 
     model_trend = None
-    try:
-        if os.path.exists("trend_forecast_model.joblib"):
-            logger.info("📈 Loading trend forecast model...")
-            import joblib as _joblib2
-            model_trend = _joblib2.load("trend_forecast_model.joblib")
-            logger.info("✅ Trend forecast model loaded successfully")
-    except Exception as exc:
-        logger.warning("Trend forecast model loading failed: %s", exc)
-        model_trend = None
+
+    if os.path.exists("trend_forecast_model.joblib"):
+        logger.info("Trend model registered for lazy loading")
 
     try:
         logger.info("🤖 Initializing ML router...")
-        ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend, verify_role)
+        ml.init_router(
+            ModelRouter(default_model="xgboost"),
+            lambda: get_model(
+                "yield_prediction_model",
+                "sklearn_yield_model.joblib"
+            ),
+            None,
+            verify_role
+        )
         logger.info("✅ ML router initialized")
     except Exception as exc:
         logger.error("❌ ML router initialization failed: %s", exc, exc_info=True)
@@ -911,6 +950,17 @@ def _build_gdpr_deletion_targets(uid: str) -> list[DeletionTarget]:
     )
     return targets
 
+@app.get("/ml/health")
+async def ml_health():
+    """
+    ML model readiness and cache status.
+    """
+    return {
+        "loaded_models": list(MODEL_CACHE.keys()),
+        "total_loaded": len(MODEL_CACHE),
+        "status": "healthy"
+    }
+
 @app.get("/")
 @limiter.limit("60/minute")
 def root(request: Request = None):
@@ -1339,15 +1389,29 @@ def get_signing_keys():
 
 
 def init_ml_pipeline() -> None:
+    """
+    Register ML pipeline without eager model loading.
+    """
     try:
-        xgb_adapter = XGBoostAdapter()
         model_path = "yield_model.joblib"
+
         if os.path.exists(model_path):
-            xgb_adapter.load(model_path)
-            ModelRegistry.register("xgboost", xgb_adapter)
-            logger.info("ML Pipeline: Registered XGBoost model")
+            logger.info(
+                "XGBoost model registered for deferred loading: %s",
+                model_path
+            )
+
+            ModelRegistry.register(
+                "xgboost",
+                {
+                    "model_path": model_path,
+                    "lazy_loaded": True,
+                }
+            )
+
         else:
             logger.warning("ML Pipeline: %s not found", model_path)
+
     except Exception as exc:
         logger.warning("ML Pipeline initialization failed: %s", exc)
 
