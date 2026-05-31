@@ -111,7 +111,6 @@ import { syncOfflineRequests } from "./lib/syncOfflineRequests";
 
 // CSS
 import "./App.css";
-
 const LANGUAGE_OPTIONS = [
   { value: "en", label: "🌍 English", englishName: "english" },
   { value: "hi", label: "🇮🇳 हिंदी", englishName: "hindi" },
@@ -224,13 +223,24 @@ const GuestBanner = () => (
 
 function App() {
   const scorecardRef = useRef(null);
-  const [preferredLang, setPreferredLang] = useState(() => {
+  const getStoredLanguagePreference = () => {
     try {
-      return localStorage.getItem("agri:preferredLanguage") || getInitialLanguage();
+      return sessionStorage.getItem("agri:preferredLanguage");
     } catch {
-      return getInitialLanguage();
+      return null;
     }
+  };
+
+  const { i18n } = useTranslation();
+  const [preferredLang, setPreferredLang] = useState(() => {
+    return getStoredLanguagePreference() || getInitialLanguage();
   });
+  useEffect(() => {
+    if (preferredLang && i18n.language !== preferredLang) {
+      i18n.changeLanguage(preferredLang);
+    }
+  }, [preferredLang, i18n]);
+  
   const [isOpen, setIsOpen] = useState(false);
   const { theme, toggleTheme, setTheme } = useTheme();
   const [user, setUser] = useState(null);
@@ -295,7 +305,6 @@ function App() {
     void persistAppState({ preferredLang });
   }, [preferredLang]);
 
-  const { i18n } = useTranslation();
   const location = useLocation();
 
   useNotifications();
@@ -307,58 +316,51 @@ function App() {
   /* ---------------- THEME SYSTEM (Moved to ThemeProvider) ---------------- */
 
   /* ---------------- LANGUAGE AUTO-TRANS ---------------- */
-  useEffect(() => {
+useEffect(() => {
+  const applyTranslation = async () => {
     if (applyGoogleTranslate(preferredLang)) return;
 
-    let retries = 0;
-    const MAX_RETRIES = 20; // Try for ~6 seconds
+    try {
+      await applyGoogleTranslateRobust(
+        preferredLang,
+        () => console.log("Google Translate initialized successfully"),
+        () => console.warn("Google Translate unavailable - using default language")
+      );
+    } catch (error) {
+      console.warn("Translation initialization failed - graceful fallback applied");
+    }
+  };
 
-    const id = setInterval(() => {
-      retries++;
-      if (applyGoogleTranslate(preferredLang)) {
-        clearInterval(id);
-      } else if (retries >= MAX_RETRIES) {
-        clearInterval(id);
-        console.warn("Google Translate widget initialization timed out or was blocked. Graceful fallback applied.");
-      }
-    }, 300);
+  void applyTranslation();
 
-    return () => clearInterval(id);
-    const applyTranslation = async () => {
-      if (applyGoogleTranslate(preferredLang)) return;
+  const handleWidgetLoad = () => {
+    if (!applyGoogleTranslate(preferredLang)) {
+      void applyGoogleTranslateRobust(preferredLang);
+    }
+  };
 
-      try {
-        await applyGoogleTranslateRobust(
-          preferredLang,
-          () => console.log("Google Translate initialized successfully"),
-          () => console.warn("Google Translate unavailable - using default language")
-        );
-      } catch (error) {
-        console.warn("Translation initialization failed - graceful fallback applied");
-      }
-    };
+  const widgetCheckInterval = setInterval(() => {
+    if (
+      document.querySelector(".goog-te-combo") &&
+      !applyGoogleTranslate(preferredLang)
+    ) {
+      void applyGoogleTranslateRobust(preferredLang);
+    }
+  }, 2000);
 
-    applyTranslation();
+  document.addEventListener(
+    "googleTranslateWidgetLoaded",
+    handleWidgetLoad
+  );
 
-    const handleWidgetLoad = () => {
-      if (!applyGoogleTranslate(preferredLang)) {
-        applyGoogleTranslateRobust(preferredLang);
-      }
-    };
-
-    const widgetCheckInterval = setInterval(() => {
-      if (document.querySelector(".goog-te-combo") && !applyGoogleTranslate(preferredLang)) {
-        applyGoogleTranslateRobust(preferredLang);
-      }
-    }, 2000);
-
-    document.addEventListener("googleTranslateWidgetLoaded", handleWidgetLoad);
-
-    return () => {
-      clearInterval(widgetCheckInterval);
-      document.removeEventListener("googleTranslateWidgetLoaded", handleWidgetLoad);
-    };
-  }, [preferredLang]);
+  return () => {
+    clearInterval(widgetCheckInterval);
+    document.removeEventListener(
+      "googleTranslateWidgetLoaded",
+      handleWidgetLoad
+    );
+  };
+}, [preferredLang]);
 
   /* ---------------- HIDE GOOGLE TRANSLATE BANNER ---------------- */
   useEffect(() => {
@@ -592,7 +594,11 @@ function App() {
                     onChange={(lang) => {
                       setPreferredLang(lang);
                       i18n.changeLanguage(lang);
-                      localStorage.setItem("agri:preferredLanguage", lang);
+                      try {
+                        sessionStorage.setItem("agri:preferredLanguage", lang);
+                      } catch (error) {
+                        console.warn("Unable to persist language preference");
+                      }
                       void persistAppState({ preferredLang: lang });
                     }}
                   />

@@ -229,26 +229,44 @@ function downloadCertificate({
 // ---------------------------------------------------------------------------
 
 export default function AgriLMS() {
-  const [activeCourse, setActiveCourse] =
-    useState(null);
+  const SESSION_KEYS = {
+    ACTIVE_COURSE: 'agri:lms:active-course',
+    ACTIVE_LESSON: 'agri:lms:active-lesson',
+  };
 
-  const [activeLesson, setActiveLesson] =
-    useState(null);
+  const getSessionValue = (key) => {
+    try {
+      return sessionStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  };
 
-  const [showAdvisor, setShowAdvisor] =
-    useState(false);
+  const [activeCourse, setActiveCourse] = useState(() => {
+  const stored = getSessionValue(SESSION_KEYS.ACTIVE_COURSE);
 
-  const [serverProgress, setServerProgress] =
-    useState({});
+  if (!stored) return null;
 
-  const [progressLoading, setProgressLoading] =
-    useState(true);
+  try {
+    return JSON.parse(stored);
+  } catch {
+    return null;
+  }
+  });
 
-  const [progressError, setProgressError] =
-    useState(null);
+  const [activeLesson, setActiveLesson] = useState(() => {
+    const stored = getSessionValue(SESSION_KEYS.ACTIVE_LESSON);
 
-  const [markingLesson, setMarkingLesson] =
-    useState(null);
+    if (!stored) return null;
+
+    try {
+      return JSON.parse(stored);
+    } catch {
+      return null;
+    }
+  });
+
+  const [showAdvisor, setShowAdvisor] = useState(false);
 
   const [fetchingCert, setFetchingCert] =
     useState(null);
@@ -335,6 +353,30 @@ export default function AgriLMS() {
       mountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    try {
+      if (activeCourse?.id) {
+        sessionStorage.setItem(
+          SESSION_KEYS.ACTIVE_COURSE,
+          JSON.stringify(activeCourse)
+        );
+      } else {
+        sessionStorage.removeItem(SESSION_KEYS.ACTIVE_COURSE);
+      }
+
+      if (activeLesson?.id) {
+        sessionStorage.setItem(
+          SESSION_KEYS.ACTIVE_LESSON,
+          JSON.stringify(activeLesson)
+        );
+      } else {
+        sessionStorage.removeItem(SESSION_KEYS.ACTIVE_LESSON);
+      }
+    } catch (error) {
+      console.warn("Unable to persist LMS session state");
+    }
+  }, [activeCourse, activeLesson]);
 
   // ---------------------------------------------------------------------------
   // Load server-side progress on mount
