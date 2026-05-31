@@ -268,49 +268,6 @@ export default function AgriLMS() {
 
   const [showAdvisor, setShowAdvisor] = useState(false);
 
-  const [fetchingCert, setFetchingCert] =
-    useState(null);
-
-  // ---------------------------------------------------------------------------
-  // Advanced Session Persistence Hardening
-  // ---------------------------------------------------------------------------
-
-  const LMS_PROGRESS_CACHE_KEY =
-    'agri_lms_progress_cache_v2';
-
-  const mountedRef = useRef(true);
-
-  const recoveryInProgress = useRef(false);
-
-  const activeFetchRef = useRef(null);
-
-  const persistProgressSnapshot =
-    useCallback((progress) => {
-      try {
-        sessionStorage.setItem(
-          LMS_PROGRESS_CACHE_KEY,
-          JSON.stringify({
-            progress,
-            savedAt:
-              new Date().toISOString()
-          })
-        );
-      } catch (error) {
-        console.error(
-          'Session persistence failed:',
-          error
-        );
-      }
-    }, []);
-
-  const restoreProgressSnapshot =
-    useCallback(() => {
-      try {
-        const raw =
-          sessionStorage.getItem(
-            LMS_PROGRESS_CACHE_KEY
-          );
-
         if (!raw) return null;
 
         const parsed = JSON.parse(raw);
@@ -353,6 +310,30 @@ export default function AgriLMS() {
       mountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    try {
+      if (activeCourse?.id) {
+        sessionStorage.setItem(
+          SESSION_KEYS.ACTIVE_COURSE,
+          JSON.stringify(activeCourse)
+        );
+      } else {
+        sessionStorage.removeItem(SESSION_KEYS.ACTIVE_COURSE);
+      }
+
+      if (activeLesson?.id) {
+        sessionStorage.setItem(
+          SESSION_KEYS.ACTIVE_LESSON,
+          JSON.stringify(activeLesson)
+        );
+      } else {
+        sessionStorage.removeItem(SESSION_KEYS.ACTIVE_LESSON);
+      }
+    } catch (error) {
+      console.warn("Unable to persist LMS session state");
+    }
+  }, [activeCourse, activeLesson]);
 
   useEffect(() => {
     try {

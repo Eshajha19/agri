@@ -229,7 +229,7 @@ const generateCSRFToken = () => {
     .join('');
 };
 
-
+const csrfToken = useRef(generateCSRFToken());
 
 // ============================================
 // Auth Component
