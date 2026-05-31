@@ -275,10 +275,14 @@ export default function CropDiseaseDetection({ onClose }) {
   const handleImageChange = (file) => {
     if (!file) return;
 
-    if (!file.type.startsWith("image/")) {
-      setError("Please upload a valid image file.");
-      return;
-    }
+    const allowedTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "image/jpg",
+    ];
+
+    if (!allowedTypes.includes(file.type)) {
 
     const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
 
@@ -287,12 +291,24 @@ export default function CropDiseaseDetection({ onClose }) {
       return;
     }
 
-    if (preview) {
-      URL.revokeObjectURL(preview);
-    }
+    const objectUrl = URL.createObjectURL(file);
 
     setImage(file);
-    setPreview(URL.createObjectURL(file));
+
+    setPreview((previous) => {
+      if (previous) {
+        URL.revokeObjectURL(previous);
+      }
+
+      return objectUrl;
+    });
+    setPreview((previous) => {
+      if (previous) {
+        URL.revokeObjectURL(previous);
+      }
+
+      return objectUrl;
+    });
     setResult(null);
     setError(null);
   };
@@ -334,7 +350,13 @@ export default function CropDiseaseDetection({ onClose }) {
       try {
         const historyEntry = saveDiseaseHistory(detectionResult);
         if (historyEntry) {
-          setHistory((previous) => [historyEntry, ...previous]);
+          setHistory((previous) => {
+            const filtered = previous.filter(
+              (item) => item.id !== historyEntry.id
+            );
+
+            return [historyEntry, ...filtered].slice(0, 25);
+          });
         }
       } catch (storageError) {
         console.warn("Disease history could not be saved:", storageError);
@@ -677,8 +699,13 @@ export default function CropDiseaseDetection({ onClose }) {
               </h3>
               <button
                 onClick={() => {
-                  if (window.confirm("Clear all disease history?")) {
-                    localStorage.removeItem(HISTORY_STORAGE_KEY);
+                  if (typeof window !== "undefined" && window.confirm("Clear all disease history?")) {
+                    try {
+                      localStorage.removeItem(HISTORY_STORAGE_KEY);
+                    } catch (err) {
+                      console.error("Failed to clear history:", err);
+                    }
+
                     setHistory([]);
                   }
                 }}

@@ -186,9 +186,18 @@ class SecureTokenManager {
   }
 
   isTokenExpired() {
+    let storedExpiration = null;
+
+    try {
+      storedExpiration = Number(
+        sessionStorage.getItem("auth_token_expiration")
+      );
+    } catch {
+      storedExpiration = null;
+    }
+
     const expiration =
-      this._expirationTime ||
-      Number(sessionStorage.getItem("auth_token_expiration"));
+      this._expirationTime || storedExpiration;
 
     if (!expiration) {
       return true;
@@ -196,7 +205,6 @@ class SecureTokenManager {
 
     return Date.now() >= expiration;
   }
-
   clearToken() {
     this._token = null;
     this._expirationTime = null;
@@ -221,9 +229,7 @@ const generateCSRFToken = () => {
     .join('');
 };
 
-const validateCSRFToken = (token, storedToken) => {
-  return constantTimeCompare(token, storedToken);
-};
+const csrfToken = useRef(generateCSRFToken());
 
 // ============================================
 // Auth Component

@@ -125,12 +125,26 @@ export default function AgriLMS() {
 
   const [activeCourse, setActiveCourse] = useState(() => {
   const stored = getSessionValue(SESSION_KEYS.ACTIVE_COURSE);
-  return stored ? JSON.parse(stored) : null;
+
+  if (!stored) return null;
+
+  try {
+    return JSON.parse(stored);
+  } catch {
+    return null;
+  }
   });
 
   const [activeLesson, setActiveLesson] = useState(() => {
-  const stored = getSessionValue(SESSION_KEYS.ACTIVE_LESSON);
-  return stored ? JSON.parse(stored) : null;
+    const stored = getSessionValue(SESSION_KEYS.ACTIVE_LESSON);
+
+    if (!stored) return null;
+
+    try {
+      return JSON.parse(stored);
+    } catch {
+      return null;
+    }
   });
 
   const [showAdvisor, setShowAdvisor] = useState(false);
@@ -144,7 +158,6 @@ export default function AgriLMS() {
   const [markingLesson, setMarkingLesson] = useState(null);
 
   // Per-course "fetching certificate" state
-  const [fetchingCert, setFetchingCert] = useState(null);
   const [fetchingCert, setFetchingCert] = useState(null);
 
   useEffect(() => {
