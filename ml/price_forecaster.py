@@ -21,7 +21,9 @@ Architecture
   HISTORICAL_PRICES        — embedded 2-year weekly price dataset
 """
 
+import json
 import logging
+import os
 import threading
 from datetime import date, timedelta
 from typing import Dict, List, Optional
@@ -111,6 +113,8 @@ class _CommodityModel:
     multi-step ahead forecasts via recursive prediction.
     """
 
+    MODEL_DIR = "models/price_forecaster"
+
     def __init__(self, commodity: str, prices: List[float]) -> None:
         self.commodity = commodity
         self._prices = np.array(prices, dtype=np.float32)
@@ -119,6 +123,10 @@ class _CommodityModel:
         self._scaler_range: float = 1.0
         self._residual_std: float = 0.0
         self._trained = False
+
+    def _model_key(self) -> str:
+        safe = self.commodity.replace(" ", "_").replace("(", "").replace(")", "")
+        return safe
 
     # ------------------------------------------------------------------
     # Normalisation helpers
@@ -129,6 +137,49 @@ class _CommodityModel:
 
     def _unscale(self, x: np.ndarray) -> np.ndarray:
         return x * self._scaler_range + self._scaler_min
+
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
+
+    def _save(self) -> None:
+        """Persist trained model weights and scaler metadata to disk."""
+        base = os.path.join(self.MODEL_DIR, self._model_key())
+        os.makedirs(self.MODEL_DIR, exist_ok=True)
+        try:
+            self._model.save(base + ".keras")
+            with open(base + ".json", "w") as f:
+                json.dump({
+                    "scaler_min": self._scaler_min,
+                    "scaler_range": self._scaler_range,
+                    "residual_std": self._residual_std,
+                }, f)
+        except Exception as e:
+            logger.warning("PriceForecaster: failed to persist model for '%s': %s", self.commodity, e)
+
+    def _load(self) -> bool:
+        """Load a previously persisted model from disk. Returns True on success."""
+        base = os.path.join(self.MODEL_DIR, self._model_key())
+        model_path = base + ".keras"
+        meta_path = base + ".json"
+        if not os.path.exists(model_path) or not os.path.exists(meta_path):
+            return False
+        try:
+            import tensorflow as tf
+            with open(meta_path, "r") as f:
+                meta = json.load(f)
+            self._scaler_min = meta["scaler_min"]
+            self._scaler_range = meta["scaler_range"]
+            self._residual_std = meta["residual_std"]
+            self._model = tf.keras.models.load_model(model_path)
+            self._trained = True
+            logger.info("PriceForecaster: loaded persisted model for '%s'", self.commodity)
+            return True
+        except Exception as e:
+            logger.warning("PriceForecaster: failed to load persisted model for '%s': %s", self.commodity, e)
+            self._model = None
+            self._trained = False
+            return False
 
     # ------------------------------------------------------------------
     # Training
@@ -196,6 +247,7 @@ class _CommodityModel:
             "(residual_std=%.4f, scaler_range=%.0f)",
             self.commodity, self._residual_std, self._scaler_range,
         )
+        self._save()
 
     # ------------------------------------------------------------------
     # Forecasting
@@ -284,7 +336,7 @@ class _CommodityModel:
         result = []
         for i in range(1, steps + 1):
             result.append(last_val + slope * i)
-        return np.array(result)
+        return np.maximum(np.array(result), 0.0)
 
 
 class PriceForecaster:
@@ -300,7 +352,7 @@ class PriceForecaster:
         self._lock = threading.Lock()
 
     def _get_or_train(self, commodity: str) -> _CommodityModel:
-        """Return a trained model for *commodity*, training it if needed."""
+        """Return a trained model for *commodity*, loading or training it."""
         with self._lock:
             if commodity not in self._models:
                 prices = HISTORICAL_PRICES.get(
@@ -308,7 +360,8 @@ class PriceForecaster:
                     HISTORICAL_PRICES[_DEFAULT_COMMODITY],
                 )
                 m = _CommodityModel(commodity, prices)
-                m.train()
+                if not m._load():
+                    m.train()
                 self._models[commodity] = m
             return self._models[commodity]
 
