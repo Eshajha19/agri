@@ -1,4 +1,5 @@
 import logging
+import threading
 from typing import Optional, Dict, Any, Tuple
 
 from ml.registry import ModelRegistry
@@ -22,6 +23,7 @@ class ModelRouter:
     def __init__(self, default_model: str = "xgboost"):
         self.default_model = default_model
         self.preprocessor = FeaturePreprocessor()
+        self._preprocess_lock = threading.Lock()
 
     def route(self, context: Dict[str, Any]) -> str:
         """Return the name of the model to use for this request."""
@@ -91,18 +93,21 @@ class ModelRouter:
 
         # Bind the preprocessor to this model's expected feature schema.
         # Each model adapter exposes the exact column list it was trained on.
-        if hasattr(model, "feature_names") and model.feature_names:
-            self.preprocessor.feature_cols = model.feature_names
-        else:
-            logger.warning(
-                "Model '%s' does not expose feature_names. "
-                "Preprocessing will not validate column alignment.",
-                active_name,
-            )
+        # The lock serialises access to the shared preprocessor so concurrent
+        # requests targeting different models never see a stale feature_cols.
+        with self._preprocess_lock:
+            if hasattr(model, "feature_names") and model.feature_names:
+                self.preprocessor.feature_cols = model.feature_names
+            else:
+                logger.warning(
+                    "Model '%s' does not expose feature_names. "
+                    "Preprocessing will not validate column alignment.",
+                    active_name,
+                )
 
-        # Raises UnknownCategoryError or MissingFeatureError on bad input —
-        # never silently fills missing columns with 0.
-        processed_df = self.preprocessor.preprocess(input_data)
+            # Raises UnknownCategoryError or MissingFeatureError on bad input —
+            # never silently fills missing columns with 0.
+            processed_df = self.preprocessor.preprocess(input_data)
 
         logger.info(
             "[ML Router] Routing to model: %s (%s)", active_name, model.model_type
