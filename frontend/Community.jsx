@@ -244,6 +244,12 @@ const Community = () => {
       // Record the post time for the local cooldown check.
       setLastPostTime(Date.now());
 
+      // Persist lastPostAt as a server timestamp so Firestore security rules
+      // can enforce the 60-second post cooldown on direct SDK writes.
+      await updateDoc(doc(db, "users", currentUser.uid), {
+        lastPostAt: serverTimestamp(),
+      });
+
       // ── Reputation-gain frequency cap ──────────────────────────────────
       // Only award +10 reputation if the user hasn't gained reputation from
       // posting within the last REPUTATION_COOLDOWN_MS (5 minutes).
@@ -414,6 +420,12 @@ const Community = () => {
 
       // Record the comment time for the local cooldown check.
       setLastCommentTime(Date.now());
+
+      // Persist lastCommentAt as a server timestamp so Firestore security
+      // rules can enforce the 30-second comment cooldown on direct SDK writes.
+      await updateDoc(doc(db, "users", currentUser.uid), {
+        lastCommentAt: serverTimestamp(),
+      });
 
       setNewComment("");
       openComments(showCommentsModal);

@@ -177,19 +177,23 @@ export default defineConfig(() => ({
       host: true,
       cors: true,
       allowedHosts: 'all',
+      watch: {
+        // Ignore generated service-worker/dev-dist files (match both slashes on Windows/Unix)
+        ignored: ['**/dev-dist/**', '**\\dev-dist\\**', /dev-dist/]
+      },
       hmr: {
         overlay: true
       },
-      proxy: {
-        '/predict': {
-          target: 'http://127.0.0.1:8000',
-          changeOrigin: true
-        },
-        '/api': {
-          target: 'http://127.0.0.1:8000',
-          changeOrigin: true
-        }
-      }
+       proxy: {
+         '/predict': {
+           target: 'http://127.0.0.1:8000',
+           changeOrigin: true
+         },
+         '/api': {
+           target: 'http://127.0.0.1:8000',
+           changeOrigin: true
+         }
+       }
     },
     build: {
       outDir: 'build',
