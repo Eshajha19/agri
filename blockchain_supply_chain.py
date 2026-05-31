@@ -9,6 +9,7 @@ import json
 import os
 import time
 import uuid
+from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from dataclasses import dataclass, asdict, field
@@ -122,6 +123,13 @@ class SmartContract:
 class SupplyChainBlockchain:
     """Blockchain for agricultural supply chain with basic atomicity"""
 
+    # Maximum number of transaction IDs retained for replay protection.
+    # Each ID is a 64-character hex SHA-256 digest (~64 bytes).
+    # 10 000 entries ≈ 640 KB — a safe upper bound for a long-running process.
+    # Replay protection only needs to cover a recent window; transactions
+    # older than this cap are extremely unlikely to be replayed in practice.
+    _MAX_TRANSACTION_IDS = 10_000
+
     def __init__(self, repository=None):
         self.chain: List[BlockchainRecord] = []
         self.products: Dict[str, ProductBatch] = {}
@@ -129,7 +137,11 @@ class SupplyChainBlockchain:
         self.smart_contracts: Dict[str, SmartContract] = {}
         self.verified_actors: Dict[str, Dict] = {}
         self._trace_batches: Dict[str, Dict] = {}
-        self._processed_transaction_ids: set[str] = set()
+        # Bounded LRU store for processed transaction IDs.
+        # OrderedDict preserves insertion order so popitem(last=False) evicts
+        # the oldest entry when the cap is reached.  Values are None — only
+        # the keys (transaction IDs) matter.
+        self._processed_transaction_ids: OrderedDict[str, None] = OrderedDict()
         self._repository = repository
         self._qr_signing_secret = os.getenv("BLOCKCHAIN_QR_SECRET", "").strip()
 
@@ -142,9 +154,7 @@ class SupplyChainBlockchain:
             "supply_chain_nodes_copy": {k: list(v) for k, v in self.supply_chain_nodes.items()},
             "smart_contracts_copy": {k: v.status for k, v in self.smart_contracts.items()},
             "trace_batches_copy": _copy.deepcopy(self._trace_batches),
-            "processed_transaction_ids_copy": set(
-                self._processed_transaction_ids
-            ),
+            "processed_transaction_ids_copy": OrderedDict(self._processed_transaction_ids),
         }
 
     def _rollback_to_snapshot(self, snap):
@@ -156,9 +166,7 @@ class SupplyChainBlockchain:
             if cid in self.smart_contracts:
                 self.smart_contracts[cid].status = status
         self._trace_batches = _copy.deepcopy(snap["trace_batches_copy"])
-        self._processed_transaction_ids = set(
-            snap["processed_transaction_ids_copy"]
-        )
+        self._processed_transaction_ids = OrderedDict(snap["processed_transaction_ids_copy"])
 
     def _canonical_json(self, payload: Dict) -> str:
         """Serialize a payload deterministically for hashing/signing."""
@@ -178,6 +186,19 @@ class SupplyChainBlockchain:
             raise ValueError(
                 f"Duplicate transaction detected: {transaction_id}"
             )
+
+    def _record_transaction_id(self, transaction_id: str) -> None:
+        """Add a transaction ID to the bounded LRU store.
+
+        If the store is at capacity, the oldest entry is evicted before the
+        new one is inserted, keeping memory consumption bounded at
+        _MAX_TRANSACTION_IDS entries regardless of process lifetime.
+        """
+        if transaction_id in self._processed_transaction_ids:
+            return
+        if len(self._processed_transaction_ids) >= self._MAX_TRANSACTION_IDS:
+            self._processed_transaction_ids.popitem(last=False)  # evict oldest
+        self._processed_transaction_ids[transaction_id] = None
 
     def _build_trace_proof(self, batch_id: str) -> Dict[str, str]:
         """Create a tamper-evident proof for a batch and its journey."""
@@ -407,7 +428,7 @@ class SupplyChainBlockchain:
             self.supply_chain_nodes[batch_id] = []
             self.chain.append(record)
             batch.blockchain_records.append(record.to_dict())
-            self._processed_transaction_ids.add(transaction_id)
+            self._record_transaction_id(transaction_id)
             
             return batch
 
@@ -470,7 +491,7 @@ class SupplyChainBlockchain:
             self.supply_chain_nodes.setdefault(batch_id, []).append(node)
             self.chain.append(record)
             self.products[batch_id].blockchain_records.append(record.to_dict())
-            self._processed_transaction_ids.add(transaction_id)
+            self._record_transaction_id(transaction_id)
 
             if self._repository is not None:
                 self._repository.create(asdict(node))
@@ -530,7 +551,7 @@ class SupplyChainBlockchain:
             # Commit
             self.smart_contracts[contract_id] = contract
             self.chain.append(record)
-            self._processed_transaction_ids.add(transaction_id)
+            self._record_transaction_id(transaction_id)
             return contract
 
         except Exception:
@@ -581,7 +602,7 @@ class SupplyChainBlockchain:
             contract.executed_at = datetime.now(timezone.utc).isoformat()
             self.chain.append(record)
 
-            self._processed_transaction_ids.add(transaction_id)
+            self._record_transaction_id(transaction_id)
             return {
                 "success": True,
                 "contract_id": contract_id,
@@ -864,9 +885,7 @@ class SupplyChainBlockchain:
             record.hash = record.calculate_hash()
             self.chain.append(record)
 
-            self._processed_transaction_ids.add(
-                transaction_id
-            )
+            self._record_transaction_id(transaction_id)
 
             return entry
 
