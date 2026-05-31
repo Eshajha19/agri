@@ -25,6 +25,33 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
     - Structured error responses
     - Request/response logging
     - Circuit breaker integration (rolling 60 s window)
+
+    .. warning:: Per-process circuit breaker state
+
+        The circuit breaker state (``_failure_timestamps``,
+        ``_circuit_state``, ``_circuit_open_since``) is stored as instance
+        attributes on this middleware object.  In a multi-worker deployment
+        (e.g. ``uvicorn main:app --workers 4`` or Gunicorn with multiple
+        worker processes), each worker process has its own independent
+        ``ErrorRecoveryMiddleware`` instance with its own isolated state.
+
+        This means:
+        - Worker A may open its circuit after 5 failures while Worker B's
+          circuit remains closed and continues routing requests to the same
+          broken downstream endpoint.
+        - A manual ``reset_circuit()`` call only affects the worker that
+          handles that specific admin request.
+        - The ``get_error_stats()`` endpoint returns per-worker statistics,
+          not an aggregate view across all workers.
+
+        The circuit breaker therefore provides **no protection** in
+        multi-worker deployments.  It is only effective in single-worker
+        or single-process deployments (e.g. development, or production
+        with ``--workers 1``).
+
+        For multi-worker protection, use a shared external store (Redis,
+        Memcached) to coordinate circuit state across processes, or rely
+        on an upstream load balancer or service mesh for circuit breaking.
     """
 
     _FAILURE_THRESHOLD = 5
