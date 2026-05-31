@@ -5,6 +5,7 @@ Handles errors in async operations with recovery strategies and monitoring
 
 import logging
 import asyncio
+import random
 from enum import Enum
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Callable, Any, TypeVar, Coroutine, Awaitable, Union
@@ -191,7 +192,8 @@ class AsyncErrorHandler:
         source: str,
         strategy: RecoveryStrategy = None,
         context_data: Dict = None,
-        user_id: str = None
+        user_id: str = None,
+        request_id: str = None
     ) -> tuple[Optional[T], Optional[ErrorContext]]:
         """
         Execute coroutine with error recovery
@@ -230,7 +232,7 @@ class AsyncErrorHandler:
             except asyncio.TimeoutError as e:
                 last_error = e
                 if attempt < strategy.max_retries:
-                    wait_time = 2 ** attempt * strategy.backoff_multiplier
+                    wait_time = (2 ** attempt * strategy.backoff_multiplier) + random.uniform(0, 1)
                     logger.warning(
                         f"{source} timed out, retrying in {wait_time}s "
                         f"(attempt {attempt + 1}/{strategy.max_retries + 1})"
@@ -241,10 +243,14 @@ class AsyncErrorHandler:
             
             except Exception as e:
                 last_error = e
+                category, _ = self.classify_error(e)
+                if category in (ErrorCategory.VALIDATION, ErrorCategory.AUTHENTICATION, ErrorCategory.AUTHORIZATION):
+                    logger.warning(f"{source} failed with non-retryable error: {e}")
+                    break
                 
                 # Check if retryable
                 if attempt < strategy.max_retries:
-                    wait_time = 2 ** attempt * strategy.backoff_multiplier
+                    wait_time = (2 ** attempt * strategy.backoff_multiplier) + random.uniform(0, 1)
                     logger.warning(
                         f"{source} failed: {e}, retrying in {wait_time}s "
                         f"(attempt {attempt + 1}/{strategy.max_retries + 1})"
@@ -259,7 +265,8 @@ class AsyncErrorHandler:
             last_error or Exception("Unknown error"),
             source,
             context_data,
-            user_id
+            user_id,
+            request_id
         )
         
         return strategy.fallback_value, error_context

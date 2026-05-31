@@ -108,6 +108,12 @@ class _ConnectionSubscription:
     regions: frozenset[str]
 
 
+@dataclass(slots=True)
+class _ConnectionSubscription:
+    uid: str
+    regions: frozenset[str]
+
+
 class NotificationBroadcastHub:
     """Broadcasts notifications to connected WebSocket clients.
 
@@ -177,16 +183,9 @@ class NotificationBroadcastHub:
 
     def snapshot_for_user(self, uid: str, regions: Optional[Iterable[str]] = None) -> list[Dict[str, Any]]:
         """Return history entries visible to the given user and region scope."""
-        # History stores full envelopes {"type": ..., "source": ..., "created_at": ..., "data": ...}
-        # Extract the inner "data" payload so filtering and snapshot consumers
-        # work with the notification content regardless of origin (local vs Redis).
-        inner_entries = [
-            entry["data"] if isinstance(entry, dict) and "data" in entry else entry
-            for entry in self._history
-        ]
         return [
             notification
-            for notification in filter_notifications_for_user(inner_entries, uid)
+            for notification in filter_notifications_for_user(self._history, uid)
             if notification_matches_regions(notification, regions)
         ]
 
@@ -297,21 +296,9 @@ class NotificationBroadcastHub:
 
         await websocket.accept()
         region_scopes = frozenset(resolve_subscription_regions({"role": "guest"}, regions))
-
-        # Take snapshot under history lock BEFORE registering so history is
-        # consistent.  The client will receive live notifications (broadcast
-        # under connections_lock) after registration — it must handle
-        # out-of-order delivery (snapshot may arrive after a live event).
         async with self._history_lock:
+            self._connections[websocket] = _ConnectionSubscription(uid=uid, regions=region_scopes)
             snapshot = self.snapshot_for_user(uid, region_scopes)
-
-        # Register under the correct lock so concurrent publish() calls
-        # always see the new connection atomically.
-        async with self._connections_lock:
-            self._connections[websocket] = _ConnectionSubscription(
-                uid=uid,
-                regions=region_scopes,
-            )
 
         await websocket.send_json(
             {
@@ -380,6 +367,50 @@ class NotificationBroadcastHub:
             raise
         except Exception as exc:
             logger.warning("Notification pub-sub listener stopped: %s", exc)
+
+    def _is_duplicate_notification(self, event: NotificationEvent) -> bool:
+        h = event.get_content_hash()
+        now = time.time()
+        self._recent_hashes = {k: ts for k, ts in self._recent_hashes.items() if now - ts < self._dedup_window}
+        if h in self._recent_hashes:
+            return True
+        self._recent_hashes[h] = now
+        return False
+
+    async def _route_to_priority_queue(self, event: NotificationEvent) -> None:
+        if event.priority == NotificationPriority.CRITICAL:
+            self._critical_queue.append(event)
+        elif event.priority == NotificationPriority.WARNING:
+            self._warning_queue.append(event)
+        else:
+            self._info_queue.append(event)
+
+    async def _persist_notification(self, event: NotificationEvent, uid: str) -> None:
+        now_str = datetime.now().isoformat()
+        record = NotificationDeliveryRecord(
+            notification_id=event.notification_id,
+            user_id=uid,
+            priority=event.priority,
+            status=DeliveryStatus.PENDING,
+            created_at=now_str
+        )
+        async with self._persistence_lock:
+            self._delivery_records[event.notification_id] = record
+            self._pending_notifications.append(event)
+
+    async def _process_retry_queue(self) -> None:
+        try:
+            while True:
+                await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            pass
+
+    async def _process_priority_queues(self) -> None:
+        try:
+            while True:
+                await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            pass
 
 
 notification_broker = NotificationBroadcastHub()
