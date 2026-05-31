@@ -1,6 +1,4 @@
 """Finance Router"""
-import base64
-import json
 import logging
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field
@@ -36,37 +34,24 @@ def init_finance(ffa, rbac, perm):
 
 def _extract_uid_from_verified_token(request: Request) -> Optional[str]:
     """
-    Extract the Firebase UID from the JWT payload without performing a second
-    cryptographic verification.
+    Extract the Firebase UID by cryptographically verifying the JWT token.
 
-    This must only be called after ``rbac_manager.raise_if_unauthorized`` has
-    already verified the token's signature and expiry for the current request.
-    Decoding the payload here is safe because the token has already been
-    authenticated; re-running ``firebase_auth.verify_id_token`` a second time
-    would duplicate the signature check and a potential network round-trip to
-    fetch Google's public keys.
-
-    Returns None only if the Authorization header is absent or malformed —
-    conditions that ``raise_if_unauthorized`` would have already rejected.
+    Performs full signature verification via ``firebase_admin.auth.verify_id_token``.
+    This is safe to call regardless of whether upstream verification has occurred,
+    because every invocation independently validates the token's signature, expiry,
+    and issuer.
     """
+    from firebase_admin import auth as firebase_auth
+
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         return None
     token = auth_header.split(" ", 1)[1]
     try:
-        # A Firebase/Google JWT has three base64url-encoded segments separated
-        # by dots: header.payload.signature.  We only need the payload.
-        parts = token.split(".")
-        if len(parts) != 3:
-            return None
-        # base64url decode with padding correction
-        payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
-        payload = json.loads(base64.urlsafe_b64decode(payload_b64))
-        return payload.get("uid") or payload.get("sub")
+        decoded = firebase_auth.verify_id_token(token)
+        return decoded.get("uid")
     except Exception as exc:
-        # Should never happen for a token that already passed verification,
-        # but log and surface None so callers can handle it explicitly.
-        logger.error("Failed to decode already-verified JWT payload: %s", exc)
+        logger.error("Failed to verify JWT token: %s", exc)
         return None
 
 
@@ -199,7 +184,7 @@ async def get_finance_application(application_id: str, request: Request, resourc
 
 
 @router.get("/products")
-def get_finance_products():
+async def get_finance_products():
     if farm_finance_ai is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     return {"success": True, "data": farm_finance_ai.list_marketplace()}
@@ -210,5 +195,5 @@ def get_finance_products():
 # Both routes delegate to the same handler — there is a single code path
 # and a single place to update if the response shape ever changes.
 @router.get("/marketplace")
-def get_finance_marketplace():
-    return get_finance_products()
+async def get_finance_marketplace():
+    return await get_finance_products()
