@@ -1,53 +1,43 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { lazy, Suspense, useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import "./Advisor.css";
 // Components - Static imports (lazy loading removed for faster feature access)
 import WeatherCard from "./weather/WeatherCard";
 import Forecast from "./Forecast";
-import SoilChatbot from "./SoilChatbot";
-import SoilAnalysis from "./SoilAnalysis";
-import SoilGuide from "./SoilGuide";
-import CropGrowthStageGuide from "./CropGrowthStageGuide";
-import SeasonalFarmingStrategyGuide from "./SeasonalFarmingStrategyGuide";
-import WeatherFarmingImpactGuide from "./WeatherFarmingImpactGuide";
-import CropDiseaseLifecycleExplorer from "./CropDiseaseLifecycleExplorer";
-import IrrigationGuidance from "./IrrigationGuidance";
-import CropProfitCalculator from "./CropProfitCalculator";
-import FarmingMap from "./FarmingMap";
-import FertilizerRecommendation from "./FertilizerRecommendation";
-import SoilImprovementPath from "./SoilImprovementPath";
-import AgriMarketplace from "./AgriMarketplace";
-import AgriLMS from "./AgriLMS";
-import BankReports from "./BankReports";
-import QRTraceability from "./QRTraceability";
-import FarmPlanner3D from "./FarmPlanner3D";
-import FarmDiary from "./FarmDiary";
-import CropDiseaseDetection from "./CropDiseaseDetection";
-import PestDetection from "./PestDetection";
-import PestManagement from "./PestManagement";
-import SprayReminder from "./SprayReminder";
-import SeedVerifier from "./SeedVerifier";
-import ClimateSimulator from "./ClimateSimulator";
-import RAGAdvisor from "./RAGAdvisor";
-import GreenPractices from "./GreenPractices";
-import YieldPredictorForm from "./YieldPredictorForm";
-import CropRotation from "./CropRotation";
-import P2PChat from "./P2PChat";
-import GeoAlertMesh from "./GeoAlertMesh";
-import SmartCropRecommendation from "./SmartCropRecommendation";
-import CropRecommendationAdvisor from "./CropRecommendationAdvisor";
-import PersonalizedAdvisory from "./PersonalizedAdvisory";
-import YieldHistory from "./YieldHistory";
-import EquipmentManagement from "./EquipmentManagement";
-import CropQualityGrading from "./CropQualityGrading";
-import SustainabilityAnalytics from "./SustainabilityAnalytics";
-import FarmIntelligenceGraph from "./FarmIntelligenceGraph";
-import FertilizerOveruseGuide from "./FertilizerOveruseGuide";
-import FarmingMistakesGuide from "./FarmingMistakesGuide";
-import LastUpdated from "./LastUpdated";
-import ExpertDirectory from "./components/ExpertDirectory";
-import TeleConsultation from "./components/TeleConsultation";
-import ConsultationHistory from "./components/ConsultationHistory";
+const SoilChatbot = lazy(() => import("./SoilChatbot"));
+const SoilAnalysis = lazy(() => import("./SoilAnalysis"));
+const SoilGuide = lazy(() => import("./SoilGuide"));
+const CropGrowthStageGuide = lazy(() => import("./CropGrowthStageGuide"));
+const SeasonalFarmingStrategyGuide = lazy(() => import("./SeasonalFarmingStrategyGuide"));
+const WeatherFarmingImpactGuide = lazy(() => import("./WeatherFarmingImpactGuide"));
+const CropDiseaseLifecycleExplorer = lazy(() => import("./CropDiseaseLifecycleExplorer"));
+const IrrigationGuidance = lazy(() => import("./IrrigationGuidance"));
+const CropProfitCalculator = lazy(() => import("./CropProfitCalculator"));
+const FarmingMap = lazy(() => import("./FarmingMap"));
+const FertilizerRecommendation = lazy(() => import("./FertilizerRecommendation"));
+const SoilImprovementPath = lazy(() => import("./SoilImprovementPath"));
+const AgriMarketplace = lazy(() => import("./AgriMarketplace"));
+const BankReports = lazy(() => import("./BankReports"));
+const QRTraceability = lazy(() => import("./QRTraceability"));
+const FarmDiary = lazy(() => import("./FarmDiary"));
+const PestDetection = lazy(() => import("./PestDetection"));
+const PestManagement = lazy(() => import("./PestManagement"));
+const SprayReminder = lazy(() => import("./SprayReminder"));
+const SeedVerifier = lazy(() => import("./SeedVerifier"));
+const RAGAdvisor = lazy(() => import("./RAGAdvisor"));
+const GreenPractices = lazy(() => import("./GreenPractices"));
+const YieldPredictorForm = lazy(() => import("./YieldPredictorForm"));
+const CropRotation = lazy(() => import("./CropRotation"));
+const CropRecommendationAdvisor = lazy(() => import("./CropRecommendationAdvisor"));
+const PersonalizedAdvisory = lazy(() => import("./PersonalizedAdvisory"));
+const YieldHistory = lazy(() => import("./YieldHistory"));
+const EquipmentManagement = lazy(() => import("./EquipmentManagement"));
+const CropQualityGrading = lazy(() => import("./CropQualityGrading"));
+const FertilizerOveruseGuide = lazy(() => import("./FertilizerOveruseGuide"));
+const FarmingMistakesGuide = lazy(() => import("./FarmingMistakesGuide"));
+const ExpertDirectory = lazy(() => import("./components/ExpertDirectory"));
+const TeleConsultation = lazy(() => import("./components/TeleConsultation"));
+const ConsultationHistory = lazy(() => import("./components/ConsultationHistory"));
 import { Leaf } from "lucide-react";
 import {
   Sun,
@@ -93,9 +83,7 @@ import { FaSync } from "react-icons/fa";
 import { useAdvisorStore } from "./stores/advisorStore";
 
 import { useYieldPrediction } from "./hooks/useYieldPrediction";
-import { auth, db } from "./lib/firebase";
 import { generateBankPDF, generateCSV } from "./utils/exportService";
-import { doc, onSnapshot } from "firebase/firestore";
 import {
   WEATHER_SNAPSHOT_EVENT,
   getStoredWeatherSnapshot,
@@ -105,6 +93,16 @@ import {
   searchLocationByName,
 } from "./weather/weatherService";
 import IrrigationCard from "./components/IrrigationCard";
+
+const AgriLMS = lazy(() => import("./AgriLMS"));
+const FarmPlanner3D = lazy(() => import("./FarmPlanner3D"));
+const CropDiseaseDetection = lazy(() => import("./CropDiseaseDetection"));
+const ClimateSimulator = lazy(() => import("./ClimateSimulator"));
+const P2PChat = lazy(() => import("./P2PChat"));
+const GeoAlertMesh = lazy(() => import("./GeoAlertMesh"));
+const SmartCropRecommendation = lazy(() => import("./SmartCropRecommendation"));
+const SustainabilityAnalytics = lazy(() => import("./SustainabilityAnalytics"));
+const FarmIntelligenceGraph = lazy(() => import("./FarmIntelligenceGraph"));
 
 export default function Advisor({ userData }) {
   const navigate = useNavigate();
@@ -1362,9 +1360,15 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
       )}
 
       {showSoilChatbot && (
-        <div key="modal-soil-chatbot" className="weather-overlay" onClick={() => setShowSoilChatbot(false)}>
-          <div className="chatbot-popup" onClick={(e)=>e.stopPropagation()}>
-            <SoilChatbot onClose={() => setShowSoilChatbot(false)} />
+        <div
+          key="modal-soil-chatbot"
+          className="weather-overlay"
+          onClick={() => setShowSoilChatbot(false)}
+        >
+          <div onClick={(e) => e.stopPropagation()}>
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <SoilChatbot onClose={() => setShowSoilChatbot(false)} />
+            </Suspense>
           </div>
         </div>
       )}
@@ -1543,7 +1547,9 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
         <div key="modal-soil-analysis" className="weather-overlay" onClick={() => setShowSoilAnalysis(false)}>
           <div className="soil-analysis-popup" onClick={(e)=>e.stopPropagation()}>
             <button className="close-btn" onClick={() => setShowSoilAnalysis(false)} style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 10 }}><X /></button>
-            <SoilAnalysis userData={userData} />
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <SoilAnalysis userData={userData} />
+            </Suspense>
           </div>
         </div>
       )}
@@ -1552,7 +1558,9 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
         <div key="modal-soil-guide" className="weather-overlay" onClick={() => setShowSoilGuide(false)}>
           <div className="soil-analysis-popup" onClick={(e) => e.stopPropagation()}>
             <button className="close-btn" onClick={() => setShowSoilGuide(false)} style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 10 }}><X /></button>
-            <SoilGuide userData={userData} />
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <SoilGuide userData={userData} />
+            </Suspense>
           </div>
         </div>
       )}
@@ -1560,7 +1568,9 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
       {showIrrigation && (
         <div key="modal-irrigation" className="weather-overlay" onClick={()=>setShowIrrigation(false)}>
           <div onClick={(e)=>e.stopPropagation()}>
+          <Suspense fallback={<div className="loading">Loading...</div>}>
             <IrrigationGuidance userData={userData} onClose={() => setShowIrrigation(false)} />
+          </Suspense>
           </div>
         </div>
       )}
@@ -1571,7 +1581,9 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             <button className="close-btn" onClick={closeYieldPopup} aria-label="Close yield prediction">
               <X />
             </button>
-            <YieldPredictorForm userData={userData} onClose={closeYieldPopup} />
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <YieldPredictorForm userData={userData} onClose={closeYieldPopup} />
+            </Suspense>
           </div>
         </div>
       )}
@@ -1582,7 +1594,9 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             <button className="close-btn" onClick={() => setShowYieldHistory(false)} aria-label="Close yield history">
               <X />
             </button>
-            <YieldHistory />
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <YieldHistory />
+            </Suspense>
           </div>
         </div>
       )}
@@ -1590,7 +1604,9 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
       {showProfitCalculator && (
         <div key="modal-profit-calculator" className="weather-overlay" onClick={()=>setShowProfitCalculator(false)}>
           <div className="weather-popup profit-popup" onClick={(e)=>e.stopPropagation()}>
+          <Suspense fallback={<div className="loading">Loading...</div>}>
             <CropProfitCalculator userData={userData} />
+          </Suspense>
             <button className="close-btn" onClick={() => setShowProfitCalculator(false)}>Close</button>
           </div>
         </div>
@@ -1599,7 +1615,9 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
       {showFertilizerPopup && (
         <div key="modal-fertilizer" className="weather-overlay" onClick={() => setShowFertilizerPopup(false)}>
           <div className="weather-popup fertilizer-popup-shell" onClick={(e) => e.stopPropagation()}>
-            <FertilizerRecommendation userData={userData} onClose={() => setShowFertilizerPopup(false)} />
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <FertilizerRecommendation userData={userData} onClose={() => setShowFertilizerPopup(false)} />
+            </Suspense>
           </div>
         </div>
       )}
@@ -1608,7 +1626,9 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
         <div key="modal-farming-map" className="farming-map-overlay" onClick={() => setShowFarmingMap(false)}>
           <div className="farming-map-popup" onClick={(e) => e.stopPropagation()}>
             <button className="close-btn" onClick={() => setShowFarmingMap(false)}>Close</button>
-            <FarmingMap />
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <FarmingMap />
+            </Suspense>
           </div>
         </div>
       )}
@@ -1616,7 +1636,12 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
       {showCropDiseaseDetection && (
         <div key="modal-crop-disease" className="weather-overlay" onClick={() => setShowCropDiseaseDetection(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
-            <CropDiseaseDetection userData={userData} onClose={() => setShowCropDiseaseDetection(false)} />
+          <Suspense fallback={<div className="loading">Loading...</div>}>
+            <CropDiseaseDetection
+              userData={userData}
+              onClose={() => setShowCropDiseaseDetection(false)}
+            />
+          </Suspense>
           </div>
         </div>
       )}
@@ -1624,7 +1649,9 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
       {showPestManagement && (
         <div key="modal-pest-management" className="weather-overlay" onClick={() => setShowPestManagement(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ padding: 0, background: 'transparent', boxShadow: 'none' }}>
+          <Suspense fallback={<div className="loading">Loading...</div>}>
             <PestManagement userData={userData} onClose={() => setShowPestManagement(false)} />
+          </Suspense>
           </div>
         </div>
       )}
@@ -1632,7 +1659,9 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
       {showSprayReminder && (
         <div key="modal-spray-reminder" className="weather-overlay" onClick={() => setShowSprayReminder(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ padding: 0, background: 'transparent', boxShadow: 'none' }}>
-            <SprayReminder userData={userData} onClose={() => setShowSprayReminder(false)} />
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <SprayReminder userData={userData} onClose={() => setShowSprayReminder(false)} />
+            </Suspense>
           </div>
         </div>
       )}
@@ -1641,7 +1670,9 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
         <div key="modal-agri-marketplace" className="weather-overlay" onClick={() => setShowAgriMarketplace(false)}>
           <div className="agri-modal-wrapper" onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowAgriMarketplace(false)}><X /></button>
-            <AgriMarketplace userData={userData} onClose={() => setShowAgriMarketplace(false)} />
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <AgriMarketplace userData={userData} onClose={() => setShowAgriMarketplace(false)} />
+            </Suspense>
           </div>
         </div>
       )}
@@ -1650,7 +1681,9 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
         <div key="modal-agri-lms" className="weather-overlay" onClick={() => setShowAgriLMS(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowAgriLMS(false)}><X /></button>
-            <AgriLMS userData={userData} />
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <AgriLMS userData={userData} />
+            </Suspense>
           </div>
         </div>
       )}
@@ -1659,7 +1692,9 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
         <div key="modal-qr-traceability" className="weather-overlay" onClick={() => setShowQRTraceability(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowQRTraceability(false)}><X /></button>
-            <QRTraceability userData={userData} />
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <QRTraceability userData={userData} />
+            </Suspense>
           </div>
         </div>
       )}
@@ -1668,7 +1703,9 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
         <div key="modal-farm-planner-3d" className="weather-overlay" onClick={() => setShowFarmPlanner3D(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowFarmPlanner3D(false)}><X /></button>
-            <FarmPlanner3D userData={userData} />
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <FarmPlanner3D userData={userData} />
+            </Suspense>
           </div>
         </div>
       )}
@@ -1698,7 +1735,9 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
         <div key="modal-farm-diary" className="weather-overlay" onClick={() => setShowFarmDiary(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowFarmDiary(false)}><X /></button>
-            <FarmDiary userData={userData} onClose={() => setShowFarmDiary(false)} />
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <FarmDiary userData={userData} onClose={() => setShowFarmDiary(false)} />
+            </Suspense>
           </div>
         </div>
       )}
@@ -1707,7 +1746,9 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
         <div key="modal-crop-rotation" className="weather-overlay" onClick={() => setShowCropRotation(false)}>
           <div className="agri-modal-wrapper" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowCropRotation(false)}>✕</button>
-            <CropRotation userData={userData} />
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <CropRotation userData={userData} />
+            </Suspense>
           </div>
         </div>
       )}
@@ -1715,11 +1756,13 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
       {showP2PChat && (
         <div key="modal-p2p-chat" className="weather-overlay" onClick={() => setShowP2PChat(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
-            <P2PChat 
-              recipient={{ userId: "advisor", userName: "AI Farming Advisor" }} 
-              onClose={() => setShowP2PChat(false)} 
-              userData={userData}
-            />
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <P2PChat
+                recipient={{ userId: "advisor", userName: "AI Farming Advisor" }}
+                onClose={() => setShowP2PChat(false)}
+                userData={userData}
+              />
+            </Suspense>
           </div>
         </div>
       )}
@@ -1727,7 +1770,12 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
       {showGeoAlerts && (
         <div key="modal-geo-alerts" className="weather-overlay" onClick={() => setShowGeoAlerts(false)}>
           <div onClick={(e)=>e.stopPropagation()}>
-            <GeoAlertMesh userData={userData} onClose={() => setShowGeoAlerts(false)} />
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <GeoAlertMesh
+                userData={userData}
+                onClose={() => setShowGeoAlerts(false)}
+              />
+            </Suspense>
           </div>
         </div>
       )}
@@ -1735,7 +1783,9 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
       {showSmartCropRecommendation && (
         <div key="modal-smart-crop-recommendation" className="weather-overlay" onClick={() => setShowSmartCropRecommendation(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
-            <SmartCropRecommendation userData={userData} />
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <SmartCropRecommendation userData={userData} />
+            </Suspense>
             <button
               className="close-btn"
               onClick={() => setShowSmartCropRecommendation(false)}
@@ -1749,7 +1799,9 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
       {showCropRecommendationAdvisor && (
         <div key="modal-crop-recommendation-advisor" className="weather-overlay" onClick={() => setShowCropRecommendationAdvisor(false)}>
           <div className="weather-popup crop-advisor-popup" onClick={(e) => e.stopPropagation()}>
-            <CropRecommendationAdvisor userData={userData} onClose={() => setShowCropRecommendationAdvisor(false)} />
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <CropRecommendationAdvisor userData={userData} onClose={() => setShowCropRecommendationAdvisor(false)} />
+            </Suspense>
           </div>
         </div>
       )}
@@ -1757,31 +1809,39 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
       {showSeedVerifier && (
         <div key="modal-seed-verifier" className="weather-overlay" onClick={() => setShowSeedVerifier(false)}>
           <div className="weather-popup" style={{ width: '90%', maxWidth: '450px', padding: 0, overflowY: 'auto', maxHeight: '90vh' }} onClick={(e) => e.stopPropagation()}>
-            <SeedVerifier userData={userData} onClose={() => setShowSeedVerifier(false)} />
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <SeedVerifier userData={userData} onClose={() => setShowSeedVerifier(false)} />
+            </Suspense>
           </div>
         </div>
       )}
 
       <br />
       <br />
-      <ClimateSimulator 
-        isOpen={showClimateSimulator} 
-        onClose={() => setShowClimateSimulator(false)} 
-        userData={userData}
-      />
-      <RAGAdvisor
-        isOpen={showRAGAdvisor}
-        onClose={() => setShowRAGAdvisor(false)}
-        userData={userData}
-      />
+      <Suspense fallback={<div className="loading">Loading...</div>}>
+        <ClimateSimulator
+          isOpen={showClimateSimulator}
+          onClose={() => setShowClimateSimulator(false)}
+          userData={userData}
+        />
+      </Suspense>
+      <Suspense fallback={<div className="loading">Loading...</div>}>
+        <RAGAdvisor
+          isOpen={showRAGAdvisor}
+          onClose={() => setShowRAGAdvisor(false)}
+          userData={userData}
+        />
+      </Suspense>
 
 {showGreenPractices && (
          <div key="modal-green-practices" className="weather-overlay" onClick={() => setShowGreenPractices(false)}>
            <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
-             <GreenPractices 
-               userData={userData} 
-               onClose={() => setShowGreenPractices(false)} 
-             />
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <GreenPractices 
+                userData={userData} 
+                onClose={() => setShowGreenPractices(false)} 
+              />
+            </Suspense>
            </div>
          </div>
        )}
@@ -1789,7 +1849,9 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
          {showCropGrading && (
            <div key="modal-crop-grading" className="weather-overlay" onClick={() => setShowCropGrading(false)}>
             <div className="weather-popup" onClick={(e) => e.stopPropagation()}>
-              <CropQualityGrading onClose={() => setShowCropGrading(false)} />
+              <Suspense fallback={<div className="loading">Loading...</div>}>
+                <CropQualityGrading onClose={() => setShowCropGrading(false)} />
+              </Suspense>
             </div>
           </div>
         )}
@@ -1797,27 +1859,40 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
       {showSustainabilityAnalytics && (
         <div key="modal-sustainability-analytics" className="weather-overlay" onClick={() => setShowSustainabilityAnalytics(false)}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
-            <SustainabilityAnalytics
-              userData={userData}
-              onClose={() => setShowSustainabilityAnalytics(false)}
-            />
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <SustainabilityAnalytics
+                userData={userData}
+                onClose={() => setShowSustainabilityAnalytics(false)}
+              />
+            </Suspense>
           </div>
         </div>
       )}
 
       {showFarmIntelligenceGraph && (
-        <FarmIntelligenceGraph
-          userData={userData}
-          weatherData={weatherSnapshot}
-          onClose={() => setShowFarmIntelligenceGraph(false)}
-        />
+        <div
+          key="modal-farm-intelligence-graph"
+          className="weather-overlay"
+          onClick={() => setShowFarmIntelligenceGraph(false)}
+        >
+          <div onClick={(e) => e.stopPropagation()}>
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <FarmIntelligenceGraph
+                userData={userData}
+                weatherData={weatherSnapshot}
+                onClose={() => setShowFarmIntelligenceGraph(false)}
+              />
+            </Suspense>
+          </div>
+        </div>
       )}
-
       {showSoilImprovementPath && (
         <div key="modal-soil-improvement" className="weather-overlay" onClick={() => setShowSoilImprovementPath(false)}>
           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1000px', width: '95vw' }}>
             <button className="close-btn" onClick={() => setShowSoilImprovementPath(false)} aria-label="Close soil improvement guide"><X /></button>
-            <SoilImprovementPath onClose={() => setShowSoilImprovementPath(false)} />
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <SoilImprovementPath onClose={() => setShowSoilImprovementPath(false)} />
+            </Suspense>
           </div>
         </div>
       )}
@@ -1825,14 +1900,16 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
       {showExpertDirectory && (
         <div key="modal-expert-directory" className="weather-overlay" onClick={() => setShowExpertDirectory(false)}>
           <div onClick={(e) => e.stopPropagation()}>
+          <Suspense fallback={<div className="loading">Loading...</div>}>
             <ExpertDirectory 
               onClose={() => setShowExpertDirectory(false)}
               userData={userData}
-              onBookConsultation={(consultation) => {
+              onBookConsultation={() => {
                 setShowExpertDirectory(false);
                 setShowConsultationHistory(true);
               }}
             />
+          </Suspense>
           </div>
         </div>
       )}
@@ -1840,29 +1917,37 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
       {showConsultationHistory && (
         <div key="modal-consultation-history" className="weather-overlay" onClick={() => setShowConsultationHistory(false)}>
           <div onClick={(e) => e.stopPropagation()}>
-            <ConsultationHistory 
-              onClose={() => setShowConsultationHistory(false)}
-              userData={userData}
-              onStartConsultation={(consultation) => {
-                setActiveConsultation(consultation);
-                setShowTeleConsultation(true);
-              }}
-            />
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <ConsultationHistory 
+                onClose={() => setShowConsultationHistory(false)}
+                userData={userData}
+                onStartConsultation={(consultation) => {
+                  setActiveConsultation(consultation);
+                  setShowTeleConsultation(true);
+                }}
+              />
+            </Suspense>
           </div>
         </div>
       )}
 
       {showTeleConsultation && activeConsultation && (
-        <div key={`modal-tele-consultation-${activeConsultation.createdAt || activeConsultation.date || ''}`} className="weather-overlay" onClick={() => setShowTeleConsultation(false)}>
+        <div
+          key={`modal-tele-consultation-${activeConsultation.createdAt || activeConsultation.date || ''}`}
+          className="weather-overlay"
+          onClick={() => setShowTeleConsultation(false)}
+        >
           <div onClick={(e) => e.stopPropagation()}>
-            <TeleConsultation 
-              consultation={activeConsultation}
-              userData={userData}
-              onEnd={() => {
-                setShowTeleConsultation(false);
-                setActiveConsultation(null);
-              }}
-            />
+            <Suspense fallback={<div className="loading">Loading...</div>}>
+              <TeleConsultation
+                consultation={activeConsultation}
+                userData={userData}
+                onEnd={() => {
+                  setShowTeleConsultation(false);
+                  setActiveConsultation(null);
+                }}
+              />
+            </Suspense>
           </div>
         </div>
       )}
