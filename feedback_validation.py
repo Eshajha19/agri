@@ -270,10 +270,20 @@ class FeedbackValidator:
         if 'userId' in data:
             validated['userId'] = str(data['userId'])
         if 'userEmail' in data:
-            # Basic email validation
-            email = str(data['userEmail'])
-            if '@' in email and '.' in email and len(email) <= 254:
-                validated['userEmail'] = email
+            # Apply the same sanitization and dangerous-pattern checks used
+            # for every other string field.  The previous implementation only
+            # checked for '@', '.', and length — a crafted email containing a
+            # MongoDB operator (e.g. {"$where":"..."}@example.com) or a script
+            # tag would pass those checks and be stored in Firestore unsanitised.
+            email = cls.sanitize_string(str(data['userEmail']), 254)
+            if email and '@' in email and '.' in email:
+                safe = True
+                for pattern in cls.DANGEROUS_PATTERNS:
+                    if re.search(pattern, email, re.IGNORECASE):
+                        safe = False
+                        break
+                if safe:
+                    validated['userEmail'] = email
                 
         return validated
     
