@@ -12,7 +12,7 @@ import collections
 import threading
 import time
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 
 from fastapi import FastAPI, HTTPException, Request, Form, Query, Response, WebSocket, WebSocketDisconnect
@@ -551,7 +551,7 @@ class NotificationStore:
                 "id": next(self._counter),
                 "type": alert_type,
                 "message": message,
-                "time": datetime.now().isoformat(),
+                "time": datetime.now(timezone.utc).isoformat(),
             }
             self._deque.append(entry)
         return entry
@@ -563,7 +563,7 @@ class NotificationStore:
         Takes a snapshot under the lock so callers always see a consistent
         view even if append() is running concurrently.
         """
-        cutoff = datetime.now() - self._ttl
+        cutoff = datetime.now(timezone.utc) - self._ttl
         with self._lock:
             snapshot = list(self._deque)
         return [
