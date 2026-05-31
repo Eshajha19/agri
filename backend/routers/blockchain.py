@@ -303,7 +303,7 @@ async def create_contract(request: Request, data: CreateSmartContractRequest):
         logger.error(f"Contract error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.post("/execute-contract")
+@router.post("/execute-contract/{contract_id}")
 async def execute_contract(request: Request, contract_id: str):
     """Execute a smart contract. Requires authentication.
 
