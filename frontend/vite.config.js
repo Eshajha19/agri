@@ -177,6 +177,10 @@ export default defineConfig(() => ({
       host: true,
       cors: true,
       allowedHosts: 'all',
+      watch: {
+        // Ignore generated service-worker/dev-dist files (match both slashes on Windows/Unix)
+        ignored: ['**/dev-dist/**', '**\\dev-dist\\**', /dev-dist/]
+      },
       hmr: {
         overlay: true
       },

@@ -59,6 +59,7 @@ Fasal Saathi is a smart agriculture assistance platform built with React (fronte
 - 🧪 Soil health analysis & nutrient suggestions
 - 🪴 AI-based crop disease detection from uploaded images
 - 🌾 Fertilizer and pesticide guidance
+- 🧪 A/B testing runner with traffic split, metrics pipeline, and auto-promotion
 - 📊 Responsive and user-friendly dashboard (React)
 - 🔐 Authentication & user profiles (Firebase)
 - 🌐 Multi-language support (planned / optional)
@@ -200,6 +201,9 @@ For certified/bank report generation, the backend also needs a signing key sourc
 - `POST /api/soil/analyze` — Send soil params (pH, NPK) to get recommendations
 - `POST /api/crop/recommend` — Returns recommended crops for given soil & climate
 - `POST /api/crop-disease/analyze-image` — Analyze an uploaded crop image and return the likely disease, confidence, and treatment guidance
+- `POST /api/experiments/{exp_id}/traffic-split` — Update experiment traffic split for A/B testing
+- `POST /api/experiments/{exp_id}/evaluate` — Evaluate experiment metrics and auto-promote a winner when the lift is clear
+- `POST /api/experiments/assign` — Assign a user to a variant and emit an impression event
 
 (Document exact request/response schemas in docs/ or OpenAPI spec.)
 
@@ -210,6 +214,133 @@ For certified/bank report generation, the backend also needs a signing key sourc
 - Frontend: use Vitest / React Testing Library
 - Backend: pytest / unittest
 - Add CI with GitHub Actions for linting + tests + deploy
+
+## 🔒 Security CI
+
+The repository now includes a dedicated security gate for secret scanning, dependency SCA, and policy enforcement.
+
+Local policy check:
+
+```bash
+python scripts/security_ci.py policy --root . --policy .github/security-policy.json
+```
+
+The GitHub Actions workflow at [`.github/workflows/security-ci.yml`](.github/workflows/security-ci.yml) runs:
+
+- secret scanning and repository policy enforcement via `scripts/security_ci.py`
+- dependency SCA via `pip-audit` and `safety`
+
+Test fixtures are excluded from the secret scan so synthetic examples in the test suite do not fail the gate.
+
+## 🔒 Differential Privacy (DP-SGD) Proof of Concept
+
+Yield model training now supports an optional differential privacy mode.
+
+### What is included
+
+- `training_mode=dp_sgd` in `train_model.py` using optional `torch + opacus`
+- Configurable privacy targets via `epsilon` and `delta`
+- Privacy accounting logs during training (target epsilon, spent epsilon, noise multiplier)
+- Manifest/registry metadata now include privacy fields when DP mode is used
+- A reproducible comparison script to evaluate baseline vs DP utility
+
+### DP config example
+
+```json
+{
+	"dataset": "Train.csv",
+	"seed": 42,
+	"training_mode": "dp_sgd",
+	"epsilon": 3.0,
+	"delta": 0.00001,
+	"dp_epochs": 8,
+	"dp_batch_size": 64,
+	"dp_learning_rate": 0.05,
+	"dp_max_grad_norm": 1.0,
+	"output_model": "yield_model_dp.pt"
+}
+```
+
+### Baseline config example
+
+```json
+{
+	"dataset": "Train.csv",
+	"seed": 42,
+	"training_mode": "baseline",
+	"output_model": "yield_model.joblib"
+}
+```
+
+### Run reproducible utility comparison
+
+```bash
+python scripts/compare_dp_utility.py --dataset Train.csv --epsilon 3.0 --delta 1e-5 --seed 42 --output dp_utility_comparison.json
+```
+
+### Optional dependencies for DP mode
+
+DP mode is optional and requires extra packages:
+
+```bash
+pip install torch opacus
+```
+
+## 🔁 ONNX conversion, GPU inference path, and benchmarking
+
+We provide utilities to convert models to ONNX, run inference preferring GPU (if available) with CPU fallback, and run inference benchmarks.
+
+Conversion script:
+
+```bash
+python scripts/convert_model_to_onnx.py --model path/to/model.joblib --n-features 39 --out model.onnx
+```
+
+Run ONNX inference benchmark (example):
+
+```bash
+python benchmarks/benchmark_inference.py --model model.onnx --input-shape 1,39 --iterations 200 --warmup 20 --output bench.json
+```
+
+The inference wrapper `inference/onnx_runtime.py` selects `CUDAExecutionProvider` when available, otherwise falls back to `CPUExecutionProvider`.
+
+## 🧪 A/B Testing Runner
+
+The feature-flag A/B testing stack now includes a runner that handles deterministic traffic splits, metric ingestion, and automatic winner promotion.
+
+### What it does
+
+- Assigns users to variants using the configured traffic split.
+- Logs impression and conversion events into the experiment metrics pipeline.
+- Evaluates conversion-rate lift and promotes the winning variant automatically when the threshold is met.
+- After promotion, the winner receives 100% traffic and future assignments route to the promoted variant.
+
+### Key endpoints
+
+```bash
+POST /api/experiments/{exp_id}/traffic-split
+POST /api/experiments/{exp_id}/evaluate
+POST /api/experiments/assign
+```
+
+### Example traffic split payload
+
+```json
+{
+	"variants": [
+		{"id": "control", "weight": 40},
+		{"id": "treatment", "weight": 60}
+	]
+}
+```
+
+
+### Tradeoffs
+
+- Better privacy guarantees usually require stronger noise (lower utility).
+- Lower epsilon means stronger privacy but can increase RMSE.
+- DP training is typically slower than baseline training.
+- This implementation is a research proof-of-concept and should be calibrated before production use.
 
 ---
 
@@ -256,6 +387,19 @@ Acceptance criteria:
 - Stage-wise care instructions are shown for each stage.
 - Image-based learning gallery with thumbnails and enlargements.
 - Responsive UI and no console errors when used in the Advisor view.
+
+## 🌦️ New Feature: Seasonal Farming Strategy Guide
+
+A responsive in-app strategy guide that explains how farming priorities change across the Indian crop seasons: Kharif, Rabi, and Zaid. The guide highlights season-specific crop focus, irrigation posture, key field priorities, and common risks so farmers can adapt their plan throughout the year.
+
+How to access: Open the Advisor page and choose the "Seasonal Farming Strategy Guide" card to open the modal with the season-by-season playbook.
+
+Acceptance criteria:
+
+- Kharif, Rabi, and Zaid strategies are shown clearly in one guided view.
+- Each season includes field priorities, irrigation guidance, and risks to watch.
+- The UI stays responsive across desktop and mobile layouts.
+- The guide opens cleanly in the Advisor view with no console errors.
 
 Alternatives considered:
 

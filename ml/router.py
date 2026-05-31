@@ -1,4 +1,5 @@
 import logging
+import threading
 from typing import Optional, Dict, Any, Tuple
 
 from ml.registry import ModelRegistry
@@ -22,6 +23,7 @@ class ModelRouter:
     def __init__(self, default_model: str = "xgboost"):
         self.default_model = default_model
         self.preprocessor = FeaturePreprocessor()
+        self._preprocess_lock = threading.Lock()
 
     def route(self, context: Dict[str, Any]) -> str:
         """Return the name of the model to use for this request."""
