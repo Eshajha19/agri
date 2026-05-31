@@ -28,6 +28,9 @@ celery_app.conf.update(
 _model_lag = None
 _model_trend = None
 _ml_router = None
+_model_lag_lock = threading.Lock()
+_model_trend_lock = threading.Lock()
+_ml_router_lock = threading.Lock()
 
 
 def _get_lag_model():
