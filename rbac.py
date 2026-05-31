@@ -605,7 +605,10 @@ def require_permission(*permissions: Permission, require_all: bool = False):
                 detail=f"Required permissions: {', '.join(p.value for p in required_perms)}",
             )
 
-            # Call original function
+            # Avoid passing duplicate request argument
+            if "request" in kwargs:
+                return await func(*args, **kwargs)
+
             return await func(*args, request=request, **kwargs)
 
         return wrapper
