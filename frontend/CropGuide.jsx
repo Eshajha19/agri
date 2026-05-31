@@ -6,22 +6,22 @@ import { Wheat, Lightbulb, X } from "lucide-react";
 
 // 🖼️ DIRECT PUBLIC FOLDER TRACKING
 const CROP_IMAGES = {
-  Rice: "/crops/Rice.jpg",
-  Wheat: "/crops/wheat.jpg",
-  Maize: "/crops/maize.jpg",
-  Sugarcane: "/crops/sugarcane.jpg",
-  Cotton: "/crops/cotton.jpg",
-  Mustard: "/crops/mustard.jpg",
-  Tomato: "/crops/tomato.jpg",
-  Potato: "/crops/potato.jpg",
-  Barley: "/crops/barley.jpg",
-  Turmeric: "/crops/turmeric.jpg",
-  Peas: "/crops/peas.jpg",
-  Groundnut: "/crops/groundnut.jpg",
-  Soybean: "/crops/soybean.jpg",
-  Chickpea: "/crops/chickpea.jpg",
-  Sunflower: "/crops/sunflower.jpg",
-  Onion: "/crops/onion.jpg"
+  Rice: "/crops/Rice.webp",
+  Potato: "/crops/potato.webp",
+  Turmeric: "/crops/turmeric.webp",
+  Peas: "/crops/peas.webp",
+  Groundnut: "/crops/groundnut.webp",
+  Chickpea: "/crops/chickpea.webp",
+  Wheat: "/crops/wheat.webp",
+  Cotton: "/crops/cotton.webp",
+  Mustard: "/crops/mustard.webp",
+  Tomato: "/crops/tomato.webp",
+  Barley: "/crops/barley.webp",
+  Sunflower: "/crops/sunflower.webp",
+  Onion: "/crops/onion.webp",
+  Maize: "/crops/maize.webp",
+  Sugarcane: "/crops/sugarcane.webp",
+  Soybean: "/crops/soybean.webp",
 };
 
 // 📦 DATA
@@ -152,6 +152,7 @@ export default function CropGuide() {
                 src={CROP_IMAGES[activeCrop.name]} 
                 alt={activeCrop.name} 
                 className="modal-crop-img"
+                loading="lazy"
               />
             </div>
 
