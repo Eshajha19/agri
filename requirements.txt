@@ -1,6 +1,7 @@
 pip
 setuptools
 wheel
+bleach
 fastapi
 uvicorn
 pandas
