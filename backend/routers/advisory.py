@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from advisory_rules import generate_advisories
 
@@ -473,6 +473,35 @@ async def _get_authenticated_uid(request: Request) -> str:
 # Pydantic models
 # ---------------------------------------------------------------------------
 
+# Maximum number of top-level keys accepted in any advisory dict field.
+# Prevents memory exhaustion from oversized payloads submitted by authenticated
+# users (FarmIntelligenceRequest) or anonymous callers (AdvisoryRequest).
+_MAX_DICT_KEYS = 50
+# Maximum character length for any string value inside a dict field.
+_MAX_DICT_VALUE_LEN = 500
+
+
+def _validate_advisory_dict(value: dict[str, Any], field_name: str) -> dict[str, Any]:
+    """Enforce key count and value length limits on advisory dict fields."""
+    if len(value) > _MAX_DICT_KEYS:
+        raise ValueError(
+            f"{field_name} must not exceed {_MAX_DICT_KEYS} keys (got {len(value)})"
+        )
+    for k, v in value.items():
+        if isinstance(v, dict):
+            # Nested dicts are flattened for advisory scoring; block deep nesting
+            # to prevent combinatorial traversal cost.
+            if len(v) > _MAX_DICT_KEYS:
+                raise ValueError(
+                    f"{field_name}.{k} sub-dict must not exceed {_MAX_DICT_KEYS} keys"
+                )
+        elif isinstance(v, str) and len(v) > _MAX_DICT_VALUE_LEN:
+            raise ValueError(
+                f"{field_name}.{k} value length must not exceed {_MAX_DICT_VALUE_LEN} characters"
+            )
+    return value
+
+
 class AdvisoryRequest(BaseModel):
     model_config = {"extra": "forbid"}  # reject unknown fields (e.g. user_id)
 
@@ -480,6 +509,13 @@ class AdvisoryRequest(BaseModel):
     soil: dict[str, Any] = Field(default_factory=dict)
     crop_type: Optional[str] = Field(default=None, max_length=50)
     store_alerts: bool = False
+
+    @field_validator("weather", "soil", mode="before")
+    @classmethod
+    def _limit_dict_size(cls, v: Any, info) -> Any:
+        if isinstance(v, dict):
+            return _validate_advisory_dict(v, info.field_name)
+        return v
 
 
 class FarmIntelligenceRequest(BaseModel):
@@ -492,6 +528,13 @@ class FarmIntelligenceRequest(BaseModel):
     market: dict[str, Any] = Field(default_factory=dict)
     location: Optional[str] = Field(default=None, max_length=120)
     store_history: bool = True
+
+    @field_validator("weather", "soil", "pest", "market", mode="before")
+    @classmethod
+    def _limit_dict_size(cls, v: Any, info) -> Any:
+        if isinstance(v, dict):
+            return _validate_advisory_dict(v, info.field_name)
+        return v
 
 
 # ---------------------------------------------------------------------------
