@@ -230,7 +230,7 @@ async def create_batch(request: Request, data: CreateProductBatchRequest):
             data.planting_date, data.harvesting_date, data.farmer_name,
             owner_uid=uid,
         )
-        return {"success": True, "batch": asdict(batch) if hasattr(batch, '__dataclass_fields__') else batch}
+        return {"success": True, "batch": asdict(batch)}
     except Exception as e:
         logger.error(f"Batch error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -418,8 +418,8 @@ async def get_stats(request: Request):
     try:
         stats = {
             "total_records": supply_chain_blockchain.get_blockchain_record_count(),
-            "actors": len(supply_chain_blockchain.verified_actors if hasattr(supply_chain_blockchain, 'verified_actors') else []),
-            "contracts": len(supply_chain_blockchain.smart_contracts if hasattr(supply_chain_blockchain, 'smart_contracts') else [])
+            "actors": len(supply_chain_blockchain.verified_actors),
+            "contracts": len(supply_chain_blockchain.smart_contracts)
         }
         return {"success": True, "stats": stats}
     except Exception as e:
