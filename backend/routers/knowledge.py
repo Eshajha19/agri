@@ -210,6 +210,15 @@ def _enforce_rate_limit(request: Request, scope: str, uid: Optional[str], limit:
         raise HTTPException(status_code=429, detail=detail)
 
 
+def _handle_router_exception(exc: Exception, log_message: str, detail: str) -> None:
+    """Preserve explicit HTTP errors and normalize unexpected failures."""
+    if isinstance(exc, HTTPException):
+        raise exc
+
+    logger.error("%s: %s", log_message, exc)
+    raise HTTPException(status_code=500, detail=detail) from exc
+
+
 # ---------------------------------------------------------------------------
 # Climate simulation data tables
 #
@@ -401,11 +410,8 @@ async def rag_query(request: Request, body: RAGQuery = Depends(_parse_rag_query)
     try:
         result = rag_fn(body.query, body.top_k)
         return {"success": True, "query": body.query, "results": result}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("RAG query failed: %s", e)
-        raise HTTPException(status_code=500, detail="RAG query failed")
+    except Exception as exc:
+        _handle_router_exception(exc, "RAG query failed", "RAG query failed")
 
 
 @router.post("/simulate-climate")
@@ -476,11 +482,8 @@ async def simulate_climate(request: Request, data: SimulationRequest, verify_fn=
                 "advice from your local Krishi Vigyan Kendra (KVK) or agricultural officer."
             ),
         }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Climate simulation failed: %s", e)
-        raise HTTPException(status_code=500, detail="Climate simulation failed")
+    except Exception as exc:
+        _handle_router_exception(exc, "Climate simulation failed", "Climate simulation failed")
 
 
 @router.post("/seeds/verify")
@@ -491,8 +494,5 @@ async def verify_seed(request: Request, data: SeedVerifyRequest, runtime=Depends
         is_verified = registry.get(data.code, {}).get("verified", False)
         seed_info = registry.get(data.code, {})
         return {"success": True, "code": data.code, "verified": is_verified, "seed_info": seed_info}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Seed verification failed: %s", e)
-        raise HTTPException(status_code=500, detail="Seed verification failed")
+    except Exception as exc:
+        _handle_router_exception(exc, "Seed verification failed", "Seed verification failed")
