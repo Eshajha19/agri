@@ -105,8 +105,8 @@ def _log_rag_rejection(request: Request, exc: ValidationError) -> None:
 
     errors = exc.errors()
     first_error = errors[0] if errors else {}
-    error_code = first_error.get("type", "validation_error")
     context = first_error.get("ctx") or {}
+    error_code = context.get("error_code", first_error.get("type", "validation_error"))
 
     logger.warning(
         "Rejected RAG query: error_code=%s threat_type=%s threat_match=%s client=%s path=%s",
@@ -136,16 +136,16 @@ async def _parse_rag_query(request: Request) -> RAGQuery:
         _log_rag_rejection(request, exc)
         errors = exc.errors()
         first_error = errors[0] if errors else {}
-        error_code = first_error.get("type", "validation_error")
         context = first_error.get("ctx") or {}
+        error_code = context.get("error_code", first_error.get("type", "validation_error"))
 
         detail = {
             "code": error_code,
-            "message": first_error.get("msg", "Invalid RAG query."),
+            "message": context.get("error_message", first_error.get("msg", "Invalid RAG query.")),
+            "reason": context.get("reason", "validation_error"),
             "errors": errors,
         }
-        if error_code == "threat_detected":
-            detail["message"] = "Query contains disallowed phrases or prompt injection attempts."
+        if context.get("threat_type"):
             detail["threat_type"] = context.get("threat_type", "prompt_injection")
             detail["threat_match"] = context.get("threat_match")
 

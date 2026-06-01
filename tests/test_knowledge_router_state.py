@@ -76,7 +76,8 @@ def test_rag_query_rejection_is_logged(monkeypatch):
     )
 
     assert response.status_code == 422
-    assert response.json()["detail"]["code"] == "threat_detected"
+    assert response.json()["detail"]["code"] == "disallowed_prompt_injection"
+    assert response.json()["detail"]["reason"] == "prompt_injection_detected"
     assert captured_logs
     assert "Rejected RAG query" in captured_logs[0]
-    assert "error_code=threat_detected" in captured_logs[0]
+    assert "error_code=disallowed_prompt_injection" in captured_logs[0]
