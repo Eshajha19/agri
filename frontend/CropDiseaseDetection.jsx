@@ -411,6 +411,11 @@ export default function CropDiseaseDetection({
 
     return () => {
       mountedRef.current = false;
+    };
+  }, []);
+
+    return () => {
+      mountedRef.current = false;
 
       detectionAbortRef.current = true;
 
@@ -436,6 +441,10 @@ export default function CropDiseaseDetection({
     return () => {
       if (preview) {
         URL.revokeObjectURL(preview);
+      }
+
+      if (historySyncTimeoutRef.current) {
+        clearTimeout(historySyncTimeoutRef.current);
       }
     };
   }, [preview]);
@@ -1041,6 +1050,7 @@ export default function CropDiseaseDetection({
                       console.error("Failed to clear history:", err);
                     }
 
+                    lastHistorySignatureRef.current = "";
                     setHistory([]);
                   }
                 }}
