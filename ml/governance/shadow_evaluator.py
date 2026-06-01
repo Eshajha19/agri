@@ -3,6 +3,7 @@ Shadow Evaluation Module
 Runs new models alongside production models to evaluate performance before promotion.
 """
 import logging
+from collections import deque
 import threading
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, asdict
@@ -91,9 +92,9 @@ class ShadowEvaluator:
             self.active_evaluations[eval_id] = {
                 'production_model': production_model_name,
                 'candidate_model': candidate_model_name,
-                'production_predictions': [],
-                'candidate_predictions': [],
-                'actual_values': [],
+                'production_predictions': deque(maxlen=10000),
+                'candidate_predictions': deque(maxlen=10000),
+                'actual_values': deque(maxlen=10000),
                 'started_at': datetime.now(),
             }
         
@@ -192,6 +193,7 @@ class ShadowEvaluator:
             )
         
             self.evaluations.append(result)
+            self.cleanup_evaluation(eval_id)
         logger.info(
             f"Evaluation {eval_id} complete: {recommendation.upper()} "
             f"(error reduction: {error_reduction:.2%}, confidence: {confidence_score:.2%})"

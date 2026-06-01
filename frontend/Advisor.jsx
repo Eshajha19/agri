@@ -682,7 +682,7 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
              </p>
            </div>
 
-           <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/pest-calendar")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/pest-calendar"); }} aria-label="Pest Calendar: View seasonal pest attack patterns">
+           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowPestCalendar(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowPestCalendar(true); }} aria-label="Pest Calendar: View seasonal pest attack patterns">
              <div className="icon" aria-hidden="true">
                <Calendar size={32} strokeWidth={2} />
              </div>

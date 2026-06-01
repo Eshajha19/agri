@@ -146,7 +146,7 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
             return response
 
         except HTTPException as http_exc:
-            """Handle HTTP exceptions"""
+            # Handle HTTP exceptions
             duration = time.time() - start_time
 
             logger.warning(
@@ -168,7 +168,7 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
             )
 
         except ValueError as val_exc:
-            """Handle validation errors"""
+            # Handle validation errors
             duration = time.time() - start_time
 
             logger.warning(
@@ -190,7 +190,7 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
             )
 
         except TimeoutError as timeout_exc:
-            """Handle timeout errors"""
+            # Handle timeout errors
             duration = time.time() - start_time
 
             logger.error(
@@ -215,7 +215,7 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
             )
 
         except Exception as exc:
-            """Handle unexpected errors"""
+            # Handle unexpected errors
             duration = time.time() - start_time
             error_id = str(uuid.uuid4())
 
