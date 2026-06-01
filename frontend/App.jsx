@@ -259,7 +259,8 @@ function App() {
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
 
-  const { liteMode, setLiteMode, detectAndSetLiteMode } = usePerformanceStore();
+  const { liteMode, setLiteMode, detectAndSetLiteMode } =
+    usePerformanceStore();
 
   useEffect(() => {
     detectAndSetLiteMode();
@@ -269,21 +270,49 @@ function App() {
     let cancelled = false;
 
     const hydrateOfflineState = async () => {
+      if (hydrationInProgressRef.current) return;
+
+      hydrationInProgressRef.current = true;
+
       try {
         const storedState = await loadAppState();
-        if (!cancelled && storedState?.preferredLang) {
-          setPreferredLang(storedState.preferredLang);
+
+        if (
+          !cancelled &&
+          storedState &&
+          typeof storedState === "object"
+        ) {
+          if (
+            typeof storedState.preferredLang === "string" &&
+            storedState.preferredLang.trim()
+          ) {
+            setPreferredLang(storedState.preferredLang);
+          }
         }
       } catch (error) {
-        console.warn("Failed to restore offline app state:", error);
+        console.warn(
+          "Failed to restore offline app state:",
+          error
+        );
+      } finally {
+        hydrationInProgressRef.current = false;
       }
     };
 
     const syncQueuedRequests = async () => {
+      if (offlineSyncInProgressRef.current) return;
+
+      offlineSyncInProgressRef.current = true;
+
       try {
         await syncOfflineRequests();
       } catch (error) {
-        console.warn("Offline request sync failed:", error);
+        console.warn(
+          "Offline request sync failed:",
+          error
+        );
+      } finally {
+        offlineSyncInProgressRef.current = false;
       }
     };
 
@@ -295,25 +324,48 @@ function App() {
       void syncQueuedRequests();
     };
 
-    const handleOffline = () => setIsOffline(true);
+    const handleOffline = () => {
+      setIsOffline(true);
+    };
 
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
 
     return () => {
       cancelled = true;
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
+
+      window.removeEventListener(
+        "online",
+        handleOnline
+      );
+
+      window.removeEventListener(
+        "offline",
+        handleOffline
+      );
     };
   }, []);
 
   useEffect(() => {
-    void persistAppState({ preferredLang });
+    if (
+      !preferredLang ||
+      lastPersistedLangRef.current === preferredLang
+    ) {
+      return;
+    }
+
+    lastPersistedLangRef.current = preferredLang;
+
+    void persistAppState({
+      preferredLang,
+      persistedAt: Date.now(),
+    });
   }, [preferredLang]);
 
   const location = useLocation();
 
   useNotifications();
+
   useBrowserCacheBudget({
     enabled: true,
     usageRatioLimit: liteMode ? 0.72 : 0.85,
@@ -368,17 +420,22 @@ useEffect(() => {
   };
 }, [preferredLang]);
 
-  /* ---------------- HIDE GOOGLE TRANSLATE BANNER ---------------- */
   useEffect(() => {
     const hideGoogleTranslateBanner = () => {
-      const bannerFrame = document.querySelector(".goog-te-banner-frame");
+      const bannerFrame = document.querySelector(
+        ".goog-te-banner-frame"
+      );
+
       if (bannerFrame) {
         bannerFrame.style.display = "none";
       }
 
       document.body.style.top = "0px";
 
-      const translateElement = document.querySelector(".goog-te-balloon-frame");
+      const translateElement = document.querySelector(
+        ".goog-te-balloon-frame"
+      );
+
       if (translateElement) {
         translateElement.style.display = "none";
       }
@@ -386,100 +443,189 @@ useEffect(() => {
 
     hideGoogleTranslateBanner();
 
-    const interval = setInterval(hideGoogleTranslateBanner, 1000);
+    const interval = setInterval(
+      hideGoogleTranslateBanner,
+      1000
+    );
 
     return () => clearInterval(interval);
   }, []);
 
-  /* ---------------- AUTH & FIRESTORE SYNC ---------------- */
   useEffect(() => {
     if (!isFirebaseConfigured()) {
-      const timeout = setTimeout(() => setLoading(false), 3000);
+      const timeout = setTimeout(
+        () => setLoading(false),
+        3000
+      );
+
       setLoading(false);
-      return () => clearTimeout(timeout);;
+
+      return () => clearTimeout(timeout);
     }
 
-    const userDocUnsubscribeRef = { current: null };
+    const userDocUnsubscribeRef = {
+      current: null,
+    };
 
-    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
+    const unsubscribeAuth = onAuthStateChanged(
+      auth,
+      (currentUser) => {
+        setUser(currentUser);
 
-      const hydrateUserSnapshot = async () => {
-        if (!currentUser?.uid) return false;
-        try {
-          const snapshot = await loadUserProfileSnapshot(currentUser.uid);
-          if (snapshot) {
-            setUserData(normalizeUserProfile(snapshot));
-            setProfileCompleted(snapshot.profileCompleted === true);
-            return true;
+        const hydrateUserSnapshot = async () => {
+          if (
+            !currentUser?.uid ||
+            restoredSnapshotRef.current
+          ) {
+            return false;
           }
-        } catch (error) {
-          console.warn("Failed to restore offline user profile snapshot:", error);
-        }
-        return false;
-      };
 
-      if (currentUser) {
-        userDocUnsubscribeRef.current = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
-          if (userDoc.exists()) {
-            const data = normalizeUserProfile(userDoc.data());
-            setUserData(data);
-            setProfileCompleted(data.profileCompleted === true);
-          } else if (currentUser.isAnonymous) {
-            setUserData({ displayName: "Guest Farmer", isAnonymous: true });
-            setProfileCompleted(true);
-          } else {
-            setUserData(null);
-            setProfileCompleted(false);
-            void hydrateUserSnapshot().finally(() => setLoading(false));
-            return;
+          restoredSnapshotRef.current = true;
+
+          try {
+            const snapshot =
+              await loadUserProfileSnapshot(
+                currentUser.uid
+              );
+
+            if (
+              snapshot &&
+              typeof snapshot === "object"
+            ) {
+              const normalizedSnapshot =
+                normalizeUserProfile(snapshot);
+
+              setUserData(normalizedSnapshot);
+
+              setProfileCompleted(
+                normalizedSnapshot.profileCompleted === true
+              );
+
+              return true;
+            }
+          } catch (error) {
+            console.warn(
+              "Failed to restore offline user profile snapshot:",
+              error
+            );
           }
-          setLoading(false);
-        }, (error) => {
-          console.error("Firestore sync error:", error);
+
+          return false;
+        };
+
+        if (currentUser) {
+          userDocUnsubscribeRef.current = onSnapshot(
+            doc(db, "users", currentUser.uid),
+            (userDoc) => {
+              if (userDoc.exists()) {
+                const data = normalizeUserProfile(
+                  userDoc.data()
+                );
+
+                setUserData(data);
+
+                setProfileCompleted(
+                  data.profileCompleted === true
+                );
+
+                restoredSnapshotRef.current = false;
+              } else if (currentUser.isAnonymous) {
+                setUserData({
+                  displayName: "Guest Farmer",
+                  isAnonymous: true,
+                });
+
+                setProfileCompleted(true);
+              } else {
+                setUserData(null);
+                setProfileCompleted(false);
+
+                void hydrateUserSnapshot().finally(() =>
+                  setLoading(false)
+                );
+
+                return;
+              }
+
+              setLoading(false);
+            },
+            (error) => {
+              console.error(
+                "Firestore sync error:",
+                error
+              );
+
+              setUserData(null);
+              setProfileCompleted(false);
+
+              void hydrateUserSnapshot().finally(() =>
+                setLoading(false)
+              );
+            }
+          );
+        } else {
+          restoredSnapshotRef.current = false;
           setUserData(null);
-          setProfileCompleted(false);
-          void hydrateUserSnapshot().finally(() => setLoading(false));
-        });
-      } else {
-        setUserData(null);
-        setProfileCompleted(true);
-        setLoading(false);
+          setProfileCompleted(true);
+          setLoading(false);
+        }
       }
-    });
+    );
 
     return () => {
       unsubscribeAuth();
+
       if (userDocUnsubscribeRef.current) {
         userDocUnsubscribeRef.current();
       }
     };
   }, []);
 
-  // E2EE Key Generation Sync
   useEffect(() => {
     if (!user || !isFirebaseConfigured()) return;
 
     const ensurePublicKey = async () => {
       try {
-        let { publicJwk } = await cryptoService.ensureKeys(user.uid);
+        let { publicJwk } =
+          await cryptoService.ensureKeys(user.uid);
 
         if (!publicJwk) {
-          const publicKeySnap = await getDoc(doc(db, "public_keys", user.uid));
+          const publicKeySnap = await getDoc(
+            doc(db, "public_keys", user.uid)
+          );
+
           if (publicKeySnap.exists()) {
             publicJwk = publicKeySnap.data().jwk;
-            await cryptoService.savePublicKey(user.uid, publicJwk);
+
+            await cryptoService.savePublicKey(
+              user.uid,
+              publicJwk
+            );
           }
         }
 
         if (!publicJwk) {
-          throw new Error("ECDH public key unavailable after initialization");
+          throw new Error(
+            "ECDH public key unavailable after initialization"
+          );
         }
 
-        const pubKeyRef = doc(db, "public_keys", user.uid);
-        await setDoc(pubKeyRef, { jwk: publicJwk }, { merge: true });
+        const pubKeyRef = doc(
+          db,
+          "public_keys",
+          user.uid
+        );
+
+        await setDoc(
+          pubKeyRef,
+          { jwk: publicJwk },
+          { merge: true }
+        );
       } catch (error) {
-        console.error("Failed to generate/publish ECDH keys globally:", error);
+        console.error(
+          "Failed to generate/publish ECDH keys globally:",
+          error
+        );
       }
     };
 
@@ -496,17 +642,50 @@ useEffect(() => {
     });
   }, [user?.uid, userData, profileCompleted]);
 
-  // Online/Offline detection
   useEffect(() => {
-    const handleOnline = () => setIsOffline(false);
-    const handleOffline = () => setIsOffline(true);
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
+    const handleScroll = () => {
+      if (scrollFrameRef.current) return;
+
+      scrollFrameRef.current =
+        requestAnimationFrame(() => {
+          const shouldShowScrollTop =
+            window.scrollY > 300;
+
+          const totalHeight =
+            document.documentElement.scrollHeight -
+            window.innerHeight;
+
+          const progress =
+            totalHeight > 0
+              ? (window.scrollY / totalHeight) * 100
+              : 0;
+
+          if (
+            lastScrollStateRef.current
+              .showScrollTop !==
+            shouldShowScrollTop
+          ) {
+            lastScrollStateRef.current.showScrollTop =
+              shouldShowScrollTop;
+
+            setShowScrollTop(shouldShowScrollTop);
+          }
+
+          if (
+            Math.abs(
+              lastScrollStateRef.current
+                .scrollProgress - progress
+            ) > 1
+          ) {
+            lastScrollStateRef.current.scrollProgress =
+              progress;
+
+            setScrollProgress(progress);
+          }
+
+          scrollFrameRef.current = null;
+        });
     };
-  }, []);
 
   // Scroll to Top logic
   useEffect(() => {
@@ -561,15 +740,28 @@ useEffect(() => {
     };
   }, []);
 
-  // Click outside scorecard
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (scorecardRef.current && !scorecardRef.current.contains(event.target)) {
+      if (
+        scorecardRef.current &&
+        !scorecardRef.current.contains(
+          event.target
+        )
+      ) {
         setShowScorecard(false);
       }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+
+    document.addEventListener(
+      "mousedown",
+      handleClickOutside
+    );
+
+    return () =>
+      document.removeEventListener(
+        "mousedown",
+        handleClickOutside
+      );
   }, []);
 
   const handleThemeToggle = toggleTheme;
