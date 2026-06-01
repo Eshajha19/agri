@@ -612,5 +612,5 @@ async def recommend_crops(req: CropRecommendationRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Crop recommendation error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Recommendation failed: {str(e)}")
+        logger.error("Crop recommendation error: %s", str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail="An error occurred while generating recommendations. Please try again.")
