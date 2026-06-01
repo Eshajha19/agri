@@ -1,10 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import apiClient from "./services/api";
-import {
-  getDiseaseInfo,
-  saveDiseaseHistory,
-  getDiseaseHistory
-} from "./utils/diseaseDatabase";
+import { getDiseaseInfo, saveDiseaseHistory, getDiseaseHistory } from "./utils/diseaseDatabase";
 import { useTranslation } from "react-i18next";
 import {
   Leaf,
@@ -72,62 +68,36 @@ const confidenceLabel = (score) => {
 const fileToBase64 = (file) =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
-
-    reader.onload = () =>
-      resolve(String(reader.result).split(",")[1]);
-
-    reader.onerror = () =>
-      reject(
-        new Error("Unable to read the selected image")
-      );
-
+    reader.onload = () => resolve(String(reader.result).split(",")[1]);
+    reader.onerror = () => reject(new Error("Unable to read the selected image"));
     reader.readAsDataURL(file);
   });
 
 const loadImage = (src) =>
   new Promise((resolve, reject) => {
     const image = new Image();
-
     image.onload = () => resolve(image);
-
-    image.onerror = () =>
-      reject(new Error("Unable to inspect the image"));
-
+    image.onerror = () => reject(new Error("Unable to inspect the image"));
     image.src = src;
   });
 
-const extractLocalAnalysis = async (
-  preview,
-  cropType,
-  language
-) => {
+const extractLocalAnalysis = async (preview, cropType, language) => {
   const image = await loadImage(preview);
-
   const canvas = document.createElement("canvas");
-
   const size = 72;
 
   canvas.width = size;
   canvas.height = size;
 
-  const context = canvas.getContext("2d", {
-    willReadFrequently: true,
-  });
+  const context = canvas.getContext("2d", { willReadFrequently: true });
 
   if (!context) {
-    throw new Error(
-      "Canvas analysis is not available in this browser"
-    );
+    throw new Error("Canvas analysis is not available in this browser");
   }
 
   context.drawImage(image, 0, 0, size, size);
 
-  const { data } = context.getImageData(
-    0,
-    0,
-    size,
-    size
-  );
+  const { data } = context.getImageData(0, 0, size, size);
 
   let totalRed = 0;
   let totalGreen = 0;
@@ -161,37 +131,16 @@ const extractLocalAnalysis = async (
     brightnessSum += maxChannel;
 
     if (maxChannel < 90) darkPixels += 1;
-
-    if (
-      red > 150 &&
-      green > 130 &&
-      blue < 115
-    ) {
-      yellowPixels += 1;
-    }
-
-    if (
-      red > green + 20 &&
-      green > blue + 10 &&
-      red < 180
-    ) {
-      brownPixels += 1;
-    }
-
-    if (
-      red > 210 &&
-      green > 210 &&
-      blue > 210
-    ) {
-      whitePixels += 1;
-    }
+    if (red > 150 && green > 130 && blue < 115) yellowPixels += 1;
+    if (red > green + 20 && green > blue + 10 && red < 180) brownPixels += 1;
+    if (red > 210 && green > 210 && blue > 210) whitePixels += 1;
 
     const average = (red + green + blue) / 3;
 
     varianceAccumulator +=
-      (red - average) ** 2 +
-      (green - average) ** 2 +
-      (blue - average) ** 2;
+      ((red - average) ** 2) +
+      ((green - average) ** 2) +
+      ((blue - average) ** 2);
   }
 
   const pixelCount = data.length / 4;
@@ -229,10 +178,7 @@ const extractLocalAnalysis = async (
       Math.max(
         0,
         yellowRatio * 2.2 +
-          Math.max(
-            0,
-            meanRed + meanGreen - 2 * meanBlue
-          ) / 255
+          Math.max(0, meanRed + meanGreen - 2 * meanBlue) / 255
       ),
 
     early_blight:
@@ -299,44 +245,33 @@ const extractLocalAnalysis = async (
       ),
   };
 
-  const ranked = Object.entries(scores).sort(
-    (a, b) => b[1] - a[1]
-  );
+  const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]);
 
   const [bestKey, bestScore] = ranked[0];
-
   const runnerUp = ranked[1]?.[1] || 0;
 
   const confidenceScore = Math.max(
     42,
     Math.min(
       96,
-      52 +
-        bestScore * 18 +
-        (bestScore - runnerUp) * 14
+      52 + bestScore * 18 + (bestScore - runnerUp) * 14
     )
   );
 
-  const diseaseInfo = getDiseaseInfo(
-    bestKey,
-    language
-  );
+  const diseaseInfo = getDiseaseInfo(bestKey, language);
 
   return {
     diseaseKey: bestKey,
     disease: diseaseInfo.disease,
-
     severity:
       confidenceScore >= 80
         ? "High"
         : confidenceScore >= 55
-        ? "Medium"
-        : "Low",
+          ? "Medium"
+          : "Low",
 
     confidence: confidenceLabel(confidenceScore),
-
     confidenceScore: Math.round(confidenceScore),
-
     treatment: diseaseInfo.treatment,
     prevention: diseaseInfo.prevention,
     pesticides: diseaseInfo.pesticides,
@@ -345,34 +280,24 @@ const extractLocalAnalysis = async (
   };
 };
 
-export default function CropDiseaseDetection({
-  onClose,
-}) {
+export default function CropDiseaseDetection({ onClose }) {
   const { i18n } = useTranslation();
 
   const [image, setImage] = useState(null);
   const [preview, setPreview] = useState(null);
-  const [cropType, setCropType] =
-    useState("generic");
+  const [cropType, setCropType] = useState("generic");
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [isDragging, setIsDragging] =
-    useState(false);
-  const [showHistory, setShowHistory] =
-    useState(false);
-
+  const [isDragging, setIsDragging] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const HISTORY_STORAGE_KEY = "diseaseHistory";
-
   const [history, setHistory] = useState([]);
 
   const fileInputRef = useRef(null);
   const mountedRef = useRef(true);
-
   const lastHistorySignatureRef = useRef("");
-
   const detectionAbortRef = useRef(false);
-
   const historySyncTimeoutRef = useRef(null);
 
   useEffect(() => {
@@ -394,18 +319,14 @@ export default function CropDiseaseDetection({
 
         setHistory(cleanedHistory);
 
-        lastHistorySignatureRef.current =
-          JSON.stringify(
-            cleanedHistory.map((item) => item.id)
-          );
+        lastHistorySignatureRef.current = JSON.stringify(
+          cleanedHistory.map((item) => item.id)
+        );
       } else {
         setHistory([]);
       }
     } catch (error) {
-      console.warn(
-        "Failed to load disease history"
-      );
-
+      console.warn("Failed to load disease history");
       setHistory([]);
     }
 
@@ -414,31 +335,10 @@ export default function CropDiseaseDetection({
     };
   }, []);
 
-    return () => {
-      mountedRef.current = false;
-
-      detectionAbortRef.current = true;
-
-      if (historySyncTimeoutRef.current) {
-        clearTimeout(
-          historySyncTimeoutRef.current
-        );
-
-        historySyncTimeoutRef.current = null;
-      }
-
-      setPreview((previousPreview) => {
-        if (previousPreview) {
-          URL.revokeObjectURL(previousPreview);
-        }
-
-        return null;
-      });
-    };
-  }, []);
-
   useEffect(() => {
     return () => {
+      detectionAbortRef.current = true;
+
       if (preview) {
         URL.revokeObjectURL(preview);
       }
@@ -452,75 +352,51 @@ export default function CropDiseaseDetection({
   useEffect(() => {
     const syncHistoryState = () => {
       if (historySyncTimeoutRef.current) {
-        clearTimeout(
-          historySyncTimeoutRef.current
-        );
+        clearTimeout(historySyncTimeoutRef.current);
       }
 
-      historySyncTimeoutRef.current = setTimeout(
-        () => {
-          if (!mountedRef.current) return;
+      historySyncTimeoutRef.current = setTimeout(() => {
+        if (!mountedRef.current) return;
 
-          try {
-            const latestHistory =
-              getDiseaseHistory();
+        try {
+          const latestHistory = getDiseaseHistory();
 
-            if (!Array.isArray(latestHistory)) {
-              setHistory([]);
-              return;
-            }
-
-            const cleanedHistory = latestHistory
-              .filter(
-                (entry) =>
-                  entry &&
-                  typeof entry === "object" &&
-                  entry.id &&
-                  entry.disease
-              )
-              .slice(0, MAX_HISTORY_ITEMS);
-
-            const signature = JSON.stringify(
-              cleanedHistory.map((item) => item.id)
-            );
-
-            if (
-              signature !==
-              lastHistorySignatureRef.current
-            ) {
-              lastHistorySignatureRef.current =
-                signature;
-
-              setHistory(cleanedHistory);
-            }
-          } catch (error) {
-            console.warn(
-              "History synchronization skipped:",
-              error
-            );
+          if (!Array.isArray(latestHistory)) {
+            setHistory([]);
+            return;
           }
-        },
-        180
-      );
+
+          const cleanedHistory = latestHistory
+            .filter(
+              (entry) =>
+                entry &&
+                typeof entry === "object" &&
+                entry.id &&
+                entry.disease
+            )
+            .slice(0, MAX_HISTORY_ITEMS);
+
+          const signature = JSON.stringify(
+            cleanedHistory.map((item) => item.id)
+          );
+
+          if (signature !== lastHistorySignatureRef.current) {
+            lastHistorySignatureRef.current = signature;
+            setHistory(cleanedHistory);
+          }
+        } catch (error) {
+          console.warn("History synchronization skipped:", error);
+        }
+      }, 180);
     };
 
-    window.addEventListener(
-      "storage",
-      syncHistoryState
-    );
+    window.addEventListener("storage", syncHistoryState);
 
     return () => {
-      window.removeEventListener(
-        "storage",
-        syncHistoryState
-      );
+      window.removeEventListener("storage", syncHistoryState);
 
       if (historySyncTimeoutRef.current) {
-        clearTimeout(
-          historySyncTimeoutRef.current
-        );
-
-        historySyncTimeoutRef.current = null;
+        clearTimeout(historySyncTimeoutRef.current);
       }
     };
   }, []);
@@ -536,40 +412,28 @@ export default function CropDiseaseDetection({
     ];
 
     if (!allowedTypes.includes(file.type)) {
-      setError(
-        "Please upload a valid image file (JPEG, PNG, or WebP)."
-      );
-
+      setError("Please upload a valid image file (JPEG, PNG, or WebP).");
       return;
     }
 
-    const MAX_IMAGE_SIZE_BYTES =
-      5 * 1024 * 1024;
+    const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
 
     if (file.size > MAX_IMAGE_SIZE_BYTES) {
-      setError(
-        "Image size should be less than 5MB."
-      );
-
+      setError("Image size should be less than 5MB.");
       return;
     }
-
-    detectionAbortRef.current = true;
 
     const objectUrl = URL.createObjectURL(file);
 
-    detectionAbortRef.current = false;
-
     setImage(file);
 
-    setPreview((previousPreview) => {
-      if (previousPreview) {
-        URL.revokeObjectURL(previousPreview);
+    setPreview((previous) => {
+      if (previous) {
+        URL.revokeObjectURL(previous);
       }
 
       return objectUrl;
     });
-
     setResult(null);
     setError(null);
   };
@@ -585,10 +449,6 @@ export default function CropDiseaseDetection({
     try {
       const base64 = await fileToBase64(image);
 
-      if (detectionAbortRef.current) {
-        return;
-      }
-
       let analysis = null;
 
       try {
@@ -602,23 +462,13 @@ export default function CropDiseaseDetection({
           { skipGlobalLoader: true }
         );
 
-        analysis =
-          response.data?.analysis ||
-          response.data;
+        analysis = response.data?.analysis || response.data;
       } catch (apiError) {
-        if (detectionAbortRef.current) {
-          return;
-        }
-
         analysis = await extractLocalAnalysis(
           preview,
           cropType,
           i18n.language
         );
-      }
-
-      if (detectionAbortRef.current) {
-        return;
       }
 
       const detectionResult = {
@@ -627,8 +477,7 @@ export default function CropDiseaseDetection({
       };
 
       try {
-        const historyEntry =
-          saveDiseaseHistory(detectionResult);
+        const historyEntry = saveDiseaseHistory(detectionResult);
 
         if (historyEntry) {
           setHistory((previous) => {
@@ -636,8 +485,7 @@ export default function CropDiseaseDetection({
               (item) =>
                 item &&
                 item.id !== historyEntry.id &&
-                item.disease !==
-                  historyEntry.disease
+                item.disease !== historyEntry.disease
             );
 
             const updatedHistory = [
@@ -645,12 +493,9 @@ export default function CropDiseaseDetection({
               ...filtered,
             ].slice(0, MAX_HISTORY_ITEMS);
 
-            lastHistorySignatureRef.current =
-              JSON.stringify(
-                updatedHistory.map(
-                  (item) => item.id
-                )
-              );
+            lastHistorySignatureRef.current = JSON.stringify(
+              updatedHistory.map((item) => item.id)
+            );
 
             return updatedHistory;
           });
@@ -662,21 +507,13 @@ export default function CropDiseaseDetection({
         );
       }
 
-      if (
-        !mountedRef.current ||
-        detectionAbortRef.current
-      ) {
+      if (!mountedRef.current || detectionAbortRef.current) {
         return;
       }
 
       setResult(detectionResult);
     } catch (err) {
-      if (!detectionAbortRef.current) {
-        setError(
-          err?.message ||
-            "Detection failed. Try again."
-        );
-      }
+      setError(err?.message || "Detection failed. Try again.");
     } finally {
       if (mountedRef.current) {
         setLoading(false);
@@ -684,26 +521,6 @@ export default function CropDiseaseDetection({
     }
   };
 
-  const resetSelection = () => {
-    detectionAbortRef.current = true;
-
-    setPreview((previousPreview) => {
-      if (previousPreview) {
-        URL.revokeObjectURL(previousPreview);
-      }
-
-      return null;
-    });
-
-    setImage(null);
-    setResult(null);
-    setError(null);
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-  };
-  
   const resetSelection = () => {
     if (preview) {
       URL.revokeObjectURL(preview);
