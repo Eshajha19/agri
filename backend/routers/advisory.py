@@ -544,20 +544,34 @@ class FarmIntelligenceRequest(BaseModel):
 @router.post("/advisory")
 async def create_advisory(payload: AdvisoryRequest, request: Request):
     """
-    Generate rule-based farm advisories for the authenticated user.
+    Generate rule-based farm advisories.
 
     If store_alerts is True the generated alerts are persisted server-side
-    under the caller's verified Firebase UID — never under a client-supplied
-    user_id — so they can be retrieved later via GET /advisory/me.
+    under the caller's verified Firebase UID so they can be retrieved later
+    via GET /advisory/me.
 
-    Authentication is required when store_alerts is True so that:
+    Authentication is required when store_alerts is True:
     1. Alerts are always bound to a verified identity.
-    2. An unauthenticated caller cannot pollute another user's alert store
-       by guessing or enumerating Firebase UIDs (IDOR).
+    2. An unauthenticated caller cannot pollute another user's alert store.
 
-    Unauthenticated callers may still generate transient advisories
-    (store_alerts=False) for the climate simulator and public widgets.
+    Unauthenticated callers may generate transient advisories
+    (store_alerts=False) for the climate simulator and public widgets but are
+    subject to a rate limit to prevent unbounded advisory engine load.
     """
+    # Rate-limit all callers (authenticated and anonymous alike) to prevent
+    # unbounded rule-evaluation passes triggered by anonymous clients sending
+    # large payloads at high frequency.
+    from compute_rate_limit import enforce_compute_rate_limit
+    rate_response = enforce_compute_rate_limit(
+        request,
+        scope="advisory",
+        uid=None,
+        limit=30,
+        window_seconds=60,
+    )
+    if rate_response is not None:
+        return rate_response
+
     alerts = generate_advisories(
         weather=payload.weather,
         soil=payload.soil,
