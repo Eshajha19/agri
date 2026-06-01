@@ -295,7 +295,6 @@ const csrfToken = useRef(generateCSRFToken());
     useState(0);
 
   const navigate = useNavigate();
-
   const location = useLocation();
   const cleanupGuestSession = async () => {
     try {
