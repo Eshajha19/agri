@@ -585,14 +585,26 @@ async def create_advisory(payload: AdvisoryRequest, request: Request):
 async def create_farm_intelligence(payload: "FarmIntelligenceRequest", request: Request):
     uid = await _get_authenticated_uid(request)
     result = _build_farm_graph(payload)
+    # Cap each user-supplied dict to at most _HISTORY_DICT_KEY_CAP entries before
+    # writing to Firestore. The advisory engine only inspects a small set of known
+    # keys, so truncating any excess is safe and prevents permanently storing
+    # multi-kilobyte documents from over-sized request payloads.
+    _HISTORY_DICT_KEY_CAP = 30
+
+    def _cap_dict(d: dict) -> dict:
+        if not isinstance(d, dict):
+            return {}
+        items = list(d.items())[:_HISTORY_DICT_KEY_CAP]
+        return dict(items)
+
     history_entry = {
         "uid": uid,
         "crop_type": payload.crop_type,
         "location": payload.location,
-        "weather": payload.weather,
-        "soil": payload.soil,
-        "pest": payload.pest,
-        "market": payload.market,
+        "weather": _cap_dict(payload.weather),
+        "soil": _cap_dict(payload.soil),
+        "pest": _cap_dict(payload.pest),
+        "market": _cap_dict(payload.market),
         "graph": result["graph"],
         "reasoning": result["reasoning"],
         "recommendations": result["recommendations"],
