@@ -165,50 +165,96 @@ class AuthRateLimiter {
 
     this.cleanupExpiredEntries();
 
-    const attempts =
-      this.attempts.get(key) || [];
-
-    return attempts.length >= this.maxAttempts;
+/**
+ * Secure token storage with expiration tracking
+ */
+class SecureTokenManager {
+  constructor() {
+    this.tokenRefreshBuffer = 5 * 60 * 1000;
+    this.refreshTimer = null;
+    this._token = null;
+    this._expirationTime = null;
   }
 
-  recordAttempt(email) {
-    const key = this.normalizeKey(email);
-
-    if (!key) return;
-
-    this.cleanupExpiredEntries();
-
-    const attempts =
-      this.attempts.get(key) || [];
-
-    attempts.push(Date.now());
-
-    this.attempts.set(key, attempts);
-  }
-
-  getRemainingTime(email) {
-    const key = this.normalizeKey(email);
-
-    if (!key) return 0;
-
-    const timestamps =
-      this.attempts.get(key) || [];
-
-    if (timestamps.length === 0) {
-      return 0;
+  storeToken(token, expirationTime) {
+    // Store token only in sessionStorage (safer than localStorage)
+    try {
+      sessionStorage.setItem("auth_token", token);
+      sessionStorage.setItem(
+        "auth_token_expiration",
+        expirationTime.toString()
+      );
+    } catch (err) {
+      console.error("Session storage unavailable");
     }
 
-    const oldestAttempt =
-      Math.min(...timestamps);
+    this._token = token;
+    this._expirationTime = expirationTime;
 
-    const remainingMs =
-      this.windowMs -
-      (Date.now() - oldestAttempt);
+    this._scheduleRefresh(expirationTime);
+  }
 
-    return Math.max(
-      0,
-      Math.ceil(remainingMs / 1000)
-    );
+  _scheduleRefresh(expirationTime) {
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+    }
+
+    const now = Date.now();
+    const refreshTime =
+      expirationTime - this.tokenRefreshBuffer - now;
+
+    if (refreshTime > 0) {
+      this.refreshTimer = setTimeout(() => {
+        window.dispatchEvent(
+          new CustomEvent("auth:token-refresh-needed")
+        );
+      }, refreshTime);
+    }
+
+  getToken() {
+    if (this._token) {
+      return this._token;
+    }
+
+    try {
+      return sessionStorage.getItem("auth_token");
+    } catch {
+      return null;
+    }
+  }
+
+  isTokenExpired() {
+    let storedExpiration = null;
+
+    try {
+      storedExpiration = Number(
+        sessionStorage.getItem("auth_token_expiration")
+      );
+    } catch {
+      storedExpiration = null;
+    }
+
+    const expiration =
+      this._expirationTime || storedExpiration;
+
+    if (!expiration) {
+      return true;
+    }
+
+    return Date.now() >= expiration;
+  }
+  clearToken() {
+    this._token = null;
+    this._expirationTime = null;
+
+    try {
+      sessionStorage.removeItem("auth_token");
+      sessionStorage.removeItem("auth_token_expiration");
+    } catch {}
+
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+    }
   }
 }
 
@@ -216,9 +262,7 @@ class AuthRateLimiter {
    Auth Component
 ============================================ */
 
-const Auth = () => {
-  const [isLogin, setIsLogin] =
-    useState(true);
+const csrfToken = useRef(generateCSRFToken());
 
   const [email, setEmail] =
     useState("");
@@ -253,20 +297,18 @@ const Auth = () => {
   const navigate = useNavigate();
 
   const location = useLocation();
-
-  const rateLimiter = useRef(
-    new AuthRateLimiter()
-  );
-
-  const countdownRef = useRef(null);
-
-  const from =
-    location.state?.from?.pathname || "/";
-
-  const referralCode =
-    new URLSearchParams(
-      location.search
-    ).get("ref") || "";
+  const cleanupGuestSession = async () => {
+    try {
+      sessionStorage.removeItem("guest_migration_pending");
+      sessionStorage.removeItem("guest_uid");
+    } catch (error) {
+      console.error("Guest cleanup failed");
+    }
+  };
+  // Security refs
+  const rateLimiter = useRef(new AuthRateLimiter());
+  const tokenManager = useRef(new SecureTokenManager());
+  const csrfToken = useRef(generateCSRFToken());
 
   const redirectAfterAuth = referralCode
     ? `/referrals?ref=${encodeURIComponent(
@@ -387,9 +429,14 @@ const Auth = () => {
     try {
       await signInAnonymously(auth);
 
-      navigate(redirectAfterAuth, {
-        replace: true,
-      });
+      try {
+        sessionStorage.setItem(
+          "guest_uid",
+          auth.currentUser?.uid || ""
+        );
+      } catch {}
+
+      navigate(redirectAfterAuth, { replace: true });
     } catch (err) {
       console.error("Guest login error");
 
@@ -489,23 +536,44 @@ const Auth = () => {
           return;
         }
 
+        // Store token securely with expiration tracking
+        const token = await user.getIdToken();
+        const expirationTime = Date.now() + (60 * 60 * 1000); // 1 hour
+        tokenManager.current.storeToken(token, expirationTime);
+
+        // If there was a guest session, migrate data to the logged-in account
         if (
           anonymousUid &&
-          user.uid !== anonymousUid
+          user.uid !== anonymousUid &&
+          !migrationInProgress.current
         ) {
           try {
-            await migrateUserData(
-              anonymousUid,
-              user.uid
-            );
+            if (!anonymousUid || !user?.uid) {
+              throw new Error("Invalid migration state");
+            }
+
+            migrationInProgress.current = true;
+
+            try {
+              sessionStorage.setItem(
+                "guest_migration_pending",
+                "true"
+              );
+            } catch {}
+
+            await migrateUserData(anonymousUid, user.uid);
+
+            await cleanupGuestSession();
 
             setMessage(
-              "Guest data successfully merged."
+              "Guest data successfully merged with your account!"
             );
           } catch (migrateErr) {
-            console.error(
-              "Migration error"
-            );
+            console.error("Migration error");
+
+            await cleanupGuestSession();
+          } finally {
+            migrationInProgress.current = false;
           }
         }
 

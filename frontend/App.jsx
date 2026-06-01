@@ -225,17 +225,10 @@ function App() {
   const scorecardRef = useRef(null);
   const scrollFrameRef = useRef(null);
 
-  const hydrationInProgressRef = useRef(false);
-  const offlineSyncInProgressRef = useRef(false);
-  const restoredSnapshotRef = useRef(false);
-  const translateInitRef = useRef(false);
-  const lastPersistedLangRef = useRef(null);
-
   const lastScrollStateRef = useRef({
     showScrollTop: false,
     scrollProgress: 0,
   });
-
   const getStoredLanguagePreference = () => {
     try {
       return sessionStorage.getItem("agri:preferredLanguage");
@@ -245,17 +238,15 @@ function App() {
   };
 
   const { i18n } = useTranslation();
-
   const [preferredLang, setPreferredLang] = useState(() => {
     return getStoredLanguagePreference() || getInitialLanguage();
   });
-
   useEffect(() => {
     if (preferredLang && i18n.language !== preferredLang) {
       i18n.changeLanguage(preferredLang);
     }
   }, [preferredLang, i18n]);
-
+  
   const [isOpen, setIsOpen] = useState(false);
   const { theme, toggleTheme, setTheme } = useTheme();
   const [user, setUser] = useState(null);
@@ -380,74 +371,54 @@ function App() {
     usageRatioLimit: liteMode ? 0.72 : 0.85,
   });
 
-  useEffect(() => {
-    if (!preferredLang || translateInitRef.current) {
-      return;
+  /* ---------------- THEME SYSTEM (Moved to ThemeProvider) ---------------- */
+
+  /* ---------------- LANGUAGE AUTO-TRANS ---------------- */
+useEffect(() => {
+  const applyTranslation = async () => {
+    if (applyGoogleTranslate(preferredLang)) return;
+
+    try {
+      await applyGoogleTranslateRobust(
+        preferredLang,
+        () => console.log("Google Translate initialized successfully"),
+        () => console.warn("Google Translate unavailable - using default language")
+      );
+    } catch (error) {
+      console.warn("Translation initialization failed - graceful fallback applied");
     }
+  };
 
-    translateInitRef.current = true;
+  void applyTranslation();
 
-    let cancelled = false;
+  const handleWidgetLoad = () => {
+    if (!applyGoogleTranslate(preferredLang)) {
+      void applyGoogleTranslateRobust(preferredLang);
+    }
+  };
 
-    const applyTranslation = async () => {
-      try {
-        const alreadyApplied =
-          applyGoogleTranslate(preferredLang);
+  const widgetCheckInterval = setInterval(() => {
+    if (
+      document.querySelector(".goog-te-combo") &&
+      !applyGoogleTranslate(preferredLang)
+    ) {
+      void applyGoogleTranslateRobust(preferredLang);
+    }
+  }, 2000);
 
-        if (alreadyApplied || cancelled) {
-          return;
-        }
+  document.addEventListener(
+    "googleTranslateWidgetLoaded",
+    handleWidgetLoad
+  );
 
-        await applyGoogleTranslateRobust(
-          preferredLang,
-          () => {
-            if (!cancelled) {
-              console.log(
-                "Google Translate initialized successfully"
-              );
-            }
-          },
-          () => {
-            if (!cancelled) {
-              console.warn(
-                "Google Translate unavailable - using default language"
-              );
-            }
-          }
-        );
-      } catch (error) {
-        if (!cancelled) {
-          console.warn(
-            "Translation initialization failed - graceful fallback applied"
-          );
-        }
-      } finally {
-        translateInitRef.current = false;
-      }
-    };
-
-    void applyTranslation();
-
-    const handleWidgetLoad = () => {
-      if (!cancelled) {
-        void applyTranslation();
-      }
-    };
-
-    document.addEventListener(
+  return () => {
+    clearInterval(widgetCheckInterval);
+    document.removeEventListener(
       "googleTranslateWidgetLoaded",
       handleWidgetLoad
     );
-
-    return () => {
-      cancelled = true;
-
-      document.removeEventListener(
-        "googleTranslateWidgetLoaded",
-        handleWidgetLoad
-      );
-    };
-  }, [preferredLang]);
+  };
+}, [preferredLang]);
 
   useEffect(() => {
     const hideGoogleTranslateBanner = () => {
@@ -716,24 +687,55 @@ function App() {
         });
     };
 
-    window.addEventListener(
-      "scroll",
-      handleScroll,
-      {
-        passive: true,
-      }
-    );
+  // Scroll to Top logic
+  useEffect(() => {
+    const handleScroll = () => {
+      if (scrollFrameRef.current) return;
+
+      scrollFrameRef.current = requestAnimationFrame(() => {
+        const shouldShowScrollTop = window.scrollY > 300;
+
+        const totalHeight =
+          document.documentElement.scrollHeight - window.innerHeight;
+
+        const progress =
+          totalHeight > 0
+            ? (window.scrollY / totalHeight) * 100
+            : 0;
+
+        if (
+          lastScrollStateRef.current.showScrollTop !==
+          shouldShowScrollTop
+        ) {
+          lastScrollStateRef.current.showScrollTop =
+            shouldShowScrollTop;
+
+          setShowScrollTop(shouldShowScrollTop);
+        }
+
+        if (
+          Math.abs(
+            lastScrollStateRef.current.scrollProgress - progress
+          ) > 1
+        ) {
+          lastScrollStateRef.current.scrollProgress = progress;
+
+          setScrollProgress(progress);
+        }
+
+        scrollFrameRef.current = null;
+      });
+    };
+
+    window.addEventListener("scroll", handleScroll, {
+      passive: true,
+    });
 
     return () => {
-      window.removeEventListener(
-        "scroll",
-        handleScroll
-      );
+      window.removeEventListener("scroll", handleScroll);
 
       if (scrollFrameRef.current) {
-        cancelAnimationFrame(
-          scrollFrameRef.current
-        );
+        cancelAnimationFrame(scrollFrameRef.current);
       }
     };
   }, []);
