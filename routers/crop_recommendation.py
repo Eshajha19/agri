@@ -8,6 +8,8 @@ import logging
 from dataclasses import dataclass
 from functools import lru_cache
 import hashlib
+import time
+import threading
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/crop", tags=["crop"])
@@ -131,10 +133,19 @@ def calculate_confidence_score(data_quality: float, climate_match: float,
 
 
 class RecommendationCache:
-    """Simple cache for recommendation results"""
+    """TTL-bounded cache for recommendation results.
+
+    Entries older than ttl_hours are treated as expired and evicted on
+    the next access. A size cap (max_size) prevents unbounded growth when
+    many unique parameter combinations are queried over time.
+    """
+    _MAX_SIZE = 1000
+
     def __init__(self, ttl_hours: int = 24):
+        # Stores (result, inserted_at_seconds) tuples keyed by cache key
         self.cache: Dict[str, Tuple] = {}
-        self.ttl_hours = ttl_hours
+        self.ttl_seconds = ttl_hours * 3600
+        self._lock = threading.Lock()
 
     def _generate_key(self, ph: float, nitrogen: float, phosphorus: float,
                      potassium: float, season: str) -> str:
@@ -144,17 +155,28 @@ class RecommendationCache:
 
     def get(self, ph: float, nitrogen: float, phosphorus: float,
             potassium: float, season: str) -> Optional[Dict]:
-        """Get cached recommendation"""
+        """Get cached recommendation, or None if absent or expired."""
         key = self._generate_key(ph, nitrogen, phosphorus, potassium, season)
-        if key in self.cache:
-            return self.cache[key]
-        return None
+        with self._lock:
+            entry = self.cache.get(key)
+            if entry is None:
+                return None
+            result, inserted_at = entry
+            if time.monotonic() - inserted_at > self.ttl_seconds:
+                del self.cache[key]
+                return None
+            return result
 
     def set(self, ph: float, nitrogen: float, phosphorus: float,
             potassium: float, season: str, result: Dict):
-        """Cache recommendation result"""
+        """Cache recommendation result with the current timestamp."""
         key = self._generate_key(ph, nitrogen, phosphorus, potassium, season)
-        self.cache[key] = result
+        with self._lock:
+            if len(self.cache) >= self._MAX_SIZE:
+                # Evict the oldest entry to maintain the size cap
+                oldest_key = min(self.cache, key=lambda k: self.cache[k][1])
+                del self.cache[oldest_key]
+            self.cache[key] = (result, time.monotonic())
 
 
 recommendation_cache = RecommendationCache()
@@ -612,5 +634,5 @@ async def recommend_crops(req: CropRecommendationRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Crop recommendation error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Recommendation failed: {str(e)}")
+        logger.error("Crop recommendation error: %s", str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail="An error occurred while generating recommendations. Please try again.")
