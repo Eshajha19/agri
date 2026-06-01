@@ -64,7 +64,9 @@ class ShadowEvaluator:
         self.confidence_threshold = confidence_threshold
         
         # Tracking
-        self.evaluations: List[ShadowEvaluation] = []
+        # Bounded deque: oldest evaluations are discarded once the limit is
+        # reached, preventing unbounded heap growth in long-running deployments.
+        self.evaluations: deque = deque(maxlen=500)
         self.active_evaluations: Dict[str, Dict[str, Any]] = {}  # eval_id -> data
         self._lock = threading.Lock()
     
@@ -193,7 +195,9 @@ class ShadowEvaluator:
             )
         
             self.evaluations.append(result)
-            self.cleanup_evaluation(eval_id)
+        # cleanup_evaluation acquires self._lock itself; call it outside the
+        # with block to avoid deadlock with a non-reentrant threading.Lock.
+        self.cleanup_evaluation(eval_id)
         logger.info(
             f"Evaluation {eval_id} complete: {recommendation.upper()} "
             f"(error reduction: {error_reduction:.2%}, confidence: {confidence_score:.2%})"
