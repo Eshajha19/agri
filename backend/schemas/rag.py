@@ -10,6 +10,43 @@ from pydantic_core import PydanticCustomError
 _DANGEROUS_HTML_BLOCK_TAGS = {"script", "style", "iframe", "object", "embed"}
 
 
+class QuerySanitizationError(ValueError):
+    """Validation error with stable code/reason for sanitized query failures."""
+
+    def __init__(
+        self,
+        error_code: str,
+        message: str,
+        reason: str,
+        *,
+        threat_type: str | None = None,
+        threat_match: str | None = None,
+    ):
+        super().__init__(message)
+        self.error_code = error_code
+        self.message = message
+        self.reason = reason
+        self.threat_type = threat_type
+        self.threat_match = threat_match
+
+    def to_pydantic_error(self) -> PydanticCustomError:
+        context = {
+            "error_code": self.error_code,
+            "error_message": self.message,
+            "reason": self.reason,
+        }
+        if self.threat_type is not None:
+            context["threat_type"] = self.threat_type
+        if self.threat_match is not None:
+            context["threat_match"] = self.threat_match
+
+        return PydanticCustomError(
+            "query_sanitization_error",
+            self.message,
+            context,
+        )
+
+
 class _DangerousHtmlBlockStripper(HTMLParser):
     """Remove dangerous block elements and their contents from a string."""
 
@@ -192,7 +229,11 @@ class RAGQuery(BaseModel):
     @classmethod
     def sanitize_and_normalize_query(cls, value):
         if not value or not isinstance(value, str):
-            raise ValueError("Query must be a non-empty string.")
+            raise QuerySanitizationError(
+                "invalid_query_type",
+                "Query must be a non-empty string.",
+                "non_string_or_empty_input",
+            ).to_pydantic_error()
 
         value = _strip_dangerous_html_blocks(value)
         value = bleach.clean(
@@ -211,17 +252,19 @@ class RAGQuery(BaseModel):
         normalized = _normalize_for_injection_checks(value)
         threat_match = _prompt_injection_match(normalized)
         if threat_match is not None:
-            raise PydanticCustomError(
-                "threat_detected",
+            raise QuerySanitizationError(
+                "disallowed_prompt_injection",
                 "Query contains disallowed phrases or prompt injection attempts.",
-                {
-                    "error_code": "threat_detected",
-                    "threat_type": "prompt_injection",
-                    "threat_match": threat_match,
-                },
-            )
+                "prompt_injection_detected",
+                threat_type="prompt_injection",
+                threat_match=threat_match,
+            ).to_pydantic_error()
 
         if len(value) < 3:
-            raise ValueError("Query must be at least 3 characters long after sanitization.")
+            raise QuerySanitizationError(
+                "length_exceeded_after_sanitization",
+                "Query must be at least 3 characters long after sanitization.",
+                "min_length_not_met_after_sanitization",
+            ).to_pydantic_error()
 
         return value
