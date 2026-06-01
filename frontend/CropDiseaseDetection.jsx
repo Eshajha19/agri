@@ -367,6 +367,9 @@ export default function CropDiseaseDetection({ onClose }) {
     ];
 
     if (!allowedTypes.includes(file.type)) {
+      setError("Please upload a valid image file (JPEG, PNG, or WebP).");
+      return;
+    }
 
     const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
 
@@ -379,13 +382,6 @@ export default function CropDiseaseDetection({ onClose }) {
 
     setImage(file);
 
-    setPreview((previous) => {
-      if (previous) {
-        URL.revokeObjectURL(previous);
-      }
-
-      return objectUrl;
-    });
     setPreview((previous) => {
       if (previous) {
         URL.revokeObjectURL(previous);
@@ -466,6 +462,16 @@ export default function CropDiseaseDetection({ onClose }) {
         setLoading(false);
       }
     }
+  };
+
+  const resetSelection = () => {
+    if (preview) {
+      URL.revokeObjectURL(preview);
+    }
+    setImage(null);
+    setPreview(null);
+    setResult(null);
+    setError(null);
   };
 
   const resultConfidenceWidth = result?.confidenceScore || (result?.confidence === "High" ? 84 : result?.confidence === "Medium" ? 62 : 38);

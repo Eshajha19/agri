@@ -229,6 +229,10 @@ function App() {
     showScrollTop: false,
     scrollProgress: 0,
   });
+  const hydrationInProgressRef = useRef(false);
+  const offlineSyncInProgressRef = useRef(false);
+  const lastPersistedLangRef = useRef(null);
+  const restoredSnapshotRef = useRef(false);
   const getStoredLanguagePreference = () => {
     try {
       return sessionStorage.getItem("agri:preferredLanguage");
@@ -687,46 +691,6 @@ useEffect(() => {
         });
     };
 
-  // Scroll to Top logic
-  useEffect(() => {
-    const handleScroll = () => {
-      if (scrollFrameRef.current) return;
-
-      scrollFrameRef.current = requestAnimationFrame(() => {
-        const shouldShowScrollTop = window.scrollY > 300;
-
-        const totalHeight =
-          document.documentElement.scrollHeight - window.innerHeight;
-
-        const progress =
-          totalHeight > 0
-            ? (window.scrollY / totalHeight) * 100
-            : 0;
-
-        if (
-          lastScrollStateRef.current.showScrollTop !==
-          shouldShowScrollTop
-        ) {
-          lastScrollStateRef.current.showScrollTop =
-            shouldShowScrollTop;
-
-          setShowScrollTop(shouldShowScrollTop);
-        }
-
-        if (
-          Math.abs(
-            lastScrollStateRef.current.scrollProgress - progress
-          ) > 1
-        ) {
-          lastScrollStateRef.current.scrollProgress = progress;
-
-          setScrollProgress(progress);
-        }
-
-        scrollFrameRef.current = null;
-      });
-    };
-
     window.addEventListener("scroll", handleScroll, {
       passive: true,
     });
@@ -739,6 +703,8 @@ useEffect(() => {
       }
     };
   }, []);
+
+  // Scroll to Top logic - removed duplicate
 
   useEffect(() => {
     const handleClickOutside = (event) => {
