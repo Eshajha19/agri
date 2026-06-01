@@ -131,45 +131,92 @@ class AuthRateLimiter {
  */
 class SecureTokenManager {
   constructor() {
-    this.tokenRefreshBuffer = 5 * 60 * 1000; // 5 minutes before expiration
+    this.tokenRefreshBuffer = 5 * 60 * 1000;
     this.refreshTimer = null;
+    this._token = null;
+    this._expirationTime = null;
   }
 
   storeToken(token, expirationTime) {
-    // Store in memory (not localStorage to prevent XSS access)
+    // Store token only in sessionStorage (safer than localStorage)
+    try {
+      sessionStorage.setItem("auth_token", token);
+      sessionStorage.setItem(
+        "auth_token_expiration",
+        expirationTime.toString()
+      );
+    } catch (err) {
+      console.error("Session storage unavailable");
+    }
+
     this._token = token;
     this._expirationTime = expirationTime;
 
-    // Schedule refresh before expiration
     this._scheduleRefresh(expirationTime);
   }
 
   _scheduleRefresh(expirationTime) {
-    if (this.refreshTimer) clearTimeout(this.refreshTimer);
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+    }
 
     const now = Date.now();
-    const refreshTime = expirationTime - this.tokenRefreshBuffer - now;
+    const refreshTime =
+      expirationTime - this.tokenRefreshBuffer - now;
 
     if (refreshTime > 0) {
       this.refreshTimer = setTimeout(() => {
-        // Trigger token refresh event
-        window.dispatchEvent(new CustomEvent('auth:token-refresh-needed'));
+        window.dispatchEvent(
+          new CustomEvent("auth:token-refresh-needed")
+        );
       }, refreshTime);
     }
   }
 
   getToken() {
-    return this._token;
+    if (this._token) {
+      return this._token;
+    }
+
+    try {
+      return sessionStorage.getItem("auth_token");
+    } catch {
+      return null;
+    }
   }
 
   isTokenExpired() {
-    return Date.now() >= this._expirationTime;
-  }
+    let storedExpiration = null;
 
+    try {
+      storedExpiration = Number(
+        sessionStorage.getItem("auth_token_expiration")
+      );
+    } catch {
+      storedExpiration = null;
+    }
+
+    const expiration =
+      this._expirationTime || storedExpiration;
+
+    if (!expiration) {
+      return true;
+    }
+
+    return Date.now() >= expiration;
+  }
   clearToken() {
     this._token = null;
     this._expirationTime = null;
-    if (this.refreshTimer) clearTimeout(this.refreshTimer);
+
+    try {
+      sessionStorage.removeItem("auth_token");
+      sessionStorage.removeItem("auth_token_expiration");
+    } catch {}
+
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+    }
   }
 }
 
@@ -182,9 +229,7 @@ const generateCSRFToken = () => {
     .join('');
 };
 
-const validateCSRFToken = (token, storedToken) => {
-  return constantTimeCompare(token, storedToken);
-};
+const csrfToken = useRef(generateCSRFToken());
 
 // ============================================
 // Auth Component
@@ -205,7 +250,14 @@ const Auth = () => {
 
   const navigate = useNavigate();
   const location = useLocation();
-
+  const cleanupGuestSession = async () => {
+    try {
+      sessionStorage.removeItem("guest_migration_pending");
+      sessionStorage.removeItem("guest_uid");
+    } catch (error) {
+      console.error("Guest cleanup failed");
+    }
+  };
   // Security refs
   const rateLimiter = useRef(new AuthRateLimiter());
   const tokenManager = useRef(new SecureTokenManager());
@@ -264,8 +316,17 @@ const Auth = () => {
   const handleGuestLogin = async () => {
     setLoading(true);
     setError("");
+
     try {
       await signInAnonymously(auth);
+
+      try {
+        sessionStorage.setItem(
+          "guest_uid",
+          auth.currentUser?.uid || ""
+        );
+      } catch {}
+
       navigate(redirectAfterAuth, { replace: true });
     } catch (err) {
       console.error("Guest login error");
@@ -329,13 +390,38 @@ const Auth = () => {
         tokenManager.current.storeToken(token, expirationTime);
 
         // If there was a guest session, migrate data to the logged-in account
-        if (anonymousUid && user.uid !== anonymousUid) {
+        if (
+          anonymousUid &&
+          user.uid !== anonymousUid &&
+          !migrationInProgress.current
+        ) {
           try {
+            if (!anonymousUid || !user?.uid) {
+              throw new Error("Invalid migration state");
+            }
+
+            migrationInProgress.current = true;
+
+            try {
+              sessionStorage.setItem(
+                "guest_migration_pending",
+                "true"
+              );
+            } catch {}
+
             await migrateUserData(anonymousUid, user.uid);
-            setMessage("Guest data successfully merged with your account!");
+
+            await cleanupGuestSession();
+
+            setMessage(
+              "Guest data successfully merged with your account!"
+            );
           } catch (migrateErr) {
             console.error("Migration error");
-            // Non-fatal, user is logged in
+
+            await cleanupGuestSession();
+          } finally {
+            migrationInProgress.current = false;
           }
         }
 
