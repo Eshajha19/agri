@@ -15,9 +15,9 @@ def test_seed_verify_requires_initialized_seed_registry(monkeypatch):
         called = True
         return {"uid": "farmer-1"}
 
-    monkeypatch.setattr(knowledge, "verify_role_fn", verify)
-    monkeypatch.setattr(knowledge, "seed_registry", None)
-    monkeypatch.setattr(knowledge, "rag_generate_fn", lambda query, top_k=3: ["result"])
+    app.state.verify_role_fn = verify
+    app.state.seed_registry = None
+    app.state.rag_generate_fn = lambda query, top_k=3: ["result"]
 
     client = TestClient(app)
     response = client.post("/api/knowledge/seeds/verify", json={"code": "FS-RICE-2026-A1"})
@@ -34,8 +34,8 @@ def test_rag_query_rate_limit_payload_is_returned_with_429(monkeypatch):
     async def verify(_request):
         return {"uid": "farmer-1"}
 
-    monkeypatch.setattr(knowledge, "verify_role_fn", verify)
-    monkeypatch.setattr(knowledge, "rag_generate_fn", lambda query, top_k=3: ["result"])
+    app.state.verify_role_fn = verify
+    app.state.rag_generate_fn = lambda query, top_k=3: ["result"]
     monkeypatch.setattr(
         knowledge,
         "enforce_compute_rate_limit",
@@ -64,9 +64,9 @@ def test_rag_query_rejection_is_logged(monkeypatch):
     def capture_warning(message, *args, **kwargs):
         captured_logs.append(message % args if args else message)
 
-    monkeypatch.setattr(knowledge, "verify_role_fn", verify)
-    monkeypatch.setattr(knowledge, "rag_generate_fn", lambda query, top_k=3: ["result"])
-    monkeypatch.setattr(knowledge, "_last_rag_rejection_log", 0.0)
+    app.state.verify_role_fn = verify
+    app.state.rag_generate_fn = lambda query, top_k=3: ["result"]
+    app.state.knowledge_rag_rejection_log_state = {"last_log": 0.0, "lock": knowledge.Lock()}
     monkeypatch.setattr(knowledge.logger, "warning", capture_warning)
 
     client = TestClient(app)

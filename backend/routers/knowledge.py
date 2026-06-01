@@ -1,5 +1,5 @@
 """Knowledge Base Router - RAG, Climate Simulation, Seeds"""
-from typing import Optional
+from typing import Any, Callable, Optional
 from fastapi import APIRouter, Depends, Request, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError, validator
@@ -62,52 +62,66 @@ class SeedVerifyRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=100)
 
 
-# ---------------------------------------------------------------------------
-# Global state
-# ---------------------------------------------------------------------------
-
-rag_generate_fn = None
-rbac_manager = None
-Permission = None
-seed_registry = None
-verify_role_fn = None
 _RAG_REJECTION_LOG_INTERVAL_SECONDS = 60
-_last_rag_rejection_log = 0.0
-_rag_rejection_log_lock = Lock()
 
 
-def _require_verify_role_fn():
-    if verify_role_fn is None:
+def get_verify_role_fn(request: Request) -> Callable[..., Any]:
+    verify_fn = getattr(request.app.state, "verify_role_fn", None)
+    if verify_fn is None:
         raise HTTPException(status_code=500, detail="Not initialized")
-    return verify_role_fn
+    return verify_fn
 
 
-def _require_rag_runtime():
-    verify_fn = _require_verify_role_fn()
-    if rag_generate_fn is None:
+def get_rag_generate_fn(request: Request) -> Callable[..., Any]:
+    rag_fn = getattr(request.app.state, "rag_generate_fn", None)
+    if rag_fn is None:
         raise HTTPException(status_code=503, detail="RAG not available")
-    return rag_generate_fn, verify_fn
+    return rag_fn
 
 
-def _require_simulation_runtime():
-    return _require_verify_role_fn()
-
-
-def _require_seed_runtime():
-    verify_fn = _require_verify_role_fn()
-    if seed_registry is None:
+def get_seed_registry(request: Request) -> dict:
+    registry = getattr(request.app.state, "seed_registry", None)
+    if registry is None:
         raise HTTPException(status_code=503, detail="Seed registry not initialized")
-    return verify_fn, seed_registry
+    return registry
+
+
+def get_rag_runtime(
+    rag_fn: Callable[..., Any] = Depends(get_rag_generate_fn),
+    verify_fn: Callable[..., Any] = Depends(get_verify_role_fn),
+):
+    return rag_fn, verify_fn
+
+
+def get_simulation_runtime(verify_fn: Callable[..., Any] = Depends(get_verify_role_fn)):
+    return verify_fn
+
+
+def get_seed_runtime(
+    verify_fn: Callable[..., Any] = Depends(get_verify_role_fn),
+    registry: dict = Depends(get_seed_registry),
+):
+    return verify_fn, registry
+
+
+def _get_rag_rejection_log_state(request: Request) -> dict:
+    state = getattr(request.app.state, "knowledge_rag_rejection_log_state", None)
+    if state is None:
+        state = {
+            "last_log": 0.0,
+            "lock": Lock(),
+        }
+        request.app.state.knowledge_rag_rejection_log_state = state
+    return state
 
 
 def _log_rag_rejection(request: Request, exc: ValidationError) -> None:
-    global _last_rag_rejection_log
-
+    log_state = _get_rag_rejection_log_state(request)
     now = monotonic()
-    with _rag_rejection_log_lock:
-        if now - _last_rag_rejection_log < _RAG_REJECTION_LOG_INTERVAL_SECONDS:
+    with log_state["lock"]:
+        if now - log_state["last_log"] < _RAG_REJECTION_LOG_INTERVAL_SECONDS:
             return
-        _last_rag_rejection_log = now
+        log_state["last_log"] = now
 
     errors = exc.errors()
     first_error = errors[0] if errors else {}
@@ -194,17 +208,6 @@ def _enforce_rate_limit(request: Request, scope: str, uid: Optional[str], limit:
         if retry_after:
             detail = f"Rate limit exceeded. Retry after {retry_after} seconds."
         raise HTTPException(status_code=429, detail=detail)
-
-
-def init_knowledge(rg_fn, rbac, perm, sr, vr_fn):
-    global rag_generate_fn, rbac_manager, Permission, seed_registry, verify_role_fn
-    rag_generate_fn = rg_fn
-    rbac_manager = rbac
-    Permission = perm
-    seed_registry = sr
-    verify_role_fn = vr_fn
-    if not sr:
-        logger.warning("Seed registry is empty — all seed codes will return unverified")
 
 
 # ---------------------------------------------------------------------------
@@ -378,7 +381,7 @@ def _build_recommendations(
 # ---------------------------------------------------------------------------
 
 @router.post("/rag/query")
-async def rag_query(request: Request, body: RAGQuery = Depends(_parse_rag_query), runtime=Depends(_require_rag_runtime)):
+async def rag_query(request: Request, body: RAGQuery = Depends(_parse_rag_query), runtime=Depends(get_rag_runtime)):
     """Query the AI knowledge base (RAG).
 
     Authentication is required to prevent unauthenticated callers from
@@ -406,7 +409,7 @@ async def rag_query(request: Request, body: RAGQuery = Depends(_parse_rag_query)
 
 
 @router.post("/simulate-climate")
-async def simulate_climate(request: Request, data: SimulationRequest, verify_fn=Depends(_require_simulation_runtime)):
+async def simulate_climate(request: Request, data: SimulationRequest, verify_fn=Depends(get_simulation_runtime)):
     """Run a climate impact simulation for a given crop.
 
     Authentication is required so that the endpoint is not freely
@@ -481,7 +484,7 @@ async def simulate_climate(request: Request, data: SimulationRequest, verify_fn=
 
 
 @router.post("/seeds/verify")
-async def verify_seed(request: Request, data: SeedVerifyRequest, runtime=Depends(_require_seed_runtime)):
+async def verify_seed(request: Request, data: SeedVerifyRequest, runtime=Depends(get_seed_runtime)):
     verify_fn, registry = runtime
     try:
         await verify_fn(request)
