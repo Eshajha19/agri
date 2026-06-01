@@ -296,7 +296,12 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("RAG init skipped: %s", exc)
 
-    knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
+    app.state.verify_role_fn = verify_role
+    app.state.rag_generate_fn = rag_generate_fn
+    app.state.seed_registry = {"TEST001": {"verified": True}}
+    if not app.state.seed_registry:
+        logger.warning("Seed registry is empty — all seed codes will return unverified")
+
     alerts.init_alerts(
         [],
         subscriber_store,
