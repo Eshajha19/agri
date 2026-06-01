@@ -296,15 +296,32 @@ export default function CropDiseaseDetection({ onClose }) {
 
   const fileInputRef = useRef(null);
   const mountedRef = useRef(true);
+  const lastHistorySignatureRef = useRef("");
   const detectionAbortRef = useRef(false);
   const historySyncTimeoutRef = useRef(null);
 
   useEffect(() => {
+    mountedRef.current = true;
+
     try {
       const storedHistory = getDiseaseHistory();
 
       if (Array.isArray(storedHistory)) {
-        setHistory(storedHistory.slice(0, 25));
+        const cleanedHistory = storedHistory
+          .filter(
+            (entry) =>
+              entry &&
+              typeof entry === "object" &&
+              entry.id &&
+              entry.disease
+          )
+          .slice(0, MAX_HISTORY_ITEMS);
+
+        setHistory(cleanedHistory);
+
+        lastHistorySignatureRef.current = JSON.stringify(
+          cleanedHistory.map((item) => item.id)
+        );
       } else {
         setHistory([]);
       }
@@ -312,6 +329,10 @@ export default function CropDiseaseDetection({ onClose }) {
       console.warn("Failed to load disease history");
       setHistory([]);
     }
+
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -320,6 +341,10 @@ export default function CropDiseaseDetection({ onClose }) {
 
       if (preview) {
         URL.revokeObjectURL(preview);
+      }
+
+      if (historySyncTimeoutRef.current) {
+        clearTimeout(historySyncTimeoutRef.current);
       }
     };
   }, [preview]);
@@ -336,8 +361,28 @@ export default function CropDiseaseDetection({ onClose }) {
         try {
           const latestHistory = getDiseaseHistory();
 
-          if (Array.isArray(latestHistory)) {
-            setHistory(latestHistory.slice(0, MAX_HISTORY_ITEMS));
+          if (!Array.isArray(latestHistory)) {
+            setHistory([]);
+            return;
+          }
+
+          const cleanedHistory = latestHistory
+            .filter(
+              (entry) =>
+                entry &&
+                typeof entry === "object" &&
+                entry.id &&
+                entry.disease
+            )
+            .slice(0, MAX_HISTORY_ITEMS);
+
+          const signature = JSON.stringify(
+            cleanedHistory.map((item) => item.id)
+          );
+
+          if (signature !== lastHistorySignatureRef.current) {
+            lastHistorySignatureRef.current = signature;
+            setHistory(cleanedHistory);
           }
         } catch (error) {
           console.warn("History synchronization skipped:", error);
@@ -437,10 +482,22 @@ export default function CropDiseaseDetection({ onClose }) {
         if (historyEntry) {
           setHistory((previous) => {
             const filtered = previous.filter(
-              (item) => item.id !== historyEntry.id
+              (item) =>
+                item &&
+                item.id !== historyEntry.id &&
+                item.disease !== historyEntry.disease
             );
 
-            return [historyEntry, ...filtered].slice(0, 25);
+            const updatedHistory = [
+              historyEntry,
+              ...filtered,
+            ].slice(0, MAX_HISTORY_ITEMS);
+
+            lastHistorySignatureRef.current = JSON.stringify(
+              updatedHistory.map((item) => item.id)
+            );
+
+            return updatedHistory;
           });
         }
       } catch (storageError) {
@@ -810,6 +867,7 @@ export default function CropDiseaseDetection({ onClose }) {
                       console.error("Failed to clear history:", err);
                     }
 
+                    lastHistorySignatureRef.current = "";
                     setHistory([]);
                   }
                 }}
