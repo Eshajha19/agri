@@ -283,7 +283,7 @@ export default function FarmDiary({ onClose }) {
                 onChange={handleInputChange}
                 className="diary-input"
               />
-            </div>Expand commentComment on lines R217 to R278Resolved
+            </div>
           </div>
 
           <div className="form-actions">
