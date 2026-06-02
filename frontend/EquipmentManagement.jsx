@@ -1,3 +1,313 @@
+import { useState, useEffect, useRef, useCallback } from "react";
+import { getEquipmentInfo, evaluateEquipmentHealth } from './utils/equipmentDatabase';
+import EquipmentService from './services/equipmentApi';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
+
+export default function EquipmentManagement({ onClose }) {
+  const [equipment, setEquipment] = useState([]);
+  const [selectedEquipment, setSelectedEquipment] = useState(null);
+  const [sensorData, setSensorData] = useState({});
+  const [healthData, setHealthData] = useState({});
+  const [maintenanceHistory, setMaintenanceHistory] = useState([]);
+  const [analytics, setAnalytics] = useState({});
+  const [alerts, setAlerts] = useState([]);
+  const [showAddEquipment, setShowAddEquipment] = useState(false);
+  const [showMaintenance, setShowMaintenance] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [realTimeMode, setRealTimeMode] = useState(true);
+  const [timeRange, setTimeRange] = useState('7d');
+
+  const equipmentService = useRef(new EquipmentService());
+
+  // Synchronization refs
+  const selectedIdRef = useRef(null);
+  const mountedRef = useRef(true);
+
+  // Request tracking to avoid stale updates
+  const requestTrackerRef = useRef({
+    equipment: 0,
+    sensors: 0,
+    health: 0,
+    maintenance: 0,
+    analytics: 0,
+    alerts: 0,
+  });
+
+  // Lifecycle + realtime polling
+  useEffect(() => {
+    mountedRef.current = true;
+
+    loadEquipmentData();
+
+    const interval = setInterval(() => {
+      if (realTimeMode && selectedIdRef.current) {
+        updateSensorData();
+      }
+    }, 5000);
+
+    return () => {
+      mountedRef.current = false;
+      clearInterval(interval);
+    };
+  }, [realTimeMode]);
+
+  // Keep selected equipment ref synchronized
+  useEffect(() => {
+    selectedIdRef.current = selectedEquipment?.id ?? null;
+  }, [selectedEquipment]);
+
+  const loadEquipmentData = async () => {
+    const requestId = ++requestTrackerRef.current.equipment;
+
+    setLoading(true);
+
+    try {
+      const equipmentList =
+        await equipmentService.current.getEquipmentList();
+
+      // Prevent stale updates
+      if (
+        !mountedRef.current ||
+        requestTrackerRef.current.equipment !== requestId
+      ) {
+        return;
+      }
+
+      setEquipment(equipmentList);
+
+      if (
+        equipmentList.length > 0 &&
+        !selectedIdRef.current
+      ) {
+        await selectEquipment(equipmentList[0]);
+      }
+    } catch (error) {
+      console.error(
+        'Failed to load equipment data:',
+        error
+      );
+    } finally {
+      if (
+        mountedRef.current &&
+        requestTrackerRef.current.equipment === requestId
+      ) {
+        setLoading(false);
+      }
+    }
+  };
+
+  const selectEquipment = async (eq) => {
+    if (!eq) return;
+
+    setSelectedEquipment(eq);
+    selectedIdRef.current = eq.id;
+
+    await Promise.all([
+      updateSensorData(eq.id),
+      updateHealthData(eq),
+      loadMaintenanceHistory(eq.id),
+      loadAnalytics(eq.id, timeRange),
+      loadAlerts(eq.id),
+    ]);
+  };
+
+  const updateSensorData = useCallback(
+    async (equipmentId) => {
+      const id = equipmentId || selectedIdRef.current;
+
+      if (!id) return;
+
+      const requestId =
+        ++requestTrackerRef.current.sensors;
+
+      try {
+        const data =
+          await equipmentService.current.getSensorData(id);
+
+        if (
+          !mountedRef.current ||
+          requestTrackerRef.current.sensors !== requestId ||
+          selectedIdRef.current !== id
+        ) {
+          return;
+        }
+
+        setSensorData(data);
+      } catch (error) {
+        console.error(
+          'Failed to update sensor data:',
+          error
+        );
+      }
+    },
+    []
+  );
+
+  const updateHealthData = useCallback(
+    async (equipmentOverride) => {
+      const equipmentTarget =
+        equipmentOverride || selectedEquipment;
+
+      const id = equipmentTarget?.id;
+
+      if (!id) return;
+
+      const requestId =
+        ++requestTrackerRef.current.health;
+
+      try {
+        const data =
+          await equipmentService.current.getSensorData(id);
+
+        const health = evaluateEquipmentHealth(
+          equipmentTarget.type,
+          data
+        );
+
+        if (
+          !mountedRef.current ||
+          requestTrackerRef.current.health !== requestId ||
+          selectedIdRef.current !== id
+        ) {
+          return;
+        }
+
+        setHealthData(health);
+      } catch (error) {
+        console.error(
+          'Failed to update health data:',
+          error
+        );
+      }
+    },
+    [selectedEquipment]
+  );
+
+  const loadMaintenanceHistory = useCallback(
+    async (equipmentId) => {
+      if (!equipmentId) return;
+
+      const requestId =
+        ++requestTrackerRef.current.maintenance;
+
+      try {
+        const history =
+          await equipmentService.current.getMaintenanceHistory(
+            equipmentId
+          );
+
+        if (
+          !mountedRef.current ||
+          requestTrackerRef.current.maintenance !== requestId ||
+          selectedIdRef.current !== equipmentId
+        ) {
+          return;
+        }
+
+        setMaintenanceHistory(history);
+      } catch (error) {
+        console.error(
+          'Failed to load maintenance history:',
+          error
+        );
+      }
+    },
+    []
+  );
+
+  const loadAnalytics = useCallback(
+    async (equipmentId, range) => {
+      if (!equipmentId) return;
+
+      const requestId =
+        ++requestTrackerRef.current.analytics;
+
+      try {
+        const data =
+          await equipmentService.current.getEquipmentAnalytics(
+            equipmentId,
+            range || timeRange
+          );
+
+        if (
+          !mountedRef.current ||
+          requestTrackerRef.current.analytics !== requestId ||
+          selectedIdRef.current !== equipmentId
+        ) {
+          return;
+        }
+
+        setAnalytics(data);
+      } catch (error) {
+        console.error(
+          'Failed to load analytics:',
+          error
+        );
+      }
+    },
+    [timeRange]
+  );
+
+  const loadAlerts = useCallback(
+    async (equipmentId) => {
+      if (!equipmentId) return;
+
+      const requestId =
+        ++requestTrackerRef.current.alerts;
+
+      try {
+        const alertData =
+          await equipmentService.current.getPredictiveAlerts(
+            equipmentId
+          );
+
+        if (
+          !mountedRef.current ||
+          requestTrackerRef.current.alerts !== requestId ||
+          selectedIdRef.current !== equipmentId
+        ) {
+          return;
+        }
+
+        setAlerts(alertData);
+      } catch (error) {
+        console.error(
+          'Failed to load alerts:',
+          error
+        );
+      }
+    },
+    []
+  );
+
+  const getHealthColor = (score) => {
+    if (score >= 90) return '#16a34a';
+    if (score >= 75) return '#84cc16';
+    if (score >= 60) return '#f59e0b';
+    if (score >= 40) return '#ef9800';
+    return '#dc2626';
+  };
+
+  const getAlertColor = (type) => {
+    switch (type) {
+      case 'critical':
+        return '#dc2626';
+      case 'warning':
+        return '#f59e0b';
+      case 'info':
+        return '#3b82f6';
+      default:
+        return '#6b7280';
+    }
+  };
+
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR'
+    }).format(amount || 0);
+  };
+
   return (
     <div style={{ 
       maxWidth: "1400px", 
@@ -461,3 +771,4 @@
       )}
     </div>
   );
+}
