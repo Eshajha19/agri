@@ -88,3 +88,28 @@ def validate_token(token: str, uid: str) -> bool:
         return True
     except (ValueError, IndexError):
         return False
+
+
+async def verify_csrf_token_dependency(request: Request) -> None:
+    """FastAPI dependency to verify CSRF token."""
+    reject_cross_origin(request)
+
+    from rbac import RBACManager
+    try:
+        ctx = await RBACManager.resolve_auth_context(request, allow_unauthenticated=True)
+    except Exception:
+        ctx = None
+
+    if ctx is not None:
+        token = request.headers.get("X-CSRF-Token")
+        if not token:
+            raise HTTPException(
+                status_code=403,
+                detail="Missing CSRF token",
+            )
+        if not validate_token(token, ctx.uid):
+            raise HTTPException(
+                status_code=403,
+                detail="Invalid or expired CSRF token",
+            )
+

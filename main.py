@@ -94,7 +94,7 @@ from ml.preprocessing import UnknownCategoryError, MissingFeatureError
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
-from csrf_protection import generate_token, reject_cross_origin
+from csrf_protection import generate_token, reject_cross_origin, verify_csrf_token_dependency
 from error_recovery_middleware import ErrorRecoveryMiddleware
 from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, resolve_subscription_regions, normalize_region_identifier
 from notification_auth import filter_notifications_for_user
@@ -1439,6 +1439,21 @@ app.add_middleware(
 )
 import csrf_protection as _csrf
 _csrf.configure(_CORS_ORIGINS)
+
+@app.middleware("http")
+async def csrf_middleware(request: Request, call_next):
+    if request.method not in ("GET", "HEAD", "OPTIONS") and request.scope.get("type") == "http":
+        if not request.url.path.startswith("/api/whatsapp/webhook"):
+            from fastapi.responses import JSONResponse
+            try:
+                await verify_csrf_token_dependency(request)
+            except HTTPException as exc:
+                return JSONResponse(
+                    status_code=exc.status_code,
+                    content={"detail": exc.detail}
+                )
+    return await call_next(request)
+
 app.add_middleware(RBACMiddleware)
 logger.info(print_rbac_matrix())
 

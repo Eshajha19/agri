@@ -23,6 +23,7 @@ from rate_limit_config import build_limiter, rate_limit_exceeded_handler
 
 # Import our validator
 from feedback_validation import FeedbackValidator
+from csrf_protection import verify_csrf_token_dependency
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -290,7 +291,7 @@ async def root(request: Request):
     }
 
 
-@app.post("/api/feedback", response_model=FeedbackResponse)
+@app.post("/api/feedback", response_model=FeedbackResponse, dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("5/minute")
 async def submit_feedback(
     feedback: FeedbackRequest,

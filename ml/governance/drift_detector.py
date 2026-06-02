@@ -3,7 +3,7 @@ Drift Detection Module
 Monitors model prediction drift and data distribution changes.
 """
 import logging
-from typing import Dict, Any,  Tuple
+from typing import Dict, Any, Tuple, List
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 import numpy as np
