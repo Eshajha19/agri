@@ -150,10 +150,13 @@ class XGBoostAdapter:
         """
 
         if self.model is None:
-            raise RuntimeError(
-                "Model not loaded"
-            )
+            raise RuntimeError("Model not loaded")
 
+        if not isinstance(input_data, dict):
+            raise ValueError("input_data must be a dictionary")
+
+        if len(input_data) == 0:
+            raise ValueError("input_data is empty — cannot run XGBoost inference on zero samples")
         try:
             dataframe = self._prepare_dataframe(
                 input_data
