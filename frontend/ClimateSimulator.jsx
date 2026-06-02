@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   BarChart, Bar, ReferenceLine,
@@ -49,47 +49,108 @@ const ClimateSimulator = ({ isOpen, onClose, userData }) => {
   const [display, setDisplay]       = useState(null);
   const [isLoading, setIsLoading]   = useState(false);
   const [error, setError]           = useState(null);
+  // Synchronization + lifecycle refs
+  const mountedRef = useRef(true);
+
+  const simulationRequestRef = useRef(0);
+
+  const debounceTimeoutRef = useRef(null);
 
   const cropType = userData?.cropType || "rice";
 
   useEffect(() => {
-    if (!isOpen) return;
+    mountedRef.current = true;
 
-    const fetchSimulation = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        // Use apiClient so the Firebase auth token is automatically injected
-        // via the Axios request interceptor. The /api/knowledge/simulate-climate
-        // endpoint requires authentication and returns HTTP 401 for raw fetch
-        // calls that omit the Authorization header.
-        const res = await apiClient.post("/api/knowledge/simulate-climate", {
-          crop_type: cropType,
-          temp_delta: tempDelta,
-          // knowledge.py rain_delta is in mm/month; the slider is ±100 mm/month
-          rain_delta: rainDelta,
-        });
-        const data = res.data;
-        setResult(data);
-        setDisplay(deriveDisplayFields(data));
-      } catch (err) {
-        console.error("Simulation error:", err);
-        const status = err?.response?.status;
-        if (status === 401) {
-          setError("Please log in to use the climate simulator.");
-        } else if (status === 422) {
-          setError("Invalid simulation parameters. Please adjust the sliders.");
-        } else {
-          setError("Error connecting to simulation service.");
-        }
-      } finally {
-        setIsLoading(false);
+    return () => {
+      mountedRef.current = false;
+
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
       }
     };
+  }, []);
 
-    const timeoutId = setTimeout(fetchSimulation, 300); // debounce slider changes
-    return () => clearTimeout(timeoutId);
-  }, [isOpen, tempDelta, rainDelta, cropType]);
+  const fetchSimulation = useCallback(async () => {
+    if (!isOpen) return;
+
+    const requestId = ++simulationRequestRef.current;
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const res = await apiClient.post(
+        "/api/knowledge/simulate-climate",
+        {
+          crop_type: cropType,
+          temp_delta: tempDelta,
+          rain_delta: rainDelta,
+        }
+      );
+
+      if (
+        !mountedRef.current ||
+        simulationRequestRef.current !== requestId
+      ) {
+        return;
+      }
+
+      const data = res.data;
+
+      setResult(data);
+      setDisplay(deriveDisplayFields(data));
+    } catch (err) {
+      if (
+        !mountedRef.current ||
+        simulationRequestRef.current !== requestId
+      ) {
+        return;
+      }
+
+      console.error("Simulation error:", err);
+
+      const status = err?.response?.status;
+
+      if (status === 401) {
+        setError("Please log in to use the climate simulator.");
+      } else if (status === 422) {
+        setError("Invalid simulation parameters. Please adjust the sliders.");
+      } else {
+        setError("Error connecting to simulation service.");
+      }
+    } finally {
+      if (
+        mountedRef.current &&
+        simulationRequestRef.current === requestId
+      ) {
+        setIsLoading(false);
+      }
+    }
+  }, [isOpen, cropType, tempDelta, rainDelta]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current);
+    }
+
+    debounceTimeoutRef.current = setTimeout(() => {
+      fetchSimulation();
+    }, 300);
+
+    return () => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+    };
+  }, [
+    isOpen,
+    tempDelta,
+    rainDelta,
+    cropType,
+    fetchSimulation,
+  ]);
 
   if (!isOpen) return null;
 
@@ -97,10 +158,10 @@ const ClimateSimulator = ({ isOpen, onClose, userData }) => {
   const simulatedYield  = display ? parseFloat((100 + display.yieldImpactPct).toFixed(2))  : 100;
   const simulatedProfit = display ? parseFloat((100 + display.profitImpactPct).toFixed(2)) : 100;
 
-  const chartData = [
+  const chartData = React.useMemo(() => [
     { name: "Baseline",  Yield: 100, Profit: 100 },
     { name: "Simulated", Yield: simulatedYield, Profit: simulatedProfit },
-  ];
+  ], [simulatedYield, simulatedProfit]);
 
   const allVals = [100, simulatedYield, simulatedProfit];
   const minVal  = Math.min(...allVals) - 5;
