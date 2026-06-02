@@ -72,6 +72,7 @@ def _drift_threshold_breached() -> tuple:
 
 @router.post("/trigger")
 async def trigger_retraining(
+    request: Request,
     csv_path: str = "Train.csv",
     force: bool = False,
 ):

@@ -418,7 +418,17 @@ def init_platform(
 
 
 @router.get("/weather/alerts/history")
-async def get_alerts_history():
+async def get_alerts_history(request: Request):
+    """Return the most recent server-side weather alerts.
+
+    Requires a valid authenticated session. The alert history is internal
+    operational data and must not be exposed to unauthenticated callers.
+    """
+    if verify_role_fn is None:
+        raise HTTPException(status_code=503, detail="Auth service unavailable")
+
+    await verify_role_fn(request)
+
     if weather_service is None:
         raise HTTPException(status_code=503, detail="Weather service unavailable")
 

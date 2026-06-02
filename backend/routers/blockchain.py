@@ -43,6 +43,13 @@ class CreateProductBatchRequest(BaseModel):
     harvesting_date: str = Field(..., min_length=1)
     farmer_name: str = Field(..., min_length=1, max_length=100)
 
+class AddSupplyChainNodeRequest(BaseModel):
+    batch_id: str = Field(..., min_length=1, max_length=100)
+    node_type: str = Field(..., min_length=1, max_length=50)
+    actor_name: str = Field(..., min_length=1, max_length=100)
+    location: str = Field(..., min_length=1, max_length=200)
+    action: str = Field(..., min_length=1, max_length=100)
+
 class CreateSmartContractRequest(BaseModel):
     batch_id: str = Field(..., min_length=1)
     seller: str = Field(..., min_length=1, max_length=100)
@@ -132,12 +139,43 @@ async def register_trace_batch(request: Request, data: RegisterTraceBatchRequest
     uid = token_data.get("uid")
 
     try:
-        batch_payload = data.model_dump()
-        batch_payload["registeredByUid"] = uid
-        batch_payload["status"] = "Pending Verification"
-        result = supply_chain_blockchain.register_trace_batch(batch_payload)
-        result["traceability"] = supply_chain_blockchain.get_traceability_qr_payload(result["id"])
-        return {"success": True, "batch": result}
+        # register_trace_batch() does not exist on SupplyChainBlockchain.
+        # Map the RegisterTraceBatchRequest fields to create_product_batch(),
+        # which is the correct method for persisting a new batch server-side.
+        #
+        # Field mapping:
+        #   data.crop      → crop_type   (crop name, e.g. "Rice")
+        #   data.farm      → farm_id     (farm identifier / name)
+        #   data.variety   → farmer_name (closest available field; variety
+        #                                 is stored in the batch metadata)
+        #   data.harvestDate → harvesting_date
+        #   quantity / unit  → defaults (not in RegisterTraceBatchRequest)
+        batch = supply_chain_blockchain.create_product_batch(
+            crop_type=data.crop,
+            farm_id=data.farm,
+            quantity=1.0,           # not provided by this request schema
+            unit="unit",            # not provided by this request schema
+            planting_date="",       # not provided by this request schema
+            harvesting_date=data.harvestDate,
+            farmer_name=data.variety,
+            owner_uid=uid or "",
+        )
+        batch_id = batch.batch_id
+        traceability = supply_chain_blockchain.get_traceability_qr_payload(batch_id)
+        return {
+            "success": True,
+            "batch": {
+                "id": batch_id,
+                "crop": data.crop,
+                "variety": data.variety,
+                "harvestDate": data.harvestDate,
+                "farm": data.farm,
+                "journey": [step.model_dump() for step in data.journey],
+                "registeredByUid": uid,
+                "status": "Pending Verification",
+                "traceability": traceability,
+            },
+        }
     except Exception as e:
         logger.error(f"Trace batch registration error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -155,10 +193,14 @@ async def get_trace_batch(batch_id: str):
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     try:
-        batch = supply_chain_blockchain.get_trace_batch(batch_id)
+        # get_trace_batch() does not exist on SupplyChainBlockchain.
+        # Use products.get() to look up the batch by ID, which is the
+        # correct way to retrieve a persisted batch.
+        from dataclasses import asdict
+        batch = supply_chain_blockchain.products.get(batch_id)
         if batch is None:
             raise HTTPException(status_code=404, detail="Batch not found")
-        return {"success": True, "batch": batch}
+        return {"success": True, "batch": asdict(batch)}
     except HTTPException:
         raise
     except Exception as e:
@@ -188,18 +230,23 @@ async def create_batch(request: Request, data: CreateProductBatchRequest):
             data.planting_date, data.harvesting_date, data.farmer_name,
             owner_uid=uid,
         )
-        return {"success": True, "batch": asdict(batch) if hasattr(batch, '__dataclass_fields__') else batch}
+        return {"success": True, "batch": asdict(batch)}
     except Exception as e:
         logger.error(f"Batch error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/add-node")
-async def add_node(request: Request, batch_id: str, node_type: str, actor_name: str, location: str, action: str):
+async def add_node(request: Request, data: AddSupplyChainNodeRequest):
     """Add a supply chain node to an existing batch. Requires authentication.
 
     Without authentication any caller could append fraudulent journey steps
     (e.g. quality_check=passed) to any batch, inflating its verification
     score and making counterfeit produce appear certified to consumers.
+
+    Parameters are accepted as a JSON request body rather than query
+    parameters so that sensitive supply-chain data (actor names, locations,
+    actions) is not logged in server access logs, browser history, or HTTP
+    referrer headers as part of the URL.
     """
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
@@ -207,14 +254,16 @@ async def add_node(request: Request, batch_id: str, node_type: str, actor_name: 
         raise HTTPException(status_code=500, detail="Auth service not initialized")
     token_data = await verify_role_fn(request)
     uid = _require_owner_uid(token_data)
-    batch = _get_batch(batch_id)
+    batch = _get_batch(data.batch_id)
     if not _is_privileged_role(token_data):
         if batch.owner_uid and batch.owner_uid != uid:
             raise HTTPException(status_code=403, detail="Access denied: only the batch owner can modify this batch")
         if not batch.owner_uid:
             raise HTTPException(status_code=403, detail="Access denied: batch is not bound to an owner")
     try:
-        node = supply_chain_blockchain.add_supply_chain_node(batch_id, node_type, actor_name, location, action)
+        node = supply_chain_blockchain.add_supply_chain_node(
+            data.batch_id, data.node_type, data.actor_name, data.location, data.action
+        )
         return {"success": True, "node": node}
     except Exception as e:
         logger.error(f"Node error: {e}")
@@ -254,7 +303,7 @@ async def create_contract(request: Request, data: CreateSmartContractRequest):
         logger.error(f"Contract error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.post("/execute-contract")
+@router.post("/execute-contract/{contract_id}")
 async def execute_contract(request: Request, contract_id: str):
     """Execute a smart contract. Requires authentication.
 
@@ -369,8 +418,8 @@ async def get_stats(request: Request):
     try:
         stats = {
             "total_records": supply_chain_blockchain.get_blockchain_record_count(),
-            "actors": len(supply_chain_blockchain.verified_actors if hasattr(supply_chain_blockchain, 'verified_actors') else []),
-            "contracts": len(supply_chain_blockchain.smart_contracts if hasattr(supply_chain_blockchain, 'smart_contracts') else [])
+            "actors": len(supply_chain_blockchain.verified_actors),
+            "contracts": len(supply_chain_blockchain.smart_contracts)
         }
         return {"success": True, "stats": stats}
     except Exception as e:

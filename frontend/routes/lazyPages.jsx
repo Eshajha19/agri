@@ -48,5 +48,6 @@ export const Blog = lazyPage(() => import('../Blog'));
 export const BlogDetail = lazyPage(() => import('../BlogDetail'));
 export const ProfileSettings = lazyPage(() => import('../ProfileSettings'));
 export const NotFound = lazyPage(() => import('../NotFound'));
-export const FeatureDriftMonitor = lazyPage(() => import('../FeatureDriftMonitor'));
 export const RetrainingPipelineMonitor = lazyPage(() => import('../RetrainingPipelineMonitor'));
+export const PredictionExplainer = lazyPage(() => import('../PredictionExplainer'));
+export const FeatureDriftMonitor = lazyPage(() => import('../FeatureDriftMonitor'));
