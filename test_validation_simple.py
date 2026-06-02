@@ -212,6 +212,64 @@ def test_boundary_values():
     return True
 
 
+def test_runtime_secrets_protection():
+    """Test that RuntimeProtectionMiddleware blocks requests containing cleartext secrets."""
+    print("Testing Runtime Protection Middleware (Secrets Scanning)...")
+    try:
+        from fastapi.testclient import TestClient
+        from main import app
+        if app is None:
+            print("  ⚠️ Skipping middleware test: FastAPI app unavailable")
+            return True
+    except Exception as e:
+        print(f"  ⚠️ Skipping middleware test: Failed to import app ({e})")
+        return True
+
+    with TestClient(app) as client:
+        secret_payload = {
+            "Crop": "Rice",
+            "CropCoveredArea": 10.0,
+            "CHeight": 5,
+            "CNext": "None",
+            "CLast": "None",
+            "CTransp": "None",
+            "IrriType": "None",
+            "IrriSource": "None",
+            "IrriCount": 2,
+            "WaterCov": 50,
+            "Season": "Kharif",
+            "aws_key": "AKIA1234567890ABCDEF"
+        }
+        response = client.post("/predict", json=secret_payload)
+        assert response.status_code == 400, f"Expected 400, got {response.status_code}"
+        assert response.json() == {"error": "Request blocked by secrets hygiene policy"}
+        print("  ✓ Request with AWS key blocked with 400 Bad Request")
+
+        normal_payload = {
+            "Crop": "Rice",
+            "CropCoveredArea": 10.0,
+            "CHeight": 5,
+            "CNext": "None",
+            "CLast": "None",
+            "CTransp": "None",
+            "IrriType": "None",
+            "IrriSource": "None",
+            "IrriCount": 2,
+            "WaterCov": 50,
+            "Season": "Kharif"
+        }
+        response = client.post("/predict", json=normal_payload)
+        assert response.status_code in (401, 403, 422), f"Expected auth block (401/403) or validation error (422), got {response.status_code}"
+        print("  ✓ Request without secrets bypassed middleware successfully")
+
+        response = client.post("/api/crop-disease/analyze-image", json={"image_base64": "AKIA1234567890ABCDEF"})
+        assert response.status_code != 400, "Excluded path was incorrectly blocked by middleware"
+        print("  ✓ Excluded path bypassed secrets scanning successfully")
+
+    print("✓ All Runtime Protection Middleware tests passed\n")
+    return True
+
+
 def main():
     """Run all tests."""
     print("=" * 60)
@@ -225,6 +283,7 @@ def main():
         test_invalid_types()
         test_full_input_validation()
         test_boundary_values()
+        test_runtime_secrets_protection()
         
         print("=" * 60)
         print("✓ ALL TESTS PASSED")

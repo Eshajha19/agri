@@ -14,7 +14,8 @@ import re
 from datetime import datetime
 from typing import Any, Optional
 
-from fastapi import APIRouter, Form, HTTPException, Request, Response
+from fastapi import APIRouter, Form, HTTPException, Request, Response, Depends
+from csrf_protection import verify_csrf_token_dependency
 from pydantic import BaseModel, Field, validator
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
@@ -440,7 +441,7 @@ async def get_alerts_history(request: Request):
     }
 
 
-@router.post("/whatsapp/subscribe")
+@router.post("/whatsapp/subscribe", dependencies=[Depends(verify_csrf_token_dependency)])
 async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     """
     Subscribe the authenticated user to WhatsApp alerts.
@@ -483,7 +484,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     return {"success": True, "message": "Successfully subscribed"}
 
 
-@router.post("/whatsapp/trigger-alert")
+@router.post("/whatsapp/trigger-alert", dependencies=[Depends(verify_csrf_token_dependency)])
 async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     """
     Broadcast a WhatsApp alert to all subscribers.
@@ -515,7 +516,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
 
 
-@router.post("/reports/generate")
+@router.post("/reports/generate", dependencies=[Depends(verify_csrf_token_dependency)])
 async def generate_signed_report(request: Request, data: ReportRequest):
     if verify_role_fn is None or get_signing_keys_fn is None:
         raise HTTPException(status_code=500, detail="Report dependencies not initialized")
