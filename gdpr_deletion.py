@@ -63,7 +63,12 @@ class GDPRDeletionManager:
         self._request_lock = threading.RLock()
         self._audit_lock = threading.Lock()
         self._requests: dict[str, GDPRDeletionRequest] = {}
+        self._post_deletion_hooks: list[Callable[[str], Any]] = []
         self._load_requests()
+
+    def register_post_deletion_hook(self, callback_fn: Callable[[str], Any]) -> None:
+        """Register a callback to be run after a deletion request is completed."""
+        self._post_deletion_hooks.append(callback_fn)
 
     def _ensure_parent(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -253,6 +258,13 @@ class GDPRDeletionManager:
             request.retained_entities = retained_entities
             request.target_results = target_results
             self._record_request(request)
+
+        # Trigger registered post-deletion callbacks
+        for hook in self._post_deletion_hooks:
+            try:
+                hook(request.uid)
+            except Exception as exc:
+                logger.error("Error executing post-deletion hook for user %s: %s", request.uid, exc)
 
         self._record_audit(
             GDPRAuditEvent(
