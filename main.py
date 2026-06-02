@@ -96,6 +96,7 @@ from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
 from csrf_protection import generate_token, reject_cross_origin
 from error_recovery_middleware import ErrorRecoveryMiddleware
+from security_hygiene import RuntimeProtectionMiddleware
 from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, resolve_subscription_regions, normalize_region_identifier
 from notification_auth import filter_notifications_for_user
 from realtime_notifications import notification_broker
@@ -138,6 +139,7 @@ class ContextFilter(logging.Filter):
 # Configure structured logging with detailed formatting
 _context_filter = ContextFilter()
 _handler = logging.StreamHandler()
+_handler.addFilter(_context_filter)
 _formatter = logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - [%(context)s] - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
@@ -1440,6 +1442,10 @@ app.add_middleware(
 import csrf_protection as _csrf
 _csrf.configure(_CORS_ORIGINS)
 app.add_middleware(RBACMiddleware)
+app.add_middleware(
+    RuntimeProtectionMiddleware,
+    exclude_paths=["/docs", "/openapi.json", "/static", "/api/crop-disease/analyze-image", "/api/quality/assess", "/api/gemini/analyze-image"]
+)
 logger.info(print_rbac_matrix())
 
 # Import the voice assistant router at module level so app.include_router() can
