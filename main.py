@@ -94,7 +94,7 @@ from ml.preprocessing import UnknownCategoryError, MissingFeatureError
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
-from csrf_protection import generate_token, reject_cross_origin, verify_csrf_token_dependency
+from csrf_protection import generate_token, reject_cross_origin
 from ml.security import verify_and_load_joblib
 from error_recovery_middleware import ErrorRecoveryMiddleware
 from security_hygiene import RuntimeProtectionMiddleware
@@ -336,9 +336,9 @@ async def lifespan(app: FastAPI):
     try:
         logger.info("🧠 Loading ML models...")
         model_lag = verify_and_load_joblib("sklearn_yield_model.joblib")
-        logger.info("✅ Sklearn yield model loaded")
+        logger.info("✅ Sklearn yield model loaded and signature verified")
     except Exception as exc:
-        logger.warning("Sklearn yield model not found: %s", exc)
+        logger.warning("Sklearn yield model not found or signature invalid: %s", exc)
         model_lag = None
 
     model_trend = None
@@ -346,9 +346,9 @@ async def lifespan(app: FastAPI):
         if os.path.exists("trend_forecast_model.joblib"):
             logger.info("📈 Loading trend forecast model...")
             model_trend = verify_and_load_joblib("trend_forecast_model.joblib")
-            logger.info("✅ Trend forecast model loaded successfully")
+            logger.info("✅ Trend forecast model loaded and signature verified")
     except Exception as exc:
-        logger.warning("Trend forecast model loading failed: %s", exc)
+        logger.warning("Trend forecast model loading failed or signature invalid: %s", exc)
         model_trend = None
 
     try:
