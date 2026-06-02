@@ -3,9 +3,9 @@ Drift Detection Module
 Monitors model prediction drift and data distribution changes.
 """
 import logging
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any,  Tuple
 from dataclasses import dataclass, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 import numpy as np
 from collections import deque
 
@@ -125,7 +125,7 @@ class DriftDetector:
         
         if drift_magnitude > self.prediction_drift_threshold:
             alert = DriftAlert(
-                timestamp=datetime.now().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 model_name=model_name,
                 drift_type='prediction',
                 severity=self._calculate_severity(drift_magnitude),
@@ -186,7 +186,7 @@ class DriftDetector:
         
         if drift_magnitude > self.input_drift_threshold:
             alert = DriftAlert(
-                timestamp=datetime.now().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 model_name=model_name,
                 drift_type='input',
                 severity=self._calculate_severity(drift_magnitude),
