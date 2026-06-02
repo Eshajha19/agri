@@ -94,7 +94,8 @@ from ml.preprocessing import UnknownCategoryError, MissingFeatureError
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
-from csrf_protection import generate_token, reject_cross_origin
+from csrf_protection import generate_token, reject_cross_origin, verify_csrf_token_dependency
+from ml.security import verify_and_load_joblib
 from error_recovery_middleware import ErrorRecoveryMiddleware
 from security_hygiene import RuntimeProtectionMiddleware
 from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, resolve_subscription_regions, normalize_region_identifier
@@ -203,6 +204,17 @@ async def lifespan(app: FastAPI):
         raise
 
     try:
+        logger.info("🧹 Registering GDPR post-deletion hooks...")
+        def clear_in_memory_notifications(uid: str):
+            removed = _notification_store.remove_by_uid(uid)
+            logger.info("GDPR Cleanup: Removed %d in-memory notifications for user %s", removed, uid)
+        gdpr_deletion_manager.register_post_deletion_hook(clear_in_memory_notifications)
+        logger.info("✅ GDPR post-deletion hooks registered")
+    except Exception as exc:
+        logger.error("❌ GDPR hook registration failed: %s", exc, exc_info=True)
+        raise
+
+    try:
         logger.info("🤖 Initializing AI engines...")
         _farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
         _supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
@@ -283,7 +295,9 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("RAG init skipped: %s", exc)
 
-    knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
+    app.state.verify_role_fn = verify_role
+    app.state.rag_generate_fn = rag_generate_fn
+    app.state.seed_registry = {"TEST001": {"verified": True}}
     alerts.init_alerts(
         [],
         subscriber_store,
@@ -321,8 +335,7 @@ async def lifespan(app: FastAPI):
 
     try:
         logger.info("🧠 Loading ML models...")
-        import joblib as _joblib
-        model_lag = _joblib.load("sklearn_yield_model.joblib")
+        model_lag = verify_and_load_joblib("sklearn_yield_model.joblib")
         logger.info("✅ Sklearn yield model loaded")
     except Exception as exc:
         logger.warning("Sklearn yield model not found: %s", exc)
@@ -332,8 +345,7 @@ async def lifespan(app: FastAPI):
     try:
         if os.path.exists("trend_forecast_model.joblib"):
             logger.info("📈 Loading trend forecast model...")
-            import joblib as _joblib2
-            model_trend = _joblib2.load("trend_forecast_model.joblib")
+            model_trend = verify_and_load_joblib("trend_forecast_model.joblib")
             logger.info("✅ Trend forecast model loaded successfully")
     except Exception as exc:
         logger.warning("Trend forecast model loading failed: %s", exc)
@@ -1441,6 +1453,21 @@ app.add_middleware(
 )
 import csrf_protection as _csrf
 _csrf.configure(_CORS_ORIGINS)
+
+@app.middleware("http")
+async def csrf_middleware(request: Request, call_next):
+    if request.method not in ("GET", "HEAD", "OPTIONS") and request.scope.get("type") == "http":
+        if not request.url.path.startswith("/api/whatsapp/webhook"):
+            from fastapi.responses import JSONResponse
+            try:
+                await verify_csrf_token_dependency(request)
+            except HTTPException as exc:
+                return JSONResponse(
+                    status_code=exc.status_code,
+                    content={"detail": exc.detail}
+                )
+    return await call_next(request)
+
 app.add_middleware(RBACMiddleware)
 app.add_middleware(
     RuntimeProtectionMiddleware,
