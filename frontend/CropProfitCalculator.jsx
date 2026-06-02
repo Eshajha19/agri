@@ -22,112 +22,224 @@ export default function CropProfitCalculator() {
   const [errors, setErrors] = useState({});
   const [hasCalculated, setHasCalculated] = useState(false);
 
+  // lifecycle refs
+  const mountedRef = useRef(true);
+  const calculationRequestRef = useRef(0);
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const validateInputs = () => {
     const newErrors = {};
 
     if (isCompareMode) {
       compareData.forEach((crop, index) => {
-        if (!crop.cropName.trim()) newErrors[`cropName-${index}`] = "Required";
-        if (!crop.farmingCost || crop.farmingCost <= 0) newErrors[`farmingCost-${index}`] = "Required";
-        if (!crop.expectedYield || crop.expectedYield <= 0) newErrors[`expectedYield-${index}`] = "Required";
-        if (!crop.marketPrice || crop.marketPrice <= 0) newErrors[`marketPrice-${index}`] = "Required";
+        if (!crop.cropName.trim()) {
+          newErrors[`cropName-${index}`] = "Required";
+        }
+
+        if (!crop.farmingCost || crop.farmingCost <= 0) {
+          newErrors[`farmingCost-${index}`] = "Required";
+        }
+
+        if (!crop.expectedYield || crop.expectedYield <= 0) {
+          newErrors[`expectedYield-${index}`] = "Required";
+        }
+
+        if (!crop.marketPrice || crop.marketPrice <= 0) {
+          newErrors[`marketPrice-${index}`] = "Required";
+        }
       });
     } else {
       if (!formData.farmingCost || formData.farmingCost <= 0) {
-        newErrors.farmingCost = "Please enter a valid farming cost";
+        newErrors.farmingCost =
+          "Please enter a valid farming cost";
       }
 
       if (!formData.expectedYield || formData.expectedYield <= 0) {
-        newErrors.expectedYield = "Please enter a valid expected yield";
+        newErrors.expectedYield =
+          "Please enter a valid expected yield";
       }
 
       if (!formData.marketPrice || formData.marketPrice <= 0) {
-        newErrors.marketPrice = "Please enter a valid market price";
+        newErrors.marketPrice =
+          "Please enter a valid market price";
       }
     }
 
     setErrors(newErrors);
+
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleInputChange = (e) => {
+  const handleInputChange = useCallback((e) => {
     const { name, value } = e.target;
+
     setFormData((prev) => ({
       ...prev,
       [name]: value,
     }));
+
+    setResults(null);
+    setHasCalculated(false);
+
     if (errors[name]) {
       setErrors((prev) => ({
         ...prev,
         [name]: "",
       }));
     }
-  };
+  }, [errors]);
 
-  const handleCompareInputChange = (index, e) => {
+  const handleCompareInputChange = useCallback((index, e) => {
     const { name, value } = e.target;
-    const newData = [...compareData];
-    newData[index][name] = value;
-    setCompareData(newData);
-    
+
+    setCompareData((prev) =>
+      prev.map((crop, i) =>
+        i === index
+          ? { ...crop, [name]: value }
+          : crop
+      )
+    );
+
+    setCompareResults(null);
+    setHasCalculated(false);
+
     if (errors[`${name}-${index}`]) {
-      setErrors((prev) => ({ ...prev, [`${name}-${index}`]: "" }));
+      setErrors((prev) => ({
+        ...prev,
+        [`${name}-${index}`]: "",
+      }));
     }
-  };
+  }, [errors]);
 
-  const addCrop = () => {
-    if (compareData.length < 5) {
-      setCompareData([...compareData, { id: Date.now(), cropName: "", farmingCost: "", expectedYield: "", marketPrice: "" }]);
-    }
-  };
+  const addCrop = useCallback(() => {
+    setCompareData((prev) => {
+      if (prev.length >= 5) return prev;
 
-  const removeCrop = (index) => {
-    if (compareData.length > 2) {
-      const newData = compareData.filter((_, i) => i !== index);
-      setCompareData(newData);
-    }
-  };
+      return [
+        ...prev,
+        {
+          id: Date.now(),
+          cropName: "",
+          farmingCost: "",
+          expectedYield: "",
+          marketPrice: "",
+        },
+      ];
+    });
+  }, []);
 
-  const toggleMode = (mode) => {
-    if (mode === 'compare' && !isCompareMode) {
+  const removeCrop = useCallback((index) => {
+    setCompareData((prev) => {
+      if (prev.length <= 2) return prev;
+
+      return prev.filter((_, i) => i !== index);
+    });
+
+    setCompareResults(null);
+    setHasCalculated(false);
+  }, []);
+
+  const toggleMode = useCallback((mode) => {
+    setErrors({});
+    setHasCalculated(false);
+
+    calculationRequestRef.current += 1;
+
+    if (mode === "compare") {
       setIsCompareMode(true);
-      setHasCalculated(false);
-      setErrors({});
-    } else if (mode === 'single' && isCompareMode) {
+      setResults(null);
+    } else {
       setIsCompareMode(false);
-      setHasCalculated(false);
-      setErrors({});
+      setCompareResults(null);
     }
-  };
+  }, []);
 
-  const calculateProfit = (e) => {
+  const calculateProfit = async (e) => {
     e.preventDefault();
 
     if (!validateInputs()) {
       return;
     }
 
-    if (isCompareMode) {
-      const results = compareProfits(compareData);
-      setCompareResults(results);
-    } else {
-      const cost = parseFloat(formData.farmingCost);
-      const yield_ = parseFloat(formData.expectedYield);
-      const price = parseFloat(formData.marketPrice);
+    const requestId = ++calculationRequestRef.current;
 
-      const result = calculateSingleCropProfit(cost, yield_, price);
-      setResults(result);
+    try {
+      if (isCompareMode) {
+        const calculatedResults =
+          compareProfits(compareData);
+
+        if (
+          !mountedRef.current ||
+          calculationRequestRef.current !== requestId
+        ) {
+          return;
+        }
+
+        setCompareResults(calculatedResults);
+      } else {
+        const cost = parseFloat(formData.farmingCost);
+        const yield_ = parseFloat(formData.expectedYield);
+        const price = parseFloat(formData.marketPrice);
+
+        const calculatedResult =
+          calculateSingleCropProfit(
+            cost,
+            yield_,
+            price
+          );
+
+        if (
+          !mountedRef.current ||
+          calculationRequestRef.current !== requestId
+        ) {
+          return;
+        }
+
+        setResults(calculatedResult);
+      }
+
+      if (mountedRef.current) {
+        setHasCalculated(true);
+      }
+    } catch (error) {
+      console.error(
+        "Failed to calculate crop profitability:",
+        error
+      );
     }
-
-    setHasCalculated(true);
   };
 
-  const handleReset = () => {
+  const handleReset = useCallback(() => {
+    calculationRequestRef.current += 1;
+
+    setErrors({});
+    setHasCalculated(false);
+
     if (isCompareMode) {
       setCompareData([
-        { id: Date.now(), cropName: "", farmingCost: "", expectedYield: "", marketPrice: "" },
-        { id: Date.now() + 1, cropName: "", farmingCost: "", expectedYield: "", marketPrice: "" },
+        {
+          id: Date.now(),
+          cropName: "",
+          farmingCost: "",
+          expectedYield: "",
+          marketPrice: "",
+        },
+        {
+          id: Date.now() + 1,
+          cropName: "",
+          farmingCost: "",
+          expectedYield: "",
+          marketPrice: "",
+        },
       ]);
+
       setCompareResults(null);
     } else {
       setFormData({
@@ -135,12 +247,11 @@ export default function CropProfitCalculator() {
         expectedYield: "",
         marketPrice: "",
       });
+
       setResults(null);
     }
-    setErrors({});
-    setHasCalculated(false);
-  };
-
+  }, [isCompareMode]);
+  
   return (
     <div className="profit-calculator-page">
       <div className="calculator-container">
