@@ -43,7 +43,7 @@ export default function EquipmentManagement({ onClose }) {
       if (realTimeMode && selectedIdRef.current) {
         updateSensorData();
       }
-    }, 5000);
+    }, 4000);
 
     return () => {
       mountedRef.current = false;
