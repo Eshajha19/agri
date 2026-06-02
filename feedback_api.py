@@ -86,7 +86,9 @@ async def verify_firebase_token(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Missing authentication token")
 
     try:
-        decoded = firebase_auth.verify_id_token(id_token)
+        decoded = firebase_auth.verify_id_token(id_token, check_revoked=True)
+    except firebase_auth.RevokedIdTokenError:
+        raise HTTPException(status_code=401, detail="Session revoked. Please sign in again.")
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired authentication token")
 
@@ -238,7 +240,9 @@ async def verify_admin(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
 
     try:
-        decoded = firebase_auth.verify_id_token(id_token)
+        decoded = firebase_auth.verify_id_token(id_token, check_revoked=True)
+    except firebase_auth.RevokedIdTokenError:
+        raise HTTPException(status_code=401, detail="Session revoked. Please sign in again.")
     except Exception:
         raise HTTPException(status_code=401, detail="Authentication failed")
 
@@ -484,22 +488,30 @@ async def validate_test(request: Request):
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
     """Handle HTTP exceptions"""
-    return {
-        "success": False,
-        "error": exc.detail,
-        "status_code": exc.status_code
-    }
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            "error": exc.detail,
+            "status_code": exc.status_code
+        }
+    )
 
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request, exc):
     """Handle general exceptions"""
+    from fastapi.responses import JSONResponse
     logger.error(f"Unhandled exception: {exc}")
-    return {
-        "success": False,
-        "error": "Internal server error",
-        "status_code": 500
-    }
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "error": "Internal server error",
+            "status_code": 500
+        }
+    )
 
 
 if __name__ == "__main__":

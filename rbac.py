@@ -361,7 +361,13 @@ class RBACManager:
             )
 
         try:
-            decoded_token = firebase_auth.verify_id_token(token)
+            decoded_token = firebase_auth.verify_id_token(token, check_revoked=True)
+        except firebase_auth.RevokedIdTokenError as exc:
+            logger.error("Token revoked: %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session revoked. Please sign in again.",
+            ) from exc
         except Exception as exc:
             logger.error("Token verification failed: %s", exc)
             raise HTTPException(

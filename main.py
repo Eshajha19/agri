@@ -770,7 +770,10 @@ async def _authenticate_notification_websocket(websocket: WebSocket) -> Optional
         return None
 
     try:
-        decoded = auth.verify_id_token(token.strip())
+        decoded = auth.verify_id_token(token.strip(), check_revoked=True)
+    except auth.RevokedIdTokenError:
+        await websocket.close(code=1008, reason="Session revoked. Please sign in again.")
+        return None
     except Exception:
         await websocket.close(code=1008, reason="Invalid authentication token")
         return None
