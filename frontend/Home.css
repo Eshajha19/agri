@@ -598,7 +598,19 @@
   position: relative;
   z-index: 2;
   margin: 0 auto;
-  padding-right: 500px;
+  .hero-content {
+    width: 100%;
+    max-width: 1400px;
+    position: relative;
+    z-index: 2;
+    margin: 0 auto;
+  }
+
+  `@media` (min-width: 1024px) {
+    .hero-content {
+      padding-right: 500px;
+    }
+  }
 }
 
 .hero-copy {
