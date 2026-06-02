@@ -95,6 +95,7 @@ from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
 from csrf_protection import generate_token, reject_cross_origin
+from ml.security import verify_and_load_joblib
 from error_recovery_middleware import ErrorRecoveryMiddleware
 from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, resolve_subscription_regions, normalize_region_identifier
 from notification_auth import filter_notifications_for_user
@@ -319,22 +320,20 @@ async def lifespan(app: FastAPI):
 
     try:
         logger.info("🧠 Loading ML models...")
-        import joblib as _joblib
-        model_lag = _joblib.load("sklearn_yield_model.joblib")
-        logger.info("✅ Sklearn yield model loaded")
+        model_lag = verify_and_load_joblib("sklearn_yield_model.joblib")
+        logger.info("✅ Sklearn yield model loaded and signature verified")
     except Exception as exc:
-        logger.warning("Sklearn yield model not found: %s", exc)
+        logger.warning("Sklearn yield model not found or signature invalid: %s", exc)
         model_lag = None
 
     model_trend = None
     try:
         if os.path.exists("trend_forecast_model.joblib"):
             logger.info("📈 Loading trend forecast model...")
-            import joblib as _joblib2
-            model_trend = _joblib2.load("trend_forecast_model.joblib")
-            logger.info("✅ Trend forecast model loaded successfully")
+            model_trend = verify_and_load_joblib("trend_forecast_model.joblib")
+            logger.info("✅ Trend forecast model loaded and signature verified")
     except Exception as exc:
-        logger.warning("Trend forecast model loading failed: %s", exc)
+        logger.warning("Trend forecast model loading failed or signature invalid: %s", exc)
         model_trend = None
 
     try:
