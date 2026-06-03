@@ -148,15 +148,15 @@ class RecommendationCache:
         self._lock = threading.Lock()
 
     def _generate_key(self, ph: float, nitrogen: float, phosphorus: float,
-                     potassium: float, season: str) -> str:
+                     potassium: float, season: str, area_size: Optional[float]) -> str:
         """Generate cache key from parameters"""
-        key_data = f"{ph}:{nitrogen}:{phosphorus}:{potassium}:{season}"
+        key_data = f"{ph}:{nitrogen}:{phosphorus}:{potassium}:{season}:{area_size}"
         return hashlib.md5(key_data.encode()).hexdigest()
 
     def get(self, ph: float, nitrogen: float, phosphorus: float,
-            potassium: float, season: str) -> Optional[Dict]:
+            potassium: float, season: str, area_size: Optional[float] = None) -> Optional[Dict]:
         """Get cached recommendation, or None if absent or expired."""
-        key = self._generate_key(ph, nitrogen, phosphorus, potassium, season)
+        key = self._generate_key(ph, nitrogen, phosphorus, potassium, season, area_size)
         with self._lock:
             entry = self.cache.get(key)
             if entry is None:
@@ -168,9 +168,9 @@ class RecommendationCache:
             return result
 
     def set(self, ph: float, nitrogen: float, phosphorus: float,
-            potassium: float, season: str, result: Dict):
+            potassium: float, season: str, area_size: Optional[float], result: Dict):
         """Cache recommendation result with the current timestamp."""
-        key = self._generate_key(ph, nitrogen, phosphorus, potassium, season)
+        key = self._generate_key(ph, nitrogen, phosphorus, potassium, season, area_size)
         with self._lock:
             if len(self.cache) >= self._MAX_SIZE:
                 # Evict the oldest entry to maintain the size cap
@@ -185,10 +185,10 @@ recommendation_cache = RecommendationCache()
 
 # ── Request Model ─────────────────────────────────────────────────────────────
 class CropRecommendationRequest(BaseModel):
-    soil_ph: float = Field(..., ge=4.0, le=9.0)
-    nitrogen: float = Field(..., ge=0, le=100)
-    phosphorus: float = Field(..., ge=0, le=50)
-    potassium: float = Field(..., ge=0, le=300)
+    soil_ph: float = Field(..., ge=4.5, le=8.5)
+    nitrogen: float = Field(..., ge=0, le=500)
+    phosphorus: float = Field(..., ge=0, le=100)
+    potassium: float = Field(..., ge=0, le=500)
     location: str
     season: str = "kharif"
     area_size: Optional[float] = None
@@ -540,7 +540,7 @@ async def recommend_crops(req: CropRecommendationRequest):
 
         # Check cache for existing recommendation
         cached_result = recommendation_cache.get(
-            req.soil_ph, req.nitrogen, req.phosphorus, req.potassium, req.season
+            req.soil_ph, req.nitrogen, req.phosphorus, req.potassium, req.season, req.area_size
         )
         if cached_result:
             logger.info("Returning cached recommendation")
@@ -625,7 +625,7 @@ async def recommend_crops(req: CropRecommendationRequest):
 
         # Cache the result for future queries
         recommendation_cache.set(
-            req.soil_ph, req.nitrogen, req.phosphorus, req.potassium, req.season, result
+            req.soil_ph, req.nitrogen, req.phosphorus, req.potassium, req.season, req.area_size, result
         )
         logger.info(f"Cached recommendation for {req.location}/{req.season}")
 

@@ -207,9 +207,14 @@ async def validate_request(request: Request) -> dict:
         raise HTTPException(status_code=415, detail="Unsupported media type")
     
     # Check request size
-    content_length = request.headers.get("content-length", 0)
-    if int(content_length) > 10240:  # 10KB max
-        raise HTTPException(status_code=413, detail="Request too large")
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            length_int = int(content_length)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid Content-Length header")
+        if length_int > 10240:  # 10KB max
+            raise HTTPException(status_code=413, detail="Request too large")
     
     return {}
 
@@ -430,7 +435,11 @@ async def get_feedback_stats(
         # Strip PII fields before returning to the caller.
         # Use the module-level _PII_FIELDS constant — avoids shadowing it
         # with a local re-definition that could silently diverge over time.
-        recent_raw = feedbacks[-10:] if len(feedbacks) > 10 else feedbacks
+        # Sort by timestamp descending before slicing so recent_feedbacks
+        # always contains the 10 most recently submitted entries, not an
+        # arbitrary tail of whatever order Firestore stream() returned.
+        feedbacks.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+        recent_raw = feedbacks[:10]
         recent = [
             {k: v for k, v in entry.items() if k not in _PII_FIELDS}
             for entry in recent_raw
