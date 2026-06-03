@@ -94,7 +94,7 @@ from ml.preprocessing import UnknownCategoryError, MissingFeatureError
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
-from csrf_protection import generate_token, reject_cross_origin
+from csrf_protection import generate_token, reject_cross_origin, verify_csrf_token_dependency
 from ml.security import verify_and_load_joblib
 from error_recovery_middleware import ErrorRecoveryMiddleware
 from security_hygiene import RuntimeProtectionMiddleware
