@@ -304,6 +304,15 @@ async def lifespan(app: FastAPI):
         logger.error("❌ Marketplace/LMS initialization failed: %s", exc, exc_info=True)
         raise
 
+    try:
+        logger.info("📊 Initializing regional benchmarking engine...")
+        from routers.regional_benchmarking import init_regional_benchmarking
+        init_regional_benchmarking(db_firestore, verify_role, get_signing_keys)
+        logger.info("✅ Regional benchmarking engine initialized")
+    except Exception as exc:
+        logger.error("❌ Regional benchmarking initialization failed: %s", exc, exc_info=True)
+        raise
+
     if db_firestore:
         try:
             logger.info("🔄 Backfilling Firebase role claims...")
@@ -1711,6 +1720,14 @@ try:
     logger.info("Hyperparameter Optimization API loaded successfully")
 except Exception as e:
     logger.warning(f"Could not load Hyperparameter Optimization API: {e}")
+
+# Include Regional Benchmarking Router
+try:
+    from routers.regional_benchmarking import router as regional_benchmarking_router
+    app.include_router(regional_benchmarking_router)
+    logger.info("Regional Benchmarking API loaded successfully")
+except Exception as e:
+    logger.warning(f"Could not load Regional Benchmarking API: {e}")
 
 if __name__ == "__main__":
     import uvicorn

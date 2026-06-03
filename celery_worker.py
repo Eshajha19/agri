@@ -654,5 +654,56 @@ def run_hyperparameter_optimization_task(
     }
 
 
+@celery_app.task(
+    bind=True,
+    name="generate_regional_benchmark_task",
+    time_limit=600,
+    soft_time_limit=500,
+)
+def generate_regional_benchmark_task(self, farmer_uid: str, farmer_yield: float, region: str, crop_type: str):
+    """
+    Async generation of regional benchmark report with statistical analysis.
+    """
+    try:
+        self.update_state(state="PROGRESS", meta={"step": "fetching_data"})
+
+        import firebase_admin
+        from firebase_admin import firestore
+
+        db = None
+        if firebase_admin._apps:
+            db = firestore.client()
+        else:
+            try:
+                firebase_admin.initialize_app()
+                db = firestore.client()
+            except Exception:
+                logger.warning("Firebase not available for benchmark report")
+                return {"status": "firebase_unavailable"}
+
+        if db is None:
+            return {"status": "firebase_unavailable"}
+
+        from ml.regional_analytics import get_regional_analytics
+
+        analytics = get_regional_analytics()
+
+        self.update_state(state="PROGRESS", meta={"step": "computing_statistics"})
+
+        report = analytics.generate_report(db, farmer_uid, farmer_yield, region, crop_type)
+
+        self.update_state(state="PROGRESS", meta={"step": "persisting"})
+
+        return {
+            "status": "success",
+            "report_id": report["report_id"] if report else None,
+            "report": report,
+        }
+
+    except Exception:
+        logger.exception("Regional benchmark report generation failed")
+        raise
+
+
 if __name__ == "__main__":
     celery_app.start()
