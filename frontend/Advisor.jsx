@@ -26,6 +26,7 @@ import CropDiseaseDetection from "./CropDiseaseDetection";
 import PestDetection from "./PestDetection";
 import PestManagement from "./PestManagement";
 import SprayReminder from "./SprayReminder";
+import PestCalendar from "./PestCalendar";
 import SeedVerifier from "./SeedVerifier";
 import ClimateSimulator from "./ClimateSimulator";
 import RAGAdvisor from "./RAGAdvisor";
@@ -162,11 +163,13 @@ export default function Advisor({ userData }) {
      setShowFarmingMap,
      showCropDiseaseDetection,
      setShowCropDiseaseDetection,
-     showPestManagement,
-     setShowPestManagement,
-     showSprayReminder,
-     setShowSprayReminder,
-     showAgriMarketplace,
+showPestManagement,
+      setShowPestManagement,
+      showSprayReminder,
+      setShowSprayReminder,
+      showPestCalendar,
+      setShowPestCalendar,
+      showAgriMarketplace,
      setShowAgriMarketplace,
      showAgriLMS,
      setShowAgriLMS,
@@ -669,17 +672,25 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             </p>
           </div>
 
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/pest-detection")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/pest-detection"); }} aria-label="Pest Detection: Identify pests and get treatment">
-            <div className="icon" aria-hidden="true">
-              <Bug size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">Pest Detection</span></h3>
-            <p>
-              AI-powered pest identification with real-time alerts and treatment recommendations.
-            </p>
-          </div>
+           <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/pest-detection")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/pest-detection"); }} aria-label="Pest Detection: Identify pests and get treatment">
+             <div className="icon" aria-hidden="true">
+               <Bug size={32} strokeWidth={2} />
+             </div>
+             <h3><span className="notranslate">Pest Detection</span></h3>
+             <p>
+               AI-powered pest identification with real-time alerts and treatment recommendations.
+             </p>
+           </div>
 
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowIrrigation(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowIrrigation(true); }} aria-label="Irrigation Guidance: Water-saving tips">
+           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowPestCalendar(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowPestCalendar(true); }} aria-label="Pest Calendar: View seasonal pest attack patterns">
+             <div className="icon" aria-hidden="true">
+               <Calendar size={32} strokeWidth={2} />
+             </div>
+             <h3><span className="notranslate">Pest Calendar</span></h3>
+             <p>View seasonal pest attack patterns and plan preventive measures accordingly.</p>
+           </div>
+
+           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowIrrigation(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowIrrigation(true); }} aria-label="Irrigation Guidance: Water-saving tips">
             <div className="icon" aria-hidden="true">
               <Droplets size={32} strokeWidth={2} />
             </div>
@@ -782,11 +793,17 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             <p>Early warnings & organic pest control tips.</p>
           </div>
 
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowSprayReminder(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSprayReminder(true); }} aria-label="Spray Scheduler: Weather-aware spray scheduling">
-            <div className="icon" aria-hidden="true"><CloudRain size={32} /></div>
-            <h3><span className="notranslate">Spray Scheduler</span></h3>
-            <p>Weather-aware spray scheduling &amp; rotation recommendations.</p>
-          </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowSprayReminder(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSprayReminder(true); }} aria-label="Spray Scheduler: Weather-aware spray scheduling">
+             <div className="icon" aria-hidden="true"><CloudRain size={32} /></div>
+             <h3><span className="notranslate">Spray Scheduler</span></h3>
+             <p>Weather-aware spray scheduling &amp; rotation recommendations.</p>
+           </div>
+
+           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowPestCalendar(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowPestCalendar(true); }} aria-label="Pest Calendar: Seasonal pest attack calendar">
+             <div className="icon" aria-hidden="true"><Calendar size={32} /></div>
+             <h3><span className="notranslate">Pest Calendar</span></h3>
+             <p>View seasonal pest attack patterns by crop and region for proactive protection.</p>
+           </div>
 
           <div
             className="card reveal"
@@ -1629,15 +1646,24 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
         </div>
       )}
 
-      {showSprayReminder && (
-        <div key="modal-spray-reminder" className="weather-overlay" onClick={() => setShowSprayReminder(false)}>
-          <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ padding: 0, background: 'transparent', boxShadow: 'none' }}>
-            <SprayReminder userData={userData} onClose={() => setShowSprayReminder(false)} />
-          </div>
-        </div>
-      )}
+{showSprayReminder && (
+         <div key="modal-spray-reminder" className="weather-overlay" onClick={() => setShowSprayReminder(false)}>
+           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ padding: 0, background: 'transparent', boxShadow: 'none' }}>
+             <SprayReminder userData={userData} onClose={() => setShowSprayReminder(false)} />
+           </div>
+         </div>
+       )}
 
-      {showAgriMarketplace && (
+       {showPestCalendar && (
+         <div key="modal-pest-calendar" className="weather-overlay" onClick={() => setShowPestCalendar(false)}>
+           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1100px', width: '95vw' }}>
+             <button className="close-btn" onClick={() => setShowPestCalendar(false)} aria-label="Close pest calendar"><X /></button>
+             <PestCalendar />
+           </div>
+         </div>
+       )}
+
+       {showAgriMarketplace && (
         <div key="modal-agri-marketplace" className="weather-overlay" onClick={() => setShowAgriMarketplace(false)}>
           <div className="agri-modal-wrapper" onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowAgriMarketplace(false)}><X /></button>
@@ -1868,4 +1894,4 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
       )}
      </section>
    );
- }
+          }
