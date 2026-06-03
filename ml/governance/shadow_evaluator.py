@@ -69,6 +69,19 @@ class ShadowEvaluator:
         self.evaluations: deque = deque(maxlen=500)
         self.active_evaluations: Dict[str, Dict[str, Any]] = {}  # eval_id -> data
         self._lock = threading.Lock()
+        self._drift_callbacks: List = []
+
+    def on_drift_detected(self, callback) -> None:
+        """Register a callback to be invoked when candidate performance is degraded (drifted)."""
+        self._drift_callbacks.append(callback)
+
+    def _fire_drift_callbacks(self, alert: Dict[str, Any]) -> None:
+        """Invoke all registered callbacks with the alert dict."""
+        for cb in self._drift_callbacks:
+            try:
+                cb(alert)
+            except Exception as exc:
+                logger.error("Shadow callback %r raised an error: %s", cb, exc, exc_info=True)
     
     def start_shadow_evaluation(
         self,
@@ -195,6 +208,17 @@ class ShadowEvaluator:
             )
         
             self.evaluations.append(result)
+            if recommendation == 'reject':
+                alert = {
+                    "timestamp": result.timestamp,
+                    "model_name": result.candidate_model,
+                    "drift_type": "shadow_performance_degradation",
+                    "severity": "high",
+                    "metric_value": result.candidate_mean_error,
+                    "threshold": result.production_mean_error,
+                    "details": f"Candidate error {result.candidate_mean_error:.4f} is worse than production error {result.production_mean_error:.4f}"
+                }
+                self._fire_drift_callbacks(alert)
         # cleanup_evaluation acquires self._lock itself; call it outside the
         # with block to avoid deadlock with a non-reentrant threading.Lock.
         self.cleanup_evaluation(eval_id)
