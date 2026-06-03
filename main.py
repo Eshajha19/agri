@@ -94,7 +94,7 @@ from ml.preprocessing import UnknownCategoryError, MissingFeatureError
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
-from csrf_protection import generate_token, reject_cross_origin, verify_csrf_token_dependency
+from csrf_protection import generate_token, reject_cross_origin
 from ml.security import verify_and_load_joblib
 from error_recovery_middleware import ErrorRecoveryMiddleware
 from security_hygiene import RuntimeProtectionMiddleware
@@ -1356,17 +1356,14 @@ def get_signing_keys():
 
 
 def init_ml_pipeline() -> None:
-    try:
-        xgb_adapter = XGBoostAdapter()
-        model_path = "yield_model.joblib"
-        if os.path.exists(model_path):
-            xgb_adapter.load(model_path)
-            ModelRegistry.register("xgboost", xgb_adapter)
-            logger.info("ML Pipeline: Registered XGBoost model")
-        else:
-            logger.warning("ML Pipeline: %s not found", model_path)
-    except Exception as exc:
-        logger.warning("ML Pipeline initialization failed: %s", exc)
+    xgb_adapter = XGBoostAdapter()
+    model_path = "yield_model.joblib"
+    if os.path.exists(model_path):
+        xgb_adapter.load(model_path)
+        ModelRegistry.register("xgboost", xgb_adapter)
+        logger.info("ML Pipeline: Registered XGBoost model")
+    else:
+        logger.warning("ML Pipeline: %s not found, skipping registration", model_path)
 
 
 # Observability setup
