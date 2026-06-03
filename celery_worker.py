@@ -656,36 +656,54 @@ def run_hyperparameter_optimization_task(
 
 @celery_app.task(
     bind=True,
-    name="ensemble_forecast_task",
-    autoretry_for=(Exception,),
-    retry_backoff=True,
-    retry_jitter=True,
-    retry_kwargs={"max_retries": 2},
-    soft_time_limit=30,
-    time_limit=35,
+    name="refresh_farmer_segments_task",
+    time_limit=600,
+    soft_time_limit=500,
 )
-def ensemble_forecast_task(self, input_data: dict, steps: int = 1):
+def refresh_farmer_segments_task(self):
     """
-    Async ensemble prediction with confidence intervals.
+    Periodic recomputation of farmer clusters from Firestore data.
     """
     try:
-        from ml.ensemble import get_ensemble_stacker
+        self.update_state(state="PROGRESS", meta={"step": "fetching_profiles"})
 
-        stacker = get_ensemble_stacker()
+        from ml.farmer_segmentation import get_segmentation
 
-        if steps == 1:
-            result = stacker.predict(input_data)
+        # db_firestore is not directly accessible in celery_worker; pass via env or param
+        # For now, we re-initialize Firebase if needed
+        import firebase_admin
+        from firebase_admin import firestore
+
+        db = None
+        if firebase_admin._apps:
+            db = firestore.client()
         else:
-            result = stacker.multi_step_forecast(input_data, steps=steps)
+            try:
+                firebase_admin.initialize_app()
+                db = firestore.client()
+            except Exception:
+                logger.warning("Firebase not available for segment refresh")
+                return {"status": "firebase_unavailable"}
+
+        if db is None:
+            return {"status": "firebase_unavailable"}
+
+        self.update_state(state="PROGRESS", meta={"step": "clustering"})
+
+        segmentation = get_segmentation()
+        result = segmentation.fit(db)
+
+        self.update_state(state="PROGRESS", meta={"step": "persisting"})
 
         return {
-            "success": True,
-            "forecast": result,
-            "steps": steps,
+            "status": result.get("status"),
+            "n_clusters": result.get("n_clusters"),
+            "farmers_count": result.get("farmers_count"),
+            "refreshed_at": result.get("refreshed_at"),
         }
 
     except Exception:
-        logger.exception("Ensemble forecast task failed")
+        logger.exception("Farmer segment refresh failed")
         raise
 
 

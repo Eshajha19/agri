@@ -304,6 +304,15 @@ async def lifespan(app: FastAPI):
         logger.error("❌ Marketplace/LMS initialization failed: %s", exc, exc_info=True)
         raise
 
+    try:
+        logger.info("🎯 Initializing personalized advisory engine...")
+        from routers.personalized_advisory import init_personalized_advisory
+        init_personalized_advisory(db_firestore)
+        logger.info("✅ Personalized advisory engine initialized")
+    except Exception as exc:
+        logger.error("❌ Personalized advisory initialization failed: %s", exc, exc_info=True)
+        raise
+
     if db_firestore:
         try:
             logger.info("🔄 Backfilling Firebase role claims...")
@@ -1630,6 +1639,14 @@ if voice_assistant_router is not None:
 app.include_router(referrals.router, prefix="/api/referrals", tags=["Referrals"])
 app.include_router(platform.router, prefix="/api", tags=["Platform"])
 app.include_router(advisory.router, prefix="/api", tags=["Advisory"])
+
+# Include Personalized Advisory Router
+try:
+    from routers.personalized_advisory import router as personalized_advisory_router
+    app.include_router(personalized_advisory_router)
+    logger.info("Personalized Advisory API loaded successfully")
+except Exception as e:
+    logger.warning(f"Could not load Personalized Advisory API: {e}")
 app.include_router(alerts.router, prefix="/api/notifications", tags=["Alerts"])
 app.include_router(flags_router, tags=["Feature Flags"])
 app.include_router(lms.router, prefix="/api", tags=["LMS"])
