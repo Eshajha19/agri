@@ -656,61 +656,17 @@ def run_hyperparameter_optimization_task(
 
 @celery_app.task(
     bind=True,
-    name="run_price_forecast_task",
-    time_limit=300,
-    soft_time_limit=240,
+    name="generate_regional_benchmark_task",
+    time_limit=600,
+    soft_time_limit=500,
 )
-def run_price_forecast_task(self, crops: Optional[List[str]] = None):
+def generate_regional_benchmark_task(self, farmer_uid: str, farmer_yield: float, region: str, crop_type: str):
     """
-    Generate price forecasts for all major crops or specified list.
+    Async generation of regional benchmark report with statistical analysis.
     """
     try:
-        from ml.price_forecaster import get_price_forecaster
+        self.update_state(state="PROGRESS", meta={"step": "fetching_data"})
 
-        forecaster = get_price_forecaster()
-
-        if crops is None:
-            crops = list(forecaster._CROP_BASE_PRICES.keys())
-
-        results = []
-        for crop in crops:
-            self.update_state(
-                state="PROGRESS",
-                meta={"crop": crop, "progress": f"{crops.index(crop) + 1}/{len(crops)}"},
-            )
-            result = forecaster.forecast(crop, days=14)
-            results.append(result)
-
-        return {
-            "success": True,
-            "crops_forecasted": len(results),
-            "results": results,
-        }
-
-    except Exception:
-        logger.exception("Price forecast task failed")
-        raise
-
-
-@celery_app.task(
-    bind=True,
-    name="check_price_alerts_task",
-    time_limit=300,
-    soft_time_limit=240,
-)
-def check_price_alerts_task(self):
-    """
-    Evaluate farmer price alerts and send WhatsApp notifications for triggered thresholds.
-    """
-    try:
-        self.update_state(state="PROGRESS", meta={"step": "loading_forecaster"})
-
-        from ml.price_forecaster import get_price_forecaster
-        from whatsapp_service import send_whatsapp_message
-
-        forecaster = get_price_forecaster()
-
-        # Initialize Firebase if needed
         import firebase_admin
         from firebase_admin import firestore
 
@@ -722,21 +678,30 @@ def check_price_alerts_task(self):
                 firebase_admin.initialize_app()
                 db = firestore.client()
             except Exception:
-                logger.warning("Firebase not available for price alert check")
-                return {"status": "firebase_unavailable", "triggered": 0}
+                logger.warning("Firebase not available for benchmark report")
+                return {"status": "firebase_unavailable"}
 
-        self.update_state(state="PROGRESS", meta={"step": "evaluating_alerts"})
+        if db is None:
+            return {"status": "firebase_unavailable"}
 
-        triggered = forecaster.check_alerts(db, send_whatsapp_message)
+        from ml.regional_analytics import get_regional_analytics
+
+        analytics = get_regional_analytics()
+
+        self.update_state(state="PROGRESS", meta={"step": "computing_statistics"})
+
+        report = analytics.generate_report(db, farmer_uid, farmer_yield, region, crop_type)
+
+        self.update_state(state="PROGRESS", meta={"step": "persisting"})
 
         return {
-            "success": True,
-            "triggered": len(triggered),
-            "alerts": triggered,
+            "status": "success",
+            "report_id": report["report_id"] if report else None,
+            "report": report,
         }
 
     except Exception:
-        logger.exception("Price alert check failed")
+        logger.exception("Regional benchmark report generation failed")
         raise
 
 

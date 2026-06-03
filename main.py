@@ -305,12 +305,12 @@ async def lifespan(app: FastAPI):
         raise
 
     try:
-        logger.info("💰 Initializing price prediction engine...")
-        from routers.price_prediction import init_price_prediction
-        init_price_prediction(db_firestore)
-        logger.info("✅ Price prediction engine initialized")
+        logger.info("📊 Initializing regional benchmarking engine...")
+        from routers.regional_benchmarking import init_regional_benchmarking
+        init_regional_benchmarking(db_firestore, verify_role, get_signing_keys)
+        logger.info("✅ Regional benchmarking engine initialized")
     except Exception as exc:
-        logger.error("❌ Price prediction initialization failed: %s", exc, exc_info=True)
+        logger.error("❌ Regional benchmarking initialization failed: %s", exc, exc_info=True)
         raise
 
     if db_firestore:
@@ -1729,13 +1729,13 @@ try:
 except Exception as e:
     logger.warning(f"Could not load Hyperparameter Optimization API: {e}")
 
-# Include Price Prediction Router
+# Include Regional Benchmarking Router
 try:
-    from routers.price_prediction import router as price_prediction_router
-    app.include_router(price_prediction_router)
-    logger.info("Price Prediction API loaded successfully")
+    from routers.regional_benchmarking import router as regional_benchmarking_router
+    app.include_router(regional_benchmarking_router)
+    logger.info("Regional Benchmarking API loaded successfully")
 except Exception as e:
-    logger.warning(f"Could not load Price Prediction API: {e}")
+    logger.warning(f"Could not load Regional Benchmarking API: {e}")
 
 if __name__ == "__main__":
     import uvicorn
