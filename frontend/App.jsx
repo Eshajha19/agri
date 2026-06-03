@@ -87,7 +87,8 @@ import {
   YieldPredictor,
   EquipmentManagement,
   PredictionExplainer,
-  RetrainingPipelineMonitor
+  RetrainingPipelineMonitor,
+  CropInsuranceClaim
 } from "./routes/lazyPages";
 
 const Weather = React.lazy(() => import("./Weather"));
@@ -1120,6 +1121,7 @@ useEffect(() => {
             <Route path="/voice-assistant" element={<VoiceAssistant />} />
             <Route path="/prediction-explainer" element={<PredictionExplainer />} />
             <Route path="/retraining-monitor" element={<RetrainingPipelineMonitor />} />
+            <Route path="/insurance-claim" element={<CropInsuranceClaim />} />
             <Route
               path="/myth-checker"
               element={

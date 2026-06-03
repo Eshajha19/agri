@@ -23,7 +23,8 @@ Unchanged (intentionally public):
 Still requires admin/system role:
   POST /sync-cache       — unchanged
 """
-
+from collections import OrderedDict
+from datetime import datetime, timezone
 import os
 import re
 import sys
@@ -160,6 +161,11 @@ RATE_LIMIT_WINDOW = 60  # seconds
 RATE_LIMIT_PRUNE_INTERVAL = RATE_LIMIT_WINDOW
 RATE_LIMIT_MAX_ENTRIES = 10_000
 
+# Session cleanup constants
+MAX_SESSIONS = 1000
+SESSION_TTL_SECONDS = 3600  # 1 hour
+_session_created_at: OrderedDict[str, float] = OrderedDict()
+_session_lock = Lock()
 
 def _prune_rate_limit_store(now: float) -> None:
     """Drop expired rate-limit entries to bound in-memory state."""
@@ -207,7 +213,28 @@ def _check_rate_limit(uid: str) -> bool:
 
         _rate_limit_store[uid] = (count + 1, window_start)
         return True
+def _cleanup_sessions(now: float) -> None:
+    """Evict expired and oldest sessions to bound memory."""
+    if voice_assistant is None:
+        return
+    with _session_lock:
+        expired = [
+            sid for sid, created in _session_created_at.items()
+            if now - created > SESSION_TTL_SECONDS
+        ]
+        for sid in expired:
+            _session_created_at.pop(sid, None)
+            voice_assistant.sessions.pop(sid, None)
+        while len(_session_created_at) >= MAX_SESSIONS:
+            sid, _ = _session_created_at.popitem(last=False)
+            voice_assistant.sessions.pop(sid, None)
 
+
+def _register_session(session_id: str) -> None:
+    now = monotonic()
+    with _session_lock:
+        _cleanup_sessions(now)
+        _session_created_at[session_id] = now
 
 def _validate_filename(filename: str) -> str:
     if not filename:
@@ -312,16 +339,15 @@ async def create_session(request: Request, data: SessionCreateRequest):
     uid = await _require_auth(request)
 
     try:
-        session = voice_assistant.create_session(
+        new_session = voice_assistant.create_session(uid, data.language_code)
+        session_id = new_session.session_id
+        _register_session(session_id)
+        return SessionResponse(
+            session_id=session_id,
             user_id=uid,
             language_code=data.language_code,
-        )
-        return SessionResponse(
-            session_id=session.session_id,
-            user_id=session.user_id,
-            language_code=session.language_code,
-            offline_mode=session.offline_mode,
-            created_at=session.start_time,
+            offline_mode=voice_assistant.offline_mode,
+            created_at=new_session.start_time,
         )
     except HTTPException:
         raise
@@ -351,6 +377,7 @@ async def process_voice_query(request: Request, data: VoiceQueryRequest):
         if not session_id:
             session = voice_assistant.create_session(uid, language_code)
             session_id = session.session_id
+            _register_session(session_id)
         else:
             # Verify the session belongs to the authenticated user.
             if session_id not in voice_assistant.sessions:
@@ -444,7 +471,10 @@ async def upload_audio(
             raise HTTPException(status_code=400, detail="Empty file uploaded")
 
         if not session_id:
-            session_id = voice_assistant.create_session(uid, language_code).session_id
+            new_session = voice_assistant.create_session(uid, language_code)
+            session_id = new_session.session_id
+            _register_session(session_id)
+
 
         logger.info("Audio uploaded: uid=%s file=%s bytes=%d", uid, safe_filename, bytes_written)
 

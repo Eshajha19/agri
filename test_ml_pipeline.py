@@ -44,7 +44,7 @@ def test_valid_signature_loads_model():
             result = ml_sec.verify_and_load_joblib(model_path)
         assert result["type"] == "mock_model"
         assert result["version"] == "1.0"
-    print("  ✓ Valid signature: model loaded correctly")
+    print("  [OK] Valid signature: model loaded correctly")
     return True
 
 
@@ -67,7 +67,7 @@ def test_tampered_model_raises_signature_error():
                 assert False, "Expected ModelSignatureError was not raised"
             except ml_sec.ModelSignatureError as e:
                 assert "tampered" in str(e) or "failed" in str(e)
-    print("  ✓ Tampered model correctly rejected with ModelSignatureError")
+    print("  [OK] Tampered model correctly rejected with ModelSignatureError")
     return True
 
 
@@ -88,7 +88,7 @@ def test_missing_signature_file_raises():
                 assert False, "Expected RuntimeError was not raised"
             except RuntimeError as e:
                 assert "missing" in str(e).lower() or "signature" in str(e).lower()
-    print("  ✓ Missing .sig file correctly raises RuntimeError")
+    print("  [OK] Missing .sig file correctly raises RuntimeError")
     return True
 
 
@@ -114,7 +114,7 @@ def test_wrong_key_rejected():
                 assert False, "Expected ModelSignatureError was not raised"
             except ml_sec.ModelSignatureError:
                 pass
-    print("  ✓ Wrong signing key correctly rejected")
+    print("  [OK] Wrong signing key correctly rejected")
     return True
 
 
@@ -131,7 +131,7 @@ def test_allow_unsigned_bypasses_for_dev():
             importlib.reload(ml_sec)
             result = ml_sec.verify_and_load_joblib(model_path)
         assert result["type"] == "local_dev_model"
-    print("  ✓ ALLOW_UNSIGNED_MODELS=true bypasses verification (dev mode only)")
+    print("  [OK] ALLOW_UNSIGNED_MODELS=true bypasses verification (dev mode only)")
     return True
 
 
@@ -150,13 +150,13 @@ def test_sign_model_creates_sig_file():
             written = f.read().strip()
         assert written == sig
         assert len(sig) == 64  # SHA256 hex digest is always 64 chars
-    print("  ✓ sign_model() creates correct .sig file with 64-char hex digest")
+    print("  [OK] sign_model() creates correct .sig file with 64-char hex digest")
     return True
 
 
 def test_sign_then_verify_roundtrip():
     """Signing a model then verifying it should succeed end-to-end."""
-    print("Testing sign → verify roundtrip...")
+    print("Testing sign -> verify roundtrip...")
     with tempfile.TemporaryDirectory() as tmp:
         model_path = os.path.join(tmp, "roundtrip.joblib")
         original = {"weights": [1.5, 2.5], "bias": 0.1}
@@ -171,7 +171,102 @@ def test_sign_then_verify_roundtrip():
             loaded = ml_sec.verify_and_load_joblib(model_path)
         assert loaded["weights"] == original["weights"]
         assert loaded["bias"] == original["bias"]
-    print("  ✓ sign → verify roundtrip works correctly end-to-end")
+    print("  [OK] sign -> verify roundtrip works correctly end-to-end")
+    return True
+
+
+def test_drift_triggers_model_rollback():
+    """Test that high prediction drift triggers model rollback in the registry."""
+    print("Testing drift triggers model rollback...")
+    
+    class DummyModel:
+        def __init__(self, name):
+            self.name = name
+        def predict(self, data):
+            return [1.0]
+
+    stable_model = DummyModel("stable")
+    active_model = DummyModel("active")
+
+    from ml.registry import ModelRegistry
+    ModelRegistry.register("xgboost", active_model)
+    assert ModelRegistry.get("xgboost") == active_model
+
+    from backend.routers import ml as ml_router
+    async def mock_verify_role(req):
+        return {"uid": "test_user"}
+    
+    class DummyModelRouter:
+        def predict(self, data, context=None):
+            model = ModelRegistry.get("xgboost")
+            return model.predict(data)
+            
+    ml_router.init_router(DummyModelRouter(), stable_model, verify_role=mock_verify_role)
+
+    from ml.governance.drift_detector import DriftDetector
+    from backend.routers import governance
+    detector = DriftDetector(window_size=10, prediction_drift_threshold=0.1)
+    governance.drift_detector = detector
+    
+    ml_router.init_router(DummyModelRouter(), stable_model, verify_role=mock_verify_role)
+    
+    detector.set_baseline("xgboost", [1.0] * 20)
+    
+    drift_detected = False
+    for i in range(15):
+        detected, alert = detector.check_prediction_drift("xgboost", 5.0)
+        if detected:
+            drift_detected = True
+            
+    assert drift_detected, "Drift should have been detected"
+    current_model = ModelRegistry.get("xgboost")
+    assert current_model == stable_model, "Active model should have rolled back to the stable model"
+    print("  [OK] Model rollback triggered successfully by drift detection")
+    return True
+
+
+def test_shadow_evaluator_rejection_triggers_rollback():
+    """Test that a rejected candidate model in shadow evaluation triggers rollback (safety alert)."""
+    print("Testing shadow evaluator rejection triggers rollback...")
+    
+    class DummyModel:
+        def __init__(self, name):
+            self.name = name
+    
+    stable_model = DummyModel("stable")
+    active_model = DummyModel("active")
+    
+    from ml.registry import ModelRegistry
+    ModelRegistry.register("xgboost", active_model)
+    
+    from backend.routers import ml as ml_router
+    async def mock_verify_role(req):
+        return {"uid": "test_user"}
+        
+    class DummyModelRouter:
+        def predict(self, data, context=None):
+            return [1.0]
+            
+    ml_router.init_router(DummyModelRouter(), stable_model, verify_role=mock_verify_role)
+    
+    from ml.governance.shadow_evaluator import ShadowEvaluator
+    from backend.routers import governance
+    evaluator = ShadowEvaluator(min_samples=5, error_improvement_threshold=0.05)
+    governance.shadow_evaluator = evaluator
+    
+    ml_router.init_router(DummyModelRouter(), stable_model, verify_role=mock_verify_role)
+    
+    eval_id = evaluator.start_shadow_evaluation("xgboost", "candidate_xgboost")
+    
+    for _ in range(10):
+        evaluator.record_predictions(eval_id, 1.0, 10.0, 1.0)
+        
+    result = evaluator.evaluate_candidate(eval_id)
+    assert result.recommendation == "reject"
+    
+    current_model = ModelRegistry.get("xgboost")
+    assert current_model == stable_model, "Active model should have rolled back to the stable model on shadow rejection"
+    print("  [OK] Model rollback triggered successfully by shadow rejection")
     return True
 
 
@@ -187,6 +282,8 @@ def main():
         test_allow_unsigned_bypasses_for_dev,
         test_sign_model_creates_sig_file,
         test_sign_then_verify_roundtrip,
+        test_drift_triggers_model_rollback,
+        test_shadow_evaluator_rejection_triggers_rollback,
     ]
     passed = failed = 0
     for t in tests:
@@ -194,13 +291,13 @@ def main():
             t()
             passed += 1
         except Exception as e:
-            print(f"  ✗ {t.__name__}: {e}")
+            print(f"  [FAIL] {t.__name__}: {e}")
             failed += 1
     print("=" * 60)
     if failed == 0:
-        print(f"✓ ALL {passed} TESTS PASSED")
+        print(f"[OK] ALL {passed} TESTS PASSED")
     else:
-        print(f"✗ {failed} FAILED, {passed} PASSED")
+        print(f"[FAIL] {failed} FAILED, {passed} PASSED")
     print("=" * 60)
     return failed == 0
 
