@@ -165,7 +165,19 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
         raise HTTPException(status_code=500, detail="Alert broadcast failed")
 
 
+
 @router.post("/whatsapp/webhook")
 async def whatsapp_webhook(request: Request):
     """Receive inbound WhatsApp messages from Twilio (delegates to shared handler)."""
-    return await handle_inbound_whatsapp_webhook(request)
+    try:
+        return await handle_inbound_whatsapp_webhook(request)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Unhandled error in whatsapp_webhook: %s", exc, exc_info=True)
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error"},
+        )
+
