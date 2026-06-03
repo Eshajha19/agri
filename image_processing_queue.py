@@ -8,7 +8,7 @@ Provides:
 - Async processing with callbacks
 - Optional Redis support for distributed deployments
 """
-
+from collections import OrderedDict
 import asyncio
 import uuid
 import json
