@@ -654,5 +654,58 @@ def run_hyperparameter_optimization_task(
     }
 
 
+@celery_app.task(
+    bind=True,
+    name="refresh_farmer_segments_task",
+    time_limit=600,
+    soft_time_limit=500,
+)
+def refresh_farmer_segments_task(self):
+    """
+    Periodic recomputation of farmer clusters from Firestore data.
+    """
+    try:
+        self.update_state(state="PROGRESS", meta={"step": "fetching_profiles"})
+
+        from ml.farmer_segmentation import get_segmentation
+
+        # db_firestore is not directly accessible in celery_worker; pass via env or param
+        # For now, we re-initialize Firebase if needed
+        import firebase_admin
+        from firebase_admin import firestore
+
+        db = None
+        if firebase_admin._apps:
+            db = firestore.client()
+        else:
+            try:
+                firebase_admin.initialize_app()
+                db = firestore.client()
+            except Exception:
+                logger.warning("Firebase not available for segment refresh")
+                return {"status": "firebase_unavailable"}
+
+        if db is None:
+            return {"status": "firebase_unavailable"}
+
+        self.update_state(state="PROGRESS", meta={"step": "clustering"})
+
+        segmentation = get_segmentation()
+        result = segmentation.fit(db)
+
+        self.update_state(state="PROGRESS", meta={"step": "persisting"})
+
+        return {
+            "status": result.get("status"),
+            "n_clusters": result.get("n_clusters"),
+            "farmers_count": result.get("farmers_count"),
+            "refreshed_at": result.get("refreshed_at"),
+        }
+
+    except Exception:
+        logger.exception("Farmer segment refresh failed")
+        raise
+
+
 if __name__ == "__main__":
     celery_app.start()
