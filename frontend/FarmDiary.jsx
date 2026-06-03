@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { toast } from 'react-toastify';
@@ -37,30 +37,65 @@ export default function FarmDiary({ onClose }) {
     reminderDate: '',
     isCompleted: true
   });
+  const mountedRef = useRef(true);
 
   // Load entries from localStorage on mount
   useEffect(() => {
-    const saved = loadVersionedArray(DIARY_STORAGE_KEY, {
-      version: DIARY_STORAGE_VERSION,
-      fallback: [],
-      maxItems: MAX_DIARY_ENTRIES,
-    });
+    mountedRef.current = true;
 
-    setEntries(saved.sort((a, b) => new Date(b.date) - new Date(a.date)));
+    const requestId = ++saveRequestRef.current;
+
+    const saved = loadVersionedArray(
+      DIARY_STORAGE_KEY,
+      {
+        version: DIARY_STORAGE_VERSION,
+        fallback: [],
+        maxItems: MAX_DIARY_ENTRIES,
+      }
+    );
+
+    if (
+      mountedRef.current &&
+      requestId === saveRequestRef.current
+    ) {
+      setEntries(
+        saved.sort(
+          (a, b) =>
+            new Date(b.date) - new Date(a.date)
+        )
+      );
+    }
+
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   // Save to localStorage whenever entries change
-  useEffect(() => {
-    const sortedEntries = [...entries].sort((a, b) => new Date(b.date) - new Date(a.date));
-    const saved = saveVersionedArray(DIARY_STORAGE_KEY, sortedEntries, {
-      version: DIARY_STORAGE_VERSION,
-      maxItems: MAX_DIARY_ENTRIES,
-    });
+useEffect(() => {
+  mountedRef.current = true;
 
-    if (!saved) {
-      console.warn('Diary persistence skipped because localStorage quota is full.');
+  const saved = loadVersionedArray(
+    DIARY_STORAGE_KEY,
+    {
+      version: DIARY_STORAGE_VERSION,
+      fallback: [],
+      maxItems: MAX_DIARY_ENTRIES,
     }
-  }, [entries]);
+  );
+
+  if (mountedRef.current) {
+    setEntries(
+      saved.sort(
+        (a, b) => new Date(b.date) - new Date(a.date)
+      )
+    );
+  }
+
+  return () => {
+    mountedRef.current = false;
+  };
+}, []);
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -74,25 +109,39 @@ export default function FarmDiary({ onClose }) {
     e.preventDefault();
     if (!formData.date || !formData.notes || !formData.activityType) {
       toast.error('Please fill in required fields (Date, Type, Notes)');
+      saveInProgressRef.current = false;
+      return;
+    }
+    if (saveInProgressRef.current) {
       return;
     }
 
+    saveInProgressRef.current = true;
+
     if (editingId) {
-      setEntries(entries.map(entry => 
-        entry.id === editingId ? { ...formData, id: editingId } : entry
-      ));
+      setEntries(prev =>
+        prev.map(entry =>
+          entry.id === editingId
+            ? { ...formData, id: editingId }
+            : entry
+        )
+      );
       toast.success('Entry updated successfully!');
     } else {
       const newEntry = {
         ...formData,
         id: Date.now().toString(),
       };
-      setEntries([newEntry, ...entries].sort((a, b) => new Date(b.date) - new Date(a.date)));
-      toast.success('New activity logged!');
+      setEntries(prev =>
+        [newEntry, ...prev].sort(
+          (a, b) => new Date(b.date) - new Date(a.date)
+        )
+      );
     }
     
     resetForm();
-  };
+    saveInProgressRef.current = false;
+    };
 
   const handleEdit = (entry) => {
     setFormData(entry);
@@ -118,7 +167,9 @@ export default function FarmDiary({ onClose }) {
     }));
   };
 
-  const resetForm = () => {
+  const resetForm = useCallback(() => {
+    if (!mountedRef.current) return;
+
     setFormData({
       date: new Date().toISOString().split('T')[0],
       activityType: 'Sowing',
@@ -127,10 +178,11 @@ export default function FarmDiary({ onClose }) {
       reminderDate: '',
       isCompleted: true
     });
+
     setEditingId(null);
     setShowForm(false);
-  };
-
+  }, []);
+  
   const generatePDF = () => {
     if (entries.length === 0) {
       toast.warning('No entries to export');
