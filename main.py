@@ -16,8 +16,6 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
-from backend.utils.numeric_validation import validate_numeric_bounds
-
 from fastapi import FastAPI, HTTPException, Request, Form, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -73,7 +71,6 @@ from backend.routers import (
     community,
     finance,
     governance,
-    insurance,
     knowledge,
     lms,
     marketplace,
@@ -98,9 +95,7 @@ from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
 from csrf_protection import generate_token, reject_cross_origin
-from ml.security import verify_and_load_joblib
 from error_recovery_middleware import ErrorRecoveryMiddleware
-from security_hygiene import RuntimeProtectionMiddleware
 from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, resolve_subscription_regions, normalize_region_identifier
 from notification_auth import filter_notifications_for_user
 from realtime_notifications import notification_broker
@@ -143,7 +138,6 @@ class ContextFilter(logging.Filter):
 # Configure structured logging with detailed formatting
 _context_filter = ContextFilter()
 _handler = logging.StreamHandler()
-_handler.addFilter(_context_filter)
 _formatter = logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - [%(context)s] - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
@@ -191,31 +185,6 @@ async def lifespan(app: FastAPI):
         drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
         shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
         version_manager = ModelVersionManager(versions_dir="./model_versions")
-
-        def publish_drift_notification(alert: dict):
-            msg = f"⚠️ HIGH DRIFT ALERT: Model '{alert.get('model_name')}' {alert.get('drift_type')} drift is {alert.get('metric_value'):.2%} (threshold: {alert.get('threshold'):.2%})."
-            payload = {
-                "type": "drift_alert",
-                "message": msg,
-                "time": datetime.now().isoformat(),
-                "recipient_uid": None,
-                "severity": "high",
-            }
-            try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(notification_broker.publish(payload))
-            except RuntimeError:
-                try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        loop.create_task(notification_broker.publish(payload))
-                    else:
-                        loop.run_until_complete(notification_broker.publish(payload))
-                except Exception:
-                    asyncio.run(notification_broker.publish(payload))
-
-        drift_detector.on_drift_detected(publish_drift_notification)
-        shadow_evaluator.on_drift_detected(publish_drift_notification)
         logger.info("✅ Domain engines initialized: drift_detector, shadow_evaluator, version_manager")
     except Exception as exc:
         logger.error("❌ Domain engines initialization failed: %s", exc, exc_info=True)
@@ -229,17 +198,6 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Repositories initialized")
     except Exception as exc:
         logger.error("❌ Repository initialization failed: %s", exc, exc_info=True)
-        raise
-
-    try:
-        logger.info("🧹 Registering GDPR post-deletion hooks...")
-        def clear_in_memory_notifications(uid: str):
-            removed = _notification_store.remove_by_uid(uid)
-            logger.info("GDPR Cleanup: Removed %d in-memory notifications for user %s", removed, uid)
-        gdpr_deletion_manager.register_post_deletion_hook(clear_in_memory_notifications)
-        logger.info("✅ GDPR post-deletion hooks registered")
-    except Exception as exc:
-        logger.error("❌ GDPR hook registration failed: %s", exc, exc_info=True)
         raise
 
     try:
@@ -304,15 +262,6 @@ async def lifespan(app: FastAPI):
         logger.error("❌ Marketplace/LMS initialization failed: %s", exc, exc_info=True)
         raise
 
-    try:
-        logger.info("📊 Initializing regional benchmarking engine...")
-        from routers.regional_benchmarking import init_regional_benchmarking
-        init_regional_benchmarking(db_firestore, verify_role, get_signing_keys)
-        logger.info("✅ Regional benchmarking engine initialized")
-    except Exception as exc:
-        logger.error("❌ Regional benchmarking initialization failed: %s", exc, exc_info=True)
-        raise
-
     if db_firestore:
         try:
             logger.info("🔄 Backfilling Firebase role claims...")
@@ -332,9 +281,7 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("RAG init skipped: %s", exc)
 
-    app.state.verify_role_fn = verify_role
-    app.state.rag_generate_fn = rag_generate_fn
-    app.state.seed_registry = {"TEST001": {"verified": True}}
+    knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
     alerts.init_alerts(
         [],
         subscriber_store,
@@ -372,20 +319,22 @@ async def lifespan(app: FastAPI):
 
     try:
         logger.info("🧠 Loading ML models...")
-        model_lag = verify_and_load_joblib("sklearn_yield_model.joblib")
-        logger.info("✅ Sklearn yield model loaded and signature verified")
+        import joblib as _joblib
+        model_lag = _joblib.load("sklearn_yield_model.joblib")
+        logger.info("✅ Sklearn yield model loaded")
     except Exception as exc:
-        logger.warning("Sklearn yield model not found or signature invalid: %s", exc)
+        logger.warning("Sklearn yield model not found: %s", exc)
         model_lag = None
 
     model_trend = None
     try:
         if os.path.exists("trend_forecast_model.joblib"):
             logger.info("📈 Loading trend forecast model...")
-            model_trend = verify_and_load_joblib("trend_forecast_model.joblib")
-            logger.info("✅ Trend forecast model loaded and signature verified")
+            import joblib as _joblib2
+            model_trend = _joblib2.load("trend_forecast_model.joblib")
+            logger.info("✅ Trend forecast model loaded successfully")
     except Exception as exc:
-        logger.warning("Trend forecast model loading failed or signature invalid: %s", exc)
+        logger.warning("Trend forecast model loading failed: %s", exc)
         model_trend = None
 
     try:
@@ -594,8 +543,8 @@ _E164_RE = re.compile(r"^\+[1-9]\d{6,14}$")
 
 
 class WhatsAppSubscribeRequest(BaseModel):
-    phone_number: str = Field(..., max_length=20)
-    name: str = Field(..., min_length=1, max_length=100)
+    phone_number: str
+    name: str
     region_id: Optional[str] = Field(default=None, max_length=100)
     # user_id is accepted for backward compatibility but is IGNORED by the
     # endpoint -- the authoritative user identity is always derived from the
@@ -636,15 +585,38 @@ def _coerce_prediction_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
             detail=f"Unknown field(s): {', '.join(sorted(extra))}",
         )
 
-    numeric_fields = [
-        "N", "P", "K", "ph", "pH",
-        "CropCoveredArea", "CHeight", "IrriCount", "WaterCov",
-        "temperature", "rainfall", "humidity",
-    ]
+    numeric_fields = {
+        "N",
+        "P",
+        "K",
+        "ph",
+        "pH",
+        "CropCoveredArea",
+        "CHeight",
+        "IrriCount",
+        "WaterCov",
+        "temperature",
+        "rainfall",
+        "humidity",
+    }
 
-    # Delegate inf / NaN / pH-bounds validation to the shared utility so
-    # the logic is not duplicated across routers.
-    sanitized = validate_numeric_bounds(sanitized, numeric_fields)
+    for field in numeric_fields:
+        if field not in sanitized or sanitized[field] is None:
+            continue
+
+        try:
+            numeric_value = float(sanitized[field])
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"Invalid value for '{field}'")
+
+        if not math.isfinite(numeric_value):
+            raise HTTPException(status_code=400, detail=f"Invalid value for '{field}'")
+
+        sanitized[field] = numeric_value
+
+    for field in ("ph", "pH"):
+        if field in sanitized and not (0 <= sanitized[field] <= 14):
+            raise HTTPException(status_code=400, detail="Invalid pH")
 
     return sanitized
 
@@ -798,10 +770,7 @@ async def _authenticate_notification_websocket(websocket: WebSocket) -> Optional
         return None
 
     try:
-        decoded = auth.verify_id_token(token.strip(), check_revoked=True)
-    except auth.RevokedIdTokenError:
-        await websocket.close(code=1008, reason="Session revoked. Please sign in again.")
-        return None
+        decoded = auth.verify_id_token(token.strip())
     except Exception:
         await websocket.close(code=1008, reason="Invalid authentication token")
         return None
@@ -1370,14 +1339,17 @@ def get_signing_keys():
 
 
 def init_ml_pipeline() -> None:
-    xgb_adapter = XGBoostAdapter()
-    model_path = "yield_model.joblib"
-    if os.path.exists(model_path):
-        xgb_adapter.load(model_path)
-        ModelRegistry.register("xgboost", xgb_adapter)
-        logger.info("ML Pipeline: Registered XGBoost model")
-    else:
-        logger.warning("ML Pipeline: %s not found, skipping registration", model_path)
+    try:
+        xgb_adapter = XGBoostAdapter()
+        model_path = "yield_model.joblib"
+        if os.path.exists(model_path):
+            xgb_adapter.load(model_path)
+            ModelRegistry.register("xgboost", xgb_adapter)
+            logger.info("ML Pipeline: Registered XGBoost model")
+        else:
+            logger.warning("ML Pipeline: %s not found", model_path)
+    except Exception as exc:
+        logger.warning("ML Pipeline initialization failed: %s", exc)
 
 
 # Observability setup
@@ -1464,26 +1436,7 @@ app.add_middleware(
 )
 import csrf_protection as _csrf
 _csrf.configure(_CORS_ORIGINS)
-
-@app.middleware("http")
-async def csrf_middleware(request: Request, call_next):
-    if request.method not in ("GET", "HEAD", "OPTIONS") and request.scope.get("type") == "http":
-        if not request.url.path.startswith("/api/whatsapp/webhook"):
-            from fastapi.responses import JSONResponse
-            try:
-                await verify_csrf_token_dependency(request)
-            except HTTPException as exc:
-                return JSONResponse(
-                    status_code=exc.status_code,
-                    content={"detail": exc.detail}
-                )
-    return await call_next(request)
-
 app.add_middleware(RBACMiddleware)
-app.add_middleware(
-    RuntimeProtectionMiddleware,
-    exclude_paths=["/docs", "/openapi.json", "/static", "/api/crop-disease/analyze-image", "/api/quality/assess", "/api/gemini/analyze-image"]
-)
 logger.info(print_rbac_matrix())
 
 # Import the voice assistant router at module level so app.include_router() can
@@ -1639,19 +1592,9 @@ if voice_assistant_router is not None:
 app.include_router(referrals.router, prefix="/api/referrals", tags=["Referrals"])
 app.include_router(platform.router, prefix="/api", tags=["Platform"])
 app.include_router(advisory.router, prefix="/api", tags=["Advisory"])
-
-# Include Personalized Advisory Router
-try:
-    from routers.personalized_advisory import router as personalized_advisory_router
-    app.include_router(personalized_advisory_router)
-    logger.info("Personalized Advisory API loaded successfully")
-except Exception as e:
-    logger.warning(f"Could not load Personalized Advisory API: {e}")
 app.include_router(alerts.router, prefix="/api/notifications", tags=["Alerts"])
 app.include_router(flags_router, tags=["Feature Flags"])
 app.include_router(lms.router, prefix="/api", tags=["LMS"])
-app.include_router(insurance.router, prefix="/api", tags=["Insurance"])
-insurance.init_insurance(verify_role)
 
 
 # --- Smart Farm Autopilot ---
@@ -1720,22 +1663,6 @@ try:
     logger.info("Crop Recommendation API loaded successfully")
 except Exception as e:
     logger.warning(f"Could not load Crop Recommendation API: {e}")
-
-# Include Hyperparameter Optimization Router
-try:
-    from routers.hyperparameter_optimizer import router as hyperopt_router
-    app.include_router(hyperopt_router)
-    logger.info("Hyperparameter Optimization API loaded successfully")
-except Exception as e:
-    logger.warning(f"Could not load Hyperparameter Optimization API: {e}")
-
-# Include Regional Benchmarking Router
-try:
-    from routers.regional_benchmarking import router as regional_benchmarking_router
-    app.include_router(regional_benchmarking_router)
-    logger.info("Regional Benchmarking API loaded successfully")
-except Exception as e:
-    logger.warning(f"Could not load Regional Benchmarking API: {e}")
 
 if __name__ == "__main__":
     import uvicorn
