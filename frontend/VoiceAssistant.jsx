@@ -1,9 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import './VoiceAssistant.css';
 import apiClient from './lib/apiClient';
+import { parseVoiceNavigation } from './lib/voiceNavigation';
 import { Mic, MicOff, Wheat, User, Bot, Zap, AlertTriangle, Trash2, Lightbulb, Smartphone, Loader2, Send, CheckCircle } from 'lucide-react';
 
 const VoiceAssistant = () => {
+  const navigate = useNavigate();
   const [isListening, setIsListening] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [language, setLanguage] = useState('hi');
@@ -15,6 +18,7 @@ const VoiceAssistant = () => {
   const messagesEndRef = useRef(null);
   const recognitionRef = useRef(null);
   const audioContextRef = useRef(null);
+
 
   // Language labels
   const languages = {
@@ -115,8 +119,67 @@ const VoiceAssistant = () => {
   };
 
   const processQuery = async (query) => {
-    if (!query.trim() || !sessionId) {
-      setError('Please provide a query and ensure session is active');
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setError('Please provide a query');
+      return;
+    }
+
+    // Add user message to chat immediately
+    const userMessage = {
+      id: `user_${Date.now()}`,
+      type: 'user',
+      text: trimmed,
+      language: language,
+      timestamp: new Date().toLocaleTimeString(),
+    };
+    setMessages((prev) => [...prev, userMessage]);
+
+    // 1) Intercept navigation commands locally (fast)
+    const nav = parseVoiceNavigation(trimmed);
+    if (nav.type === 'back') {
+      navigate(-1);
+      const assistantText = 'Going back';
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant_${Date.now()}`,
+          type: 'assistant',
+          text: assistantText,
+          intent: 'navigation_back',
+          language: language,
+          offline: false,
+          timestamp: new Date().toLocaleTimeString(),
+        },
+      ]);
+      speakResponse(assistantText, language);
+      setInputText('');
+      return;
+    }
+
+    if (nav.type === 'navigate') {
+      navigate(nav.path);
+      const assistantText = `Opening ${nav.path.replace('/', '').replace('-', ' ')}`;
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant_${Date.now()}`,
+          type: 'assistant',
+          text: assistantText,
+          intent: 'navigation_open_route',
+          language: language,
+          offline: false,
+          timestamp: new Date().toLocaleTimeString(),
+        },
+      ]);
+      speakResponse(assistantText, language);
+      setInputText('');
+      return;
+    }
+
+    // 2) Otherwise, fall back to backend voice assistant for farm guidance
+    if (!sessionId) {
+      setError('Voice session not ready yet. Please try again in a moment.');
       return;
     }
 
@@ -124,26 +187,14 @@ const VoiceAssistant = () => {
     setError(null);
 
     try {
-      // Add user message to chat
-      const userMessage = {
-        id: `user_${Date.now()}`,
-        type: 'user',
-        text: query,
-        language: language,
-        timestamp: new Date().toLocaleTimeString(),
-      };
-      setMessages((prev) => [...prev, userMessage]);
-
-      // Send query to backend
       const response = await apiClient.post('/api/voice/query', {
-        transcript: query,
+        transcript: trimmed,
         language_code: language,
         session_id: sessionId,
       });
 
       const data = response.data;
 
-      // Add assistant response
       const assistantMessage = {
         id: `assistant_${Date.now()}`,
         type: 'assistant',
@@ -155,7 +206,6 @@ const VoiceAssistant = () => {
       };
       setMessages((prev) => [...prev, assistantMessage]);
 
-      // Text-to-speech (optional)
       speakResponse(data.response_text, language);
     } catch (err) {
       console.error('Query processing error:', err);
@@ -165,6 +215,7 @@ const VoiceAssistant = () => {
       setInputText('');
     }
   };
+
 
   const speakResponse = (text, lang) => {
     const utterance = new SpeechSynthesisUtterance(text);
