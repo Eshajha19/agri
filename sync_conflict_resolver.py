@@ -4,11 +4,14 @@ Handles concurrent updates, version tracking, and conflict resolution
 """
 
 import logging
+from collections import deque
 from enum import Enum
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
 import hashlib
 import json
+
+CONFLICT_LOG_MAX_ENTRIES = 1000
 
 logger = logging.getLogger(__name__)
 
@@ -232,7 +235,7 @@ class ConflictResolver:
     
     def __init__(self, strategy: ConflictResolutionStrategy = ConflictResolutionStrategy.LAST_WRITE_WINS):
         self.strategy = strategy
-        self.conflict_log: List[Dict] = []
+        self.conflict_log: deque = deque(maxlen=CONFLICT_LOG_MAX_ENTRIES)
     
     def resolve(
         self,
@@ -440,7 +443,7 @@ class ConflictResolver:
 
     def get_conflict_log(self) -> List[Dict]:
         """Get conflict resolution log"""
-        return self.conflict_log.copy()
+        return list(self.conflict_log)
 
 
 class CRDTResolver:
@@ -537,35 +540,6 @@ class CRDTResolver:
         )
 
         return merged_version, conflicting
-    
-    def _log_conflict(
-        self,
-        strategy: str,
-        local: DocumentVersion,
-        server: DocumentVersion,
-        resolved: DocumentVersion
-    ) -> None:
-        """Log conflict resolution for audit trail"""
-        self.conflict_log.append({
-            "strategy": strategy,
-            "timestamp": datetime.now().isoformat(),
-            "doc_id": local.doc_id,
-            "local_client": local.client_id,
-            "server_client": server.client_id,
-            "resolved_client": resolved.client_id,
-            "local_checksum": local.checksum,
-            "server_checksum": server.checksum,
-            "resolved_checksum": resolved.checksum
-        })
-        
-        logger.info(
-            f"Conflict resolved: doc={local.doc_id}, "
-            f"strategy={strategy}, winner={resolved.client_id}"
-        )
-    
-    def get_conflict_log(self) -> List[Dict]:
-        """Get conflict resolution log"""
-        return self.conflict_log.copy()
 
 
 class SyncManager:
