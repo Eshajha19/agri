@@ -16,6 +16,8 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
+from backend.utils.numeric_validation import validate_numeric_bounds
+
 from fastapi import FastAPI, HTTPException, Request, Form, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -95,7 +97,9 @@ from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
 from csrf_protection import generate_token, reject_cross_origin
+from ml.security import verify_and_load_joblib
 from error_recovery_middleware import ErrorRecoveryMiddleware
+from security_hygiene import RuntimeProtectionMiddleware
 from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, resolve_subscription_regions, normalize_region_identifier
 from notification_auth import filter_notifications_for_user
 from realtime_notifications import notification_broker
@@ -138,6 +142,7 @@ class ContextFilter(logging.Filter):
 # Configure structured logging with detailed formatting
 _context_filter = ContextFilter()
 _handler = logging.StreamHandler()
+_handler.addFilter(_context_filter)
 _formatter = logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - [%(context)s] - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
@@ -198,6 +203,17 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Repositories initialized")
     except Exception as exc:
         logger.error("❌ Repository initialization failed: %s", exc, exc_info=True)
+        raise
+
+    try:
+        logger.info("🧹 Registering GDPR post-deletion hooks...")
+        def clear_in_memory_notifications(uid: str):
+            removed = _notification_store.remove_by_uid(uid)
+            logger.info("GDPR Cleanup: Removed %d in-memory notifications for user %s", removed, uid)
+        gdpr_deletion_manager.register_post_deletion_hook(clear_in_memory_notifications)
+        logger.info("✅ GDPR post-deletion hooks registered")
+    except Exception as exc:
+        logger.error("❌ GDPR hook registration failed: %s", exc, exc_info=True)
         raise
 
     try:
@@ -281,7 +297,9 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("RAG init skipped: %s", exc)
 
-    knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
+    app.state.verify_role_fn = verify_role
+    app.state.rag_generate_fn = rag_generate_fn
+    app.state.seed_registry = {"TEST001": {"verified": True}}
     alerts.init_alerts(
         [],
         subscriber_store,
@@ -319,22 +337,20 @@ async def lifespan(app: FastAPI):
 
     try:
         logger.info("🧠 Loading ML models...")
-        import joblib as _joblib
-        model_lag = _joblib.load("sklearn_yield_model.joblib")
-        logger.info("✅ Sklearn yield model loaded")
+        model_lag = verify_and_load_joblib("sklearn_yield_model.joblib")
+        logger.info("✅ Sklearn yield model loaded and signature verified")
     except Exception as exc:
-        logger.warning("Sklearn yield model not found: %s", exc)
+        logger.warning("Sklearn yield model not found or signature invalid: %s", exc)
         model_lag = None
 
     model_trend = None
     try:
         if os.path.exists("trend_forecast_model.joblib"):
             logger.info("📈 Loading trend forecast model...")
-            import joblib as _joblib2
-            model_trend = _joblib2.load("trend_forecast_model.joblib")
-            logger.info("✅ Trend forecast model loaded successfully")
+            model_trend = verify_and_load_joblib("trend_forecast_model.joblib")
+            logger.info("✅ Trend forecast model loaded and signature verified")
     except Exception as exc:
-        logger.warning("Trend forecast model loading failed: %s", exc)
+        logger.warning("Trend forecast model loading failed or signature invalid: %s", exc)
         model_trend = None
 
     try:
@@ -585,38 +601,15 @@ def _coerce_prediction_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
             detail=f"Unknown field(s): {', '.join(sorted(extra))}",
         )
 
-    numeric_fields = {
-        "N",
-        "P",
-        "K",
-        "ph",
-        "pH",
-        "CropCoveredArea",
-        "CHeight",
-        "IrriCount",
-        "WaterCov",
-        "temperature",
-        "rainfall",
-        "humidity",
-    }
+    numeric_fields = [
+        "N", "P", "K", "ph", "pH",
+        "CropCoveredArea", "CHeight", "IrriCount", "WaterCov",
+        "temperature", "rainfall", "humidity",
+    ]
 
-    for field in numeric_fields:
-        if field not in sanitized or sanitized[field] is None:
-            continue
-
-        try:
-            numeric_value = float(sanitized[field])
-        except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail=f"Invalid value for '{field}'")
-
-        if not math.isfinite(numeric_value):
-            raise HTTPException(status_code=400, detail=f"Invalid value for '{field}'")
-
-        sanitized[field] = numeric_value
-
-    for field in ("ph", "pH"):
-        if field in sanitized and not (0 <= sanitized[field] <= 14):
-            raise HTTPException(status_code=400, detail="Invalid pH")
+    # Delegate inf / NaN / pH-bounds validation to the shared utility so
+    # the logic is not duplicated across routers.
+    sanitized = validate_numeric_bounds(sanitized, numeric_fields)
 
     return sanitized
 
@@ -1342,17 +1335,14 @@ def get_signing_keys():
 
 
 def init_ml_pipeline() -> None:
-    try:
-        xgb_adapter = XGBoostAdapter()
-        model_path = "yield_model.joblib"
-        if os.path.exists(model_path):
-            xgb_adapter.load(model_path)
-            ModelRegistry.register("xgboost", xgb_adapter)
-            logger.info("ML Pipeline: Registered XGBoost model")
-        else:
-            logger.warning("ML Pipeline: %s not found", model_path)
-    except Exception as exc:
-        logger.warning("ML Pipeline initialization failed: %s", exc)
+    xgb_adapter = XGBoostAdapter()
+    model_path = "yield_model.joblib"
+    if os.path.exists(model_path):
+        xgb_adapter.load(model_path)
+        ModelRegistry.register("xgboost", xgb_adapter)
+        logger.info("ML Pipeline: Registered XGBoost model")
+    else:
+        logger.warning("ML Pipeline: %s not found, skipping registration", model_path)
 
 
 # Observability setup
@@ -1439,7 +1429,26 @@ app.add_middleware(
 )
 import csrf_protection as _csrf
 _csrf.configure(_CORS_ORIGINS)
+
+@app.middleware("http")
+async def csrf_middleware(request: Request, call_next):
+    if request.method not in ("GET", "HEAD", "OPTIONS") and request.scope.get("type") == "http":
+        if not request.url.path.startswith("/api/whatsapp/webhook"):
+            from fastapi.responses import JSONResponse
+            try:
+                await verify_csrf_token_dependency(request)
+            except HTTPException as exc:
+                return JSONResponse(
+                    status_code=exc.status_code,
+                    content={"detail": exc.detail}
+                )
+    return await call_next(request)
+
 app.add_middleware(RBACMiddleware)
+app.add_middleware(
+    RuntimeProtectionMiddleware,
+    exclude_paths=["/docs", "/openapi.json", "/static", "/api/crop-disease/analyze-image", "/api/quality/assess", "/api/gemini/analyze-image"]
+)
 logger.info(print_rbac_matrix())
 
 # Import the voice assistant router at module level so app.include_router() can
