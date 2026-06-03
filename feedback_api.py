@@ -207,9 +207,14 @@ async def validate_request(request: Request) -> dict:
         raise HTTPException(status_code=415, detail="Unsupported media type")
     
     # Check request size
-    content_length = request.headers.get("content-length", 0)
-    if int(content_length) > 10240:  # 10KB max
-        raise HTTPException(status_code=413, detail="Request too large")
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            length_int = int(content_length)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid Content-Length header")
+        if length_int > 10240:  # 10KB max
+            raise HTTPException(status_code=413, detail="Request too large")
     
     return {}
 
