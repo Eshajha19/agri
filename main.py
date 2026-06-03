@@ -304,6 +304,15 @@ async def lifespan(app: FastAPI):
         logger.error("❌ Marketplace/LMS initialization failed: %s", exc, exc_info=True)
         raise
 
+    try:
+        logger.info("💰 Initializing price prediction engine...")
+        from routers.price_prediction import init_price_prediction
+        init_price_prediction(db_firestore)
+        logger.info("✅ Price prediction engine initialized")
+    except Exception as exc:
+        logger.error("❌ Price prediction initialization failed: %s", exc, exc_info=True)
+        raise
+
     if db_firestore:
         try:
             logger.info("🔄 Backfilling Firebase role claims...")
@@ -1711,6 +1720,14 @@ try:
     logger.info("Hyperparameter Optimization API loaded successfully")
 except Exception as e:
     logger.warning(f"Could not load Hyperparameter Optimization API: {e}")
+
+# Include Price Prediction Router
+try:
+    from routers.price_prediction import router as price_prediction_router
+    app.include_router(price_prediction_router)
+    logger.info("Price Prediction API loaded successfully")
+except Exception as e:
+    logger.warning(f"Could not load Price Prediction API: {e}")
 
 if __name__ == "__main__":
     import uvicorn

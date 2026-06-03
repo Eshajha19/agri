@@ -654,5 +654,91 @@ def run_hyperparameter_optimization_task(
     }
 
 
+@celery_app.task(
+    bind=True,
+    name="run_price_forecast_task",
+    time_limit=300,
+    soft_time_limit=240,
+)
+def run_price_forecast_task(self, crops: Optional[List[str]] = None):
+    """
+    Generate price forecasts for all major crops or specified list.
+    """
+    try:
+        from ml.price_forecaster import get_price_forecaster
+
+        forecaster = get_price_forecaster()
+
+        if crops is None:
+            crops = list(forecaster._CROP_BASE_PRICES.keys())
+
+        results = []
+        for crop in crops:
+            self.update_state(
+                state="PROGRESS",
+                meta={"crop": crop, "progress": f"{crops.index(crop) + 1}/{len(crops)}"},
+            )
+            result = forecaster.forecast(crop, days=14)
+            results.append(result)
+
+        return {
+            "success": True,
+            "crops_forecasted": len(results),
+            "results": results,
+        }
+
+    except Exception:
+        logger.exception("Price forecast task failed")
+        raise
+
+
+@celery_app.task(
+    bind=True,
+    name="check_price_alerts_task",
+    time_limit=300,
+    soft_time_limit=240,
+)
+def check_price_alerts_task(self):
+    """
+    Evaluate farmer price alerts and send WhatsApp notifications for triggered thresholds.
+    """
+    try:
+        self.update_state(state="PROGRESS", meta={"step": "loading_forecaster"})
+
+        from ml.price_forecaster import get_price_forecaster
+        from whatsapp_service import send_whatsapp_message
+
+        forecaster = get_price_forecaster()
+
+        # Initialize Firebase if needed
+        import firebase_admin
+        from firebase_admin import firestore
+
+        db = None
+        if firebase_admin._apps:
+            db = firestore.client()
+        else:
+            try:
+                firebase_admin.initialize_app()
+                db = firestore.client()
+            except Exception:
+                logger.warning("Firebase not available for price alert check")
+                return {"status": "firebase_unavailable", "triggered": 0}
+
+        self.update_state(state="PROGRESS", meta={"step": "evaluating_alerts"})
+
+        triggered = forecaster.check_alerts(db, send_whatsapp_message)
+
+        return {
+            "success": True,
+            "triggered": len(triggered),
+            "alerts": triggered,
+        }
+
+    except Exception:
+        logger.exception("Price alert check failed")
+        raise
+
+
 if __name__ == "__main__":
     celery_app.start()
