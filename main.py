@@ -1729,6 +1729,14 @@ try:
 except Exception as e:
     logger.warning(f"Could not load Hyperparameter Optimization API: {e}")
 
+# Include Ensemble Forecaster Router
+try:
+    from routers.ensemble_forecaster import router as ensemble_router
+    app.include_router(ensemble_router)
+    logger.info("Ensemble Forecaster API loaded successfully")
+except Exception as e:
+    logger.warning(f"Could not load Ensemble Forecaster API: {e}")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
