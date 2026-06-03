@@ -51,3 +51,4 @@ export const NotFound = lazyPage(() => import('../NotFound'));
 export const RetrainingPipelineMonitor = lazyPage(() => import('../RetrainingPipelineMonitor'));
 export const PredictionExplainer = lazyPage(() => import('../PredictionExplainer'));
 export const FeatureDriftMonitor = lazyPage(() => import('../FeatureDriftMonitor'));
+export const CropInsuranceClaim = lazyPage(() => import('../CropInsuranceClaim'));

@@ -27,6 +27,18 @@ from typing import Callable, Dict, List, Optional
 import firebase_admin
 from fastapi import HTTPException, Request, status
 from starlette.middleware.base import BaseHTTPMiddleware
+
+__all__ = [
+    "RBACManager",
+    "Permission",
+    "RBACMiddleware",
+    "RBACMatrix",
+    "AuthContext",
+    "Role",
+    "require_permission",
+    "print_rbac_matrix",
+]
+
 from firebase_admin import auth as firebase_auth, firestore
 
 logger = logging.getLogger(__name__)
@@ -365,11 +377,13 @@ class RBACManager:
         loop = asyncio.get_running_loop()
 
         try:
-            # Offload synchronous Firebase Admin SDK call to thread pool so
-            # the event loop remains free to serve other concurrent requests.
-            decoded_token = await loop.run_in_executor(
-                None, firebase_auth.verify_id_token, token
-            )
+            decoded_token = firebase_auth.verify_id_token(token, check_revoked=True)
+        except firebase_auth.RevokedIdTokenError as exc:
+            logger.error("Token revoked: %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session revoked. Please sign in again.",
+            ) from exc
         except Exception as exc:
             logger.error("Token verification failed: %s", exc)
             raise HTTPException(

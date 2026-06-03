@@ -133,22 +133,31 @@ def _enforce_redis(
     window_seconds: int,
     request: Request,
 ) -> Optional[JSONResponse]:
-    """Redis-backed fixed-window rate limit using atomic INCR + EXPIRE.
+    """Redis-backed fixed-window rate limit using an atomic Lua script.
 
-    Uses a pipeline to increment the counter and set the expiry in a single
-    round-trip.  The INCR-then-EXPIRE pattern is not perfectly atomic (a
-    process crash between the two commands would leave a key without expiry),
-    but it is safe enough for rate limiting where the worst case is a counter
-    that persists one extra window.  For strict atomic semantics a Lua script
-    or a Redis transaction could be used.
+    The Lua script increments the counter and conditionally sets the TTL in
+    a single atomic operation.  This avoids the INCR-then-EXPIRE race where a
+    process crash between the two pipeline commands left the key without a TTL,
+    permanently locking the affected user or IP until manual key deletion.
+
+    Lua guarantees:
+    - If the key did not exist, INCR creates it with count=1 and EXPIRE sets
+      the window TTL atomically.
+    - If the key already exists (window still active), only INCR is executed;
+      the existing TTL is preserved.
     """
+    _LUA_INCR_WITH_EXPIRE = """
+local current = redis.call("INCR", KEYS[1])
+if current == 1 then
+    redis.call("EXPIRE", KEYS[1], ARGV[1])
+end
+return current
+"""
     try:
-        pipe = _redis_client.pipeline()
-        pipe.incr(key)
-        pipe.expire(key, window_seconds)
-        count, _ = pipe.execute()
+        count = _redis_client.eval(
+            _LUA_INCR_WITH_EXPIRE, 1, key, window_seconds
+        )
         if count > limit:
-            # Remaining TTL for Retry-After header.
             ttl = _redis_client.ttl(key)
             retry_after = max(1, ttl if ttl > 0 else window_seconds)
             return build_compute_rate_limit_response(

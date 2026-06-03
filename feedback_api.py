@@ -23,6 +23,7 @@ from rate_limit_config import build_limiter, rate_limit_exceeded_handler
 
 # Import our validator
 from feedback_validation import FeedbackValidator
+from csrf_protection import verify_csrf_token_dependency
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -87,7 +88,9 @@ async def verify_firebase_token(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Missing authentication token")
 
     try:
-        decoded = firebase_auth.verify_id_token(id_token)
+        decoded = firebase_auth.verify_id_token(id_token, check_revoked=True)
+    except firebase_auth.RevokedIdTokenError:
+        raise HTTPException(status_code=401, detail="Session revoked. Please sign in again.")
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired authentication token")
 
@@ -204,9 +207,14 @@ async def validate_request(request: Request) -> dict:
         raise HTTPException(status_code=415, detail="Unsupported media type")
     
     # Check request size
-    content_length = request.headers.get("content-length", 0)
-    if int(content_length) > 10240:  # 10KB max
-        raise HTTPException(status_code=413, detail="Request too large")
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            length_int = int(content_length)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid Content-Length header")
+        if length_int > 10240:  # 10KB max
+            raise HTTPException(status_code=413, detail="Request too large")
     
     return {}
 
@@ -249,9 +257,9 @@ async def verify_admin(request: Request) -> dict:
 
     # Offload blocking Firebase SDK call to thread pool.
     try:
-        decoded = await loop.run_in_executor(
-            None, lambda: firebase_auth.verify_id_token(id_token)
-        )
+        decoded = firebase_auth.verify_id_token(id_token, check_revoked=True)
+    except firebase_auth.RevokedIdTokenError:
+        raise HTTPException(status_code=401, detail="Session revoked. Please sign in again.")
     except Exception:
         raise HTTPException(status_code=401, detail="Authentication failed")
 
@@ -288,7 +296,7 @@ async def root(request: Request):
     }
 
 
-@app.post("/api/feedback", response_model=FeedbackResponse)
+@app.post("/api/feedback", response_model=FeedbackResponse, dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("5/minute")
 async def submit_feedback(
     feedback: FeedbackRequest,
@@ -427,7 +435,11 @@ async def get_feedback_stats(
         # Strip PII fields before returning to the caller.
         # Use the module-level _PII_FIELDS constant — avoids shadowing it
         # with a local re-definition that could silently diverge over time.
-        recent_raw = feedbacks[-10:] if len(feedbacks) > 10 else feedbacks
+        # Sort by timestamp descending before slicing so recent_feedbacks
+        # always contains the 10 most recently submitted entries, not an
+        # arbitrary tail of whatever order Firestore stream() returned.
+        feedbacks.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+        recent_raw = feedbacks[:10]
         recent = [
             {k: v for k, v in entry.items() if k not in _PII_FIELDS}
             for entry in recent_raw
@@ -504,22 +516,30 @@ async def validate_test(request: Request):
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
     """Handle HTTP exceptions"""
-    return {
-        "success": False,
-        "error": exc.detail,
-        "status_code": exc.status_code
-    }
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            "error": exc.detail,
+            "status_code": exc.status_code
+        }
+    )
 
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request, exc):
     """Handle general exceptions"""
+    from fastapi.responses import JSONResponse
     logger.error(f"Unhandled exception: {exc}")
-    return {
-        "success": False,
-        "error": "Internal server error",
-        "status_code": 500
-    }
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "error": "Internal server error",
+            "status_code": 500
+        }
+    )
 
 
 if __name__ == "__main__":
