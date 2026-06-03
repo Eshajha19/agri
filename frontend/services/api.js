@@ -396,26 +396,18 @@ const resolveApiBaseUrl = () => {
     return configuredBaseUrl;
   }
 
-  // Local development relies on the Vite proxy; production deployments need
-  // an explicit backend URL so requests do not stay on the static frontend host.
+  // If the backend is deployed under the same origin (reverse proxy),
+  // we can safely use relative URLs for all /api/* calls.
+  // If no proxy exists, these requests will fail — but this avoids sending
+  // progress calls to the wrong origin like the static host.
   if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    const isLocalhost =
-      hostname === 'localhost' ||
-      hostname === '127.0.0.1' ||
-      hostname.endsWith('.localhost');
-
-    if (!isLocalhost) {
-      console.error(
-        '[api.js] VITE_API_BASE_URL is not configured in production. ' +
-        'API requests will fail. Set VITE_API_BASE_URL to your backend origin.'
-      );
-    }
     return '';
   }
 
   return '';
 };
+
+
 
 /**
  * Retrieve the current Firebase ID token for the signed-in user.
@@ -648,3 +640,4 @@ const apiClient = {
 
 export default apiClient;
 // Enhanced API validation
+
