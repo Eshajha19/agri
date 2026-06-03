@@ -305,12 +305,12 @@ async def lifespan(app: FastAPI):
         raise
 
     try:
-        logger.info("🎯 Initializing personalized advisory engine...")
-        from routers.personalized_advisory import init_personalized_advisory
-        init_personalized_advisory(db_firestore)
-        logger.info("✅ Personalized advisory engine initialized")
+        logger.info("💰 Initializing price prediction engine...")
+        from routers.price_prediction import init_price_prediction
+        init_price_prediction(db_firestore)
+        logger.info("✅ Price prediction engine initialized")
     except Exception as exc:
-        logger.error("❌ Personalized advisory initialization failed: %s", exc, exc_info=True)
+        logger.error("❌ Price prediction initialization failed: %s", exc, exc_info=True)
         raise
 
     if db_firestore:
@@ -1729,13 +1729,13 @@ try:
 except Exception as e:
     logger.warning(f"Could not load Hyperparameter Optimization API: {e}")
 
-# Include Ensemble Forecaster Router
+# Include Price Prediction Router
 try:
-    from routers.ensemble_forecaster import router as ensemble_router
-    app.include_router(ensemble_router)
-    logger.info("Ensemble Forecaster API loaded successfully")
+    from routers.price_prediction import router as price_prediction_router
+    app.include_router(price_prediction_router)
+    logger.info("Price Prediction API loaded successfully")
 except Exception as e:
-    logger.warning(f"Could not load Ensemble Forecaster API: {e}")
+    logger.warning(f"Could not load Price Prediction API: {e}")
 
 if __name__ == "__main__":
     import uvicorn
