@@ -2,12 +2,17 @@
 import os
 import asyncio
 import itertools
+import io
+import json
 import logging
 import math
 import re
+import joblib
+import hashlib
 import collections
 import threading
 import time
+import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
@@ -45,11 +50,15 @@ class RAGQuery(BaseModel):
     top_k: int = Field(default=3, ge=1, le=5)
 
 # Rate Limiting
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
 from rate_limit_config import build_limiter, rate_limit_exceeded_handler
 
 import firebase_admin
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from firebase_admin import auth, credentials, firestore, storage
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -85,7 +94,7 @@ from ml.preprocessing import UnknownCategoryError, MissingFeatureError
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
-from csrf_protection import generate_token, reject_cross_origin
+from csrf_protection import generate_token, reject_cross_origin, verify_csrf_token_dependency
 from ml.security import verify_and_load_joblib
 from error_recovery_middleware import ErrorRecoveryMiddleware
 from security_hygiene import RuntimeProtectionMiddleware
@@ -105,7 +114,10 @@ from weather_alerts import weather_service
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
+from cryptography.hazmat.primitives.asymmetric import ed25519
+from cryptography.hazmat.primitives import serialization
 
 # KMS Support
 try:
@@ -142,20 +154,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 logger.addFilter(_context_filter)
-
-# Optional voice assistant router.
-# Declared here, before the lifespan function, so both the lifespan
-# startup handler (which calls init_voice_assistant) and the module-level
-# app.include_router call below can reference the same variable. If the
-# import fails the variable stays None and all call sites guard with
-# "if voice_assistant_router is not None" before use.
-voice_assistant_router = None
-
-try:
-    from backend.routers import voice_assistant as voice_assistant_router
-except Exception as exc:
-    logger.warning("Voice assistant router import skipped: %s", exc)
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -1476,6 +1474,143 @@ app.add_middleware(
     exclude_paths=["/docs", "/openapi.json", "/static", "/api/crop-disease/analyze-image", "/api/quality/assess", "/api/gemini/analyze-image"]
 )
 logger.info(print_rbac_matrix())
+
+# Import the voice assistant router at module level so app.include_router() can
+# reference it during router registration below. Its internal state is
+# initialized inside lifespan (above) once all domain engines are ready.
+# =============================================================================
+# OPTIONAL VOICE ASSISTANT ROUTER IMPORT
+# =============================================================================
+#
+# The voice assistant module is treated as an OPTIONAL feature.
+#
+# Why?
+#
+# In production systems some features may depend on:
+#
+# - extra ML libraries
+# - speech models
+# - external APIs
+# - GPU dependencies
+# - audio processing packages
+#
+# If any dependency is missing, importing the router could crash
+# the entire FastAPI application during startup.
+#
+# This defensive import pattern prevents total backend failure.
+#
+# -----------------------------------------------------------------------------
+# WHAT THIS CODE DOES
+# -----------------------------------------------------------------------------
+#
+# 1. Initializes the variable as None
+#
+#       voice_assistant_router = None
+#
+# This guarantees the variable always exists even if import fails.
+#
+# -----------------------------------------------------------------------------
+# 2. Attempts to import the optional router
+#
+#       from backend.routers import voice_assistant as voice_assistant_router
+#
+# If successful:
+#
+# - voice assistant APIs become available
+# - routes can later be registered safely
+#
+# -----------------------------------------------------------------------------
+# 3. Handles import failure gracefully
+#
+# If the import crashes because of:
+#
+# - missing package
+# - syntax error
+# - model loading failure
+# - missing environment variable
+# - incompatible dependency
+#
+# the backend DOES NOT crash.
+#
+# Instead:
+#
+#       logger.warning(...)
+#
+# records the issue in logs while allowing the rest
+# of the API system to continue working normally.
+#
+# -----------------------------------------------------------------------------
+# WHY THIS IS GOOD PRACTICE
+# -----------------------------------------------------------------------------
+#
+# Benefits:
+#
+# - improves backend reliability
+# - prevents startup crashes
+# - supports modular architecture
+# - allows optional AI features
+# - safer deployments
+# - easier debugging
+#
+# This pattern is commonly used in:
+#
+# - plugin systems
+# - AI microservices
+# - enterprise APIs
+# - feature-flag architectures
+#
+# -----------------------------------------------------------------------------
+# IMPORTANT NOTE
+# -----------------------------------------------------------------------------
+#
+# Because the router may remain None,
+# route registration MUST check:
+#
+#       if voice_assistant_router is not None:
+#
+# before calling:
+#
+#       app.include_router(...)
+#
+# Otherwise FastAPI may crash with:
+#
+#       AttributeError
+#
+# -----------------------------------------------------------------------------
+# EXAMPLE FLOW
+# -----------------------------------------------------------------------------
+#
+# SUCCESS CASE:
+#
+#   Import succeeds
+#   -> router loads
+#   -> APIs enabled
+#
+# FAILURE CASE:
+#
+#   Import fails
+#   -> warning logged
+#   -> backend still starts
+#   -> voice APIs disabled only
+#
+# -----------------------------------------------------------------------------
+# FINAL RESULT
+# -----------------------------------------------------------------------------
+#
+# This is a safe and production-friendly optional import pattern.
+#
+# =============================================================================
+
+voice_assistant_router = None
+
+try:
+    from backend.routers import voice_assistant as voice_assistant_router
+
+except Exception as exc:
+    logger.warning(
+        "Voice assistant router import skipped: %s",
+        exc
+    )
 
 # Router registration
 app.include_router(ml.router, prefix="/api/yield", tags=["ML Prediction"])
