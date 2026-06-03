@@ -654,5 +654,40 @@ def run_hyperparameter_optimization_task(
     }
 
 
+@celery_app.task(
+    bind=True,
+    name="ensemble_forecast_task",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 2},
+    soft_time_limit=30,
+    time_limit=35,
+)
+def ensemble_forecast_task(self, input_data: dict, steps: int = 1):
+    """
+    Async ensemble prediction with confidence intervals.
+    """
+    try:
+        from ml.ensemble import get_ensemble_stacker
+
+        stacker = get_ensemble_stacker()
+
+        if steps == 1:
+            result = stacker.predict(input_data)
+        else:
+            result = stacker.multi_step_forecast(input_data, steps=steps)
+
+        return {
+            "success": True,
+            "forecast": result,
+            "steps": steps,
+        }
+
+    except Exception:
+        logger.exception("Ensemble forecast task failed")
+        raise
+
+
 if __name__ == "__main__":
     celery_app.start()
