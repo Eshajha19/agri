@@ -268,8 +268,11 @@
   color: #e2e8f0;
 }
 
-.myth-body {
-  padding: 16px;
+.myth-statement,
+.fact-statement,
+.reference-statement {
+  margin-bottom: 12px;
+  line-height: 1.5;
 }
 
 .myth-statement {
@@ -282,6 +285,18 @@
   color: #059669;
   font-weight: 650;
   line-height: 1.55;
+}
+
+.reference-statement {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  border-top: 1px dashed var(--border-light);
+  padding-top: 8px;
+  margin-top: 8px;
+}
+
+.reference-text {
+  font-style: italic;
 }
 
 .myth-fact-hidden {
