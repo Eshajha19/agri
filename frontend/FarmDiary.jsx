@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { toast } from 'react-toastify';
@@ -37,65 +37,30 @@ export default function FarmDiary({ onClose }) {
     reminderDate: '',
     isCompleted: true
   });
-  const mountedRef = useRef(true);
 
   // Load entries from localStorage on mount
   useEffect(() => {
-    mountedRef.current = true;
-
-    const requestId = ++saveRequestRef.current;
-
-    const saved = loadVersionedArray(
-      DIARY_STORAGE_KEY,
-      {
-        version: DIARY_STORAGE_VERSION,
-        fallback: [],
-        maxItems: MAX_DIARY_ENTRIES,
-      }
-    );
-
-    if (
-      mountedRef.current &&
-      requestId === saveRequestRef.current
-    ) {
-      setEntries(
-        saved.sort(
-          (a, b) =>
-            new Date(b.date) - new Date(a.date)
-        )
-      );
-    }
-
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  // Save to localStorage whenever entries change
-useEffect(() => {
-  mountedRef.current = true;
-
-  const saved = loadVersionedArray(
-    DIARY_STORAGE_KEY,
-    {
+    const saved = loadVersionedArray(DIARY_STORAGE_KEY, {
       version: DIARY_STORAGE_VERSION,
       fallback: [],
       maxItems: MAX_DIARY_ENTRIES,
+    });
+
+    setEntries(saved.sort((a, b) => new Date(b.date) - new Date(a.date)));
+  }, []);
+
+  // Save to localStorage whenever entries change
+  useEffect(() => {
+    const sortedEntries = [...entries].sort((a, b) => new Date(b.date) - new Date(a.date));
+    const saved = saveVersionedArray(DIARY_STORAGE_KEY, sortedEntries, {
+      version: DIARY_STORAGE_VERSION,
+      maxItems: MAX_DIARY_ENTRIES,
+    });
+
+    if (!saved) {
+      console.warn('Diary persistence skipped because localStorage quota is full.');
     }
-  );
-
-  if (mountedRef.current) {
-    setEntries(
-      saved.sort(
-        (a, b) => new Date(b.date) - new Date(a.date)
-      )
-    );
-  }
-
-  return () => {
-    mountedRef.current = false;
-  };
-}, []);
+  }, [entries]);
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -109,39 +74,25 @@ useEffect(() => {
     e.preventDefault();
     if (!formData.date || !formData.notes || !formData.activityType) {
       toast.error('Please fill in required fields (Date, Type, Notes)');
-      saveInProgressRef.current = false;
       return;
     }
-    if (saveInProgressRef.current) {
-      return;
-    }
-
-    saveInProgressRef.current = true;
 
     if (editingId) {
-      setEntries(prev =>
-        prev.map(entry =>
-          entry.id === editingId
-            ? { ...formData, id: editingId }
-            : entry
-        )
-      );
+      setEntries(entries.map(entry => 
+        entry.id === editingId ? { ...formData, id: editingId } : entry
+      ));
       toast.success('Entry updated successfully!');
     } else {
       const newEntry = {
         ...formData,
         id: Date.now().toString(),
       };
-      setEntries(prev =>
-        [newEntry, ...prev].sort(
-          (a, b) => new Date(b.date) - new Date(a.date)
-        )
-      );
+      setEntries([newEntry, ...entries].sort((a, b) => new Date(b.date) - new Date(a.date)));
+      toast.success('New activity logged!');
     }
     
     resetForm();
-    saveInProgressRef.current = false;
-    };
+  };
 
   const handleEdit = (entry) => {
     setFormData(entry);
@@ -167,9 +118,7 @@ useEffect(() => {
     }));
   };
 
-  const resetForm = useCallback(() => {
-    if (!mountedRef.current) return;
-
+  const resetForm = () => {
     setFormData({
       date: new Date().toISOString().split('T')[0],
       activityType: 'Sowing',
@@ -178,11 +127,10 @@ useEffect(() => {
       reminderDate: '',
       isCompleted: true
     });
-
     setEditingId(null);
     setShowForm(false);
-  }, []);
-  
+  };
+
   const generatePDF = () => {
     if (entries.length === 0) {
       toast.warning('No entries to export');
@@ -335,7 +283,7 @@ useEffect(() => {
                 onChange={handleInputChange}
                 className="diary-input"
               />
-            </div>
+            </div>Expand commentComment on lines R217 to R278Resolved
           </div>
 
           <div className="form-actions">
