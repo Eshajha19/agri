@@ -159,37 +159,71 @@ export default function FarmingMythChecker() {
   }, [query, verdictFilter]);
 
   return (
-    <div className="myth-checker-container">
-      <h2>🌱 Farming Myth vs Fact Checker</h2>
-      <p className="subtitle">
-        Separating agricultural truth from tradition
-      </p>
-      <div className="myths-grid">
-        {myths.map((item, idx) => (
-          <div key={idx} className="myth-card">
-            <div className="myth-header">
-              <span className="myth-icon">{item.icon}</span>
-              <h3>Myth #{idx + 1}</h3>
-            </div>
-            <div className="myth-body">
-              <p className="myth-statement">
-                <strong>Myth:</strong> {item.myth}
-              </p>
-              <p className="fact-statement">
-                <strong>Fact:</strong> {item.fact}
-              </p>
-              {item.reference && (
-                <p className="reference-statement">
-                  <strong>Source:</strong> <span className="reference-text">{item.reference}</span>
-                </p>
-              )}
-            </div>
-            <div className={`myth-footer verdict-${item.verdict}`}>
-              <span className="verdict-badge">
-                {item.verdict === "false" ? "❌ Myth" : 
-                 item.verdict === "true" ? "✅ Fact" : 
-                 "⚠️ Depends"}
-              </span>
+    <div className="myth-page">
+      <div className="myth-hero">
+        <div className="myth-hero__badge" aria-hidden="true">
+          🌾
+        </div>
+        <div>
+          <h2>Farming Myth vs Fact Checker</h2>
+          <p className="myth-hero__subtitle">
+            Separate agricultural truth from tradition—quickly.
+          </p>
+        </div>
+      </div>
+
+      <section className="myth-controls" aria-label="Myth checker controls">
+        <div className="myth-control">
+          <label htmlFor="myth-search" className="myth-control__label">
+            Search
+          </label>
+          <input
+            id="myth-search"
+            className="myth-control__input"
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Try: fertilizer, drip, organic..."
+            aria-label="Search myths"
+          />
+        </div>
+
+        <div className="myth-control">
+          <label htmlFor="myth-verdict" className="myth-control__label">
+            Verdict
+          </label>
+          <select
+            id="myth-verdict"
+            className="myth-control__input"
+            value={verdictFilter}
+            onChange={(e) => setVerdictFilter(e.target.value)}
+            aria-label="Filter by verdict"
+          >
+            <option value="all">All</option>
+            <option value="false">❌ Myth</option>
+            <option value="true">✅ Fact</option>
+            <option value="depends">⚠️ Depends</option>
+          </select>
+        </div>
+
+        <div className="myth-toggle" role="group" aria-label="Reveal facts">
+          <button
+            type="button"
+            className={`myth-toggle__btn ${revealFacts ? "is-on" : ""}`}
+            aria-pressed={revealFacts}
+            onClick={() => setRevealFacts((v) => !v)}
+          >
+            <span className="myth-toggle__dot" aria-hidden="true" />
+            <span>{revealFacts ? "Facts shown" : "Facts hidden"}</span>
+          </button>
+        </div>
+      </section>
+
+      <section className="myths-grid" aria-label="Myths list">
+        {filtered.length === 0 ? (
+          <div className="myth-empty" role="status" aria-live="polite">
+            <div className="myth-empty__icon" aria-hidden="true">
+              🔎
             </div>
             <h3>No matches</h3>
             <p>Try adjusting the search or verdict filter.</p>
