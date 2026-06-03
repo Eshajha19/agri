@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo, useState } from "react";
 import "./FarmingMythChecker.css";
 
 const myths = [
@@ -132,7 +132,32 @@ const myths = [
   }
 ];
 
+function verdictToLabel(verdict) {
+  if (verdict === "true") return "✅ Fact";
+  if (verdict === "false") return "❌ Myth";
+  return "⚠️ Depends";
+}
+
 export default function FarmingMythChecker() {
+  const [query, setQuery] = useState("");
+  const [verdictFilter, setVerdictFilter] = useState("all");
+  const [revealFacts, setRevealFacts] = useState(true);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+
+    return myths
+      .map((m, i) => ({ ...m, _idx: i }))
+      .filter((m) => {
+        if (verdictFilter !== "all" && m.verdict !== verdictFilter) return false;
+        if (!q) return true;
+        return (
+          m.myth.toLowerCase().includes(q) ||
+          m.fact.toLowerCase().includes(q)
+        );
+      });
+  }, [query, verdictFilter]);
+
   return (
     <div className="myth-checker-container">
       <h2>🌱 Farming Myth vs Fact Checker</h2>
@@ -166,9 +191,43 @@ export default function FarmingMythChecker() {
                  "⚠️ Depends"}
               </span>
             </div>
+            <h3>No matches</h3>
+            <p>Try adjusting the search or verdict filter.</p>
           </div>
-        ))}
-      </div>
+        ) : (
+          filtered.map((item) => (
+            <article key={item._idx} className="myth-card">
+              <header className="myth-header">
+                <span className="myth-icon" aria-hidden="true">
+                  {item.icon}
+                </span>
+                <h3>Myth #{item._idx + 1}</h3>
+              </header>
+
+              <div className="myth-body">
+                <p className="myth-statement">
+                  <strong>Myth:</strong> {item.myth}
+                </p>
+
+                {revealFacts ? (
+                  <p className="fact-statement">
+                    <strong>Fact:</strong> {item.fact}
+                  </p>
+                ) : (
+                  <p className="fact-statement myth-fact-hidden" aria-hidden="true">
+                    <strong>Fact:</strong> (hidden)
+                  </p>
+                )}
+              </div>
+
+              <footer className={`myth-footer verdict-${item.verdict}`}>
+                <span className="verdict-badge">{verdictToLabel(item.verdict)}</span>
+              </footer>
+            </article>
+          ))
+        )}
+      </section>
     </div>
   );
 }
+
