@@ -537,35 +537,6 @@ class CRDTResolver:
         )
 
         return merged_version, conflicting
-    
-    def _log_conflict(
-        self,
-        strategy: str,
-        local: DocumentVersion,
-        server: DocumentVersion,
-        resolved: DocumentVersion
-    ) -> None:
-        """Log conflict resolution for audit trail"""
-        self.conflict_log.append({
-            "strategy": strategy,
-            "timestamp": datetime.now().isoformat(),
-            "doc_id": local.doc_id,
-            "local_client": local.client_id,
-            "server_client": server.client_id,
-            "resolved_client": resolved.client_id,
-            "local_checksum": local.checksum,
-            "server_checksum": server.checksum,
-            "resolved_checksum": resolved.checksum
-        })
-        
-        logger.info(
-            f"Conflict resolved: doc={local.doc_id}, "
-            f"strategy={strategy}, winner={resolved.client_id}"
-        )
-    
-    def get_conflict_log(self) -> List[Dict]:
-        """Get conflict resolution log"""
-        return self.conflict_log.copy()
 
 
 class SyncManager:
