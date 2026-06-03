@@ -16,6 +16,8 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
+from backend.utils.numeric_validation import validate_numeric_bounds
+
 from fastapi import FastAPI, HTTPException, Request, Form, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -600,38 +602,15 @@ def _coerce_prediction_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
             detail=f"Unknown field(s): {', '.join(sorted(extra))}",
         )
 
-    numeric_fields = {
-        "N",
-        "P",
-        "K",
-        "ph",
-        "pH",
-        "CropCoveredArea",
-        "CHeight",
-        "IrriCount",
-        "WaterCov",
-        "temperature",
-        "rainfall",
-        "humidity",
-    }
+    numeric_fields = [
+        "N", "P", "K", "ph", "pH",
+        "CropCoveredArea", "CHeight", "IrriCount", "WaterCov",
+        "temperature", "rainfall", "humidity",
+    ]
 
-    for field in numeric_fields:
-        if field not in sanitized or sanitized[field] is None:
-            continue
-
-        try:
-            numeric_value = float(sanitized[field])
-        except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail=f"Invalid value for '{field}'")
-
-        if not math.isfinite(numeric_value):
-            raise HTTPException(status_code=400, detail=f"Invalid value for '{field}'")
-
-        sanitized[field] = numeric_value
-
-    for field in ("ph", "pH"):
-        if field in sanitized and not (0 <= sanitized[field] <= 14):
-            raise HTTPException(status_code=400, detail="Invalid pH")
+    # Delegate inf / NaN / pH-bounds validation to the shared utility so
+    # the logic is not duplicated across routers.
+    sanitized = validate_numeric_bounds(sanitized, numeric_fields)
 
     return sanitized
 
