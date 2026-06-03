@@ -186,18 +186,12 @@ def _check_rate_limit(uid: str) -> bool:
         _prune_rate_limit_store(now)
 
         if len(_rate_limit_store) >= RATE_LIMIT_MAX_ENTRIES:
-            cutoff = now - RATE_LIMIT_WINDOW
             sorted_uids = sorted(
-                _rate_limit_store.keys(),
+                _rate_limit_store,
                 key=lambda u: _rate_limit_store[u][1],
             )
-            evicted = 0
-            for uid_candidate in sorted_uids:
-                if evicted >= max(1, len(sorted_uids) // 4):
-                    break
-                if _rate_limit_store[uid_candidate][1] < cutoff:
-                    _rate_limit_store.pop(uid_candidate, None)
-                    evicted += 1
+            for uid_candidate in sorted_uids[: max(1, len(sorted_uids) // 4)]:
+                _rate_limit_store.pop(uid_candidate, None)
 
         if uid not in _rate_limit_store:
             _rate_limit_store[uid] = (1, now)
