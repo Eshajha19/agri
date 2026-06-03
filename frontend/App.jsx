@@ -87,7 +87,8 @@ import {
   YieldPredictor,
   EquipmentManagement,
   PredictionExplainer,
-  RetrainingPipelineMonitor
+  RetrainingPipelineMonitor,
+  CropInsuranceClaim
 } from "./routes/lazyPages";
 
 const Weather = React.lazy(() => import("./Weather"));
@@ -141,54 +142,99 @@ const normalizeUserProfile = (profile) => {
   };
 };
 
+// ============================================
+// Google Translate Synchronization Utilities
+// ============================================
+
+const GOOGLE_TRANSLATE_TIMEOUT = 15000;
+const GOOGLE_TRANSLATE_SYNC_DELAY = 1200;
+
+let googleTranslateObserver = null;
+let googleTranslateRetryTimeout = null;
+let lastAppliedLanguage = null;
+let translateInitializationInProgress = false;
+
 /**
- * Helper to apply Google Translate selection to the hidden widget
- * Uses MutationObserver for reliable widget detection instead of polling
+ * Apply translation only when necessary
  */
 const applyGoogleTranslate = (langCode) => {
   try {
     const select = document.querySelector(".goog-te-combo");
-    if (select) {
-      if (select.value !== langCode) {
-        select.value = langCode;
-        select.dispatchEvent(new Event("change", { bubbles: true }));
-      }
+
+    if (!select) {
+      return false;
+    }
+
+    // Prevent redundant re-application
+    if (select.value === langCode && lastAppliedLanguage === langCode) {
       return true;
     }
-  } catch (e) {
-    console.error("GT Apply Error:", e);
+
+    select.value = langCode;
+
+    select.dispatchEvent(
+      new Event("change", { bubbles: true })
+    );
+
+    lastAppliedLanguage = langCode;
+
+    return true;
+  } catch (error) {
+    console.error(
+      "Google Translate apply error:",
+      error
+    );
+
+    return false;
   }
-  return false;
 };
 
 /**
- * Robustly wait for Google Translate widget using MutationObserver
- * Returns a promise that resolves when widget is ready or times out
+ * Wait for Google Translate widget with MutationObserver
  */
-const waitForGoogleTranslateWidget = (timeoutMs = 15000) => {
+const waitForGoogleTranslateWidget = (
+  timeoutMs = GOOGLE_TRANSLATE_TIMEOUT
+) => {
   return new Promise((resolve, reject) => {
-    const existingWidget = document.querySelector(".goog-te-combo");
+    const existingWidget = document.querySelector(
+      ".goog-te-combo"
+    );
+
     if (existingWidget) {
       resolve(existingWidget);
       return;
     }
 
-    let observer = null;
     const timeoutId = setTimeout(() => {
-      if (observer) observer.disconnect();
-      reject(new Error("Google Translate widget not found within timeout"));
+      cleanup();
+      reject(
+        new Error(
+          "Google Translate widget initialization timeout"
+        )
+      );
     }, timeoutMs);
 
-    observer = new MutationObserver((mutations) => {
-      const widget = document.querySelector(".goog-te-combo");
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+
+      if (googleTranslateObserver) {
+        googleTranslateObserver.disconnect();
+        googleTranslateObserver = null;
+      }
+    };
+
+    googleTranslateObserver = new MutationObserver(() => {
+      const widget = document.querySelector(
+        ".goog-te-combo"
+      );
+
       if (widget) {
-        clearTimeout(timeoutId);
-        observer?.disconnect();
+        cleanup();
         resolve(widget);
       }
     });
 
-    observer.observe(document.body, {
+    googleTranslateObserver.observe(document.body, {
       childList: true,
       subtree: true,
     });
@@ -196,18 +242,61 @@ const waitForGoogleTranslateWidget = (timeoutMs = 15000) => {
 };
 
 /**
- * Apply translation with robust widget detection
+ * Robust translation synchronization
  */
-const applyGoogleTranslateRobust = async (langCode, onReady, onError) => {
+const applyGoogleTranslateRobust = async (
+  langCode,
+  options = {}
+) => {
+  const {
+    retry = true,
+    onReady,
+    onError,
+  } = options;
+
+  // Prevent overlapping initialization calls
+  if (translateInitializationInProgress) {
+    return;
+  }
+
+  translateInitializationInProgress = true;
+
   try {
-    await waitForGoogleTranslateWidget(15000);
-    applyGoogleTranslate(langCode);
+    await waitForGoogleTranslateWidget();
+
+    const applied = applyGoogleTranslate(langCode);
+
+    if (!applied) {
+      throw new Error(
+        "Failed to apply translation state"
+      );
+    }
+
     onReady?.();
   } catch (error) {
-    console.warn("Google Translate widget initialization failed:", error.message);
+    console.warn(
+      "Google Translate synchronization failed:",
+      error.message
+    );
+
+    // Retry once after delayed script injection
+    if (retry) {
+      clearTimeout(googleTranslateRetryTimeout);
+
+      googleTranslateRetryTimeout = setTimeout(() => {
+        void applyGoogleTranslateRobust(langCode, {
+          retry: false,
+        });
+      }, GOOGLE_TRANSLATE_SYNC_DELAY);
+    }
+
     onError?.(error);
+  } finally {
+    translateInitializationInProgress = false;
   }
 };
+
+
 
 const GuestBanner = () => (
   <div className="guest-banner">
@@ -377,38 +466,55 @@ function App() {
 
   /* ---------------- THEME SYSTEM (Moved to ThemeProvider) ---------------- */
 
-  /* ---------------- LANGUAGE AUTO-TRANS ---------------- */
-useEffect(() => {
-  const applyTranslation = async () => {
-    if (applyGoogleTranslate(preferredLang)) return;
+/* ---------------- LANGUAGE AUTO-TRANS ---------------- */
 
-    try {
-      await applyGoogleTranslateRobust(
-        preferredLang,
-        () => console.log("Google Translate initialized successfully"),
-        () => console.warn("Google Translate unavailable - using default language")
-      );
-    } catch (error) {
-      console.warn("Translation initialization failed - graceful fallback applied");
+useEffect(() => {
+  let cancelled = false;
+
+  const synchronizeTranslation = async () => {
+    if (!preferredLang || cancelled) return;
+
+    // Skip redundant sync
+    if (lastAppliedLanguage === preferredLang) {
+      return;
     }
+
+    // Fast path
+    if (applyGoogleTranslate(preferredLang)) {
+      return;
+    }
+
+    // Robust fallback path
+    await applyGoogleTranslateRobust(
+      preferredLang,
+      {
+        onReady: () => {
+          console.log(
+            "Google Translate synchronized successfully"
+          );
+        },
+
+        onError: () => {
+          console.warn(
+            "Translation fallback active"
+          );
+        },
+      }
+    );
   };
 
-  void applyTranslation();
+  void synchronizeTranslation();
 
   const handleWidgetLoad = () => {
+    if (cancelled) return;
+
     if (!applyGoogleTranslate(preferredLang)) {
-      void applyGoogleTranslateRobust(preferredLang);
+      void applyGoogleTranslateRobust(
+        preferredLang,
+        { retry: false }
+      );
     }
   };
-
-  const widgetCheckInterval = setInterval(() => {
-    if (
-      document.querySelector(".goog-te-combo") &&
-      !applyGoogleTranslate(preferredLang)
-    ) {
-      void applyGoogleTranslateRobust(preferredLang);
-    }
-  }, 2000);
 
   document.addEventListener(
     "googleTranslateWidgetLoaded",
@@ -416,11 +522,25 @@ useEffect(() => {
   );
 
   return () => {
-    clearInterval(widgetCheckInterval);
+    cancelled = true;
+
     document.removeEventListener(
       "googleTranslateWidgetLoaded",
       handleWidgetLoad
     );
+
+    if (googleTranslateObserver) {
+      googleTranslateObserver.disconnect();
+      googleTranslateObserver = null;
+    }
+
+    if (googleTranslateRetryTimeout) {
+      clearTimeout(
+        googleTranslateRetryTimeout
+      );
+
+      googleTranslateRetryTimeout = null;
+    }
   };
 }, [preferredLang]);
 
@@ -1001,6 +1121,7 @@ useEffect(() => {
             <Route path="/voice-assistant" element={<VoiceAssistant />} />
             <Route path="/prediction-explainer" element={<PredictionExplainer />} />
             <Route path="/retraining-monitor" element={<RetrainingPipelineMonitor />} />
+            <Route path="/insurance-claim" element={<CropInsuranceClaim />} />
             <Route
               path="/myth-checker"
               element={

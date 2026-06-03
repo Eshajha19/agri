@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import threading
 from datetime import datetime as _dt
 from pathlib import Path
 
@@ -460,6 +461,197 @@ def retrain_yield_model_task(
             "error": str(exc),
             "type": type(exc).__name__,
         }
+
+
+@celery_app.task(
+    bind=True,
+    name="run_hyperparameter_optimization_task",
+    time_limit=3600,
+    soft_time_limit=3000,
+)
+def run_hyperparameter_optimization_task(
+    self,
+    csv_path="Train.csv",
+    n_trials=50,
+    cv_folds=5,
+    study_name="yield_xgb_optimization",
+):
+    """
+    Bayesian hyperparameter optimization for XGBoost yield model.
+    Uses Optuna with k-fold cross-validation per trial.
+    Tracks RMSE, MAE, R²; persists best params to hyperparameter_config.json.
+    """
+    try:
+        import optuna
+        import pandas as pd
+        from sklearn.model_selection import KFold
+        from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+        import xgboost as xgb
+        import joblib
+        import math
+    except ImportError as exc:
+        raise RuntimeError("Hyperopt requires: optuna, scikit-learn, xgboost, joblib") from exc
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+    self.update_state(state="PROGRESS", meta={"step": "loading_data"})
+
+    df = pd.read_csv(csv_path)
+    df["SDate"] = pd.to_datetime(df["SDate"], errors="coerce")
+    df = df.dropna(subset=["SDate"]).sort_values("SDate")
+
+    _CAT_COLS = ["Crop", "CNext", "CLast", "CTransp", "IrriType", "IrriSource", "Season"]
+    _DROP_COLS = ["FarmID", "category", "State", "District", "Sub-District",
+                  "SDate", "HDate", "ExpYield", "geometry"]
+
+    X = df.drop(columns=[c for c in _DROP_COLS if c in df.columns], errors="ignore")
+    y = df["ExpYield"]
+
+    X = pd.get_dummies(X, columns=[c for c in _CAT_COLS if c in X.columns], drop_first=True)
+
+    def _objective(trial):
+        params = {
+            "n_estimators": trial.suggest_int("n_estimators", 50, 500),
+            "max_depth": trial.suggest_int("max_depth", 3, 12),
+            "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
+            "subsample": trial.suggest_float("subsample", 0.5, 1.0),
+            "colsample_bytree": trial.suggest_float("colsample_bytree", 0.5, 1.0),
+            "gamma": trial.suggest_float("gamma", 0.0, 5.0),
+            "min_child_weight": trial.suggest_int("min_child_weight", 1, 10),
+        }
+
+        kf = KFold(n_splits=cv_folds, shuffle=True, random_state=42)
+        fold_scores = []
+
+        for fold_idx, (train_idx, val_idx) in enumerate(kf.split(X)):
+            X_train_fold, X_val_fold = X.iloc[train_idx], X.iloc[val_idx]
+            y_train_fold, y_val_fold = y.iloc[train_idx], y.iloc[val_idx]
+
+            model = xgb.XGBRegressor(
+                **params,
+                random_state=42,
+                n_jobs=1,
+            )
+            model.fit(X_train_fold, y_train_fold)
+
+            preds = model.predict(X_val_fold)
+            rmse = math.sqrt(mean_squared_error(y_val_fold, preds))
+            mae = mean_absolute_error(y_val_fold, preds)
+            r2 = r2_score(y_val_fold, preds)
+
+            fold_scores.append({
+                "fold": fold_idx + 1,
+                "rmse": rmse,
+                "mae": mae,
+                "r2": r2,
+            })
+
+        mean_rmse = sum(f["rmse"] for f in fold_scores) / len(fold_scores)
+        trial.set_user_attr("fold_scores", fold_scores)
+        trial.set_user_attr("mean_mae", sum(f["mae"] for f in fold_scores) / len(fold_scores))
+        trial.set_user_attr("mean_r2", sum(f["r2"] for f in fold_scores) / len(fold_scores))
+        return mean_rmse
+
+    self.update_state(state="PROGRESS", meta={"step": "optimizing", "trials_total": n_trials})
+
+    study = optuna.create_study(
+        study_name=study_name,
+        direction="minimize",
+        sampler=optuna.samplers.TPESampler(seed=42),
+    )
+
+    def _callback(study, trial):
+        self.update_state(
+            state="PROGRESS",
+            meta={
+                "step": "optimizing",
+                "trials_completed": len(study.trials),
+                "trials_total": n_trials,
+                "best_rmse": study.best_value if study.best_trial else None,
+                "best_params": study.best_params if study.best_trial else None,
+            },
+        )
+
+    study.optimize(_objective, n_trials=n_trials, callbacks=[_callback], show_progress_bar=False)
+
+    best_params = study.best_params
+    best_trial = study.best_trial
+
+    # Persist best config
+    config_path = Path("hyperparameter_config.json")
+    config_record = {
+        "study_name": study_name,
+        "n_trials": n_trials,
+        "cv_folds": cv_folds,
+        "best_params": best_params,
+        "best_rmse": best_trial.value,
+        "best_mean_mae": best_trial.user_attrs.get("mean_mae"),
+        "best_mean_r2": best_trial.user_attrs.get("mean_r2"),
+        "optimized_at": _dt.utcnow().isoformat(),
+        "csv_path": csv_path,
+    }
+    tmp = config_path.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(config_record, f, indent=2)
+    os.replace(tmp, config_path)
+
+    # Build trial history
+    trial_history = []
+    for t in study.trials:
+        if t.state != optuna.trial.TrialState.COMPLETE:
+            continue
+        trial_history.append({
+            "trial_number": t.number,
+            "params": t.params,
+            "rmse": t.value,
+            "mean_mae": t.user_attrs.get("mean_mae"),
+            "mean_r2": t.user_attrs.get("mean_r2"),
+            "fold_scores": t.user_attrs.get("fold_scores", []),
+            "duration_ms": int(t.duration.total_seconds() * 1000) if t.duration else None,
+        })
+
+    # Benchmark vs production model
+    self.update_state(state="PROGRESS", meta={"step": "benchmarking"})
+
+    benchmark = {"production_model_exists": False, "improved": None, "production_rmse": None}
+
+    if os.path.exists("yield_model.joblib"):
+        from sklearn.metrics import mean_squared_error as _mse
+        from sklearn.model_selection import train_test_split
+
+        prod_model = joblib.load("yield_model.joblib")
+        X_train_b, X_test_b, y_train_b, y_test_b = train_test_split(
+            X, y, test_size=0.2, random_state=42
+        )
+        prod_preds = prod_model.predict(X_test_b)
+        prod_rmse = math.sqrt(_mse(y_test_b, prod_preds))
+
+        opt_model = xgb.XGBRegressor(**best_params, random_state=42)
+        opt_model.fit(X_train_b, y_train_b)
+        opt_preds = opt_model.predict(X_test_b)
+        opt_rmse = math.sqrt(_mse(y_test_b, opt_preds))
+
+        benchmark = {
+            "production_model_exists": True,
+            "production_rmse": prod_rmse,
+            "optimized_rmse": opt_rmse,
+            "improved": opt_rmse < prod_rmse,
+            "improvement_pct": ((prod_rmse - opt_rmse) / prod_rmse * 100) if prod_rmse > 0 else 0,
+        }
+
+    return {
+        "study_name": study_name,
+        "best_params": best_params,
+        "best_rmse": best_trial.value,
+        "best_mean_mae": best_trial.user_attrs.get("mean_mae"),
+        "best_mean_r2": best_trial.user_attrs.get("mean_r2"),
+        "n_trials": n_trials,
+        "cv_folds": cv_folds,
+        "optimized_at": config_record["optimized_at"],
+        "trial_history": trial_history,
+        "benchmark": benchmark,
+        "config_path": str(config_path),
+    }
 
 
 if __name__ == "__main__":
