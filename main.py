@@ -190,6 +190,31 @@ async def lifespan(app: FastAPI):
         drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
         shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
         version_manager = ModelVersionManager(versions_dir="./model_versions")
+
+        def publish_drift_notification(alert: dict):
+            msg = f"⚠️ HIGH DRIFT ALERT: Model '{alert.get('model_name')}' {alert.get('drift_type')} drift is {alert.get('metric_value'):.2%} (threshold: {alert.get('threshold'):.2%})."
+            payload = {
+                "type": "drift_alert",
+                "message": msg,
+                "time": datetime.now().isoformat(),
+                "recipient_uid": None,
+                "severity": "high",
+            }
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(notification_broker.publish(payload))
+            except RuntimeError:
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        loop.create_task(notification_broker.publish(payload))
+                    else:
+                        loop.run_until_complete(notification_broker.publish(payload))
+                except Exception:
+                    asyncio.run(notification_broker.publish(payload))
+
+        drift_detector.on_drift_detected(publish_drift_notification)
+        shadow_evaluator.on_drift_detected(publish_drift_notification)
         logger.info("✅ Domain engines initialized: drift_detector, shadow_evaluator, version_manager")
     except Exception as exc:
         logger.error("❌ Domain engines initialization failed: %s", exc, exc_info=True)
