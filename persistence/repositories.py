@@ -222,7 +222,7 @@ class NotificationRepository(BaseRepository):
             return False
 
     def get(self, notification_id: str) -> Optional[Dict[str, Any]]:
-         notification_id = str(notification_id
+        notification_id = str(notification_id)
         """Retrieve a notification by ID."""
         if self.db is None:
             return None

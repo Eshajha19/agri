@@ -14,7 +14,8 @@ import re
 from datetime import datetime
 from typing import Any, Optional
 
-from fastapi import APIRouter, Form, HTTPException, Request, Response
+from fastapi import APIRouter, Form, HTTPException, Request, Response, Depends
+from csrf_protection import verify_csrf_token_dependency
 from pydantic import BaseModel, Field, validator
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
@@ -25,6 +26,7 @@ from slowapi.util import get_remote_address
 
 from backend.compute_rate_limit import enforce_compute_rate_limit
 from backend.schemas import AlertTriggerRequest, RAGQuery
+from backend.utils.numeric_validation import validate_numeric_bounds
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -418,7 +420,17 @@ def init_platform(
 
 
 @router.get("/weather/alerts/history")
-async def get_alerts_history():
+async def get_alerts_history(request: Request):
+    """Return the most recent server-side weather alerts.
+
+    Requires a valid authenticated session. The alert history is internal
+    operational data and must not be exposed to unauthenticated callers.
+    """
+    if verify_role_fn is None:
+        raise HTTPException(status_code=503, detail="Auth service unavailable")
+
+    await verify_role_fn(request)
+
     if weather_service is None:
         raise HTTPException(status_code=503, detail="Weather service unavailable")
 
@@ -430,7 +442,7 @@ async def get_alerts_history():
     }
 
 
-@router.post("/whatsapp/subscribe")
+@router.post("/whatsapp/subscribe", dependencies=[Depends(verify_csrf_token_dependency)])
 async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     """
     Subscribe the authenticated user to WhatsApp alerts.
@@ -473,7 +485,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     return {"success": True, "message": "Successfully subscribed"}
 
 
-@router.post("/whatsapp/trigger-alert")
+@router.post("/whatsapp/trigger-alert", dependencies=[Depends(verify_csrf_token_dependency)])
 async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     """
     Broadcast a WhatsApp alert to all subscribers.
@@ -505,7 +517,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
 
 
-@router.post("/reports/generate")
+@router.post("/reports/generate", dependencies=[Depends(verify_csrf_token_dependency)])
 async def generate_signed_report(request: Request, data: ReportRequest):
     if verify_role_fn is None or get_signing_keys_fn is None:
         raise HTTPException(status_code=500, detail="Report dependencies not initialized")
@@ -810,6 +822,15 @@ async def simulate_climate(request: Request, data: SimulationRequest):
     )
     if rate_limited is not None:
         return rate_limited
+
+    # Validate that temp_delta and rain_delta are finite numbers.
+    # Pydantic's ge/le constraints do not reject float('inf') or float('nan')
+    # when the value is already a Python float, so we apply the shared utility
+    # to block those edge cases before they reach the multiplication below.
+    validate_numeric_bounds(
+        {"temp_delta": data.temp_delta, "rain_delta": data.rain_delta},
+        ["temp_delta", "rain_delta"],
+    )
 
     sensitivities = {
         "rice": {"temp": -0.05, "rain": 0.02},
