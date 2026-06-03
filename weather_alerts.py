@@ -333,6 +333,14 @@ class WeatherAlertsService:
                         self._weather_cache[cache_key] = (weather, datetime.now())
                         if len(self._weather_cache) > self._max_cache_size:
                             self._evict_expired()
+                            # If all entries are still within TTL, _evict_expired removes
+                            # nothing. Evict the oldest entry to enforce the hard cap.
+                            if len(self._weather_cache) > self._max_cache_size:
+                                oldest_key = min(
+                                    self._weather_cache,
+                                    key=lambda k: self._weather_cache[k][1]
+                                )
+                                del self._weather_cache[oldest_key]
                         return weather
         except asyncio.TimeoutError:
             logger.warning(f"Weather API timeout for {location}")

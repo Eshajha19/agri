@@ -1356,17 +1356,14 @@ def get_signing_keys():
 
 
 def init_ml_pipeline() -> None:
-    try:
-        xgb_adapter = XGBoostAdapter()
-        model_path = "yield_model.joblib"
-        if os.path.exists(model_path):
-            xgb_adapter.load(model_path)
-            ModelRegistry.register("xgboost", xgb_adapter)
-            logger.info("ML Pipeline: Registered XGBoost model")
-        else:
-            logger.warning("ML Pipeline: %s not found", model_path)
-    except Exception as exc:
-        logger.warning("ML Pipeline initialization failed: %s", exc)
+    xgb_adapter = XGBoostAdapter()
+    model_path = "yield_model.joblib"
+    if os.path.exists(model_path):
+        xgb_adapter.load(model_path)
+        ModelRegistry.register("xgboost", xgb_adapter)
+        logger.info("ML Pipeline: Registered XGBoost model")
+    else:
+        logger.warning("ML Pipeline: %s not found, skipping registration", model_path)
 
 
 # Observability setup
