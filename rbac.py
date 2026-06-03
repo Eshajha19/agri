@@ -27,6 +27,18 @@ from typing import Callable, Dict, List, Optional
 import firebase_admin
 from fastapi import HTTPException, Request, status
 from starlette.middleware.base import BaseHTTPMiddleware
+
+__all__ = [
+    "RBACManager",
+    "Permission",
+    "RBACMiddleware",
+    "RBACMatrix",
+    "AuthContext",
+    "Role",
+    "require_permission",
+    "print_rbac_matrix",
+]
+
 from firebase_admin import auth as firebase_auth, firestore
 
 logger = logging.getLogger(__name__)
