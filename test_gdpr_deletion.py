@@ -82,3 +82,31 @@ def test_due_requests_only_include_elapsed_items(tmp_path):
 
     due = manager.due_requests(now=now + timedelta(hours=1))
     assert [item["uid"] for item in due] == ["uid-a"]
+
+
+def test_in_memory_notification_cleanup_on_deletion(tmp_path):
+    manager = GDPRDeletionManager(
+        request_log_path=tmp_path / "requests.jsonl",
+        audit_log_path=tmp_path / "audit.jsonl",
+    )
+
+    cleaned_uids = []
+    def mock_cleanup_hook(uid: str):
+        cleaned_uids.append(uid)
+
+    manager.register_post_deletion_hook(mock_cleanup_hook)
+
+    request = manager.create_request(
+        "uid-123",
+        retention_days=0,
+        now=datetime(2026, 5, 29, 12, 0, tzinfo=timezone.utc),
+    )
+
+    # Execute request
+    manager.execute_request(
+        request["request_id"],
+        [],
+        now=datetime(2026, 5, 29, 13, 0, tzinfo=timezone.utc),
+    )
+
+    assert "uid-123" in cleaned_uids
