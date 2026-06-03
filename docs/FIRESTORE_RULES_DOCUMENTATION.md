@@ -328,12 +328,40 @@ Node (nested under batch):
 
 ---
 
-### 5.12 `/_schema_migrations/{migrationId}`
+### 5.12 `/farm_documents/{docId}` (Farm Document Vault)
+
+**Read**
+- Authenticated owner: `resource.data.owner_uid == request.auth.uid`
+- Admin: `hasRole('admin')`
+
+**Create**
+- Authenticated owner only: `request.resource.data.owner_uid == request.auth.uid`
+- Required metadata fields and validation:
+  - `owner_uid`: non-empty string
+  - `title`: string, 1..200 chars
+  - `fileName`: string, 1..255 chars
+  - `contentType`: string, 1..100 chars
+  - `storagePath`: string, 1..1024 chars
+  - `createdAt` and `updatedAt`: must be server timestamps
+  - Optional `tags`: array of strings, max 20 tags; each tag max 20 chars
+
+**Update**
+- Authenticated owner only (or admin)
+- `owner_uid` is immutable: `request.resource.data.owner_uid == resource.data.owner_uid`
+- Same metadata validation as create.
+
+**Delete**
+- Authenticated owner only (or admin)
+
+---
+
+### 5.13 `/_schema_migrations/{migrationId}`
 
 **Read/Write**
 - Admin only
 
 ---
+
 
 ## 6) Change management guidance
 
