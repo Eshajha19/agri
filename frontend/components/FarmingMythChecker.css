@@ -70,7 +70,8 @@
 }
 
 .myth-statement,
-.fact-statement {
+.fact-statement,
+.reference-statement {
   margin-bottom: 12px;
   line-height: 1.5;
 }
@@ -82,6 +83,18 @@
 
 .fact-statement {
   color: #059669;
+}
+
+.reference-statement {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  border-top: 1px dashed var(--border-light);
+  padding-top: 8px;
+  margin-top: 8px;
+}
+
+.reference-text {
+  font-style: italic;
 }
 
 .myth-footer {
