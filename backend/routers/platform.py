@@ -26,6 +26,7 @@ from slowapi.util import get_remote_address
 
 from backend.compute_rate_limit import enforce_compute_rate_limit
 from backend.schemas import AlertTriggerRequest, RAGQuery
+from backend.utils.numeric_validation import validate_numeric_bounds
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -821,6 +822,15 @@ async def simulate_climate(request: Request, data: SimulationRequest):
     )
     if rate_limited is not None:
         return rate_limited
+
+    # Validate that temp_delta and rain_delta are finite numbers.
+    # Pydantic's ge/le constraints do not reject float('inf') or float('nan')
+    # when the value is already a Python float, so we apply the shared utility
+    # to block those edge cases before they reach the multiplication below.
+    validate_numeric_bounds(
+        {"temp_delta": data.temp_delta, "rain_delta": data.rain_delta},
+        ["temp_delta", "rain_delta"],
+    )
 
     sensitivities = {
         "rice": {"temp": -0.05, "rain": 0.02},

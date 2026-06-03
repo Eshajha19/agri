@@ -302,3 +302,133 @@ def main():
 
 if __name__ == "__main__":
     exit(main())
+
+
+# ---------------------------------------------------------------------------
+# Pytest tests for the shared validate_numeric_bounds utility (Issue #2)
+# ---------------------------------------------------------------------------
+# These tests cover the new backend/utils/numeric_validation.py module which
+# extracts the numeric-safety logic from _coerce_prediction_inputs in main.py.
+# ---------------------------------------------------------------------------
+
+import math
+import pytest
+from fastapi import HTTPException
+
+
+def _import_validator():
+    """Import validate_numeric_bounds, skipping if the module is unavailable."""
+    try:
+        from backend.utils.numeric_validation import validate_numeric_bounds
+        return validate_numeric_bounds
+    except ImportError:
+        pytest.skip("backend.utils.numeric_validation not available")
+
+
+class TestValidateNumericBounds:
+    """pytest tests for validate_numeric_bounds."""
+
+    def test_valid_inputs_pass_through(self):
+        validate = _import_validator()
+        data = {"ph": "7.0", "temperature": "25", "nitrogen": "80"}
+        result = validate(data, ["ph", "temperature", "nitrogen"])
+        assert result["ph"] == 7.0
+        assert result["temperature"] == 25.0
+        assert result["nitrogen"] == 80.0
+
+    def test_nan_ph_rejected(self):
+        validate = _import_validator()
+        with pytest.raises(HTTPException) as exc_info:
+            validate({"ph": float("nan")}, ["ph"])
+        assert exc_info.value.status_code == 400
+        assert "ph" in exc_info.value.detail
+
+    def test_nan_temperature_rejected(self):
+        validate = _import_validator()
+        with pytest.raises(HTTPException) as exc_info:
+            validate({"temperature": float("nan")}, ["temperature"])
+        assert exc_info.value.status_code == 400
+        assert "temperature" in exc_info.value.detail
+
+    def test_positive_inf_temperature_rejected(self):
+        validate = _import_validator()
+        with pytest.raises(HTTPException) as exc_info:
+            validate({"temperature": float("inf")}, ["temperature"])
+        assert exc_info.value.status_code == 400
+
+    def test_negative_inf_nitrogen_rejected(self):
+        validate = _import_validator()
+        with pytest.raises(HTTPException) as exc_info:
+            validate({"nitrogen": float("-inf")}, ["nitrogen"])
+        assert exc_info.value.status_code == 400
+
+    def test_string_inf_rejected(self):
+        validate = _import_validator()
+        with pytest.raises(HTTPException) as exc_info:
+            validate({"temperature": "inf"}, ["temperature"])
+        assert exc_info.value.status_code == 400
+
+    def test_string_nan_rejected(self):
+        validate = _import_validator()
+        with pytest.raises(HTTPException) as exc_info:
+            validate({"ph": "nan"}, ["ph"])
+        assert exc_info.value.status_code == 400
+
+    def test_ph_too_high_rejected(self):
+        validate = _import_validator()
+        with pytest.raises(HTTPException) as exc_info:
+            validate({"ph": 15.0}, ["ph"])
+        assert exc_info.value.status_code == 400
+
+    def test_ph_too_low_rejected(self):
+        validate = _import_validator()
+        with pytest.raises(HTTPException) as exc_info:
+            validate({"ph": -1.0}, ["ph"])
+        assert exc_info.value.status_code == 400
+
+    def test_ph_boundary_values_accepted(self):
+        validate = _import_validator()
+        for boundary in (0.0, 14.0):
+            result = validate({"ph": boundary}, ["ph"])
+            assert result["ph"] == boundary
+
+    def test_missing_field_silently_skipped(self):
+        validate = _import_validator()
+        data = {"temperature": 25.0}
+        result = validate(data, ["temperature", "ph"])
+        assert "ph" not in result
+        assert result["temperature"] == 25.0
+
+    def test_none_field_silently_skipped(self):
+        validate = _import_validator()
+        data = {"ph": None, "temperature": 22.5}
+        result = validate(data, ["ph", "temperature"])
+        assert result["ph"] is None
+        assert result["temperature"] == 22.5
+
+    def test_non_numeric_string_rejected(self):
+        validate = _import_validator()
+        with pytest.raises(HTTPException) as exc_info:
+            validate({"temperature": "twenty-five"}, ["temperature"])
+        assert exc_info.value.status_code == 400
+
+    def test_uppercase_ph_field_validated(self):
+        validate = _import_validator()
+        with pytest.raises(HTTPException) as exc_info:
+            validate({"pH": 20.0}, ["pH"])
+        assert exc_info.value.status_code == 400
+
+    def test_valid_soil_bundle(self):
+        validate = _import_validator()
+        soil_data = {
+            "N": "120", "P": "60", "K": "200",
+            "ph": "6.5", "temperature": "28.0",
+            "humidity": "70", "rainfall": "180",
+        }
+        result = validate(
+            soil_data,
+            ["N", "P", "K", "ph", "temperature", "humidity", "rainfall"],
+        )
+        assert result["ph"] == 6.5
+        assert result["temperature"] == 28.0
+        assert math.isfinite(result["rainfall"])
