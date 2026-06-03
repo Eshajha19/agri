@@ -49,6 +49,7 @@ def test_high_debt_profile_is_flagged_as_risky():
 
 def test_create_application_persists_and_returns_status():
     engine = FarmFinanceAI()
+    owner_uid = "test-uid-123"
     application = engine.create_application(
         {
             "farmer_name": "Meera",
@@ -61,10 +62,11 @@ def test_create_application_persists_and_returns_status():
             "credit_score": 770,
             "requested_loan_amount": 320000,
             "loan_tenure_months": 36,
-        }
+        },
+        owner_uid=owner_uid,
     )
 
-    stored = engine.get_application(application["application_id"])
+    stored = engine.get_application(application["application_id"], owner_uid=owner_uid)
 
     assert application["status"] in {"pre_approved", "under_review", "needs_documents"}
     assert stored is not None
