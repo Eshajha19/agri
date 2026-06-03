@@ -1,222 +1,154 @@
-import pandas as pd
+import logging
+from typing import Dict, List
+
 import numpy as np
-from typing import List
-
-from ml.validators import validate_ml_inputs, InputValidationError
+import pandas as pd
 
 
-class UnknownCategoryError(ValueError):
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# CUSTOM ERRORS
+# =============================================================================
+
+class UnknownCategoryError(Exception):
     """
-    Raised when a categorical input value was not seen during training.
-
-    Attributes
-    ----------
-    column : str
-        The original (pre-encoding) categorical column name.
-    value : object
-        The value that was not recognised.
-    expected_columns : list[str]
-        The one-hot columns the model expected for this feature group.
+    Raised when unseen categorical value appears.
     """
 
-    def __init__(self, column: str, value: object, expected_columns: List[str]):
+    def __init__(self, column: str, value):
         self.column = column
         self.value = value
-        self.expected_columns = expected_columns
+
         super().__init__(
-            f"Unknown value '{value}' for categorical feature '{column}'. "
-            f"The model was not trained on this value. "
-            f"Expected one of the encoded columns: {expected_columns}"
+            f"Unknown category '{value}' for column '{column}'"
         )
 
 
-class MissingFeatureError(ValueError):
+class MissingFeatureError(Exception):
     """
-    Raised when a required numeric feature column is absent from the input.
-
-    Attributes
-    ----------
-    missing_columns : list[str]
-        Feature columns that were expected but not present after encoding.
+    Raised when required feature columns are missing.
     """
 
     def __init__(self, missing_columns: List[str]):
         self.missing_columns = missing_columns
+
         super().__init__(
-            f"Input is missing {len(missing_columns)} required feature(s): "
-            f"{missing_columns}. "
-            "Provide all required fields or check that categorical values "
-            "match the training vocabulary."
+            f"Missing required features: {missing_columns}"
         )
 
 
-class FeaturePreprocessor:
+# =============================================================================
+# HELPERS
+# =============================================================================
+
+def ensure_required_features(
+    dataframe: pd.DataFrame,
+    required_columns: List[str],
+):
     """
-    Standardises and validates input features for yield prediction models.
-
-    Key design note
-    ---------------
-    The model was trained with ``pd.get_dummies(..., drop_first=True)`` on a
-    multi-row dataset.  At inference time we receive a **single row**, and
-    ``drop_first=True`` on a single row silently drops *every* categorical
-    column (there is only one unique value per column, so the "first" is the
-    only one and it gets dropped).  This caused a 500 error at prediction time.
-
-    The fix is to encode with ``drop_first=False`` (keeping all dummies) and
-    then align the resulting DataFrame to ``feature_cols`` by:
-      - adding any column that is in ``feature_cols`` but absent from the
-        encoded row as a zero column (this covers the baseline/dropped
-        categories from training), and
-      - dropping any column that is not in ``feature_cols``.
-
-    Unknown categories (values the model was never trained on) are still
-    detected and raised as ``UnknownCategoryError``.
-
-    Raises
-    ------
-    UnknownCategoryError
-        When a categorical column value was not present in the training data.
-    MissingFeatureError
-        When one or more required *numeric* feature columns are absent after
-        encoding (i.e. the caller omitted a required field entirely).
+    Ensure all required columns exist.
     """
 
-    def __init__(self, feature_cols: List[str] = None, category_vocab: dict = None):
-        self.feature_cols = feature_cols
-        self.category_vocab = category_vocab or {}
-        self.dummy_cols = [
-            "Crop", "CNext", "CLast", "CTransp",
-            "IrriType", "IrriSource", "Season",
-        ]
+    missing = [
+        col
+        for col in required_columns
+        if col not in dataframe.columns
+    ]
 
-    def preprocess(self, input_data: dict) -> pd.DataFrame:
-        """
-        Convert a raw input dictionary to a validated, encoded DataFrame.
+    if missing:
+        raise MissingFeatureError(missing)
 
-        Parameters
-        ----------
-        input_data : dict
-            Raw feature dictionary from the API request.
 
-        Returns
-        -------
-        pd.DataFrame
-            A single-row DataFrame with columns matching ``self.feature_cols``.
+def sanitize_numeric_columns(
+    dataframe: pd.DataFrame,
+    numeric_columns: List[str],
+):
+    """
+    Safely convert numeric columns.
+    """
 
-        Raises
-        ------
-        InputValidationError
-            If any numeric parameter is out of acceptable range or invalid type.
-        UnknownCategoryError
-            If a categorical value produces no encoded columns (unknown category).
-        MissingFeatureError
-            If required numeric feature columns are absent after encoding.
-        """
-        # Step 1: Validate and sanitize numeric inputs BEFORE any processing
-        # This prevents invalid values from reaching the model
-        validated_data = validate_ml_inputs(input_data)
-        
-        df = pd.DataFrame([validated_data])
+    for column in numeric_columns:
 
-        # --- Validate categorical values against training vocabulary ---
-        if self.category_vocab:
-            for col in self.dummy_cols:
-                if col in df.columns:
-                    val = str(df[col].iloc[0])
-                    valid_values = self.category_vocab.get(col)
-                    if valid_values and val not in valid_values:
-                        expected_columns = [
-                            c for c in (self.feature_cols or [])
-                            if c.startswith(f"{col}_")
-                        ]
-                        raise UnknownCategoryError(
-                            column=col,
-                            value=val,
-                            expected_columns=expected_columns,
-                        )
+        if column not in dataframe.columns:
+            continue
 
-        # --- One-hot encode with drop_first=False ---
-        # Using drop_first=True on a single-row DataFrame silently drops ALL
-        # categorical columns because every column has only one unique value.
-        # We keep all dummies here and align to feature_cols below instead.
-        categorical_cols_present = [
-            col for col in self.dummy_cols if col in df.columns
-        ]
-        df = pd.get_dummies(df, columns=categorical_cols_present, drop_first=False)
+        dataframe[column] = pd.to_numeric(
+            dataframe[column],
+            errors="coerce",
+        )
 
-        # --- Validate and align to expected feature schema ---
-        if self.feature_cols:
-            missing = [col for col in self.feature_cols if col not in df.columns]
+        dataframe[column] = dataframe[column].replace(
+            [np.inf, -np.inf],
+            np.nan,
+        )
 
-            if missing:
-                # Classify each missing column: unknown category vs truly absent.
-                unknown_category_errors = []
-                truly_missing = []
+    return dataframe
 
-                for col in missing:
-                    # e.g. "Crop_Rice" → base column is "Crop"
-                    base_col = next(
-                        (c for c in self.dummy_cols if col.startswith(f"{c}_")),
-                        None,
-                    )
-                    if base_col and base_col in input_data:
-                        # The base categorical column was provided but its value
-                        # produced no encoded column → unknown category.
-                        expected_for_group = [
-                            c for c in self.feature_cols
-                            if c.startswith(f"{base_col}_")
-                        ]
-                        # Check whether ANY column for this group was produced.
-                        # If at least one was produced, the value is known but
-                        # this particular dummy is the baseline (dropped during
-                        # training) — fill with 0, do NOT raise.
-                        produced_for_group = [
-                            c for c in df.columns
-                            if c.startswith(f"{base_col}_")
-                        ]
-                        if not produced_for_group:
-                            # No column at all for this group → truly unknown value.
-                            unknown_category_errors.append(
-                                UnknownCategoryError(
-                                    column=base_col,
-                                    value=input_data[base_col],
-                                    expected_columns=expected_for_group,
-                                )
-                            )
-                        else:
-                            # The group has at least one produced column; this
-                            # missing column is just the baseline — add as 0.
-                            df[col] = 0
-                    else:
-                        truly_missing.append(col)
 
-                # Report unknown categories first — they are the most actionable.
-                if unknown_category_errors:
-                    raise unknown_category_errors[0]
+def validate_categorical_values(
+    dataframe: pd.DataFrame,
+    categorical_vocab: Dict[str, List[str]],
+):
+    """
+    Validate categorical values against vocab.
+    """
 
-                # Fill any remaining baseline/dropped columns with 0.
-                still_missing = [
-                    col for col in self.feature_cols if col not in df.columns
-                ]
-                numeric_missing = [
-                    col for col in still_missing
-                    if not any(col.startswith(f"{c}_") for c in self.dummy_cols)
-                ]
-                if numeric_missing:
-                    raise MissingFeatureError(numeric_missing)
+    for column, allowed_values in categorical_vocab.items():
 
-                # Add zero columns for any remaining categorical baselines.
-                for col in still_missing:
-                    df[col] = 0
+        if column not in dataframe.columns:
+            continue
 
-            # Reorder columns to exactly match model expectations and drop extras.
-            df = df[self.feature_cols]
+        for value in dataframe[column].dropna().unique():
 
-        return df
+            if value not in allowed_values:
+                raise UnknownCategoryError(
+                    column,
+                    value,
+                )
 
-    def normalize(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Placeholder for normalization (e.g. MinMaxScaler or StandardScaler).
-        Can be extended for specific model requirements.
-        """
-        return df
+
+# =============================================================================
+# MAIN PREPROCESSOR
+# =============================================================================
+
+def preprocess_prediction_input(
+    input_data: Dict,
+    required_columns: List[str],
+    numeric_columns: List[str],
+    categorical_vocab: Dict[str, List[str]],
+):
+    """
+    Main preprocessing pipeline.
+    """
+
+    if not isinstance(input_data, dict):
+        raise ValueError(
+            "input_data must be dictionary"
+        )
+
+    dataframe = pd.DataFrame([input_data])
+
+    ensure_required_features(
+        dataframe,
+        required_columns,
+    )
+
+    dataframe = sanitize_numeric_columns(
+        dataframe,
+        numeric_columns,
+    )
+
+    validate_categorical_values(
+        dataframe,
+        categorical_vocab,
+    )
+
+    dataframe = dataframe.fillna(0)
+
+    logger.info(
+        "Preprocessing completed successfully"
+    )
+
+    return dataframe

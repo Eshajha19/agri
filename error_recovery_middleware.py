@@ -4,6 +4,7 @@ Provides structured error handling and recovery for async operations
 """
 
 import logging
+import random
 import time
 import uuid
 from fastapi import Request, Response
@@ -24,10 +25,40 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
     - Structured error responses
     - Request/response logging
     - Circuit breaker integration (rolling 60 s window)
+
+    .. warning:: Per-process circuit breaker state
+
+        The circuit breaker state (``_failure_timestamps``,
+        ``_circuit_state``, ``_circuit_open_since``) is stored as instance
+        attributes on this middleware object.  In a multi-worker deployment
+        (e.g. ``uvicorn main:app --workers 4`` or Gunicorn with multiple
+        worker processes), each worker process has its own independent
+        ``ErrorRecoveryMiddleware`` instance with its own isolated state.
+
+        This means:
+        - Worker A may open its circuit after 5 failures while Worker B's
+          circuit remains closed and continues routing requests to the same
+          broken downstream endpoint.
+        - A manual ``reset_circuit()`` call only affects the worker that
+          handles that specific admin request.
+        - The ``get_error_stats()`` endpoint returns per-worker statistics,
+          not an aggregate view across all workers.
+
+        The circuit breaker therefore provides **no protection** in
+        multi-worker deployments.  It is only effective in single-worker
+        or single-process deployments (e.g. development, or production
+        with ``--workers 1``).
+
+        For multi-worker protection, use a shared external store (Redis,
+        Memcached) to coordinate circuit state across processes, or rely
+        on an upstream load balancer or service mesh for circuit breaking.
     """
 
     _FAILURE_THRESHOLD = 5
     _RESET_TIMEOUT = 60  # seconds
+    # Maximum random jitter (seconds) added to the recovery timeout to
+    # stagger half-open probes when many circuits recover at the same time.
+    _JITTER_MAX = 5
 
     # Circuit states
     _CLOSED = "closed"
@@ -55,12 +86,19 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
         state = self._circuit_state.get(endpoint)
         if state == self._OPEN:
             opened_at = self._circuit_open_since.get(endpoint, 0.0)
-            if time.time() - opened_at >= self._RESET_TIMEOUT:
+            # Apply a small random jitter so that multiple circuits whose
+            # base timeout expired simultaneously don't all fire probes at
+            # exactly the same instant (thundering-herd prevention).
+            jitter = self._circuit_open_since.get(f"{endpoint}.__jitter__", 0.0)
+            elapsed = time.time() - opened_at
+            if elapsed >= self._RESET_TIMEOUT + jitter:
                 self._circuit_state[endpoint] = self._HALF_OPEN
                 logger.info("Circuit breaker half-open for %s — allowing probe", endpoint)
             else:
+                retry_after = int(self._RESET_TIMEOUT + jitter - elapsed) + 1
                 return JSONResponse(
                     status_code=503,
+                    headers={"Retry-After": str(retry_after)},
                     content={
                         "success": False,
                         "request_id": request_id,
@@ -69,6 +107,7 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
                             "status_code": 503,
                             "category": "service_error",
                             "recoverable": True,
+                            "retry_after_seconds": retry_after,
                         },
                     },
                 )
@@ -88,10 +127,18 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
             # timestamps so the rolling window can track instability.
             if self._circuit_state.get(endpoint) == self._HALF_OPEN:
                 logger.info("Circuit breaker closed for %s — probe succeeded", endpoint)
-                self._failure_timestamps.pop(endpoint, None)
-                self._circuit_open_since.pop(endpoint, None)
 
-            self._circuit_state[endpoint] = self._CLOSED
+            # Remove all state for this endpoint when it transitions to CLOSED.
+            # Keeping a CLOSED entry in _circuit_state causes the dict to grow
+            # without bound — one entry per distinct endpoint ever seen.
+            # Absent from the dict is semantically identical to CLOSED, so we
+            # pop the key instead of writing "closed" to it.  The failure
+            # timestamps and open-since entries are also pruned so the dicts
+            # stay bounded to only currently-open or recently-failing endpoints.
+            self._circuit_state.pop(endpoint, None)
+            self._failure_timestamps.pop(endpoint, None)
+            self._circuit_open_since.pop(endpoint, None)
+            self._circuit_open_since.pop(f"{endpoint}.__jitter__", None)
 
             # Add request ID to response headers
             response.headers["X-Request-ID"] = request_id
@@ -99,7 +146,7 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
             return response
 
         except HTTPException as http_exc:
-            """Handle HTTP exceptions"""
+            # Handle HTTP exceptions
             duration = time.time() - start_time
 
             logger.warning(
@@ -121,7 +168,7 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
             )
 
         except ValueError as val_exc:
-            """Handle validation errors"""
+            # Handle validation errors
             duration = time.time() - start_time
 
             logger.warning(
@@ -143,7 +190,7 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
             )
 
         except TimeoutError as timeout_exc:
-            """Handle timeout errors"""
+            # Handle timeout errors
             duration = time.time() - start_time
 
             logger.error(
@@ -168,7 +215,7 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
             )
 
         except Exception as exc:
-            """Handle unexpected errors"""
+            # Handle unexpected errors
             duration = time.time() - start_time
             error_id = str(uuid.uuid4())
 
@@ -243,12 +290,47 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
             if self._circuit_state.get(endpoint) != self._OPEN:
                 self._circuit_state[endpoint] = self._OPEN
                 self._circuit_open_since[endpoint] = now
+                # Store per-endpoint jitter so the recovery offset is stable
+                # for this open period (not re-rolled on every request).
+                jitter = random.uniform(0, self._JITTER_MAX)
+                self._circuit_open_since[f"{endpoint}.__jitter__"] = jitter
                 logger.warning(
-                    "Circuit breaker opened for %s: %d failures in rolling %.0fs window",
+                    "Circuit breaker opened for %s: %d failures in rolling %.0fs window "
+                    "(recovery in ~%.0fs + %.1fs jitter)",
                     endpoint,
                     self._FAILURE_THRESHOLD,
                     self._RESET_TIMEOUT,
+                    self._RESET_TIMEOUT,
+                    jitter,
                 )
+        else:
+            # Failure recorded but threshold not yet reached — prune the
+            # failure_timestamps list if it is now empty so the dict does
+            # not accumulate entries for endpoints that recovered naturally.
+            if not self._failure_timestamps[endpoint]:
+                self._failure_timestamps.pop(endpoint, None)
+
+    def reset_circuit(self, endpoint: str) -> bool:
+        """Manually reset the circuit breaker for *endpoint* to CLOSED.
+
+        Intended for admin or health-check endpoints that need to force
+        recovery without waiting for the full timeout.  Returns ``True``
+        when the circuit was previously OPEN or HALF_OPEN, ``False`` when
+        it was already CLOSED (or unknown).
+        """
+        previous = self._circuit_state.get(endpoint)
+        was_open = previous in (self._OPEN, self._HALF_OPEN)
+        self._circuit_state[endpoint] = self._CLOSED
+        self._failure_timestamps.pop(endpoint, None)
+        self._circuit_open_since.pop(endpoint, None)
+        self._circuit_open_since.pop(f"{endpoint}.__jitter__", None)
+        if was_open:
+            logger.info(
+                "Circuit breaker manually reset for %s (was %s)",
+                endpoint,
+                previous,
+            )
+        return was_open
 
     def _categorize_error(self, status_code: int) -> str:
         """Categorize HTTP error"""
@@ -266,14 +348,32 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
         return "unknown"
 
     def get_error_stats(self) -> dict:
-        """Get error statistics"""
+        """Get error statistics including per-endpoint circuit details."""
         now = time.time()
         pruned = {
             ep: [t for t in ts if now - t < self._RESET_TIMEOUT]
             for ep, ts in self._failure_timestamps.items()
         }
+
+        # Build per-endpoint circuit detail (skip internal jitter keys)
+        circuit_detail: dict[str, dict] = {}
+        for ep, state in self._circuit_state.items():
+            if ep.endswith(".__jitter__"):
+                continue
+            detail: dict = {"state": state}
+            if state in (self._OPEN, self._HALF_OPEN):
+                opened_at = self._circuit_open_since.get(ep, 0.0)
+                jitter = self._circuit_open_since.get(f"{ep}.__jitter__", 0.0)
+                elapsed = now - opened_at
+                detail["open_since"] = opened_at
+                detail["elapsed_seconds"] = round(elapsed, 2)
+                time_remaining = max(0.0, self._RESET_TIMEOUT + jitter - elapsed)
+                detail["time_until_retry_seconds"] = round(time_remaining, 2)
+            circuit_detail[ep] = detail
+
         return {
             "circuit_states": dict(self._circuit_state),
+            "circuit_detail": circuit_detail,
             "failure_counts": {k: len(v) for k, v in pruned.items()},
             "failure_timestamps": {k: v for k, v in pruned.items()},
         }

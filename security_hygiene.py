@@ -56,34 +56,60 @@ class SecretHygieneProgram:
                 findings.append(Finding(category, match.group(0), location))
         return findings
 
-class RuntimeProtectionMiddleware(BaseHTTPMiddleware):
-    """FastAPI Middleware to block requests containing cleartext secrets."""
-    def __init__(self, app, program: SecretHygieneProgram = None):
-        super().__init__(app)
+class RuntimeProtectionMiddleware:
+    """FastAPI/ASGI Middleware to block requests containing cleartext secrets."""
+    def __init__(self, app, program: SecretHygieneProgram = None, exclude_paths: List[str] = None):
+        self.app = app
         self.program = program or SecretHygieneProgram()
+        self.exclude_paths = exclude_paths or []
 
-    async def dispatch(self, request: Request, call_next):
-        # Scan request body for secret leakages before passing to route handlers
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        if any(path.startswith(prefix) for prefix in self.exclude_paths):
+            await self.app(scope, receive, send)
+            return
+
+        body_bytes = b""
+        more_body = True
+        received_messages = []
+
         try:
-            body_bytes = await request.body()
+            while more_body:
+                message = await receive()
+                received_messages.append(message)
+                if message["type"] == "http.request":
+                    body_bytes += message.get("body", b"")
+                    more_body = message.get("more_body", False)
+                elif message["type"] == "http.disconnect":
+                    break
+
             body_str = body_bytes.decode("utf-8", errors="ignore")
             findings = self.program.scan_text(body_str, location="middleware")
             if findings:
-                return JSONResponse(
+                response = JSONResponse(
                     status_code=400,
                     content={"error": "Request blocked by secrets hygiene policy"}
                 )
-            
-            # Reset body read pointer so downstream handlers can consume it
-            async def receive():
-                return {"type": "http.request", "body": body_bytes, "more_body": False}
-            request._receive = receive
+                await response(scope, receive, send)
+                return
         except Exception:
-            # Fallback in case of body read failures to avoid crashing the server
+            # Fallback to normal request execution if body buffering fails
             pass
 
-        response = await call_next(request)
-        return response
+        message_idx = 0
+        async def mock_receive():
+            nonlocal message_idx
+            if message_idx < len(received_messages):
+                msg = received_messages[message_idx]
+                message_idx += 1
+                return msg
+            return await receive()
+
+        await self.app(scope, mock_receive, send)
 
 def build_secret_fingerprint(value: str) -> str:
     """Generate a cryptographically stable fingerprint of a secret value."""
