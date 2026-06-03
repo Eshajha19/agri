@@ -185,10 +185,10 @@ recommendation_cache = RecommendationCache()
 
 # ── Request Model ─────────────────────────────────────────────────────────────
 class CropRecommendationRequest(BaseModel):
-    soil_ph: float = Field(..., ge=4.0, le=9.0)
-    nitrogen: float = Field(..., ge=0, le=100)
-    phosphorus: float = Field(..., ge=0, le=50)
-    potassium: float = Field(..., ge=0, le=300)
+    soil_ph: float = Field(..., ge=4.5, le=8.5)
+    nitrogen: float = Field(..., ge=0, le=500)
+    phosphorus: float = Field(..., ge=0, le=100)
+    potassium: float = Field(..., ge=0, le=500)
     location: str
     season: str = "kharif"
     area_size: Optional[float] = None
