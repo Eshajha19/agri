@@ -1704,6 +1704,14 @@ try:
 except Exception as e:
     logger.warning(f"Could not load Crop Recommendation API: {e}")
 
+# Include Hyperparameter Optimization Router
+try:
+    from routers.hyperparameter_optimizer import router as hyperopt_router
+    app.include_router(hyperopt_router)
+    logger.info("Hyperparameter Optimization API loaded successfully")
+except Exception as e:
+    logger.warning(f"Could not load Hyperparameter Optimization API: {e}")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
