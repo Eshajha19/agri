@@ -916,6 +916,21 @@ def _build_gdpr_deletion_targets(uid: str) -> list[DeletionTarget]:
 def root(request: Request = None):
     return {"message": "Fasal Saathi API", "status": "running"}
 
+
+@app.get("/health/disk")
+@limiter.limit("60/minute")
+def health_disk(request: Request = None):
+    """
+    Price forecaster disk usage and log rotation health.
+    Returns 503 if disk usage >90% or forecasts log is missing.
+    """
+    from ml.price_forecaster import get_price_forecaster
+    forecaster = get_price_forecaster()
+    health = forecaster.disk_health()
+    if health.get("healthy"):
+        return health
+    raise HTTPException(status_code=503, detail=health)
+
 @app.get("/predict")
 @limiter.limit("30/minute")
 def predict_get(request: Request = None):

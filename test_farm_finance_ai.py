@@ -49,6 +49,7 @@ def test_high_debt_profile_is_flagged_as_risky():
 
 def test_create_application_persists_and_returns_status():
     engine = FarmFinanceAI()
+    owner_uid = "test-uid-123"
     application = engine.create_application(
         {
             "farmer_name": "Meera",
@@ -62,10 +63,10 @@ def test_create_application_persists_and_returns_status():
             "requested_loan_amount": 320000,
             "loan_tenure_months": 36,
         },
-        owner_uid="farmer-1",
+        owner_uid="test-user",
     )
 
-    stored = engine.get_application(application["application_id"], owner_uid="farmer-1")
+    stored = engine.get_application(application["application_id"], owner_uid="test-user")
 
     assert application["status"] in {"pre_approved", "under_review", "needs_documents"}
     assert stored is not None
@@ -108,3 +109,35 @@ def test_marketplace_lists_multiple_products():
 
     assert len(marketplace) >= 3
     assert {item["lender_name"] for item in marketplace}
+
+
+def test_financial_analysis_caps_extreme_loan_tenure():
+    engine = FarmFinanceAI()
+    result = engine.analyze_financial_profile(
+        {
+            "farmer_name": "Asha",
+            "crop_type": "wheat",
+            "acreage": 12,
+            "annual_revenue": 900000,
+            "annual_operating_cost": 540000,
+            "existing_debt": 120000,
+            "emergency_fund": 140000,
+            "credit_score": 742,
+            "requested_loan_amount": 250000,
+            "loan_tenure_months": 1_000_000,
+        }
+    )
+
+    assert result["tenure_months"] == 600
+    assert result["estimated_emi"] > 0
+    assert result["recommended_loan_amount"] > 0
+
+
+def test_emi_helpers_handle_overflowing_growth_factor():
+    engine = FarmFinanceAI()
+
+    emi = engine._calculate_emi(250000, 7.5, 1_000_000)
+    principal = engine._principal_from_emi(5000, 7.5, 1_000_000)
+
+    assert emi == 250000 * (7.5 / 12 / 100)
+    assert principal == 5000 / (7.5 / 12 / 100)

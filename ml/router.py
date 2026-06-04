@@ -86,7 +86,7 @@ class ModelRouter:
         context: Optional[Dict[str, Any]] = None,
     ):
         """
-        Run prediction using resolved model.
+        Run single-sample prediction using resolved model.
         """
 
         if not isinstance(input_data, dict):
@@ -97,7 +97,7 @@ class ModelRouter:
         model = self._get_model(model_name)
 
         logger.info(
-            "Running prediction using model='%s'",
+            "Running single prediction using model='%s'",
             model_name,
         )
 
@@ -115,6 +115,50 @@ class ModelRouter:
             ) from exc
 
         return prediction
+
+    def predict_batch(
+        self,
+        inputs: list[Dict[str, Any]],
+        context: Optional[Dict[str, Any]] = None,
+    ) -> list[Any]:
+        """
+        Run batch prediction using resolved model.
+
+        Falls back to individual predict() calls if the model adapter
+        does not implement predict_batch().
+        """
+        if not inputs:
+            return []
+
+        model_name = self._resolve_model_name(context)
+        model = self._get_model(model_name)
+
+        logger.info(
+            "Running batch prediction using model='%s', n=%d",
+            model_name,
+            len(inputs),
+        )
+
+        if hasattr(model, "predict_batch"):
+            try:
+                return model.predict_batch(inputs)
+            except Exception as exc:
+                logger.warning(
+                    "Batch predict failed for model='%s', falling back to loop. Error: %s",
+                    model_name,
+                    exc,
+                )
+
+        # Fallback: loop over individual predictions
+        results = []
+        for idx, item in enumerate(inputs):
+            try:
+                results.append(model.predict(item))
+            except Exception as exc:
+                logger.warning("Batch item %d failed: %s", idx, exc)
+                results.append(None)
+
+        return results
 
     def available_models(self):
         """

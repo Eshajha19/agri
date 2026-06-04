@@ -238,11 +238,22 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
     const [showSeasonalStrategyGuide, setShowSeasonalStrategyGuide] = useState(false);
     const [showWeatherImpactGuide, setShowWeatherImpactGuide] = useState(false);
     const [showDiseaseLifecycle, setShowDiseaseLifecycle] = useState(false);
+    const mountedRef = useRef(true);
+    const weatherRequestRef = useRef(0);
+    const weatherLoadingRef = useRef(false);
 
   // ── Shared weather snapshot integration ──────────────────────────────────
   // Subscribe to the global WEATHER_SNAPSHOT_EVENT so any fetch by
   // WeatherAlertBar or WeatherQuickWidget is immediately reflected here —
   // no duplicate API call needed.
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   useEffect(() => {
     const handleSnapshot = (event) => {
       const snap = event.detail;
@@ -262,6 +273,7 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
   // weather dashboard is never left idle on a cold start.
   useEffect(() => {
     let cancelled = false;
+    const requestId = ++weatherRequestRef.current;
 
     const hydrateWeather = async () => {
       const cached = getStoredWeatherSnapshot();
@@ -272,15 +284,27 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
 
         try {
           const refreshed = await fetchWeatherByLocation(cached.location);
-          if (!cancelled) {
-            setWeatherSnapshot(refreshed);
-            setWeatherStatus("ready");
-            setWeatherError("");
+          if (
+            cancelled ||
+            !mountedRef.current ||
+            requestId !== weatherRequestRef.current
+          ) {
+            return;
           }
+
+          setWeatherSnapshot(refreshed);
+          setWeatherStatus("ready");
+          setWeatherError("");
         } catch (error) {
-          if (!cancelled) {
-            setWeatherError(error?.message || "Unable to refresh weather data.");
+          if (
+            cancelled ||
+            !mountedRef.current ||
+            requestId !== weatherRequestRef.current
+          ) {
+            return;
           }
+
+          setWeatherError(error?.message || "Unable to refresh weather data.");
         }
 
         return;
@@ -289,11 +313,17 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
       setWeatherStatus("loading");
       try {
         const liveSnapshot = await fetchWeatherByIP();
-        if (!cancelled) {
-          setWeatherSnapshot(liveSnapshot);
-          setWeatherStatus("ready");
-          setWeatherError("");
+        if (
+          cancelled ||
+          !mountedRef.current ||
+          requestId !== weatherRequestRef.current
+        ) {
+          return;
         }
+
+        setWeatherSnapshot(liveSnapshot);
+        setWeatherStatus("ready");
+        setWeatherError("");
       } catch (error) {
         if (!cancelled) {
           setWeatherStatus("error");
@@ -322,35 +352,82 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
   // Fetch weather via the shared service (writes to the shared cache and
   // broadcasts WEATHER_SNAPSHOT_EVENT so all components stay in sync).
   const fetchWeather = async ({ latitude, longitude, label }) => {
+    if (weatherLoadingRef.current) return;
+
+    weatherLoadingRef.current = true;
+
+    const requestId = ++weatherRequestRef.current;
+
     setWeatherStatus("loading");
     setWeatherError("");
+
     try {
       const snap = await fetchWeatherByLocation({
-        latitude, longitude,
+        latitude,
+        longitude,
         city: label || "Your area",
         name: label || "Your area",
         source: "manual",
       });
+
+      if (
+        !mountedRef.current ||
+        requestId !== weatherRequestRef.current
+      ) {
+        return;
+      }
+
       setWeatherSnapshot(snap);
       setWeatherStatus("ready");
     } catch (err) {
+      if (
+        !mountedRef.current ||
+        requestId !== weatherRequestRef.current
+      ) {
+        return;
+      }
+
       setWeatherStatus("error");
       setWeatherError(err?.message || "Failed to load weather data.");
+    } finally {
+      weatherLoadingRef.current = false;
     }
   };
 
   const handleUseMyLocation = async () => {
     setWeatherStatus("loading");
     setWeatherError("");
+    const requestId = ++weatherRequestRef.current;
     try {
       const location = await getCurrentPosition();
       const snap = await fetchWeatherByLocation(location);
+      if (
+        !mountedRef.current ||
+        requestId !== weatherRequestRef.current
+      ) {
+        return;
+      }
+
       setWeatherSnapshot(snap);
       setWeatherStatus("ready");
     } catch {
       // GPS failed — fall back to IP-based location
       try {
         const snap = await fetchWeatherByIP();
+        if (
+          !mountedRef.current ||
+          requestId !== weatherRequestRef.current
+        ) {
+          return;
+        }
+
+        if (
+          !mountedRef.current ||
+          requestId !== weatherRequestRef.current
+        ) {
+          return;
+        }
+
         setWeatherSnapshot(snap);
         setWeatherStatus("ready");
       } catch (err) {
@@ -365,9 +442,19 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
     if (!locationQuery.trim()) return;
     setWeatherStatus("loading");
     setWeatherError("");
+    if (!locationQuery.trim()) return;
+
+    const requestId = ++weatherRequestRef.current;
     try {
       const location = await searchLocationByName(locationQuery.trim());
       const snap = await fetchWeatherByLocation(location);
+      if (
+        !mountedRef.current ||
+        requestId !== weatherRequestRef.current
+      ) {
+        return;
+      }
+
       setWeatherSnapshot(snap);
       setWeatherStatus("ready");
     } catch (err) {
@@ -1229,6 +1316,7 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             <button
               className="weather-btn secondary"
               type="button"
+              disabled={weatherStatus === "loading"}
               onClick={() => {
                 if (weatherSnapshot?.location) {
                   fetchWeather({
