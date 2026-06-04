@@ -144,35 +144,49 @@ async def generate_personalized_recommendations(request: Request):
                 "confidence": "low",
             })
 
-        # Rank by predicted yield impact using XGBoost
-        from ml.adapters.xgboost_adapter import XGBoostAdapter
-        from ml.registry import ModelRegistry
+        # Rank by predicted yield impact using XGBoost (batched)
+        batch_inputs = []
+        batch_indices = []
 
-        try:
-            xgb = ModelRegistry.get("xgboost")
-            if xgb:
-                # Score each recommendation's context with XGBoost
-                for rec in recommendations:
-                    try:
-                        pred_input = {
-                            "Crop": profile.get("cropType", "Wheat"),
-                            "CropCoveredArea": 2.0,
-                            "CHeight": 100,
-                            "CNext": "Rice",
-                            "CLast": "Wheat",
-                            "CTransp": "Medium",
-                            "IrriType": "Drip",
-                            "IrriSource": "Groundwater",
-                            "IrriCount": 3,
-                            "WaterCov": 80,
-                            "Season": "Rabi",
-                        }
-                        pred = xgb.predict(pred_input)
-                        rec["predicted_yield_impact"] = round(pred, 2)
-                    except Exception:
-                        rec["predicted_yield_impact"] = None
-        except Exception:
-            pass
+        for idx, rec in enumerate(recommendations):
+            pred_input = {
+                "Crop": profile.get("cropType", "Wheat"),
+                "CropCoveredArea": 2.0,
+                "CHeight": 100,
+                "CNext": "Rice",
+                "CLast": "Wheat",
+                "CTransp": "Medium",
+                "IrriType": "Drip",
+                "IrriSource": "Groundwater",
+                "IrriCount": 3,
+                "WaterCov": 80,
+                "Season": "Rabi",
+            }
+            batch_inputs.append(pred_input)
+            batch_indices.append(idx)
+
+        batch_preds = [None] * len(recommendations)
+        if batch_inputs:
+            try:
+                from ml.registry import ModelRegistry
+                xgb = ModelRegistry.get("xgboost")
+                if xgb and hasattr(xgb, "predict_batch"):
+                    raw_preds = xgb.predict_batch(batch_inputs)
+                    for bi, pred in zip(batch_indices, raw_preds):
+                        if pred is not None:
+                            batch_preds[bi] = round(pred, 2)
+                elif xgb:
+                    # Fallback for adapters without predict_batch
+                    for bi, inp in zip(batch_indices, batch_inputs):
+                        try:
+                            batch_preds[bi] = round(xgb.predict(inp), 2)
+                        except Exception:
+                            batch_preds[bi] = None
+            except Exception as exc:
+                logger.warning("Batch yield impact scoring failed: %s", exc)
+
+        for idx, pred in enumerate(batch_preds):
+            recommendations[idx]["predicted_yield_impact"] = pred
 
         # Sort by priority then predicted impact
         priority_order = {"high": 0, "medium": 1, "low": 2}
@@ -194,6 +208,14 @@ async def generate_personalized_recommendations(request: Request):
         except Exception:
             pass
 
+        # Batch efficiency metrics
+        batch_metrics = {
+            "recommendations_scored": sum(1 for p in batch_preds if p is not None),
+            "recommendations_total": len(recommendations),
+            "batch_size": len(batch_inputs),
+            "batch_efficiency": round(len(batch_inputs) / max(len(recommendations), 1), 4),
+        }
+
         return {
             "success": True,
             "uid": uid,
@@ -202,6 +224,7 @@ async def generate_personalized_recommendations(request: Request):
             "gap_analysis": gap,
             "recommendations": recommendations,
             "total_recommendations": len(recommendations),
+            "_batch_metrics": batch_metrics,
         }
 
     except HTTPException:
