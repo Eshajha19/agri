@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional
+from rbac import RBACMatrix, Role
 from rbac_audit import audit_rbac_event
 
 logger = logging.getLogger(__name__)
@@ -32,38 +33,22 @@ def init_finance(ffa, rbac, perm):
     Permission = perm
 
 
-def _extract_uid_from_verified_token(request: Request) -> Optional[str]:
-    """
-    Extract the Firebase UID by cryptographically verifying the JWT token.
-
-    Performs full signature verification via ``firebase_admin.auth.verify_id_token``.
-    This is safe to call regardless of whether upstream verification has occurred,
-    because every invocation independently validates the token's signature, expiry,
-    and issuer.
-    """
-    from firebase_admin import auth as firebase_auth
-
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return None
-    token = auth_header.split(" ", 1)[1]
-    try:
-        decoded = firebase_auth.verify_id_token(token)
-        return decoded.get("uid")
-    except Exception as exc:
-        logger.error("Failed to verify JWT token: %s", exc)
-        return None
+def _context_has_permission(ctx, permission) -> bool:
+    return RBACMatrix.has_permission(Role(ctx.role), permission)
 
 
-async def _has_permission(request: Request, permission) -> bool:
-    """Return True if the caller has the given permission (no exception raised)."""
-    try:
-        await rbac_manager.raise_if_unauthorized(request, [permission], require_all=False)
-        return True
-    except HTTPException as e:
-        if e.status_code == 403:
-            return False
-        raise
+async def _authorize_with_context(request: Request, permissions, require_all: bool = False):
+    ctx = await rbac_manager.resolve_auth_context(request, allow_unauthenticated=False)
+    checks = [_context_has_permission(ctx, permission) for permission in permissions]
+    has_permission = all(checks) if require_all else any(checks)
+    if not has_permission:
+        logger.warning(
+            "Unauthorized access attempt with role: %s, required: %s",
+            ctx.role,
+            [permission.value for permission in permissions],
+        )
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    return ctx
 
 
 @router.post("/analyze")
@@ -86,16 +71,8 @@ async def create_finance_application(request: Request, body: FinanceAssessmentRe
     if farm_finance_ai is None or rbac_manager is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     try:
-        await rbac_manager.raise_if_unauthorized(request, [Permission.FINANCE_CREATE], require_all=False)
-        # Bind the application to the authenticated caller so ownership can be
-        # enforced on subsequent reads.  The token was already verified by
-        # raise_if_unauthorized above; decode the payload without a second
-        # cryptographic verification to avoid duplicate latency.
-        owner_uid = _extract_uid_from_verified_token(request)
-        if owner_uid is None:
-            # raise_if_unauthorized passed, so the token is valid — a missing
-            # uid here indicates a malformed token that should not proceed.
-            raise HTTPException(status_code=401, detail="Unable to determine caller identity")
+        ctx = await _authorize_with_context(request, [Permission.FINANCE_CREATE], require_all=False)
+        owner_uid = ctx.uid
         application = farm_finance_ai.create_application(body.model_dump(), owner_uid=owner_uid)
         return {"success": True, "data": application}
     except HTTPException:
@@ -120,19 +97,16 @@ async def get_finance_application(application_id: str, request: Request, resourc
         raise HTTPException(status_code=500, detail="Not initialized")
     try:
         # Require at least one of the two read permissions
-        await rbac_manager.raise_if_unauthorized(
+        ctx = await _authorize_with_context(
             request,
             [Permission.FINANCE_READ_OWN, Permission.FINANCE_READ_ALL],
             require_all=False,
         )
 
-        caller_uid = _extract_uid_from_verified_token(request)
-        ctx = await rbac_manager.resolve_auth_context(request, allow_unauthenticated=False)
-
         # Admins/experts with FINANCE_READ_ALL can override ownership in-tenant.
         # Farmers with only FINANCE_READ_OWN remain scoped to their own records.
-        has_read_all = await _has_permission(request, Permission.FINANCE_READ_ALL)
-        owner_uid_filter = caller_uid
+        has_read_all = _context_has_permission(ctx, Permission.FINANCE_READ_ALL)
+        owner_uid_filter = ctx.uid
 
         if has_read_all:
             try:
