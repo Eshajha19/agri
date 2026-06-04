@@ -64,14 +64,20 @@ async def _require_auth(request: Request) -> str:
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth not initialized")
     token_data = await verify_role_fn(request)
-    return token_data["uid"]
+    uid = token_data.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+    return uid
 
 
 async def _require_admin_auth(request: Request) -> str:
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth not initialized")
     token_data = await verify_role_fn(request, required_roles=["admin", "expert"])
-    return token_data["uid"]
+    uid = token_data.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+    return uid
 
 
 # ---------------------------------------------------------------------------
