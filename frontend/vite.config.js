@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import htmlConfig from 'vite-plugin-html-config'
 
 const spaFallbackPlugin = () => ({
   name: 'spa-fallback',
@@ -36,6 +37,7 @@ export default defineConfig(() => ({
     spaFallbackPlugin(),
     codespaceDevPlugin(),
     react(),
+    htmlConfig({}),
     // Legacy browser support removed: React Router 7 requires modern syntax.
     // Minimum supported: Chrome 90+, Android 5+, Safari 14+, Edge 90+
     
@@ -197,12 +199,31 @@ export default defineConfig(() => ({
     },
     build: {
       outDir: 'build',
+      target: 'es2020',
+      cssCodeSplit: true,
+      modulePreload: { polyfill: false },
+      minify: 'terser',
+      terserOptions: {
+        compress: { drop_console: true, passes: 2 },
+        format: { comments: false },
+      },
       rollupOptions: {
         external: [],
         output: {
-          manualChunks: {
-            vendor: ['react', 'react-dom', 'react-router-dom'],
-            firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore']
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return;
+            if (id.includes('firebase')) return 'firebase';
+            if (id.includes('react-router')) return 'router';
+            if (id.includes('three') || id.includes('@react-three')) return 'three';
+            if (id.includes('leaflet')) return 'leaflet';
+            if (id.includes('jspdf')) return 'pdf';
+            if (id.includes('html5-qrcode')) return 'qr';
+            if (id.includes('@tensorflow')) return 'tf';
+            if (id.includes('@jitsi')) return 'jitsi';
+            if (id.includes('recharts')) return 'charts';
+            if (id.includes('i18next') || id.includes('react-i18next')) return 'i18n';
+            if (id.includes('react-icons')) return 'icons';
+            if (id.includes('react') || id.includes('scheduler')) return 'react-vendor';
           }
         }
       }

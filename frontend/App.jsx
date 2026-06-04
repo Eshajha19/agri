@@ -1,41 +1,40 @@
-import React, { Suspense, useEffect, useState, useRef } from "react";
+import React, { Suspense, useEffect, useState, useRef, lazy } from "react";
 import { Routes, Route, Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ToastContainer } from "react-toastify";
+// import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import {
-  FaComments,
-  FaLeaf,
-  FaTachometerAlt,
-  FaTimes,
-  FaBars,
-  FaChevronDown,
-  FaChevronUp,
-  FaWhatsapp,
-  FaBook,
-  FaShieldAlt,
-  FaBolt,
-  FaUserSecret,
-  FaFileInvoiceDollar,
-  FaTrophy,
-  FaUserPlus,
-  FaMedal,
-  FaCog,
-  FaMicrophone,
-  FaInfoCircle
-} from "react-icons/fa";
+
+// Lazy Components
+const ToastContainer = lazy(() => import("react-toastify").then(m => ({ default: m.ToastContainer })));
+const LanguageDropdown = lazy(() => import("./LanguageDropdown"));
+const Footer = lazy(() => import("./components/Footer"));
+const FarmingMythChecker = lazy(() => import("./components/FarmingMythChecker"));
+const CropComparison = lazy(() => import("./components/CropComparison"));
+
+const Icon = ({ name, ...props }) => (
+  <Suspense fallback={<span style={{ width: 16, display: 'inline-block' }} />}>
+    <LazyIcon name={name} {...props} />
+  </Suspense>
+);
+
+const LazyIcon = lazy(async () => {
+  const m = await import("react-icons/fa");
+  return {
+    default: ({ name, ...props }) => {
+      const C = m[name];
+      return C ? <C {...props} /> : null;
+    }
+  };
+});
+
 import { usePerformanceStore } from "./stores/performanceStore";
 import { useBrowserCacheBudget } from "./lib/cacheBudget";
 import { cryptoService } from "./utils/cryptoService";
 // Components
 import Loader from "./Loader";
-import LanguageDropdown from "./LanguageDropdown";
 import useNotifications from "./Notifications";
-import Footer from "./components/Footer";
 import { SkipLink } from "./NavigationManager";
 import { useTheme } from "./ThemeContext";
-import FarmingMythChecker from "./components/FarmingMythChecker";
-import CropComparison from "./components/CropComparison";
 
 // Route-level code splitting
 import {
@@ -91,7 +90,7 @@ import {
 
 const Weather = React.lazy(() => import("./Weather"));
 const FeatureDriftMonitor = React.lazy(() => import("./FeatureDriftMonitor"));
-import VoiceAssistant from "./VoiceAssistant";
+const VoiceAssistant = React.lazy(() => import("./VoiceAssistant"));
 
 /**
  * Thin wrapper so SustainabilityAnalytics (designed as a modal) works as a
@@ -212,7 +211,7 @@ const applyGoogleTranslateRobust = async (langCode, onReady, onError) => {
 const GuestBanner = () => (
   <div className="guest-banner">
     <div className="guest-banner-content">
-      <FaUserSecret className="banner-icon" />
+      <Icon name="FaUserSecret" className="banner-icon" />
       <span>
         <strong>Guest Session Active:</strong> Explore the platform freely!
         <Link to="/auth" className="banner-link"> Sign Up</Link> to save your progress permanently.
@@ -577,7 +576,7 @@ function App() {
             aria-label="More Options"
           >
             <span className="notranslate">More</span>
-            <FaChevronDown className="chevron" />
+            <Icon name="FaChevronDown" className="chevron" />
           </button>
 
           {showMoreMenu && (
@@ -617,9 +616,9 @@ function App() {
                     ))}
                   </div>
                 </div>
-                <Link to="/voice-assistant" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMicrophone /> Voice Assistant</Link>
-                <Link to="/myth-checker" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMedal /> Myth Checker</Link>
-                <Link to="/crop-comparison" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaLeaf /> Crop Comparison</Link>
+                <Link to="/voice-assistant" onClick={() => setShowMoreMenu(false)} role="menuitem"><Icon name="FaMicrophone" /> Voice Assistant</Link>
+                <Link to="/myth-checker" onClick={() => setShowMoreMenu(false)} role="menuitem"><Icon name="FaMedal" /> Myth Checker</Link>
+                <Link to="/crop-comparison" onClick={() => setShowMoreMenu(false)} role="menuitem"><Icon name="FaLeaf" /> Crop Comparison</Link>
                 <div className="performance-toggle-section">
                   <button
                     className={`lite-mode-toggle ${liteMode ? 'active' : ''}`}
@@ -627,7 +626,7 @@ function App() {
                     role="menuitem"
                   >
                     <div className="toggle-info">
-                      <FaBolt className="zap-icon" />
+                      <Icon name="FaBolt" className="zap-icon" />
                       <span>Lite Mode {liteMode ? "ON" : "OFF"}</span>
                     </div>
                     <div className="toggle-switch">
@@ -635,19 +634,19 @@ function App() {
                     </div>
                   </button>
                 </div>
-                <Link to="/dashboard" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaTachometerAlt /> Dashboard</Link>
+                <Link to="/dashboard" onClick={() => setShowMoreMenu(false)} role="menuitem"><Icon name="FaTachometerAlt" /> Dashboard</Link>
                 {userData?.role === "admin" && (
-                  <Link to="/admin/feedback" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Feedback Admin</Link>
+                  <Link to="/admin/feedback" onClick={() => setShowMoreMenu(false)} role="menuitem"><Icon name="FaShieldAlt" /> Feedback Admin</Link>
                 )}
-                <Link to="/profile-settings" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaCog /> Profile settings</Link>
-                <Link to="/community" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaComments /> Community</Link>
-                <Link to="/leaderboard" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaTrophy />Leaderboard</Link>
-                <Link to="/referrals" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaUserPlus /> Referrals</Link>
-                <Link to="/risk-index" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Risk Index</Link>
-                <Link to="/farm-finance" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaFileInvoiceDollar /> Farm Finance</Link>
-                <Link to="/glossary" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaBook /> Glossary</Link>
-                <Link to="/feature-drift" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> Feature Drift Monitor</Link>
-                <Link to="/contact" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> Contact</Link>
+                <Link to="/profile-settings" onClick={() => setShowMoreMenu(false)} role="menuitem"><Icon name="FaCog" /> Profile settings</Link>
+                <Link to="/community" onClick={() => setShowMoreMenu(false)} role="menuitem"><Icon name="FaComments" /> Community</Link>
+                <Link to="/leaderboard" onClick={() => setShowMoreMenu(false)} role="menuitem"><Icon name="FaTrophy" />Leaderboard</Link>
+                <Link to="/referrals" onClick={() => setShowMoreMenu(false)} role="menuitem"><Icon name="FaUserPlus" /> Referrals</Link>
+                <Link to="/risk-index" onClick={() => setShowMoreMenu(false)} role="menuitem"><Icon name="FaShieldAlt" /> Risk Index</Link>
+                <Link to="/farm-finance" onClick={() => setShowMoreMenu(false)} role="menuitem"><Icon name="FaFileInvoiceDollar" /> Farm Finance</Link>
+                <Link to="/glossary" onClick={() => setShowMoreMenu(false)} role="menuitem"><Icon name="FaBook" /> Glossary</Link>
+                <Link to="/feature-drift" onClick={() => setShowMoreMenu(false)} role="menuitem"><Icon name="FaInfoCircle" /> Feature Drift Monitor</Link>
+                <Link to="/contact" onClick={() => setShowMoreMenu(false)} role="menuitem"><Icon name="FaInfoCircle" /> Contact</Link>
               </div>
             </div>
           )}
@@ -657,7 +656,7 @@ function App() {
               <div className="user-profile-trigger" onClick={() => { setShowScorecard(!showScorecard); setShowMoreMenu(false); }}>
                 <div className="profile-main">
                   <span className="profile-name">👋 {userData?.displayName || user.email?.split('@')[0]}</span>
-                  <FaChevronDown className={`chevron ${showScorecard ? 'open' : ''}`} />
+                  <Icon name="FaChevronDown" className={`chevron ${showScorecard ? 'open' : ''}`} />
                 </div>
 
                 {showScorecard && userData && (
@@ -692,7 +691,7 @@ function App() {
         </div>
 
         <button className="hamburger" onClick={() => setIsOpen(!isOpen)} aria-label="Toggle Menu">
-          {isOpen ? <FaTimes /> : <FaBars />}
+          {isOpen ? <Icon name="FaTimes" /> : <Icon name="FaBars" />}
         </button>
       </nav>
 
@@ -734,7 +733,7 @@ function App() {
       )}
 
       <main id="main-content" tabIndex="-1" style={{ outline: 'none' }}>
-        <React.Suspense fallback={<Loader fullPage={true} message={<span className="notranslate">Loading route...</span>} />}>
+        <React.Suspense fallback={<div style={{ minHeight: "calc(100vh - 64px)", background: "var(--bg-color)" }} />}>
           <Routes>
             <Route path="/" element={<Home user={user} />} />
             <Route path="/advisor" element={<Advisor userData={userData} />} />
@@ -805,7 +804,7 @@ function App() {
 
       {/* Floating Buttons */}
       <Link to="/advisor" className="floating-chat-btn" aria-label="Open AI Advisor Chat">
-        <FaComments size={28} aria-hidden="true" />
+        <Icon name="FaComments" size={28} aria-hidden="true" />
       </Link>
 
       <a
@@ -815,13 +814,13 @@ function App() {
         className="whatsapp-float"
         title="Chat with WhatsApp Bot"
       >
-        <FaWhatsapp />
+        <Icon name="FaWhatsapp" />
         <span className="tooltip">Chat with Bot</span>
       </a>
 
       {showScrollTop && (
         <button className="scroll-to-top" onClick={scrollToTop} aria-label="Scroll to top">
-          <FaChevronUp size={24} />
+          <Icon name="FaChevronUp" size={24} />
         </button>
       )}
 

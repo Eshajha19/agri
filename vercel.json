@@ -1,23 +1,14 @@
 {
-  "builds": [
-    {
-      "src": "frontend/package.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "build",
-        "cwd": "frontend"
-      }
-    }
+  "builds": [{
+    "src": "frontend/package.json",
+    "use": "@vercel/static-build",
+    "config": { "distDir": "build", "cwd": "frontend" }
+  }],
+  "build": { "env": { "NODE_OPTIONS": "--max-old-space-size=4096" } },
+  "headers": [
+    { "source": "/assets/(.*)", "headers": [
+      { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+    ]}
   ],
-  "build": {
-    "env": {
-      "NODE_OPTIONS": "--max-old-space-size=4096"
-    }
-  },
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
-    }
-  ]
+  "routes": [{ "src": "/(.*)", "dest": "/index.html" }]
 }
