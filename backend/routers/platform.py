@@ -4,6 +4,7 @@ This module hosts endpoints that don't belong to a single domain router,
 keeping main.py focused on application wiring only.
 """
 
+import asyncio
 import hashlib
 import io
 import json
@@ -13,7 +14,8 @@ import re
 from datetime import datetime
 from typing import Any, Optional
 
-from fastapi import APIRouter, Form, HTTPException, Request, Response
+from fastapi import APIRouter, Form, HTTPException, Request, Response, Depends
+from csrf_protection import verify_csrf_token_dependency
 from pydantic import BaseModel, Field, validator
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
@@ -21,6 +23,10 @@ from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+
+from backend.compute_rate_limit import enforce_compute_rate_limit
+from backend.schemas import AlertTriggerRequest, RAGQuery
+from backend.utils.numeric_validation import validate_numeric_bounds
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -34,11 +40,6 @@ class WhatsAppSubscribeRequest(BaseModel):
     # The authoritative identity is always derived from the verified
     # Firebase ID token — never from client-supplied data.
     user_id: Optional[str] = None
-
-
-class AlertTriggerRequest(BaseModel):
-    alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
-    message: str = Field(..., min_length=1, max_length=500)
 
 
 class ReportRequest(BaseModel):
@@ -62,50 +63,6 @@ class ClientErrorReport(BaseModel):
     source: Optional[str] = Field(default=None, max_length=200)
     stack: Optional[str] = Field(default=None, max_length=2000)
     level: str = Field(default="error", max_length=20)
-
-
-class RAGQuery(BaseModel):
-    query: str = Field(..., min_length=3, max_length=500)
-    top_k: int = Field(default=3, ge=1, le=5)
-
-    @validator("query")
-    def sanitize_and_normalize_query(cls, value):
-        if not value or not isinstance(value, str):
-            raise ValueError("Query must be a non-empty string.")
-
-        value = re.sub(r"<script.*?>.*?</script>", "", value, flags=re.IGNORECASE | re.DOTALL)
-        value = re.sub(r"</?script.*?>", "", value, flags=re.IGNORECASE)
-        value = re.sub(r"on\w+\s*=", "", value, flags=re.IGNORECASE)
-        value = re.sub(r"javascript:", "", value, flags=re.IGNORECASE)
-        value = re.sub(r"data:", "", value, flags=re.IGNORECASE)
-        value = re.sub(r"vbscript:", "", value, flags=re.IGNORECASE)
-        value = re.sub(r"<[^>]*>", "", value)
-        value = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1 (\2)", value)
-        value = re.sub(r"[*_~`#]", "", value)
-        value = re.sub(r"\s+", " ", value.strip())
-
-        forbidden_patterns = [
-            r"ignore\s+(?:all\s+)?previous\s+instructions",
-            r"ignore\s+(?:the\s+)?system\s+prompt",
-            r"override\s+system\s+constraints",
-            r"developer\s+mode",
-            r"bypass\s+safety\s+filter",
-            r"disregard\s+(?:all\s+)?prior\s+instructions",
-            r"act\s+as\s+(?:a\s+)?(?:different|unrestricted|unfiltered)\s+(?:ai|model|assistant)",
-            r"pretend\s+(?:you\s+are|to\s+be)\s+(?:a\s+)?(?:different|unrestricted)",
-            r"jailbreak",
-            r"prompt\s+injection",
-        ]
-
-        lowered = value.lower()
-        for pattern in forbidden_patterns:
-            if re.search(pattern, lowered):
-                raise ValueError("Query contains disallowed phrases or prompt injection attempts.")
-
-        if len(value) < 3:
-            raise ValueError("Query must be at least 3 characters long after sanitization.")
-
-        return value
 
 
 class GeminiImageRequest(BaseModel):
@@ -463,7 +420,17 @@ def init_platform(
 
 
 @router.get("/weather/alerts/history")
-async def get_alerts_history():
+async def get_alerts_history(request: Request):
+    """Return the most recent server-side weather alerts.
+
+    Requires a valid authenticated session. The alert history is internal
+    operational data and must not be exposed to unauthenticated callers.
+    """
+    if verify_role_fn is None:
+        raise HTTPException(status_code=503, detail="Auth service unavailable")
+
+    await verify_role_fn(request)
+
     if weather_service is None:
         raise HTTPException(status_code=503, detail="Weather service unavailable")
 
@@ -475,7 +442,7 @@ async def get_alerts_history():
     }
 
 
-@router.post("/whatsapp/subscribe")
+@router.post("/whatsapp/subscribe", dependencies=[Depends(verify_csrf_token_dependency)])
 async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     """
     Subscribe the authenticated user to WhatsApp alerts.
@@ -513,12 +480,12 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
             "Welcome to Fasal Saathi WhatsApp Alerts. "
             "You will now receive real-time updates directly here."
         )
-        send_whatsapp_message_fn(data.phone_number, welcome_msg)
+        await asyncio.to_thread(send_whatsapp_message_fn, data.phone_number, welcome_msg)
 
     return {"success": True, "message": "Successfully subscribed"}
 
 
-@router.post("/whatsapp/trigger-alert")
+@router.post("/whatsapp/trigger-alert", dependencies=[Depends(verify_csrf_token_dependency)])
 async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     """
     Broadcast a WhatsApp alert to all subscribers.
@@ -543,14 +510,14 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     formatted_msg = format_alert_message_fn(data.alert_type, data.message)
 
     for user_id, info in subscribers.items():
-        result = send_whatsapp_message_fn(info["phone_number"], formatted_msg)
+        result = await asyncio.to_thread(send_whatsapp_message_fn, info["phone_number"], formatted_msg)
         results.append({"user_id": user_id, "success": result.get("success", False)})
 
     delivered = sum(1 for r in results if r["success"])
     return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
 
 
-@router.post("/reports/generate")
+@router.post("/reports/generate", dependencies=[Depends(verify_csrf_token_dependency)])
 async def generate_signed_report(request: Request, data: ReportRequest):
     if verify_role_fn is None or get_signing_keys_fn is None:
         raise HTTPException(status_code=500, detail="Report dependencies not initialized")
@@ -681,7 +648,16 @@ async def rag_query(request: Request, body: RAGQuery):
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth service not initialized")
 
-    await verify_role_fn(request)
+    token_data = await verify_role_fn(request)
+    rate_limited = enforce_compute_rate_limit(
+        request,
+        scope="platform.rag_query",
+        uid=(token_data or {}).get("uid"),
+        limit=12,
+        window_seconds=60,
+    )
+    if rate_limited is not None:
+        return rate_limited
 
     try:
         return rag_generate_fn(body.query, top_k=body.top_k)
@@ -698,7 +674,16 @@ async def gemini_analyze_image(request: Request, body: GeminiImageRequest):
     # Require a valid Firebase ID token to prevent unauthenticated callers
     # from proxying arbitrary images through the server's GEMINI_API_KEY,
     # exhausting quota and incurring billing charges.
-    await verify_role_fn(request)
+    token_data = await verify_role_fn(request)
+    rate_limited = enforce_compute_rate_limit(
+        request,
+        scope="platform.gemini_analyze_image",
+        uid=(token_data or {}).get("uid"),
+        limit=5,
+        window_seconds=60,
+    )
+    if rate_limited is not None:
+        return rate_limited
 
     import httpx
 
@@ -752,7 +737,16 @@ async def analyze_crop_disease_image(request: Request, body: CropDiseaseImageReq
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth service not initialized")
 
-    await verify_role_fn(request)
+    token_data = await verify_role_fn(request)
+    rate_limited = enforce_compute_rate_limit(
+        request,
+        scope="platform.crop_disease_analyze_image",
+        uid=(token_data or {}).get("uid"),
+        limit=5,
+        window_seconds=60,
+    )
+    if rate_limited is not None:
+        return rate_limited
 
     import base64
     import httpx
@@ -818,7 +812,25 @@ async def simulate_climate(request: Request, data: SimulationRequest):
     # Require a valid Firebase ID token to prevent unauthenticated callers
     # from consuming compute resources and to keep this route consistent with
     # the authenticated /api/knowledge/simulate-climate endpoint.
-    await verify_role_fn(request)
+    token_data = await verify_role_fn(request)
+    rate_limited = enforce_compute_rate_limit(
+        request,
+        scope="platform.simulate_climate",
+        uid=(token_data or {}).get("uid"),
+        limit=10,
+        window_seconds=60,
+    )
+    if rate_limited is not None:
+        return rate_limited
+
+    # Validate that temp_delta and rain_delta are finite numbers.
+    # Pydantic's ge/le constraints do not reject float('inf') or float('nan')
+    # when the value is already a Python float, so we apply the shared utility
+    # to block those edge cases before they reach the multiplication below.
+    validate_numeric_bounds(
+        {"temp_delta": data.temp_delta, "rain_delta": data.rain_delta},
+        ["temp_delta", "rain_delta"],
+    )
 
     sensitivities = {
         "rice": {"temp": -0.05, "rain": 0.02},

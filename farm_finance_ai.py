@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -7,6 +8,19 @@ from uuid import uuid4
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Sentinel used by FarmFinanceAI.get_application() to distinguish between
+# "caller explicitly passed None (admin bypass)" and "caller omitted the
+# argument (deny by default)".
+#
+# Defined at module level rather than as a class attribute so that:
+# 1. It cannot be read via FarmFinanceAI._IDOR_GUARD and passed back to
+#    bypass the ownership check.
+# 2. It is created exactly once for the lifetime of the module, regardless
+#    of how many FarmFinanceAI instances are created or destroyed.
+_OWNER_UID_NOT_PROVIDED = object()
+MIN_LOAN_TENURE_MONTHS = 6
+MAX_LOAN_TENURE_MONTHS = 600
 
 
 @dataclass(frozen=True)
@@ -109,7 +123,7 @@ class FarmFinanceAI:
                 requires_collateral=True,
             ),
         ]
-        self.applications: Dict[str, FinanceApplication] = {}
+        self.applications: OrderedDict[str, FinanceApplication] = OrderedDict()
         self.repository = repository
         logger.info("FarmFinanceAI initialized with %s", "persistent repository" if repository else "in-memory storage")
 
@@ -269,7 +283,7 @@ class FarmFinanceAI:
             self.repository.create(app_dict)
             logger.info("Application %s persisted to repository.", application_id)
 
-        self.applications[application_id] = application
+        self._store_application(application_id, application)
 
         return {
             "application_id": application.application_id,
@@ -287,9 +301,7 @@ class FarmFinanceAI:
             "estimated_emi": analysis["estimated_emi"],
         }
 
-    _IDOR_GUARD = object()
-
-    def get_application(self, application_id: str, owner_uid: Any = _IDOR_GUARD) -> Optional[Dict[str, Any]]:
+    def get_application(self, application_id: str, owner_uid: Any = _OWNER_UID_NOT_PROVIDED) -> Optional[Dict[str, Any]]:
         """
         Retrieve a finance application by ID.
 
@@ -304,7 +316,7 @@ class FarmFinanceAI:
             Pass None to bypass the ownership check (admins / experts).
             When omitted, access is denied by default.
         """
-        if owner_uid is self._IDOR_GUARD:
+        if owner_uid is _OWNER_UID_NOT_PROVIDED:
             return None
         # Try repository first
         if self.repository:
@@ -364,6 +376,57 @@ class FarmFinanceAI:
             "notes": application.notes,
         }
 
+    def _store_application(self, application_id: str, application: FinanceApplication) -> None:
+        if MAX_IN_MEMORY_APPLICATIONS <= 0:
+            return
+        if application_id in self.applications:
+            del self.applications[application_id]
+        while len(self.applications) >= MAX_IN_MEMORY_APPLICATIONS:
+            self.applications.popitem(last=False)
+        self.applications[application_id] = application
+
+    def delete_application(self, application_id: str) -> bool:
+        """Delete a finance application from both the repository and the
+        in-memory cache.
+
+        The previous design had no delete method on FarmFinanceAI.  Callers
+        that needed to remove a record could only call
+        ``self.repository.delete(application_id)`` directly, which deleted
+        the record from Firestore but left the stale ``FinanceApplication``
+        object in ``self.applications``.  A subsequent call to
+        ``get_application`` would find nothing in the repository (correct)
+        but then fall through to the in-memory dict and return the deleted
+        record — silently serving data that should no longer exist.
+
+        This method is the single deletion entry point.  It:
+        1. Removes the entry from ``self.applications`` first so the
+           in-memory cache is immediately consistent.
+        2. Delegates to the repository for durable deletion.
+        3. Returns True only when the record existed in at least one of the
+           two stores and was successfully removed.
+        """
+        deleted_from_memory = self.applications.pop(application_id, None) is not None
+        deleted_from_repo = False
+
+        if self.repository:
+            try:
+                deleted_from_repo = self.repository.delete(application_id)
+            except Exception as exc:
+                logger.error(
+                    "Failed to delete application %s from repository: %s",
+                    application_id,
+                    exc,
+                )
+
+        deleted = deleted_from_memory or deleted_from_repo
+        if deleted:
+            logger.info("Application %s deleted (memory=%s, repo=%s).",
+                        application_id, deleted_from_memory, deleted_from_repo)
+        else:
+            logger.warning("delete_application: application %s not found.", application_id)
+
+        return deleted
+
     def list_marketplace(self) -> List[Dict[str, Any]]:
         return [self._product_payload(product) for product in self.loan_products]
 
@@ -381,7 +444,7 @@ class FarmFinanceAI:
                 if value in (None, ""):
                     return default
                 return int(float(value))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 return default
 
         return {
@@ -394,7 +457,10 @@ class FarmFinanceAI:
             "emergency_fund": to_float(payload.get("emergency_fund"), 0.0),
             "credit_score": max(300, min(900, to_int(payload.get("credit_score"), 650))),
             "requested_loan_amount": to_float(payload.get("requested_loan_amount"), 0.0),
-            "loan_tenure_months": max(6, to_int(payload.get("loan_tenure_months"), 36)),
+            "loan_tenure_months": max(
+                MIN_LOAN_TENURE_MONTHS,
+                min(MAX_LOAN_TENURE_MONTHS, to_int(payload.get("loan_tenure_months"), 36)),
+            ),
         }
 
     def _crop_risk_factor(self, crop_type: str) -> float:
@@ -511,7 +577,10 @@ class FarmFinanceAI:
             return 0.0
         if monthly_rate == 0:
             return monthly_emi * tenure_months
-        growth = (1 + monthly_rate) ** tenure_months
+        try:
+            growth = (1 + monthly_rate) ** tenure_months
+        except OverflowError:
+            return monthly_emi / monthly_rate
         return monthly_emi * ((growth - 1) / (monthly_rate * growth))
 
     def _calculate_emi(self, principal: float, annual_interest_rate: float, tenure_months: int) -> float:
@@ -520,7 +589,10 @@ class FarmFinanceAI:
         monthly_rate = annual_interest_rate / 12 / 100
         if monthly_rate == 0:
             return principal / tenure_months
-        growth = (1 + monthly_rate) ** tenure_months
+        try:
+            growth = (1 + monthly_rate) ** tenure_months
+        except OverflowError:
+            return principal * monthly_rate
         return principal * monthly_rate * growth / (growth - 1)
 
     def _action_plan(self, score: float, debt_ratio: float, emergency_cover_months: float) -> List[str]:
