@@ -2,13 +2,12 @@
 Tests for the real-time notification broker and websocket fan-out.
 """
 
-import ast
-from pathlib import Path
+import asyncio
 
 from fastapi import FastAPI, WebSocket
 from fastapi.testclient import TestClient
 
-from realtime_notifications import NotificationBroadcastHub
+from realtime_notifications import NotificationBroadcastHub, NotificationEvent
 
 
 def create_test_app():
@@ -114,4 +113,40 @@ def test_connection_subscription_has_single_definition():
     ]
 
     assert len(definitions) == 1
+def test_delivery_records_evict_oldest_record_at_capacity():
+    async def _run():
+        hub = NotificationBroadcastHub(history_limit=10, max_delivery_records=2)
+
+        for notification_id in ("notification-1", "notification-2", "notification-3"):
+            await hub._persist_notification(
+                NotificationEvent(
+                    type="notification",
+                    data={"message": notification_id},
+                    notification_id=notification_id,
+                ),
+                uid="alice",
+            )
+
+        assert list(hub._delivery_records) == ["notification-2", "notification-3"]
+        assert len(hub._delivery_records) == 2
+
+    asyncio.run(_run())
+
+
+def test_delivery_records_respect_persistence_disabled():
+    async def _run():
+        hub = NotificationBroadcastHub(history_limit=10, enable_persistence=False, max_delivery_records=2)
+
+        await hub._persist_notification(
+            NotificationEvent(
+                type="notification",
+                data={"message": "private alert"},
+                notification_id="notification-1",
+            ),
+            uid="alice",
+        )
+
+        assert not hub._delivery_records
+
+    asyncio.run(_run())
 

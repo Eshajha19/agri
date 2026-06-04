@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from advisory_rules import generate_advisories
 
@@ -473,6 +473,35 @@ async def _get_authenticated_uid(request: Request) -> str:
 # Pydantic models
 # ---------------------------------------------------------------------------
 
+# Maximum number of top-level keys accepted in any advisory dict field.
+# Prevents memory exhaustion from oversized payloads submitted by authenticated
+# users (FarmIntelligenceRequest) or anonymous callers (AdvisoryRequest).
+_MAX_DICT_KEYS = 50
+# Maximum character length for any string value inside a dict field.
+_MAX_DICT_VALUE_LEN = 500
+
+
+def _validate_advisory_dict(value: dict[str, Any], field_name: str) -> dict[str, Any]:
+    """Enforce key count and value length limits on advisory dict fields."""
+    if len(value) > _MAX_DICT_KEYS:
+        raise ValueError(
+            f"{field_name} must not exceed {_MAX_DICT_KEYS} keys (got {len(value)})"
+        )
+    for k, v in value.items():
+        if isinstance(v, dict):
+            # Nested dicts are flattened for advisory scoring; block deep nesting
+            # to prevent combinatorial traversal cost.
+            if len(v) > _MAX_DICT_KEYS:
+                raise ValueError(
+                    f"{field_name}.{k} sub-dict must not exceed {_MAX_DICT_KEYS} keys"
+                )
+        elif isinstance(v, str) and len(v) > _MAX_DICT_VALUE_LEN:
+            raise ValueError(
+                f"{field_name}.{k} value length must not exceed {_MAX_DICT_VALUE_LEN} characters"
+            )
+    return value
+
+
 class AdvisoryRequest(BaseModel):
     model_config = {"extra": "forbid"}  # reject unknown fields (e.g. user_id)
 
@@ -480,6 +509,13 @@ class AdvisoryRequest(BaseModel):
     soil: dict[str, Any] = Field(default_factory=dict)
     crop_type: Optional[str] = Field(default=None, max_length=50)
     store_alerts: bool = False
+
+    @field_validator("weather", "soil", mode="before")
+    @classmethod
+    def _limit_dict_size(cls, v: Any, info) -> Any:
+        if isinstance(v, dict):
+            return _validate_advisory_dict(v, info.field_name)
+        return v
 
 
 class FarmIntelligenceRequest(BaseModel):
@@ -493,6 +529,13 @@ class FarmIntelligenceRequest(BaseModel):
     location: Optional[str] = Field(default=None, max_length=120)
     store_history: bool = True
 
+    @field_validator("weather", "soil", "pest", "market", mode="before")
+    @classmethod
+    def _limit_dict_size(cls, v: Any, info) -> Any:
+        if isinstance(v, dict):
+            return _validate_advisory_dict(v, info.field_name)
+        return v
+
 
 # ---------------------------------------------------------------------------
 # Endpoints
@@ -501,20 +544,34 @@ class FarmIntelligenceRequest(BaseModel):
 @router.post("/advisory")
 async def create_advisory(payload: AdvisoryRequest, request: Request):
     """
-    Generate rule-based farm advisories for the authenticated user.
+    Generate rule-based farm advisories.
 
     If store_alerts is True the generated alerts are persisted server-side
-    under the caller's verified Firebase UID — never under a client-supplied
-    user_id — so they can be retrieved later via GET /advisory/me.
+    under the caller's verified Firebase UID so they can be retrieved later
+    via GET /advisory/me.
 
-    Authentication is required when store_alerts is True so that:
+    Authentication is required when store_alerts is True:
     1. Alerts are always bound to a verified identity.
-    2. An unauthenticated caller cannot pollute another user's alert store
-       by guessing or enumerating Firebase UIDs (IDOR).
+    2. An unauthenticated caller cannot pollute another user's alert store.
 
-    Unauthenticated callers may still generate transient advisories
-    (store_alerts=False) for the climate simulator and public widgets.
+    Unauthenticated callers may generate transient advisories
+    (store_alerts=False) for the climate simulator and public widgets but are
+    subject to a rate limit to prevent unbounded advisory engine load.
     """
+    # Rate-limit all callers (authenticated and anonymous alike) to prevent
+    # unbounded rule-evaluation passes triggered by anonymous clients sending
+    # large payloads at high frequency.
+    from compute_rate_limit import enforce_compute_rate_limit
+    rate_response = enforce_compute_rate_limit(
+        request,
+        scope="advisory",
+        uid=None,
+        limit=30,
+        window_seconds=60,
+    )
+    if rate_response is not None:
+        return rate_response
+
     alerts = generate_advisories(
         weather=payload.weather,
         soil=payload.soil,
@@ -542,14 +599,26 @@ async def create_advisory(payload: AdvisoryRequest, request: Request):
 async def create_farm_intelligence(payload: "FarmIntelligenceRequest", request: Request):
     uid = await _get_authenticated_uid(request)
     result = _build_farm_graph(payload)
+    # Cap each user-supplied dict to at most _HISTORY_DICT_KEY_CAP entries before
+    # writing to Firestore. The advisory engine only inspects a small set of known
+    # keys, so truncating any excess is safe and prevents permanently storing
+    # multi-kilobyte documents from over-sized request payloads.
+    _HISTORY_DICT_KEY_CAP = 30
+
+    def _cap_dict(d: dict) -> dict:
+        if not isinstance(d, dict):
+            return {}
+        items = list(d.items())[:_HISTORY_DICT_KEY_CAP]
+        return dict(items)
+
     history_entry = {
         "uid": uid,
         "crop_type": payload.crop_type,
         "location": payload.location,
-        "weather": payload.weather,
-        "soil": payload.soil,
-        "pest": payload.pest,
-        "market": payload.market,
+        "weather": _cap_dict(payload.weather),
+        "soil": _cap_dict(payload.soil),
+        "pest": _cap_dict(payload.pest),
+        "market": _cap_dict(payload.market),
         "graph": result["graph"],
         "reasoning": result["reasoning"],
         "recommendations": result["recommendations"],

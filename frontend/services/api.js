@@ -396,26 +396,18 @@ const resolveApiBaseUrl = () => {
     return configuredBaseUrl;
   }
 
-  // Local development relies on the Vite proxy; production deployments need
-  // an explicit backend URL so requests do not stay on the static frontend host.
+  // If the backend is deployed under the same origin (reverse proxy),
+  // we can safely use relative URLs for all /api/* calls.
+  // If no proxy exists, these requests will fail — but this avoids sending
+  // progress calls to the wrong origin like the static host.
   if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    const isLocalhost =
-      hostname === 'localhost' ||
-      hostname === '127.0.0.1' ||
-      hostname.endsWith('.localhost');
-
-    if (!isLocalhost) {
-      console.error(
-        '[api.js] VITE_API_BASE_URL is not configured in production. ' +
-        'API requests will fail. Set VITE_API_BASE_URL to your backend origin.'
-      );
-    }
     return '';
   }
 
   return '';
 };
+
+
 
 /**
  * Retrieve the current Firebase ID token for the signed-in user.
@@ -454,6 +446,9 @@ async function getFirebaseIdToken() {
   return null;
 }
 
+let csrfToken = null;
+let csrfTokenExpiry = 0;
+
 const axiosClient = axios.create({
   baseURL: resolveApiBaseUrl(),
   timeout: API_TIMEOUT_MS,
@@ -490,6 +485,36 @@ axiosClient.interceptors.request.use(
         nextConfig.headers = {
           ...nextConfig.headers,
           Authorization: `Bearer ${token}`,
+        };
+      }
+    }
+
+    // Automatically fetch and attach the CSRF token for state-changing browser requests
+    if (
+      method !== 'get' &&
+      method !== 'head' &&
+      method !== 'options' &&
+      !nextConfig.url.includes('/api/csrf-token') &&
+      !nextConfig.url.includes('/api/log-error')
+    ) {
+      const now = Date.now();
+      if (!csrfToken || now >= csrfTokenExpiry) {
+        try {
+          const mainBackendURL = resolveApiBaseUrl();
+          const authHeader = nextConfig.headers?.Authorization;
+          const response = await axios.get(`${mainBackendURL}/api/csrf-token`, {
+            headers: authHeader ? { Authorization: authHeader } : {},
+          });
+          csrfToken = response.data.csrf_token;
+          csrfTokenExpiry = now + 45 * 60 * 1000; // Cache for 45 minutes
+        } catch (err) {
+          console.warn('[api] Failed to fetch CSRF token:', err?.message);
+        }
+      }
+      if (csrfToken) {
+        nextConfig.headers = {
+          ...nextConfig.headers,
+          'X-CSRF-Token': csrfToken,
         };
       }
     }
@@ -615,3 +640,4 @@ const apiClient = {
 
 export default apiClient;
 // Enhanced API validation
+
