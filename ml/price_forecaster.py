@@ -5,16 +5,24 @@ STL-style decomposition + rolling forecast + volatility scoring.
 No external dependencies beyond pandas, numpy, scikit-learn.
 """
 
+import gzip
 import json
 import logging
+import logging.handlers
 import math
 import os
+import shutil
 from datetime import datetime as _dt, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+
+# Rotation config (env overrideable)
+_LOG_ROTATION_MAX_BYTES = int(os.getenv("LOG_ROTATION_MAX_BYTES", "104857600"))  # 100MB
+_LOG_ROTATION_BACKUP_COUNT = int(os.getenv("LOG_ROTATION_BACKUP_COUNT", "5"))
+_LOG_ARCHIVE_DAYS = int(os.getenv("LOG_ARCHIVE_DAYS", "7"))
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +90,48 @@ def _generate_seed_history(crop: str, days: int = _SEED_DAYS) -> pd.DataFrame:
 
 
 # =============================================================================
+# GZIP ROTATING HANDLER
+# =============================================================================
+
+class _GzRotatingFileHandler(logging.handlers.RotatingFileHandler):
+    """
+    RotatingFileHandler that compresses backups with gzip on rotation.
+    Backups older than LOG_ARCHIVE_DAYS are deleted during rotation.
+    """
+
+    def __init__(self, filename, maxBytes=0, backupCount=0, archive_days=7, **kwargs):
+        self.archive_days = archive_days
+        super().__init__(filename, maxBytes=maxBytes, backupCount=backupCount, **kwargs)
+
+    def namer(self, default_name: str) -> str:
+        return default_name + ".gz"
+
+    def rotator(self, source: str, dest: str):
+        # Compress rotated file
+        with open(source, "rb") as f_in:
+            with gzip.open(dest, "wb") as f_out:
+                shutil.copyfileobj(f_in, f_out)
+        os.remove(source)
+        # Cleanup old archives
+        self._cleanup_old_archives()
+
+    def _cleanup_old_archives(self):
+        base = self.baseFilename
+        cutoff = _dt.now() - timedelta(days=self.archive_days)
+        dir_path = Path(base).parent
+        if not dir_path.exists():
+            return
+        for f in dir_path.glob("*.jsonl.*.gz"):
+            try:
+                mtime = _dt.fromtimestamp(f.stat().st_mtime)
+                if mtime < cutoff:
+                    f.unlink()
+                    logger.info("Deleted old forecast archive: %s", f.name)
+            except Exception:
+                pass
+
+
+# =============================================================================
 # FORECASTER
 # =============================================================================
 
@@ -130,8 +180,26 @@ class PriceForecaster:
                 "volatility": volatility,
                 "generated_at": _dt.utcnow().isoformat(),
             }
-            with open(_FORECASTS_PATH, "a", encoding="utf-8") as f:
-                f.write(json.dumps(entry, default=str) + "\n")
+            # Use rotating handler for bounded disk usage
+            handler = _GzRotatingFileHandler(
+                _FORECASTS_PATH,
+                maxBytes=_LOG_ROTATION_MAX_BYTES,
+                backupCount=_LOG_ROTATION_BACKUP_COUNT,
+                archive_days=_LOG_ARCHIVE_DAYS,
+                encoding="utf-8",
+            )
+            handler.setFormatter(logging.Formatter("%(message)s"))
+            record = logging.LogRecord(
+                name="price_forecaster",
+                level=logging.INFO,
+                pathname="",
+                lineno=0,
+                msg=json.dumps(entry, default=str),
+                args=(),
+                exc_info=None,
+            )
+            handler.emit(record)
+            handler.close()
         except Exception as exc:
             logger.warning("Failed logging forecast: %s", exc)
 
@@ -335,6 +403,47 @@ class PriceForecaster:
     # -------------------------------------------------------------------------
     # ALERT EVALUATION
     # -------------------------------------------------------------------------
+
+    def disk_health(self) -> dict:
+        """
+        Return disk usage metrics for the forecasts log directory.
+        """
+        try:
+            forecasts_mb = round(_FORECASTS_PATH.stat().st_size / (1024 * 1024), 2) if _FORECASTS_PATH.exists() else 0.0
+        except Exception:
+            forecasts_mb = 0.0
+
+        # Sum archived .gz files
+        archive_mb = 0.0
+        try:
+            dir_path = _FORECASTS_PATH.parent
+            for f in dir_path.glob("*.jsonl.*.gz"):
+                archive_mb += f.stat().st_size / (1024 * 1024)
+            archive_mb = round(archive_mb, 2)
+        except Exception:
+            pass
+
+        # Disk usage percent (best effort via shutil)
+        disk_percent = None
+        try:
+            usage = shutil.disk_usage(_FORECASTS_PATH.parent)
+            disk_percent = round((usage.used / usage.total) * 100, 1)
+        except Exception:
+            pass
+
+        total_forecast_mb = round(forecasts_mb + archive_mb, 2)
+
+        return {
+            "forecasts_log_size_mb": forecasts_mb,
+            "archive_size_mb": archive_mb,
+            "total_forecast_storage_mb": total_forecast_mb,
+            "disk_usage_percent": disk_percent,
+            "rotation_max_bytes": _LOG_ROTATION_MAX_BYTES,
+            "rotation_backup_count": _LOG_ROTATION_BACKUP_COUNT,
+            "archive_retention_days": _LOG_ARCHIVE_DAYS,
+            "healthy": disk_percent is not None and disk_percent < 90,
+            "timestamp": _dt.utcnow().isoformat(),
+        }
 
     def check_alerts(self, db, send_fn) -> List[dict]:
         """
