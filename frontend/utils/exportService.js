@@ -1,11 +1,13 @@
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+// import jsPDF from "jspdf";
+// import autoTable from "jspdf-autotable";
 
 /**
  * Generates a professional Bank Report PDF for the farmer.
  * @param {Object} data - The data to include in the report.
  */
-export const generateBankPDF = (data) => {
+export const generateBankPDF = async (data) => {
+  const { default: jsPDF } = await import("jspdf");
+  const { default: autoTable } = await import("jspdf-autotable");
   const { 
     farmerName, 
     cropType, 
@@ -140,7 +142,9 @@ export const generateCSV = (data) => {
  * Generates a Sustainability & Carbon Credit Report.
  * @param {Object} data - Practice logs and metrics.
  */
-export const generateSustainabilityPDF = (data) => {
+export const generateSustainabilityPDF = async (data) => {
+  const { default: jsPDF } = await import("jspdf");
+  const { default: autoTable } = await import("jspdf-autotable");
   const { farmerName, practices, totalScore, carbonCredits, date } = data;
   
   const doc = new jsPDF();
