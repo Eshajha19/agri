@@ -2,6 +2,8 @@
 Tests for the real-time notification broker and websocket fan-out.
 """
 
+import asyncio
+
 from fastapi import FastAPI, WebSocket
 from fastapi.testclient import TestClient
 
@@ -98,4 +100,33 @@ def test_targeted_notification_only_reaches_intended_client():
     }
     assert notification_visible_to_user(notification, "alice")
     assert not notification_visible_to_user(notification, "bob")
+
+
+def test_snapshot_returns_copy_of_notification_history():
+    hub = NotificationBroadcastHub(history_limit=10)
+    hub.seed_notifications(
+        [
+            {
+                "id": 1,
+                "type": "advisory",
+                "message": "Irrigate crops early in the morning.",
+                "recipient_uid": None,
+            }
+        ]
+    )
+
+    snapshot = asyncio.run(hub.snapshot())
+
+    assert snapshot == [
+        {
+            "id": 1,
+            "type": "advisory",
+            "message": "Irrigate crops early in the morning.",
+            "recipient_uid": None,
+        }
+    ]
+
+    snapshot.append({"id": 2, "type": "weather"})
+
+    assert len(asyncio.run(hub.snapshot())) == 1
 

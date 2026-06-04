@@ -180,6 +180,8 @@ class NotificationBroadcastHub:
 
     async def snapshot(self) -> list[Dict[str, Any]]:
         """Return a copy of the current history."""
+        async with self._history_lock:
+            return list(self._history)
 
     def snapshot_for_user(self, uid: str, regions: Optional[Iterable[str]] = None) -> list[Dict[str, Any]]:
         """Return history entries visible to the given user and region scope."""
