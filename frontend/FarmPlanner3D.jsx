@@ -1,9 +1,22 @@
-import React, { useState, useRef } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Grid, Plane, Box, Sphere, Cylinder, PerspectiveCamera, ContactShadows, Environment, Text } from '@react-three/drei';
-import * as THREE from 'three';
+import React, { useState, useRef, useEffect, lazy, Suspense } from 'react';
+// import { Canvas, useFrame } from '@react-three/fiber';
+// import { OrbitControls, Grid, Plane, Box, Sphere, Cylinder, PerspectiveCamera, ContactShadows, Environment, Text } from '@react-three/drei';
+// import * as THREE from 'three';
 import { Save, Trash2, Box as BoxIcon, TreePine, Droplets, Home, Grid as GridIcon, Info, Download } from 'lucide-react';
 import './FarmPlanner3D.css';
+
+// Lazy load 3D components
+const Canvas = lazy(() => import('@react-three/fiber').then(m => ({ default: m.Canvas })));
+const OrbitControls = lazy(() => import('@react-three/drei').then(m => ({ default: m.OrbitControls })));
+const Grid = lazy(() => import('@react-three/drei').then(m => ({ default: m.Grid })));
+const Plane = lazy(() => import('@react-three/drei').then(m => ({ default: m.Plane })));
+const Box = lazy(() => import('@react-three/drei').then(m => ({ default: m.Box })));
+const Sphere = lazy(() => import('@react-three/drei').then(m => ({ default: m.Sphere })));
+const Cylinder = lazy(() => import('@react-three/drei').then(m => ({ default: m.Cylinder })));
+const PerspectiveCamera = lazy(() => import('@react-three/drei').then(m => ({ default: m.PerspectiveCamera })));
+const ContactShadows = lazy(() => import('@react-three/drei').then(m => ({ default: m.ContactShadows })));
+const Environment = lazy(() => import('@react-three/drei').then(m => ({ default: m.Environment })));
+const Text = lazy(() => import('@react-three/drei').then(m => ({ default: m.Text })));
 
 const OBJECT_TYPES = {
   CROP: { name: 'Crop Plot', color: '#4caf50', geometry: 'box', scale: [1, 0.2, 1] },
@@ -86,10 +99,17 @@ function DraggableObject({ position, type, isSelected, onSelect }) {
 }
 
 export default function FarmPlanner3D() {
+  const [THREE, setTHREE] = useState(null);
+  useEffect(() => {
+    import('three').then(mod => setTHREE(mod));
+  }, []);
+
   const [items, setItems] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [activeTool, setActiveTool] = useState('CROP');
   const [gridSize, setGridSize] = useState(10);
+
+  if (!THREE) return <div className="farm-planner-loading">Loading 3D Engine...</div>;
 
   const addItem = (e) => {
     // Basic Raycasting projection for placement (simplified)
@@ -175,52 +195,59 @@ export default function FarmPlanner3D() {
       </div>
 
       <div className="planner-viewport">
-        <Canvas shadows>
-          <PerspectiveCamera makeDefault position={[10, 10, 10]} fov={50} />
-          <OrbitControls
-            makeDefault
-            minPolarAngle={0}
-            maxPolarAngle={Math.PI / 2.1}
-            aria-label="3D view rotation and zoom controls"
-          />
-          
-          <ambientLight intensity={0.5} />
-          <pointLight position={[10, 10, 10]} intensity={1} castShadow />
-          <Environment preset="city" />
-
-          {/* Ground Grid */}
-          <Grid 
-            infiniteGrid 
-            fadeDistance={50} 
-            fadeStrength={5} 
-            cellSize={1} 
-            sectionSize={5} 
-            sectionColor="#2e7d32"
-            cellColor="#999"
-          />
-          
-          {/* Clickable Plane for object placement */}
-          <Plane 
-            args={[100, 100]} 
-            rotation={[-Math.PI / 2, 0, 0]} 
-            position={[0, -0.01, 0]} 
-            onClick={addItem}
-          >
-            <meshStandardMaterial color="#f0fdf4" transparent opacity={0.5} />
-          </Plane>
-
-          {/* Render Items */}
-          {items.map(item => (
-            <DraggableObject 
-              key={item.id}
-              {...item}
-              isSelected={selectedId === item.id}
-              onSelect={() => setSelectedId(item.id)}
+        <Suspense fallback={<div className="farm-planner-loading">Loading 3D View...</div>}>
+          <Canvas shadows dpr={[1, 2]}>
+            <PerspectiveCamera makeDefault position={[10, 10, 10]} fov={50} />
+            <OrbitControls
+              makeDefault
+              minPolarAngle={0}
+              maxPolarAngle={Math.PI / 2.1}
+              maxDistance={30}
+              minDistance={5}
+              aria-label="3D view rotation and zoom controls"
             />
-          ))}
+            
+            <ambientLight intensity={0.7} />
+            <pointLight position={[10, 10, 10]} intensity={1} castShadow />
+            <spotLight position={[-10, 15, 10]} angle={0.3} penumbra={1} intensity={2} castShadow />
 
-          <ContactShadows position={[0, 0, 0]} opacity={0.4} scale={20} blur={2} far={4.5} />
-        </Canvas>
+            {/* Ground Grid */}
+            <Grid 
+              infiniteGrid 
+              fadeDistance={50} 
+              fadeStrength={5} 
+              cellSize={1} 
+              sectionSize={5} 
+              sectionThickness={1.5}
+              sectionColor="#4ade80"
+              cellColor="#999"
+            />
+            
+            {/* Clickable Plane for object placement */}
+            <Plane 
+              args={[gridSize, gridSize]} 
+              rotation={[-Math.PI / 2, 0, 0]} 
+              position={[0, -0.01, 0]} 
+              onPointerDown={addItem}
+              receiveShadow
+            >
+              <meshStandardMaterial color="#1a202c" transparent opacity={0.5} />
+            </Plane>
+
+            {/* Render Items */}
+            {items.map(item => (
+              <DraggableObject 
+                key={item.id}
+                {...item}
+                isSelected={selectedId === item.id}
+                onSelect={() => setSelectedId(item.id)}
+              />
+            ))}
+
+            <ContactShadows position={[0, 0, 0]} opacity={0.4} scale={20} blur={2} far={4.5} />
+            <Environment preset="city" />
+          </Canvas>
+        </Suspense>
         
         <div className="viewport-overlay" role="status" aria-live="polite" aria-atomic="true">
           <div className="stats-badge" aria-label={`Total farm elements placed: ${items.length}`}>

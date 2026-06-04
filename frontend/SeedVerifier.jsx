@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Html5Qrcode } from "html5-qrcode";
+// import { Html5Qrcode } from "html5-qrcode";
 import { ShieldCheck, ShieldAlert, QrCode, ScanLine, X, Loader2, Search, Camera, RefreshCw } from "lucide-react";
 import "./SeedVerifier.css";
 
@@ -15,6 +15,7 @@ const SeedVerifier = ({ onClose }) => {
     if (status === "scanning") {
       const initScanner = async () => {
         try {
+          const { Html5Qrcode } = await import("html5-qrcode");
           const html5QrCode = new Html5Qrcode("reader");
           scannerRef.current = html5QrCode;
           

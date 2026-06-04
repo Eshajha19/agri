@@ -1,16 +1,16 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  LineChart,
-  Line,
-} from "recharts";
+import React, { useCallback, useEffect, useMemo, useState, lazy, Suspense } from "react";
+// import {
+//   BarChart,
+//   Bar,
+//   XAxis,
+//   YAxis,
+//   CartesianGrid,
+//   Tooltip,
+//   Legend,
+//   ResponsiveContainer,
+//   LineChart,
+//   Line,
+// } from "recharts";
 import {
   Droplets,
   Cloud,
@@ -19,13 +19,25 @@ import {
   BarChart3,
   Loader2,
 } from "lucide-react";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+// import jsPDF from "jspdf";
+// import autoTable from "jspdf-autotable";
 import {
   analyzeSustainability,
   fetchSustainabilityHistory,
 } from "./services/sustainabilityApi";
 import "./SustainabilityAnalytics.css";
+
+// Lazy load recharts components
+const ResponsiveContainer = lazy(() => import("recharts").then(m => ({ default: m.ResponsiveContainer })));
+const BarChart = lazy(() => import("recharts").then(m => ({ default: m.BarChart })));
+const Bar = lazy(() => import("recharts").then(m => ({ default: m.Bar })));
+const XAxis = lazy(() => import("recharts").then(m => ({ default: m.XAxis })));
+const YAxis = lazy(() => import("recharts").then(m => ({ default: m.YAxis })));
+const CartesianGrid = lazy(() => import("recharts").then(m => ({ default: m.CartesianGrid })));
+const Tooltip = lazy(() => import("recharts").then(m => ({ default: m.Tooltip })));
+const Legend = lazy(() => import("recharts").then(m => ({ default: m.Legend })));
+const LineChart = lazy(() => import("recharts").then(m => ({ default: m.LineChart })));
+const Line = lazy(() => import("recharts").then(m => ({ default: m.Line })));
 
 const STORAGE_KEY = "agri:sustainabilityHistory";
 
@@ -168,10 +180,12 @@ export default function SustainabilityAnalytics({ userData, onClose }) {
     }));
   }, [history]);
 
-  const handleExportPdf = () => {
+  const handleExportPdf = async () => {
     if (!analysis) return;
     setExporting(true);
     try {
+      const { default: jsPDF } = await import("jspdf");
+      const { default: autoTable } = await import("jspdf-autotable");
       const doc = new jsPDF();
       const farmer = userData?.displayName || "Farmer";
       doc.setFontSize(16);
@@ -327,34 +341,38 @@ export default function SustainabilityAnalytics({ userData, onClose }) {
             <div className="sus-charts">
               <div className="sus-chart-box">
                 <h3>Current vs benchmark</h3>
-                <ResponsiveContainer width="100%" height={240}>
-                  <BarChart data={comparisonChartData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="metric" />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Bar dataKey="current" fill="#059669" name="Your farm" />
-                    <Bar dataKey="benchmark" fill="#94a3b8" name="Benchmark" />
-                  </BarChart>
-                </ResponsiveContainer>
+                <Suspense fallback={<div className="sus-chart-placeholder" />}>
+                  <ResponsiveContainer width="100%" height={240}>
+                    <BarChart data={comparisonChartData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="metric" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="current" fill="#059669" name="Your farm" />
+                      <Bar dataKey="benchmark" fill="#94a3b8" name="Benchmark" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </Suspense>
               </div>
 
               {historyChartData.length > 1 && (
                 <div className="sus-chart-box">
                   <h3>Historical trend</h3>
-                  <ResponsiveContainer width="100%" height={240}>
-                    <LineChart data={historyChartData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis yAxisId="left" />
-                      <YAxis yAxisId="right" orientation="right" />
-                      <Tooltip />
-                      <Legend />
-                      <Line yAxisId="left" type="monotone" dataKey="water" stroke="#0284c7" name="Water (m³)" />
-                      <Line yAxisId="right" type="monotone" dataKey="carbon" stroke="#b45309" name="Carbon (kg)" />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  <Suspense fallback={<div className="sus-chart-placeholder" />}>
+                    <ResponsiveContainer width="100%" height={240}>
+                      <LineChart data={historyChartData}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="name" />
+                        <YAxis yAxisId="left" />
+                        <YAxis yAxisId="right" orientation="right" />
+                        <Tooltip />
+                        <Legend />
+                        <Line yAxisId="left" type="monotone" dataKey="water" stroke="#0284c7" name="Water (m³)" />
+                        <Line yAxisId="right" type="monotone" dataKey="carbon" stroke="#b45309" name="Carbon (kg)" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </Suspense>
                 </div>
               )}
             </div>

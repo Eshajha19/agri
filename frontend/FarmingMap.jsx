@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
+// import L from 'leaflet';
+// import 'leaflet/dist/leaflet.css';
 import {
   FaMapMarkerAlt, FaCloud, FaLeaf, FaExclamationTriangle,
   FaTimes, FaLocationArrow, FaDownload, FaWifi, FaDatabase,
@@ -16,26 +16,6 @@ import {
 import offlineMapService from './services/offlineMapService';
 import './FarmingMap.css';
 
-// ── Icons ────────────────────────────────────────────────────────────────────
-const mkIcon = (emoji, cls) =>
-  L.divIcon({ html: `<div class="fm-icon">${emoji}</div>`, iconSize: [32, 32], className: cls });
-
-const ICONS = {
-  weather: () => mkIcon('🌤️', 'weather-marker'),
-  crop:    () => mkIcon('🌾', 'crop-marker'),
-  user:    () => mkIcon('📍', 'user-marker'),
-  farmer:  (name) => L.divIcon({ 
-    html: `<div class="fm-farmer-marker">
-             <div class="farmer-avatar">🚜</div>
-             <div class="farmer-label">${name}</div>
-           </div>`, 
-    iconSize: [40, 40], 
-    className: 'farmer-marker-container' 
-  }),
-  alert:   (severity) => mkIcon('⚠️', `alert-marker severity-${severity?.toLowerCase() || 'medium'}`),
-  field:   () => mkIcon('🟢', 'field-marker'),
-};
-
 const TILE_URLS = {
   satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
   street:    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -46,11 +26,19 @@ const TILE_ATTR = {
   street:    '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>',
 };
 
-// ── Constants ─────────────────────────────────────────────────────────────────
 const QUERY_RADIUS_M = 10000; // 10km search radius
 
 // ── Component ─────────────────────────────────────────────────────────────────
 function FarmingMapContent() {
+  const [L, setL] = useState(null);
+
+  useEffect(() => {
+    import('leaflet').then(mod => {
+      import('leaflet/dist/leaflet.css');
+      setL(mod.default);
+    });
+  }, []);
+
   const mapContainer = useRef(null);
   const map          = useRef(null);
   const markersRef   = useRef({
@@ -63,6 +51,29 @@ function FarmingMapContent() {
   const syncTimeout  = useRef(null);
   const locationUpdateRef = useRef(0);
   const alertCirclesRef = useRef({});
+
+  // ── Icons (Memoized) ──────────────────────────────────────────────────────
+  const ICONS = useMemo(() => {
+    if (!L) return null;
+    const mkIcon = (emoji, cls) =>
+      L.divIcon({ html: `<div class="fm-icon">${emoji}</div>`, iconSize: [32, 32], className: cls });
+
+    return {
+      weather: () => mkIcon('🌤️', 'weather-marker'),
+      crop:    () => mkIcon('🌾', 'crop-marker'),
+      user:    () => mkIcon('📍', 'user-marker'),
+      farmer:  (name) => L.divIcon({ 
+        html: `<div class="fm-farmer-marker">
+                 <div class="farmer-avatar">🚜</div>
+                 <div class="farmer-label">${name}</div>
+               </div>`, 
+        iconSize: [40, 40], 
+        className: 'farmer-marker-container' 
+      }),
+      alert:   (severity) => mkIcon('⚠️', `alert-marker severity-${severity?.toLowerCase() || 'medium'}`),
+      field:   () => mkIcon('🟢', 'field-marker'),
+    };
+  }, [L]);
 
   // Core state
   const [userLocation,    setUserLocation]    = useState(null);
@@ -129,7 +140,7 @@ function FarmingMapContent() {
 
   // ── Map initialise ───────────────────────────────────────────────────────
   useEffect(() => {
-    if (!mapContainer.current) return;
+    if (!mapContainer.current || !L) return;
     if (map.current) { map.current.remove(); map.current = null; }
 
     try {
@@ -170,10 +181,11 @@ function FarmingMapContent() {
         map.current = null;
       }
     };
-  }, []);
+  }, [L]);
 
   // ── Tile layer helpers ───────────────────────────────────────────────────
   function addTileLayer(m, style) {
+    if (!L) return;
     Object.values(tileLayers.current).forEach(l => m.removeLayer(l));
     tileLayers.current = {};
     try {
@@ -284,7 +296,7 @@ function FarmingMapContent() {
 
   // ── Render Nearby Farmers ────────────────────────────────────────────────
   useEffect(() => {
-    if (!map.current) return;
+    if (!map.current || !L || !ICONS) return;
     
     // Cleanup old markers
     Object.keys(markersRef.current.farmers).forEach(id => {
@@ -324,7 +336,7 @@ function FarmingMapContent() {
 
   // ── Render Disaster Alerts ───────────────────────────────────────────────
   useEffect(() => {
-    if (!map.current) return;
+    if (!map.current || !L || !ICONS) return;
     
     Object.keys(markersRef.current.remoteAlerts).forEach(id => {
       if (!nearbyAlerts.find(a => a.id === id)) {
@@ -377,7 +389,7 @@ function FarmingMapContent() {
 
   // ── Render Shared Farm Boundaries ────────────────────────────────────────
   useEffect(() => {
-    if (!map.current) return;
+    if (!map.current || !L || !ICONS) return;
 
     Object.keys(markersRef.current.remoteBoundaries).forEach(id => {
       if (!sharedBoundaries.find(b => b.id === id)) {
@@ -449,16 +461,16 @@ function FarmingMapContent() {
 
   // ── User marker ──────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!map.current || !userLocation) return;
+    if (!map.current || !userLocation || !L || !ICONS) return;
     if (markersRef.current.user) map.current.removeLayer(markersRef.current.user);
     markersRef.current.user = L.marker(userLocation, { icon: ICONS.user() })
       .addTo(map.current)
       .bindPopup(`<div class="map-popup"><strong>📍 Your Location</strong><p>Lat: ${userLocation[0].toFixed(5)}</p><p>Lng: ${userLocation[1].toFixed(5)}</p></div>`);
-  }, [userLocation]);
+  }, [userLocation, L, ICONS]);
 
   // ── Weather markers ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (!map.current || !userLocation) return;
+    if (!map.current || !userLocation || !L || !ICONS) return;
     (markersRef.current.weather || []).forEach(m => map.current.removeLayer(m));
     if (!showWeather) return;
     const pts = [
@@ -470,11 +482,11 @@ function FarmingMapContent() {
         .bindPopup(`<div class="map-popup weather-popup"><strong>${p.title}</strong><p>🌡️ ${p.temp}°C</p><p>💧 ${p.humidity}%</p><p>☁️ ${p.cond}</p></div>`)
         .on('click', () => setSelectedMarker(p))
     );
-  }, [showWeather, userLocation]);
+  }, [showWeather, userLocation, L, ICONS]);
 
   // ── Saved field boundaries on map ────────────────────────────────────────
   useEffect(() => {
-    if (!map.current) return;
+    if (!map.current || !L) return;
     (markersRef.current.fieldPolygons || []).forEach(l => map.current.removeLayer(l));
     if (!showFields) return;
     markersRef.current.fieldPolygons = savedFields.map(f => {
@@ -484,7 +496,7 @@ function FarmingMapContent() {
         .bindPopup(`<div class="map-popup crop-popup"><strong>🟢 ${f.name}</strong><p>Points: ${f.points.length}</p><p>Saved: ${new Date(f.savedAt).toLocaleDateString()}</p></div>`);
       return poly;
     }).filter(Boolean);
-  }, [savedFields, showFields]);
+  }, [savedFields, showFields, L]);
 
   // ── Draw mode ────────────────────────────────────────────────────────────
   useEffect(() => {
