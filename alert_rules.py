@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, Dict, List, Any
+from typing import Optional
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -223,6 +223,11 @@ def generate_soil_advisories(
     return alerts
 
 
+    Returns:
+        List of unique, non-duplicate alerts with time and type.
+    """
+    alerts: list[dict] = []
+    now = datetime.now()
 def generate_crop_advisories(
     crop: Optional[str] = None,
     temperature: Optional[float] = None,
