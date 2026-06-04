@@ -81,17 +81,44 @@ Fasal Saathi is a smart agriculture assistance platform built with React (fronte
 
 ```tree
 agri/
-├── frontend/                 # React application (Vite)
-│   ├── package.json
-│   ├── vite.config.js
-│   ├── index.html
-│   ├── main.jsx
-│   ├── App.jsx
+├── frontend/                 # React frontend application
 │   ├── components/
 │   ├── services/
+│   ├── hooks/
+│   ├── utils/
 │   ├── stores/
-├── ml/                       # Machine learning models
-├── rag/                      # RAG advisor components
+│   ├── locales/
+│   ├── weather/
+│   └── public/
+│
+├── backend/                  # Backend APIs and routers
+│   ├── routers/
+│   └── schemas/
+│
+├── ml/                       # Machine learning pipelines and models
+│   ├── adapters/
+│   └── governance/
+│
+├── rag/                      # Retrieval-Augmented Generation modules
+│
+├── tests/                    # Backend test suite
+├── scripts/                  # Automation and utility scripts
+├── docs/                     # Project documentation
+├── persistence/              # Database and migration logic
+├── feature_flags/            # Feature flag and A/B testing system
+├── routers/                  # Additional ML routers
+├── inference/                # ONNX inference runtime
+├── benchmarks/               # Benchmarking scripts
+├── configs/                  # Configuration files
+├── runs/                     # ML run manifests
+├── runs_test/                # Test run manifests
+├── .github/                  # GitHub workflows and templates
+│
+├── main.py
+├── requirements.txt
+├── package.json
+├── README.md
+└── CONTRIBUTING.md
 ```
 
 ---
