@@ -8,7 +8,7 @@ Provides:
 - Async processing with callbacks
 - Optional Redis support for distributed deployments
 """
-
+from collections import OrderedDict
 import asyncio
 import uuid
 import json
@@ -22,7 +22,6 @@ import threading
 import time
 import os
 import random
-from collections import OrderedDict
 
 logger = logging.getLogger(__name__)
 
@@ -174,33 +173,25 @@ class ImageProcessingQueue:
     horizontal scaling support.
     """
 
-    def __init__(self, max_queue_size: int = 10000, enable_persistence: bool = False, enable_backoff: bool = False, backoff_base: float = 1.0, enable_caching: bool = True, batch_size: int = 10):
+    def __init__(self, max_queue_size: int = 10000, enable_persistence: bool = False, enable_backoff: bool = False, backoff_base: float = 1.0, enable_caching: bool = False):
         self.max_queue_size = max_queue_size
         self.enable_persistence = enable_persistence
         # Backoff controls (opt-in to preserve previous behavior in tests)
         self.enable_backoff = enable_backoff
         self.backoff_base = backoff_base
-        self.batch_size = batch_size
-
+        
         # Task storage (heap of (priority, counter, task) tuples)
         self._task_queue: List[tuple] = []
         self._tasks_by_id: Dict[str, ImageProcessingTask] = {}
         self._counter = 0
+        self._total_enqueued = 0
+        self._total_processed = 0
+        self._total_failed = 0
         self._completed_tasks: Dict[str, ImageProcessingTask] = {}  # History
         # Ack store for exactly-once semantics: maps task_id -> status
         self._ack_store: Dict[str, str] = {}
-        self._ack_file = os.getenv("IMAGE_PROCESSING_QUEUE_ACK_FILE", "queue_acks.json") if enable_persistence else None
-        if self._ack_file and os.path.exists(self._ack_file):
-            try:
-                with open(self._ack_file, "r", encoding="utf-8") as ack_file:
-                    persisted_acks = json.load(ack_file)
-                if isinstance(persisted_acks, dict):
-                    self._ack_store = {str(task_id): str(status) for task_id, status in persisted_acks.items()}
-                else:
-                    logger.warning("Ignoring invalid ack store format in %s: expected object", self._ack_file)
-            except (OSError, json.JSONDecodeError) as exc:
-                logger.warning("Failed to load ack store from %s: %s", self._ack_file, exc)
-
+        self._ack_file = "queue_acks.json" if enable_persistence else None
+        
         # Worker management
         self._workers: Dict[str, WorkerStats] = {}
         self._worker_lock = threading.Lock()
@@ -236,49 +227,79 @@ class ImageProcessingQueue:
             self._tasks_by_id[task.task_id] = task
             self._total_enqueued += 1
 
+        # Persist ack store if enabled
+        if self.enable_persistence:
+            try:
+                with open(self._ack_file, "w", encoding="utf-8") as f:
+                    json.dump(self._ack_store, f)
+            except Exception:
+                logger.debug("Failed to persist ack_store")
+
         logger.info(f"Task {task.task_id} enqueued (priority: {task.priority.name}, queue_size: {len(self._task_queue)})")
         return task.task_id
 
     def dequeue(self, worker_id: str) -> Optional[ImageProcessingTask]:
-        """Dequeue highest priority task for worker"""
-        with self._queue_lock:
-            if not self._task_queue:
-                return None
+        """
+        Dequeue highest priority task for worker.
 
-            # Pop until we find an eligible task (available_at in past and not acked)
-            popped = []
-            selected = None
-            now_iso = datetime.now().isoformat()
-            while self._task_queue:
-                _, _, task = heapq.heappop(self._task_queue)
+        Race-condition fix: the transition from QUEUED/RETRYING → PROCESSING is
+        performed while holding *both* _queue_lock (to pop from the heap) and
+        _task_lock (to mutate task.status).  cancel_task() also holds _task_lock
+        when it checks and mutates task.status, so the two operations are now
+        mutually exclusive — a task cannot be simultaneously dequeued and
+        cancelled.
 
-                # Skip if task already processed (exactly-once)
-                if task.task_id in self._ack_store and self._ack_store[task.task_id] in (TaskStatus.COMPLETED.value, TaskStatus.FAILED.value):
-                    continue
+        Lock ordering is always _task_lock → _queue_lock (same as cancel_task)
+        to prevent deadlock.
+        """
+        with self._task_lock:
+            with self._queue_lock:
+                if not self._task_queue:
+                    return None
 
-                available_at = task.metadata.get("available_at")
-                if available_at and available_at > now_iso:
-                    # not ready yet — postpone
-                    popped.append((task.priority.value, self._counter, task))
-                    self._counter += 1
-                    continue
+                # Pop until we find an eligible task (available_at in past and not acked)
+                popped = []
+                selected = None
+                now_iso = datetime.now().isoformat()
+                while self._task_queue:
+                    _, _, task = heapq.heappop(self._task_queue)
 
-                # eligible
-                selected = task
-                break
+                    # Skip if task already processed (exactly-once)
+                    if task.task_id in self._ack_store and self._ack_store[task.task_id] in (TaskStatus.COMPLETED.value, TaskStatus.FAILED.value):
+                        continue
 
-            # reinsert postponed tasks
-            for entry in popped:
-                heapq.heappush(self._task_queue, entry)
+                    # Skip if task was cancelled between enqueue and dequeue
+                    # (race-condition guard: cancel_task() also holds _task_lock
+                    # when it sets status = CANCELLED, so this check is atomic
+                    # with respect to that transition).
+                    if task.status == TaskStatus.CANCELLED:
+                        continue
 
-            if not selected:
-                return None
+                    available_at = task.metadata.get("available_at")
+                    if available_at and available_at > now_iso:
+                        # not ready yet — postpone
+                        popped.append((task.priority.value, self._counter, task))
+                        self._counter += 1
+                        continue
 
-            task = selected
-            # Update task status
-            task.status = TaskStatus.PROCESSING
-            task.started_at = datetime.now().isoformat()
-            task.worker_id = worker_id
+                    # eligible
+                    selected = task
+                    break
+
+                # reinsert postponed tasks
+                for entry in popped:
+                    heapq.heappush(self._task_queue, entry)
+
+                if not selected:
+                    return None
+
+                task = selected
+                # Atomically transition to PROCESSING while still holding
+                # _task_lock so cancel_task() cannot sneak in between the
+                # status check (QUEUED/RETRYING guard) and this assignment.
+                task.status = TaskStatus.PROCESSING
+                task.started_at = datetime.now().isoformat()
+                task.worker_id = worker_id
 
             logger.info(f"Task {task.task_id} assigned to worker {worker_id}")
             return task
@@ -395,7 +416,13 @@ class ImageProcessingQueue:
             return None
 
     def cancel_task(self, task_id: str) -> bool:
-        """Cancel a queued or retrying task"""
+        """
+        Cancel a queued or retrying task.
+        
+        Note: The internal queue is managed as a heap list, not a collections.deque.
+        Cancellation is performed safely by filtering the list and re-heapifying
+        to maintain priority queue invariants.
+        """
         # Acquire both locks in a consistent order (_task_lock before
         # _queue_lock) to avoid deadlock with fail_task, which also nests
         # _queue_lock inside _task_lock.
@@ -410,16 +437,7 @@ class ImageProcessingQueue:
             task.status = TaskStatus.CANCELLED
 
             with self._queue_lock:
-                # Rebuild the heap without the cancelled task.
-                # The previous code used `deque(t for t in self._task_queue if
-                # t.task_id != task_id)` which had three bugs:
-                #   1. `deque` was never imported.
-                #   2. Heap tuples are (priority, counter, task) — they have no
-                #      `.task_id` attribute, so the filter always raised AttributeError.
-                #   3. Replacing the heap list with a deque broke all future
-                #      heappush / heappop calls.
-                # Fix: filter the heap list by inspecting entry[2].task_id (the task
-                # inside each tuple), then heapify to restore the heap invariant.
+           
                 self._task_queue = [
                     entry for entry in self._task_queue
                     if entry[2].task_id != task_id
@@ -673,6 +691,35 @@ class ImageProcessingQueue:
             return len(to_remove)
 
 
+
+# ---------------------------------------------------------------------------
+# Failure classification
+# ---------------------------------------------------------------------------
+
+# Exceptions that represent permanent, deterministic failures.
+# Retrying these wastes capacity — the outcome will never change.
+# Examples: malformed image bytes (ValueError), wrong argument types
+# (TypeError), unimplemented processor paths (NotImplementedError),
+# images that exceed hard size limits (MemoryError).
+NON_RETRYABLE_ERRORS = (
+    ValueError,        # Bad input data / validation failures
+    TypeError,         # Programming errors / wrong argument types
+    NotImplementedError,  # Unimplemented processor paths
+    MemoryError,       # Image too large to ever process
+    KeyError,          # Missing required field in task metadata
+    AttributeError,    # Structural errors in task or result objects
+)
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """
+    Return True if *exc* represents a transient failure that is worth
+    retrying (e.g. a network hiccup or a temporarily unavailable resource),
+    and False if it is a permanent failure that will never succeed on retry.
+    """
+    return not isinstance(exc, NON_RETRYABLE_ERRORS)
+
+
 class ImageProcessingWorker:
     """
     Worker process that consumes tasks from queue and processes images.
@@ -731,9 +778,21 @@ class ImageProcessingWorker:
         except Exception as e:
             processing_time = time.time() - start_time
             error_msg = str(e)
-            self.queue.fail_task(task.task_id, error_msg, retry=True)
+            # Distinguish permanent failures from transient ones.
+            # Permanent failures (bad input, type errors, etc.) must not
+            # be retried — they waste capacity and delay legitimate work.
+            should_retry = _is_retryable(e)
+            self.queue.fail_task(task.task_id, error_msg, retry=should_retry)
             self.queue.update_worker_stats(self.worker_id, processing_time, success=False)
-            logger.error(f"Task {task.task_id} failed: {error_msg}")
+            if should_retry:
+                logger.warning(
+                    f"Task {task.task_id} failed with transient error (will retry): {error_msg}"
+                )
+            else:
+                logger.error(
+                    f"Task {task.task_id} failed with permanent error (no retry): "
+                    f"{type(e).__name__}: {error_msg}"
+                )
 
     def stop(self):
         """Stop worker gracefully"""

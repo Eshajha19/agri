@@ -34,7 +34,12 @@ class LSTMAdapter(YieldModel):
         
         # LSTM models require 3D input: (samples, time_steps, features_per_step)
         # We use the stored time_steps metadata to preserve temporal structure.
-        data_array = input_data.values
+    if not isinstance(input_data, pd.DataFrame):
+        raise ValueError("input_data must be a pandas DataFrame")
+    data_array = input_data.values
+
+    if len(input_data) == 0:
+            raise ValueError("input_data is empty — cannot run LSTM inference on zero samples")
         num_samples = data_array.shape[0]
         total_features = data_array.shape[1]
         
@@ -48,6 +53,8 @@ class LSTMAdapter(YieldModel):
         reshaped_data = data_array.reshape((num_samples, self.time_steps, features_per_step))
         
         prediction = self.model.predict(reshaped_data)
+        if len(prediction) == 0:
+            raise ValueError("Model returned empty prediction output")
         return float(prediction[0][0])
 
     @property

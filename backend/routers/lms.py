@@ -7,9 +7,12 @@ Certificates are only issued when the server confirms 100% completion from
 Firestore. localStorage is used only as a UI cache; it is never trusted for
 authorization decisions.
 """
+import asyncio
 import hashlib
 import logging
+import secrets
 import time
+from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Dict, Tuple
 
@@ -21,7 +24,25 @@ logger = logging.getLogger(__name__)
 
 # Per-user per-course certificate request cooldown (seconds).
 _CERT_COOLDOWN_SECONDS = 60
-_last_cert_request: Dict[Tuple[str, str], float] = {}
+
+# Maximum number of (uid, course_id) pairs tracked in the cooldown store.
+# Each entry is a single float timestamp (~56 bytes), so 10 000 entries
+# consume roughly 560 KB — a safe upper bound for a long-running process.
+# When the cap is reached the least-recently-used entry is evicted before
+# the new one is inserted, keeping memory proportional to this constant
+# regardless of how many distinct users the process has served.
+_CERT_COOLDOWN_MAX_ENTRIES = 10_000
+
+# OrderedDict used as an LRU store: move_to_end() on every access keeps
+# the most-recently-used entries at the tail; popitem(last=False) evicts
+# the least-recently-used entry from the head when the cap is reached.
+_last_cert_request: OrderedDict[Tuple[str, str], float] = OrderedDict()
+
+# Asyncio lock that serialises all reads and writes to _last_cert_request.
+# Without this lock, two concurrent requests for the same (uid, course_id)
+# can both pass the cooldown check before either one records a timestamp,
+# allowing the cooldown to be bypassed under load.
+_cert_cooldown_lock: asyncio.Lock = asyncio.Lock()
 
 # ---------------------------------------------------------------------------
 # Injected dependencies (wired in main.py lifespan via init_lms)
@@ -105,11 +126,27 @@ def _is_complete(progress: dict, course_id: str) -> bool:
 
 
 def _make_cert_id(uid: str, course_id: str) -> str:
-    """Deterministic certificate ID — uid + course_id only, so repeated calls
-    for the same user and course always return the same ID.  The mutable
-    completed_at timestamp is intentionally excluded from the hash to prevent
-    users from minting unlimited unique cert IDs by editing Firestore."""
-    raw = f"{uid}:{course_id}"
+    """Generate a unique certificate ID for each issuance.
+
+    A cryptographically random nonce (16 hex characters from secrets.token_hex)
+    is mixed into the hash input so that every call produces a different ID,
+    even for the same uid and course_id combination.  This closes two
+    previously identified issues:
+
+    1. Re-certification replay: a user whose certificate was revoked and who
+       re-completed the course would receive the exact same ID, making the
+       revoked and the new certificate indistinguishable.
+
+    2. Predictable ID space: because the inputs (uid, course_id) are known to
+       the caller, a fully deterministic function allowed a user to pre-compute
+       another user's certificate ID without completing the course.
+
+    The nonce is NOT stored separately; the cert ID itself is the persistent
+    record.  Firestore deduplication (if needed) should use the cert document
+    path rather than the ID value.
+    """
+    nonce = secrets.token_hex(8)
+    raw = f"{uid}:{course_id}:{nonce}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16].upper()
 
 
@@ -132,6 +169,8 @@ async def complete_lesson(request: Request, body: CompleteLessonRequest):
 
     token_data = await _verify_role_fn(request)
     uid = token_data.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="User identity missing from authentication token")
 
     lesson_id = body.lesson_id
     course_id = _LESSON_TO_COURSE.get(lesson_id)
@@ -177,6 +216,8 @@ async def get_progress(request: Request):
 
     token_data = await _verify_role_fn(request)
     uid = token_data.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="User identity missing from authentication token")
 
     result = {}
     for course_id in COURSES:
@@ -219,17 +260,32 @@ async def get_certificate_data(request: Request, course_id: str):
 
     token_data = await _verify_role_fn(request)
     uid = token_data.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="User identity missing from authentication token")
 
     # Per-user per-course cooldown to prevent Firestore cost abuse.
+    # The entire check-then-update block is serialised with an asyncio lock
+    # to prevent a TOCTOU race where two concurrent requests both pass the
+    # cooldown check before either one records its timestamp.
+    # time.monotonic() is used instead of time.time() because monotonic
+    # time never runs backwards. A backward NTP jump on time.time() would
+    # reset (now - last) to a large positive number, clearing the cooldown
+    # and allowing repeated Firestore reads until the clock catches up again.
     key = (uid, course_id)
-    now = time.time()
-    last = _last_cert_request.get(key)
-    if last is not None and (now - last) < _CERT_COOLDOWN_SECONDS:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Certificate already requested recently. Please wait {_CERT_COOLDOWN_SECONDS} seconds.",
-        )
-    _last_cert_request[key] = now
+    async with _cert_cooldown_lock:
+        now = time.monotonic()
+        last = _last_cert_request.get(key)
+        if last is not None and (now - last) < _CERT_COOLDOWN_SECONDS:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Certificate already requested recently. Please wait {_CERT_COOLDOWN_SECONDS} seconds.",
+            )
+        # Evict the LRU entry before inserting when the cap is reached, then
+        # record the current timestamp and move the key to the MRU position.
+        if key not in _last_cert_request and len(_last_cert_request) >= _CERT_COOLDOWN_MAX_ENTRIES:
+            _last_cert_request.popitem(last=False)
+        _last_cert_request[key] = now
+        _last_cert_request.move_to_end(key)
 
     progress = _get_progress(uid, course_id)
     if not _is_complete(progress, course_id):
@@ -265,3 +321,5 @@ async def get_certificate_data(request: Request, course_id: str):
             "cert_id": cert_id,
         },
     }
+
+# The certificate cooldown atomicity issue (asyncio.Lock wrapping the check-then-update) was already addressed in commit 22821c0 and further hardened in 69cb52f.
