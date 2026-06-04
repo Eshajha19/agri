@@ -916,6 +916,20 @@ def _build_gdpr_deletion_targets(uid: str) -> list[DeletionTarget]:
 def root(request: Request = None):
     return {"message": "Fasal Saathi API", "status": "running"}
 
+
+@app.get("/health/segmentation")
+@limiter.limit("60/minute")
+def health_segmentation(request: Request = None):
+    """
+    Farmer segmentation cluster health and update metrics.
+    """
+    from ml.farmer_segmentation import get_segmentation
+    segmentation = get_segmentation()
+    health = segmentation.health()
+    if health["ready"]:
+        return health
+    raise HTTPException(status_code=503, detail=health)
+
 @app.get("/predict")
 @limiter.limit("30/minute")
 def predict_get(request: Request = None):

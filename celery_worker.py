@@ -311,6 +311,57 @@ def process_whatsapp_webhook_task(self, body: str, sender_number: str):
 
 @celery_app.task(
     bind=True,
+    name="refresh_farmer_segments_task",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 2},
+    soft_time_limit=120,
+    time_limit=180,
+)
+def refresh_farmer_segments_task(self, force_full: bool = False):
+    """
+    Background incremental refresh of farmer segmentation clusters.
+    """
+    try:
+        from ml.farmer_segmentation import get_segmentation
+
+        segmentation = get_segmentation()
+
+        import firebase_admin
+        from firebase_admin import firestore
+
+        db = None
+        if firebase_admin._apps:
+            db = firestore.client()
+        else:
+            try:
+                firebase_admin.initialize_app()
+                db = firestore.client()
+            except Exception:
+                logger.warning("Firebase not available for segment refresh")
+                return {"status": "firebase_unavailable"}
+
+        if db is None:
+            return {"status": "firebase_unavailable"}
+
+        result = segmentation.fit(db, force_full=force_full)
+
+        return {
+            "status": result.get("status"),
+            "farmers_count": result.get("farmers_count"),
+            "incremental": result.get("incremental", False),
+            "duration_ms": result.get("duration_ms"),
+            "refreshed_at": result.get("refreshed_at"),
+        }
+
+    except Exception:
+        logger.exception("Farmer segment refresh task failed")
+        raise
+
+
+@celery_app.task(
+    bind=True,
     name="retrain_yield_model_task",
     time_limit=1800,
     soft_time_limit=1500,
