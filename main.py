@@ -85,6 +85,7 @@ from crop_quality_grading import CropQualityGrader
 from farm_finance_ai import FarmFinanceAI
 from feature_flags.routes import init_feature_flags, router as flags_router
 from ml.adapters.xgboost_adapter import XGBoostAdapter
+from ml.ensemble import get_ensemble_stacker
 from ml.governance import DriftDetector, ModelVersionManager, ShadowEvaluator
 from ml.registry import ModelRegistry
 from ml.router import ModelRouter
