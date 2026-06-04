@@ -1,4 +1,25 @@
 rules_version = '2';
+
+// ============================================================================
+// Firestore Security Rules — Documentation Header (read before changing)
+// ============================================================================
+//
+// This ruleset enforces least-privilege access across multiple collections and
+// implements anti-abuse protections (ownership binding, anti-impersonation,
+// cooldowns, and privilege escalation prevention).
+//
+// Design notes:
+// 1) Role checks use Firebase custom claims (request.auth.token.role).
+//    The rules intentionally DO NOT provide a fallback elevated role.
+//    Missing/empty claims must not grant access.
+// 2) Where possible, update-time invariants are enforced using resource.data
+//    (existing document) to avoid extra reads.
+// 3) Cooldowns are enforced server-side so clients cannot bypass them.
+//
+// Comprehensive, collection-by-collection documentation lives in:
+//   docs/FIRESTORE_RULES_DOCUMENTATION.md
+// ============================================================================
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -274,6 +295,71 @@ service cloud.firestore {
         && request.resource.data.userId == resource.data.userId;
 
       allow delete: if hasRole('admin');
+    }
+
+    // Farm Document Vault: owner-only metadata index (file stored in Storage)
+    // Collection: /farm_documents/{docId}
+    function vaultBaseFieldsValid() {
+      return request.resource.data.owner_uid is string
+        && request.resource.data.owner_uid.size() > 0
+        && request.resource.data.title is string
+        && request.resource.data.title.size() >= 1
+        && request.resource.data.title.size() <= 200
+        && request.resource.data.fileName is string
+        && request.resource.data.fileName.size() >= 1
+        && request.resource.data.fileName.size() <= 255
+        && request.resource.data.contentType is string
+        && request.resource.data.contentType.size() >= 1
+        && request.resource.data.contentType.size() <= 100
+        && request.resource.data.storagePath is string
+        && request.resource.data.storagePath.size() >= 1
+        && request.resource.data.storagePath.size() <= 1024
+        && hasServerTimestamp('createdAt')
+        && hasServerTimestamp('updatedAt');
+    }
+
+    function vaultTagsValid() {
+      return !('tags' in request.resource.data)
+        || (
+          request.resource.data.tags is list
+          && request.resource.data.tags.size() <= 20
+          && request.resource.data.tags.hasOnly(
+            request.resource.data.tags.map(tag => tag is string && tag.size() <= 20)
+          )
+        );
+    }
+
+    function vaultMetadataValidForCreate() {
+      return vaultBaseFieldsValid() && vaultTagsValid();
+    }
+
+    function vaultMetadataValidForUpdate() {
+      // Require all base fields to be valid on update too.
+      // Keep validation strict to prevent corrupt metadata.
+      return vaultBaseFieldsValid() && vaultTagsValid();
+    }
+
+    match /farm_documents/{docId} {
+      allow read: if isAuthed()
+        && (resource.data.owner_uid == request.auth.uid || hasRole('admin'));
+
+      allow create: if isAuthed()
+        && request.resource.data.owner_uid == request.auth.uid
+        && vaultMetadataValidForCreate();
+
+      allow update: if isAuthed()
+        && (
+          resource.data.owner_uid == request.auth.uid
+          || hasRole('admin')
+        )
+        && (
+          // owner_uid immutable
+          request.resource.data.owner_uid == resource.data.owner_uid
+        )
+        && vaultMetadataValidForUpdate();
+
+      allow delete: if isAuthed()
+        && (resource.data.owner_uid == request.auth.uid || hasRole('admin'));
     }
 
     // Schema Migrations: Internal use only.

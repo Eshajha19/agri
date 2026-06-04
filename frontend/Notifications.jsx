@@ -22,11 +22,9 @@ export default function useNotifications() {
     });
   };
 
-  const getIdToken = async () => {
-    const user = auth.currentUser;
-    if (!user) {
-      return null;
-    }
+const getIdToken = async () => {
+    const user = auth?.currentUser;
+    if (!user) return null;
     return user.getIdToken();
   };
 
@@ -44,13 +42,13 @@ export default function useNotifications() {
   const fetchNotifications = async () => {
     try {
       const res = await apiClient.get("/api/notifications");
-      const data = res.data;
+      const data = res?.data;
 
-      if (data.success) {
+      if (data?.success && Array.isArray(data?.data)) {
         data.data.forEach(markAndToast);
       }
     } catch (err) {
-      console.log("Notification fetch error:", err);
+      console.warn("[Notifications] Failed to fetch notifications:", err?.message || err);
     }
   };
 
@@ -72,10 +70,11 @@ export default function useNotifications() {
     };
 
     const connectWebSocket = async () => {
-      if (!auth.currentUser) {
+      if (!auth?.currentUser) {
         startPollingFallback();
         return;
       }
+
 
       fetchNotifications();
 
