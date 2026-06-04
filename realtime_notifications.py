@@ -103,18 +103,6 @@ class _ConnectionSubscription:
     regions: frozenset[str]
 
 
-@dataclass(slots=True)
-class _ConnectionSubscription:
-    uid: str
-    regions: frozenset[str]
-
-
-@dataclass(slots=True)
-class _ConnectionSubscription:
-    uid: str
-    regions: frozenset[str]
-
-
 class NotificationBroadcastHub:
     """Broadcasts notifications to connected WebSocket clients.
 

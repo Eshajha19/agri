@@ -102,6 +102,17 @@ def test_targeted_notification_only_reaches_intended_client():
     assert not notification_visible_to_user(notification, "bob")
 
 
+def test_connection_subscription_has_single_definition():
+    source_path = Path(__file__).with_name("realtime_notifications.py")
+    module = ast.parse(source_path.read_text(encoding="utf-8"))
+
+    definitions = [
+        node
+        for node in module.body
+        if isinstance(node, ast.ClassDef) and node.name == "_ConnectionSubscription"
+    ]
+
+    assert len(definitions) == 1
 def test_delivery_records_evict_oldest_record_at_capacity():
     async def _run():
         hub = NotificationBroadcastHub(history_limit=10, max_delivery_records=2)
