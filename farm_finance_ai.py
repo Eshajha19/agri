@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 # 2. It is created exactly once for the lifetime of the module, regardless
 #    of how many FarmFinanceAI instances are created or destroyed.
 _OWNER_UID_NOT_PROVIDED = object()
+MAX_IN_MEMORY_APPLICATIONS = 1000
 
 
 @dataclass(frozen=True)
@@ -120,7 +122,7 @@ class FarmFinanceAI:
                 requires_collateral=True,
             ),
         ]
-        self.applications: Dict[str, FinanceApplication] = {}
+        self.applications: OrderedDict[str, FinanceApplication] = OrderedDict()
         self.repository = repository
         logger.info("FarmFinanceAI initialized with %s", "persistent repository" if repository else "in-memory storage")
 
@@ -280,7 +282,7 @@ class FarmFinanceAI:
             self.repository.create(app_dict)
             logger.info("Application %s persisted to repository.", application_id)
 
-        self.applications[application_id] = application
+        self._store_application(application_id, application)
 
         return {
             "application_id": application.application_id,
@@ -372,6 +374,15 @@ class FarmFinanceAI:
             "required_documents": application.required_documents,
             "notes": application.notes,
         }
+
+    def _store_application(self, application_id: str, application: FinanceApplication) -> None:
+        if MAX_IN_MEMORY_APPLICATIONS <= 0:
+            return
+        if application_id in self.applications:
+            del self.applications[application_id]
+        while len(self.applications) >= MAX_IN_MEMORY_APPLICATIONS:
+            self.applications.popitem(last=False)
+        self.applications[application_id] = application
 
     def delete_application(self, application_id: str) -> bool:
         """Delete a finance application from both the repository and the
