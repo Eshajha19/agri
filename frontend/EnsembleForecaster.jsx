@@ -1,4 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+  import { useState, useEffect, useCallback, memo, useTransition, useDeferredValue } from "react";
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, ReferenceLine, Scatter, ScatterChart, ZAxis,
+  ComposedChart, Bar, Line,
+} from "recharts";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
@@ -46,69 +51,56 @@ const Stat = ({ label, value, color = "#e5e7eb", sub }) => (
   </Card>
 );
 
-// ── confidence band chart ─────────────────────────────────────────────────────
-const ConfidenceBandChart = ({ prediction }) => {
+// ── confidence band chart (recharts, memoized) ────────────────────────────────
+const ConfidenceBandChart = memo(function ConfidenceBandChart({ prediction }) {
   if (!prediction) return null;
   const { point_estimate, confidence_interval, model_predictions } = prediction;
   const lower = confidence_interval?.lower;
   const upper = confidence_interval?.upper;
   const models = model_predictions || {};
 
-  const w = 600, h = 160, pad = 30;
+  // Build data array for recharts: one entry per model + ensemble
+  const data = [
+    { name: "ensemble", value: point_estimate, color: MODEL_COLORS.ensemble, z: 200 },
+    ...Object.entries(models).map(([name, val]) => ({
+      name,
+      value: val,
+      color: MODEL_COLORS[name] || "#9ca3af",
+      z: 150,
+    })),
+  ];
+
   const allVals = [lower, point_estimate, upper, ...Object.values(models)].filter(v => v != null);
   const minV = Math.min(...allVals) * 0.95;
   const maxV = Math.max(...allVals) * 1.05;
-  const range = maxV - minV || 1;
-
-  const yFor = (v) => h - pad - ((v - minV) / range) * (h - pad * 2);
-  const xCenter = w / 2;
 
   return (
     <Card style={{ marginTop: 16 }}>
       <SectionTitle>Prediction with Confidence Band</SectionTitle>
-      <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} style={{ overflow: "visible" }}>
-        {/* Confidence band */}
-        {lower != null && upper != null && (
-          <rect
-            x={xCenter - 60}
-            y={yFor(upper)}
-            width={120}
-            height={yFor(lower) - yFor(upper)}
-            fill="rgba(74,222,128,0.08)"
-            stroke="#166534"
-            strokeWidth="1"
-            rx={6}
+      <ResponsiveContainer width="100%" height={160}>
+        <ComposedChart data={data} margin={{ top: 10, right: 30, bottom: 10, left: 10 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+          <YAxis domain={[minV, maxV]} tick={{ fill: "#6b7280", fontSize: 10, fontFamily: "monospace" }} axisLine={{ stroke: "#374151" }} />
+          <Tooltip
+            contentStyle={{ background: "#111827", border: "1px solid #1f2937", borderRadius: 8, color: "#e5e7eb", fontSize: 12 }}
+            itemStyle={{ color: "#e5e7eb" }}
+            formatter={(value, name, props) => [value?.toFixed(2), props.payload.name]}
           />
-        )}
-        {/* Ensemble point */}
-        <circle cx={xCenter} cy={yFor(point_estimate)} r={6} fill="#a78bfa" stroke="#e5e7eb" strokeWidth="2">
-          <title>Ensemble: {point_estimate?.toFixed(2)}</title>
-        </circle>
-        {/* Model points */}
-        {Object.entries(models).map(([name, val], i) => {
-          const offset = (i - Object.keys(models).length / 2) * 35;
-          return (
-            <g key={name}>
-              <line x1={xCenter + offset} y1={yFor(val)} x2={xCenter} y2={yFor(point_estimate)} stroke={MODEL_COLORS[name]} strokeWidth="1" strokeDasharray="3,3" opacity="0.5" />
-              <circle cx={xCenter + offset} cy={yFor(val)} r={4} fill={MODEL_COLORS[name]} stroke="#111827" strokeWidth="1.5">
-                <title>{name}: {val?.toFixed(2)}</title>
-              </circle>
-              <text x={xCenter + offset} y={yFor(val) - 12} fill={MODEL_COLORS[name]} fontSize="9" textAnchor="middle" fontFamily="monospace">
-                {name.slice(0, 3).toUpperCase()}
-              </text>
-            </g>
-          );
-        })}
-        {/* Labels */}
-        <text x={pad} y={h - 4} fill="#6b7280" fontSize="10" fontFamily="monospace">{minV.toFixed(0)}</text>
-        <text x={w - pad - 40} y={14} fill="#6b7280" fontSize="10" fontFamily="monospace">{maxV.toFixed(0)}</text>
-        {lower != null && (
-          <text x={xCenter + 70} y={yFor(lower) + 4} fill="#4ade80" fontSize="10" fontFamily="monospace">↓ {lower.toFixed(0)}</text>
-        )}
-        {upper != null && (
-          <text x={xCenter + 70} y={yFor(upper) - 4} fill="#4ade80" fontSize="10" fontFamily="monospace">↑ {upper.toFixed(0)}</text>
-        )}
-      </svg>
+          {/* Confidence band as reference area */}
+          {lower != null && upper != null && (
+            <ReferenceLine y={lower} stroke="#166534" strokeDasharray="3 3" label={{ value: `↓ ${lower.toFixed(0)}`, fill: "#4ade80", fontSize: 10, position: "insideBottomRight" }} />
+          )}
+          {upper != null && lower != null && (
+            <ReferenceLine y={upper} stroke="#166534" strokeDasharray="3 3" label={{ value: `↑ ${upper.toFixed(0)}`, fill: "#4ade80", fontSize: 10, position: "insideTopRight" }} />
+          )}
+          {/* Model points */}
+          <Scatter dataKey="value" fill="#8884d8">
+            {data.map((entry, index) => (
+              <cell key={`cell-${index}`} fill={entry.color} />
+            ))}
+          </Scatter>
+        </ComposedChart>
+      </ResponsiveContainer>
       <div style={{ display: "flex", justifyContent: "center", gap: 16, marginTop: 8 }}>
         {Object.entries(models).map(([name, val]) => (
           <div key={name} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#9ca3af" }}>
@@ -123,11 +115,19 @@ const ConfidenceBandChart = ({ prediction }) => {
       </div>
     </Card>
   );
-};
+});
 
-// ── multi-step forecast chart ─────────────────────────────────────────────────
-const MultiStepChart = ({ forecasts }) => {
+// ── multi-step forecast chart (recharts, memoized) ────────────────────────────
+const MultiStepChart = memo(function MultiStepChart({ forecasts }) {
   if (!forecasts || forecasts.length < 2) return null;
+
+  const data = forecasts.map((f, i) => ({
+    step: `Step ${f.step}`,
+    point: f.point_estimate,
+    upper: f.confidence_interval?.upper,
+    lower: f.confidence_interval?.lower,
+  }));
+
   const allPoints = forecasts.flatMap(f => [
     f.point_estimate,
     f.confidence_interval?.lower,
@@ -135,39 +135,29 @@ const MultiStepChart = ({ forecasts }) => {
   ]).filter(v => v != null);
   const minV = Math.min(...allPoints) * 0.95;
   const maxV = Math.max(...allPoints) * 1.05;
-  const range = maxV - minV || 1;
-  const w = 600, h = 180, pad = 30;
-
-  const xFor = (i) => pad + (i / (forecasts.length - 1)) * (w - pad * 2);
-  const yFor = (v) => h - pad - ((v - minV) / range) * (h - pad * 2);
-
-  const pointPath = forecasts.map((f, i) => `${xFor(i)},${yFor(f.point_estimate)}`).join(" ");
-  const upperPath = forecasts.map((f, i) => `${xFor(i)},${yFor(f.confidence_interval?.upper)}`).join(" ");
-  const lowerPath = forecasts.map((f, i) => `${xFor(i)},${yFor(f.confidence_interval?.lower)}`).reverse().join(" ");
 
   return (
     <Card style={{ marginTop: 16 }}>
       <SectionTitle>Multi-Step Forecast</SectionTitle>
-      <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} style={{ overflow: "visible" }}>
-        <polygon points={`${upperPath} ${lowerPath}`} fill="rgba(167,139,250,0.08)" stroke="none" />
-        <polyline fill="none" stroke="#a78bfa" strokeWidth="2" points={pointPath} style={{ filter: "drop-shadow(0 0 4px rgba(167,139,250,0.3))" }} />
-        {forecasts.map((f, i) => (
-          <g key={i}>
-            <circle cx={xFor(i)} cy={yFor(f.point_estimate)} r={5} fill="#a78bfa" stroke="#111827" strokeWidth="2" />
-            <text x={xFor(i)} y={yFor(f.point_estimate) - 14} fill="#e5e7eb" fontSize="10" textAnchor="middle" fontFamily="monospace" fontWeight="700">
-              {f.point_estimate?.toFixed(0)}
-            </text>
-            <text x={xFor(i)} y={h - 8} fill="#6b7280" fontSize="10" textAnchor="middle" fontFamily="monospace">
-              Step {f.step}
-            </text>
-          </g>
-        ))}
-        <text x={pad} y={h - 4} fill="#6b7280" fontSize="10" fontFamily="monospace">{minV.toFixed(0)}</text>
-        <text x={w - pad - 40} y={14} fill="#6b7280" fontSize="10" fontFamily="monospace">{maxV.toFixed(0)}</text>
-      </svg>
+      <ResponsiveContainer width="100%" height={180}>
+        <ComposedChart data={data} margin={{ top: 10, right: 30, bottom: 20, left: 10 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+          <XAxis dataKey="step" tick={{ fill: "#6b7280", fontSize: 10, fontFamily: "monospace" }} axisLine={{ stroke: "#374151" }} />
+          <YAxis domain={[minV, maxV]} tick={{ fill: "#6b7280", fontSize: 10, fontFamily: "monospace" }} axisLine={{ stroke: "#374151" }} />
+          <Tooltip
+            contentStyle={{ background: "#111827", border: "1px solid #1f2937", borderRadius: 8, color: "#e5e7eb", fontSize: 12 }}
+            formatter={(value) => [value?.toFixed(2), "Yield"]}
+          />
+          {/* Confidence band */}
+          <Area type="monotone" dataKey="upper" stroke="none" fill="rgba(167,139,250,0.08)" />
+          <Area type="monotone" dataKey="lower" stroke="none" fill="#030712" />
+          {/* Main line */}
+          <Line type="monotone" dataKey="point" stroke="#a78bfa" strokeWidth={2} dot={{ r: 5, fill: "#a78bfa", stroke: "#111827", strokeWidth: 2 }} activeDot={{ r: 7, fill: "#c4b5fd" }} />
+        </ComposedChart>
+      </ResponsiveContainer>
     </Card>
   );
-};
+});
 
 // ── disagreement alert ────────────────────────────────────────────────────────
 const DisagreementAlert = ({ prediction }) => {
@@ -188,6 +178,9 @@ export default function EnsembleForecaster() {
   const [weights, setWeights]         = useState(null);
   const [prediction, setPrediction]   = useState(null);
   const [forecasts, setForecasts]     = useState([]);
+  const [isPending, startTransition]  = useTransition();
+  const deferredForecasts             = useDeferredValue(forecasts);
+  const deferredPrediction            = useDeferredValue(prediction);
   const [activeTab, setActiveTab]     = useState("forecast");
   const [loading, setLoading]         = useState(true);
   const [refreshing, setRefreshing]   = useState(false);
@@ -244,7 +237,9 @@ export default function EnsembleForecaster() {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
-      setPrediction(d.prediction);
+      startTransition(() => {
+        setPrediction(d.prediction);
+      });
     } catch (e) {
       setPredictError(e.message);
     } finally {
@@ -277,7 +272,9 @@ export default function EnsembleForecaster() {
         setPredictError(null);
         setPrediction({ task_id: d.task_id, message: d.message });
       } else {
-        setForecasts(d.forecast || []);
+        startTransition(() => {
+          setForecasts(d.forecast || []);
+        });
       }
     } catch (e) {
       setPredictError(e.message);
@@ -376,18 +373,18 @@ export default function EnsembleForecaster() {
                     <button
                       className="action-btn"
                       onClick={handlePredict}
-                      disabled={predicting}
+                      disabled={predicting || isPending}
                       style={{ background: "#14532d", border: "1px solid #166534", color: "#4ade80" }}
                     >
-                      {predicting ? <><Spinner /> &nbsp;Predicting…</> : "▶ Single Forecast"}
+                      {predicting || isPending ? <><Spinner /> &nbsp;Predicting…</> : "▶ Single Forecast"}
                     </button>
                     <button
                       className="action-btn"
                       onClick={handleMultiStep}
-                      disabled={predicting}
+                      disabled={predicting || isPending}
                       style={{ background: "#1e3a5f", border: "1px solid #1a4a7a", color: "#7dd3fc" }}
                     >
-                      {predicting ? <><Spinner /> &nbsp;Forecasting…</> : `▶ ${steps}-Step Forecast`}
+                      {predicting || isPending ? <><Spinner /> &nbsp;Forecasting…</> : `▶ ${steps}-Step Forecast`}
                     </button>
                     <input
                       type="number"
@@ -408,16 +405,16 @@ export default function EnsembleForecaster() {
                 </Card>
 
                 {/* Results */}
-                {prediction && !prediction.task_id && (
+                {deferredPrediction && !deferredPrediction.task_id && (
                   <>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 12, marginBottom: 16 }}>
-                      <Stat label="Point Estimate" value={prediction.point_estimate} color="#a78bfa" />
-                      <Stat label="Lower Bound" value={prediction.confidence_interval?.lower} color="#4ade80" sub="90% CI" />
-                      <Stat label="Upper Bound" value={prediction.confidence_interval?.upper} color="#4ade80" sub="90% CI" />
-                      <Stat label="Models Used" value={prediction.models_used?.length} color="#fbbf24" sub={prediction.models_used?.join(", ")} />
+                      <Stat label="Point Estimate" value={deferredPrediction.point_estimate} color="#a78bfa" />
+                      <Stat label="Lower Bound" value={deferredPrediction.confidence_interval?.lower} color="#4ade80" sub="90% CI" />
+                      <Stat label="Upper Bound" value={deferredPrediction.confidence_interval?.upper} color="#4ade80" sub="90% CI" />
+                      <Stat label="Models Used" value={deferredPrediction.models_used?.length} color="#fbbf24" sub={deferredPrediction.models_used?.join(", ")} />
                     </div>
-                    <ConfidenceBandChart prediction={prediction} />
-                    <DisagreementAlert prediction={prediction} />
+                    <ConfidenceBandChart prediction={deferredPrediction} />
+                    <DisagreementAlert prediction={deferredPrediction} />
                   </>
                 )}
                 {prediction?.task_id && (
@@ -431,7 +428,7 @@ export default function EnsembleForecaster() {
                     </p>
                   </Card>
                 )}
-                {forecasts.length > 0 && <MultiStepChart forecasts={forecasts} />}
+                {deferredForecasts.length > 0 && <MultiStepChart forecasts={deferredForecasts} />}
               </div>
             )}
 
