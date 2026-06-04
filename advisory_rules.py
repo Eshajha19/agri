@@ -75,18 +75,36 @@ def _add_alert(
     title: str,
     message: str,
     action: str,
+    _counter: list = [0],
 ) -> None:
     """
     Add alert to advisory list if not duplicate.
     Prevents duplicate alerts with same title and action.
+
+    Alert IDs are assigned from a monotonically increasing counter that
+    increments on every call, regardless of whether the alert is suppressed
+    as a duplicate.  The previous implementation used ``len(alerts) + 1``
+    as the ID, which produced collisions: if alert #3 was suppressed, the
+    next appended alert also received id=3 because ``len(alerts)`` had not
+    changed.  Duplicate IDs break React key reconciliation, Firestore
+    document IDs, and any downstream deduplication logic that relies on
+    the id field being stable and unique.
+
+    The mutable default argument ``_counter`` is an intentional Python
+    idiom for a function-level persistent counter — it is initialised once
+    at function definition time and survives across calls without requiring
+    a module-level variable.
     """
+    _counter[0] += 1
+    alert_id = _counter[0]
+
     if any(alert["title"] == title and alert["action"] == action for alert in alerts):
         logger.debug("Skipping duplicate alert: %s", title)
         return
 
     alerts.append(
         {
-            "id": len(alerts) + 1,
+            "id": alert_id,
             "severity": severity,
             "type": severity,
             "category": category,

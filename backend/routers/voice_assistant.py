@@ -23,7 +23,8 @@ Unchanged (intentionally public):
 Still requires admin/system role:
   POST /sync-cache       — unchanged
 """
-
+from collections import OrderedDict
+from datetime import datetime, timezone
 import os
 import re
 import sys
@@ -160,6 +161,11 @@ RATE_LIMIT_WINDOW = 60  # seconds
 RATE_LIMIT_PRUNE_INTERVAL = RATE_LIMIT_WINDOW
 RATE_LIMIT_MAX_ENTRIES = 10_000
 
+# Session cleanup constants
+MAX_SESSIONS = 1000
+SESSION_TTL_SECONDS = 3600  # 1 hour
+_session_created_at: OrderedDict[str, float] = OrderedDict()
+_session_lock = Lock()
 
 def _prune_rate_limit_store(now: float) -> None:
     """Drop expired rate-limit entries to bound in-memory state."""
@@ -186,18 +192,12 @@ def _check_rate_limit(uid: str) -> bool:
         _prune_rate_limit_store(now)
 
         if len(_rate_limit_store) >= RATE_LIMIT_MAX_ENTRIES:
-            cutoff = now - RATE_LIMIT_WINDOW
             sorted_uids = sorted(
-                _rate_limit_store.keys(),
+                _rate_limit_store,
                 key=lambda u: _rate_limit_store[u][1],
             )
-            evicted = 0
-            for uid_candidate in sorted_uids:
-                if evicted >= max(1, len(sorted_uids) // 4):
-                    break
-                if _rate_limit_store[uid_candidate][1] < cutoff:
-                    _rate_limit_store.pop(uid_candidate, None)
-                    evicted += 1
+            for uid_candidate in sorted_uids[: max(1, len(sorted_uids) // 4)]:
+                _rate_limit_store.pop(uid_candidate, None)
 
         if uid not in _rate_limit_store:
             _rate_limit_store[uid] = (1, now)
@@ -213,7 +213,28 @@ def _check_rate_limit(uid: str) -> bool:
 
         _rate_limit_store[uid] = (count + 1, window_start)
         return True
+def _cleanup_sessions(now: float) -> None:
+    """Evict expired and oldest sessions to bound memory."""
+    if voice_assistant is None:
+        return
+    with _session_lock:
+        expired = [
+            sid for sid, created in _session_created_at.items()
+            if now - created > SESSION_TTL_SECONDS
+        ]
+        for sid in expired:
+            _session_created_at.pop(sid, None)
+            voice_assistant.sessions.pop(sid, None)
+        while len(_session_created_at) >= MAX_SESSIONS:
+            sid, _ = _session_created_at.popitem(last=False)
+            voice_assistant.sessions.pop(sid, None)
 
+
+def _register_session(session_id: str) -> None:
+    now = monotonic()
+    with _session_lock:
+        _cleanup_sessions(now)
+        _session_created_at[session_id] = now
 
 def _validate_filename(filename: str) -> str:
     if not filename:
@@ -318,16 +339,15 @@ async def create_session(request: Request, data: SessionCreateRequest):
     uid = await _require_auth(request)
 
     try:
-        session = voice_assistant.create_session(
+        new_session = voice_assistant.create_session(uid, data.language_code)
+        session_id = new_session.session_id
+        _register_session(session_id)
+        return SessionResponse(
+            session_id=session_id,
             user_id=uid,
             language_code=data.language_code,
-        )
-        return SessionResponse(
-            session_id=session.session_id,
-            user_id=session.user_id,
-            language_code=session.language_code,
-            offline_mode=session.offline_mode,
-            created_at=session.start_time,
+            offline_mode=voice_assistant.offline_mode,
+            created_at=new_session.start_time,
         )
     except HTTPException:
         raise
@@ -357,6 +377,7 @@ async def process_voice_query(request: Request, data: VoiceQueryRequest):
         if not session_id:
             session = voice_assistant.create_session(uid, language_code)
             session_id = session.session_id
+            _register_session(session_id)
         else:
             # Verify the session belongs to the authenticated user.
             if session_id not in voice_assistant.sessions:
@@ -423,7 +444,12 @@ async def upload_audio(
         raise HTTPException(status_code=400, detail=str(e))
 
     os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
-    temp_path = os.path.join(TEMP_UPLOAD_DIR, f"{uid}_{safe_filename}")
+    # Sanitize uid before embedding it in a filesystem path. Firebase UIDs are
+    # currently 28-character alphanumeric strings, but a defensive strip prevents
+    # path traversal if the auth provider is ever changed or the token is crafted
+    # to contain special characters.
+    safe_uid = re.sub(r"[^a-zA-Z0-9_-]", "_", uid)
+    temp_path = os.path.join(TEMP_UPLOAD_DIR, f"{safe_uid}_{safe_filename}")
     bytes_written = 0
 
     try:
@@ -445,7 +471,10 @@ async def upload_audio(
             raise HTTPException(status_code=400, detail="Empty file uploaded")
 
         if not session_id:
-            session_id = voice_assistant.create_session(uid, language_code).session_id
+            new_session = voice_assistant.create_session(uid, language_code)
+            session_id = new_session.session_id
+            _register_session(session_id)
+
 
         logger.info("Audio uploaded: uid=%s file=%s bytes=%d", uid, safe_filename, bytes_written)
 
@@ -460,8 +489,15 @@ async def upload_audio(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Audio upload error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        # Log the full error server-side for debugging but return only a
+        # generic message to the client. Forwarding str(e) can expose
+        # filesystem paths, internal library names, or other implementation
+        # details that aid attackers in fingerprinting the server environment.
+        logger.error("Audio upload error for uid=%s: %s", uid, e, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected error occurred during audio upload.",
+        )
     finally:
         try:
             if os.path.exists(temp_path):

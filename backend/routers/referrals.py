@@ -1,7 +1,7 @@
 """Farmer referral and village growth router."""
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -33,7 +33,7 @@ def init_referrals(db_resolver, vr_fn):
 
 
 def _now_iso() -> str:
-    return datetime.utcnow().isoformat() + "Z"
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _normalize_referral_code(code: str) -> str:

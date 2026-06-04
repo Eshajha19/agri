@@ -12,6 +12,13 @@ router = APIRouter()
 _SAFE_PATH_RE = re.compile(r"^[A-Za-z0-9_./ -]+$")
 
 
+class DriftCheckRequest(BaseModel):
+    """Request body for the POST /drift/check endpoint."""
+    model_name: str = Field(..., min_length=1, max_length=50)
+    prediction: float
+    actual_value: float
+
+
 class RegisterModelVersionRequest(BaseModel):
     model_name: str = Field(..., min_length=1, max_length=50)
     # max_length=512 is generous for any real model path while preventing
@@ -37,11 +44,6 @@ class RegisterModelVersionRequest(BaseModel):
                 "hyphens, and spaces are permitted."
             )
         return v
-
-class DriftCheckRequest(BaseModel):
-    model_name: str = Field(..., min_length=1, max_length=50)
-    prediction: float
-    actual_value: float
 
 drift_detector = None
 shadow_evaluator = None
@@ -224,7 +226,7 @@ async def get_governance_status(request: Request):
     return {
         "success": True,
         "governance_status": {
-            "drift_alerts": len(drift_detector.get_alerts("all")),
+            "drift_alerts": len(drift_detector.get_alerts()),
             "active_evals": len(shadow_evaluator.get_evaluations()),
             "total_versions": len(version_manager.list_versions()),
         },

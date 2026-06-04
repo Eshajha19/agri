@@ -26,6 +26,7 @@ import CropDiseaseDetection from "./CropDiseaseDetection";
 import PestDetection from "./PestDetection";
 import PestManagement from "./PestManagement";
 import SprayReminder from "./SprayReminder";
+import PestCalendar from "./PestCalendar";
 import SeedVerifier from "./SeedVerifier";
 import ClimateSimulator from "./ClimateSimulator";
 import RAGAdvisor from "./RAGAdvisor";
@@ -162,11 +163,13 @@ export default function Advisor({ userData }) {
      setShowFarmingMap,
      showCropDiseaseDetection,
      setShowCropDiseaseDetection,
-     showPestManagement,
-     setShowPestManagement,
-     showSprayReminder,
-     setShowSprayReminder,
-     showAgriMarketplace,
+showPestManagement,
+      setShowPestManagement,
+      showSprayReminder,
+      setShowSprayReminder,
+      showPestCalendar,
+      setShowPestCalendar,
+      showAgriMarketplace,
      setShowAgriMarketplace,
      showAgriLMS,
      setShowAgriLMS,
@@ -235,11 +238,22 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
     const [showSeasonalStrategyGuide, setShowSeasonalStrategyGuide] = useState(false);
     const [showWeatherImpactGuide, setShowWeatherImpactGuide] = useState(false);
     const [showDiseaseLifecycle, setShowDiseaseLifecycle] = useState(false);
+    const mountedRef = useRef(true);
+    const weatherRequestRef = useRef(0);
+    const weatherLoadingRef = useRef(false);
 
   // ── Shared weather snapshot integration ──────────────────────────────────
   // Subscribe to the global WEATHER_SNAPSHOT_EVENT so any fetch by
   // WeatherAlertBar or WeatherQuickWidget is immediately reflected here —
   // no duplicate API call needed.
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   useEffect(() => {
     const handleSnapshot = (event) => {
       const snap = event.detail;
@@ -259,6 +273,7 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
   // weather dashboard is never left idle on a cold start.
   useEffect(() => {
     let cancelled = false;
+    const requestId = ++weatherRequestRef.current;
 
     const hydrateWeather = async () => {
       const cached = getStoredWeatherSnapshot();
@@ -269,15 +284,27 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
 
         try {
           const refreshed = await fetchWeatherByLocation(cached.location);
-          if (!cancelled) {
-            setWeatherSnapshot(refreshed);
-            setWeatherStatus("ready");
-            setWeatherError("");
+          if (
+            cancelled ||
+            !mountedRef.current ||
+            requestId !== weatherRequestRef.current
+          ) {
+            return;
           }
+
+          setWeatherSnapshot(refreshed);
+          setWeatherStatus("ready");
+          setWeatherError("");
         } catch (error) {
-          if (!cancelled) {
-            setWeatherError(error?.message || "Unable to refresh weather data.");
+          if (
+            cancelled ||
+            !mountedRef.current ||
+            requestId !== weatherRequestRef.current
+          ) {
+            return;
           }
+
+          setWeatherError(error?.message || "Unable to refresh weather data.");
         }
 
         return;
@@ -286,11 +313,17 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
       setWeatherStatus("loading");
       try {
         const liveSnapshot = await fetchWeatherByIP();
-        if (!cancelled) {
-          setWeatherSnapshot(liveSnapshot);
-          setWeatherStatus("ready");
-          setWeatherError("");
+        if (
+          cancelled ||
+          !mountedRef.current ||
+          requestId !== weatherRequestRef.current
+        ) {
+          return;
         }
+
+        setWeatherSnapshot(liveSnapshot);
+        setWeatherStatus("ready");
+        setWeatherError("");
       } catch (error) {
         if (!cancelled) {
           setWeatherStatus("error");
@@ -319,35 +352,82 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
   // Fetch weather via the shared service (writes to the shared cache and
   // broadcasts WEATHER_SNAPSHOT_EVENT so all components stay in sync).
   const fetchWeather = async ({ latitude, longitude, label }) => {
+    if (weatherLoadingRef.current) return;
+
+    weatherLoadingRef.current = true;
+
+    const requestId = ++weatherRequestRef.current;
+
     setWeatherStatus("loading");
     setWeatherError("");
+
     try {
       const snap = await fetchWeatherByLocation({
-        latitude, longitude,
+        latitude,
+        longitude,
         city: label || "Your area",
         name: label || "Your area",
         source: "manual",
       });
+
+      if (
+        !mountedRef.current ||
+        requestId !== weatherRequestRef.current
+      ) {
+        return;
+      }
+
       setWeatherSnapshot(snap);
       setWeatherStatus("ready");
     } catch (err) {
+      if (
+        !mountedRef.current ||
+        requestId !== weatherRequestRef.current
+      ) {
+        return;
+      }
+
       setWeatherStatus("error");
       setWeatherError(err?.message || "Failed to load weather data.");
+    } finally {
+      weatherLoadingRef.current = false;
     }
   };
 
   const handleUseMyLocation = async () => {
     setWeatherStatus("loading");
     setWeatherError("");
+    const requestId = ++weatherRequestRef.current;
     try {
       const location = await getCurrentPosition();
       const snap = await fetchWeatherByLocation(location);
+      if (
+        !mountedRef.current ||
+        requestId !== weatherRequestRef.current
+      ) {
+        return;
+      }
+
       setWeatherSnapshot(snap);
       setWeatherStatus("ready");
     } catch {
       // GPS failed — fall back to IP-based location
       try {
         const snap = await fetchWeatherByIP();
+        if (
+          !mountedRef.current ||
+          requestId !== weatherRequestRef.current
+        ) {
+          return;
+        }
+
+        if (
+          !mountedRef.current ||
+          requestId !== weatherRequestRef.current
+        ) {
+          return;
+        }
+
         setWeatherSnapshot(snap);
         setWeatherStatus("ready");
       } catch (err) {
@@ -362,9 +442,19 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
     if (!locationQuery.trim()) return;
     setWeatherStatus("loading");
     setWeatherError("");
+    if (!locationQuery.trim()) return;
+
+    const requestId = ++weatherRequestRef.current;
     try {
       const location = await searchLocationByName(locationQuery.trim());
       const snap = await fetchWeatherByLocation(location);
+      if (
+        !mountedRef.current ||
+        requestId !== weatherRequestRef.current
+      ) {
+        return;
+      }
+
       setWeatherSnapshot(snap);
       setWeatherStatus("ready");
     } catch (err) {
@@ -669,17 +759,25 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             </p>
           </div>
 
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/pest-detection")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/pest-detection"); }} aria-label="Pest Detection: Identify pests and get treatment">
-            <div className="icon" aria-hidden="true">
-              <Bug size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">Pest Detection</span></h3>
-            <p>
-              AI-powered pest identification with real-time alerts and treatment recommendations.
-            </p>
-          </div>
+           <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/pest-detection")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/pest-detection"); }} aria-label="Pest Detection: Identify pests and get treatment">
+             <div className="icon" aria-hidden="true">
+               <Bug size={32} strokeWidth={2} />
+             </div>
+             <h3><span className="notranslate">Pest Detection</span></h3>
+             <p>
+               AI-powered pest identification with real-time alerts and treatment recommendations.
+             </p>
+           </div>
 
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowIrrigation(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowIrrigation(true); }} aria-label="Irrigation Guidance: Water-saving tips">
+           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowPestCalendar(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowPestCalendar(true); }} aria-label="Pest Calendar: View seasonal pest attack patterns">
+             <div className="icon" aria-hidden="true">
+               <Calendar size={32} strokeWidth={2} />
+             </div>
+             <h3><span className="notranslate">Pest Calendar</span></h3>
+             <p>View seasonal pest attack patterns and plan preventive measures accordingly.</p>
+           </div>
+
+           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowIrrigation(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowIrrigation(true); }} aria-label="Irrigation Guidance: Water-saving tips">
             <div className="icon" aria-hidden="true">
               <Droplets size={32} strokeWidth={2} />
             </div>
@@ -782,11 +880,17 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             <p>Early warnings & organic pest control tips.</p>
           </div>
 
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowSprayReminder(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSprayReminder(true); }} aria-label="Spray Scheduler: Weather-aware spray scheduling">
-            <div className="icon" aria-hidden="true"><CloudRain size={32} /></div>
-            <h3><span className="notranslate">Spray Scheduler</span></h3>
-            <p>Weather-aware spray scheduling &amp; rotation recommendations.</p>
-          </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowSprayReminder(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSprayReminder(true); }} aria-label="Spray Scheduler: Weather-aware spray scheduling">
+             <div className="icon" aria-hidden="true"><CloudRain size={32} /></div>
+             <h3><span className="notranslate">Spray Scheduler</span></h3>
+             <p>Weather-aware spray scheduling &amp; rotation recommendations.</p>
+           </div>
+
+           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowPestCalendar(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowPestCalendar(true); }} aria-label="Pest Calendar: Seasonal pest attack calendar">
+             <div className="icon" aria-hidden="true"><Calendar size={32} /></div>
+             <h3><span className="notranslate">Pest Calendar</span></h3>
+             <p>View seasonal pest attack patterns by crop and region for proactive protection.</p>
+           </div>
 
           <div
             className="card reveal"
@@ -1212,6 +1316,7 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             <button
               className="weather-btn secondary"
               type="button"
+              disabled={weatherStatus === "loading"}
               onClick={() => {
                 if (weatherSnapshot?.location) {
                   fetchWeather({
@@ -1629,15 +1734,24 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
         </div>
       )}
 
-      {showSprayReminder && (
-        <div key="modal-spray-reminder" className="weather-overlay" onClick={() => setShowSprayReminder(false)}>
-          <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ padding: 0, background: 'transparent', boxShadow: 'none' }}>
-            <SprayReminder userData={userData} onClose={() => setShowSprayReminder(false)} />
-          </div>
-        </div>
-      )}
+{showSprayReminder && (
+         <div key="modal-spray-reminder" className="weather-overlay" onClick={() => setShowSprayReminder(false)}>
+           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ padding: 0, background: 'transparent', boxShadow: 'none' }}>
+             <SprayReminder userData={userData} onClose={() => setShowSprayReminder(false)} />
+           </div>
+         </div>
+       )}
 
-      {showAgriMarketplace && (
+       {showPestCalendar && (
+         <div key="modal-pest-calendar" className="weather-overlay" onClick={() => setShowPestCalendar(false)}>
+           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1100px', width: '95vw' }}>
+             <button className="close-btn" onClick={() => setShowPestCalendar(false)} aria-label="Close pest calendar"><X /></button>
+             <PestCalendar />
+           </div>
+         </div>
+       )}
+
+       {showAgriMarketplace && (
         <div key="modal-agri-marketplace" className="weather-overlay" onClick={() => setShowAgriMarketplace(false)}>
           <div className="agri-modal-wrapper" onClick={(e) => e.stopPropagation()}>
             <button className="close-btn agri-close-btn" onClick={() => setShowAgriMarketplace(false)}><X /></button>
@@ -1868,4 +1982,4 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
       )}
      </section>
    );
- }
+          }

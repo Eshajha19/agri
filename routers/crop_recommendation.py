@@ -8,6 +8,8 @@ import logging
 from dataclasses import dataclass
 from functools import lru_cache
 import hashlib
+import time
+import threading
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/crop", tags=["crop"])
@@ -131,30 +133,50 @@ def calculate_confidence_score(data_quality: float, climate_match: float,
 
 
 class RecommendationCache:
-    """Simple cache for recommendation results"""
+    """TTL-bounded cache for recommendation results.
+
+    Entries older than ttl_hours are treated as expired and evicted on
+    the next access. A size cap (max_size) prevents unbounded growth when
+    many unique parameter combinations are queried over time.
+    """
+    _MAX_SIZE = 1000
+
     def __init__(self, ttl_hours: int = 24):
+        # Stores (result, inserted_at_seconds) tuples keyed by cache key
         self.cache: Dict[str, Tuple] = {}
-        self.ttl_hours = ttl_hours
+        self.ttl_seconds = ttl_hours * 3600
+        self._lock = threading.Lock()
 
     def _generate_key(self, ph: float, nitrogen: float, phosphorus: float,
-                     potassium: float, season: str) -> str:
+                     potassium: float, season: str, area_size: Optional[float]) -> str:
         """Generate cache key from parameters"""
-        key_data = f"{ph}:{nitrogen}:{phosphorus}:{potassium}:{season}"
+        key_data = f"{ph}:{nitrogen}:{phosphorus}:{potassium}:{season}:{area_size}"
         return hashlib.md5(key_data.encode()).hexdigest()
 
     def get(self, ph: float, nitrogen: float, phosphorus: float,
-            potassium: float, season: str) -> Optional[Dict]:
-        """Get cached recommendation"""
-        key = self._generate_key(ph, nitrogen, phosphorus, potassium, season)
-        if key in self.cache:
-            return self.cache[key]
-        return None
+            potassium: float, season: str, area_size: Optional[float] = None) -> Optional[Dict]:
+        """Get cached recommendation, or None if absent or expired."""
+        key = self._generate_key(ph, nitrogen, phosphorus, potassium, season, area_size)
+        with self._lock:
+            entry = self.cache.get(key)
+            if entry is None:
+                return None
+            result, inserted_at = entry
+            if time.monotonic() - inserted_at > self.ttl_seconds:
+                del self.cache[key]
+                return None
+            return result
 
     def set(self, ph: float, nitrogen: float, phosphorus: float,
-            potassium: float, season: str, result: Dict):
-        """Cache recommendation result"""
-        key = self._generate_key(ph, nitrogen, phosphorus, potassium, season)
-        self.cache[key] = result
+            potassium: float, season: str, area_size: Optional[float], result: Dict):
+        """Cache recommendation result with the current timestamp."""
+        key = self._generate_key(ph, nitrogen, phosphorus, potassium, season, area_size)
+        with self._lock:
+            if len(self.cache) >= self._MAX_SIZE:
+                # Evict the oldest entry to maintain the size cap
+                oldest_key = min(self.cache, key=lambda k: self.cache[k][1])
+                del self.cache[oldest_key]
+            self.cache[key] = (result, time.monotonic())
 
 
 recommendation_cache = RecommendationCache()
@@ -163,10 +185,10 @@ recommendation_cache = RecommendationCache()
 
 # ── Request Model ─────────────────────────────────────────────────────────────
 class CropRecommendationRequest(BaseModel):
-    soil_ph: float = Field(..., ge=4.0, le=9.0)
-    nitrogen: float = Field(..., ge=0, le=100)
-    phosphorus: float = Field(..., ge=0, le=50)
-    potassium: float = Field(..., ge=0, le=300)
+    soil_ph: float = Field(..., ge=4.5, le=8.5)
+    nitrogen: float = Field(..., ge=0, le=500)
+    phosphorus: float = Field(..., ge=0, le=100)
+    potassium: float = Field(..., ge=0, le=500)
     location: str
     season: str = "kharif"
     area_size: Optional[float] = None
@@ -518,7 +540,7 @@ async def recommend_crops(req: CropRecommendationRequest):
 
         # Check cache for existing recommendation
         cached_result = recommendation_cache.get(
-            req.soil_ph, req.nitrogen, req.phosphorus, req.potassium, req.season
+            req.soil_ph, req.nitrogen, req.phosphorus, req.potassium, req.season, req.area_size
         )
         if cached_result:
             logger.info("Returning cached recommendation")
@@ -603,7 +625,7 @@ async def recommend_crops(req: CropRecommendationRequest):
 
         # Cache the result for future queries
         recommendation_cache.set(
-            req.soil_ph, req.nitrogen, req.phosphorus, req.potassium, req.season, result
+            req.soil_ph, req.nitrogen, req.phosphorus, req.potassium, req.season, req.area_size, result
         )
         logger.info(f"Cached recommendation for {req.location}/{req.season}")
 
@@ -612,5 +634,5 @@ async def recommend_crops(req: CropRecommendationRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Crop recommendation error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Recommendation failed: {str(e)}")
+        logger.error("Crop recommendation error: %s", str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail="An error occurred while generating recommendations. Please try again.")
