@@ -918,16 +918,16 @@ def root(request: Request = None):
     return {"message": "Fasal Saathi API", "status": "running"}
 
 
-@app.get("/health/ensemble")
+@app.get("/health/segmentation")
 @limiter.limit("60/minute")
-def health_ensemble(request: Request = None):
+def health_segmentation(request: Request = None):
     """
-    Per-model ensemble health with timeout-aware status.
-    Returns 200 if at least one model is available, 503 if none.
+    Farmer segmentation cluster health and update metrics.
     """
-    stacker = get_ensemble_stacker()
-    health = stacker.health()
-    if health["ensemble_ready"]:
+    from ml.farmer_segmentation import get_segmentation
+    segmentation = get_segmentation()
+    health = segmentation.health()
+    if health["ready"]:
         return health
     raise HTTPException(status_code=503, detail=health)
 
