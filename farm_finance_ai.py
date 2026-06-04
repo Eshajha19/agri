@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 # 2. It is created exactly once for the lifetime of the module, regardless
 #    of how many FarmFinanceAI instances are created or destroyed.
 _OWNER_UID_NOT_PROVIDED = object()
+MIN_LOAN_TENURE_MONTHS = 6
+MAX_LOAN_TENURE_MONTHS = 600
 
 
 @dataclass(frozen=True)
@@ -432,7 +434,7 @@ class FarmFinanceAI:
                 if value in (None, ""):
                     return default
                 return int(float(value))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 return default
 
         return {
@@ -445,7 +447,10 @@ class FarmFinanceAI:
             "emergency_fund": to_float(payload.get("emergency_fund"), 0.0),
             "credit_score": max(300, min(900, to_int(payload.get("credit_score"), 650))),
             "requested_loan_amount": to_float(payload.get("requested_loan_amount"), 0.0),
-            "loan_tenure_months": max(6, to_int(payload.get("loan_tenure_months"), 36)),
+            "loan_tenure_months": max(
+                MIN_LOAN_TENURE_MONTHS,
+                min(MAX_LOAN_TENURE_MONTHS, to_int(payload.get("loan_tenure_months"), 36)),
+            ),
         }
 
     def _crop_risk_factor(self, crop_type: str) -> float:
@@ -562,7 +567,10 @@ class FarmFinanceAI:
             return 0.0
         if monthly_rate == 0:
             return monthly_emi * tenure_months
-        growth = (1 + monthly_rate) ** tenure_months
+        try:
+            growth = (1 + monthly_rate) ** tenure_months
+        except OverflowError:
+            return monthly_emi / monthly_rate
         return monthly_emi * ((growth - 1) / (monthly_rate * growth))
 
     def _calculate_emi(self, principal: float, annual_interest_rate: float, tenure_months: int) -> float:
@@ -571,7 +579,10 @@ class FarmFinanceAI:
         monthly_rate = annual_interest_rate / 12 / 100
         if monthly_rate == 0:
             return principal / tenure_months
-        growth = (1 + monthly_rate) ** tenure_months
+        try:
+            growth = (1 + monthly_rate) ** tenure_months
+        except OverflowError:
+            return principal * monthly_rate
         return principal * monthly_rate * growth / (growth - 1)
 
     def _action_plan(self, score: float, debt_ratio: float, emergency_cover_months: float) -> List[str]:
