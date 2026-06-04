@@ -1,7 +1,7 @@
 """Farmer referral and village growth router."""
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -33,7 +33,7 @@ def init_referrals(db_resolver, vr_fn):
 
 
 def _now_iso() -> str:
-    return datetime.utcnow().isoformat() + "Z"
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _normalize_referral_code(code: str) -> str:
@@ -96,16 +96,33 @@ async def _get_uid_from_request(request: Request) -> str:
 
 
 def _ensure_user_referral_code(db, uid: str, user_data: Optional[Dict[str, Any]] = None) -> str:
-    user_ref = db.collection("users").document(uid)
-    data = user_data
+    """Return the user's referral code, creating one atomically if absent.
 
-    # Use a Firestore transaction so concurrent requests for the same uid
-    # cannot both see "no existing code" and generate different codes.
+    Uses a Firestore transaction so concurrent requests for the same uid
+    cannot both see "no existing code" and generate different codes.
+
+    The previous implementation had a critical control-flow bug: the outer
+    loop (200 iterations) raised HTTP 500 on the *first non-colliding*
+    attempt instead of writing the code.  The raise was inside the loop
+    body at the same indentation level as the `continue`, so it executed
+    immediately for every new user.  The `_generate_in_transaction` inner
+    function (which contained the correct write logic) was defined but
+    never called — the `transaction = db.transaction()` line below the
+    loop was unreachable dead code.
+
+    Fix: remove the broken outer loop entirely and call
+    `_generate_in_transaction` directly.  All collision handling and
+    atomic writes are performed inside the transaction.
+    """
+    user_ref = db.collection("users").document(uid)
+
     @firestore.transactional
     def _generate_in_transaction(transaction):
         snap = user_ref.get(transaction=transaction)
         current_data = snap.to_dict() if snap.exists else {}
 
+        # If the user already has a valid code, ensure the referral_codes
+        # index document exists (idempotent upsert) and return it.
         existing_code = _normalize_referral_code((current_data or {}).get("referralCode", ""))
         if existing_code:
             code_ref = db.collection("referral_codes").document(existing_code)
@@ -129,13 +146,19 @@ def _ensure_user_referral_code(db, uid: str, user_data: Optional[Dict[str, Any]]
                     )
                 return existing_code
 
+        # No existing code — generate one.  Try up to 5 deterministic
+        # SHA256-based codes (attempts 0-4); on collision keep trying.
+        # The first 100 attempts are deterministic; beyond that the helper
+        # falls back to random hex (2^64 collision space per attempt).
         for attempt in range(5):
             generated_code = _generate_referral_code(uid, attempt)
             code_ref = db.collection("referral_codes").document(generated_code)
             code_snap = code_ref.get(transaction=transaction)
             if code_snap.exists and code_snap.to_dict().get("uid") != uid:
+                # Collision with another user's code — try next attempt.
                 continue
 
+            # Write the new code atomically.
             code_ref.set(
                 {
                     "uid": uid,
@@ -151,26 +174,11 @@ def _ensure_user_referral_code(db, uid: str, user_data: Optional[Dict[str, Any]]
                 },
                 merge=True,
             )
-            if (data or {}).get("referralCode") != existing_code:
-                user_ref.set(
-                    {
-                        "referralCode": existing_code,
-                        "referralCodeIssuedAt": _now_iso(),
-                    },
-                    merge=True,
-                )
-            return existing_code
+            return generated_code
 
-    # Use a large attempt range: first 100 are deterministic SHA256 codes,
-    # subsequent attempts fall back to random hex (2^64 collision space).
-    for attempt in range(200):
-        generated_code = _generate_referral_code(uid, attempt)
-        code_ref = db.collection("referral_codes").document(generated_code)
-        code_snap = code_ref.get()
-        if code_snap.exists and code_snap.to_dict().get("uid") != uid:
-            continue
-
-        raise HTTPException(status_code=500, detail="Failed to generate a referral code")
+        # All 5 deterministic attempts collided — extremely unlikely in
+        # practice but handled explicitly rather than silently failing.
+        raise HTTPException(status_code=500, detail="Failed to generate a unique referral code. Please try again.")
 
     transaction = db.transaction()
     return _generate_in_transaction(transaction)

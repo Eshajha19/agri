@@ -4,6 +4,196 @@ import { useUiStore } from '../stores/uiStore';
 import { reportErrorToBackend } from '../utils/errorReporting';
 import { auth } from '../lib/firebase';
 
+// ============================================
+// Request & Response Validation
+// ============================================
+
+/**
+ * Schema validator for request payloads
+ */
+class SchemaValidator {
+  constructor() {
+    this.schemas = new Map();
+  }
+
+  registerSchema(endpoint, schema) {
+    this.schemas.set(endpoint, schema);
+  }
+
+  validate(endpoint, data) {
+    const schema = this.schemas.get(endpoint);
+    if (!schema) return { valid: true };
+
+    const errors = [];
+
+    // Validate required fields
+    if (schema.required) {
+      for (const field of schema.required) {
+        if (!(field in data)) {
+          errors.push(`Missing required field: ${field}`);
+        }
+      }
+    }
+
+    // Validate field types
+    if (schema.fields) {
+      for (const [field, fieldSchema] of Object.entries(schema.fields)) {
+        if (field in data) {
+          const value = data[field];
+
+          // Type validation
+          if (fieldSchema.type && typeof value !== fieldSchema.type) {
+            errors.push(`Field ${field} must be ${fieldSchema.type}, got ${typeof value}`);
+          }
+
+          // Range validation
+          if (fieldSchema.min !== undefined && value < fieldSchema.min) {
+            errors.push(`Field ${field} must be >= ${fieldSchema.min}`);
+          }
+          if (fieldSchema.max !== undefined && value > fieldSchema.max) {
+            errors.push(`Field ${field} must be <= ${fieldSchema.max}`);
+          }
+
+          // Pattern validation
+          if (fieldSchema.pattern && !fieldSchema.pattern.test(value)) {
+            errors.push(`Field ${field} invalid format`);
+          }
+
+          // Enum validation
+          if (fieldSchema.enum && !fieldSchema.enum.includes(value)) {
+            errors.push(`Field ${field} must be one of: ${fieldSchema.enum.join(', ')}`);
+          }
+        }
+      }
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  }
+}
+
+/**
+ * Response schema validator
+ */
+class ResponseValidator {
+  constructor() {
+    this.expectedSchemas = new Map();
+  }
+
+  registerExpected(endpoint, schema) {
+    this.expectedSchemas.set(endpoint, schema);
+  }
+
+  validate(endpoint, response) {
+    const schema = this.expectedSchemas.get(endpoint);
+    if (!schema) return { valid: true };
+
+    const errors = [];
+
+    // Check required fields in response
+    if (schema.required) {
+      for (const field of schema.required) {
+        if (!(field in response)) {
+          errors.push(`Missing field in response: ${field}`);
+        }
+      }
+    }
+
+    // Check field types
+    if (schema.fields) {
+      for (const [field, fieldSchema] of Object.entries(schema.fields)) {
+        if (field in response) {
+          const value = response[field];
+          if (fieldSchema.type && typeof value !== fieldSchema.type) {
+            errors.push(`Response field ${field} has wrong type`);
+          }
+        }
+      }
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  }
+}
+
+/**
+ * Retry logic with exponential backoff
+ */
+class RetryStrategy {
+  constructor(maxRetries = 3, baseDelay = 100, maxDelay = 5000) {
+    this.maxRetries = maxRetries;
+    this.baseDelay = baseDelay;
+    this.maxDelay = maxDelay;
+  }
+
+  shouldRetry(error, attempt) {
+    // Don't retry 4xx errors (except 429)
+    if (error.response?.status >= 400 && error.response?.status < 500 && error.response?.status !== 429) {
+      return false;
+    }
+
+    // Retry on 5xx and network errors
+    return attempt < this.maxRetries;
+  }
+
+  getDelay(attempt) {
+    const delay = this.baseDelay * Math.pow(2, attempt);
+    return Math.min(delay, this.maxDelay);
+  }
+}
+
+/**
+ * Rate limit handler
+ */
+class RateLimitHandler {
+  constructor() {
+    this.rateLimits = new Map();
+  }
+
+  handleRateLimit(endpoint, retryAfter) {
+    const delayMs = (retryAfter || 60) * 1000;
+    const resetTime = Date.now() + delayMs;
+
+    this.rateLimits.set(endpoint, {
+      blockedUntil: resetTime,
+      retryAfter: delayMs
+    });
+  }
+
+  isRateLimited(endpoint) {
+    const limit = this.rateLimits.get(endpoint);
+    if (!limit) return false;
+
+    const now = Date.now();
+    if (now >= limit.blockedUntil) {
+      this.rateLimits.delete(endpoint);
+      return false;
+    }
+
+    return true;
+  }
+
+  getRemainingWait(endpoint) {
+    const limit = this.rateLimits.get(endpoint);
+    if (!limit) return 0;
+
+    return Math.max(0, limit.blockedUntil - Date.now());
+  }
+}
+
+const schemaValidator = new SchemaValidator();
+const responseValidator = new ResponseValidator();
+const retryStrategy = new RetryStrategy();
+const rateLimitHandler = new RateLimitHandler();
+
+// ============================================
+// Original API Client Code
+// ============================================
+
 const toNumberOr = (value, fallback) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -206,26 +396,18 @@ const resolveApiBaseUrl = () => {
     return configuredBaseUrl;
   }
 
-  // Local development relies on the Vite proxy; production deployments need
-  // an explicit backend URL so requests do not stay on the static frontend host.
+  // If the backend is deployed under the same origin (reverse proxy),
+  // we can safely use relative URLs for all /api/* calls.
+  // If no proxy exists, these requests will fail — but this avoids sending
+  // progress calls to the wrong origin like the static host.
   if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    const isLocalhost =
-      hostname === 'localhost' ||
-      hostname === '127.0.0.1' ||
-      hostname.endsWith('.localhost');
-
-    if (!isLocalhost) {
-      console.error(
-        '[api.js] VITE_API_BASE_URL is not configured in production. ' +
-        'API requests will fail. Set VITE_API_BASE_URL to your backend origin.'
-      );
-    }
     return '';
   }
 
   return '';
 };
+
+
 
 /**
  * Retrieve the current Firebase ID token for the signed-in user.
@@ -264,6 +446,9 @@ async function getFirebaseIdToken() {
   return null;
 }
 
+let csrfToken = null;
+let csrfTokenExpiry = 0;
+
 const axiosClient = axios.create({
   baseURL: resolveApiBaseUrl(),
   timeout: API_TIMEOUT_MS,
@@ -300,6 +485,36 @@ axiosClient.interceptors.request.use(
         nextConfig.headers = {
           ...nextConfig.headers,
           Authorization: `Bearer ${token}`,
+        };
+      }
+    }
+
+    // Automatically fetch and attach the CSRF token for state-changing browser requests
+    if (
+      method !== 'get' &&
+      method !== 'head' &&
+      method !== 'options' &&
+      !nextConfig.url.includes('/api/csrf-token') &&
+      !nextConfig.url.includes('/api/log-error')
+    ) {
+      const now = Date.now();
+      if (!csrfToken || now >= csrfTokenExpiry) {
+        try {
+          const mainBackendURL = resolveApiBaseUrl();
+          const authHeader = nextConfig.headers?.Authorization;
+          const response = await axios.get(`${mainBackendURL}/api/csrf-token`, {
+            headers: authHeader ? { Authorization: authHeader } : {},
+          });
+          csrfToken = response.data.csrf_token;
+          csrfTokenExpiry = now + 45 * 60 * 1000; // Cache for 45 minutes
+        } catch (err) {
+          console.warn('[api] Failed to fetch CSRF token:', err?.message);
+        }
+      }
+      if (csrfToken) {
+        nextConfig.headers = {
+          ...nextConfig.headers,
+          'X-CSRF-Token': csrfToken,
         };
       }
     }
@@ -424,3 +639,5 @@ const apiClient = {
 };
 
 export default apiClient;
+// Enhanced API validation
+

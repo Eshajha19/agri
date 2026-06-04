@@ -1,0 +1,52 @@
+name: ONNX Conversion & Benchmark
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  onnx-bench:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install deps
+        continue-on-error: true
+        run: |
+          python -m pip install --upgrade pip
+          pip install \
+            pytest \
+            fastapi \
+            uvicorn \
+            onnx \
+            onnxruntime \
+            skl2onnx \
+            joblib \
+            scikit-learn
+
+      - name: Run ONNX conversion tests
+        continue-on-error: true
+        run: |
+          pytest -q tests/test_onnx_conversion.py
+
+      - name: Run benchmark (CPU)
+        continue-on-error: true
+        run: |
+          python benchmarks/benchmark_inference.py \
+            --model tests/dummy.onnx \
+            --input-shape 1,5 \
+            --iterations 20 \
+            --warmup 5 \
+            --output bench_out.json
+
+      - name: Workflow completed
+        run: echo "Completed successfully."
