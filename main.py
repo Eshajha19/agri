@@ -918,16 +918,17 @@ def root(request: Request = None):
     return {"message": "Fasal Saathi API", "status": "running"}
 
 
-@app.get("/health/segmentation")
+@app.get("/health/disk")
 @limiter.limit("60/minute")
-def health_segmentation(request: Request = None):
+def health_disk(request: Request = None):
     """
-    Farmer segmentation cluster health and update metrics.
+    Price forecaster disk usage and log rotation health.
+    Returns 503 if disk usage >90% or forecasts log is missing.
     """
-    from ml.farmer_segmentation import get_segmentation
-    segmentation = get_segmentation()
-    health = segmentation.health()
-    if health["ready"]:
+    from ml.price_forecaster import get_price_forecaster
+    forecaster = get_price_forecaster()
+    health = forecaster.disk_health()
+    if health.get("healthy"):
         return health
     raise HTTPException(status_code=503, detail=health)
 
