@@ -2,6 +2,7 @@
 import asyncio
 import re
 from datetime import datetime
+import logging
 from typing import Optional
 import logging
 
@@ -10,12 +11,10 @@ from twilio_webhook_security import handle_inbound_whatsapp_webhook
 from pydantic import BaseModel, Field
 
 from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, normalize_region_identifier
+from backend.schemas import AlertTriggerRequest
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, normalize_region_identifier
-from backend.schemas import AlertTriggerRequest
 
 class AlertTriggerRequest(BaseModel):
     alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
@@ -80,7 +79,7 @@ _PHONE_E164_RE = re.compile(r"^\+?[1-9]\d{6,14}$")
 @router.post("/whatsapp/subscribe")
 async def subscribe_whatsapp(
     request: Request,
-    phone_number: str = Form(..., max_length=20),
+    phone_number: str = Form(..., max_length=16),
     name: str = Form(..., min_length=1, max_length=100),
     region_id: Optional[str] = Form(None, max_length=100),
 ):
@@ -166,7 +165,19 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
         raise HTTPException(status_code=500, detail="Alert broadcast failed")
 
 
+
 @router.post("/whatsapp/webhook")
 async def whatsapp_webhook(request: Request):
     """Receive inbound WhatsApp messages from Twilio (delegates to shared handler)."""
-    return await handle_inbound_whatsapp_webhook(request)
+    try:
+        return await handle_inbound_whatsapp_webhook(request)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Unhandled error in whatsapp_webhook: %s", exc, exc_info=True)
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error"},
+        )
+

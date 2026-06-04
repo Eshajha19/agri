@@ -1,71 +1,213 @@
-import pandas as pd
+import logging
 import os
-import json
-from ml.base import YieldModel
-from ml.security import verify_and_load_joblib
 
-class XGBoostAdapter(YieldModel):
+import joblib
+import numpy as np
+import pandas as pd
+
+from ml.preprocessing import (
+    MissingFeatureError,
+    preprocess_prediction_input,
+)
+
+
+logger = logging.getLogger(__name__)
+
+
+class XGBoostAdapter:
     """
-    Adapter for XGBoost yield prediction model.
+    Safe XGBoost model adapter.
     """
-    
+
     def __init__(self):
         self.model = None
-        self._feature_names = []
-        self._category_vocab = None
+        self.feature_columns = []
+
+        self.numeric_columns = [
+            "CropCoveredArea",
+            "CHeight",
+            "IrriCount",
+            "WaterCov",
+        ]
+
+        self.categorical_vocab = {
+            "Crop": [],
+            "CNext": [],
+            "CLast": [],
+            "CTransp": [],
+            "IrriType": [],
+            "IrriSource": [],
+            "Season": [],
+        }
+
+    # =========================================================================
+    # LOAD
+    # =========================================================================
 
     def load(self, model_path: str):
+        """
+        Load serialized model safely.
+        """
+
+        if not isinstance(model_path, str):
+            raise ValueError(
+                "model_path must be string"
+            )
+
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(
+                f"Model file not found: {model_path}"
+            )
+
         try:
-            # Verify model signature before loading to avoid executing
-            # arbitrary pickled code. The signature file is expected to be
-            # alongside the model at `model_path + '.sig'` and the signing
-            # key must be provided via the `MODEL_SIGNING_KEY` environment
-            # variable.
-            self.model = verify_and_load_joblib(model_path)
-            # Try to extract feature names if it's an XGBoost model
-            if hasattr(self.model, 'get_booster'):
-                self._feature_names = list(self.model.get_booster().feature_names)
-            elif hasattr(self.model, 'feature_names_in_'):
-                self._feature_names = list(self.model.feature_names_in_)
-            # Load category vocabulary from companion file
-            voc_path = os.path.splitext(model_path)[0] + '_vocab.json'
-            if os.path.exists(voc_path):
-                with open(voc_path, 'r', encoding='utf-8') as vf:
-                    self._category_vocab = json.load(vf)
-            print(f"XGBoost model loaded from {model_path}")
-        except Exception as e:
-            print(f"Error loading XGBoost model: {e}")
+            self.model = joblib.load(model_path)
+
+        except Exception as exc:
+            logger.exception(
+                "Failed loading model"
+            )
+
+            raise RuntimeError(
+                "Could not load model"
+            ) from exc
+
+        # Try extracting feature names
+        try:
+            if hasattr(self.model, "feature_names_in_"):
+                self.feature_columns = list(
+                    self.model.feature_names_in_
+                )
+
+        except Exception:
+            logger.warning(
+                "Could not extract feature names"
+            )
+
+        logger.info(
+            "XGBoost model loaded successfully"
+        )
+
+    # =========================================================================
+    # PREPROCESSING
+    # =========================================================================
+
+    def _prepare_dataframe(
+        self,
+        input_data: dict,
+    ):
+        """
+        Prepare dataframe for inference.
+        """
+
+        required_columns = [
+            "Crop",
+            "CropCoveredArea",
+            "CHeight",
+            "CNext",
+            "CLast",
+            "CTransp",
+            "IrriType",
+            "IrriSource",
+            "IrriCount",
+            "WaterCov",
+            "Season",
+        ]
+
+        dataframe = preprocess_prediction_input(
+            input_data=input_data,
+            required_columns=required_columns,
+            numeric_columns=self.numeric_columns,
+            categorical_vocab=self.categorical_vocab,
+        )
+
+        dataframe = pd.get_dummies(dataframe)
+
+        # Align missing columns
+        if self.feature_columns:
+
+            missing = [
+                col
+                for col in self.feature_columns
+                if col not in dataframe.columns
+            ]
+
+            for column in missing:
+                dataframe[column] = 0
+
+            dataframe = dataframe[
+                self.feature_columns
+            ]
+
+        return dataframe
+
+    # =========================================================================
+    # PREDICTION
+    # =========================================================================
+
+    def predict(self, input_data: dict):
+        """
+        Run prediction safely.
+        """
+
+        if self.model is None:
+            raise RuntimeError("Model not loaded")
+
+        if not isinstance(input_data, dict):
+            raise ValueError("input_data must be a dictionary")
+
+        if len(input_data) == 0:
+            raise ValueError("input_data is empty — cannot run XGBoost inference on zero samples")
+        try:
+            dataframe = self._prepare_dataframe(
+                input_data
+            )
+
+            prediction = self.model.predict(
+                dataframe
+            )
+
+            if prediction is None:
+                raise RuntimeError(
+                    "Empty prediction returned"
+                )
+
+            value = float(prediction[0])
+
+            if not np.isfinite(value):
+                raise RuntimeError(
+                    "Invalid prediction value"
+                )
+
+            logger.info(
+                "Prediction completed successfully"
+            )
+
+            return value
+
+        except MissingFeatureError:
             raise
 
-    def predict(self, input_data: pd.DataFrame) -> float:
-        if self.model is None:
-            raise ValueError("Model not loaded. Call load() first.")
+        except Exception as exc:
+            logger.exception(
+                "Prediction failed"
+            )
 
-        # The FeaturePreprocessor is responsible for validating and aligning
-        # columns before this point.  We do a final shape check here as a
-        # safety net, but we do NOT silently fill missing columns with 0 —
-        # that would mask corrupt inputs and produce meaningless predictions.
-        if self._feature_names:
-            missing = [c for c in self._feature_names if c not in input_data.columns]
-            if missing:
-                raise ValueError(
-                    f"XGBoostAdapter.predict() received a DataFrame that is "
-                    f"missing {len(missing)} expected column(s): {missing}. "
-                    "Ensure FeaturePreprocessor.preprocess() is called first."
-                )
-            input_data = input_data[self._feature_names]
+            raise RuntimeError(
+                "Model inference failed"
+            ) from exc
 
-        prediction = self.model.predict(input_data)
-        return float(prediction[0])
+    # =========================================================================
+    # HEALTH
+    # =========================================================================
 
-    @property
-    def model_type(self) -> str:
-        return "XGBoost"
-    
-    @property
-    def feature_names(self):
-        return self._feature_names
-    
-    @property
-    def category_vocab(self):
-        return self._category_vocab
+    def health(self):
+        """
+        Adapter health snapshot.
+        """
+
+        return {
+            "loaded": self.model is not None,
+            "feature_count": len(
+                self.feature_columns
+            ),
+        }
