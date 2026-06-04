@@ -4,6 +4,7 @@ import os
 import threading
 from datetime import datetime as _dt
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 from celery import Celery
@@ -44,9 +45,11 @@ celery_app.conf.update(
 _model_lag = None
 _model_trend = None
 _ml_router = None
+_ensemble_stacker = None
 _model_lag_lock = threading.Lock()
 _model_trend_lock = threading.Lock()
 _ml_router_lock = threading.Lock()
+_ensemble_stacker_lock = threading.Lock()
 
 
 # =============================================================================
@@ -123,6 +126,24 @@ def _get_ml_router():
             raise
 
     return _ml_router
+
+
+def _get_ensemble_stacker():
+    global _ensemble_stacker
+
+    if _ensemble_stacker is None:
+        with _ensemble_stacker_lock:
+            if _ensemble_stacker is None:
+                try:
+                    from ml.ensemble import EnsembleStacker
+
+                    _ensemble_stacker = EnsembleStacker()
+                    logger.info("Ensemble stacker initialized successfully")
+                except Exception:
+                    logger.exception("Failed to initialize ensemble stacker")
+                    raise
+
+    return _ensemble_stacker
 
 
 # =============================================================================
@@ -267,6 +288,57 @@ def predict_yield_trend_task(self, data: list):
 
 @celery_app.task(
     bind=True,
+    name="predict_yield_batch_task",
+    name="predict_ensemble_task",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 2},
+    soft_time_limit=30,
+    time_limit=45,
+)
+def predict_yield_batch_task(self, inputs: list[dict], context: Optional[dict] = None):
+    """
+    Batch yield prediction using ML router.
+
+    Accepts a list of input dicts and returns aligned predictions.
+    """
+    try:
+        router = _get_ml_router()
+
+        predictions = router.predict_batch(inputs, context)
+
+        return {
+            "predictions": predictions,
+            "count": len(predictions),
+            "model": router.default_model,
+        }
+
+    except Exception:
+        logger.exception("Batch yield prediction task failed")
+def predict_ensemble_task(self, input_data: dict):
+    """
+    Ensemble prediction with lazy per-model loading and graceful degradation.
+    """
+
+    try:
+        stacker = _get_ensemble_stacker()
+
+        result = stacker.predict(input_data)
+
+        return result
+
+    except RuntimeError as exc:
+        logger.error("Ensemble prediction failed: no models available")
+        raise
+
+    except Exception:
+        logger.exception("Ensemble prediction task failed")
+        raise
+
+
+@celery_app.task(
+    bind=True,
     name="process_whatsapp_webhook_task",
     autoretry_for=(Exception,),
     retry_backoff=True,
@@ -308,6 +380,57 @@ def process_whatsapp_webhook_task(self, body: str, sender_number: str):
 # =============================================================================
 # MODEL RETRAINING
 # =============================================================================
+
+@celery_app.task(
+    bind=True,
+    name="refresh_farmer_segments_task",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 2},
+    soft_time_limit=120,
+    time_limit=180,
+)
+def refresh_farmer_segments_task(self, force_full: bool = False):
+    """
+    Background incremental refresh of farmer segmentation clusters.
+    """
+    try:
+        from ml.farmer_segmentation import get_segmentation
+
+        segmentation = get_segmentation()
+
+        import firebase_admin
+        from firebase_admin import firestore
+
+        db = None
+        if firebase_admin._apps:
+            db = firestore.client()
+        else:
+            try:
+                firebase_admin.initialize_app()
+                db = firestore.client()
+            except Exception:
+                logger.warning("Firebase not available for segment refresh")
+                return {"status": "firebase_unavailable"}
+
+        if db is None:
+            return {"status": "firebase_unavailable"}
+
+        result = segmentation.fit(db, force_full=force_full)
+
+        return {
+            "status": result.get("status"),
+            "farmers_count": result.get("farmers_count"),
+            "incremental": result.get("incremental", False),
+            "duration_ms": result.get("duration_ms"),
+            "refreshed_at": result.get("refreshed_at"),
+        }
+
+    except Exception:
+        logger.exception("Farmer segment refresh task failed")
+        raise
+
 
 @celery_app.task(
     bind=True,
@@ -652,6 +775,28 @@ def run_hyperparameter_optimization_task(
         "benchmark": benchmark,
         "config_path": str(config_path),
     }
+
+
+@celery_app.task(
+    bind=True,
+    name="ensemble_health_task",
+    soft_time_limit=10,
+    time_limit=15,
+)
+def ensemble_health_task(self):
+    """
+    Async ensemble health check for monitoring.
+    """
+    try:
+        stacker = _get_ensemble_stacker()
+
+        health = stacker.health()
+
+        return health
+
+    except Exception:
+        logger.exception("Ensemble health check failed")
+        raise
 
 
 @celery_app.task(

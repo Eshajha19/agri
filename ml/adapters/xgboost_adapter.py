@@ -146,7 +146,7 @@ class XGBoostAdapter:
 
     def predict(self, input_data: dict):
         """
-        Run prediction safely.
+        Run single-sample prediction safely.
         """
 
         if self.model is None:
@@ -195,6 +195,58 @@ class XGBoostAdapter:
             raise RuntimeError(
                 "Model inference failed"
             ) from exc
+
+    def predict_batch(self, inputs: list[dict]) -> list[float]:
+        """
+        Run batch prediction on multiple samples in a single DataFrame.
+
+        Returns a list of prediction floats aligned with input order.
+        Empty list returns empty list. Individual failures log warning
+        and return None at that index so callers can degrade gracefully.
+        """
+        if self.model is None:
+            raise RuntimeError("Model not loaded")
+
+        if not inputs:
+            return []
+
+        dataframes = []
+        valid_indices = []
+
+        for idx, input_data in enumerate(inputs):
+            if not isinstance(input_data, dict) or len(input_data) == 0:
+                logger.warning("Batch item %d skipped: invalid or empty input", idx)
+                continue
+            try:
+                df = self._prepare_dataframe(input_data)
+                dataframes.append(df)
+                valid_indices.append(idx)
+            except MissingFeatureError:
+                logger.warning("Batch item %d skipped: missing features", idx)
+            except Exception as exc:
+                logger.warning("Batch item %d skipped: preprocessing failed (%s)", idx, exc)
+
+        if not dataframes:
+            return [None] * len(inputs)
+
+        try:
+            combined = pd.concat(dataframes, ignore_index=True)
+            raw_preds = self.model.predict(combined)
+
+            results = [None] * len(inputs)
+            for vi, pred in zip(valid_indices, raw_preds):
+                value = float(pred)
+                if np.isfinite(value):
+                    results[vi] = value
+                else:
+                    logger.warning("Batch item %d returned non-finite prediction", vi)
+
+            logger.info("Batch prediction completed: %d/%d successful", len(valid_indices), len(inputs))
+            return results
+
+        except Exception as exc:
+            logger.exception("Batch prediction failed")
+            raise RuntimeError("Batch model inference failed") from exc
 
     # =========================================================================
     # HEALTH

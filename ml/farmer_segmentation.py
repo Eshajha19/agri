@@ -8,14 +8,20 @@ Clusters auto-refresh when new farmer data is added.
 import json
 import logging
 import os
+import time
 from datetime import datetime as _dt
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, MiniBatchKMeans
 from sklearn.preprocessing import StandardScaler, LabelEncoder
+
+# Incremental refresh policy
+_INCREMENTAL_THRESHOLD_PCT = 0.10  # Recompute if >10% new farmers
+_INCREMENTAL_MAX_AGE_SECONDS = 3600  # Or if >1 hour since last refresh
+_MINIBATCH_SIZE = 100  # Batch size for partial_fit
 
 logger = logging.getLogger(__name__)
 
@@ -106,9 +112,20 @@ def _compute_yield_stats(history: List[dict]) -> Tuple[float, float, float]:
 # SEGMENTATION ENGINE
 # =============================================================================
 
+class _SegmentationState:
+    """Serializable centroid + scaler state for warm-start restarts."""
+
+    def __init__(self):
+        self.centroids: Optional[np.ndarray] = None
+        self.scaler_mean: Optional[np.ndarray] = None
+        self.scaler_scale: Optional[np.ndarray] = None
+        self.n_samples_seen: int = 0
+
+
 class FarmerSegmentation:
     """
     K-Means clustering on farmer profiles with yield history integration.
+    Supports incremental MiniBatchKMeans updates and warm-start fallback.
     """
 
     def __init__(self, n_clusters: int = _DEFAULT_N_CLUSTERS):
@@ -118,6 +135,9 @@ class FarmerSegmentation:
         self.cluster_profiles: Dict[int, dict] = {}
         self.farmer_assignments: Dict[str, int] = {}
         self._last_refresh: Optional[str] = None
+        self._state = _SegmentationState()
+        self._refresh_duration_ms: Optional[float] = None
+        self._incremental: bool = False
 
     # -------------------------------------------------------------------------
     # DATA INGESTION
@@ -182,22 +202,8 @@ class FarmerSegmentation:
     # CLUSTERING
     # -------------------------------------------------------------------------
 
-    def fit(self, db) -> dict:
-        """
-        Run K-Means clustering on all farmer profiles. Returns cluster summary.
-        """
-        farmers = self._fetch_farmer_profiles(db)
-        if len(farmers) < self.n_clusters:
-            logger.warning(
-                "Only %d farmers available, reducing clusters to %d",
-                len(farmers), max(2, len(farmers)),
-            )
-            self.n_clusters = max(2, len(farmers))
-
-        if len(farmers) < 2:
-            return {"status": "insufficient_data", "farmers_count": len(farmers)}
-
-        # Build feature matrix
+    def _build_feature_matrix(self, farmers: List[dict]) -> np.ndarray:
+        """Convert farmer dicts to feature matrix."""
         features = []
         for f in farmers:
             features.append([
@@ -211,24 +217,11 @@ class FarmerSegmentation:
                 f["yield_trend"],
                 f["history_count"],
             ])
+        return np.array(features, dtype=np.float64)
 
-        X = np.array(features, dtype=np.float64)
-        self.scaler = StandardScaler()
-        X_scaled = self.scaler.fit_transform(X)
-
-        self.kmeans = KMeans(
-            n_clusters=self.n_clusters,
-            random_state=42,
-            n_init=10,
-        )
-        labels = self.kmeans.fit_predict(X_scaled)
-
-        # Assign clusters
-        for i, f in enumerate(farmers):
-            self.farmer_assignments[f["uid"]] = int(labels[i])
-
-        # Build cluster profiles
-        self.cluster_profiles = {}
+    def _build_cluster_profiles(self, farmers: List[dict], labels: np.ndarray) -> Dict[int, dict]:
+        """Build cluster profiles from farmer list and label array."""
+        profiles = {}
         for cluster_id in range(self.n_clusters):
             cluster_farmers = [f for f in farmers if self.farmer_assignments[f["uid"]] == cluster_id]
             if not cluster_farmers:
@@ -243,7 +236,7 @@ class FarmerSegmentation:
             mean_yield = sum(f["mean_yield_proxy"] for f in cluster_farmers) / len(cluster_farmers)
             mean_reputation = sum(f["reputation"] for f in cluster_farmers) / len(cluster_farmers)
 
-            self.cluster_profiles[cluster_id] = {
+            profiles[cluster_id] = {
                 "size": len(cluster_farmers),
                 "top_crop": top_crop,
                 "crop_distribution": crops,
@@ -263,8 +256,105 @@ class FarmerSegmentation:
                     for f in cluster_farmers
                 ],
             }
+        return profiles
+
+    def _should_full_recompute(self, farmers: List[dict]) -> bool:
+        """Determine if full KMeans recompute is needed vs incremental update."""
+        if self.kmeans is None or self.scaler is None:
+            return True
+        if not self._last_refresh:
+            return True
+
+        # Time-based staleness
+        try:
+            last_dt = _dt.fromisoformat(self._last_refresh)
+            age = (_dt.utcnow() - last_dt).total_seconds()
+            if age > _INCREMENTAL_MAX_AGE_SECONDS:
+                return True
+        except Exception:
+            return True
+
+        # Delta-based: >threshold % new farmers
+        prev_count = self._state.n_samples_seen
+        if prev_count == 0:
+            return True
+
+        new_ratio = abs(len(farmers) - prev_count) / max(prev_count, 1)
+        return new_ratio > _INCREMENTAL_THRESHOLD_PCT
+
+    def fit(self, db, force_full: bool = False) -> dict:
+        """
+        Run clustering on farmer profiles. Uses incremental update when possible,
+        full KMeans recompute only when threshold exceeded or forced.
+        """
+        start = time.time()
+        farmers = self._fetch_farmer_profiles(db)
+
+        if len(farmers) < self.n_clusters:
+            logger.warning(
+                "Only %d farmers available, reducing clusters to %d",
+                len(farmers), max(2, len(farmers)),
+            )
+            self.n_clusters = max(2, len(farmers))
+
+        if len(farmers) < 2:
+            return {"status": "insufficient_data", "farmers_count": len(farmers)}
+
+        X = self._build_feature_matrix(farmers)
+        needs_full = force_full or self._should_full_recompute(farmers)
+
+        if needs_full:
+            logger.info("Running full KMeans recompute on %d farmers", len(farmers))
+            self.scaler = StandardScaler()
+            X_scaled = self.scaler.fit_transform(X)
+
+            init_centroids = None
+            if self._state.centroids is not None and self._state.centroids.shape[0] == self.n_clusters:
+                init_centroids = self._state.centroids
+
+            self.kmeans = KMeans(
+                n_clusters=self.n_clusters,
+                random_state=42,
+                n_init=10,
+                init=init_centroids if init_centroids is not None else "k-means++",
+            )
+            labels = self.kmeans.fit_predict(X_scaled)
+            self._incremental = False
+        else:
+            logger.info("Running incremental MiniBatchKMeans update on %d farmers", len(farmers))
+            if self.scaler is None:
+                self.scaler = StandardScaler()
+                X_scaled = self.scaler.fit_transform(X)
+            else:
+                X_scaled = self.scaler.transform(X)
+
+            # Use MiniBatchKMeans with previous centroids for warm partial_fit
+            mbk = MiniBatchKMeans(
+                n_clusters=self.n_clusters,
+                random_state=42,
+                init=self._state.centroids if self._state.centroids is not None else "k-means++",
+                batch_size=min(_MINIBATCH_SIZE, len(farmers)),
+                n_init=1,
+            )
+            mbk.fit(X_scaled)
+            labels = mbk.predict(X_scaled)
+            self.kmeans = mbk
+            self._incremental = True
+
+        # Update state for next warm-start
+        self._state.centroids = self.kmeans.cluster_centers_.copy()
+        self._state.scaler_mean = self.scaler.mean_.copy() if hasattr(self.scaler, "mean_") else None
+        self._state.scaler_scale = self.scaler.scale_.copy() if hasattr(self.scaler, "scale_") else None
+        self._state.n_samples_seen = len(farmers)
+
+        # Assign clusters
+        for i, f in enumerate(farmers):
+            self.farmer_assignments[f["uid"]] = int(labels[i])
+
+        self.cluster_profiles = self._build_cluster_profiles(farmers, labels)
 
         self._last_refresh = _dt.utcnow().isoformat()
+        self._refresh_duration_ms = round((time.time() - start) * 1000, 2)
         self._persist()
 
         return {
@@ -273,6 +363,8 @@ class FarmerSegmentation:
             "farmers_count": len(farmers),
             "clusters": self.cluster_profiles,
             "refreshed_at": self._last_refresh,
+            "incremental": self._incremental,
+            "duration_ms": self._refresh_duration_ms,
         }
 
     # -------------------------------------------------------------------------
@@ -352,8 +444,13 @@ class FarmerSegmentation:
     # -------------------------------------------------------------------------
 
     def _persist(self):
-        """Save cluster state to disk for warm restarts."""
+        """Save cluster state + centroid metadata to disk for warm restarts."""
         try:
+            # Serialize centroids as lists for JSON
+            centroids = None
+            if self._state.centroids is not None:
+                centroids = self._state.centroids.tolist()
+
             record = {
                 "n_clusters": self.n_clusters,
                 "assignments": self.farmer_assignments,
@@ -368,6 +465,14 @@ class FarmerSegmentation:
                     for k, v in self.cluster_profiles.items()
                 },
                 "last_refresh": self._last_refresh,
+                "incremental": self._incremental,
+                "duration_ms": self._refresh_duration_ms,
+                "state": {
+                    "centroids": centroids,
+                    "scaler_mean": self._state.scaler_mean.tolist() if self._state.scaler_mean is not None else None,
+                    "scaler_scale": self._state.scaler_scale.tolist() if self._state.scaler_scale is not None else None,
+                    "n_samples_seen": self._state.n_samples_seen,
+                },
             }
             tmp = _CLUSTERS_PATH.with_suffix(".tmp")
             with open(tmp, "w", encoding="utf-8") as f:
@@ -377,7 +482,7 @@ class FarmerSegmentation:
             logger.warning("Failed persisting clusters: %s", exc)
 
     def load(self):
-        """Load cluster state from disk."""
+        """Load cluster state + centroid metadata from disk."""
         if not _CLUSTERS_PATH.exists():
             return False
         try:
@@ -386,6 +491,35 @@ class FarmerSegmentation:
             self.farmer_assignments = data.get("assignments", {})
             self.cluster_profiles = data.get("cluster_profiles", {})
             self._last_refresh = data.get("last_refresh")
+            self._incremental = data.get("incremental", False)
+            self._refresh_duration_ms = data.get("duration_ms")
+
+            state = data.get("state", {})
+            if state.get("centroids"):
+                self._state.centroids = np.array(state["centroids"], dtype=np.float64)
+            if state.get("scaler_mean"):
+                self._state.scaler_mean = np.array(state["scaler_mean"], dtype=np.float64)
+            if state.get("scaler_scale"):
+                self._state.scaler_scale = np.array(state["scaler_scale"], dtype=np.float64)
+            self._state.n_samples_seen = state.get("n_samples_seen", 0)
+
+            # Reconstruct scaler if state available
+            if self._state.scaler_mean is not None and self._state.scaler_scale is not None:
+                self.scaler = StandardScaler()
+                self.scaler.mean_ = self._state.scaler_mean
+                self.scaler.scale_ = self._state.scaler_scale
+                # Dummy fit to set n_features_in_ and feature_names_in_
+                self.scaler.n_features_in_ = len(self._state.scaler_mean)
+
+            # Reconstruct kmeans placeholder for warm-start
+            if self._state.centroids is not None:
+                self.kmeans = KMeans(
+                    n_clusters=self.n_clusters,
+                    random_state=42,
+                    n_init=1,
+                )
+                self.kmeans.cluster_centers_ = self._state.centroids
+
             return True
         except Exception as exc:
             logger.warning("Failed loading clusters: %s", exc)
@@ -394,6 +528,20 @@ class FarmerSegmentation:
     # -------------------------------------------------------------------------
     # GAP ANALYSIS
     # -------------------------------------------------------------------------
+
+    def health(self) -> dict:
+        """Return segmentation health and update metrics for monitoring."""
+        return {
+            "ready": self.kmeans is not None,
+            "n_clusters": self.n_clusters,
+            "farmers_assigned": len(self.farmer_assignments),
+            "last_refresh": self._last_refresh,
+            "incremental": self._incremental,
+            "refresh_duration_ms": self._refresh_duration_ms,
+            "centroids_persisted": self._state.centroids is not None,
+            "scaler_persisted": self._state.scaler_mean is not None,
+            "timestamp": _dt.utcnow().isoformat(),
+        }
 
     def gap_analysis(self, uid: str, db) -> Optional[dict]:
         """

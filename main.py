@@ -85,6 +85,7 @@ from crop_quality_grading import CropQualityGrader
 from farm_finance_ai import FarmFinanceAI
 from feature_flags.routes import init_feature_flags, router as flags_router
 from ml.adapters.xgboost_adapter import XGBoostAdapter
+from ml.ensemble import get_ensemble_stacker
 from ml.governance import DriftDetector, ModelVersionManager, ShadowEvaluator
 from ml.registry import ModelRegistry
 from ml.router import ModelRouter
@@ -915,6 +916,20 @@ def _build_gdpr_deletion_targets(uid: str) -> list[DeletionTarget]:
 @limiter.limit("60/minute")
 def root(request: Request = None):
     return {"message": "Fasal Saathi API", "status": "running"}
+
+
+@app.get("/health/segmentation")
+@limiter.limit("60/minute")
+def health_segmentation(request: Request = None):
+    """
+    Farmer segmentation cluster health and update metrics.
+    """
+    from ml.farmer_segmentation import get_segmentation
+    segmentation = get_segmentation()
+    health = segmentation.health()
+    if health["ready"]:
+        return health
+    raise HTTPException(status_code=503, detail=health)
 
 @app.get("/predict")
 @limiter.limit("30/minute")
