@@ -4,6 +4,7 @@ import os
 import threading
 from datetime import datetime as _dt
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 from celery import Celery
@@ -287,6 +288,7 @@ def predict_yield_trend_task(self, data: list):
 
 @celery_app.task(
     bind=True,
+    name="predict_yield_batch_task",
     name="predict_ensemble_task",
     autoretry_for=(Exception,),
     retry_backoff=True,
@@ -295,6 +297,25 @@ def predict_yield_trend_task(self, data: list):
     soft_time_limit=30,
     time_limit=45,
 )
+def predict_yield_batch_task(self, inputs: list[dict], context: Optional[dict] = None):
+    """
+    Batch yield prediction using ML router.
+
+    Accepts a list of input dicts and returns aligned predictions.
+    """
+    try:
+        router = _get_ml_router()
+
+        predictions = router.predict_batch(inputs, context)
+
+        return {
+            "predictions": predictions,
+            "count": len(predictions),
+            "model": router.default_model,
+        }
+
+    except Exception:
+        logger.exception("Batch yield prediction task failed")
 def predict_ensemble_task(self, input_data: dict):
     """
     Ensemble prediction with lazy per-model loading and graceful degradation.
