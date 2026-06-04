@@ -5,6 +5,7 @@ Combines XGBoost, LSTM, and Random Forest predictions with learned weights,
 bootstrap confidence intervals, and inter-model disagreement detection.
 """
 
+import concurrent.futures
 import json
 import logging
 import math
@@ -16,6 +17,8 @@ from typing import Dict, List, Optional, Tuple
 import joblib
 import numpy as np
 import pandas as pd
+
+_DEFAULT_MODEL_TIMEOUT = 10.0  # seconds per model
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +35,23 @@ _BOOTSTRAP_SAMPLES = 1000
 # =============================================================================
 # MODEL LOADERS
 # =============================================================================
+
+def _load_model_with_timeout(loader_fn, timeout: float, model_name: str):
+    """
+    Execute a model loader in a thread with a timeout.
+    Returns the loaded model on success, None on timeout/failure.
+    """
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(loader_fn)
+        try:
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            logger.warning("%s model loading timed out after %.1fs", model_name, timeout)
+            return None
+        except Exception as exc:
+            logger.warning("%s model loading failed: %s", model_name, exc)
+            return None
+
 
 def _load_xgboost_model():
     from ml.adapters.xgboost_adapter import XGBoostAdapter
@@ -70,18 +90,63 @@ def _load_rf_model():
 # ENSEMBLE STACKER
 # =============================================================================
 
+class _ModelStatus:
+    """Tracks health and metadata for a single model slot."""
+
+    def __init__(self, name: str):
+        self.name = name
+        self.available = False
+        self.load_error: Optional[str] = None
+        self.load_duration_ms: Optional[float] = None
+        self.last_loaded: Optional[str] = None
+
+
 class EnsembleStacker:
     """
     Stacked ensemble with learned weights, bootstrap CIs, and disagreement detection.
+    Supports lazy per-model loading with timeouts and graceful degradation.
     """
 
-    def __init__(self, weights: Optional[Dict[str, float]] = None):
+    def __init__(
+        self,
+        weights: Optional[Dict[str, float]] = None,
+        model_timeout: float = _DEFAULT_MODEL_TIMEOUT,
+    ):
         self.xgb_adapter = None
         self.lstm_model = None
         self.lstm_scaler = None
         self.rf_model = None
         self.weights = weights or self._load_or_default_weights()
         self._models_loaded = False
+        self._model_timeout = model_timeout
+        self._status = {
+            "xgboost": _ModelStatus("xgboost"),
+            "lstm": _ModelStatus("lstm"),
+            "random_forest": _ModelStatus("random_forest"),
+        }
+
+    # -------------------------------------------------------------------------
+    # HEALTH
+    # -------------------------------------------------------------------------
+
+    def health(self) -> Dict[str, any]:
+        """
+        Return per-model health status for monitoring.
+        """
+        return {
+            "ensemble_ready": any(s.available for s in self._status.values()),
+            "models": {
+                name: {
+                    "available": status.available,
+                    "load_error": status.load_error,
+                    "load_duration_ms": status.load_duration_ms,
+                    "last_loaded": status.last_loaded,
+                }
+                for name, status in self._status.items()
+            },
+            "weights": self.weights,
+            "timestamp": _dt.utcnow().isoformat(),
+        }
 
     # -------------------------------------------------------------------------
     # WEIGHTS
@@ -114,25 +179,43 @@ class EnsembleStacker:
     # MODEL LOADING
     # -------------------------------------------------------------------------
 
+    def _load_single(self, name: str, loader_fn):
+        """Load one model with timeout, updating status metadata."""
+        status = self._status[name]
+        start = _dt.utcnow()
+        try:
+            result = _load_model_with_timeout(loader_fn, self._model_timeout, name)
+            if result is not None:
+                status.available = True
+                status.load_error = None
+                status.load_duration_ms = round(
+                    (_dt.utcnow() - start).total_seconds() * 1000, 2
+                )
+                status.last_loaded = _dt.utcnow().isoformat()
+                return result
+            else:
+                status.available = False
+                status.load_error = "timeout_or_failure"
+        except Exception as exc:
+            status.available = False
+            status.load_error = str(exc)
+        return None
+
     def load_models(self):
-        """Lazy-load all three models. Safe to call multiple times."""
+        """Lazy-load all three models with per-model timeouts. Safe to call multiple times."""
         if self._models_loaded:
             return
 
-        try:
-            self.xgb_adapter = _load_xgboost_model()
-        except Exception as exc:
-            logger.warning("XGBoost model unavailable for ensemble: %s", exc)
+        self.xgb_adapter = self._load_single("xgboost", _load_xgboost_model)
 
-        try:
-            self.lstm_model, self.lstm_scaler = _load_lstm_model()
-        except Exception as exc:
-            logger.warning("LSTM model unavailable for ensemble: %s", exc)
+        lstm_result = self._load_single("lstm", _load_lstm_model)
+        if lstm_result is not None:
+            self.lstm_model, self.lstm_scaler = lstm_result
+        else:
+            self.lstm_model = None
+            self.lstm_scaler = None
 
-        try:
-            self.rf_model = _load_rf_model()
-        except Exception as exc:
-            logger.warning("RF model unavailable for ensemble: %s", exc)
+        self.rf_model = self._load_single("random_forest", _load_rf_model)
 
         self._models_loaded = True
 

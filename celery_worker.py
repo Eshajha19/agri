@@ -44,9 +44,11 @@ celery_app.conf.update(
 _model_lag = None
 _model_trend = None
 _ml_router = None
+_ensemble_stacker = None
 _model_lag_lock = threading.Lock()
 _model_trend_lock = threading.Lock()
 _ml_router_lock = threading.Lock()
+_ensemble_stacker_lock = threading.Lock()
 
 
 # =============================================================================
@@ -123,6 +125,24 @@ def _get_ml_router():
             raise
 
     return _ml_router
+
+
+def _get_ensemble_stacker():
+    global _ensemble_stacker
+
+    if _ensemble_stacker is None:
+        with _ensemble_stacker_lock:
+            if _ensemble_stacker is None:
+                try:
+                    from ml.ensemble import EnsembleStacker
+
+                    _ensemble_stacker = EnsembleStacker()
+                    logger.info("Ensemble stacker initialized successfully")
+                except Exception:
+                    logger.exception("Failed to initialize ensemble stacker")
+                    raise
+
+    return _ensemble_stacker
 
 
 # =============================================================================
@@ -262,6 +282,37 @@ def predict_yield_trend_task(self, data: list):
 
     except Exception:
         logger.exception("Trend prediction task failed")
+        raise
+
+
+@celery_app.task(
+    bind=True,
+    name="predict_ensemble_task",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 2},
+    soft_time_limit=30,
+    time_limit=45,
+)
+def predict_ensemble_task(self, input_data: dict):
+    """
+    Ensemble prediction with lazy per-model loading and graceful degradation.
+    """
+
+    try:
+        stacker = _get_ensemble_stacker()
+
+        result = stacker.predict(input_data)
+
+        return result
+
+    except RuntimeError as exc:
+        logger.error("Ensemble prediction failed: no models available")
+        raise
+
+    except Exception:
+        logger.exception("Ensemble prediction task failed")
         raise
 
 
@@ -652,6 +703,28 @@ def run_hyperparameter_optimization_task(
         "benchmark": benchmark,
         "config_path": str(config_path),
     }
+
+
+@celery_app.task(
+    bind=True,
+    name="ensemble_health_task",
+    soft_time_limit=10,
+    time_limit=15,
+)
+def ensemble_health_task(self):
+    """
+    Async ensemble health check for monitoring.
+    """
+    try:
+        stacker = _get_ensemble_stacker()
+
+        health = stacker.health()
+
+        return health
+
+    except Exception:
+        logger.exception("Ensemble health check failed")
+        raise
 
 
 @celery_app.task(
