@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { FaFileInvoiceDollar, FaDownload, FaShieldAlt, FaCheckCircle, FaSpinner, FaHistory, FaExclamationTriangle } from "react-icons/fa";
 import "./BankReports.css";
 import apiClient from "./lib/apiClient";
@@ -19,11 +19,17 @@ const BankReports = ({ userData }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
-  const [reports, setReports] = useState(() => loadVersionedArray(REPORTS_STORAGE_KEY, {
-    version: REPORTS_STORAGE_VERSION,
-    fallback: [],
-    maxItems: MAX_REPORTS,
-  }));
+  const [reports, setReports] = useState(() =>
+    loadVersionedArray(REPORTS_STORAGE_KEY, {
+      version: REPORTS_STORAGE_VERSION,
+      fallback: [],
+      maxItems: MAX_REPORTS,
+    })
+  );
+
+  const mountedRef = useRef(true);
+  const activeRequestRef = useRef(0);
+  const downloadUrlRef = useRef(null);
 
   const [formData, setFormData] = useState({
     name: userData?.displayName || "",
@@ -32,6 +38,20 @@ const BankReports = ({ userData }) => {
     profitInr: "",          // numeric INR — replaces free-text "profit"
     season: "Kharif 2026"
   });
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+
+      activeRequestRef.current += 1;
+
+      if (downloadUrlRef.current) {
+        window.URL.revokeObjectURL(downloadUrlRef.current);
+        downloadUrlRef.current = null;
+      }
+    };
+  }, []);
 
   // Validate all fields and return true only if everything is within bounds.
   const validateForm = () => {
@@ -72,6 +92,8 @@ const BankReports = ({ userData }) => {
     if (!validateForm()) return;
 
     setLoading(true);
+    const requestId = Date.now();
+    activeRequestRef.current = requestId;
     try {
       // Send validated, typed values to the backend.
       // profit and area are sent as formatted strings matching the backend
@@ -93,8 +115,20 @@ const BankReports = ({ userData }) => {
         { responseType: "blob" }
       );
 
+      if (
+        !mountedRef.current ||
+        activeRequestRef.current !== requestId
+      ) {
+        return;
+      }
+
       const blob = response.data;
+      if (downloadUrlRef.current) {
+        window.URL.revokeObjectURL(downloadUrlRef.current);
+      }
+
       const url = window.URL.createObjectURL(blob);
+      downloadUrlRef.current = url;
       const a = document.createElement("a");
       a.href = url;
       a.download = `FasalSaathi_BankReport_${Date.now()}.pdf`;
@@ -102,6 +136,10 @@ const BankReports = ({ userData }) => {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
+
+      if (downloadUrlRef.current === url) {
+        downloadUrlRef.current = null;
+      }
 
       const newReport = {
         id: Math.random().toString(36).substr(2, 9),
@@ -111,6 +149,12 @@ const BankReports = ({ userData }) => {
         sigId: "CERT-" + Math.random().toString(36).substr(2, 5).toUpperCase()
       };
       const updatedReports = [newReport, ...reports];
+      if (
+        !mountedRef.current ||
+        activeRequestRef.current !== requestId
+      ) {
+        return;
+      }
       setReports(updatedReports);
       const saved = saveVersionedArray(REPORTS_STORAGE_KEY, updatedReports, {
         version: REPORTS_STORAGE_VERSION,
@@ -122,24 +166,48 @@ const BankReports = ({ userData }) => {
 
     } catch (err) {
       console.error(err);
+
+      if (
+        !mountedRef.current ||
+        activeRequestRef.current !== requestId
+      ) {
+        return;
+      }
+
       const status = err?.response?.status;
+
       if (status === 401) {
-        setError("You must be logged in to generate a report. Please sign in and try again.");
+        setError(
+          "You must be logged in to generate a report. Please sign in and try again."
+        );
       } else if (status === 403) {
-        setError("Report generation requires Expert or Admin role. Contact your administrator.");
+        setError(
+          "Report generation requires Expert or Admin role. Contact your administrator."
+        );
       } else if (status === 422) {
-        setError("The submitted values were rejected by the server. Please check your inputs.");
+        setError(
+          "The submitted values were rejected by the server. Please check your inputs."
+        );
       } else if (status === 429) {
-        setError("Too many requests. Please wait a moment before trying again.");
+        setError(
+          "Too many requests. Please wait a moment before trying again."
+        );
       } else {
-        setError("Failed to generate report. Please try again later.");
+        setError(
+          "Failed to generate report. Please try again later."
+        );
       }
     } finally {
-      setLoading(false);
+      if (
+        mountedRef.current &&
+        activeRequestRef.current === requestId
+      ) {
+        setLoading(false);
+      }
     }
-  };
-
-  const field = (key, value, onChange) => ({
+    };
+    
+    const field = (key, value, onChange) => ({
     value,
     onChange: (e) => {
       onChange(e);
