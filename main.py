@@ -132,7 +132,12 @@ class ContextFilter(logging.Filter):
         self.context = {}
 
     def filter(self, record):
-        record.context = self.context
+        # Only add context to the log record if context is not empty.
+        # Prevents cluttering logs with unused context attributes.
+        if self.context:
+            record.context = self.context
+        else:
+            record.context = ""
         return True
 
 # Configure structured logging with detailed formatting
@@ -143,14 +148,12 @@ _formatter = logging.Formatter(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 _handler.setFormatter(_formatter)
+_handler.setLevel(logging.INFO)
 
-logging.basicConfig(
-    level=logging.INFO,
-    handlers=[_handler],
-    format='%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
-)
 logger = logging.getLogger(__name__)
 logger.addFilter(_context_filter)
+logger.addHandler(_handler)
+logger.setLevel(logging.INFO)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, 
   Tooltip, Legend, ResponsiveContainer 
@@ -16,25 +16,60 @@ const YieldHistory = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [actualYieldInputs, setActualYieldInputs] = useState({});
+  const mountedRef = useRef(true);
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     loadAnalytics();
   }, []);
+  
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      requestIdRef.current++;
+    };
+  }, []);
 
   const loadAnalytics = async () => {
+    const requestId = ++requestIdRef.current;
+
     try {
       setLoading(true);
+      setError(null);
+
       const result = await fetchYieldAnalytics();
-      setData(result);
+
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        setData(result);
+      }
     } catch (err) {
-      setError('Failed to load yield history. Please try again later.');
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        setError(
+          "Failed to load yield history. Please try again later."
+        );
+      }
+
       console.error(err);
     } finally {
-      setLoading(false);
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        setLoading(false);
+      }
     }
   };
 
   const handleRecordActual = async (recordId) => {
+    const requestId = ++requestIdRef.current;
     const actual = parseFloat(actualYieldInputs[recordId]);
     if (isNaN(actual) || actual < 0) {
       toast.error('Please enter a valid actual yield.');
@@ -42,18 +77,38 @@ const YieldHistory = () => {
     }
 
     try {
-      await recordActualYield({ record_id: recordId, actual_yield: actual });
-      toast.success('Actual yield recorded successfully!');
-      loadAnalytics(); // Refresh
-      setActualYieldInputs(prev => {
-        const next = { ...prev };
-        delete next[recordId];
-        return next;
+      await recordActualYield({
+        record_id: recordId,
+        actual_yield: actual
       });
-    } catch (err) {
-      toast.error('Failed to save actual yield.');
-      console.error(err);
+
+      if (
+        !mountedRef.current ||
+        requestId !== requestIdRef.current
+      ) {
+        return;
+      }
+
+      toast.success('Actual yield recorded successfully!');
+      await loadAnalytics();
+      if (mountedRef.current) {
+        setActualYieldInputs(prev => {
+          const next = { ...prev };
+          delete next[recordId];
+          return next;
+        });
+      }
     }
+    catch (err) {
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        toast.error('Failed to save actual yield.');
+      }
+
+      console.error(err);
+}
   };
 
   if (loading) return <div className="yield-history-loading">Loading analytics...</div>;

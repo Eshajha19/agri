@@ -304,9 +304,12 @@ async def book_equipment(request: Request, data: BookEquipmentRequest):
             "createdAt": datetime.now(timezone.utc).isoformat(),
         }
 
-        _bookings[bid] = booking
-        # Mark the listing as unavailable while a booking is pending.
+        # Mark the listing unavailable BEFORE inserting the booking so that
+        # if the process crashes between the two writes the listing is already
+        # locked and a concurrent request cannot observe available=True while
+        # a booking record for the same equipment already exists.
         _listings[data.equipmentId] = {**listing, "available": False}
+        _bookings[bid] = booking
 
     logger.info(
         "Booking %s created: equipment=%s booker=%s date=%s",

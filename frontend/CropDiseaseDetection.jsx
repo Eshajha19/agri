@@ -296,6 +296,8 @@ export default function CropDiseaseDetection({ onClose }) {
 
   const fileInputRef = useRef(null);
   const mountedRef = useRef(true);
+  const requestIdRef = useRef(0);
+  const currentImageRef = useRef(null);
   const lastHistorySignatureRef = useRef("");
   const detectionAbortRef = useRef(false);
   const historySyncTimeoutRef = useRef(null);
@@ -426,6 +428,9 @@ export default function CropDiseaseDetection({ onClose }) {
     const objectUrl = URL.createObjectURL(file);
 
     setImage(file);
+    requestIdRef.current++;
+    currentImageRef.current = file.name;
+    detectionAbortRef.current = true;
 
     setPreview((previous) => {
       if (previous) {
@@ -443,6 +448,9 @@ export default function CropDiseaseDetection({ onClose }) {
 
     setLoading(true);
     setError(null);
+
+    const requestId = ++requestIdRef.current;
+    const imageName = image.name;
 
     detectionAbortRef.current = false;
 
@@ -507,24 +515,44 @@ export default function CropDiseaseDetection({ onClose }) {
         );
       }
 
-      if (!mountedRef.current || detectionAbortRef.current) {
+      if (
+        !mountedRef.current ||
+        detectionAbortRef.current ||
+        requestId !== requestIdRef.current ||
+        imageName !== currentImageRef.current
+      ) {
         return;
       }
 
       setResult(detectionResult);
     } catch (err) {
-      setError(err?.message || "Detection failed. Try again.");
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        setError(
+          err?.message || "Detection failed. Try again."
+        );
+      }
     } finally {
-      if (mountedRef.current) {
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
         setLoading(false);
       }
     }
   };
 
   const resetSelection = () => {
+    requestIdRef.current++;
+    detectionAbortRef.current = true;
+    currentImageRef.current = null;
+
     if (preview) {
       URL.revokeObjectURL(preview);
     }
+
     setImage(null);
     setPreview(null);
     setResult(null);
