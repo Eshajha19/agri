@@ -1,10 +1,9 @@
 """Alerts & Notifications Router"""
 import asyncio
+import logging
 import re
 from datetime import datetime
-import logging
 from typing import Optional
-import logging
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
 from twilio_webhook_security import handle_inbound_whatsapp_webhook
