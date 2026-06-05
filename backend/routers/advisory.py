@@ -71,13 +71,24 @@ class _BoundedUidStore:
         """Ensure *uid* has a deque entry, evicting the LRU entry if needed.
 
         Must be called with ``self._lock`` already held.
+
+        Uses a retry loop to guarantee the size limit is respected even
+        under high concurrency where multiple threads may observe the
+        same pre-eviction size.  Each iteration evicts one LRU entry and
+        rechecks the size, ensuring that when we finally add the new entry
+        the store is guaranteed to be within capacity.
         """
-        if uid in self._data:
-            self._data.move_to_end(uid)
-        else:
-            if len(self._data) >= self._max_uids:
-                self._data.popitem(last=False)  # evict LRU
-            self._data[uid] = deque(maxlen=self._deque_maxlen)
+        with self._lock:
+            while True:
+                if uid in self._data:
+                    self._data.move_to_end(uid)
+                    return
+                if len(self._data) < self._max_uids:
+                    self._data[uid] = deque(maxlen=self._deque_maxlen)
+                    return
+                # Capacity reached — evict one entry and retry to ensure we
+                # never exceed _max_uids even under concurrent contention.
+                self._data.popitem(last=False)
 
 
 _stored_alerts = _BoundedUidStore(deque_maxlen=_MAX_STORED_ALERTS)
@@ -440,8 +451,12 @@ def _load_graph_history(uid: str) -> list[dict[str, Any]]:
             if items:
                 items.sort(key=lambda item: item.get("createdAt", ""), reverse=True)
                 return items
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Firestore history lookup failed for uid=%s, falling back to in-memory store: %s",
+                uid,
+                exc,
+            )
 
     return _graph_history.get(uid)
 
