@@ -1,148 +1,138 @@
-/**
- * Copyright 2018 Google Inc. All Rights Reserved.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+import { useEffect, useRef } from "react";
+import { toast } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
+import apiClient from "./lib/apiClient";
+import { auth } from "./lib/firebase";
 
-// If the loader is already loaded, just stop.
-if (!self.define) {
-  let registry = {};
+export default function useNotifications() {
+  const seenIdsRef = useRef(new Set());
 
-  // Used for `eval` and `importScripts` where we can't get script URL by other means.
-  // In both cases, it's safe to use a global var because those functions are synchronous.
-  let nextDefineUri;
+  const markAndToast = (notif) => {
+    if (!notif || !notif.message) return;
 
-  const singleRequire = (uri, parentUri) => {
-    uri = new URL(uri + ".js", parentUri).href;
-    return registry[uri] || (
-      
-        new Promise(resolve => {
-          if ("document" in self) {
-            const script = document.createElement("script");
-            script.src = uri;
-            script.onload = resolve;
-            document.head.appendChild(script);
-          } else {
-            nextDefineUri = uri;
-            importScripts(uri);
-            resolve();
-          }
-        })
-      
-      .then(() => {
-        let promise = registry[uri];
-        if (!promise) {
-          throw new Error(`Module ${uri} didn’t register its module`);
-        }
-        return promise;
-      })
-    );
-  };
+    const notificationKey =
+      notif.id ?? `${notif.type || "notification"}:${notif.time || ""}:${notif.message}`;
 
-  self.define = (depsNames, factory) => {
-    const uri = nextDefineUri || ("document" in self ? document.currentScript.src : "") || location.href;
-    if (registry[uri]) {
-      // Module is already loading or loaded.
-      return;
-    }
-    let exports = {};
-    const require = depUri => singleRequire(depUri, uri);
-    const specialDeps = {
-      module: { uri },
-      exports,
-      require
-    };
-    registry[uri] = Promise.all(depsNames.map(
-      depName => specialDeps[depName] || require(depName)
-    )).then(deps => {
-      factory(...deps);
-      return exports;
+    if (seenIdsRef.current.has(notificationKey)) return;
+
+    seenIdsRef.current.add(notificationKey);
+    toast.info(notif.message, {
+      position: "top-right",
+      autoClose: 4000,
     });
   };
+
+const getIdToken = async () => {
+    const user = auth?.currentUser;
+    if (!user) return null;
+    return user.getIdToken();
+  };
+
+  const buildStreamUrl = async () => {
+    const apiBase = import.meta.env.VITE_API_BASE || window.location.origin;
+    const url = new URL("/api/notifications/stream", apiBase);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    const token = await getIdToken();
+    if (token) {
+      url.searchParams.set("token", token);
+    }
+    return url.toString();
+  };
+
+  const fetchNotifications = async () => {
+    try {
+      const res = await apiClient.get("/api/notifications");
+      const data = res?.data;
+
+      if (data?.success && Array.isArray(data?.data)) {
+        data.data.forEach(markAndToast);
+      }
+    } catch (err) {
+      console.warn("[Notifications] Failed to fetch notifications:", err?.message || err);
+    }
+  };
+
+  useEffect(() => {
+    let websocket = null;
+    let fallbackTimer = null;
+    let cancelled = false;
+
+    const startPollingFallback = () => {
+      if (fallbackTimer || cancelled) return;
+      fallbackTimer = setInterval(fetchNotifications, 60000);
+    };
+
+    const stopPollingFallback = () => {
+      if (fallbackTimer) {
+        clearInterval(fallbackTimer);
+        fallbackTimer = null;
+      }
+    };
+
+    const connectWebSocket = async () => {
+      if (!auth?.currentUser) {
+        startPollingFallback();
+        return;
+      }
+
+
+      fetchNotifications();
+
+      if (typeof WebSocket === "undefined") {
+        startPollingFallback();
+        return;
+      }
+
+      try {
+        const streamUrl = await buildStreamUrl();
+        if (!streamUrl.includes("token=")) {
+          startPollingFallback();
+          return;
+        }
+
+        websocket = new WebSocket(streamUrl);
+
+        websocket.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data);
+            if (payload.type === "snapshot" && Array.isArray(payload.data)) {
+              payload.data.forEach(markAndToast);
+            }
+            if (payload.type === "notification" && payload.data) {
+              markAndToast(payload.data);
+            }
+          } catch (parseError) {
+            console.log("Notification stream parse error:", parseError);
+          }
+        };
+
+        websocket.onopen = () => {
+          stopPollingFallback();
+        };
+
+        websocket.onerror = () => {
+          startPollingFallback();
+        };
+
+        websocket.onclose = () => {
+          if (!cancelled) {
+            startPollingFallback();
+          }
+        };
+      } catch (error) {
+        console.log("Notification websocket unavailable:", error);
+        startPollingFallback();
+      }
+    };
+
+    connectWebSocket();
+
+    return () => {
+      cancelled = true;
+      stopPollingFallback();
+      if (websocket) {
+        websocket.close();
+      }
+    };
+  }, []);
 }
-define(['./workbox-8c5d9594'], (function (workbox) { 'use strict';
-
-  self.skipWaiting();
-  workbox.clientsClaim();
-
-  /**
-   * The precacheAndRoute() method efficiently caches and responds to
-   * requests for URLs in the manifest.
-   * See https://goo.gl/S9QRab
-   */
-  workbox.precacheAndRoute([{
-    "url": "index.html",
-    "revision": "0.6sfivmdpkto"
-  }], {});
-  workbox.cleanupOutdatedCaches();
-  workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("index.html"), {
-    allowlist: [/^\/$/]
-  }));
-  workbox.registerRoute(/^https:\/\/api\.data\.gov\.in\/.*/i, new workbox.StaleWhileRevalidate({
-    "cacheName": "market-prices-api",
-    plugins: [new workbox.ExpirationPlugin({
-      maxEntries: 10,
-      maxAgeSeconds: 3600
-    }), new workbox.CacheableResponsePlugin({
-      statuses: [0, 200]
-    })]
-  }), 'GET');
-  workbox.registerRoute(/^https:\/\/api\.open-meteo\.com\/.*/i, new workbox.CacheFirst({
-    "cacheName": "weather-api",
-    plugins: [new workbox.ExpirationPlugin({
-      maxEntries: 20,
-      maxAgeSeconds: 1800
-    }), new workbox.CacheableResponsePlugin({
-      statuses: [0, 200]
-    })]
-  }), 'GET');
-  workbox.registerRoute(/^https:\/\/geocoding-api\.open-meteo\.com\/.*/i, new workbox.CacheFirst({
-    "cacheName": "geocoding-api",
-    plugins: [new workbox.ExpirationPlugin({
-      maxEntries: 50,
-      maxAgeSeconds: 604800
-    }), new workbox.CacheableResponsePlugin({
-      statuses: [0, 200]
-    })]
-  }), 'GET');
-  workbox.registerRoute(/^https:\/\/get\.geojs\.io\/.*/i, new workbox.NetworkFirst({
-    "cacheName": "ip-geo-api",
-    "networkTimeoutSeconds": 5,
-    plugins: []
-  }), 'GET');
-  workbox.registerRoute(/\.(?:js|css|json)$/, new workbox.StaleWhileRevalidate({
-    "cacheName": "static-resources",
-    plugins: [new workbox.ExpirationPlugin({
-      maxEntries: 100,
-      maxAgeSeconds: 2592000
-    }), new workbox.CacheableResponsePlugin({
-      statuses: [0, 200]
-    })]
-  }), 'GET');
-  workbox.registerRoute(/\.(?:png|jpg|jpeg|svg|webp)$/, new workbox.CacheFirst({
-    "cacheName": "images",
-    plugins: [new workbox.ExpirationPlugin({
-      maxEntries: 60,
-      maxAgeSeconds: 2592000
-    }), new workbox.CacheableResponsePlugin({
-      statuses: [0, 200]
-    })]
-  }), 'GET');
-  workbox.registerRoute(/^https:\/\/images\.unsplash\.com\/.*/i, new workbox.CacheFirst({
-    "cacheName": "unsplash-images",
-    plugins: [new workbox.ExpirationPlugin({
-      maxEntries: 10,
-      maxAgeSeconds: 2592000
-    }), new workbox.CacheableResponsePlugin({
-      statuses: [0, 200]
-    })]
-  }), 'GET');
-
-}));
