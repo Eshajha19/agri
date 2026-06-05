@@ -9,6 +9,7 @@ import json
 import os
 import time
 import uuid
+from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from dataclasses import dataclass, asdict, field
@@ -42,7 +43,7 @@ class BlockchainRecord:
 
     def calculate_hash(self) -> str:
         """Calculate SHA256 hash of record (excludes hash field)"""
-        record_string = json.dumps(self.to_dict(), sort_keys=True)
+        record_string = json.dumps(self.to_dict(), sort_keys=True, default=str)
         return hashlib.sha256(record_string.encode()).hexdigest()
 
     @staticmethod
@@ -122,6 +123,13 @@ class SmartContract:
 class SupplyChainBlockchain:
     """Blockchain for agricultural supply chain with basic atomicity"""
 
+    # Maximum number of transaction IDs retained for replay protection.
+    # Each ID is a 64-character hex SHA-256 digest (~64 bytes).
+    # 10 000 entries ≈ 640 KB — a safe upper bound for a long-running process.
+    # Replay protection only needs to cover a recent window; transactions
+    # older than this cap are extremely unlikely to be replayed in practice.
+    _MAX_TRANSACTION_IDS = 10_000
+
     def __init__(self, repository=None):
         self.chain: List[BlockchainRecord] = []
         self.products: Dict[str, ProductBatch] = {}
@@ -129,7 +137,11 @@ class SupplyChainBlockchain:
         self.smart_contracts: Dict[str, SmartContract] = {}
         self.verified_actors: Dict[str, Dict] = {}
         self._trace_batches: Dict[str, Dict] = {}
-        self._processed_transaction_ids: set[str] = set()
+        # Bounded LRU store for processed transaction IDs.
+        # OrderedDict preserves insertion order so popitem(last=False) evicts
+        # the oldest entry when the cap is reached.  Values are None — only
+        # the keys (transaction IDs) matter.
+        self._processed_transaction_ids: OrderedDict[str, None] = OrderedDict()
         self._repository = repository
         self._qr_signing_secret = os.getenv("BLOCKCHAIN_QR_SECRET", "").strip()
 
@@ -142,9 +154,7 @@ class SupplyChainBlockchain:
             "supply_chain_nodes_copy": {k: list(v) for k, v in self.supply_chain_nodes.items()},
             "smart_contracts_copy": {k: v.status for k, v in self.smart_contracts.items()},
             "trace_batches_copy": _copy.deepcopy(self._trace_batches),
-            "processed_transaction_ids_copy": set(
-                self._processed_transaction_ids
-            ),
+            "processed_transaction_ids_copy": OrderedDict(self._processed_transaction_ids),
         }
 
     def _rollback_to_snapshot(self, snap):
@@ -156,9 +166,7 @@ class SupplyChainBlockchain:
             if cid in self.smart_contracts:
                 self.smart_contracts[cid].status = status
         self._trace_batches = _copy.deepcopy(snap["trace_batches_copy"])
-        self._processed_transaction_ids = set(
-            snap["processed_transaction_ids_copy"]
-        )
+        self._processed_transaction_ids = OrderedDict(snap["processed_transaction_ids_copy"])
 
     def _canonical_json(self, payload: Dict) -> str:
         """Serialize a payload deterministically for hashing/signing."""
@@ -179,60 +187,18 @@ class SupplyChainBlockchain:
                 f"Duplicate transaction detected: {transaction_id}"
             )
 
-    def _build_trace_proof(self, batch_id: str) -> Dict[str, str]:
-        """Create a tamper-evident proof for a batch and its journey."""
-        batch = self.products.get(batch_id)
-        if batch is None:
-            raise ValueError(f"Batch {batch_id} not found")
+    def _record_transaction_id(self, transaction_id: str) -> None:
+        """Add a transaction ID to the bounded LRU store.
 
-        nodes = self.supply_chain_nodes.get(batch_id, [])
-        node_hashes = []
-        for node in nodes:
-            node_hashes.append(self._hash_text(self._canonical_json(asdict(node))))
-
-        batch_payload = self._canonical_json({
-            "batch": asdict(batch),
-            "node_hashes": node_hashes,
-            "chain_length": len(self.chain),
-        })
-        proof_hash = self._hash_text(batch_payload)
-
-        signature = ""
-        if self._qr_signing_secret:
-            signature = hmac.new(
-                self._qr_signing_secret.encode("utf-8"),
-                proof_hash.encode("utf-8"),
-                hashlib.sha256,
-            ).hexdigest()
-
-        latest_hash = self.chain[-1].hash if self.chain else ""
-        return {
-            "proof_hash": proof_hash,
-            "signature": signature,
-            "latest_block_hash": latest_hash,
-        }
-
-    def verify_trace_proof(self, batch_id: str, proof_hash: str, signature: str = "") -> bool:
-        """Verify a QR traceability proof against the current blockchain state."""
-        expected = self._build_trace_proof(batch_id)
-        if proof_hash != expected["proof_hash"]:
-            return False
-        if self._qr_signing_secret:
-            expected_signature = hmac.new(
-                self._qr_signing_secret.encode("utf-8"),
-                proof_hash.encode("utf-8"),
-                hashlib.sha256,
-            ).hexdigest()
-            return hmac.compare_digest(signature or "", expected_signature)
-        return True
-
-
-    def _canonical_json(self, payload: Dict) -> str:
-        """Serialize a payload deterministically for hashing/signing."""
-        return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
-
-    def _hash_text(self, text: str) -> str:
-        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+        If the store is at capacity, the oldest entry is evicted before the
+        new one is inserted, keeping memory consumption bounded at
+        _MAX_TRANSACTION_IDS entries regardless of process lifetime.
+        """
+        if transaction_id in self._processed_transaction_ids:
+            return
+        if len(self._processed_transaction_ids) >= self._MAX_TRANSACTION_IDS:
+            self._processed_transaction_ids.popitem(last=False)  # evict oldest
+        self._processed_transaction_ids[transaction_id] = None
 
     def _build_trace_proof(self, batch_id: str) -> Dict[str, str]:
         """Create a tamper-evident proof for a batch and its journey."""
@@ -254,11 +220,7 @@ class SupplyChainBlockchain:
 
         signature = ""
         if self._qr_signing_secret:
-            signature = hmac.new(
-                self._qr_signing_secret.encode("utf-8"),
-                proof_hash.encode("utf-8"),
-                hashlib.sha256,
-            ).hexdigest()
+            signature = hmac.new(self._qr_signing_secret.encode("utf-8"), proof_hash.encode("utf-8"), digestmod=hashlib.sha256).hexdigest()
 
         latest_hash = self.chain[-1].hash if self.chain else ""
         return {
@@ -273,67 +235,10 @@ class SupplyChainBlockchain:
         if proof_hash != expected["proof_hash"]:
             return False
         if self._qr_signing_secret:
-            expected_signature = hmac.new(
-                self._qr_signing_secret.encode("utf-8"),
-                proof_hash.encode("utf-8"),
-                hashlib.sha256,
-            ).hexdigest()
+            expected_signature = hmac.new(self._qr_signing_secret.encode("utf-8"), proof_hash.encode("utf-8"), digestmod=hashlib.sha256).hexdigest()
             return hmac.compare_digest(signature or "", expected_signature)
         return True
 
-    def _canonical_json(self, payload: Dict) -> str:
-        """Serialize a payload deterministically for hashing/signing."""
-        return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
-
-    def _hash_text(self, text: str) -> str:
-        return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-    def _build_trace_proof(self, batch_id: str) -> Dict[str, str]:
-        """Create a tamper-evident proof for a batch and its journey."""
-        batch = self.products.get(batch_id)
-        if batch is None:
-            raise ValueError(f"Batch {batch_id} not found")
-
-        nodes = self.supply_chain_nodes.get(batch_id, [])
-        node_hashes = []
-        for node in nodes:
-            node_hashes.append(self._hash_text(self._canonical_json(asdict(node))))
-
-        batch_payload = self._canonical_json({
-            "batch": asdict(batch),
-            "node_hashes": node_hashes,
-            "chain_length": len(self.chain),
-        })
-        proof_hash = self._hash_text(batch_payload)
-
-        signature = ""
-        if self._qr_signing_secret:
-            signature = hmac.new(
-                self._qr_signing_secret.encode("utf-8"),
-                proof_hash.encode("utf-8"),
-                hashlib.sha256,
-            ).hexdigest()
-
-        latest_hash = self.chain[-1].hash if self.chain else ""
-        return {
-            "proof_hash": proof_hash,
-            "signature": signature,
-            "latest_block_hash": latest_hash,
-        }
-
-    def verify_trace_proof(self, batch_id: str, proof_hash: str, signature: str = "") -> bool:
-        """Verify a QR traceability proof against the current blockchain state."""
-        expected = self._build_trace_proof(batch_id)
-        if proof_hash != expected["proof_hash"]:
-            return False
-        if self._qr_signing_secret:
-            expected_signature = hmac.new(
-                self._qr_signing_secret.encode("utf-8"),
-                proof_hash.encode("utf-8"),
-                hashlib.sha256,
-            ).hexdigest()
-            return hmac.compare_digest(signature or "", expected_signature)
-        return True
 
     # ------------- Core operations -------------
     def register_actor(self, actor_id: str, name: str, actor_type: str, location: str) -> Dict:
@@ -407,7 +312,7 @@ class SupplyChainBlockchain:
             self.supply_chain_nodes[batch_id] = []
             self.chain.append(record)
             batch.blockchain_records.append(record.to_dict())
-            self._processed_transaction_ids.add(transaction_id)
+            self._record_transaction_id(transaction_id)
             
             return batch
 
@@ -436,6 +341,7 @@ class SupplyChainBlockchain:
                 "location": location,
                 "action": action,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
+                **kwargs,
             }
 
             transaction_id = self._generate_transaction_id(transaction_payload)
@@ -470,7 +376,7 @@ class SupplyChainBlockchain:
             self.supply_chain_nodes.setdefault(batch_id, []).append(node)
             self.chain.append(record)
             self.products[batch_id].blockchain_records.append(record.to_dict())
-            self._processed_transaction_ids.add(transaction_id)
+            self._record_transaction_id(transaction_id)
 
             if self._repository is not None:
                 self._repository.create(asdict(node))
@@ -530,7 +436,7 @@ class SupplyChainBlockchain:
             # Commit
             self.smart_contracts[contract_id] = contract
             self.chain.append(record)
-            self._processed_transaction_ids.add(transaction_id)
+            self._record_transaction_id(transaction_id)
             return contract
 
         except Exception:
@@ -581,7 +487,7 @@ class SupplyChainBlockchain:
             contract.executed_at = datetime.now(timezone.utc).isoformat()
             self.chain.append(record)
 
-            self._processed_transaction_ids.add(transaction_id)
+            self._record_transaction_id(transaction_id)
             return {
                 "success": True,
                 "contract_id": contract_id,
@@ -864,9 +770,7 @@ class SupplyChainBlockchain:
             record.hash = record.calculate_hash()
             self.chain.append(record)
 
-            self._processed_transaction_ids.add(
-                transaction_id
-            )
+            self._record_transaction_id(transaction_id)
 
             return entry
 

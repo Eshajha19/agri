@@ -1,6 +1,6 @@
 import asyncio
 
-from geo_alerts import profile_can_broadcast_region, resolve_subscription_regions
+from geo_alerts import profile_can_broadcast_region, region_matches, resolve_subscription_regions
 from realtime_notifications import NotificationBroadcastHub, _ConnectionSubscription
 
 
@@ -26,6 +26,11 @@ def test_region_authority_uses_profile_scopes():
 def test_admin_subscriptions_receive_all_regions():
     scopes = resolve_subscription_regions({"role": "admin"}, ["north", "district:pune"])
     assert "*" in scopes
+
+
+def test_narrow_region_subscription_does_not_match_broader_alert():
+    assert region_matches("state:punjab", "state:punjab:district:amritsar")
+    assert not region_matches("state:punjab:district:amritsar", "state:punjab")
 
 
 def test_region_targeted_publish_only_reaches_matching_clients():
