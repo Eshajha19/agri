@@ -9,7 +9,12 @@ class ContextFilter(logging.Filter):
         self.context = {}
 
     def filter(self, record):
-        record.context = self.context
+        # Only add context to the log record if context is not empty.
+        # Prevents cluttering logs with unused context attributes.
+        if self.context:
+            record.context = self.context
+        else:
+            record.context = ""
         return True
 
 
@@ -26,14 +31,9 @@ def setup_logging():
 
     handler.setFormatter(formatter)
 
-    logging.basicConfig(
-        level=logging.INFO,
-        handlers=[handler],
-        format="%(asctime)s - %(name)s - %(levelname)s - "
-               "%(funcName)s:%(lineno)d - %(message)s",
-    )
-
     logger = logging.getLogger(__name__)
     logger.addFilter(context_filter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
 
     return logger
