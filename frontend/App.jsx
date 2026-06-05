@@ -590,10 +590,14 @@ useEffect(() => {
       current: null,
     };
 
-    const unsubscribeAuth = onAuthStateChanged(
-      auth,
-      (currentUser) => {
-        setUser(currentUser);
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+      // Cleanup previous listener before handling new auth state
+      if (userDocUnsubscribeRef.current) {
+        userDocUnsubscribeRef.current();
+        userDocUnsubscribeRef.current = null;
+      }
+
+      setUser(currentUser);
 
         const hydrateUserSnapshot = async () => {
           if (
@@ -911,20 +915,18 @@ useEffect(() => {
               <div className="dropdown-links">
                 <div className="language-selector-section">
                   <label className="language-label">Language:</label>
-                  <LanguageDropdown
-                    options={LANGUAGE_OPTIONS}
-                    value={preferredLang}
-                    onChange={(lang) => {
-                      setPreferredLang(lang);
-                      i18n.changeLanguage(lang);
-                      try {
-                        sessionStorage.setItem("agri:preferredLanguage", lang);
-                      } catch (error) {
-                        console.warn("Unable to persist language preference");
-                      }
-                      void persistAppState({ preferredLang: lang });
-                    }}
-                  />
+                  <Suspense fallback={<div className="language-dropdown-placeholder" style={{ height: '38px', width: '100%', background: 'var(--bg-light)', borderRadius: '8px' }} />}>
+                    <LanguageDropdown
+                      options={LANGUAGE_OPTIONS}
+                      value={preferredLang}
+                      onChange={(lang) => {
+                        setPreferredLang(lang);
+                        i18n.changeLanguage(lang);
+                        localStorage.setItem("agri:preferredLanguage", lang);
+                        void persistAppState({ preferredLang: lang });
+                      }}
+                    />
+                  </Suspense>
                 </div>
                 <div className="theme-selector-section">
                   <span className="theme-selector-label">Theme:</span>
@@ -1157,8 +1159,12 @@ useEffect(() => {
         </button>
       )}
 
-      <ToastContainer position="bottom-right" />
-      <Footer />
+      <Suspense fallback={null}>
+        <ToastContainer position="bottom-right" />
+      </Suspense>
+      <Suspense fallback={<div style={{ height: '200px', background: 'var(--footer-bg)' }} />}>
+        <Footer />
+      </Suspense>
     </div>
   );
 }
