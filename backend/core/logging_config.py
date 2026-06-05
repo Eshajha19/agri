@@ -9,7 +9,12 @@ class ContextFilter(logging.Filter):
         self.context = {}
 
     def filter(self, record):
-        record.context = self.context
+        # Only add context to the log record if context is not empty.
+        # Prevents cluttering logs with unused context attributes.
+        if self.context:
+            record.context = self.context
+        else:
+            record.context = ""
         return True
 
 
