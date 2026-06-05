@@ -604,12 +604,21 @@ async def create_farm_intelligence(payload: "FarmIntelligenceRequest", request: 
     # keys, so truncating any excess is safe and prevents permanently storing
     # multi-kilobyte documents from over-sized request payloads.
     _HISTORY_DICT_KEY_CAP = 30
+    # Fields that must be preserved even if they exceed the cap.
+    # These are visibility-critical fields that users depend on.
+    _PRESERVED_FIELDS = {"region_id", "farm_id", "user_id", "visibility"}
 
     def _cap_dict(d: dict) -> dict:
         if not isinstance(d, dict):
             return {}
-        items = list(d.items())[:_HISTORY_DICT_KEY_CAP]
-        return dict(items)
+        # Preserve critical fields, then fill remaining slots with other entries
+        preserved = {k: v for k, v in d.items() if k in _PRESERVED_FIELDS}
+        other_items = [
+            (k, v) for k, v in d.items()
+            if k not in _PRESERVED_FIELDS
+        ][: _HISTORY_DICT_KEY_CAP - len(preserved)]
+        result_dict = {**preserved, **dict(other_items)}
+        return result_dict
 
     history_entry = {
         "uid": uid,
