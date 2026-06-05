@@ -1,39 +1,63 @@
 import logging
+from contextvars import ContextVar
+
+# Thread-safe / async-safe context storage
+log_context: ContextVar[dict] = ContextVar("log_context", default={})
 
 
 class ContextFilter(logging.Filter):
-    """Add request/operation context to all log records."""
+    """Inject contextual information into log records."""
 
-    def __init__(self):
-        super().__init__()
-        self.context = {}
+    def filter(self, record: logging.LogRecord) -> bool:
+        context = log_context.get()
 
-    def filter(self, record):
-        # Only add context to the log record if context is not empty.
-        # Prevents cluttering logs with unused context attributes.
-        if self.context:
-            record.context = self.context
-        else:
-            record.context = ""
+        record.context = (
+            ", ".join(f"{k}={v}" for k, v in context.items())
+            if context
+            else "-"
+        )
         return True
 
 
-def setup_logging():
-    context_filter = ContextFilter()
+def set_log_context(**kwargs):
+    """Add or update logging context."""
+    current = log_context.get().copy()
+    current.update(kwargs)
+    log_context.set(current)
+
+
+def clear_log_context():
+    """Clear logging context."""
+    log_context.set({})
+
+
+def setup_logging(
+    name: str = __name__,
+    level: int = logging.INFO,
+) -> logging.Logger:
+    """Configure and return a logger."""
+
+    logger = logging.getLogger(name)
+
+    # Prevent duplicate handlers
+    if logger.handlers:
+        return logger
 
     handler = logging.StreamHandler()
 
     formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - "
-        "%(funcName)s:%(lineno)d - [%(context)s] - %(message)s",
+        fmt=(
+            "%(asctime)s | %(levelname)-8s | %(name)s | "
+            "%(funcName)s:%(lineno)d | %(context)s | %(message)s"
+        ),
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
     handler.setFormatter(formatter)
+    handler.addFilter(ContextFilter())
 
-    logger = logging.getLogger(__name__)
-    logger.addFilter(context_filter)
     logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
+    logger.setLevel(level)
+    logger.propagate = False
 
     return logger
