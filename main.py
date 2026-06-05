@@ -148,6 +148,14 @@ _formatter = logging.Formatter(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 _handler.setFormatter(_formatter)
+
+logging.basicConfig(
+    level=logging.INFO,
+    handlers=[_handler],
+    format='%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
+)
+logger = logging.getLogger(__name__)
+logger.addFilter(_context_filter)
 _handler.setLevel(logging.INFO)
 
 logger = logging.getLogger(__name__)
