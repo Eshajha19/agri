@@ -440,8 +440,12 @@ def _load_graph_history(uid: str) -> list[dict[str, Any]]:
             if items:
                 items.sort(key=lambda item: item.get("createdAt", ""), reverse=True)
                 return items
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Firestore history lookup failed for uid=%s, falling back to in-memory store: %s",
+                uid,
+                exc,
+            )
 
     return _graph_history.get(uid)
 
