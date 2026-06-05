@@ -92,8 +92,14 @@ def test_completed_with_errors_request_is_evicted_from_memory(tmp_path):
         audit_log_path=tmp_path / "audit.jsonl",
     )
 
+    cleaned_uids = []
+    def mock_cleanup_hook(uid: str):
+        cleaned_uids.append(uid)
+
+    manager.register_post_deletion_hook(mock_cleanup_hook)
+
     request = manager.create_request(
-        "uid-err",
+        "uid-123",
         retention_days=0,
         now=datetime(2026, 5, 29, 12, 0, tzinfo=timezone.utc),
     )

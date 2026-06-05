@@ -10,6 +10,7 @@ authorization decisions.
 import asyncio
 import hashlib
 import logging
+import secrets
 import time
 from collections import OrderedDict
 from datetime import datetime, timezone
@@ -125,11 +126,27 @@ def _is_complete(progress: dict, course_id: str) -> bool:
 
 
 def _make_cert_id(uid: str, course_id: str) -> str:
-    """Deterministic certificate ID — uid + course_id only, so repeated calls
-    for the same user and course always return the same ID.  The mutable
-    completed_at timestamp is intentionally excluded from the hash to prevent
-    users from minting unlimited unique cert IDs by editing Firestore."""
-    raw = f"{uid}:{course_id}"
+    """Generate a unique certificate ID for each issuance.
+
+    A cryptographically random nonce (16 hex characters from secrets.token_hex)
+    is mixed into the hash input so that every call produces a different ID,
+    even for the same uid and course_id combination.  This closes two
+    previously identified issues:
+
+    1. Re-certification replay: a user whose certificate was revoked and who
+       re-completed the course would receive the exact same ID, making the
+       revoked and the new certificate indistinguishable.
+
+    2. Predictable ID space: because the inputs (uid, course_id) are known to
+       the caller, a fully deterministic function allowed a user to pre-compute
+       another user's certificate ID without completing the course.
+
+    The nonce is NOT stored separately; the cert ID itself is the persistent
+    record.  Firestore deduplication (if needed) should use the cert document
+    path rather than the ID value.
+    """
+    nonce = secrets.token_hex(8)
+    raw = f"{uid}:{course_id}:{nonce}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16].upper()
 
 

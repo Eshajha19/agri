@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { 
   MessageSquare, 
   ThumbsUp, 
@@ -100,6 +100,18 @@ const Community = () => {
   const [showP2PChat, setShowP2PChat] = useState(null); // stores the recipient object
   const [authorsData, setAuthorsData] = useState({});
 
+  // Synchronization refs
+  const mountedRef = useRef(true);
+
+  const requestTrackerRef = useRef({
+    feed: 0,
+    comments: 0,
+    likes: 0,
+    votes: 0,
+  });
+
+  const activeCommentsPostRef = useRef(null);
+
   // ── Rate-limit / spam state ──────────────────────────────────────────────
   /** Timestamp (ms) of the user's last successful post. null = never posted. */
   const [lastPostTime, setLastPostTime] = useState(null);
@@ -169,30 +181,70 @@ const Community = () => {
   const currentUser = isFirebaseConfigured() ? auth?.currentUser : null;
 
   useEffect(() => {
+    mountedRef.current = true;
+
+    const requestId = ++requestTrackerRef.current.feed;
+
     if (!isFirebaseConfigured()) {
       setLoading(false);
       return;
     }
-    let q = query(collection(db, "posts"), orderBy("createdAt", "desc"));
-    
+
+    setLoading(true);
+
+    let q = query(
+      collection(db, "posts"),
+      orderBy("createdAt", "desc")
+    );
+
     if (activeCategory !== "all") {
-      q = query(collection(db, "posts"), where("category", "==", activeCategory), orderBy("createdAt", "desc"));
+      q = query(
+        collection(db, "posts"),
+        where("category", "==", activeCategory),
+        orderBy("createdAt", "desc")
+      );
     }
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const docs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setPosts(docs);
-      setLoading(false);
-    }, (error) => {
-      console.error("Error fetching posts:", error);
-      setLoading(false);
-    });
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        if (
+          !mountedRef.current ||
+          requestTrackerRef.current.feed !== requestId
+        ) {
+          return;
+        }
 
-    return () => unsubscribe();
+        const docs = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+
+        setPosts(docs);
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Error fetching posts:", error);
+
+        if (
+          mountedRef.current &&
+          requestTrackerRef.current.feed === requestId
+        ) {
+          setLoading(false);
+        }
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
   }, [activeCategory]);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const handleCreatePost = async (e) => {
     e.preventDefault();
@@ -320,24 +372,50 @@ const Community = () => {
     }
   };
 
-  const openComments = async (post) => {
+  const openComments = useCallback(async (post) => {
+    if (!post?.id) return;
+
+    const requestId = ++requestTrackerRef.current.comments;
+
+    activeCommentsPostRef.current = post.id;
+
     setShowCommentsModal(post);
     setCommentsLoading(true);
+
     try {
       const q = query(
-        collection(db, "comments"), 
-        where("postId", "==", post.id), 
+        collection(db, "comments"),
+        where("postId", "==", post.id),
         orderBy("createdAt", "asc")
       );
+
       const snapshot = await getDocs(q);
-      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+      if (
+        !mountedRef.current ||
+        requestTrackerRef.current.comments !== requestId ||
+        activeCommentsPostRef.current !== post.id
+      ) {
+        return;
+      }
+
+      const docs = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+
       setPostComments(docs);
     } catch (err) {
       console.error("Error fetching comments:", err);
     } finally {
-      setCommentsLoading(false);
+      if (
+        mountedRef.current &&
+        requestTrackerRef.current.comments === requestId
+      ) {
+        setCommentsLoading(false);
+      }
     }
-  };
+  }, []);
 
   const handleAddComment = async (e) => {
     e.preventDefault();
@@ -528,10 +606,10 @@ const Community = () => {
     return "";
   };
 
-  const filteredPosts = posts.filter(post => 
+  const filteredPosts = React.useMemo(() => posts.filter(post =>
     post.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
     post.userName.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  ), [posts, searchQuery]);
 
   return (
     <div className="community-container">

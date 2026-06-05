@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -17,179 +17,6 @@ import { auth, db, isFirebaseConfigured } from "./lib/firebase";
 import { migrateUserData } from "./lib/migration";
 import "./Auth.css";
 
-// ============================================
-// Security Utilities
-// ============================================
-
-/**
- * Sanitize email input to prevent injection attacks
- */
-const sanitizeEmail = (email) => {
-  if (!email) return "";
-  return email.toLowerCase().trim().substring(0, 254);
-};
-
-/**
- * Validate email format with RFC 5322 compliant regex
- */
-const isValidEmail = (email) => {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email) && email.length <= 254;
-};
-
-/**
- * Validate password strength
- * - Minimum 8 characters
- * - At least one uppercase letter
- * - At least one lowercase letter
- * - At least one digit
- * - At least one special character
- */
-const validatePasswordStrength = (password) => {
-  const minLength = 8;
-  const hasUpperCase = /[A-Z]/.test(password);
-  const hasLowerCase = /[a-z]/.test(password);
-  const hasDigit = /\d/.test(password);
-  const hasSpecial = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
-
-  const strength = {
-    isValid: password.length >= minLength && hasUpperCase && hasLowerCase && hasDigit && hasSpecial,
-    feedback: []
-  };
-
-  if (password.length < minLength) strength.feedback.push("At least 8 characters required");
-  if (!hasUpperCase) strength.feedback.push("Add uppercase letter (A-Z)");
-  if (!hasLowerCase) strength.feedback.push("Add lowercase letter (a-z)");
-  if (!hasDigit) strength.feedback.push("Add digit (0-9)");
-  if (!hasSpecial) strength.feedback.push("Add special character (!@#$%^&*)");
-
-  return strength;
-};
-
-/**
- * Constant-time string comparison to prevent timing attacks
- */
-const constantTimeCompare = (a, b) => {
-  if (a.length !== b.length) return false;
-  let result = 0;
-  for (let i = 0; i < a.length; i++) {
-    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return result === 0;
-};
-
-/**
- * Rate limiter for authentication attempts
- */
-class AuthRateLimiter {
-  constructor(maxAttempts = 5, windowMs = 15 * 60 * 1000) {
-    this.maxAttempts = maxAttempts;
-    this.windowMs = windowMs;
-    this.attempts = new Map();
-  }
-
-  isLimited(email) {
-    const now = Date.now();
-    const key = sanitizeEmail(email);
-
-    if (!this.attempts.has(key)) {
-      this.attempts.set(key, []);
-    }
-
-    const timestamps = this.attempts.get(key);
-
-    // Remove timestamps outside the window
-    const validTimestamps = timestamps.filter(ts => now - ts < this.windowMs);
-    this.attempts.set(key, validTimestamps);
-
-    return validTimestamps.length >= this.maxAttempts;
-  }
-
-  recordAttempt(email) {
-    const key = sanitizeEmail(email);
-    if (!this.attempts.has(key)) {
-      this.attempts.set(key, []);
-    }
-    this.attempts.get(key).push(Date.now());
-  }
-
-  getRemainingTime(email) {
-    const key = sanitizeEmail(email);
-    if (!this.attempts.has(key)) return 0;
-
-    const timestamps = this.attempts.get(key);
-    if (timestamps.length === 0) return 0;
-
-    const oldestAttempt = Math.min(...timestamps);
-    const remainingMs = this.windowMs - (Date.now() - oldestAttempt);
-    return Math.max(0, remainingMs);
-  }
-}
-
-/**
- * Secure token storage with expiration tracking
- */
-class SecureTokenManager {
-  constructor() {
-    this.tokenRefreshBuffer = 5 * 60 * 1000; // 5 minutes before expiration
-    this.refreshTimer = null;
-  }
-
-  storeToken(token, expirationTime) {
-    // Store in memory (not localStorage to prevent XSS access)
-    this._token = token;
-    this._expirationTime = expirationTime;
-
-    // Schedule refresh before expiration
-    this._scheduleRefresh(expirationTime);
-  }
-
-  _scheduleRefresh(expirationTime) {
-    if (this.refreshTimer) clearTimeout(this.refreshTimer);
-
-    const now = Date.now();
-    const refreshTime = expirationTime - this.tokenRefreshBuffer - now;
-
-    if (refreshTime > 0) {
-      this.refreshTimer = setTimeout(() => {
-        // Trigger token refresh event
-        window.dispatchEvent(new CustomEvent('auth:token-refresh-needed'));
-      }, refreshTime);
-    }
-  }
-
-  getToken() {
-    return this._token;
-  }
-
-  isTokenExpired() {
-    return Date.now() >= this._expirationTime;
-  }
-
-  clearToken() {
-    this._token = null;
-    this._expirationTime = null;
-    if (this.refreshTimer) clearTimeout(this.refreshTimer);
-  }
-}
-
-/**
- * CSRF token management
- */
-const generateCSRFToken = () => {
-  return Array.from(crypto.getRandomValues(new Uint8Array(32)))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
-};
-
-const validateCSRFToken = (token, storedToken) => {
-  return constantTimeCompare(token, storedToken);
-};
-
-// ============================================
-// Auth Component
-// ============================================
-
 const Auth = () => {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
@@ -199,50 +26,30 @@ const Auth = () => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
-  const [passwordStrength, setPasswordStrength] = useState(null);
-  const [isLimited, setIsLimited] = useState(false);
-  const [remainingTime, setRemainingTime] = useState(0);
-
+  const authTimeoutRef = useRef(null);
+  const authInProgressRef = useRef(false);
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Security refs
-  const rateLimiter = useRef(new AuthRateLimiter());
-  const tokenManager = useRef(new SecureTokenManager());
-  const csrfToken = useRef(generateCSRFToken());
-
-  const from = location.state?.from?.pathname || "/";
+  const from =
+    typeof location.state?.from?.pathname === "string"
+      ? location.state.from.pathname
+      : "/";
   const referralCode = new URLSearchParams(location.search).get("ref") || "";
   const redirectAfterAuth = referralCode
     ? `/referrals?ref=${encodeURIComponent(referralCode)}`
     : from;
 
-  // Monitor rate limiting
-  useEffect(() => {
-    const checkRateLimit = () => {
-      const limited = rateLimiter.current.isLimited(email);
-      setIsLimited(limited);
+    useEffect(() => {
+      return () => {
+        if (authTimeoutRef.current) {
+          clearTimeout(authTimeoutRef.current);
+          authTimeoutRef.current = null;
+        }
 
-      if (limited) {
-        const remaining = rateLimiter.current.getRemainingTime(email);
-        setRemainingTime(Math.ceil(remaining / 1000));
-      }
-    };
-
-    const interval = setInterval(checkRateLimit, 1000);
-    return () => clearInterval(interval);
-  }, [email]);
-
-  // Handle password strength feedback
-  const handlePasswordChange = (e) => {
-    const newPassword = e.target.value;
-    setPassword(newPassword);
-
-    if (!isLogin && newPassword) {
-      const strength = validatePasswordStrength(newPassword);
-      setPasswordStrength(strength);
-    }
-  };
+        authInProgressRef.current = false;
+      };
+    }, []);
 
   if (!isFirebaseConfigured()) {
     return (
@@ -262,15 +69,19 @@ const Auth = () => {
   }
 
   const handleGuestLogin = async () => {
+    if (authInProgressRef.current) return;
+
+    authInProgressRef.current = true;
     setLoading(true);
     setError("");
     try {
       await signInAnonymously(auth);
       navigate(redirectAfterAuth, { replace: true });
     } catch (err) {
-      console.error("Guest login error");
+      console.error("Guest login error:", err);
       setError("Failed to start guest session.");
     } finally {
+      authInProgressRef.current = false;
       setLoading(false);
     }
   };
@@ -279,54 +90,28 @@ const Auth = () => {
     e.preventDefault();
     setError("");
     setMessage("");
+    if (authInProgressRef.current) return;
 
-    // Security: Check rate limiting
-    if (rateLimiter.current.isLimited(email)) {
-      const remaining = rateLimiter.current.getRemainingTime(email);
-      setError(`Too many login attempts. Try again in ${Math.ceil(remaining / 1000)} seconds.`);
-      return;
-    }
-
-    // Security: Validate and sanitize email
-    const sanitized = sanitizeEmail(email);
-    if (!isValidEmail(sanitized)) {
-      setError("Invalid email format. Please enter a valid email address.");
-      return;
-    }
-
-    // Security: Check password strength on registration
-    if (!isLogin) {
-      const strength = validatePasswordStrength(password);
-      if (!strength.isValid) {
-        setError(`Password too weak. ${strength.feedback.join(", ")}`);
-        return;
-      }
-    }
-
-    // Record attempt for rate limiting
-    rateLimiter.current.recordAttempt(email);
+    authInProgressRef.current = true;
     setLoading(true);
 
     try {
       if (isLogin) {
-        // Login Logic with security checks
+        // Login Logic
         const anonymousUser = auth.currentUser?.isAnonymous ? auth.currentUser : null;
         const anonymousUid = anonymousUser?.uid;
 
-        const userCredential = await signInWithEmailAndPassword(auth, sanitized, password);
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
 
         if (!user.emailVerified) {
           setError("Please verify your email before logging in. Check your inbox.");
+          sessionStorage.clear();
+          localStorage.removeItem("firebase:authUser");
           await signOut(auth);
           setLoading(false);
           return;
         }
-
-        // Store token securely with expiration tracking
-        const token = await user.getIdToken();
-        const expirationTime = Date.now() + (60 * 60 * 1000); // 1 hour
-        tokenManager.current.storeToken(token, expirationTime);
 
         // If there was a guest session, migrate data to the logged-in account
         if (anonymousUid && user.uid !== anonymousUid) {
@@ -334,63 +119,83 @@ const Auth = () => {
             await migrateUserData(anonymousUid, user.uid);
             setMessage("Guest data successfully merged with your account!");
           } catch (migrateErr) {
-            console.error("Migration error");
+            console.error("Migration error:", migrateErr);
             // Non-fatal, user is logged in
           }
         }
 
         navigate(redirectAfterAuth, { replace: true });
       } else {
-        // Registration Logic with security
-        const userCredential = await createUserWithEmailAndPassword(auth, sanitized, password);
-        const user = userCredential.user;
+        // Sign Up Logic
+        const anonymousUser = auth.currentUser?.isAnonymous ? auth.currentUser : null;
+        
+        let user;
+        if (anonymousUser) {
+          // Link anonymous account to email/password
+          const credential = EmailAuthProvider.credential(email, password);
+          try {
+            const linkedCredential = await linkWithCredential(anonymousUser, credential);
+            user = linkedCredential.user;
+          } catch (linkErr) {
+            if (linkErr.code === "auth/email-already-in-use") {
+              setError("Email already in use. Please login instead to merge your guest data.");
+              setLoading(false);
+              return;
+            }
+            throw linkErr;
+          }
+        } else {
+          const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+          user = userCredential.user;
+        }
 
-        // Create user profile in Firestore
-        await setDoc(doc(db, "users", user.uid), {
-          email: sanitized,
-          displayName: displayName.trim(),
-          phoneNumber: phoneNumber.trim(),
-          createdAt: new Date().toISOString(),
-          emailVerified: false
-        });
-
-        // Send email verification
+        // Send verification email
         await sendEmailVerification(user);
-        setMessage("Verification email sent. Please check your inbox.");
-        setIsLogin(true);
-        setEmail("");
-        setPassword("");
-        setDisplayName("");
-        setPhoneNumber("");
+
+        // Store/Update user info in Firestore
+        // role: "farmer" is written explicitly so the backend's verify_role
+        // function never has to fall back to a default — the field is always
+        // present from the moment the account is created.
+        await setDoc(doc(db, "users", user.uid), {
+          uid: user.uid,
+          displayName: displayName,
+          email: email,
+          phoneNumber: phoneNumber,
+          createdAt: new Date().toISOString(),
+          verified: false,
+          role: "farmer",
+          reputation: 0,
+          profileCompleted: false
+        }, { merge: true });
+
+        setMessage("Account created! Please check your email for verification link.");
+        setIsLogin(true); // Switch to login after signup
       }
     } catch (err) {
-      // Security: Log error without exposing sensitive details
-      console.error("Auth error");
-
-      // Provide user-friendly error messages
-      if (err.code === "auth/user-not-found") {
-        setError("Email not found. Create a new account.");
-      } else if (err.code === "auth/wrong-password") {
-        setError("Incorrect password. Please try again.");
-      } else if (err.code === "auth/email-already-in-use") {
-        setError("Email already registered. Please login.");
+      console.error(err);
+      if (err.code === "auth/email-already-in-use") {
+        setError("Email already in use. Try logging in.");
+      } else if (err.code === "auth/invalid-credential") {
+        setError("Invalid email or password.");
       } else if (err.code === "auth/weak-password") {
-        setError("Password too weak. Use at least 8 characters with mixed case, numbers, and symbols.");
-      } else if (err.code === "auth/network-request-failed") {
-        setError("Network error. Check your connection and try again.");
+        setError("Password should be at least 6 characters.");
       } else {
-        setError("Authentication failed. Please try again.");
+        setError(err.message);
       }
-     } finally {
-       setLoading(false);
-     }
-   };
+    } finally {
+      authInProgressRef.current = false;
+      setLoading(false);
+    }
+  };
 
   const handleGoogleLogin = async () => {
     const provider = new GoogleAuthProvider();
     // Add custom parameters if needed
     provider.setCustomParameters({ prompt: 'select_account' });
     
+    if (authInProgressRef.current) return;
+
+    authInProgressRef.current = true;
     setLoading(true);
     setError("");
     try {
@@ -444,6 +249,7 @@ const Auth = () => {
         setError(err.message || "Failed to sign in with Google.");
       }
     } finally {
+      authInProgressRef.current = false;
       setLoading(false);
     }
   };
@@ -578,4 +384,3 @@ const Auth = () => {
 };
 
 export default Auth;
-// Enhanced Auth.jsx with security hardening

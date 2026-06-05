@@ -19,6 +19,8 @@ import {
   X,
 } from "lucide-react";
 
+const MAX_HISTORY_ITEMS = 25;
+
 const CROP_OPTIONS = [
   "tomato",
   "potato",
@@ -83,15 +85,18 @@ const extractLocalAnalysis = async (preview, cropType, language) => {
   const image = await loadImage(preview);
   const canvas = document.createElement("canvas");
   const size = 72;
+
   canvas.width = size;
   canvas.height = size;
 
   const context = canvas.getContext("2d", { willReadFrequently: true });
+
   if (!context) {
     throw new Error("Canvas analysis is not available in this browser");
   }
 
   context.drawImage(image, 0, 0, size, size);
+
   const { data } = context.getImageData(0, 0, size, size);
 
   let totalRed = 0;
@@ -116,7 +121,12 @@ const extractLocalAnalysis = async (preview, cropType, language) => {
 
     const maxChannel = Math.max(red, green, blue);
     const minChannel = Math.min(red, green, blue);
-    const saturation = maxChannel === 0 ? 0 : ((maxChannel - minChannel) / maxChannel) * 255;
+
+    const saturation =
+      maxChannel === 0
+        ? 0
+        : ((maxChannel - minChannel) / maxChannel) * 255;
+
     saturationSum += saturation;
     brightnessSum += maxChannel;
 
@@ -126,10 +136,15 @@ const extractLocalAnalysis = async (preview, cropType, language) => {
     if (red > 210 && green > 210 && blue > 210) whitePixels += 1;
 
     const average = (red + green + blue) / 3;
-    varianceAccumulator += ((red - average) ** 2) + ((green - average) ** 2) + ((blue - average) ** 2);
+
+    varianceAccumulator +=
+      ((red - average) ** 2) +
+      ((green - average) ** 2) +
+      ((blue - average) ** 2);
   }
 
   const pixelCount = data.length / 4;
+
   const meanRed = totalRed / pixelCount;
   const meanGreen = totalGreen / pixelCount;
   const meanBlue = totalBlue / pixelCount;
@@ -142,35 +157,119 @@ const extractLocalAnalysis = async (preview, cropType, language) => {
   const whiteRatio = whitePixels / pixelCount;
 
   const scores = {
-    healthy: Math.max(0, 1.2 - Math.abs(meanSaturation - 70) / 70 - Math.abs(meanBrightness - 180) / 180 - textureScore / 20000),
-    powdery_mildew: Math.max(0, (150 - meanSaturation) / 150 + (230 - meanBrightness) / 230 + whiteRatio * 2.0),
-    rust: Math.max(0, yellowRatio * 2.2 + Math.max(0, meanRed + meanGreen - 2 * meanBlue) / 255),
-    early_blight: Math.max(0, brownRatio * 2.0 + Math.max(0, meanRed - meanGreen) / 255 + textureScore / 22000),
-    late_blight: Math.max(0, darkRatio * 2.2 + Math.max(0, 150 - meanBrightness) / 150 + textureScore / 20000),
-    bacterial_spot: Math.max(0, brownRatio * 1.6 + Math.max(0, meanRed - meanGreen) / 255 + darkRatio),
-    mosaic_virus: Math.max(0, Math.abs(meanRed - meanGreen) / 255 + Math.abs(meanGreen - meanBlue) / 255 + Math.max(0, 110 - meanSaturation) / 110),
-    downy_mildew: Math.max(0, Math.max(0, 150 - meanSaturation) / 150 + Math.max(0, 210 - meanBrightness) / 210),
-    anthracnose: Math.max(0, brownRatio * 1.8 + darkRatio + textureScore / 22000),
-    root_rot: Math.max(0, darkRatio * 2.0 + Math.max(0, 130 - meanBrightness) / 130 + Math.max(0, 80 - meanSaturation) / 80),
-    leaf_spot: Math.max(0, brownRatio * 1.2 + darkRatio + textureScore / 24000),
+    healthy:
+      Math.max(
+        0,
+        1.2 -
+          Math.abs(meanSaturation - 70) / 70 -
+          Math.abs(meanBrightness - 180) / 180 -
+          textureScore / 20000
+      ),
+
+    powdery_mildew:
+      Math.max(
+        0,
+        (150 - meanSaturation) / 150 +
+          (230 - meanBrightness) / 230 +
+          whiteRatio * 2.0
+      ),
+
+    rust:
+      Math.max(
+        0,
+        yellowRatio * 2.2 +
+          Math.max(0, meanRed + meanGreen - 2 * meanBlue) / 255
+      ),
+
+    early_blight:
+      Math.max(
+        0,
+        brownRatio * 2.0 +
+          Math.max(0, meanRed - meanGreen) / 255 +
+          textureScore / 22000
+      ),
+
+    late_blight:
+      Math.max(
+        0,
+        darkRatio * 2.2 +
+          Math.max(0, 150 - meanBrightness) / 150 +
+          textureScore / 20000
+      ),
+
+    bacterial_spot:
+      Math.max(
+        0,
+        brownRatio * 1.6 +
+          Math.max(0, meanRed - meanGreen) / 255 +
+          darkRatio
+      ),
+
+    mosaic_virus:
+      Math.max(
+        0,
+        Math.abs(meanRed - meanGreen) / 255 +
+          Math.abs(meanGreen - meanBlue) / 255 +
+          Math.max(0, 110 - meanSaturation) / 110
+      ),
+
+    downy_mildew:
+      Math.max(
+        0,
+        Math.max(0, 150 - meanSaturation) / 150 +
+          Math.max(0, 210 - meanBrightness) / 210
+      ),
+
+    anthracnose:
+      Math.max(
+        0,
+        brownRatio * 1.8 +
+          darkRatio +
+          textureScore / 22000
+      ),
+
+    root_rot:
+      Math.max(
+        0,
+        darkRatio * 2.0 +
+          Math.max(0, 130 - meanBrightness) / 130 +
+          Math.max(0, 80 - meanSaturation) / 80
+      ),
+
+    leaf_spot:
+      Math.max(
+        0,
+        brownRatio * 1.2 +
+          darkRatio +
+          textureScore / 24000
+      ),
   };
 
-  const cropHint = normalizeDiseaseKey(cropType);
-  if (cropHint === "healthy") scores.healthy += 0.2;
-  if (["early_blight", "late_blight", "bacterial_spot"].includes(cropHint)) {
-    scores[cropHint] += 0.2;
-  }
-
   const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]);
+
   const [bestKey, bestScore] = ranked[0];
   const runnerUp = ranked[1]?.[1] || 0;
-  const confidenceScore = Math.max(42, Math.min(96, 52 + bestScore * 18 + (bestScore - runnerUp) * 14));
+
+  const confidenceScore = Math.max(
+    42,
+    Math.min(
+      96,
+      52 + bestScore * 18 + (bestScore - runnerUp) * 14
+    )
+  );
+
   const diseaseInfo = getDiseaseInfo(bestKey, language);
 
   return {
     diseaseKey: bestKey,
     disease: diseaseInfo.disease,
-    severity: confidenceScore >= 80 ? "High" : confidenceScore >= 55 ? "Medium" : "Low",
+    severity:
+      confidenceScore >= 80
+        ? "High"
+        : confidenceScore >= 55
+          ? "Medium"
+          : "Low",
+
     confidence: confidenceLabel(confidenceScore),
     confidenceScore: Math.round(confidenceScore),
     treatment: diseaseInfo.treatment,
@@ -178,44 +277,12 @@ const extractLocalAnalysis = async (preview, cropType, language) => {
     pesticides: diseaseInfo.pesticides,
     organic: diseaseInfo.organic,
     method: "local-vision",
-    cues: [
-      cropType ? `Crop hint: ${cropType}` : "General crop analysis",
-      whiteRatio > 0.08 ? "Bright surface patches detected" : null,
-      darkRatio > 0.12 ? "Darkened tissue areas detected" : null,
-      yellowRatio > 0.1 ? "Yellowing or rust-like patches detected" : null,
-    ].filter(Boolean),
-  };
-};
-
-const mergeAnalysis = (analysis, language, cropType) => {
-  const diseaseKey = normalizeDiseaseKey(analysis?.diseaseKey || analysis?.disease);
-  const diseaseInfo = getDiseaseInfo(diseaseKey, language);
-  const confidenceScore = Number.isFinite(Number(analysis?.confidenceScore))
-    ? Number(analysis.confidenceScore)
-    : analysis?.confidence === "High"
-      ? 84
-      : analysis?.confidence === "Medium"
-        ? 64
-        : 44;
-
-  return {
-    cropType: analysis?.cropType || cropType,
-    diseaseKey,
-    disease: analysis?.disease || diseaseInfo.disease,
-    confidence: analysis?.confidence || confidenceLabel(confidenceScore),
-    confidenceScore: Math.max(1, Math.min(99, Math.round(confidenceScore))),
-    severity: analysis?.severity || (confidenceScore >= 80 ? "High" : confidenceScore >= 55 ? "Medium" : "Low"),
-    treatment: analysis?.treatment || diseaseInfo.treatment,
-    prevention: analysis?.prevention || diseaseInfo.prevention,
-    pesticides: Array.isArray(analysis?.pesticides) && analysis.pesticides.length > 0 ? analysis.pesticides : diseaseInfo.pesticides,
-    organic: Array.isArray(analysis?.organic) && analysis.organic.length > 0 ? analysis.organic : diseaseInfo.organic,
-    method: analysis?.method || "backend",
-    cues: Array.isArray(analysis?.cues) ? analysis.cues : [],
   };
 };
 
 export default function CropDiseaseDetection({ onClose }) {
   const { i18n } = useTranslation();
+
   const [image, setImage] = useState(null);
   const [preview, setPreview] = useState(null);
   const [cropType, setCropType] = useState("generic");
@@ -224,61 +291,154 @@ export default function CropDiseaseDetection({ onClose }) {
   const [error, setError] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const HISTORY_STORAGE_KEY = "diseaseHistory";
   const [history, setHistory] = useState([]);
+
   const fileInputRef = useRef(null);
+  const mountedRef = useRef(true);
+  const requestIdRef = useRef(0);
+  const currentImageRef = useRef(null);
+  const lastHistorySignatureRef = useRef("");
+  const detectionAbortRef = useRef(false);
+  const historySyncTimeoutRef = useRef(null);
 
   useEffect(() => {
-    setHistory(getDiseaseHistory());
+    mountedRef.current = true;
+
+    try {
+      const storedHistory = getDiseaseHistory();
+
+      if (Array.isArray(storedHistory)) {
+        const cleanedHistory = storedHistory
+          .filter(
+            (entry) =>
+              entry &&
+              typeof entry === "object" &&
+              entry.id &&
+              entry.disease
+          )
+          .slice(0, MAX_HISTORY_ITEMS);
+
+        setHistory(cleanedHistory);
+
+        lastHistorySignatureRef.current = JSON.stringify(
+          cleanedHistory.map((item) => item.id)
+        );
+      } else {
+        setHistory([]);
+      }
+    } catch (error) {
+      console.warn("Failed to load disease history");
+      setHistory([]);
+    }
+
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
     return () => {
+      detectionAbortRef.current = true;
+
       if (preview) {
         URL.revokeObjectURL(preview);
+      }
+
+      if (historySyncTimeoutRef.current) {
+        clearTimeout(historySyncTimeoutRef.current);
       }
     };
   }, [preview]);
 
   useEffect(() => {
-    const handleEsc = (event) => {
-      if (event.key === "Escape") {
-        onClose?.();
+    const syncHistoryState = () => {
+      if (historySyncTimeoutRef.current) {
+        clearTimeout(historySyncTimeoutRef.current);
       }
+
+      historySyncTimeoutRef.current = setTimeout(() => {
+        if (!mountedRef.current) return;
+
+        try {
+          const latestHistory = getDiseaseHistory();
+
+          if (!Array.isArray(latestHistory)) {
+            setHistory([]);
+            return;
+          }
+
+          const cleanedHistory = latestHistory
+            .filter(
+              (entry) =>
+                entry &&
+                typeof entry === "object" &&
+                entry.id &&
+                entry.disease
+            )
+            .slice(0, MAX_HISTORY_ITEMS);
+
+          const signature = JSON.stringify(
+            cleanedHistory.map((item) => item.id)
+          );
+
+          if (signature !== lastHistorySignatureRef.current) {
+            lastHistorySignatureRef.current = signature;
+            setHistory(cleanedHistory);
+          }
+        } catch (error) {
+          console.warn("History synchronization skipped:", error);
+        }
+      }, 180);
     };
 
-    window.addEventListener("keydown", handleEsc);
-    return () => window.removeEventListener("keydown", handleEsc);
-  }, [onClose]);
+    window.addEventListener("storage", syncHistoryState);
 
-  const resetSelection = () => {
-    if (preview) {
-      URL.revokeObjectURL(preview);
-    }
-    setImage(null);
-    setPreview(null);
-    setResult(null);
-    setError(null);
-  };
+    return () => {
+      window.removeEventListener("storage", syncHistoryState);
+
+      if (historySyncTimeoutRef.current) {
+        clearTimeout(historySyncTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleImageChange = (file) => {
     if (!file) return;
 
-    if (!file.type.startsWith("image/")) {
-      setError("Please upload a valid image file.");
+    const allowedTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "image/jpg",
+    ];
+
+    if (!allowedTypes.includes(file.type)) {
+      setError("Please upload a valid image file (JPEG, PNG, or WebP).");
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
+    const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
+
+    if (file.size > MAX_IMAGE_SIZE_BYTES) {
       setError("Image size should be less than 5MB.");
       return;
     }
 
-    if (preview) {
-      URL.revokeObjectURL(preview);
-    }
+    const objectUrl = URL.createObjectURL(file);
 
     setImage(file);
-    setPreview(URL.createObjectURL(file));
+    requestIdRef.current++;
+    currentImageRef.current = file.name;
+    detectionAbortRef.current = true;
+
+    setPreview((previous) => {
+      if (previous) {
+        URL.revokeObjectURL(previous);
+      }
+
+      return objectUrl;
+    });
     setResult(null);
     setError(null);
   };
@@ -289,10 +449,16 @@ export default function CropDiseaseDetection({ onClose }) {
     setLoading(true);
     setError(null);
 
+    const requestId = ++requestIdRef.current;
+    const imageName = image.name;
+
+    detectionAbortRef.current = false;
+
     try {
       const base64 = await fileToBase64(image);
 
       let analysis = null;
+
       try {
         const response = await apiClient.post(
           "/api/crop-disease/analyze-image",
@@ -306,32 +472,91 @@ export default function CropDiseaseDetection({ onClose }) {
 
         analysis = response.data?.analysis || response.data;
       } catch (apiError) {
-        analysis = await extractLocalAnalysis(preview, cropType, i18n.language);
-        analysis = {
-          ...analysis,
-          notes: apiError?.response?.status === 401 || apiError?.response?.status === 403
-            ? "Used local analysis because the authenticated backend was unavailable."
-            : "Used local analysis because server AI analysis was unavailable.",
-        };
+        analysis = await extractLocalAnalysis(
+          preview,
+          cropType,
+          i18n.language
+        );
       }
 
-      const detectionResult = mergeAnalysis(analysis, i18n.language, cropType);
+      const detectionResult = {
+        ...analysis,
+        cropType,
+      };
 
       try {
         const historyEntry = saveDiseaseHistory(detectionResult);
+
         if (historyEntry) {
-          setHistory((previous) => [historyEntry, ...previous]);
+          setHistory((previous) => {
+            const filtered = previous.filter(
+              (item) =>
+                item &&
+                item.id !== historyEntry.id &&
+                item.disease !== historyEntry.disease
+            );
+
+            const updatedHistory = [
+              historyEntry,
+              ...filtered,
+            ].slice(0, MAX_HISTORY_ITEMS);
+
+            lastHistorySignatureRef.current = JSON.stringify(
+              updatedHistory.map((item) => item.id)
+            );
+
+            return updatedHistory;
+          });
         }
       } catch (storageError) {
-        console.warn("Disease history could not be saved:", storageError);
+        console.warn(
+          "Disease history could not be saved:",
+          storageError
+        );
+      }
+
+      if (
+        !mountedRef.current ||
+        detectionAbortRef.current ||
+        requestId !== requestIdRef.current ||
+        imageName !== currentImageRef.current
+      ) {
+        return;
       }
 
       setResult(detectionResult);
     } catch (err) {
-      setError(err?.message || "Detection failed. Try again.");
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        setError(
+          err?.message || "Detection failed. Try again."
+        );
+      }
     } finally {
-      setLoading(false);
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        setLoading(false);
+      }
     }
+  };
+
+  const resetSelection = () => {
+    requestIdRef.current++;
+    detectionAbortRef.current = true;
+    currentImageRef.current = null;
+
+    if (preview) {
+      URL.revokeObjectURL(preview);
+    }
+
+    setImage(null);
+    setPreview(null);
+    setResult(null);
+    setError(null);
   };
 
   const resultConfidenceWidth = result?.confidenceScore || (result?.confidence === "High" ? 84 : result?.confidence === "Medium" ? 62 : 38);
@@ -663,8 +888,14 @@ export default function CropDiseaseDetection({ onClose }) {
               </h3>
               <button
                 onClick={() => {
-                  if (window.confirm("Clear all disease history?")) {
-                    localStorage.removeItem("diseaseHistory");
+                  if (typeof window !== "undefined" && window.confirm("Clear all disease history?")) {
+                    try {
+                      localStorage.removeItem(HISTORY_STORAGE_KEY);
+                    } catch (err) {
+                      console.error("Failed to clear history:", err);
+                    }
+
+                    lastHistorySignatureRef.current = "";
                     setHistory([]);
                   }
                 }}
