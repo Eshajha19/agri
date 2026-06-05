@@ -31,14 +31,9 @@ def setup_logging():
 
     handler.setFormatter(formatter)
 
-    logging.basicConfig(
-        level=logging.INFO,
-        handlers=[handler],
-        format="%(asctime)s - %(name)s - %(levelname)s - "
-               "%(funcName)s:%(lineno)d - %(message)s",
-    )
-
     logger = logging.getLogger(__name__)
     logger.addFilter(context_filter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
 
     return logger
