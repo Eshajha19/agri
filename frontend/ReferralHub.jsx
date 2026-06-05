@@ -25,6 +25,8 @@ export default function ReferralHub() {
   const [success, setSuccess] = useState("");
   const [redeemCode, setRedeemCode] = useState(searchParams.get("ref") || "");
   const [data, setData] = useState(null);
+  const mountedRef = React.useRef(true);
+  const requestIdRef = React.useRef(0);
 
   const progressPercent = useMemo(() => {
     const next = data?.milestones?.next;
@@ -56,6 +58,8 @@ export default function ReferralHub() {
   };
 
   const fetchDashboard = async () => {
+    const requestId = ++requestIdRef.current;
+
     setLoading(true);
     setError("");
     try {
@@ -130,36 +134,63 @@ export default function ReferralHub() {
         villages = lbData?.villages || [];
       }
 
-      setData({
-        referralCode,
-        referralLink,
-        share: {
-          whatsapp: `https://wa.me/?text=Join%20Fasal%20Saathi%20using%20my%20referral%20code%20${referralCode}%20-%20${referralLink}`,
-          sms: `sms:?body=Join%20Fasal%20Saathi%20using%20my%20referral%20code%20${referralCode}%20-%20${referralLink}`,
-        },
-        stats: {
-          referralCount,
-          referralPoints,
-          referralBadge,
-          community,
-          unlockedPremium,
-        },
-        milestones: {
-          all: milestones,
-          unlocked: unlockedMilestones,
-          next: nextMilestone,
-        },
-        history,
-        leaderboard: { farmers, villages },
-      });
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        setData({
+          referralCode,
+          referralLink,
+          share: {
+            whatsapp: `https://wa.me/?text=Join%20Fasal%20Saathi%20using%20my%20referral%20code%20${referralCode}%20-%20${referralLink}`,
+            sms: `sms:?body=Join%20Fasal%20Saathi%20using%20my%20referral%20code%20${referralCode}%20-%20${referralLink}`,
+          },
+          stats: {
+            referralCount,
+            referralPoints,
+            referralBadge,
+            community,
+            unlockedPremium,
+          },
+          milestones: {
+            all: milestones,
+            unlocked: unlockedMilestones,
+            next: nextMilestone,
+          },
+          history,
+          leaderboard: { farmers, villages },
+        });
+      }
     } catch (err) {
-      const msg = err?.message || "Unable to load referral dashboard. Please try again.";
-      setError(msg);
-      setData(null);
+      const msg =
+        err?.message ||
+        "Unable to load referral dashboard. Please try again.";
+
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        setError(msg);
+        setData(null);
+      }
     } finally {
-      setLoading(false);
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        setLoading(false);
+      }
     }
   };
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      requestIdRef.current++;
+    };
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -200,6 +231,7 @@ export default function ReferralHub() {
 
   const redeemReferral = async (event) => {
     event.preventDefault();
+    const redeemRequestId = ++requestIdRef.current;
     if (!redeemCode.trim()) {
       setError("Enter a referral code first.");
       return;
@@ -294,6 +326,13 @@ export default function ReferralHub() {
         premiumUnlocked: newReferrerCount >= 5,
         updatedAt: createdAt,
       });
+
+      if (
+        !mountedRef.current ||
+        redeemRequestId !== requestIdRef.current
+      ) {
+        return;
+      }
 
       setSuccess("Referral redeemed successfully!");
       setRedeemCode("");
