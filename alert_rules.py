@@ -1,241 +1,393 @@
 from datetime import datetime
 from typing import Optional
 import logging
-from functools import lru_cache
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-SEASON_MONTHS = {
-    "kharif": {6, 7, 8, 9},
-    "rabi": {11, 12, 1, 2},
-    "zaid": {3, 4, 5, 10}
-}
-
-CROP_SEASON_MAP = {
-    "rice": {"kharif", "rabi"},
-    "maize": {"kharif", "zaid"},
-    "soybean": {"kharif"},
-    "cotton": {"kharif"},
-    "wheat": {"rabi"},
-    "mustard": {"rabi"},
-    "chickpea": {"rabi"},
-    "moong": {"zaid"},
-    "watermelon": {"zaid"},
-    "cucumber": {"zaid"},
-}
-
-CROP_ADVISORIES = {
+CROP_THRESHOLDS = {
     "rice": {
-        "message": "Rice advisory: Maintain 2-5 cm standing water during tillering stage for best yield.",
-        "critical_stages": ["tillering", "panicle initiation", "flowering"]
+        "temp_min": 20,
+        "temp_max": 30,
+        "moisture_min": 50,
+        "ph_min": 6.0,
+        "ph_max": 7.5,
+        "critical_stages": ["tillering", "flowering", "grain-filling"]
     },
     "wheat": {
-        "message": "Wheat advisory: First irrigation at crown root initiation (21 days after sowing) is critical.",
-        "critical_stages": ["crown root", "tillering", "grain filling"]
+        "temp_min": 10,
+        "temp_max": 25,
+        "moisture_min": 30,
+        "ph_min": 6.5,
+        "ph_max": 7.5,
+        "critical_stages": ["crown-root-initiation", "tillering", "flowering"]
+    },
+    "cotton": {
+        "temp_min": 21,
+        "temp_max": 27,
+        "moisture_min": 35,
+        "ph_min": 6.0,
+        "ph_max": 7.5,
+        "critical_stages": ["flowering", "boll-formation"]
     },
     "maize": {
-        "message": "Maize advisory: Ensure irrigation at tasseling and silking stages to prevent yield loss.",
-        "critical_stages": ["tasseling", "silking", "grain fill"]
+        "temp_min": 18,
+        "temp_max": 26,
+        "moisture_min": 40,
+        "ph_min": 6.0,
+        "ph_max": 7.0,
+        "critical_stages": ["tasseling", "silking", "grain-filling"]
     },
-}
-
-SEASON_ADVISORIES = {
-    "kharif": "Kharif season active. Ideal crops: Rice, Maize, Soybean, Cotton. Ensure adequate drainage.",
-    "rabi": "Rabi season active. Ideal crops: Wheat, Mustard, Chickpea. Monitor for frost risk.",
-    "zaid": "Zaid season active. Suitable for Moong, Watermelon, Cucumber. Watch for heat stress.",
-}
-
-
-@lru_cache(maxsize=12)
-def get_season_from_month(month: int) -> str:
-    """Get agricultural season from month number (cached)."""
-    if month < 1 or month > 12:
-        raise ValueError(f"Invalid month: {month}")
-    for season, months in SEASON_MONTHS.items():
-        if month in months:
-            return season
-    raise ValueError(f"No season found for month: {month}")
-
-
-def _is_duplicate_alert(alerts: list[dict], new_type: str, new_message: str) -> bool:
-    """Check if alert already exists to prevent duplicates."""
-    return any(
-        alert.get("type") == new_type and alert.get("message") == new_message
-        for alert in alerts
-    )
-
-
-def _add_alert(
-    alerts: list[dict],
-    alert_type: str,
-    message: str,
-    now: datetime,
-    severity: Optional[str] = None
-) -> bool:
-    """Add alert if not duplicate. Returns True if added."""
-    if _is_duplicate_alert(alerts, alert_type, message):
-        logger.debug("Skipped duplicate alert: %s", message[:50])
-        return False
-
-    alert_id = len(alerts) + 1
-    alert = {
-        "id": alert_id,
-        "type": alert_type,
-        "message": message,
-        "time": now.isoformat(),
+    "sugarcane": {
+        "temp_min": 20,
+        "temp_max": 28,
+        "moisture_min": 45,
+        "ph_min": 6.5,
+        "ph_max": 8.0,
+        "critical_stages": ["sprouting", "grand-growth-phase"]
     }
-    if severity:
-        alert["severity"] = severity
-
-    alerts.append(alert)
-    logger.debug("Added alert #%d: %s (type=%s)", alert_id, message[:50], alert_type)
-    return True
+}
 
 
-def _generate_water_alerts(
-    alerts: list[dict],
-    irrigation_count: Optional[int],
-    water_coverage: Optional[int],
-    now: datetime
-) -> None:
-    """Generate water management related alerts."""
-    if water_coverage is not None:
-        if water_coverage < 25:
-            _add_alert(
-                alerts,
-                "critical",
-                f"Water coverage is critically low at {water_coverage}%. Urgent irrigation needed to prevent crop failure.",
-                now,
-                "critical"
-            )
-        elif water_coverage < 40:
-            _add_alert(
-                alerts,
-                "warning",
-                f"Water coverage is only {water_coverage}%. Consider increasing irrigation to avoid crop stress.",
-                now,
-                "warning"
-            )
-
-    if irrigation_count is not None:
-        if irrigation_count > 8:
-            _add_alert(
-                alerts,
-                "critical",
-                f"Excessive irrigation count ({irrigation_count}). Risk of waterlogging and soil degradation.",
-                now,
-                "critical"
-            )
-        elif irrigation_count > 6:
-            _add_alert(
-                alerts,
-                "warning",
-                f"High irrigation count ({irrigation_count}). Excess irrigation may cause waterlogging.",
-                now,
-                "warning"
-            )
-        elif irrigation_count < 2:
-            _add_alert(
-                alerts,
-                "warning",
-                f"Very low irrigation count ({irrigation_count}). Consider increasing frequency based on season.",
-                now,
-                "warning"
-            )
-
-
-def _generate_season_alerts(
-    alerts: list[dict],
-    current_season: str,
-    now: datetime
-) -> None:
-    """Generate season-specific recommendations."""
-    if current_season in SEASON_ADVISORIES:
-        _add_alert(
-            alerts,
-            "recommendation",
-            SEASON_ADVISORIES[current_season],
-            now
-        )
-
-
-def _generate_crop_alerts(
-    alerts: list[dict],
-    crop: Optional[str],
-    current_season: str,
-    now: datetime
-) -> None:
-    """Generate crop-specific advisories."""
-    if not crop:
-        return
-
-    if crop in CROP_ADVISORIES:
-        _add_alert(
-            alerts,
-            "info",
-            CROP_ADVISORIES[crop]["message"],
-            now
-        )
-
-    if crop in CROP_SEASON_MAP:
-        suitable_seasons = CROP_SEASON_MAP[crop]
-        if current_season not in suitable_seasons:
-            logger.warning(
-                "Crop %s not ideal for season %s. Suitable: %s",
-                crop, current_season, suitable_seasons
-            )
-
-
-def generate_alerts(
+def validate_inputs(
     crop: Optional[str] = None,
+    temperature: Optional[float] = None,
+    soil_moisture: Optional[float] = None,
+    humidity: Optional[float] = None,
+    ph: Optional[float] = None,
+    phosphorus: Optional[float] = None,
     irrigation_count: Optional[int] = None,
     water_coverage: Optional[int] = None,
     season: Optional[str] = None
-) -> list[dict]:
-    """
-    Generate deduped, actionable agricultural alerts.
+) -> Dict[str, Any]:
+    errors = []
 
-    Implements deduplication to prevent duplicate alerts, categorizes
-    by severity, and provides crop/season-specific recommendations.
+    if crop and crop.strip().lower() not in CROP_THRESHOLDS:
+        errors.append(f"Invalid crop. Supported: {', '.join(CROP_THRESHOLDS.keys())}")
 
-    Args:
-        crop: Crop type (rice, wheat, maize, etc.)
-        irrigation_count: Number of irrigations applied
-        water_coverage: Percentage of field irrigated
-        season: Season name (kharif, rabi, zaid) or auto-detected
+    if temperature is not None and (temperature < -50 or temperature > 60):
+        errors.append("Temperature must be between -50°C and 60°C")
+
+    if soil_moisture is not None and (soil_moisture < 0 or soil_moisture > 100):
+        errors.append("Soil moisture must be between 0% and 100%")
+
+    if humidity is not None and (humidity < 0 or humidity > 100):
+        errors.append("Humidity must be between 0% and 100%")
+
+    if ph is not None and (ph < 3 or ph > 10):
+        errors.append("pH must be between 3.0 and 10.0")
+
+    if phosphorus is not None and phosphorus < 0:
+        errors.append("Phosphorus level cannot be negative")
+
+    if irrigation_count is not None and irrigation_count < 0:
+        errors.append("Irrigation count cannot be negative")
+
+    if water_coverage is not None and (water_coverage < 0 or water_coverage > 100):
+        errors.append("Water coverage must be between 0% and 100%")
+
+    if season and season.strip().lower() not in {"kharif", "rabi", "zaid"}:
+        errors.append("Season must be one of: kharif, rabi, zaid")
+
+    if errors:
+        logger.error(f"Validation errors: {', '.join(errors)}")
+        return {
+            "valid": False,
+            "errors": errors
+        }
+
+    return {"valid": True, "errors": []}
+
+
+def get_season_from_month(month: int) -> str:
+    if month < 1 or month > 12:
+        raise ValueError(f"Invalid month: {month}")
+    if month in [6, 7, 8, 9]:
+        return "kharif"
+    elif month in [11, 12, 1, 2]:
+        return "rabi"
+    return "zaid"
+
+
+def generate_weather_advisories(
+    temperature: Optional[float] = None,
+    humidity: Optional[float] = None,
+    alerts: List[Dict] = None
+) -> List[Dict]:
+    if alerts is None:
+        alerts = []
+
+    try:
+        if temperature is not None:
+            if temperature >= 40:
+                alerts.append({
+                    "type": "critical",
+                    "message": f"Extreme heat stress detected ({temperature}°C). Increase irrigation frequency immediately.",
+                    "category": "weather"
+                })
+            elif temperature >= 38:
+                alerts.append({
+                    "type": "warning",
+                    "message": f"High temperature stress ({temperature}°C). Monitor crops for wilting.",
+                    "category": "weather"
+                })
+            elif temperature >= 34:
+                alerts.append({
+                    "type": "info",
+                    "message": f"Warm day ahead ({temperature}°C). Ensure adequate water availability.",
+                    "category": "weather"
+                })
+
+        if humidity is not None:
+            if humidity >= 85:
+                alerts.append({
+                    "type": "critical",
+                    "message": f"High humidity ({humidity}%) - fungal disease risk imminent. Apply fungicides.",
+                    "category": "weather"
+                })
+            elif humidity < 30:
+                alerts.append({
+                    "type": "info",
+                    "message": f"Low humidity ({humidity}%) - drought risk. Increase irrigation.",
+                    "category": "weather"
+                })
+    except Exception as e:
+        logger.error(f"Error generating weather advisories: {e}")
+        alerts.append({
+            "type": "error",
+            "message": "Error processing weather data",
+            "category": "weather"
+        })
+
+    return alerts
+
+
+def generate_soil_advisories(
+    soil_moisture: Optional[float] = None,
+    ph: Optional[float] = None,
+    phosphorus: Optional[float] = None,
+    alerts: List[Dict] = None
+) -> List[Dict]:
+    if alerts is None:
+        alerts = []
+
+    try:
+        if soil_moisture is not None:
+            if soil_moisture < 15:
+                alerts.append({
+                    "type": "critical",
+                    "message": f"Severe soil moisture deficit ({soil_moisture}%). Crop stress imminent.",
+                    "category": "soil"
+                })
+            elif soil_moisture < 25:
+                alerts.append({
+                    "type": "warning",
+                    "message": f"Low soil moisture ({soil_moisture}%). Plan irrigation soon.",
+                    "category": "soil"
+                })
+
+        if ph is not None:
+            if ph < 5.5:
+                alerts.append({
+                    "type": "critical",
+                    "message": f"Soil too acidic (pH {ph}). Apply lime to raise pH.",
+                    "category": "soil"
+                })
+            elif ph < 5.8 or ph > 8.0:
+                alerts.append({
+                    "type": "warning",
+                    "message": f"Soil moderately acidic/alkaline (pH {ph}). Consider adjustment.",
+                    "category": "soil"
+                })
+            elif 5.8 <= ph <= 8.0:
+                alerts.append({
+                    "type": "info",
+                    "message": f"Soil pH acceptable (pH {ph}).",
+                    "category": "soil"
+                })
+
+        if phosphorus is not None and phosphorus > 50:
+            alerts.append({
+                "type": "warning",
+                "message": f"High phosphorus level ({phosphorus} ppm). Avoid excessive P fertilization.",
+                "category": "soil"
+            })
+    except Exception as e:
+        logger.error(f"Error generating soil advisories: {e}")
+        alerts.append({
+            "type": "error",
+            "message": "Error processing soil data",
+            "category": "soil"
+        })
+
+    return alerts
+
 
     Returns:
         List of unique, non-duplicate alerts with time and type.
     """
     alerts: list[dict] = []
     now = datetime.now()
+def generate_crop_advisories(
+    crop: Optional[str] = None,
+    temperature: Optional[float] = None,
+    soil_moisture: Optional[float] = None,
+    alerts: List[Dict] = None
+) -> List[Dict]:
+    if alerts is None:
+        alerts = []
 
     try:
-        crop = crop.strip().lower() if crop else None
-        normalized_season = season.strip().lower() if season else None
+        if not crop:
+            return alerts
 
-        if normalized_season not in SEASON_MONTHS:
-            current_season = get_season_from_month(now.month)
-        else:
-            current_season = normalized_season
-    except (ValueError, AttributeError) as exc:
-        logger.error("Error normalizing inputs: %s", exc)
-        current_season = get_season_from_month(now.month)
+        crop_lower = crop.strip().lower()
+        if crop_lower not in CROP_THRESHOLDS:
+            return alerts
 
-    try:
-        _generate_water_alerts(alerts, irrigation_count, water_coverage, now)
-    except Exception as exc:
-        logger.error("Error generating water alerts: %s", exc, exc_info=True)
+        thresholds = CROP_THRESHOLDS[crop_lower]
 
-    try:
-        _generate_season_alerts(alerts, current_season, now)
-    except Exception as exc:
-        logger.error("Error generating season alerts: %s", exc, exc_info=True)
+        if crop_lower == "rice":
+            if soil_moisture is not None and soil_moisture < 30:
+                alerts.append({
+                    "type": "warning",
+                    "message": "Rice water management: Maintain 2-5 cm standing water during tillering.",
+                    "category": "crop"
+                })
+            alerts.append({
+                "type": "info",
+                "message": "Rice advisory: Monitor for drought stress during critical stages.",
+                "category": "crop"
+            })
 
-    try:
-        _generate_crop_alerts(alerts, crop, current_season, now)
-    except Exception as exc:
-        logger.error("Error generating crop alerts: %s", exc, exc_info=True)
+        elif crop_lower == "wheat":
+            alerts.append({
+                "type": "info",
+                "message": "Wheat advisory: First irrigation at crown root initiation (21 days) is critical.",
+                "category": "crop"
+            })
 
-    logger.info("Generated %d unique alerts for crop=%s, season=%s", len(alerts), crop or "unknown", current_season)
+        elif crop_lower == "cotton":
+            alerts.append({
+                "type": "info",
+                "message": "Cotton advisory: Scout for pests during flowering and boll formation.",
+                "category": "crop"
+            })
+            if phosphorus is not None and phosphorus > 40:
+                alerts.append({
+                    "type": "warning",
+                    "message": "Cotton: Excess nitrogen can increase vegetative growth. Monitor balance.",
+                    "category": "crop"
+                })
+
+        elif crop_lower == "maize":
+            if temperature is not None and temperature >= 38:
+                alerts.append({
+                    "type": "warning",
+                    "message": "Maize: High heat during tasseling/silking causes pollen sterility.",
+                    "category": "crop"
+                })
+            alerts.append({
+                "type": "info",
+                "message": "Maize: Ensure irrigation at tasseling and silking stages.",
+                "category": "crop"
+            })
+
+        elif crop_lower == "sugarcane":
+            alerts.append({
+                "type": "info",
+                "message": "Sugarcane: Demands high water and nutrient availability during growth.",
+                "category": "crop"
+            })
+    except Exception as e:
+        logger.error(f"Error generating crop advisories: {e}")
+        alerts.append({
+            "type": "error",
+            "message": f"Error processing crop data for {crop}",
+            "category": "crop"
+        })
+
+    return alerts
+
+
+def generate_alerts(
+    crop: Optional[str] = None,
+    temperature: Optional[float] = None,
+    irrigation_count: Optional[int] = None,
+    water_coverage: Optional[int] = None,
+    soil_moisture: Optional[float] = None,
+    humidity: Optional[float] = None,
+    ph: Optional[float] = None,
+    phosphorus: Optional[float] = None,
+    season: Optional[str] = None
+) -> list:
+    now = datetime.now()
+
+    validation = validate_inputs(
+        crop=crop, temperature=temperature, soil_moisture=soil_moisture,
+        humidity=humidity, ph=ph, phosphorus=phosphorus,
+        irrigation_count=irrigation_count, water_coverage=water_coverage, season=season
+    )
+
+    if not validation["valid"]:
+        logger.warning(f"Invalid input: {validation['errors']}")
+        return [{
+            "id": 1,
+            "type": "error",
+            "message": f"Input validation failed: {'; '.join(validation['errors'])}",
+            "time": now.isoformat()
+        }]
+
+    alerts = []
+
+    crop_lower = crop.strip().lower() if crop else None
+    normalized_season = season.strip().lower() if season else None
+    current_season = (
+        normalized_season
+        if normalized_season in {"kharif", "rabi", "zaid"}
+        else get_season_from_month(now.month)
+    )
+
+    alerts = generate_weather_advisories(temperature=temperature, humidity=humidity, alerts=alerts)
+    alerts = generate_soil_advisories(soil_moisture=soil_moisture, ph=ph, phosphorus=phosphorus, alerts=alerts)
+    alerts = generate_crop_advisories(crop=crop, temperature=temperature, soil_moisture=soil_moisture, alerts=alerts)
+
+    if water_coverage is not None and water_coverage < 40:
+        alerts.append({
+            "type": "warning",
+            "message": f"Water coverage is only {water_coverage}%. Consider increasing irrigation.",
+            "category": "irrigation"
+        })
+
+    if irrigation_count is not None and irrigation_count > 6:
+        alerts.append({
+            "type": "warning",
+            "message": f"High irrigation count ({irrigation_count}). Excess may cause waterlogging.",
+            "category": "irrigation"
+        })
+
+    if current_season == "kharif":
+        alerts.append({
+            "type": "recommendation",
+            "message": "Kharif season active. Ideal: Rice, Maize, Soybean, Cotton. Ensure drainage.",
+            "category": "season"
+        })
+    elif current_season == "rabi":
+        alerts.append({
+            "type": "recommendation",
+            "message": "Rabi season active. Ideal: Wheat, Mustard, Chickpea. Monitor frost.",
+            "category": "season"
+        })
+    elif current_season == "zaid":
+        alerts.append({
+            "type": "recommendation",
+            "message": "Zaid season active. Suitable: Moong, Watermelon, Cucumber. Watch heat.",
+            "category": "season"
+        })
+
+    for idx, alert in enumerate(alerts, 1):
+        alert["id"] = idx
+        alert["time"] = now.isoformat()
+
+    logger.info(f"Generated {len(alerts)} advisories for crop={crop}")
     return alerts

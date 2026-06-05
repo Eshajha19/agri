@@ -132,7 +132,12 @@ class ContextFilter(logging.Filter):
         self.context = {}
 
     def filter(self, record):
-        record.context = self.context
+        # Only add context to the log record if context is not empty.
+        # Prevents cluttering logs with unused context attributes.
+        if self.context:
+            record.context = self.context
+        else:
+            record.context = ""
         return True
 
 # Configure structured logging with detailed formatting
@@ -151,6 +156,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 logger.addFilter(_context_filter)
+_handler.setLevel(logging.INFO)
+
+logger = logging.getLogger(__name__)
+logger.addFilter(_context_filter)
+logger.addHandler(_handler)
+logger.setLevel(logging.INFO)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -915,6 +926,21 @@ def _build_gdpr_deletion_targets(uid: str) -> list[DeletionTarget]:
 @limiter.limit("60/minute")
 def root(request: Request = None):
     return {"message": "Fasal Saathi API", "status": "running"}
+
+
+@app.get("/health/disk")
+@limiter.limit("60/minute")
+def health_disk(request: Request = None):
+    """
+    Price forecaster disk usage and log rotation health.
+    Returns 503 if disk usage >90% or forecasts log is missing.
+    """
+    from ml.price_forecaster import get_price_forecaster
+    forecaster = get_price_forecaster()
+    health = forecaster.disk_health()
+    if health.get("healthy"):
+        return health
+    raise HTTPException(status_code=503, detail=health)
 
 @app.get("/predict")
 @limiter.limit("30/minute")

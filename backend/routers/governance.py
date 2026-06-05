@@ -12,6 +12,13 @@ router = APIRouter()
 _SAFE_PATH_RE = re.compile(r"^[A-Za-z0-9_./ -]+$")
 
 
+class DriftCheckRequest(BaseModel):
+    """Request body for the POST /drift/check endpoint."""
+    model_name: str = Field(..., min_length=1, max_length=50)
+    prediction: float
+    actual_value: float
+
+
 class RegisterModelVersionRequest(BaseModel):
     model_name: str = Field(..., min_length=1, max_length=50)
     # max_length=512 is generous for any real model path while preventing
@@ -38,11 +45,6 @@ class RegisterModelVersionRequest(BaseModel):
             )
         return v
 
-class DriftCheckRequest(BaseModel):
-    model_name: str = Field(..., min_length=1, max_length=50)
-    prediction: float
-    actual_value: float
-
 drift_detector = None
 shadow_evaluator = None
 version_manager = None
@@ -64,14 +66,20 @@ async def _require_auth(request: Request) -> str:
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth not initialized")
     token_data = await verify_role_fn(request)
-    return token_data["uid"]
+    uid = token_data.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+    return uid
 
 
 async def _require_admin_auth(request: Request) -> str:
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth not initialized")
     token_data = await verify_role_fn(request, required_roles=["admin", "expert"])
-    return token_data["uid"]
+    uid = token_data.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+    return uid
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +232,7 @@ async def get_governance_status(request: Request):
     return {
         "success": True,
         "governance_status": {
-            "drift_alerts": len(drift_detector.get_alerts("all")),
+            "drift_alerts": len(drift_detector.get_alerts()),
             "active_evals": len(shadow_evaluator.get_evaluations()),
             "total_versions": len(version_manager.list_versions()),
         },

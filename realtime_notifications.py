@@ -22,6 +22,7 @@ from geo_alerts import notification_matches_regions, resolve_subscription_region
 from notification_auth import filter_notifications_for_user, notification_visible_to_user
 
 logger = logging.getLogger(__name__)
+MAX_DELIVERY_RECORDS = 10000
 
 
 class NotificationPriority(str, Enum):
@@ -102,18 +103,6 @@ class _ConnectionSubscription:
     regions: frozenset[str]
 
 
-@dataclass(slots=True)
-class _ConnectionSubscription:
-    uid: str
-    regions: frozenset[str]
-
-
-@dataclass(slots=True)
-class _ConnectionSubscription:
-    uid: str
-    regions: frozenset[str]
-
-
 class NotificationBroadcastHub:
     """Broadcasts notifications to connected WebSocket clients.
 
@@ -134,6 +123,7 @@ class NotificationBroadcastHub:
         redis_channel: str = "fasal_saathi.notifications",
         enable_persistence: bool = True,
         dedup_window_seconds: int = 300,
+        max_delivery_records: int = MAX_DELIVERY_RECORDS,
     ) -> None:
         self._history: Deque[Dict[str, Any]] = collections.deque(maxlen=history_limit)
         self._connections: dict[WebSocket, _ConnectionSubscription] = {}
@@ -154,7 +144,8 @@ class NotificationBroadcastHub:
 
         # Persistence and delivery tracking
         self._enable_persistence = enable_persistence
-        self._delivery_records: Dict[str, NotificationDeliveryRecord] = {}
+        self._max_delivery_records = max(1, max_delivery_records)
+        self._delivery_records: collections.OrderedDict[str, NotificationDeliveryRecord] = collections.OrderedDict()
         self._pending_notifications: Deque[NotificationEvent] = collections.deque()
         self._dead_letter_queue: Deque[NotificationDeliveryRecord] = collections.deque(maxlen=10000)
         self._retry_queue: List[tuple[float, NotificationDeliveryRecord]] = []
@@ -346,6 +337,69 @@ class NotificationBroadcastHub:
                 for websocket in stale_clients:
                     self._connections.pop(websocket, None)
 
+    async def _persist_notification(self, event: NotificationEvent, uid: str) -> None:
+        """Track targeted notification delivery with bounded memory usage."""
+        if not self._enable_persistence:
+            return
+
+        record = NotificationDeliveryRecord(
+            notification_id=event.notification_id or f"{event.type}-{int(time.time() * 1000)}",
+            user_id=uid,
+            priority=event.priority,
+            status=DeliveryStatus.PENDING,
+            created_at=event.created_at or datetime.now().isoformat(),
+        )
+
+        async with self._persistence_lock:
+            if record.notification_id in self._delivery_records:
+                self._delivery_records.pop(record.notification_id)
+            elif len(self._delivery_records) >= self._max_delivery_records:
+                self._delivery_records.popitem(last=False)
+            self._delivery_records[record.notification_id] = record
+
+    def _is_duplicate_notification(self, event: NotificationEvent) -> bool:
+        """Return whether the same notification content was recently published."""
+        now = time.time()
+        expired_hashes = [
+            content_hash
+            for content_hash, seen_at in self._recent_hashes.items()
+            if now - seen_at > self._dedup_window
+        ]
+        for content_hash in expired_hashes:
+            self._recent_hashes.pop(content_hash, None)
+
+        content_hash = event.get_content_hash()
+        if content_hash in self._recent_hashes:
+            return True
+
+        self._recent_hashes[content_hash] = now
+        return False
+
+    async def _route_to_priority_queue(self, event: NotificationEvent) -> None:
+        """Place events into their priority queue for reliability bookkeeping."""
+        if event.priority == NotificationPriority.CRITICAL:
+            self._critical_queue.append(event)
+        elif event.priority == NotificationPriority.WARNING:
+            self._warning_queue.append(event)
+        else:
+            self._info_queue.append(event)
+
+    async def _process_retry_queue(self) -> None:
+        """Keep retry task alive until delivery retry processing is implemented."""
+        try:
+            while True:
+                await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            raise
+
+    async def _process_priority_queues(self) -> None:
+        """Keep priority task alive until deferred queue processing is implemented."""
+        try:
+            while True:
+                await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            raise
+
     async def _redis_listener(self) -> None:
         try:
             async for message in self._redis_pubsub.listen():
@@ -369,6 +423,50 @@ class NotificationBroadcastHub:
             raise
         except Exception as exc:
             logger.warning("Notification pub-sub listener stopped: %s", exc)
+
+    def _is_duplicate_notification(self, event: NotificationEvent) -> bool:
+        h = event.get_content_hash()
+        now = time.time()
+        self._recent_hashes = {k: ts for k, ts in self._recent_hashes.items() if now - ts < self._dedup_window}
+        if h in self._recent_hashes:
+            return True
+        self._recent_hashes[h] = now
+        return False
+
+    async def _route_to_priority_queue(self, event: NotificationEvent) -> None:
+        if event.priority == NotificationPriority.CRITICAL:
+            self._critical_queue.append(event)
+        elif event.priority == NotificationPriority.WARNING:
+            self._warning_queue.append(event)
+        else:
+            self._info_queue.append(event)
+
+    async def _persist_notification(self, event: NotificationEvent, uid: str) -> None:
+        now_str = datetime.now().isoformat()
+        record = NotificationDeliveryRecord(
+            notification_id=event.notification_id,
+            user_id=uid,
+            priority=event.priority,
+            status=DeliveryStatus.PENDING,
+            created_at=now_str
+        )
+        async with self._persistence_lock:
+            self._delivery_records[event.notification_id] = record
+            self._pending_notifications.append(event)
+
+    async def _process_retry_queue(self) -> None:
+        try:
+            while True:
+                await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            pass
+
+    async def _process_priority_queues(self) -> None:
+        try:
+            while True:
+                await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            pass
 
 
 notification_broker = NotificationBroadcastHub()
