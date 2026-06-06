@@ -102,6 +102,33 @@ def test_targeted_notification_only_reaches_intended_client():
     assert not notification_visible_to_user(notification, "bob")
 
 
+def test_snapshot_returns_copy_of_notification_history():
+    hub = NotificationBroadcastHub(history_limit=10)
+    hub.seed_notifications(
+        [
+            {
+                "id": 1,
+                "type": "advisory",
+                "message": "Irrigate crops early in the morning.",
+                "recipient_uid": None,
+            }
+        ]
+    )
+
+    snapshot = asyncio.run(hub.snapshot())
+
+    assert snapshot == [
+        {
+            "id": 1,
+            "type": "advisory",
+            "message": "Irrigate crops early in the morning.",
+            "recipient_uid": None,
+        }
+    ]
+
+    snapshot.append({"id": 2, "type": "weather"})
+
+    assert len(asyncio.run(hub.snapshot())) == 1
 def test_connection_subscription_has_single_definition():
     source_path = Path(__file__).with_name("realtime_notifications.py")
     module = ast.parse(source_path.read_text(encoding="utf-8"))
