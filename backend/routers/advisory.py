@@ -71,13 +71,24 @@ class _BoundedUidStore:
         """Ensure *uid* has a deque entry, evicting the LRU entry if needed.
 
         Must be called with ``self._lock`` already held.
+
+        Uses a retry loop to guarantee the size limit is respected even
+        under high concurrency where multiple threads may observe the
+        same pre-eviction size.  Each iteration evicts one LRU entry and
+        rechecks the size, ensuring that when we finally add the new entry
+        the store is guaranteed to be within capacity.
         """
-        if uid in self._data:
-            self._data.move_to_end(uid)
-        else:
-            if len(self._data) >= self._max_uids:
-                self._data.popitem(last=False)  # evict LRU
-            self._data[uid] = deque(maxlen=self._deque_maxlen)
+        with self._lock:
+            while True:
+                if uid in self._data:
+                    self._data.move_to_end(uid)
+                    return
+                if len(self._data) < self._max_uids:
+                    self._data[uid] = deque(maxlen=self._deque_maxlen)
+                    return
+                # Capacity reached — evict one entry and retry to ensure we
+                # never exceed _max_uids even under concurrent contention.
+                self._data.popitem(last=False)
 
 
 _stored_alerts = _BoundedUidStore(deque_maxlen=_MAX_STORED_ALERTS)
@@ -440,8 +451,12 @@ def _load_graph_history(uid: str) -> list[dict[str, Any]]:
             if items:
                 items.sort(key=lambda item: item.get("createdAt", ""), reverse=True)
                 return items
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Firestore history lookup failed for uid=%s, falling back to in-memory store: %s",
+                uid,
+                exc,
+            )
 
     return _graph_history.get(uid)
 
@@ -510,6 +525,16 @@ class AdvisoryRequest(BaseModel):
     crop_type: Optional[str] = Field(default=None, max_length=50)
     store_alerts: bool = False
 
+    @field_validator("crop_type", mode="before")
+    @classmethod
+    def _strip_and_reject_whitespace_only(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            stripped = v.strip()
+            if stripped == "":
+                raise ValueError("crop_type must not be blank or whitespace-only")
+            return stripped
+        return v
+
     @field_validator("weather", "soil", mode="before")
     @classmethod
     def _limit_dict_size(cls, v: Any, info) -> Any:
@@ -528,6 +553,16 @@ class FarmIntelligenceRequest(BaseModel):
     market: dict[str, Any] = Field(default_factory=dict)
     location: Optional[str] = Field(default=None, max_length=120)
     store_history: bool = True
+
+    @field_validator("crop_type", "location", mode="before")
+    @classmethod
+    def _strip_and_reject_whitespace_only(cls, v: Any, info) -> Any:
+        if isinstance(v, str):
+            stripped = v.strip()
+            if stripped == "" and info.field_name == "crop_type":
+                raise ValueError("crop_type must not be blank or whitespace-only")
+            return stripped
+        return v
 
     @field_validator("weather", "soil", "pest", "market", mode="before")
     @classmethod
@@ -604,12 +639,21 @@ async def create_farm_intelligence(payload: "FarmIntelligenceRequest", request: 
     # keys, so truncating any excess is safe and prevents permanently storing
     # multi-kilobyte documents from over-sized request payloads.
     _HISTORY_DICT_KEY_CAP = 30
+    # Fields that must be preserved even if they exceed the cap.
+    # These are visibility-critical fields that users depend on.
+    _PRESERVED_FIELDS = {"region_id", "farm_id", "user_id", "visibility"}
 
     def _cap_dict(d: dict) -> dict:
         if not isinstance(d, dict):
             return {}
-        items = list(d.items())[:_HISTORY_DICT_KEY_CAP]
-        return dict(items)
+        # Preserve critical fields, then fill remaining slots with other entries
+        preserved = {k: v for k, v in d.items() if k in _PRESERVED_FIELDS}
+        other_items = [
+            (k, v) for k, v in d.items()
+            if k not in _PRESERVED_FIELDS
+        ][: _HISTORY_DICT_KEY_CAP - len(preserved)]
+        result_dict = {**preserved, **dict(other_items)}
+        return result_dict
 
     history_entry = {
         "uid": uid,

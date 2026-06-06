@@ -1711,11 +1711,26 @@ html body {
   background: white;
   border-radius: 12px;
   min-width: 220px;
+  max-height: calc(100vh - 90px);
+  overflow-y: auto;
+  overflow-x: hidden;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
   z-index: 2000;
-  overflow: visible;
-  animation: dropdownFade 0.2s ease-out;
   border: 1px solid #e5e7eb;
+  animation: dropdownFade 0.2s ease-out;
+}
+
+.more-dropdown::-webkit-scrollbar {
+  width: 6px;
+}
+
+.more-dropdown::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 6px;
+}
+
+.more-dropdown::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .theme-dark .more-dropdown {

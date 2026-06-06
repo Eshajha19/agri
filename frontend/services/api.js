@@ -454,9 +454,6 @@ async function getFirebaseIdToken() {
   return null;
 }
 
-let csrfToken = null;
-let csrfTokenExpiry = 0;
-
 const axiosClient = axios.create({
   baseURL: resolveApiBaseUrl(),
   timeout: API_TIMEOUT_MS,
@@ -493,36 +490,6 @@ axiosClient.interceptors.request.use(
         nextConfig.headers = {
           ...nextConfig.headers,
           Authorization: `Bearer ${token}`,
-        };
-      }
-    }
-
-    // Automatically fetch and attach the CSRF token for state-changing browser requests
-    if (
-      method !== 'get' &&
-      method !== 'head' &&
-      method !== 'options' &&
-      !nextConfig.url.includes('/api/csrf-token') &&
-      !nextConfig.url.includes('/api/log-error')
-    ) {
-      const now = Date.now();
-      if (!csrfToken || now >= csrfTokenExpiry) {
-        try {
-          const mainBackendURL = resolveApiBaseUrl();
-          const authHeader = nextConfig.headers?.Authorization;
-          const response = await axios.get(`${mainBackendURL}/api/csrf-token`, {
-            headers: authHeader ? { Authorization: authHeader } : {},
-          });
-          csrfToken = response.data.csrf_token;
-          csrfTokenExpiry = now + 45 * 60 * 1000; // Cache for 45 minutes
-        } catch (err) {
-          console.warn('[api] Failed to fetch CSRF token:', err?.message);
-        }
-      }
-      if (csrfToken) {
-        nextConfig.headers = {
-          ...nextConfig.headers,
-          'X-CSRF-Token': csrfToken,
         };
       }
     }
