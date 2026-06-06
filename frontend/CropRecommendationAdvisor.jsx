@@ -39,8 +39,14 @@ export default function CropRecommendationAdvisor({ onClose }) {
   const [expandedCrop, setExpandedCrop] = useState(null);
 
   const [recommendationHistory, setRecommendationHistory] = useState(() => {
-    const saved = localStorage.getItem('cropRecommendationHistory');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('cropRecommendationHistory');
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      console.error('Failed to parse recommendation history:', error);
+      return [];
+    }
   });
 
   const [searchHistory, setSearchHistory] = useState('');
