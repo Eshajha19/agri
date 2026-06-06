@@ -26,7 +26,8 @@ export default function ReferralHub() {
   const [redeemCode, setRedeemCode] = useState(searchParams.get("ref") || "");
   const [data, setData] = useState(null);
   const mountedRef = React.useRef(true);
-  const requestIdRef = React.useRef(0);
+  const dashboardRequestIdRef = React.useRef(0);
+  const redeemRequestIdRef = React.useRef(0);
 
   const progressPercent = useMemo(() => {
     const next = data?.milestones?.next;
@@ -49,6 +50,16 @@ export default function ReferralHub() {
     return `FS${hash.slice(0, 10).toUpperCase()}`;
   };
 
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      dashboardRequestIdRef.current++;
+      redeemRequestIdRef.current++;
+    };
+  }, []);
+
   const getReferralBadge = (count) => {
     if (count >= 10) return "Village Mentor";
     if (count >= 5) return "Community Champion";
@@ -58,15 +69,18 @@ export default function ReferralHub() {
   };
 
   const fetchDashboard = async () => {
-    const requestId = ++requestIdRef.current;
+    
+    const requestId = ++dashboardRequestIdRef.current;
 
     setLoading(true);
     setError("");
     try {
       const currentUser = auth.currentUser;
       if (!currentUser) {
-        setError("Please sign in to view your referral dashboard.");
-        setLoading(false);
+        if (mountedRef.current) {
+          setError("Please sign in to view your referral dashboard.");
+          setLoading(false);
+        }
         return;
       }
 
@@ -136,7 +150,7 @@ export default function ReferralHub() {
 
       if (
         mountedRef.current &&
-        requestId === requestIdRef.current
+        requestId === dashboardRequestIdRef.current
       ) {
         setData({
           referralCode,
@@ -168,7 +182,7 @@ export default function ReferralHub() {
 
       if (
         mountedRef.current &&
-        requestId === requestIdRef.current
+        requestId === dashboardRequestIdRef.current
       ) {
         setError(msg);
         setData(null);
@@ -176,21 +190,12 @@ export default function ReferralHub() {
     } finally {
       if (
         mountedRef.current &&
-        requestId === requestIdRef.current
+        requestId === dashboardRequestIdRef.current
       ) {
         setLoading(false);
       }
     }
   };
-
-  useEffect(() => {
-    mountedRef.current = true;
-
-    return () => {
-      mountedRef.current = false;
-      requestIdRef.current++;
-    };
-  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -231,7 +236,7 @@ export default function ReferralHub() {
 
   const redeemReferral = async (event) => {
     event.preventDefault();
-    const redeemRequestId = ++requestIdRef.current;
+    const redeemRequestId = ++redeemRequestIdRef.current;
     if (!redeemCode.trim()) {
       setError("Enter a referral code first.");
       return;
@@ -329,20 +334,25 @@ export default function ReferralHub() {
 
       if (
         !mountedRef.current ||
-        redeemRequestId !== requestIdRef.current
+        redeemRequestId !== redeemRequestIdRef.current
       ) {
         return;
       }
-
+      
       setSuccess("Referral redeemed successfully!");
       setRedeemCode("");
       await fetchDashboard();
     } catch (err) {
       const msg = err?.message || "Failed to redeem referral code.";
       setError(msg);
-    } finally {
-      setLoadingRedeem(false);
-    }
+      } finally {
+        if (
+          mountedRef.current &&
+          redeemRequestId === redeemRequestIdRef.current
+        ) {
+          setLoadingRedeem(false);
+        }
+      }
   };
 
   return (
