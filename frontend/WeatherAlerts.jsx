@@ -34,6 +34,17 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
   const mountedRef = React.useRef(true);
   const requestIdRef = React.useRef(0);
   const historyRequestIdRef = React.useRef(0);
+  const refreshInProgressRef = React.useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      requestIdRef.current++;
+      historyRequestIdRef.current++;
+    };
+  }, []);
 
   // Color mapping for severity levels
   const severityColors = {
@@ -52,6 +63,11 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
 
   // Fetch weather alerts
   const fetchWeatherAlerts = useCallback(async () => {
+    if (refreshInProgressRef.current) {
+      return;
+    }
+
+    refreshInProgressRef.current = true;
     const requestId = ++requestIdRef.current;
 
     if (!latitude || !longitude || !location) {
@@ -60,7 +76,10 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
         requestId === requestIdRef.current
       ) {
         setError("Location information is required");
+        setAlerts([]);
+        setWeather(null);
       }
+      refreshInProgressRef.current = false;
       return;
     }
 
@@ -99,7 +118,11 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
         return;
       }
 
-      if (data.success) {
+      if (
+        data.success &&
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
         setWeather(data.weather);
         setAlerts(data.alerts.alerts || []);
         setLastUpdated(new Date());
@@ -135,13 +158,15 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
         });
       }
     } finally {
-      if (
-        mountedRef.current &&
-        requestId === requestIdRef.current
-      ) {
-        setLoading(false);
+        refreshInProgressRef.current = false;
+
+        if (
+          mountedRef.current &&
+          requestId === requestIdRef.current
+        ) {
+          setLoading(false);
+        }
       }
-    }
   }, [latitude, longitude, location, crop]);
 
   // Fetch alert history
@@ -166,7 +191,12 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
         return;
       }
 
-      setAlertHistory(data.recent_alerts || []);
+      if (
+        mountedRef.current &&
+        requestId === historyRequestIdRef.current
+      ) {
+        setAlertHistory(data.recent_alerts || []);
+      }
     } catch (err) {
       if (
         mountedRef.current &&
@@ -190,6 +220,7 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
     return () => {
       clearInterval(interval);
       requestIdRef.current++;
+      historyRequestIdRef.current++;
     };
   }, [fetchWeatherAlerts]);
 
