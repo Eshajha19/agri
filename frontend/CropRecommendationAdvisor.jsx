@@ -628,7 +628,12 @@ export default function CropRecommendationAdvisor({ onClose }) {
 
                         <p>
                           <strong>Crops:</strong>{' '}
-                          {entry.recommendations.map((crop) => crop.crop).join(', ')}
+                        <p>
+                          <strong>Crops:</strong>{' '}
+                         {Array.isArray(entry.recommendations)
+                           ? entry.recommendations.map((crop) => crop.crop).join(', ')
+                           : 'N/A'}
+                        </p>
                         </p>
                       </div>
                     ))}
