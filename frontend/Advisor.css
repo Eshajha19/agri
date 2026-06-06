@@ -1715,6 +1715,42 @@
   width: fit-content;
 }
 
+/* ─── Crop Insurance Claim Card ─── */
+.crop-insurance-card {
+  border: 2px solid #0d9488 !important;
+  background: linear-gradient(135deg, #ffffff 0%, #f0fdfa 100%) !important;
+  box-shadow: 0 4px 16px rgba(13, 148, 136, 0.12) !important;
+}
+
+.crop-insurance-card:hover {
+  box-shadow: 0 20px 40px rgba(13, 148, 136, 0.2) !important;
+  border-color: #0f766e !important;
+}
+
+.crop-insurance-card .icon {
+  background: linear-gradient(135deg, rgba(13, 148, 136, 0.1) 0%, rgba(13, 148, 136, 0.05) 100%);
+  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.15);
+}
+
+.crop-insurance-card:hover .icon {
+  box-shadow: 0 8px 20px rgba(13, 148, 136, 0.25);
+}
+
+.theme-dark .crop-insurance-card {
+  background: linear-gradient(135deg, #1e1e1e 0%, #252525 100%) !important;
+  border: 2px solid #14b8a6 !important;
+  color: #f5f5f5 !important;
+}
+
+.theme-dark .crop-insurance-card:hover {
+  border-color: #2dd4bf !important;
+}
+
+.theme-dark .crop-insurance-card h3,
+.theme-dark .crop-insurance-card p {
+  color: #f5f5f5 !important;
+}
+
 /* ─── Expert Status Modal ─── */
 .expert-status-modal {
   background: white;
