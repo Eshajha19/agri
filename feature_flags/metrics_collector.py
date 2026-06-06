@@ -22,7 +22,7 @@ from collections import defaultdict
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
-
+from collections import deque
 logger = logging.getLogger(__name__)
 
 try:
@@ -37,7 +37,7 @@ except Exception:
 
 EVENTS_COLLECTION = "experiment_events"
 
-_event_buffer: list[dict[str, Any]] = []
+_event_buffer: deque = deque(maxlen=10000)
 _event_lock = threading.Lock()
 
 VALID_EVENT_TYPES = frozenset({
