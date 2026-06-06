@@ -27,8 +27,6 @@ const MarketPrices = () => {
   const [forecastLoading, setForecastLoading] = useState(false);
   const [forecastError, setForecastError] = useState(null);
   const [forecastCommodity, setForecastCommodity] = useState("Wheat");
-  const mountedRef = React.useRef(true);
-  const forecastRequestIdRef = React.useRef(0);
 
   const mountedRef = useRef(true);
   const requestIdRef = useRef(0);
@@ -112,8 +110,6 @@ const MarketPrices = () => {
         );
       }
     } catch (err) {
-      console.error("Failed to load forecast:", err);
-
       if (
         mountedRef.current &&
         requestId === forecastRequestIdRef.current
@@ -135,10 +131,7 @@ const MarketPrices = () => {
   };
 
   useEffect(() => {
-    if (
-      activeTab === "forecast" &&
-      forecastCommodity
-    ) {
+    if (activeTab === "forecast") {
       loadForecast(forecastCommodity);
     }
   }, [activeTab, forecastCommodity]);
@@ -402,7 +395,7 @@ const MarketPrices = () => {
               <button
                 className="refresh-btn-market"
                 onClick={() => loadForecast(forecastCommodity)}
-                disabled={forecastLoading || !forecastCommodity}
+                disabled={forecastLoading}
                 aria-label="Refresh price forecast"
               >
                 <RefreshCw size={16} className={forecastLoading ? "spin" : ""} />
