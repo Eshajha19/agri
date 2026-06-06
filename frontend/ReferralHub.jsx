@@ -25,9 +25,6 @@ export default function ReferralHub() {
   const [success, setSuccess] = useState("");
   const [redeemCode, setRedeemCode] = useState(searchParams.get("ref") || "");
   const [data, setData] = useState(null);
-  const mountedRef = React.useRef(true);
-  const dashboardRequestIdRef = React.useRef(0);
-  const redeemRequestIdRef = React.useRef(0);
 
   const progressPercent = useMemo(() => {
     const next = data?.milestones?.next;
@@ -50,16 +47,6 @@ export default function ReferralHub() {
     return `FS${hash.slice(0, 10).toUpperCase()}`;
   };
 
-  useEffect(() => {
-    mountedRef.current = true;
-
-    return () => {
-      mountedRef.current = false;
-      dashboardRequestIdRef.current++;
-      redeemRequestIdRef.current++;
-    };
-  }, []);
-
   const getReferralBadge = (count) => {
     if (count >= 10) return "Village Mentor";
     if (count >= 5) return "Community Champion";
@@ -69,18 +56,13 @@ export default function ReferralHub() {
   };
 
   const fetchDashboard = async () => {
-    
-    const requestId = ++dashboardRequestIdRef.current;
-
     setLoading(true);
     setError("");
     try {
       const currentUser = auth.currentUser;
       if (!currentUser) {
-        if (mountedRef.current) {
-          setError("Please sign in to view your referral dashboard.");
-          setLoading(false);
-        }
+        setError("Please sign in to view your referral dashboard.");
+        setLoading(false);
         return;
       }
 
@@ -148,52 +130,34 @@ export default function ReferralHub() {
         villages = lbData?.villages || [];
       }
 
-      if (
-        mountedRef.current &&
-        requestId === dashboardRequestIdRef.current
-      ) {
-        setData({
-          referralCode,
-          referralLink,
-          share: {
-            whatsapp: `https://wa.me/?text=Join%20Fasal%20Saathi%20using%20my%20referral%20code%20${referralCode}%20-%20${referralLink}`,
-            sms: `sms:?body=Join%20Fasal%20Saathi%20using%20my%20referral%20code%20${referralCode}%20-%20${referralLink}`,
-          },
-          stats: {
-            referralCount,
-            referralPoints,
-            referralBadge,
-            community,
-            unlockedPremium,
-          },
-          milestones: {
-            all: milestones,
-            unlocked: unlockedMilestones,
-            next: nextMilestone,
-          },
-          history,
-          leaderboard: { farmers, villages },
-        });
-      }
+      setData({
+        referralCode,
+        referralLink,
+        share: {
+          whatsapp: `https://wa.me/?text=Join%20Fasal%20Saathi%20using%20my%20referral%20code%20${referralCode}%20-%20${referralLink}`,
+          sms: `sms:?body=Join%20Fasal%20Saathi%20using%20my%20referral%20code%20${referralCode}%20-%20${referralLink}`,
+        },
+        stats: {
+          referralCount,
+          referralPoints,
+          referralBadge,
+          community,
+          unlockedPremium,
+        },
+        milestones: {
+          all: milestones,
+          unlocked: unlockedMilestones,
+          next: nextMilestone,
+        },
+        history,
+        leaderboard: { farmers, villages },
+      });
     } catch (err) {
-      const msg =
-        err?.message ||
-        "Unable to load referral dashboard. Please try again.";
-
-      if (
-        mountedRef.current &&
-        requestId === dashboardRequestIdRef.current
-      ) {
-        setError(msg);
-        setData(null);
-      }
+      const msg = err?.message || "Unable to load referral dashboard. Please try again.";
+      setError(msg);
+      setData(null);
     } finally {
-      if (
-        mountedRef.current &&
-        requestId === dashboardRequestIdRef.current
-      ) {
-        setLoading(false);
-      }
+      setLoading(false);
     }
   };
 
@@ -236,7 +200,6 @@ export default function ReferralHub() {
 
   const redeemReferral = async (event) => {
     event.preventDefault();
-    const redeemRequestId = ++redeemRequestIdRef.current;
     if (!redeemCode.trim()) {
       setError("Enter a referral code first.");
       return;
@@ -332,27 +295,15 @@ export default function ReferralHub() {
         updatedAt: createdAt,
       });
 
-      if (
-        !mountedRef.current ||
-        redeemRequestId !== redeemRequestIdRef.current
-      ) {
-        return;
-      }
-      
       setSuccess("Referral redeemed successfully!");
       setRedeemCode("");
       await fetchDashboard();
     } catch (err) {
       const msg = err?.message || "Failed to redeem referral code.";
       setError(msg);
-      } finally {
-        if (
-          mountedRef.current &&
-          redeemRequestId === redeemRequestIdRef.current
-        ) {
-          setLoadingRedeem(false);
-        }
-      }
+    } finally {
+      setLoadingRedeem(false);
+    }
   };
 
   return (
