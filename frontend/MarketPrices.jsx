@@ -27,10 +27,21 @@ const MarketPrices = () => {
   const [forecastLoading, setForecastLoading] = useState(false);
   const [forecastError, setForecastError] = useState(null);
   const [forecastCommodity, setForecastCommodity] = useState("Wheat");
+  const mountedRef = React.useRef(true);
+  const forecastRequestIdRef = React.useRef(0);
 
   // Derive unique values from the current prices list
   const states = useMemo(() => getUniqueStates(), []);
   const commodities = useMemo(() => getUniqueCommodities(), []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      forecastRequestIdRef.current++;
+    };
+  }, []);
 
   const loadData = async () => {
     setLoading(true);
@@ -53,26 +64,55 @@ const MarketPrices = () => {
 
   // Load forecast when forecast tab is active or commodity changes
   const loadForecast = async (commodity) => {
+    const requestId = ++forecastRequestIdRef.current;
+
     setForecastLoading(true);
     setForecast(null);
     setForecastError(null);
+
     try {
       const data = await fetchPriceForecast(commodity, 14);
+
+      if (
+        !mountedRef.current ||
+        requestId !== forecastRequestIdRef.current
+      ) {
+        return;
+      }
+
       if (data) {
         setForecast(data);
       } else {
-        setForecastError("Failed to generate forecast. Please try again.");
+        setForecastError(
+          "Failed to generate forecast. Please try again."
+        );
       }
     } catch (err) {
       console.error("Failed to load forecast:", err);
-      setForecastError("An unexpected error occurred while generating the forecast.");
+
+      if (
+        mountedRef.current &&
+        requestId === forecastRequestIdRef.current
+      ) {
+        setForecastError(
+          "An unexpected error occurred while generating the forecast."
+        );
+      }
     } finally {
-      setForecastLoading(false);
+      if (
+        mountedRef.current &&
+        requestId === forecastRequestIdRef.current
+      ) {
+        setForecastLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    if (activeTab === "forecast") {
+    if (
+      activeTab === "forecast" &&
+      forecastCommodity
+    ) {
       loadForecast(forecastCommodity);
     }
   }, [activeTab, forecastCommodity]);
@@ -336,7 +376,7 @@ const MarketPrices = () => {
               <button
                 className="refresh-btn-market"
                 onClick={() => loadForecast(forecastCommodity)}
-                disabled={forecastLoading}
+                disabled={forecastLoading || !forecastCommodity}
                 aria-label="Refresh price forecast"
               >
                 <RefreshCw size={16} className={forecastLoading ? "spin" : ""} />
