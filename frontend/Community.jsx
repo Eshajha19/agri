@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { 
   MessageSquare, 
   ThumbsUp, 
@@ -68,9 +68,6 @@ const COMMENT_COOLDOWN_MS = 30_000;
 /** Milliseconds between reputation gains from posting (5 min). */
 const REPUTATION_COOLDOWN_MS = 300_000;
 
-/** Maximum number of comments that earn reputation per calendar day. */
-const COMMENT_REP_DAILY_CAP = 3;
-
 /**
  * Repeated-word spam detector.
  * Returns true when any single word makes up more than 40 % of the total
@@ -99,22 +96,6 @@ const Community = () => {
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [showP2PChat, setShowP2PChat] = useState(null); // stores the recipient object
   const [authorsData, setAuthorsData] = useState({});
-  const [lastFeedRefresh, setLastFeedRefresh] = useState(null);
-  const [isRefreshingFeed, setIsRefreshingFeed] = useState(false);
-
-  // Synchronization refs
-  const mountedRef = useRef(true);
-
-  const requestTrackerRef = useRef({
-    feed: 0,
-    comments: 0,
-    likes: 0,
-    votes: 0,
-  });
-
-  const activeCommentsPostRef = useRef(null);
-  const likeInProgressRef = useRef(new Set());
-  const voteInProgressRef = useRef(new Set());
 
   // ── Rate-limit / spam state ──────────────────────────────────────────────
   /** Timestamp (ms) of the user's last successful post. null = never posted. */
@@ -143,9 +124,9 @@ const Community = () => {
       for (const id of authorIds) {
         if (!newAuthorsData[id]) {
           try {
-            const userDoc = await getDoc(doc(db, "users", id));
-            if (userDoc.exists()) {
-              newAuthorsData[id] = userDoc.data();
+            const userDoc = await getDocs(query(collection(db, "users"), where("uid", "==", id)));
+            if (!userDoc.empty) {
+              newAuthorsData[id] = userDoc.docs[0].data();
               changed = true;
             }
           } catch (err) {
@@ -185,81 +166,30 @@ const Community = () => {
   const currentUser = isFirebaseConfigured() ? auth?.currentUser : null;
 
   useEffect(() => {
-    mountedRef.current = true;
-
-    const requestId = ++requestTrackerRef.current.feed;
-
     if (!isFirebaseConfigured()) {
       setLoading(false);
       return;
     }
-
-    setLoading(true);
-    setIsRefreshingFeed(true);
-
-    let q = query(
-      collection(db, "posts"),
-      orderBy("createdAt", "desc")
-    );
-
+    let q = query(collection(db, "posts"), orderBy("createdAt", "desc"));
+    
     if (activeCategory !== "all") {
-      q = query(
-        collection(db, "posts"),
-        where("category", "==", activeCategory),
-        orderBy("createdAt", "desc")
-      );
+      q = query(collection(db, "posts"), where("category", "==", activeCategory), orderBy("createdAt", "desc"));
     }
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        if (
-          !mountedRef.current ||
-          requestTrackerRef.current.feed !== requestId
-        ) {
-          return;
-        }
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setPosts(docs);
+      setLoading(false);
+    }, (error) => {
+      console.error("Error fetching posts:", error);
+      setLoading(false);
+    });
 
-        const docs = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
-
-        setPosts(docs);
-        setLastFeedRefresh(Date.now());
-        setLoading(false);
-        setIsRefreshingFeed(false);
-      },
-      (error) => {
-        console.error("Error fetching posts:", error);
-
-        if (
-          mountedRef.current &&
-          requestTrackerRef.current.feed === requestId
-        ) {
-          setLoading(false);
-          setIsRefreshingFeed(false);
-        }
-      }
-    );
-
-    return () => {
-      unsubscribe();
-    };
+    return () => unsubscribe();
   }, [activeCategory]);
-
-  useEffect(() => {
-    return () => {
-      mountedRef.current = false;
-
-      requestTrackerRef.current.feed++;
-      requestTrackerRef.current.comments++;
-      requestTrackerRef.current.likes++;
-      requestTrackerRef.current.votes++;
-
-      activeCommentsPostRef.current = null;
-    };
-  }, []);
 
   const handleCreatePost = async (e) => {
     e.preventDefault();
@@ -311,12 +241,6 @@ const Community = () => {
       // Record the post time for the local cooldown check.
       setLastPostTime(Date.now());
 
-      // Persist lastPostAt as a server timestamp so Firestore security rules
-      // can enforce the 60-second post cooldown on direct SDK writes.
-      await updateDoc(doc(db, "users", currentUser.uid), {
-        lastPostAt: serverTimestamp(),
-      });
-
       // ── Reputation-gain frequency cap ──────────────────────────────────
       // Only award +10 reputation if the user hasn't gained reputation from
       // posting within the last REPUTATION_COOLDOWN_MS (5 minutes).
@@ -349,16 +273,8 @@ const Community = () => {
     }
   };
 
-
-
   const handleLikePost = async (post) => {
     if (!isFirebaseConfigured() || !currentUser) return;
-
-    if (likeInProgressRef.current.has(post.id)) {
-      return;
-    }
-
-    likeInProgressRef.current.add(post.id);
 
     const postRef = doc(db, "posts", post.id);
     const authorRef = doc(db, "users", post.userId);
@@ -392,65 +308,31 @@ const Community = () => {
       });
     } catch (err) {
       console.error("Error liking post:", err);
-    } finally {
-      likeInProgressRef.current.delete(post.id);
     }
   };
 
-  const openComments = useCallback(async (post) => {
-    if (!post?.id) return;
-
-    const requestId = ++requestTrackerRef.current.comments;
-
-    activeCommentsPostRef.current = post.id;
-    setPostComments([]);
-
+  const openComments = async (post) => {
     setShowCommentsModal(post);
     setCommentsLoading(true);
-
     try {
       const q = query(
-        collection(db, "comments"),
-        where("postId", "==", post.id),
+        collection(db, "comments"), 
+        where("postId", "==", post.id), 
         orderBy("createdAt", "asc")
       );
-
       const snapshot = await getDocs(q);
-
-      if (
-        !mountedRef.current ||
-        requestTrackerRef.current.comments !== requestId ||
-        activeCommentsPostRef.current !== post.id
-      ) {
-        return;
-      }
-
-      const docs = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-
+      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setPostComments(docs);
     } catch (err) {
       console.error("Error fetching comments:", err);
     } finally {
-      if (
-        mountedRef.current &&
-        requestTrackerRef.current.comments === requestId
-      ) {
-        setCommentsLoading(false);
-      }
+      setCommentsLoading(false);
     }
-  }, []);
+  };
 
   const handleAddComment = async (e) => {
     e.preventDefault();
     if (!isFirebaseConfigured() || !currentUser || !showCommentsModal) return;
-    if (
-      activeCommentsPostRef.current !== showCommentsModal.id
-    ) {
-      return;
-    }
 
     const text = newComment.trim();
 
@@ -482,59 +364,34 @@ const Community = () => {
 
     const postId = showCommentsModal.id;
     try {
-      // Use a transaction so the duplicate/cap check and all writes are atomic.
-      // A plain writeBatch cannot read documents, so we use runTransaction here.
-      await runTransaction(db, async (transaction) => {
-        const commenterRef = doc(db, "users", currentUser.uid);
-        const commenterSnap = await transaction.get(commenterRef);
-        const commenterData = commenterSnap.exists() ? commenterSnap.data() : {};
+      // Use a write batch so the comment document, the commenter's reputation
+      // increment, and the post's commentsCount increment are all committed
+      // atomically.
+      const batch = writeBatch(db);
 
-        // Determine whether the user is still within their daily reputation cap
-        // for comments.  We track two fields on the user document:
-        //   commentReputationDate  – ISO date string (YYYY-MM-DD) of the last
-        //                            day reputation was awarded for a comment.
-        //   commentReputationToday – count of reputation-earning comments on
-        //                            that day (resets when the date changes).
-        const today = new Date().toISOString().slice(0, 10);
-        const lastRepDate = commenterData.commentReputationDate || "";
-        const repCountToday =
-          lastRepDate === today ? (commenterData.commentReputationToday || 0) : 0;
-
-        const earnedRep = repCountToday < COMMENT_REP_DAILY_CAP;
-
-        const commentRef = doc(collection(db, "comments"));
-        transaction.set(commentRef, {
-          postId,
-          userId: currentUser.uid,
-          userName: currentUser.displayName || currentUser.email.split('@')[0],
-          text,
-          upvotes: [],
-          downvotes: [],
-          createdAt: serverTimestamp(),
-        });
-
-        // Award +5 reputation only if the daily cap has not been reached.
-        if (earnedRep) {
-          transaction.update(commenterRef, {
-            reputation: increment(5),
-            commentReputationDate: today,
-            commentReputationToday: repCountToday + 1,
-          });
-        }
-
-        // Keep the post's comment count in sync.
-        const postRef = doc(db, "posts", postId);
-        transaction.update(postRef, { commentsCount: increment(1) });
+      const commentRef = doc(collection(db, "comments"));
+      batch.set(commentRef, {
+        postId,
+        userId: currentUser.uid,
+        userName: currentUser.displayName || currentUser.email.split('@')[0],
+        text,
+        upvotes: [],
+        downvotes: [],
+        createdAt: serverTimestamp(),
       });
+
+      // Award +5 reputation for posting a comment
+      const commenterRef = doc(db, "users", currentUser.uid);
+      batch.update(commenterRef, { reputation: increment(5) });
+
+      // Keep the post's comment count in sync
+      const postRef = doc(db, "posts", postId);
+      batch.update(postRef, { commentsCount: increment(1) });
+
+      await batch.commit();
 
       // Record the comment time for the local cooldown check.
       setLastCommentTime(Date.now());
-
-      // Persist lastCommentAt as a server timestamp so Firestore security
-      // rules can enforce the 30-second comment cooldown on direct SDK writes.
-      await updateDoc(doc(db, "users", currentUser.uid), {
-        lastCommentAt: serverTimestamp(),
-      });
 
       setNewComment("");
       openComments(showCommentsModal);
@@ -550,14 +407,6 @@ const Community = () => {
 
   const handleVoteComment = async (comment, voteType) => {
     if (!isFirebaseConfigured() || !currentUser) return;
-
-    const voteKey = `${comment.id}-${voteType}`;
-
-    if (voteInProgressRef.current.has(voteKey)) {
-      return;
-    }
-
-    voteInProgressRef.current.add(voteKey);
 
     const commentRef = doc(db, "comments", comment.id);
     const authorRef = doc(db, "users", comment.userId);
@@ -628,8 +477,6 @@ const Community = () => {
       openComments(showCommentsModal);
     } catch (err) {
       console.error("Error voting on comment:", err);
-    } finally {
-      voteInProgressRef.current.delete(voteKey);
     }
   };
 
@@ -647,10 +494,10 @@ const Community = () => {
     return "";
   };
 
-  const filteredPosts = React.useMemo(() => posts.filter(post =>
+  const filteredPosts = posts.filter(post => 
     post.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
     post.userName.toLowerCase().includes(searchQuery.toLowerCase())
-  ), [posts, searchQuery]);
+  );
 
   return (
     <div className="community-container">
@@ -689,12 +536,6 @@ const Community = () => {
         </div>
       </header>
 
-      {lastFeedRefresh && (
-        <div className="feed-refresh-info">
-          Last updated: {new Date(lastFeedRefresh).toLocaleTimeString()}
-        </div>
-      )}
-      
       <main className="community-feed">
         {loading ? (
           <Loader message="Loading discussions..." />
@@ -939,4 +780,3 @@ const Community = () => {
   );
 };
 export default Community;
-
