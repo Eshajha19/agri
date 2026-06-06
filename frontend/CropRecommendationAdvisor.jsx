@@ -128,6 +128,11 @@ export default function CropRecommendationAdvisor({ onClose }) {
           setSuccess(true);
           setError('');
 
+          if (!Array.isArray(response.data.recommendations)) {
+            console.error('Invalid recommendations format');
+            return;
+          }
+
           const historyEntry = {
             id: Date.now(),
             timestamp: new Date().toLocaleString(),
