@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, 
   Tooltip, Legend, ResponsiveContainer 
@@ -16,8 +16,12 @@ const YieldHistory = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [actualYieldInputs, setActualYieldInputs] = useState({});
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState(null);
+
   const mountedRef = useRef(true);
   const requestIdRef = useRef(0);
+  const saveInProgressRef = useRef(new Set());
 
   useEffect(() => {
     loadAnalytics();
@@ -29,11 +33,13 @@ const YieldHistory = () => {
     return () => {
       mountedRef.current = false;
       requestIdRef.current++;
+      saveInProgressRef.current.clear();
     };
   }, []);
 
   const loadAnalytics = async () => {
     const requestId = ++requestIdRef.current;
+    setRefreshing(true);
 
     try {
       setLoading(true);
@@ -46,6 +52,7 @@ const YieldHistory = () => {
         requestId === requestIdRef.current
       ) {
         setData(result);
+        setLastRefresh(Date.now());
       }
     } catch (err) {
       if (
@@ -64,18 +71,24 @@ const YieldHistory = () => {
         requestId === requestIdRef.current
       ) {
         setLoading(false);
+        setRefreshing(false);
       }
     }
   };
 
   const handleRecordActual = async (recordId) => {
     const requestId = ++requestIdRef.current;
-    const actual = parseFloat(actualYieldInputs[recordId]);
-    if (isNaN(actual) || actual < 0) {
-      toast.error('Please enter a valid actual yield.');
+    if (saveInProgressRef.current.has(recordId)) {
       return;
     }
 
+    saveInProgressRef.current.add(recordId);
+    const actual = parseFloat(actualYieldInputs[recordId]);
+    if (isNaN(actual) || actual < 0) {
+      saveInProgressRef.current.delete(recordId);
+      toast.error('Please enter a valid actual yield.');
+      return;
+    }
     try {
       await recordActualYield({
         record_id: recordId,
@@ -108,21 +121,40 @@ const YieldHistory = () => {
       }
 
       console.error(err);
-}
+      }
+      finally {
+        saveInProgressRef.current.delete(recordId);
+      }
   };
 
-  if (loading) return <div className="yield-history-loading">Loading analytics...</div>;
-  if (error) return <div className="yield-history-error">{error}</div>;
+const retryAnalytics = () => {
+  loadAnalytics();
+};
 
-  const chartData = [...(data?.history || [])]
-    .reverse()
-    .filter(item => item.actual_yield !== null)
-    .map(item => ({
-      name: `${item.crop} (${item.season})`,
-      predicted: item.predicted_yield,
-      actual: item.actual_yield,
-      accuracy: item.accuracy
-    }));
+  const chartData = useMemo(() => {
+    return [...(data?.history || [])]
+      .reverse()
+      .filter(item => item.actual_yield !== null)
+      .map(item => ({
+        name: `${item.crop} (${item.season})`,
+        predicted: item.predicted_yield,
+        actual: item.actual_yield,
+        accuracy: item.accuracy
+      }));
+  }, [data]);
+
+  if (loading) return <div className="yield-history-loading">Loading analytics...</div>;
+
+  if (error) {
+    return (
+      <div className="yield-history-error">
+        <p>{error}</p>
+        <button onClick={retryAnalytics}>
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="yield-history-container">
@@ -130,6 +162,12 @@ const YieldHistory = () => {
         <h1><FaHistory /> Yield History & ML Analytics</h1>
         <p>Track your harvest performance and monitor model accuracy.</p>
       </header>
+
+      {lastRefresh && (
+        <p className="yh-last-refresh">
+          Last updated: {new Date(lastRefresh).toLocaleTimeString()}
+        </p>
+      )}
 
       {data?.drift_alert && (
         <div className="yh-drift-alert">
