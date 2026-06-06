@@ -525,6 +525,16 @@ class AdvisoryRequest(BaseModel):
     crop_type: Optional[str] = Field(default=None, max_length=50)
     store_alerts: bool = False
 
+    @field_validator("crop_type", mode="before")
+    @classmethod
+    def _strip_and_reject_whitespace_only(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            stripped = v.strip()
+            if stripped == "":
+                raise ValueError("crop_type must not be blank or whitespace-only")
+            return stripped
+        return v
+
     @field_validator("weather", "soil", mode="before")
     @classmethod
     def _limit_dict_size(cls, v: Any, info) -> Any:
@@ -543,6 +553,16 @@ class FarmIntelligenceRequest(BaseModel):
     market: dict[str, Any] = Field(default_factory=dict)
     location: Optional[str] = Field(default=None, max_length=120)
     store_history: bool = True
+
+    @field_validator("crop_type", "location", mode="before")
+    @classmethod
+    def _strip_and_reject_whitespace_only(cls, v: Any, info) -> Any:
+        if isinstance(v, str):
+            stripped = v.strip()
+            if stripped == "" and info.field_name == "crop_type":
+                raise ValueError("crop_type must not be blank or whitespace-only")
+            return stripped
+        return v
 
     @field_validator("weather", "soil", "pest", "market", mode="before")
     @classmethod
