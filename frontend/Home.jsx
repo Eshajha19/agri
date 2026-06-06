@@ -578,7 +578,7 @@ export default function Home({ user }) {
         </div>
 
         {/* CTA */}
-        <div style={{ textAlign: "center", marginTop: "20px" }}>
+        <div className="demo-cta">
           <Link to="/advisor" className="btn-primary">
             Try It Now
           </Link>
