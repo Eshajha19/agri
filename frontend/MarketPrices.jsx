@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   AreaChart, Area, ReferenceLine
@@ -30,6 +30,10 @@ const MarketPrices = () => {
   const mountedRef = React.useRef(true);
   const forecastRequestIdRef = React.useRef(0);
 
+  const mountedRef = useRef(true);
+  const requestIdRef = useRef(0);
+  const forecastRequestIdRef = useRef(0);
+
   // Derive unique values from the current prices list
   const states = useMemo(() => getUniqueStates(), []);
   const commodities = useMemo(() => getUniqueCommodities(), []);
@@ -39,22 +43,42 @@ const MarketPrices = () => {
 
     return () => {
       mountedRef.current = false;
+      requestIdRef.current++;
       forecastRequestIdRef.current++;
     };
   }, []);
 
   const loadData = async () => {
+    const requestId = ++requestIdRef.current;
+
     setLoading(true);
+
     try {
       const priceData = await fetchMarketPrices(filters);
       const trendData = await fetchPriceTrends(selectedCommodity);
-      setPrices(priceData || []);
-      setTrends(trendData || []);
-      setLastUpdated(Date.now());
+
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        setPrices(priceData || []);
+        setTrends(trendData || []);
+        setLastUpdated(Date.now());
+      }
     } catch (err) {
-      console.error("Failed to load market data:", err);
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        console.error("Failed to load market data:", err);
+      }
     } finally {
-      setLoading(false);
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        setLoading(false);
+      }
     }
   };
 
@@ -94,6 +118,8 @@ const MarketPrices = () => {
         mountedRef.current &&
         requestId === forecastRequestIdRef.current
       ) {
+        console.error("Failed to load forecast:", err);
+
         setForecastError(
           "An unexpected error occurred while generating the forecast."
         );
