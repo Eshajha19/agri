@@ -593,7 +593,11 @@ export default function CropRecommendationAdvisor({ onClose }) {
                   </button>
                 </div>
 
+                <label htmlFor="searchHistory" className="sr-only">
+                  Search recommendation history
+                </label>
                 <input
+                  id="searchHistory"
                   type="text"
                   placeholder="Search by location or season..."
                   value={searchHistory}
