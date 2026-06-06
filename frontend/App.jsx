@@ -1,5 +1,5 @@
 import React, { Suspense, useEffect, useState, useRef } from "react";
-import { Routes, Route, Link, NavLink, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Routes, Route, Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -68,7 +68,6 @@ import {
   MarketPrices,
   NotFound,
   PestDetection,
-  PestCalendar,
   PrivacyPolicy,
   ProfileSetup,
   ProfileSettings,
@@ -86,9 +85,6 @@ import {
   Terms,
   YieldPredictor,
   EquipmentManagement,
-  PredictionExplainer,
-  RetrainingPipelineMonitor,
-  CropInsuranceClaim
 } from "./routes/lazyPages";
 
 const Weather = React.lazy(() => import("./Weather"));
@@ -112,6 +108,7 @@ import { syncOfflineRequests } from "./lib/syncOfflineRequests";
 
 // CSS
 import "./App.css";
+
 const LANGUAGE_OPTIONS = [
   { value: "en", label: "🌍 English", englishName: "english" },
   { value: "hi", label: "🇮🇳 हिंदी", englishName: "hindi" },
@@ -142,99 +139,67 @@ const normalizeUserProfile = (profile) => {
   };
 };
 
-// ============================================
-// Google Translate Synchronization Utilities
-// ============================================
-
-const GOOGLE_TRANSLATE_TIMEOUT = 15000;
-const GOOGLE_TRANSLATE_SYNC_DELAY = 1200;
-
-let googleTranslateObserver = null;
-let googleTranslateRetryTimeout = null;
-let lastAppliedLanguage = null;
-let translateInitializationInProgress = false;
-
 /**
- * Apply translation only when necessary
+ * Helper to apply Google Translate selection to the hidden widget.
+ * Also updates the googtrans cookie so the selection persists across refreshes.
  */
 const applyGoogleTranslate = (langCode) => {
   try {
-    const select = document.querySelector(".goog-te-combo");
-
-    if (!select) {
-      return false;
+    // Update the googtrans cookie so the translation persists on refresh
+    const domains = [window.location.hostname, '.' + window.location.hostname];
+    if (langCode === 'en') {
+      // Clear translation cookies to restore English
+      domains.forEach(domain => {
+        document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=${domain};`;
+        document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+      });
+    } else {
+      document.cookie = `googtrans=/en/${langCode}; path=/;`;
+      document.cookie = `googtrans=/en/${langCode}; path=/; domain=${window.location.hostname};`;
     }
 
-    // Prevent redundant re-application
-    if (select.value === langCode && lastAppliedLanguage === langCode) {
+    const select = document.querySelector(".goog-te-combo");
+    if (select) {
+      if (select.value !== langCode) {
+        select.value = langCode;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      }
       return true;
     }
-
-    select.value = langCode;
-
-    select.dispatchEvent(
-      new Event("change", { bubbles: true })
-    );
-
-    lastAppliedLanguage = langCode;
-
-    return true;
-  } catch (error) {
-    console.error(
-      "Google Translate apply error:",
-      error
-    );
-
-    return false;
+  } catch (e) {
+    console.error("GT Apply Error:", e);
   }
+  return false;
 };
 
 /**
- * Wait for Google Translate widget with MutationObserver
+ * Robustly wait for Google Translate widget using MutationObserver
+ * Returns a promise that resolves when widget is ready or times out
  */
-const waitForGoogleTranslateWidget = (
-  timeoutMs = GOOGLE_TRANSLATE_TIMEOUT
-) => {
+const waitForGoogleTranslateWidget = (timeoutMs = 15000) => {
   return new Promise((resolve, reject) => {
-    const existingWidget = document.querySelector(
-      ".goog-te-combo"
-    );
-
+    const existingWidget = document.querySelector(".goog-te-combo");
     if (existingWidget) {
       resolve(existingWidget);
       return;
     }
 
+    let observer = null;
     const timeoutId = setTimeout(() => {
-      cleanup();
-      reject(
-        new Error(
-          "Google Translate widget initialization timeout"
-        )
-      );
+      if (observer) observer.disconnect();
+      reject(new Error("Google Translate widget not found within timeout"));
     }, timeoutMs);
 
-    const cleanup = () => {
-      clearTimeout(timeoutId);
-
-      if (googleTranslateObserver) {
-        googleTranslateObserver.disconnect();
-        googleTranslateObserver = null;
-      }
-    };
-
-    googleTranslateObserver = new MutationObserver(() => {
-      const widget = document.querySelector(
-        ".goog-te-combo"
-      );
-
+    observer = new MutationObserver((mutations) => {
+      const widget = document.querySelector(".goog-te-combo");
       if (widget) {
-        cleanup();
+        clearTimeout(timeoutId);
+        observer?.disconnect();
         resolve(widget);
       }
     });
 
-    googleTranslateObserver.observe(document.body, {
+    observer.observe(document.body, {
       childList: true,
       subtree: true,
     });
@@ -242,61 +207,18 @@ const waitForGoogleTranslateWidget = (
 };
 
 /**
- * Robust translation synchronization
+ * Apply translation with robust widget detection
  */
-const applyGoogleTranslateRobust = async (
-  langCode,
-  options = {}
-) => {
-  const {
-    retry = true,
-    onReady,
-    onError,
-  } = options;
-
-  // Prevent overlapping initialization calls
-  if (translateInitializationInProgress) {
-    return;
-  }
-
-  translateInitializationInProgress = true;
-
+const applyGoogleTranslateRobust = async (langCode, onReady, onError) => {
   try {
-    await waitForGoogleTranslateWidget();
-
-    const applied = applyGoogleTranslate(langCode);
-
-    if (!applied) {
-      throw new Error(
-        "Failed to apply translation state"
-      );
-    }
-
+    await waitForGoogleTranslateWidget(15000);
+    applyGoogleTranslate(langCode);
     onReady?.();
   } catch (error) {
-    console.warn(
-      "Google Translate synchronization failed:",
-      error.message
-    );
-
-    // Retry once after delayed script injection
-    if (retry) {
-      clearTimeout(googleTranslateRetryTimeout);
-
-      googleTranslateRetryTimeout = setTimeout(() => {
-        void applyGoogleTranslateRobust(langCode, {
-          retry: false,
-        });
-      }, GOOGLE_TRANSLATE_SYNC_DELAY);
-    }
-
+    console.warn("Google Translate widget initialization failed:", error.message);
     onError?.(error);
-  } finally {
-    translateInitializationInProgress = false;
   }
 };
-
-
 
 const GuestBanner = () => (
   <div className="guest-banner">
@@ -312,48 +234,26 @@ const GuestBanner = () => (
 
 function App() {
   const scorecardRef = useRef(null);
-  const scrollFrameRef = useRef(null);
-
-  const lastScrollStateRef = useRef({
-    showScrollTop: false,
-    scrollProgress: 0,
-  });
-  const hydrationInProgressRef = useRef(false);
-  const offlineSyncInProgressRef = useRef(false);
-  const lastPersistedLangRef = useRef(null);
-  const restoredSnapshotRef = useRef(false);
-  const getStoredLanguagePreference = () => {
-    try {
-      return sessionStorage.getItem("agri:preferredLanguage");
-    } catch {
-      return null;
-    }
-  };
-
-  const { i18n } = useTranslation();
   const [preferredLang, setPreferredLang] = useState(() => {
-    return getStoredLanguagePreference() || getInitialLanguage();
-  });
-  useEffect(() => {
-    if (preferredLang && i18n.language !== preferredLang) {
-      i18n.changeLanguage(preferredLang);
+    try {
+      return localStorage.getItem("agri:preferredLanguage") || getInitialLanguage();
+    } catch {
+      return getInitialLanguage();
     }
-  }, [preferredLang, i18n]);
-  
+  });
   const [isOpen, setIsOpen] = useState(false);
   const { theme, toggleTheme, setTheme } = useTheme();
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [profileCompleted, setProfileCompleted] = useState(true);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [showScorecard, setShowScorecard] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
 
-  const { liteMode, setLiteMode, detectAndSetLiteMode } =
-    usePerformanceStore();
+  const { liteMode, setLiteMode, detectAndSetLiteMode } = usePerformanceStore();
 
   useEffect(() => {
     detectAndSetLiteMode();
@@ -363,49 +263,21 @@ function App() {
     let cancelled = false;
 
     const hydrateOfflineState = async () => {
-      if (hydrationInProgressRef.current) return;
-
-      hydrationInProgressRef.current = true;
-
       try {
         const storedState = await loadAppState();
-
-        if (
-          !cancelled &&
-          storedState &&
-          typeof storedState === "object"
-        ) {
-          if (
-            typeof storedState.preferredLang === "string" &&
-            storedState.preferredLang.trim()
-          ) {
-            setPreferredLang(storedState.preferredLang);
-          }
+        if (!cancelled && storedState?.preferredLang) {
+          setPreferredLang(storedState.preferredLang);
         }
       } catch (error) {
-        console.warn(
-          "Failed to restore offline app state:",
-          error
-        );
-      } finally {
-        hydrationInProgressRef.current = false;
+        console.warn("Failed to restore offline app state:", error);
       }
     };
 
     const syncQueuedRequests = async () => {
-      if (offlineSyncInProgressRef.current) return;
-
-      offlineSyncInProgressRef.current = true;
-
       try {
         await syncOfflineRequests();
       } catch (error) {
-        console.warn(
-          "Offline request sync failed:",
-          error
-        );
-      } finally {
-        offlineSyncInProgressRef.current = false;
+        console.warn("Offline request sync failed:", error);
       }
     };
 
@@ -417,48 +289,26 @@ function App() {
       void syncQueuedRequests();
     };
 
-    const handleOffline = () => {
-      setIsOffline(true);
-    };
+    const handleOffline = () => setIsOffline(true);
 
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
 
     return () => {
       cancelled = true;
-
-      window.removeEventListener(
-        "online",
-        handleOnline
-      );
-
-      window.removeEventListener(
-        "offline",
-        handleOffline
-      );
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
     };
   }, []);
 
   useEffect(() => {
-    if (
-      !preferredLang ||
-      lastPersistedLangRef.current === preferredLang
-    ) {
-      return;
-    }
-
-    lastPersistedLangRef.current = preferredLang;
-
-    void persistAppState({
-      preferredLang,
-      persistedAt: Date.now(),
-    });
+    void persistAppState({ preferredLang });
   }, [preferredLang]);
 
+  const { i18n } = useTranslation();
   const location = useLocation();
 
   useNotifications();
-
   useBrowserCacheBudget({
     enabled: true,
     usageRatioLimit: liteMode ? 0.72 : 0.85,
@@ -466,100 +316,39 @@ function App() {
 
   /* ---------------- THEME SYSTEM (Moved to ThemeProvider) ---------------- */
 
-/* ---------------- LANGUAGE AUTO-TRANS ---------------- */
+  /* ---------------- LANGUAGE AUTO-TRANS ---------------- */
+  useEffect(() => {
+    // Try to apply immediately if the widget is already present
+    if (applyGoogleTranslate(preferredLang)) return;
 
-useEffect(() => {
-  let cancelled = false;
+    // Widget not ready yet — poll until it appears, then apply
+    let retries = 0;
+    const MAX_RETRIES = 60; // up to ~18 seconds at 300 ms intervals
 
-  const synchronizeTranslation = async () => {
-    if (!preferredLang || cancelled) return;
-
-    // Skip redundant sync
-    if (lastAppliedLanguage === preferredLang) {
-      return;
-    }
-
-    // Fast path
-    if (applyGoogleTranslate(preferredLang)) {
-      return;
-    }
-
-    // Robust fallback path
-    await applyGoogleTranslateRobust(
-      preferredLang,
-      {
-        onReady: () => {
-          console.log(
-            "Google Translate synchronized successfully"
-          );
-        },
-
-        onError: () => {
-          console.warn(
-            "Translation fallback active"
-          );
-        },
+    const id = setInterval(() => {
+      retries++;
+      if (applyGoogleTranslate(preferredLang)) {
+        clearInterval(id);
+      } else if (retries >= MAX_RETRIES) {
+        clearInterval(id);
+        console.warn("Google Translate widget initialization timed out.");
       }
-    );
-  };
+    }, 300);
 
-  void synchronizeTranslation();
+    return () => clearInterval(id);
+  }, [preferredLang]);
 
-  const handleWidgetLoad = () => {
-    if (cancelled) return;
-
-    if (!applyGoogleTranslate(preferredLang)) {
-      void applyGoogleTranslateRobust(
-        preferredLang,
-        { retry: false }
-      );
-    }
-  };
-
-  document.addEventListener(
-    "googleTranslateWidgetLoaded",
-    handleWidgetLoad
-  );
-
-  return () => {
-    cancelled = true;
-
-    document.removeEventListener(
-      "googleTranslateWidgetLoaded",
-      handleWidgetLoad
-    );
-
-    if (googleTranslateObserver) {
-      googleTranslateObserver.disconnect();
-      googleTranslateObserver = null;
-    }
-
-    if (googleTranslateRetryTimeout) {
-      clearTimeout(
-        googleTranslateRetryTimeout
-      );
-
-      googleTranslateRetryTimeout = null;
-    }
-  };
-}, [preferredLang]);
-
+  /* ---------------- HIDE GOOGLE TRANSLATE BANNER ---------------- */
   useEffect(() => {
     const hideGoogleTranslateBanner = () => {
-      const bannerFrame = document.querySelector(
-        ".goog-te-banner-frame"
-      );
-
+      const bannerFrame = document.querySelector(".goog-te-banner-frame");
       if (bannerFrame) {
         bannerFrame.style.display = "none";
       }
 
       document.body.style.top = "0px";
 
-      const translateElement = document.querySelector(
-        ".goog-te-balloon-frame"
-      );
-
+      const translateElement = document.querySelector(".goog-te-balloon-frame");
       if (translateElement) {
         translateElement.style.display = "none";
       }
@@ -567,189 +356,99 @@ useEffect(() => {
 
     hideGoogleTranslateBanner();
 
-    const interval = setInterval(
-      hideGoogleTranslateBanner,
-      1000
-    );
+    const interval = setInterval(hideGoogleTranslateBanner, 1000);
 
     return () => clearInterval(interval);
   }, []);
 
+  /* ---------------- AUTH & FIRESTORE SYNC ---------------- */
   useEffect(() => {
     if (!isFirebaseConfigured()) {
-      const timeout = setTimeout(
-        () => setLoading(false),
-        3000
-      );
-
       setLoading(false);
-
-      return () => clearTimeout(timeout);
+      return;
     }
 
-    const userDocUnsubscribeRef = {
-      current: null,
-    };
+    const userDocUnsubscribeRef = { current: null };
 
-    const unsubscribeAuth = onAuthStateChanged(
-      auth,
-      (currentUser) => {
-        setUser(currentUser);
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
 
-        const hydrateUserSnapshot = async () => {
-          if (
-            !currentUser?.uid ||
-            restoredSnapshotRef.current
-          ) {
-            return false;
+      const hydrateUserSnapshot = async () => {
+        if (!currentUser?.uid) return false;
+        try {
+          const snapshot = await loadUserProfileSnapshot(currentUser.uid);
+          if (snapshot) {
+            setUserData(normalizeUserProfile(snapshot));
+            setProfileCompleted(snapshot.profileCompleted === true);
+            return true;
           }
-
-          restoredSnapshotRef.current = true;
-
-          try {
-            const snapshot =
-              await loadUserProfileSnapshot(
-                currentUser.uid
-              );
-
-            if (
-              snapshot &&
-              typeof snapshot === "object"
-            ) {
-              const normalizedSnapshot =
-                normalizeUserProfile(snapshot);
-
-              setUserData(normalizedSnapshot);
-
-              setProfileCompleted(
-                normalizedSnapshot.profileCompleted === true
-              );
-
-              return true;
-            }
-          } catch (error) {
-            console.warn(
-              "Failed to restore offline user profile snapshot:",
-              error
-            );
-          }
-
-          return false;
-        };
-
-        if (currentUser) {
-          userDocUnsubscribeRef.current = onSnapshot(
-            doc(db, "users", currentUser.uid),
-            (userDoc) => {
-              if (userDoc.exists()) {
-                const data = normalizeUserProfile(
-                  userDoc.data()
-                );
-
-                setUserData(data);
-
-                setProfileCompleted(
-                  data.profileCompleted === true
-                );
-
-                restoredSnapshotRef.current = false;
-              } else if (currentUser.isAnonymous) {
-                setUserData({
-                  displayName: "Guest Farmer",
-                  isAnonymous: true,
-                });
-
-                setProfileCompleted(true);
-              } else {
-                setUserData(null);
-                setProfileCompleted(false);
-
-                void hydrateUserSnapshot().finally(() =>
-                  setLoading(false)
-                );
-
-                return;
-              }
-
-              setLoading(false);
-            },
-            (error) => {
-              console.error(
-                "Firestore sync error:",
-                error
-              );
-
-              setUserData(null);
-              setProfileCompleted(false);
-
-              void hydrateUserSnapshot().finally(() =>
-                setLoading(false)
-              );
-            }
-          );
-        } else {
-          restoredSnapshotRef.current = false;
-          setUserData(null);
-          setProfileCompleted(true);
-          setLoading(false);
+        } catch (error) {
+          console.warn("Failed to restore offline user profile snapshot:", error);
         }
+        return false;
+      };
+
+      if (currentUser) {
+        userDocUnsubscribeRef.current = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
+          if (userDoc.exists()) {
+            const data = normalizeUserProfile(userDoc.data());
+            setUserData(data);
+            setProfileCompleted(data.profileCompleted === true);
+          } else if (currentUser.isAnonymous) {
+            setUserData({ displayName: "Guest Farmer", isAnonymous: true });
+            setProfileCompleted(true);
+          } else {
+            setUserData(null);
+            setProfileCompleted(false);
+            void hydrateUserSnapshot().finally(() => setLoading(false));
+            return;
+          }
+          setLoading(false);
+        }, (error) => {
+          console.error("Firestore sync error:", error);
+          setUserData(null);
+          setProfileCompleted(false);
+          void hydrateUserSnapshot().finally(() => setLoading(false));
+        });
+      } else {
+        setUserData(null);
+        setProfileCompleted(true);
+        setLoading(false);
       }
-    );
+    });
 
     return () => {
       unsubscribeAuth();
-
       if (userDocUnsubscribeRef.current) {
         userDocUnsubscribeRef.current();
       }
     };
   }, []);
 
+  // E2EE Key Generation Sync
   useEffect(() => {
     if (!user || !isFirebaseConfigured()) return;
 
     const ensurePublicKey = async () => {
       try {
-        let { publicJwk } =
-          await cryptoService.ensureKeys(user.uid);
+        let { publicJwk } = await cryptoService.ensureKeys(user.uid);
 
         if (!publicJwk) {
-          const publicKeySnap = await getDoc(
-            doc(db, "public_keys", user.uid)
-          );
-
+          const publicKeySnap = await getDoc(doc(db, "public_keys", user.uid));
           if (publicKeySnap.exists()) {
             publicJwk = publicKeySnap.data().jwk;
-
-            await cryptoService.savePublicKey(
-              user.uid,
-              publicJwk
-            );
+            await cryptoService.savePublicKey(user.uid, publicJwk);
           }
         }
 
         if (!publicJwk) {
-          throw new Error(
-            "ECDH public key unavailable after initialization"
-          );
+          throw new Error("ECDH public key unavailable after initialization");
         }
 
-        const pubKeyRef = doc(
-          db,
-          "public_keys",
-          user.uid
-        );
-
-        await setDoc(
-          pubKeyRef,
-          { jwk: publicJwk },
-          { merge: true }
-        );
+        const pubKeyRef = doc(db, "public_keys", user.uid);
+        await setDoc(pubKeyRef, { jwk: publicJwk }, { merge: true });
       } catch (error) {
-        console.error(
-          "Failed to generate/publish ECDH keys globally:",
-          error
-        );
+        console.error("Failed to generate/publish ECDH keys globally:", error);
       }
     };
 
@@ -766,88 +465,40 @@ useEffect(() => {
     });
   }, [user?.uid, userData, profileCompleted]);
 
+  // Online/Offline detection
   useEffect(() => {
-    const handleScroll = () => {
-      if (scrollFrameRef.current) return;
-
-      scrollFrameRef.current =
-        requestAnimationFrame(() => {
-          const shouldShowScrollTop =
-            window.scrollY > 300;
-
-          const totalHeight =
-            document.documentElement.scrollHeight -
-            window.innerHeight;
-
-          const progress =
-            totalHeight > 0
-              ? (window.scrollY / totalHeight) * 100
-              : 0;
-
-          if (
-            lastScrollStateRef.current
-              .showScrollTop !==
-            shouldShowScrollTop
-          ) {
-            lastScrollStateRef.current.showScrollTop =
-              shouldShowScrollTop;
-
-            setShowScrollTop(shouldShowScrollTop);
-          }
-
-          if (
-            Math.abs(
-              lastScrollStateRef.current
-                .scrollProgress - progress
-            ) > 1
-          ) {
-            lastScrollStateRef.current.scrollProgress =
-              progress;
-
-            setScrollProgress(progress);
-          }
-
-          scrollFrameRef.current = null;
-        });
-    };
-
-    window.addEventListener("scroll", handleScroll, {
-      passive: true,
-    });
-
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
     return () => {
-      window.removeEventListener("scroll", handleScroll);
-
-      if (scrollFrameRef.current) {
-        cancelAnimationFrame(scrollFrameRef.current);
-      }
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
     };
   }, []);
 
-  // Scroll to Top logic - removed duplicate
+  // Scroll to Top logic
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowScrollTop(window.scrollY > 300);
+      // Calculate scroll progress
+      const totalHeight = document.documentElement.scrollHeight - window.innerHeight;
+      const progress = totalHeight > 0 ? (window.scrollY / totalHeight) * 100 : 0;
+      setScrollProgress(progress);
+    };
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
+  // Click outside scorecard
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (
-        scorecardRef.current &&
-        !scorecardRef.current.contains(
-          event.target
-        )
-      ) {
+      if (scorecardRef.current && !scorecardRef.current.contains(event.target)) {
         setShowScorecard(false);
       }
     };
-
-    document.addEventListener(
-      "mousedown",
-      handleClickOutside
-    );
-
-    return () =>
-      document.removeEventListener(
-        "mousedown",
-        handleClickOutside
-      );
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const handleThemeToggle = toggleTheme;
@@ -886,12 +537,12 @@ useEffect(() => {
         </div>
 
         <ul className={`nav-center ${isOpen ? "active" : ""}`}>
-          <li><NavLink to="/" onClick={() => setIsOpen(false)}>Home</NavLink></li>
-          <li><NavLink to="/about" onClick={() => setIsOpen(false)}>About</NavLink></li>
-          <li><NavLink to="/how-it-works" onClick={() => setIsOpen(false)}>How It Works</NavLink></li>
-          <li><NavLink to="/crop-guide" onClick={() => setIsOpen(false)}> Crop Guide</NavLink></li>
-          <li><NavLink to="/resources" onClick={() => setIsOpen(false)}>Resources</NavLink></li>
-        </ul>
+           <li><Link to="/" onClick={() => setIsOpen(false)}>Home</Link></li>
+           <li><Link to="/about" onClick={() => setIsOpen(false)}>About</Link></li>
+           <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}>How It Works</Link></li>
+           <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}> Crop Guide</Link></li>
+           <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
+         </ul>
 
         <div className="nav-right">
           <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Cycle Theme" title={`Current theme: ${theme}`}>
@@ -918,11 +569,7 @@ useEffect(() => {
                     onChange={(lang) => {
                       setPreferredLang(lang);
                       i18n.changeLanguage(lang);
-                      try {
-                        sessionStorage.setItem("agri:preferredLanguage", lang);
-                      } catch (error) {
-                        console.warn("Unable to persist language preference");
-                      }
+                      localStorage.setItem("agri:preferredLanguage", lang);
                       void persistAppState({ preferredLang: lang });
                     }}
                   />
@@ -948,10 +595,10 @@ useEffect(() => {
                     ))}
                   </div>
                 </div>
-                <Link to="/voice-assistant" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMicrophone /> Voice Assistant</Link>
-                <Link to="/myth-checker" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMedal /> Myth Checker</Link>
-                <Link to="/crop-comparison" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaLeaf /> Crop Comparison</Link>
-                <div className="performance-toggle-section">
+      <Link to="/voice-assistant" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMicrophone /> Voice Assistant</Link>
+      <Link to="/myth-checker" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMedal /> Myth Checker</Link>
+      <Link to="/crop-comparison" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaLeaf /> Crop Comparison</Link>
+      <div className="performance-toggle-section">
                   <button
                     className={`lite-mode-toggle ${liteMode ? 'active' : ''}`}
                     onClick={() => setLiteMode(!liteMode)}
@@ -1097,7 +744,6 @@ useEffect(() => {
             <Route path="/crop-planner" element={<SeasonalCropPlanner />} />
             <Route path="/soil-guide" element={<SoilGuide />} />
             <Route path="/disease-awareness" element={<CropDiseaseAwareness />} />
-            <Route path="/seasonal-pest-calendar" element={<PestCalendar />} />
             <Route path="/pest-detection" element={<PestDetection />} />
             <Route path="/equipment-management" element={<EquipmentManagement />} />
             <Route path="/helpline" element={<Helpline />} />
@@ -1110,7 +756,7 @@ useEffect(() => {
             <Route path="/farming-news" element={<FarmingNews userData={userData} />} />
             <Route path="/yield-predictor" element={<YieldPredictor />} />
             <Route path="/smart-farm-autopilot" element={<SmartFarmAutopilot />} />
-
+            
             <Route
               path="/sustainability-analytics"
               element={<SustainabilityAnalyticsPage userData={userData} />}
@@ -1119,16 +765,13 @@ useEffect(() => {
             <Route path="/blog/:id" element={<BlogDetail />} />
             <Route path="/weather" element={<Weather />} />
             <Route path="/voice-assistant" element={<VoiceAssistant />} />
-            <Route path="/prediction-explainer" element={<PredictionExplainer />} />
-            <Route path="/retraining-monitor" element={<RetrainingPipelineMonitor />} />
-            <Route path="/insurance-claim" element={<CropInsuranceClaim />} />
             <Route
               path="/myth-checker"
-              element={
-                <div className="app-content">
-                  <FarmingMythChecker />
-                </div>
-              }
+                element={
+            <div className="app-content">
+                <FarmingMythChecker />
+            </div>
+            }
             />
             <Route path="/crop-comparison" element={<CropComparison />} />
             <Route path="*" element={<NotFound />} />
