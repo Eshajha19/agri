@@ -99,6 +99,8 @@ const Community = () => {
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [showP2PChat, setShowP2PChat] = useState(null); // stores the recipient object
   const [authorsData, setAuthorsData] = useState({});
+  const [lastFeedRefresh, setLastFeedRefresh] = useState(null);
+  const [isRefreshingFeed, setIsRefreshingFeed] = useState(false);
 
   // Synchronization refs
   const mountedRef = useRef(true);
@@ -111,6 +113,8 @@ const Community = () => {
   });
 
   const activeCommentsPostRef = useRef(null);
+  const likeInProgressRef = useRef(new Set());
+  const voteInProgressRef = useRef(new Set());
 
   // ── Rate-limit / spam state ──────────────────────────────────────────────
   /** Timestamp (ms) of the user's last successful post. null = never posted. */
@@ -191,6 +195,7 @@ const Community = () => {
     }
 
     setLoading(true);
+    setIsRefreshingFeed(true);
 
     let q = query(
       collection(db, "posts"),
@@ -221,7 +226,9 @@ const Community = () => {
         }));
 
         setPosts(docs);
+        setLastFeedRefresh(Date.now());
         setLoading(false);
+        setIsRefreshingFeed(false);
       },
       (error) => {
         console.error("Error fetching posts:", error);
@@ -231,6 +238,7 @@ const Community = () => {
           requestTrackerRef.current.feed === requestId
         ) {
           setLoading(false);
+          setIsRefreshingFeed(false);
         }
       }
     );
@@ -243,6 +251,13 @@ const Community = () => {
   useEffect(() => {
     return () => {
       mountedRef.current = false;
+
+      requestTrackerRef.current.feed++;
+      requestTrackerRef.current.comments++;
+      requestTrackerRef.current.likes++;
+      requestTrackerRef.current.votes++;
+
+      activeCommentsPostRef.current = null;
     };
   }, []);
 
@@ -334,8 +349,16 @@ const Community = () => {
     }
   };
 
+
+
   const handleLikePost = async (post) => {
     if (!isFirebaseConfigured() || !currentUser) return;
+
+    if (likeInProgressRef.current.has(post.id)) {
+      return;
+    }
+
+    likeInProgressRef.current.add(post.id);
 
     const postRef = doc(db, "posts", post.id);
     const authorRef = doc(db, "users", post.userId);
@@ -369,6 +392,8 @@ const Community = () => {
       });
     } catch (err) {
       console.error("Error liking post:", err);
+    } finally {
+      likeInProgressRef.current.delete(post.id);
     }
   };
 
@@ -378,6 +403,7 @@ const Community = () => {
     const requestId = ++requestTrackerRef.current.comments;
 
     activeCommentsPostRef.current = post.id;
+    setPostComments([]);
 
     setShowCommentsModal(post);
     setCommentsLoading(true);
@@ -420,6 +446,11 @@ const Community = () => {
   const handleAddComment = async (e) => {
     e.preventDefault();
     if (!isFirebaseConfigured() || !currentUser || !showCommentsModal) return;
+    if (
+      activeCommentsPostRef.current !== showCommentsModal.id
+    ) {
+      return;
+    }
 
     const text = newComment.trim();
 
@@ -520,6 +551,14 @@ const Community = () => {
   const handleVoteComment = async (comment, voteType) => {
     if (!isFirebaseConfigured() || !currentUser) return;
 
+    const voteKey = `${comment.id}-${voteType}`;
+
+    if (voteInProgressRef.current.has(voteKey)) {
+      return;
+    }
+
+    voteInProgressRef.current.add(voteKey);
+
     const commentRef = doc(db, "comments", comment.id);
     const authorRef = doc(db, "users", comment.userId);
 
@@ -589,6 +628,8 @@ const Community = () => {
       openComments(showCommentsModal);
     } catch (err) {
       console.error("Error voting on comment:", err);
+    } finally {
+      voteInProgressRef.current.delete(voteKey);
     }
   };
 
@@ -648,6 +689,12 @@ const Community = () => {
         </div>
       </header>
 
+      {lastFeedRefresh && (
+        <div className="feed-refresh-info">
+          Last updated: {new Date(lastFeedRefresh).toLocaleTimeString()}
+        </div>
+      )}
+      
       <main className="community-feed">
         {loading ? (
           <Loader message="Loading discussions..." />
