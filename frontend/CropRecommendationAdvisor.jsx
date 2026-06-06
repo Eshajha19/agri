@@ -38,6 +38,13 @@ export default function CropRecommendationAdvisor({ onClose }) {
   const [warnings, setWarnings] = useState([]);
   const [expandedCrop, setExpandedCrop] = useState(null);
 
+  const [recommendationHistory, setRecommendationHistory] = useState(() => {
+    const saved = localStorage.getItem('cropRecommendationHistory');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  const [searchHistory, setSearchHistory] = useState('');
+
   // Input validation
   const isFormValid = () => {
     return (
@@ -50,16 +57,16 @@ export default function CropRecommendationAdvisor({ onClose }) {
     );
   };
 
-   // Handle input changes
-   const handleInputChange = (e) => {
-     const { name, value, type } = e.target;
-     // Parse float for numeric inputs (including range)
-     const numericValue = type === 'number' || type === 'range' ? parseFloat(value) : value;
-     setFormData((prev) => ({
-       ...prev,
-       [name]: numericValue,
-     }));
-   };
+  // Handle input changes
+  const handleInputChange = (e) => {
+    const { name, value, type } = e.target;
+    // Parse float for numeric inputs (including range)
+    const numericValue = type === 'number' || type === 'range' ? parseFloat(value) : value;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: numericValue,
+    }));
+  };
 
   // Reset form
   const handleReset = () => {
@@ -114,6 +121,23 @@ export default function CropRecommendationAdvisor({ onClose }) {
           setWarnings(response.data.warnings || []);
           setSuccess(true);
           setError('');
+
+          const historyEntry = {
+            id: Date.now(),
+            timestamp: new Date().toLocaleString(),
+            location: formData.location,
+            season: formData.season,
+            recommendations: response.data.recommendations,
+          };
+
+          const updatedHistory = [historyEntry, ...recommendationHistory];
+
+          setRecommendationHistory(updatedHistory);
+
+          localStorage.setItem(
+            'cropRecommendationHistory',
+            JSON.stringify(updatedHistory)
+          );
         } else {
           setError(response.data.error || 'Failed to get recommendations');
           setRecommendations(null);
@@ -129,13 +153,49 @@ export default function CropRecommendationAdvisor({ onClose }) {
         setLoading(false);
       }
     },
-    [formData]
+    [formData, recommendationHistory]
   );
 
   const toggleCropExpand = (cropName) => {
     setExpandedCrop(expandedCrop === cropName ? null : cropName);
   };
+  const exportHistoryToCSV = () => {
+    if (recommendationHistory.length === 0) return;
 
+    const rows = [
+      ['Timestamp', 'Location', 'Season', 'Recommended Crops']
+    ];
+
+    recommendationHistory.forEach((entry) => {
+      rows.push([
+        entry.timestamp,
+        entry.location,
+        entry.season,
+        entry.recommendations.map((c) => c.crop).join(', ')
+      ]);
+    });
+
+    const csvContent = rows
+      .map((row) => row.map((item) => `"${item}"`).join(','))
+      .join('\n');
+
+    const blob = new Blob([csvContent], {
+      type: 'text/csv;charset=utf-8;'
+    });
+
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'crop_recommendation_history.csv';
+    link.click();
+
+    URL.revokeObjectURL(url);
+  };
+  const filteredHistory = recommendationHistory.filter((entry) =>
+    entry.location.toLowerCase().includes(searchHistory.toLowerCase()) ||
+    entry.season.toLowerCase().includes(searchHistory.toLowerCase())
+  );
   const getSoilInterpretation = () => {
     if (!soilAnalysis) return null;
 
@@ -184,8 +244,8 @@ export default function CropRecommendationAdvisor({ onClose }) {
           : '#ef4444';
 
     return (
-        <div key={crop.crop} className="recommendation-card">
-         <div className="card-header" onClick={() => toggleCropExpand(crop.crop)}>
+      <div key={crop.crop} className="recommendation-card">
+        <div className="card-header" onClick={() => toggleCropExpand(crop.crop)}>
           <div className="card-title-section">
             <Leaf size={20} className="crop-icon" />
             <div className="crop-info">
@@ -496,7 +556,74 @@ export default function CropRecommendationAdvisor({ onClose }) {
                   )}
                 </div>
               </div>
+              {/* Recommendation History */}
+              <div className="recommendation-history">
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginTop: '2rem',
+                    marginBottom: '1rem',
+                    gap: '1rem',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <h4>
+                    <Leaf size={18} /> Recommendation History
+                  </h4>
 
+                  <button
+                    onClick={exportHistoryToCSV}
+                    className="btn btn-secondary"
+                    type="button"
+                  >
+                    Export CSV
+                  </button>
+                </div>
+
+                <input
+                  type="text"
+                  placeholder="Search by location or season..."
+                  value={searchHistory}
+                  onChange={(e) => setSearchHistory(e.target.value)}
+                  className="form-input"
+                  style={{ marginBottom: '1rem' }}
+                />
+
+                {filteredHistory.length === 0 ? (
+                  <p>No recommendation history available.</p>
+                ) : (
+                  <div className="history-list">
+                    {filteredHistory.map((entry) => (
+                      <div
+                        key={entry.id}
+                        style={{
+                          padding: '12px',
+                          border: '1px solid #ddd',
+                          borderRadius: '10px',
+                          marginBottom: '10px',
+                        }}
+                      >
+                        <strong>{entry.location}</strong>
+
+                        <p>
+                          <strong>Season:</strong> {entry.season}
+                        </p>
+
+                        <p>
+                          <strong>Generated:</strong> {entry.timestamp}
+                        </p>
+
+                        <p>
+                          <strong>Crops:</strong>{' '}
+                          {entry.recommendations.map((crop) => crop.crop).join(', ')}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
               {/* Info Box */}
               <div className="info-box">
                 <Info size={16} />
