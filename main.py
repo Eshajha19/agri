@@ -692,10 +692,10 @@ class SeedVerifyRequest(BaseModel):
 _MAX_NOTIFICATIONS = 200
 _NOTIFICATION_TTL_HOURS = 24
 
-        @app.get("/user_roles")
-        def get_user_roles(uid: str):
-            user_roles = ["admin", "editor"]  # example
-            return {"uid": uid, "roles": user_roles}
+    @app.get("/user_roles")
+    def get_user_roles(uid: str):
+        user_roles = ["admin", "editor"]  # example
+        return {"uid": uid, "roles": user_roles}
 
 class NotificationStore:
     """
