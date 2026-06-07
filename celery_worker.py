@@ -70,7 +70,9 @@ def _get_lag_model():
 
             logger.info("Lag model loaded successfully")
 
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.error(f"Celery worker error: {e}")
             logger.exception("Failed to load lag model")
             raise
 
