@@ -6,3 +6,9 @@ deepdiff==6.0.0
 # Optional dev tools
 black==24.4.2
 flake8==7.0.0
+pytest
+httpx
+pytest-asyncio
+deepdiff>=6.0.0
+pip-audit
+safety

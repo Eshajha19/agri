@@ -1,8 +1,12 @@
 """Finance Router"""
+import logging
 from fastapi import APIRouter, Request, HTTPException
-from firebase_admin import auth as firebase_auth
 from pydantic import BaseModel, Field
 from typing import Optional
+from rbac import RBACMatrix, Role
+from rbac_audit import audit_rbac_event
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -29,30 +33,22 @@ def init_finance(ffa, rbac, perm):
     Permission = perm
 
 
-def _extract_uid(request: Request) -> Optional[str]:
-    """
-    Extract and verify the Firebase UID from the Authorization header.
-    Returns None if the token is missing or invalid (caller should already
-    have been rejected by raise_if_unauthorized before this is called).
-    """
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return None
-    token = auth_header.split(" ", 1)[1]
-    try:
-        decoded = firebase_auth.verify_id_token(token)
-        return decoded.get("uid")
-    except Exception:
-        return None
+def _context_has_permission(ctx, permission) -> bool:
+    return RBACMatrix.has_permission(Role(ctx.role), permission)
 
 
-async def _has_permission(request: Request, permission) -> bool:
-    """Return True if the caller has the given permission (no exception raised)."""
-    try:
-        await rbac_manager.raise_if_unauthorized(request, [permission], require_all=False)
-        return True
-    except Exception:
-        return False
+async def _authorize_with_context(request: Request, permissions, require_all: bool = False):
+    ctx = await rbac_manager.resolve_auth_context(request, allow_unauthenticated=False)
+    checks = [_context_has_permission(ctx, permission) for permission in permissions]
+    has_permission = all(checks) if require_all else any(checks)
+    if not has_permission:
+        logger.warning(
+            "Unauthorized access attempt with role: %s, required: %s",
+            ctx.role,
+            [permission.value for permission in permissions],
+        )
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    return ctx
 
 
 @router.post("/analyze")
@@ -66,26 +62,28 @@ async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest)
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        logger.error("Financial analysis failed: %s", e)
+        raise HTTPException(status_code=500, detail="Financial analysis failed")
+
 
 @router.post("/applications")
 async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
     if farm_finance_ai is None or rbac_manager is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     try:
-        await rbac_manager.raise_if_unauthorized(request, [Permission.FINANCE_CREATE], require_all=False)
-        # Bind the application to the authenticated caller so ownership can be
-        # enforced on subsequent reads.
-        owner_uid = _extract_uid(request)
+        ctx = await _authorize_with_context(request, [Permission.FINANCE_CREATE], require_all=False)
+        owner_uid = ctx.uid
         application = farm_finance_ai.create_application(body.model_dump(), owner_uid=owner_uid)
         return {"success": True, "data": application}
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        logger.error("Application creation failed: %s", e)
+        raise HTTPException(status_code=500, detail="Application creation failed")
+
 
 @router.get("/applications/{application_id}")
-async def get_finance_application(application_id: str, request: Request):
+async def get_finance_application(application_id: str, request: Request, resource_tenant_id: Optional[str] = None):
     """
     Retrieve a single finance application.
 
@@ -99,18 +97,52 @@ async def get_finance_application(application_id: str, request: Request):
         raise HTTPException(status_code=500, detail="Not initialized")
     try:
         # Require at least one of the two read permissions
-        await rbac_manager.raise_if_unauthorized(
+        ctx = await _authorize_with_context(
             request,
             [Permission.FINANCE_READ_OWN, Permission.FINANCE_READ_ALL],
             require_all=False,
         )
 
-        caller_uid = _extract_uid(request)
+        # Admins/experts with FINANCE_READ_ALL can override ownership in-tenant.
+        # Farmers with only FINANCE_READ_OWN remain scoped to their own records.
+        has_read_all = _context_has_permission(ctx, Permission.FINANCE_READ_ALL)
+        owner_uid_filter = ctx.uid
 
-        # Admins/experts with FINANCE_READ_ALL bypass the ownership filter;
-        # farmers with only FINANCE_READ_OWN are scoped to their own records.
-        has_read_all = await _has_permission(request, Permission.FINANCE_READ_ALL)
-        owner_uid_filter = None if has_read_all else caller_uid
+        if has_read_all:
+            try:
+                can_override = rbac_manager.can_admin_or_expert_override(
+                    ctx,
+                    resource_owner_uid=None,
+                    resource_tenant_id=resource_tenant_id,
+                    allow_cross_tenant=False,
+                )
+            except Exception:
+                can_override = False
+
+            if can_override:
+                owner_uid_filter = None
+                audit_rbac_event(
+                    request=request,
+                    action=f"GET /api/finance/applications/{application_id}",
+                    outcome="allowed",
+                    uid=ctx.uid,
+                    role=ctx.role,
+                    required_roles=["admin", "expert"],
+                    reason="admin_expert_override",
+                    status_code=200,
+                )
+            else:
+                audit_rbac_event(
+                    request=request,
+                    action=f"GET /api/finance/applications/{application_id}",
+                    outcome="denied",
+                    uid=ctx.uid,
+                    role=ctx.role,
+                    required_roles=["admin", "expert"],
+                    reason="cross_tenant_override_denied",
+                    status_code=403,
+                )
+                raise HTTPException(status_code=403, detail="Access denied: cross-tenant override not permitted")
 
         application = farm_finance_ai.get_application(
             application_id, owner_uid=owner_uid_filter
@@ -121,16 +153,21 @@ async def get_finance_application(application_id: str, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        logger.error("Application retrieval failed: %s", e)
+        raise HTTPException(status_code=500, detail="Application retrieval failed")
+
 
 @router.get("/products")
-def get_finance_products():
+async def get_finance_products():
     if farm_finance_ai is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     return {"success": True, "data": farm_finance_ai.list_marketplace()}
 
+
+# /marketplace is kept as an alias for /products so existing frontend
+# integrations that call either path continue to work without changes.
+# Both routes delegate to the same handler — there is a single code path
+# and a single place to update if the response shape ever changes.
 @router.get("/marketplace")
-def get_finance_marketplace():
-    if farm_finance_ai is None:
-        raise HTTPException(status_code=500, detail="Not initialized")
-    return {"success": True, "data": farm_finance_ai.list_marketplace()}
+async def get_finance_marketplace():
+    return await get_finance_products()
