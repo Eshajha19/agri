@@ -336,9 +336,23 @@ class SustainabilityAnalytics:
             "water_footprint_m3": result["water_footprint_m3"],
             "carbon_emissions_kg_co2e": result["carbon_emissions_kg_co2e"],
             "sustainability_score": result["sustainability_score"],
+            "water_index": result.get("water_index"),
+            "carbon_index": result.get("carbon_index"),
+            "breakdown": result.get("breakdown", {}),
+            "recommendations": result.get("recommendations", []),
+            "comparison_chart": result.get("comparison_chart", []),
+            "formula_version": result.get("formula_version", "lca-v1"),
         }
 
-        firestore_ok = False
+        # Save to memory cache
+        with self._history_lock:
+            if key not in self._history:
+                self._history[key] = []
+            self._history[key].append(record)
+            if len(self._history[key]) > 50:
+                self._history[key] = self._history[key][-50:]
+
+        # Save to Firestore primarilly
         db = self._get_db()
         if db is not None:
             try:
