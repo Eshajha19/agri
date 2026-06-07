@@ -1,6 +1,9 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
-export const useMapStore = create((set) => ({
+export const useMapStore = create(
+  persist(
+    (set, get) => ({
   // User location
   userLocation: null,
   setUserLocation: (location) => set({ userLocation: location }),
@@ -16,7 +19,10 @@ export const useMapStore = create((set) => ({
   setWeatherMarkers: (markers) => set({ weatherMarkers: markers }),
   addWeatherMarker: (marker) =>
     set((state) => ({
-      weatherMarkers: [...state.weatherMarkers, marker],
+      weatherMarkers: [
+        ...state.weatherMarkers.filter((m) => m.id !== marker.id),
+        marker,
+      ],
     })),
 
   // Crop/Field data points (markers)
@@ -24,7 +30,10 @@ export const useMapStore = create((set) => ({
   setCropMarkers: (markers) => set({ cropMarkers: markers }),
   addCropMarker: (marker) =>
     set((state) => ({
-      cropMarkers: [...state.cropMarkers, marker],
+      cropMarkers: [
+        ...state.cropMarkers.filter((m) => m.id !== marker.id),
+        marker,
+      ],
     })),
 
   // Alert zones (areas with weather alerts)
@@ -86,6 +95,39 @@ export const useMapStore = create((set) => ({
     }
   },
 
+  validateMapState: () => {
+    const state = get();
+
+    return (
+      Array.isArray(state.mapCenter) &&
+      state.mapCenter.length === 2 &&
+      typeof state.mapZoom === 'number'
+    );
+  },
+
+  recoverMapState: () => {
+    try {
+      const saved = localStorage.getItem('map-store');
+      if (!saved) return false;
+
+      const parsed = JSON.parse(saved);
+
+      if (!parsed?.state) {
+        return false;
+      }
+
+      if (!get().validateMapState()) {
+        return false;
+      }
+
+      set(parsed.state);
+      return true;
+    } catch (error) {
+      console.error('State recovery failed:', error);
+      return false;
+    }
+  },
+
   // Reset store
   resetMapStore: () =>
     set({
@@ -103,4 +145,18 @@ export const useMapStore = create((set) => ({
       showCropLayer: true,
       showAlertLayer: true,
     }),
-}));
+  }),
+  {
+    name: 'map-store',
+    partialize: (state) => ({
+      userLocation: state.userLocation,
+      mapCenter: state.mapCenter,
+      mapZoom: state.mapZoom,
+      mapType: state.mapType,
+      showWeatherLayer: state.showWeatherLayer,
+      showCropLayer: state.showCropLayer,
+      showAlertLayer: state.showAlertLayer,
+    }),
+  }
+  )
+  );
