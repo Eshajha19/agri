@@ -164,10 +164,15 @@ class ABTest:
         total_trials = self.control_arm.total_trials + self.variant_arm.total_trials
         if total_trials < self.min_samples:
             return None
-        control_rate = self.control_arm.successes / max(self.control_arm.total_trials, 1)
-        variant_rate = self.variant_arm.successes / max(self.variant_arm.total_trials, 1)
-        if abs(control_rate - variant_rate) > (1 - self.confidence_threshold):
-            return self.variant_arm if variant_rate > control_rate else self.control_arm
+        
+        control_mean = self.control_arm.successes / max(self.control_arm.total_trials, 1)
+        variant_mean = self.variant_arm.successes / max(self.variant_arm.total_trials, 1)
+        
+        # Simple confidence check — higher confidence_threshold requires a
+        # larger observed difference before declaring a winner.
+        if abs(control_mean - variant_mean) > self.confidence_threshold:
+            return self.variant_arm if variant_mean > control_mean else self.control_arm
+        
         return None
 
     def end(self) -> None:
