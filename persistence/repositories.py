@@ -222,6 +222,7 @@ class NotificationRepository(BaseRepository):
             return False
 
     def get(self, notification_id: str) -> Optional[Dict[str, Any]]:
+        notification_id = str(notification_id)
         """Retrieve a notification by ID."""
         if self.db is None:
             return None
@@ -275,6 +276,7 @@ class NotificationRepository(BaseRepository):
             return 0
 
     def update(self, notification_id: str, data: Dict[str, Any]) -> bool:
+        notification_id = str(notification_id)
         """Update a notification (rarely used)."""
         if self.db is None:
             return False
@@ -287,6 +289,7 @@ class NotificationRepository(BaseRepository):
             return False
 
     def delete(self, notification_id: str) -> bool:
+        notification_id = str(notification_id)
         """Delete a notification."""
         if self.db is None:
             return False

@@ -1,10 +1,18 @@
 import abc
 import datetime
 import logging
-from typing import List, Any
+from typing import List, Any, Optional
 from google.cloud import firestore
 
 logger = logging.getLogger(__name__)
+
+_IN_PROGRESS_STATUSES = frozenset(
+    {"PREPARING", "COMMITTING", "CLEANING_UP", "ROLLING_BACK"}
+)
+
+
+class ConcurrentMigrationError(Exception):
+    """Raised when another runner is executing a migration phase."""
 
 class Migration(abc.ABC):
     """Base class for a standard, single-transaction schema migration."""
@@ -123,16 +131,25 @@ class MigrationRunner:
         })
         return True
 
-    def _run_multi_phase_migration(self, migration: MultiPhaseMigration):
-        record_ref = self.db.collection(self.migrations_collection).document(migration.version)
-        snapshot = record_ref.get()
-        status = None
+    @staticmethod
+    def _migration_status(snapshot) -> Optional[str]:
         if snapshot.exists and snapshot.to_dict():
-            status = snapshot.to_dict().get("status")
+            return snapshot.to_dict().get("status")
+        return None
+
+    @firestore.transactional
+    def _claim_next_phase_tx(
+        self,
+        transaction: firestore.Transaction,
+        record_ref,
+        version: str,
+    ) -> Optional[str]:
+        """Atomically read status and claim the next migration phase."""
+        snapshot = record_ref.get(transaction=transaction)
+        status = self._migration_status(snapshot)
 
         if status == "COMPLETED":
-            logger.info(f"Multi-phase migration {migration.version} already applied. Skipping.")
-            return
+            return None
 
         try:
             # Phase 1: Prepare — skip only if already completed successfully
@@ -156,19 +173,70 @@ class MigrationRunner:
             record_ref.update({
                 "status": "COMPLETED",
                 "applied_at": firestore.SERVER_TIMESTAMP,
-                "updated_at": firestore.SERVER_TIMESTAMP
-            })
-            logger.info(f"Multi-phase migration {migration.version} completed successfully.")
+                "updated_at": firestore.SERVER_TIMESTAMP,
+            },
+        )
 
+    def _complete_cleanup(self, record_ref) -> None:
+        transaction = self.db.transaction()
+        self._complete_cleanup_tx(transaction, record_ref)
+
+    def _run_multi_phase_migration(self, migration: MultiPhaseMigration):
+        record_ref = self.db.collection(self.migrations_collection).document(migration.version)
+
+        try:
+            while True:
+                phase = self._claim_next_phase(record_ref, migration.version)
+                if phase is None:
+                    logger.info(
+                        f"Multi-phase migration {migration.version} already applied. Skipping."
+                    )
+                    return
+
+                if phase == "prepare":
+                    logger.info(f"Phase 1 (PREPARE): {migration.version}")
+                    migration.prepare(self.db)
+                    self._complete_phase(record_ref, "PREPARING", "PREPARED")
+                elif phase == "commit":
+                    logger.info(f"Phase 2 (COMMIT): {migration.version}")
+                    migration.commit(self.db)
+                    self._complete_phase(record_ref, "COMMITTING", "COMMITTED")
+                elif phase == "cleanup":
+                    logger.info(f"Phase 3 (CLEANUP): {migration.version}")
+                    migration.cleanup(self.db)
+                    self._complete_cleanup(record_ref)
+                    logger.info(
+                        f"Multi-phase migration {migration.version} completed successfully."
+                    )
+                    return
+
+        except ConcurrentMigrationError:
+            raise
         except Exception as e:
-            logger.error(f"Error during multi-phase migration {migration.version}: {e}. Initiating rollback.")
-            record_ref.update({"status": "ROLLING_BACK", "updated_at": firestore.SERVER_TIMESTAMP})
+            logger.error(
+                f"Error during multi-phase migration {migration.version}: {e}. Initiating rollback."
+            )
+            record_ref.update(
+                {"status": "ROLLING_BACK", "updated_at": firestore.SERVER_TIMESTAMP}
+            )
             try:
                 migration.rollback(self.db)
-                record_ref.update({"status": "FAILED", "error": str(e), "updated_at": firestore.SERVER_TIMESTAMP})
+                record_ref.update(
+                    {
+                        "status": "FAILED",
+                        "error": str(e),
+                        "updated_at": firestore.SERVER_TIMESTAMP,
+                    }
+                )
             except Exception as rollback_err:
                 logger.error(f"Rollback failed for {migration.version}: {rollback_err}")
-                record_ref.update({"status": "ROLLBACK_FAILED", "error": str(e), "rollback_error": str(rollback_err)})
+                record_ref.update(
+                    {
+                        "status": "ROLLBACK_FAILED",
+                        "error": str(e),
+                        "rollback_error": str(rollback_err),
+                    }
+                )
             raise
 
     def run_migration(self, migration: Any):
