@@ -1,0 +1,34 @@
+.fm-overlay{position:fixed;inset:0;background:rgba(2,6,23,0.6);display:flex;align-items:center;justify-content:center;z-index:1200;padding:18px;animation:fmFadeIn 0.2s ease-out}
+@keyframes fmFadeIn{from{opacity:0}to{opacity:1}}
+.fm-modal{background:#fff;max-width:900px;width:100%;max-height:92vh;overflow:auto;border-radius:12px;box-shadow:0 20px 60px rgba(2,6,23,0.4);position:relative}
+.fm-header{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid #eef2f7;background:linear-gradient(135deg,#f0fdf4,#eafff0)}
+.fm-header h2{margin:0;font-size:1.35rem;font-weight:600;color:#1e293b}
+.fm-close{background:transparent;border:0;font-size:22px;cursor:pointer;color:#64748b;width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;transition:background 0.15s,color 0.15s}
+.fm-close:hover{background:#e2e8f0;color:#1e293b}
+.fm-body{display:flex;gap:20px;padding:20px}
+.fm-list{width:240px;display:flex;flex-direction:column;gap:6px}
+.fm-list-item{display:flex;gap:10px;align-items:center;border:0;background:transparent;padding:12px 14px;cursor:pointer;text-align:left;border-radius:8px;transition:all 0.2s;width:100%}
+.fm-icon{font-size:1.5rem}
+.fm-list-item span:last-child{font-size:0.925rem;color:#334155;font-weight:500}
+.fm-list-item:hover{background:#f8fafc}
+.fm-list-item.active{background:linear-gradient(135deg,#fef2f2,#fff5f5);outline:2px solid #ef4444}
+.fm-detail{flex:1;display:flex;flex-direction:column;gap:16px}
+.fm-detail-icon{font-size:5rem;align-self:center;margin:20px 0}
+.fm-info h3{margin-top:0;font-size:1.25rem;color:#1e293b;margin-bottom:8px}
+.fm-problem{color:#475569;line-height:1.5;margin-bottom:16px}
+.fm-info h4{margin-bottom:8px;color:#1e293b;font-size:1rem}
+.fm-info ul{padding-left:20px;margin:0;color:#475569;line-height:1.8}
+.fm-info li{margin-bottom:4px}
+.fm-footer-actions{margin-top:18px}
+.fm-primary{background:#10b981;color:white;border:0;padding:10px 20px;border-radius:6px;cursor:pointer;font-weight:500;transition:background 0.2s;min-width:100px}
+.fm-primary:hover{background:#059669}
+
+@media (max-width: 860px){
+  .fm-body{flex-direction:column}
+  .fm-list{width:100%;flex-direction:row;overflow-x:auto;gap:8px;padding-bottom:12px}
+  .fm-list-item{flex-direction:column;min-width:100px;max-width:120px;padding:8px}
+  .fm-icon{font-size:2rem}
+  .fm-list-item span:last-child{font-size:0.8rem;text-align:center}
+  .fm-detail{flex-direction:column}
+  .fm-detail-icon{font-size:4rem;margin:12px 0}
+}
