@@ -343,6 +343,10 @@
   border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+.theme-dark .characteristics-section li {
+  color: #cbd5e1;
+}
+
 .theme-dark .characteristics-section h3, 
 .theme-dark .crops-section h3,
 .theme-dark .soil-title-wrap h2 {
@@ -367,6 +371,14 @@
 
 .theme-dark .tip-card h3 {
   color: #f1f5f9;
+}
+
+.theme-dark .meter-label {
+  color: #cbd5e1;
+}
+
+.theme-dark .tip-card p {
+  color: #cbd5e1;
 }
 
 @media (max-width: 768px) {
