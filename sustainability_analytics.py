@@ -7,7 +7,7 @@ certified carbon accounting.
 """
 from __future__ import annotations
 
-import logging
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -98,6 +98,7 @@ class SustainabilityAnalytics:
 
     def __init__(self) -> None:
         self._history: Dict[str, List[Dict[str, Any]]] = {}
+        self._history_lock = threading.Lock()
         import sys
         self.is_testing = "pytest" in sys.modules or "unittest" in sys.modules
 
@@ -380,8 +381,15 @@ class SustainabilityAnalytics:
             "sustainability_score": result["sustainability_score"],
         }
 
-        # ── 1. Persist to Firestore (primary) ─────────────────────────────
-        firestore_ok = False
+        # Save to memory cache
+        with self._history_lock:
+            if key not in self._history:
+                self._history[key] = []
+            self._history[key].append(record)
+            if len(self._history[key]) > 50:
+                self._history[key] = self._history[key][-50:]
+
+        # Save to Firestore primarilly
         db = self._get_db()
         if db is not None:
             try:
@@ -400,41 +408,16 @@ class SustainabilityAnalytics:
         # ── 2. Persist to local JSON file (fallback / offline) ────────────
         local_ok = False
         try:
-            local_hist = self._load_local_history()
-            if key not in local_hist:
-                local_hist[key] = []
-            local_hist[key].append(record)
-            if len(local_hist[key]) > 50:
-                local_hist[key] = local_hist[key][-50:]
-            self._save_local_history(local_hist)
-            local_ok = True
-        except Exception as exc:
-            logger.warning(
-                "Local-file write failed for sustainability record '%s' "
-                "(user=%s): %s.",
-                record["record_id"],
-                key,
-                exc,
-            )
-
-        # ── 3. Update in-memory cache only when at least one layer persisted ──
-        # This keeps the cache consistent with durable storage. If both layers
-        # fail the record is absent from memory AND from disk — no divergence.
-        if not (firestore_ok or local_ok):
-            logger.error(
-                "All persistence layers failed for sustainability record '%s' "
-                "(user=%s). Record will NOT be added to the in-memory cache to "
-                "prevent cache/storage divergence.",
-                record["record_id"],
-                key,
-            )
-            return
-
-        if key not in self._history:
-            self._history[key] = []
-        self._history[key].append(record)
-        if len(self._history[key]) > 50:
-            self._history[key] = self._history[key][-50:]
+            with self._history_lock:
+                local_hist = self._load_local_history()
+                if key not in local_hist:
+                    local_hist[key] = []
+                local_hist[key].append(record)
+                if len(local_hist[key]) > 50:
+                    local_hist[key] = local_hist[key][-50:]
+                self._save_local_history(local_hist)
+        except Exception:
+            pass
 
     def _normalize_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return {
