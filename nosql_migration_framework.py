@@ -164,87 +164,26 @@ class MigrationRunner:
         if status == "COMPLETED":
             return None
 
-        if status in _IN_PROGRESS_STATUSES:
-            raise ConcurrentMigrationError(
-                f"Migration {version} already in progress (status={status})"
-            )
+        try:
+            # Phase 1: Prepare — skip only if already completed successfully
+            if status not in ("PREPARED", "COMMITTED", "COMPLETED"):
+                logger.info(f"Phase 1 (PREPARE): {migration.version}")
+                record_ref.set({"version": migration.version, "status": "PREPARING", "updated_at": firestore.SERVER_TIMESTAMP})
+                migration.prepare(self.db)
+                record_ref.update({"status": "PREPARED", "updated_at": firestore.SERVER_TIMESTAMP})
 
-        if status not in ("PREPARED", "COMMITTED"):
-            transaction.set(
-                record_ref,
-                {
-                    "version": version,
-                    "status": "PREPARING",
-                    "updated_at": firestore.SERVER_TIMESTAMP,
-                },
-                merge=True,
-            )
-            return "prepare"
+            # Phase 2: Commit — skip only if already completed successfully
+            if status not in ("COMMITTED", "COMPLETED"):
+                logger.info(f"Phase 2 (COMMIT): {migration.version}")
+                record_ref.update({"status": "COMMITTING", "updated_at": firestore.SERVER_TIMESTAMP})
+                migration.commit(self.db)
+                record_ref.update({"status": "COMMITTED", "updated_at": firestore.SERVER_TIMESTAMP})
 
-        if status == "PREPARED":
-            transaction.update(
-                record_ref,
-                {
-                    "status": "COMMITTING",
-                    "updated_at": firestore.SERVER_TIMESTAMP,
-                },
-            )
-            return "commit"
-
-        transaction.update(
-            record_ref,
-            {
-                "status": "CLEANING_UP",
-                "updated_at": firestore.SERVER_TIMESTAMP,
-            },
-        )
-        return "cleanup"
-
-    def _claim_next_phase(self, record_ref, version: str) -> Optional[str]:
-        transaction = self.db.transaction()
-        return self._claim_next_phase_tx(transaction, record_ref, version)
-
-    @firestore.transactional
-    def _complete_phase_tx(
-        self,
-        transaction: firestore.Transaction,
-        record_ref,
-        expected_status: str,
-        next_status: str,
-    ) -> None:
-        snapshot = record_ref.get(transaction=transaction)
-        status = self._migration_status(snapshot)
-        if status != expected_status:
-            raise ConcurrentMigrationError(
-                f"Expected migration status {expected_status}, found {status}"
-            )
-        transaction.update(
-            record_ref,
-            {
-                "status": next_status,
-                "updated_at": firestore.SERVER_TIMESTAMP,
-            },
-        )
-
-    def _complete_phase(self, record_ref, expected_status: str, next_status: str) -> None:
-        transaction = self.db.transaction()
-        self._complete_phase_tx(transaction, record_ref, expected_status, next_status)
-
-    @firestore.transactional
-    def _complete_cleanup_tx(
-        self,
-        transaction: firestore.Transaction,
-        record_ref,
-    ) -> None:
-        snapshot = record_ref.get(transaction=transaction)
-        status = self._migration_status(snapshot)
-        if status != "CLEANING_UP":
-            raise ConcurrentMigrationError(
-                f"Expected migration status CLEANING_UP, found {status}"
-            )
-        transaction.update(
-            record_ref,
-            {
+            logger.info(f"Phase 3 (CLEANUP): {migration.version}")
+            record_ref.update({"status": "CLEANING_UP", "updated_at": firestore.SERVER_TIMESTAMP})
+            migration.cleanup(self.db)
+            
+            record_ref.update({
                 "status": "COMPLETED",
                 "applied_at": firestore.SERVER_TIMESTAMP,
                 "updated_at": firestore.SERVER_TIMESTAMP,
