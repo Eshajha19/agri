@@ -12,7 +12,6 @@ import hashlib
 import pandas as pd
 import numpy as np
 
-import os
 import sys
 
 # Required environment variables for backend
@@ -139,6 +138,14 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
+
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
 
 # KMS Support
 try:
@@ -685,10 +692,10 @@ class SeedVerifyRequest(BaseModel):
 _MAX_NOTIFICATIONS = 200
 _NOTIFICATION_TTL_HOURS = 24
 
-        @app.get("/user_roles")
-        def get_user_roles(uid: str):
-            user_roles = ["admin", "editor"]  # example
-            return {"uid": uid, "roles": user_roles}
+    @app.get("/user_roles")
+    def get_user_roles(uid: str):
+        user_roles = ["admin", "editor"]  # example
+        return {"uid": uid, "roles": user_roles}
 
 class NotificationStore:
     """
