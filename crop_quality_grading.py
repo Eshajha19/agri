@@ -8,6 +8,7 @@ import cv2
 from PIL import Image
 import io
 import json
+from collections import deque
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 import base64
@@ -71,9 +72,18 @@ class QualityAssessment:
 class CropQualityGrader:
     """Main crop quality grading system"""
 
+    # Maximum number of assessments retained in the in-process history.
+    # Each QualityAssessment is a small dataclass (~200 bytes), so 1 000
+    # entries consume roughly 200 KB — a safe upper bound for a long-running
+    # process.  When the cap is reached the oldest entry is automatically
+    # evicted by the deque before the new one is appended.
+    _MAX_HISTORY = 1_000
+
     def __init__(self):
         self.supported_crops = list(CROP_QUALITY_PARAMS.keys())
-        self.quality_history = []
+        # Bounded deque: oldest assessments are evicted automatically when
+        # the cap is reached, preventing unbounded memory growth.
+        self.quality_history: deque = deque(maxlen=self._MAX_HISTORY)
 
     def assess_crop_image(
         self, image_data: bytes, crop_type: str
@@ -275,33 +285,57 @@ class CropQualityGrader:
         self, images_data: List[bytes], crop_type: str
     ) -> Dict:
         """
-        Grade multiple crops in batch
-        
+        Grade multiple crops in batch.
+
         Args:
-            images_data: List of image bytes
-            crop_type: Type of crop
-            
+            images_data: List of image bytes. Each entry must be non-empty bytes.
+            crop_type: Type of crop being assessed.
+
         Returns:
-            Dictionary with batch results and statistics
+            Dictionary with per-image assessments and aggregate batch statistics.
         """
+        if not images_data:
+            return {
+                "assessments": [],
+                "batch_statistics": {
+                    "total_crops": 0,
+                    "graded_crops": 0,
+                    "failed_crops": 0,
+                    "average_score": 0,
+                    "grade_distribution": {},
+                    "average_price_adjustment": 0,
+                },
+                "crop_type": crop_type,
+                "timestamp": datetime.now().isoformat(),
+            }
+
         assessments = []
-        for image_data in images_data:
+        for idx, image_data in enumerate(images_data):
+            if not isinstance(image_data, (bytes, bytearray)) or len(image_data) == 0:
+                assessments.append({
+                    "error": f"Image at index {idx} is empty or not valid bytes",
+                    "index": idx,
+                    "timestamp": datetime.now().isoformat(),
+                })
+                continue
             try:
                 assessment = self.assess_crop_image(image_data, crop_type)
                 assessments.append(asdict(assessment))
             except Exception as e:
                 assessments.append(
-                    {"error": str(e), "timestamp": datetime.now().isoformat()}
+                    {"error": str(e), "index": idx, "timestamp": datetime.now().isoformat()}
                 )
 
         # Calculate batch statistics
         valid_assessments = [a for a in assessments if "error" not in a]
+        failed_count = len(assessments) - len(valid_assessments)
         if valid_assessments:
             scores = [a["score"] for a in valid_assessments]
             grades = [a["grade"] for a in valid_assessments]
             batch_stats = {
                 "total_crops": len(images_data),
                 "graded_crops": len(valid_assessments),
+                "failed_crops": failed_count,
                 "average_score": round(np.mean(scores), 2),
                 "grade_distribution": {
                     g: grades.count(g) for g in set(grades)
@@ -315,6 +349,7 @@ class CropQualityGrader:
             batch_stats = {
                 "total_crops": len(images_data),
                 "graded_crops": 0,
+                "failed_crops": failed_count,
                 "average_score": 0,
                 "grade_distribution": {},
                 "average_price_adjustment": 0,
@@ -323,16 +358,43 @@ class CropQualityGrader:
         return {
             "assessments": assessments,
             "batch_statistics": batch_stats,
+            "crop_type": crop_type,
             "timestamp": datetime.now().isoformat(),
         }
 
     def get_quality_trends(self, crop_type: str, days: int = 7) -> Dict:
-        """Get quality trends over time"""
-        recent_assessments = [
-            a
-            for a in self.quality_history
-            if a.crop_type == crop_type.lower()
-        ]
+        """Get quality trends over the specified number of days.
+
+        The ``days`` parameter was previously accepted and validated at the
+        API layer (ge=1, le=30) but was never used inside this method — the
+        filter ``[a for a in self.quality_history if a.crop_type == ...]``
+        returned all history for the crop type regardless of age.  A caller
+        requesting ``days=1`` received the same result as ``days=30``, and
+        the response included ``"days": data.days`` from the router,
+        implying the window was respected when it was not.
+
+        Fix: parse each assessment's ``timestamp`` field and exclude entries
+        older than ``days`` calendar days from the current UTC time.
+        """
+        from datetime import timezone, timedelta
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+        recent_assessments = []
+        for a in self.quality_history:
+            if a.crop_type != crop_type.lower():
+                continue
+            try:
+                # timestamp is stored as datetime.now().isoformat() — naive
+                # local time.  Parse it and treat as UTC for comparison.
+                ts = datetime.fromisoformat(a.timestamp)
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                if ts >= cutoff:
+                    recent_assessments.append(a)
+            except (ValueError, TypeError):
+                # Malformed timestamp — include the assessment rather than
+                # silently dropping it.
+                recent_assessments.append(a)
 
         if not recent_assessments:
             return {"error": "No assessment history"}
@@ -342,9 +404,10 @@ class CropQualityGrader:
 
         return {
             "crop_type": crop_type.lower(),
+            "days": days,
             "assessments_count": len(recent_assessments),
             "average_score": round(np.mean(scores), 2),
-            "score_trend": scores[-5:],  # Last 5 scores
+            "score_trend": scores[-5:],  # Last 5 scores within the window
             "grade_distribution": {g: grades.count(g) for g in set(grades)},
             "latest_assessment": asdict(recent_assessments[-1]),
         }
