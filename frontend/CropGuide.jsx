@@ -2,25 +2,26 @@
 import React, { useState, useMemo, useEffect } from "react";
 import "./CropGuide.css";
 import { getBookmarks, toggleBookmark } from "./utils/bookmarkStorage";
+import { Wheat, Lightbulb, X } from "lucide-react";
 
 // 🖼️ DIRECT PUBLIC FOLDER TRACKING
 const CROP_IMAGES = {
-  Rice: "/crops/Rice.jpg",
-  Wheat: "/crops/wheat.jpg",
-  Maize: "/crops/maize.jpg",
-  Sugarcane: "/crops/sugarcane.jpg",
-  Cotton: "/crops/cotton.jpg",
-  Mustard: "/crops/mustard.jpg",
-  Tomato: "/crops/tomato.jpg",
-  Potato: "/crops/potato.jpg",
-  Barley: "/crops/barley.jpg",
-  Turmeric: "/crops/turmeric.jpg",
-  Peas: "/crops/peas.jpg",
-  Groundnut: "/crops/groundnut.jpg",
-  Soybean: "/crops/soybean.jpg",
-  Chickpea: "/crops/chickpea.jpg",
-  Sunflower: "/crops/sunflower.jpg",
-  Onion: "/crops/onion.jpg"
+  Rice: "/crops/Rice.webp",
+  Potato: "/crops/potato.webp",
+  Turmeric: "/crops/turmeric.webp",
+  Peas: "/crops/peas.webp",
+  Groundnut: "/crops/groundnut.webp",
+  Chickpea: "/crops/chickpea.webp",
+  Wheat: "/crops/wheat.webp",
+  Cotton: "/crops/cotton.webp",
+  Mustard: "/crops/mustard.webp",
+  Tomato: "/crops/tomato.webp",
+  Barley: "/crops/barley.webp",
+  Sunflower: "/crops/sunflower.webp",
+  Onion: "/crops/onion.webp",
+  Maize: "/crops/maize.webp",
+  Sugarcane: "/crops/sugarcane.webp",
+  Soybean: "/crops/soybean.webp",
 };
 
 // 📦 DATA
@@ -73,7 +74,7 @@ export default function CropGuide() {
   return (
     <div className="crop-page">
       <header className="crop-hero">
-        <h1>🌾 Crop Guide</h1>
+        <h1><Wheat size={28} aria-hidden="true" /> Crop Guide</h1>
         <p>Explore crops based on season, soil & water needs</p>
       </header>
 
@@ -136,14 +137,14 @@ export default function CropGuide() {
             </div>
           ))
         ) : (
-          <p className="no-results">No crops found 🌾</p>
+          <p className="no-results">No crops found <Wheat size={16} aria-hidden="true" /></p>
         )}
       </div>
 
       {activeCrop && (
         <div className="crop-modal" onClick={() => setActiveCrop(null)}>
           <div className="crop-popup" onClick={(e) => e.stopPropagation()}>
-            <button className="close-btn" onClick={() => setActiveCrop(null)}>✖</button>
+            <button className="close-btn" onClick={() => setActiveCrop(null)} aria-label="Close crop details"><X size={16} /></button>
 
             {/* IMAGE HEADER IN MODAL */}
             <div className="modal-crop-image-wrapper">
@@ -151,11 +152,12 @@ export default function CropGuide() {
                 src={CROP_IMAGES[activeCrop.name]} 
                 alt={activeCrop.name} 
                 className="modal-crop-img"
+                loading="lazy"
               />
             </div>
 
             <div className="modal-header-row">
-              <h2>🌾 {activeCrop.name}</h2>
+              <h2><Wheat size={20} aria-hidden="true" /> {activeCrop.name}</h2>
               <button
                 className={`bookmark-btn modal-bookmark ${bookmarkedCropIds.includes(activeCrop.id) ? "active" : ""}`}
                 onClick={() => handleToggleCropBookmark(activeCrop)}
@@ -172,7 +174,7 @@ export default function CropGuide() {
               <p><strong>Yield:</strong> {activeCrop.yield}</p>
             </div>
 
-            <div className="tips">💡 {activeCrop.tips}</div>
+            <div className="tips"><Lightbulb size={16} aria-hidden="true" /> {activeCrop.tips}</div>
           </div>
         </div>
       )}

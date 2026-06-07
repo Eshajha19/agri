@@ -147,17 +147,32 @@ class AsyncErrorBoundary extends React.Component {
 
   reportErrorToBackend = async (errorId, error, category, severity) => {
     try {
+      // Require an authenticated Firebase user — the backend enforces a valid
+      // ID token on /api/log-error to prevent unauthenticated log flooding.
+      // Dynamically import firebase/auth to avoid a hard dependency in the
+      // error boundary (which must render even before Firebase initialises).
+      const { getAuth } = await import('firebase/auth');
+      const user = getAuth().currentUser;
+      if (!user) return;
+
+      let idToken;
+      try {
+        idToken = await user.getIdToken();
+      } catch {
+        return; // Token refresh failed — skip silently
+      }
+
       await fetch("/api/log-error", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`,
+        },
         body: JSON.stringify({
-          error_id: errorId,
           message: error.message,
-          category,
-          severity,
-          stack: error.stack,
           source: "frontend_error_boundary",
-          timestamp: new Date().toISOString(),
+          stack: error.stack,
+          level: severity === "low" ? "warn" : "error",
         }),
       });
     } catch (err) {
@@ -357,3 +372,4 @@ class AsyncErrorBoundary extends React.Component {
 }
 
 export default AsyncErrorBoundary;
+// Enhanced error boundary
