@@ -185,8 +185,9 @@ class ABTest:
         control_mean = self.control_arm.successes / max(self.control_arm.total_trials, 1)
         variant_mean = self.variant_arm.successes / max(self.variant_arm.total_trials, 1)
         
-        # Simple confidence check
-        if abs(control_mean - variant_mean) > (1 - self.confidence_threshold):
+        # Simple confidence check — higher confidence_threshold requires a
+        # larger observed difference before declaring a winner.
+        if abs(control_mean - variant_mean) > self.confidence_threshold:
             return self.variant_arm if variant_mean > control_mean else self.control_arm
         
         return None
