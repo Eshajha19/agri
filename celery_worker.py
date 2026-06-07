@@ -123,9 +123,6 @@ def predict_yield_trend_task(self, data: list):
     except Exception as e:
         return {"error": str(e), "type": type(e).__name__}
 
-if __name__ == "__main__":
-    celery_app.start()
-
 @celery_app.task(bind=True, name="process_whatsapp_webhook_task")
 def process_whatsapp_webhook_task(self, body: str, sender_number: str):
     """Celery task for processing incoming WhatsApp messages asynchronously."""
@@ -133,3 +130,6 @@ def process_whatsapp_webhook_task(self, body: str, sender_number: str):
     
     result = process_webhook_message(body, sender_number)
     return {"status": "processed", "sender": sender_number, "result": result}
+
+if __name__ == "__main__":
+    celery_app.start()
