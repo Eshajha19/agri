@@ -9,6 +9,28 @@ import math
 import re
 import joblib
 import hashlib
+import pandas as pd
+import numpy as np
+
+import sys
+
+# Required environment variables for backend
+REQUIRED_ENV_VARS = [
+    "WEATHER_API_KEY",
+    "SOIL_API_KEY",
+    "FIREBASE_ADMIN_CRED",
+    "BACKEND_PORT",
+]
+
+def validate_env_vars():
+    missing = [var for var in REQUIRED_ENV_VARS if not os.getenv(var)]
+    if missing:
+        print(f"❌ Missing required environment variables: {', '.join(missing)}")
+        sys.exit(1)  # stop app immediately
+
+# Run validation before app starts
+validate_env_vars()
+
 import collections
 import threading
 import time
@@ -116,6 +138,14 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
+
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
 
 # KMS Support
 try:
@@ -662,6 +692,10 @@ class SeedVerifyRequest(BaseModel):
 _MAX_NOTIFICATIONS = 200
 _NOTIFICATION_TTL_HOURS = 24
 
+    @app.get("/user_roles")
+    def get_user_roles(uid: str):
+        user_roles = ["admin", "editor"]  # example
+        return {"uid": uid, "roles": user_roles}
 
 class NotificationStore:
     """
