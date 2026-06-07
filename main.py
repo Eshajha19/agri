@@ -214,21 +214,15 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.warning("Voice assistant init skipped: %s", exc)
 
-    try:
-        import joblib as _joblib
+    from ml.artifacts import load_joblib_model
 
-        model_lag = _joblib.load("sklearn_yield_model.joblib")
-    except Exception:
-        model_lag = None
+    model_lag = load_joblib_model(
+        "sklearn_yield_model.joblib", "lag yield model", optional=True
+    )
 
-    model_trend = None
-    try:
-        if os.path.exists("trend_forecast_model.joblib"):
-            import joblib as _joblib2
-            model_trend = _joblib2.load("trend_forecast_model.joblib")
-            logger.info("Dedicated trend forecast model loaded")
-    except Exception:
-        model_trend = None
+    model_trend = load_joblib_model(
+        "trend_forecast_model.joblib", "trend forecast model", optional=True
+    )
 
     ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend)
 
@@ -945,12 +939,12 @@ def init_ml_pipeline() -> None:
     try:
         xgb_adapter = XGBoostAdapter()
         model_path = "yield_model.joblib"
-        if os.path.exists(model_path):
+        try:
             xgb_adapter.load(model_path)
             ModelRegistry.register("xgboost", xgb_adapter)
             logger.info("ML Pipeline: Registered XGBoost model")
-        else:
-            logger.warning("ML Pipeline: %s not found", model_path)
+        except Exception as exc:
+            logger.warning("ML Pipeline: XGBoost model unavailable at %s — %s", model_path, exc)
     except Exception as exc:
         logger.warning("ML Pipeline initialization failed: %s", exc)
 
