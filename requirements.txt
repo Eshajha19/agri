@@ -4,6 +4,7 @@ wheel
 bleach
 fastapi
 uvicorn
+psutil
 pandas
 numpy
 scikit-learn
