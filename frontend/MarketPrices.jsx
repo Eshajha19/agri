@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   AreaChart, Area, ReferenceLine
@@ -28,22 +28,55 @@ const MarketPrices = () => {
   const [forecastError, setForecastError] = useState(null);
   const [forecastCommodity, setForecastCommodity] = useState("Wheat");
 
+  const mountedRef = useRef(true);
+  const requestIdRef = useRef(0);
+  const forecastRequestIdRef = useRef(0);
+
   // Derive unique values from the current prices list
   const states = useMemo(() => getUniqueStates(), []);
   const commodities = useMemo(() => getUniqueCommodities(), []);
 
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      requestIdRef.current++;
+      forecastRequestIdRef.current++;
+    };
+  }, []);
+
   const loadData = async () => {
+    const requestId = ++requestIdRef.current;
+
     setLoading(true);
+
     try {
       const priceData = await fetchMarketPrices(filters);
       const trendData = await fetchPriceTrends(selectedCommodity);
-      setPrices(priceData || []);
-      setTrends(trendData || []);
-      setLastUpdated(Date.now());
+
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        setPrices(priceData || []);
+        setTrends(trendData || []);
+        setLastUpdated(Date.now());
+      }
     } catch (err) {
-      console.error("Failed to load market data:", err);
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        console.error("Failed to load market data:", err);
+      }
     } finally {
-      setLoading(false);
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        setLoading(false);
+      }
     }
   };
 
@@ -53,21 +86,47 @@ const MarketPrices = () => {
 
   // Load forecast when forecast tab is active or commodity changes
   const loadForecast = async (commodity) => {
+    const requestId = ++forecastRequestIdRef.current;
+
     setForecastLoading(true);
     setForecast(null);
     setForecastError(null);
+
     try {
       const data = await fetchPriceForecast(commodity, 14);
+
+      if (
+        !mountedRef.current ||
+        requestId !== forecastRequestIdRef.current
+      ) {
+        return;
+      }
+
       if (data) {
         setForecast(data);
       } else {
-        setForecastError("Failed to generate forecast. Please try again.");
+        setForecastError(
+          "Failed to generate forecast. Please try again."
+        );
       }
     } catch (err) {
-      console.error("Failed to load forecast:", err);
-      setForecastError("An unexpected error occurred while generating the forecast.");
+      if (
+        mountedRef.current &&
+        requestId === forecastRequestIdRef.current
+      ) {
+        console.error("Failed to load forecast:", err);
+
+        setForecastError(
+          "An unexpected error occurred while generating the forecast."
+        );
+      }
     } finally {
-      setForecastLoading(false);
+      if (
+        mountedRef.current &&
+        requestId === forecastRequestIdRef.current
+      ) {
+        setForecastLoading(false);
+      }
     }
   };
 

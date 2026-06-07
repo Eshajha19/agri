@@ -4,11 +4,14 @@ Handles concurrent updates, version tracking, and conflict resolution
 """
 
 import logging
+from collections import deque
 from enum import Enum
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
 import hashlib
 import json
+
+CONFLICT_LOG_MAX_ENTRIES = 1000
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +22,7 @@ class ConflictResolutionStrategy(Enum):
     FIRST_WRITE_WINS = "first_write_wins"
     SERVER_WINS = "server_wins"
     MERGE = "merge"
+    CRDT_LWW = "crdt_lww"
 
 
 class SyncState(Enum):
@@ -101,13 +105,22 @@ class DocumentVersion:
         client_id: str,
         version_vector: VersionVector = None,
         timestamp: str = None,
-        checksum: str = None
+        checksum: str = None,
+        crdt_state: Dict[str, Dict[str, Any]] = None
     ):
         self.doc_id = doc_id
         self.data = data
         self.client_id = client_id
         self.version_vector = version_vector or VersionVector()
         self.timestamp = timestamp or datetime.now().isoformat()
+        self.crdt_state = crdt_state or {
+            key: {
+                "value": value,
+                "timestamp": self.timestamp,
+                "client_id": self.client_id,
+            }
+            for key, value in data.items()
+        }
         self.checksum = checksum or self._calculate_checksum()
     
     def _calculate_checksum(self) -> str:
@@ -123,7 +136,8 @@ class DocumentVersion:
             "client_id": self.client_id,
             "version_vector": self.version_vector.to_dict(),
             "timestamp": self.timestamp,
-            "checksum": self.checksum
+            "checksum": self.checksum,
+            "crdt_state": self.crdt_state,
         }
     
     @staticmethod
@@ -135,7 +149,8 @@ class DocumentVersion:
             client_id=data["client_id"],
             version_vector=VersionVector.from_dict(data.get("version_vector", {})),
             timestamp=data.get("timestamp"),
-            checksum=data.get("checksum")
+            checksum=data.get("checksum"),
+            crdt_state=data.get("crdt_state")
         )
 
 
@@ -220,7 +235,7 @@ class ConflictResolver:
     
     def __init__(self, strategy: ConflictResolutionStrategy = ConflictResolutionStrategy.LAST_WRITE_WINS):
         self.strategy = strategy
-        self.conflict_log: List[Dict] = []
+        self.conflict_log: deque = deque(maxlen=CONFLICT_LOG_MAX_ENTRIES)
     
     def resolve(
         self,
@@ -239,20 +254,28 @@ class ConflictResolver:
         Returns:
             Tuple of (resolved_version, has_conflict, conflicting_fields)
         """
-        # Detect conflict
-        has_conflict = ConflictDetector.detect_conflict(local_version, server_version)
-        
-        if not has_conflict:
-            # No conflict, use server version (more authoritative)
-            merged_version = server_version
-            conflicting_fields = []
-        else:
-            # Conflict detected, apply resolution strategy
+        if self.strategy in (ConflictResolutionStrategy.MERGE, ConflictResolutionStrategy.CRDT_LWW):
             merged_version, conflicting_fields = self._apply_strategy(
                 local_version,
                 server_version,
                 base_version
             )
+            has_conflict = len(conflicting_fields) > 0
+        else:
+            # Detect conflict
+            has_conflict = ConflictDetector.detect_conflict(local_version, server_version)
+
+            if not has_conflict:
+                # No conflict, use server version (more authoritative)
+                merged_version = server_version
+                conflicting_fields = []
+            else:
+                # Conflict detected, apply resolution strategy
+                merged_version, conflicting_fields = self._apply_strategy(
+                    local_version,
+                    server_version,
+                    base_version
+                )
         
         return merged_version, has_conflict, conflicting_fields
     
@@ -275,6 +298,11 @@ class ConflictResolver:
         
         elif self.strategy == ConflictResolutionStrategy.MERGE:
             return self._three_way_merge(local_version, server_version, base_version)
+
+        elif self.strategy == ConflictResolutionStrategy.CRDT_LWW:
+            merged_version, conflicting_fields = CRDTResolver.merge(local_version, server_version)
+            self._log_conflict("crdt_lww", local_version, server_version, merged_version)
+            return merged_version, conflicting_fields
         
         else:
             return self._last_write_wins(local_version, server_version)
@@ -387,7 +415,7 @@ class ConflictResolver:
         
         self._log_conflict("three_way_merge", local_version, server_version, merged_version)
         return merged_version, conflicting_fields
-    
+
     def _log_conflict(
         self,
         strategy: str,
@@ -407,15 +435,111 @@ class ConflictResolver:
             "server_checksum": server.checksum,
             "resolved_checksum": resolved.checksum
         })
-        
+
         logger.info(
             f"Conflict resolved: doc={local.doc_id}, "
             f"strategy={strategy}, winner={resolved.client_id}"
         )
-    
+
     def get_conflict_log(self) -> List[Dict]:
         """Get conflict resolution log"""
-        return self.conflict_log.copy()
+        return list(self.conflict_log)
+
+
+class CRDTResolver:
+    """CRDT-based merge using per-field Last-Write-Wins register.
+
+    Each field is stored as a map: {"value": ..., "timestamp": iso, "client_id": id}
+    Merge rule: choose field with larger (timestamp, client_id) tuple to ensure deterministic tie-break.
+    This provides a convergent LWW-Register behavior suitable for offline-first sync.
+    """
+
+    @staticmethod
+    def _wrap_if_needed(data: Dict[str, Any], client_id: str, timestamp: str = None) -> Dict[str, Dict]:
+        """Ensure data is in CRDT LWW format for each field."""
+        ts = timestamp or datetime.now().isoformat()
+        wrapped = {}
+        for k, v in data.items():
+            if isinstance(v, dict) and 'value' in v and 'timestamp' in v and 'client_id' in v:
+                wrapped[k] = v
+            else:
+                wrapped[k] = {
+                    'value': v,
+                    'timestamp': ts,
+                    'client_id': client_id
+                }
+        return wrapped
+
+    @staticmethod
+    def _state_map(version: DocumentVersion) -> Dict[str, Dict[str, Any]]:
+        """Return the preserved CRDT state map or derive one from plain data."""
+        if getattr(version, "crdt_state", None):
+            return {
+                key: dict(value)
+                for key, value in version.crdt_state.items()
+            }
+        return CRDTResolver._wrap_if_needed(version.data, version.client_id, version.timestamp)
+
+    @staticmethod
+    def _state_order_key(state: Dict[str, Any]) -> Tuple[str, str, str]:
+        """Return a deterministic ordering key for a field state.
+
+        The key is a total order: timestamp, client_id, then a checksum of the
+        stored value. This makes merge commutative and associative even when two
+        replicas happen to emit the same timestamp and client id.
+        """
+        value_blob = json.dumps(state.get("value"), sort_keys=True, default=str)
+        checksum = hashlib.sha256(value_blob.encode("utf-8")).hexdigest()
+        return (
+            str(state.get("timestamp", "")),
+            str(state.get("client_id", "")),
+            checksum,
+        )
+
+    @staticmethod
+    def _choose_state(left: Dict[str, Any], right: Dict[str, Any]) -> Dict[str, Any]:
+        """Choose the winning field state under a deterministic total order."""
+        return left if CRDTResolver._state_order_key(left) >= CRDTResolver._state_order_key(right) else right
+
+    @staticmethod
+    def merge(local: DocumentVersion, server: DocumentVersion) -> Tuple[DocumentVersion, List[str]]:
+        """Merge two DocumentVersion instances using per-field LWW.
+
+        Returns merged DocumentVersion and list of fields that were in conflict and resolved.
+        """
+        local_fields = CRDTResolver._state_map(local)
+        server_fields = CRDTResolver._state_map(server)
+
+        merged_fields: Dict[str, Any] = {}
+        merged_state: Dict[str, Dict[str, Any]] = {}
+        conflicting: List[str] = []
+
+        keys = set(list(local_fields.keys()) + list(server_fields.keys()))
+        for k in keys:
+            lf = local_fields.get(k)
+            sf = server_fields.get(k)
+
+            if lf is None:
+                chosen = sf
+            elif sf is None:
+                chosen = lf
+            else:
+                chosen = CRDTResolver._choose_state(lf, sf)
+                if lf["value"] != sf["value"]:
+                    conflicting.append(k)
+
+            merged_fields[k] = chosen["value"]
+            merged_state[k] = dict(chosen)
+
+        merged_version = DocumentVersion(
+            doc_id=server.doc_id,
+            data=merged_fields,
+            client_id="system",
+            timestamp=datetime.now().isoformat(),
+            crdt_state=merged_state,
+        )
+
+        return merged_version, conflicting
 
 
 class SyncManager:
@@ -424,8 +548,10 @@ class SyncManager:
     conflict detection, and conflict resolution
     """
     
-    def __init__(self, resolver: ConflictResolver = None):
+    def __init__(self, resolver: ConflictResolver = None, use_crdt: bool = True):
         self.resolver = resolver or ConflictResolver()
+        # Enable CRDT-mode for offline-first deterministic merges by default.
+        self.use_crdt = use_crdt
         self.document_versions: Dict[str, DocumentVersion] = {}
         self.sync_state = SyncState.SYNCED
         self.pending_syncs: Dict[str, DocumentVersion] = {}
@@ -437,10 +563,12 @@ class SyncManager:
         client_id: str
     ) -> None:
         """Record local change"""
+        # If CRDT mode is enabled, expect `data` to be plain dict of values; store as-is
         version = DocumentVersion(
             doc_id=doc_id,
             data=data,
-            client_id=client_id
+            client_id=client_id,
+            timestamp=datetime.now().isoformat()
         )
         self.pending_syncs[doc_id] = version
         self.sync_state = SyncState.SYNCING
@@ -469,11 +597,16 @@ class SyncManager:
         
         if local_version:
             base_version = self.document_versions.get(doc_id)
-            resolved, has_conflict, conflicting = self.resolver.resolve(
-                local_version,
-                server_version,
-                base_version
-            )
+            if self.use_crdt:
+                # Use CRDT merge
+                resolved, conflicting = CRDTResolver.merge(local_version, server_version)
+                has_conflict = len(conflicting) > 0
+            else:
+                resolved, has_conflict, conflicting = self.resolver.resolve(
+                    local_version,
+                    server_version,
+                    base_version
+                )
         else:
             resolved = server_version
             has_conflict = False

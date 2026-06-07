@@ -69,9 +69,11 @@ async def assess_single_crop(request: Request, data: CropQualityGradingRequest):
         image_bytes = base64.b64decode(data.image_base64)
         result = crop_quality_grader.assess_crop_image(image_bytes, data.crop_type)
         return {"success": True, "crop_type": data.crop_type, "assessment": result}
-    except Exception as e:
-        logger.error(f"Assessment error: {e}")
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("assess_single_crop error: %s", e)
+        raise HTTPException(status_code=500, detail="An unexpected error occurred during quality assessment.")
 
 @router.post("/assess-batch")
 async def assess_batch_crops(request: Request, data: CropQualityBatchRequest):
@@ -86,23 +88,53 @@ async def assess_batch_crops(request: Request, data: CropQualityBatchRequest):
         raise HTTPException(status_code=403, detail=str(e))
     try:
         import base64
-        image_bytes_list = []
+        from datetime import datetime
+
+        # Decode and assess one image at a time so peak in-process memory is
+        # O(single image) rather than O(total batch size).
+        #
+        # The previous implementation decoded all images into image_bytes_list
+        # before calling batch_grade_crops, holding up to ~37.5 MB of raw
+        # bytes simultaneously (50 MB base64 cap × ~0.75 decode ratio).
+        # Under concurrent load this multiplied across requests.
+        #
+        # batch_grade_crops itself iterates images sequentially, so passing
+        # a pre-built list provided no parallelism benefit — only memory cost.
+        # We replicate its per-image logic here and discard each decoded bytes
+        # object immediately after assessment, keeping only the result dict.
+        assessments = []
         for idx, img in enumerate(data.images_base64):
             try:
-                image_bytes_list.append(base64.b64decode(img))
+                image_bytes = base64.b64decode(img)
             except Exception as decode_err:
-                logger.error(f"Batch decode error at index {idx}: {decode_err}")
+                logger.error("Batch decode error at index %d: %s", idx, decode_err)
                 raise HTTPException(
                     status_code=400,
                     detail=f"Invalid base64 encoding at image index {idx}",
                 )
-        results = crop_quality_grader.batch_grade_crops(image_bytes_list, data.crop_type)
-        return {"success": True, "crop_type": data.crop_type, "batch_results": results}
+            try:
+                assessment = crop_quality_grader.assess_crop_image(image_bytes, data.crop_type)
+                from dataclasses import asdict
+                assessments.append(asdict(assessment) if hasattr(assessment, '__dataclass_fields__') else assessment)
+            except Exception as assess_err:
+                assessments.append({
+                    "error": str(assess_err),
+                    "index": idx,
+                    "timestamp": datetime.now().isoformat(),
+                })
+            finally:
+                # Explicitly release the decoded bytes for this image before
+                # moving to the next one.
+                del image_bytes
+
+        return {"success": True, "crop_type": data.crop_type, "batch_results": assessments}
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Batch error: {e}")
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("assess_batch_crops error: %s", e)
+        raise HTTPException(status_code=500, detail="An unexpected error occurred during batch assessment.")
 
 @router.post("/trends")
 async def get_quality_trends(request: Request, data: QualityTrendsRequest):
@@ -118,9 +150,11 @@ async def get_quality_trends(request: Request, data: QualityTrendsRequest):
     try:
         trends = crop_quality_grader.get_quality_trends(data.crop_type, data.days)
         return {"success": True, "crop_type": data.crop_type, "days": data.days, "trends": trends}
-    except Exception as e:
-        logger.error(f"Trends error: {e}")
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("get_quality_trends error: %s", e)
+        raise HTTPException(status_code=500, detail="An unexpected error occurred fetching quality trends.")
 
 @router.get("/supported-crops")
 async def get_supported_crops(request: Request):
@@ -152,6 +186,8 @@ async def calculate_market_price(request: Request, data: CropQualityGradingReque
         image_bytes = base64.b64decode(data.image_base64)
         assessment = crop_quality_grader.assess_crop_image(image_bytes, data.crop_type)
         return {"success": True, "crop_type": data.crop_type, "grade": getattr(assessment, 'grade', 'A'), "assessment": assessment}
-    except Exception as e:
-        logger.error(f"Price error: {e}")
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("calculate_market_price error: %s", e)
+        raise HTTPException(status_code=500, detail="An unexpected error occurred calculating market price.")
