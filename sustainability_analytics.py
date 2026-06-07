@@ -306,6 +306,12 @@ class SustainabilityAnalytics:
             "water_footprint_m3": result["water_footprint_m3"],
             "carbon_emissions_kg_co2e": result["carbon_emissions_kg_co2e"],
             "sustainability_score": result["sustainability_score"],
+            "water_index": result.get("water_index"),
+            "carbon_index": result.get("carbon_index"),
+            "breakdown": result.get("breakdown", {}),
+            "recommendations": result.get("recommendations", []),
+            "comparison_chart": result.get("comparison_chart", []),
+            "formula_version": result.get("formula_version", "lca-v1"),
         }
 
         # Save to memory cache
