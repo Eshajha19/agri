@@ -6,7 +6,7 @@ Uses Firestore as the backing store for all domain entities.
 import os
 import logging
 from typing import Dict, List, Optional, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from abc import ABC, abstractmethod
 
 try:
@@ -210,7 +210,7 @@ class NotificationRepository(BaseRepository):
             return False
 
         try:
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
             ttl_expiry = (now + timedelta(hours=self.ttl_hours)).isoformat()
 
             self.db.collection(self.collection_name).document(str(notification_id)).set(
@@ -249,7 +249,7 @@ class NotificationRepository(BaseRepository):
             return []
 
         try:
-            now = datetime.now().isoformat()
+            now = datetime.now(timezone.utc).isoformat()
             query = self.db.collection(self.collection_name).where(
                 "ttl_expiry", ">=", now
             )
@@ -269,7 +269,7 @@ class NotificationRepository(BaseRepository):
             return 0
 
         try:
-            now = datetime.now().isoformat()
+            now = datetime.now(timezone.utc).isoformat()
             query = self.db.collection(self.collection_name).where("ttl_expiry", "<", now)
             docs = query.stream()
             count = 0
