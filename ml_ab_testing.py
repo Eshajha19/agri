@@ -163,13 +163,24 @@ class ABTest:
         self._update_allocation()
     
     def _update_allocation(self):
-        """Update traffic allocation based on Thompson sampling"""
+        """Update traffic allocation based on Thompson sampling.
+
+        Averages multiple samples from each arm's Beta distribution to
+        reduce variance and prevent excessive allocation fluctuations.
+        """
         if self.status != TestStatus.RUNNING:
             return
-        
-        control_score = self.control_arm.sample_from_distribution()
-        variant_score = self.variant_arm.sample_from_distribution()
-        
+
+        n_samples = 100
+        control_total = 0.0
+        variant_total = 0.0
+        for _ in range(n_samples):
+            control_total += self.control_arm.sample_from_distribution()
+            variant_total += self.variant_arm.sample_from_distribution()
+
+        control_score = control_total / n_samples
+        variant_score = variant_total / n_samples
+
         total_score = control_score + variant_score
         if total_score > 0:
             self.current_allocation[self.control_arm.model_id] = control_score / total_score
