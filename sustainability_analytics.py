@@ -7,6 +7,7 @@ certified carbon accounting.
 """
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -95,6 +96,7 @@ class SustainabilityAnalytics:
 
     def __init__(self) -> None:
         self._history: Dict[str, List[Dict[str, Any]]] = {}
+        self._history_lock = threading.Lock()
         import sys
         self.is_testing = "pytest" in sys.modules or "unittest" in sys.modules
 
@@ -309,11 +311,12 @@ class SustainabilityAnalytics:
         }
 
         # Save to memory cache
-        if key not in self._history:
-            self._history[key] = []
-        self._history[key].append(record)
-        if len(self._history[key]) > 50:
-            self._history[key] = self._history[key][-50:]
+        with self._history_lock:
+            if key not in self._history:
+                self._history[key] = []
+            self._history[key].append(record)
+            if len(self._history[key]) > 50:
+                self._history[key] = self._history[key][-50:]
 
         # Save to Firestore primarilly
         db = self._get_db()
@@ -325,13 +328,14 @@ class SustainabilityAnalytics:
 
         # Save to local persistent file as fallback
         try:
-            local_hist = self._load_local_history()
-            if key not in local_hist:
-                local_hist[key] = []
-            local_hist[key].append(record)
-            if len(local_hist[key]) > 50:
-                local_hist[key] = local_hist[key][-50:]
-            self._save_local_history(local_hist)
+            with self._history_lock:
+                local_hist = self._load_local_history()
+                if key not in local_hist:
+                    local_hist[key] = []
+                local_hist[key].append(record)
+                if len(local_hist[key]) > 50:
+                    local_hist[key] = local_hist[key][-50:]
+                self._save_local_history(local_hist)
         except Exception:
             pass
 
