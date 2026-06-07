@@ -1,45 +1,86 @@
 import { useEffect, useRef } from "react";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import apiClient from "./lib/apiClient";
+import { auth } from "./lib/firebase";
 
 export default function useNotifications() {
   const seenIdsRef = useRef(new Set());
+
+  const mountedRef = useRef(true);
+  const requestIdRef = useRef(0);
 
   const markAndToast = (notif) => {
     if (!notif || !notif.message) return;
 
     const notificationKey =
-      notif.id ?? `${notif.type || "notification"}:${notif.time || ""}:${notif.message}`;
+      notif.id ??
+      `${notif.type || "notification"}:${notif.time || ""}:${notif.message}`;
 
     if (seenIdsRef.current.has(notificationKey)) return;
 
     seenIdsRef.current.add(notificationKey);
+
     toast.info(notif.message, {
       position: "top-right",
       autoClose: 4000,
     });
   };
 
-  const buildStreamUrl = () => {
-    const apiBase = import.meta.env.VITE_API_BASE || window.location.origin;
+  const getIdToken = async () => {
+    const user = auth?.currentUser;
+    if (!user) return null;
+    return user.getIdToken();
+  };
+
+  const buildStreamUrl = async () => {
+    const apiBase =
+      import.meta.env.VITE_API_BASE || window.location.origin;
+
     const url = new URL("/api/notifications/stream", apiBase);
+
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+
+    const token = await getIdToken();
+
+    if (token) {
+      url.searchParams.set("token", token);
+    }
+
     return url.toString();
   };
 
   const fetchNotifications = async () => {
-    try {
-      const apiBase = import.meta.env.VITE_API_BASE || "";
-      const res = await fetch(`${apiBase}/api/notifications`);
-      const data = await res.json();
+    const requestId = ++requestIdRef.current;
 
-      if (data.success) {
+    try {
+      const res = await apiClient.get("/api/notifications");
+      const data = res?.data;
+
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current &&
+        data?.success &&
+        Array.isArray(data?.data)
+      ) {
         data.data.forEach(markAndToast);
       }
     } catch (err) {
-      console.log("Notification fetch error:", err);
+      console.warn(
+        "[Notifications] Failed to fetch notifications:",
+        err?.message || err
+      );
     }
   };
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      requestIdRef.current++;
+    };
+  }, []);
 
   useEffect(() => {
     let websocket = null;
@@ -48,7 +89,10 @@ export default function useNotifications() {
 
     const startPollingFallback = () => {
       if (fallbackTimer || cancelled) return;
-      fallbackTimer = setInterval(fetchNotifications, 60000);
+
+      fallbackTimer = setInterval(() => {
+        fetchNotifications();
+      }, 60000);
     };
 
     const stopPollingFallback = () => {
@@ -58,23 +102,58 @@ export default function useNotifications() {
       }
     };
 
-    fetchNotifications();
+    const connectWebSocket = async () => {
+      if (!auth?.currentUser) {
+        startPollingFallback();
+        return;
+      }
 
-    if (typeof WebSocket !== "undefined") {
+      fetchNotifications();
+
+      if (typeof WebSocket === "undefined") {
+        startPollingFallback();
+        return;
+      }
+
       try {
-        websocket = new WebSocket(buildStreamUrl());
+        const streamUrl = await buildStreamUrl();
+
+        if (!streamUrl.includes("token=")) {
+          startPollingFallback();
+          return;
+        }
+
+        websocket = new WebSocket(streamUrl);
 
         websocket.onmessage = (event) => {
+          const requestId = ++requestIdRef.current;
+
           try {
             const payload = JSON.parse(event.data);
-            if (payload.type === "snapshot" && Array.isArray(payload.data)) {
-              payload.data.forEach(markAndToast);
-            }
-            if (payload.type === "notification" && payload.data) {
-              markAndToast(payload.data);
+
+            if (
+              mountedRef.current &&
+              requestId === requestIdRef.current
+            ) {
+              if (
+                payload.type === "snapshot" &&
+                Array.isArray(payload.data)
+              ) {
+                payload.data.forEach(markAndToast);
+              }
+
+              if (
+                payload.type === "notification" &&
+                payload.data
+              ) {
+                markAndToast(payload.data);
+              }
             }
           } catch (parseError) {
-            console.log("Notification stream parse error:", parseError);
+            console.log(
+              "Notification stream parse error:",
+              parseError
+            );
           }
         };
 
@@ -92,17 +171,27 @@ export default function useNotifications() {
           }
         };
       } catch (error) {
-        console.log("Notification websocket unavailable:", error);
+        console.log(
+          "Notification websocket unavailable:",
+          error
+        );
+
         startPollingFallback();
       }
-    } else {
-      startPollingFallback();
-    }
+    };
+
+    connectWebSocket();
 
     return () => {
       cancelled = true;
+
       stopPollingFallback();
+
       if (websocket) {
+        websocket.onopen = null;
+        websocket.onclose = null;
+        websocket.onerror = null;
+        websocket.onmessage = null;
         websocket.close();
       }
     };
