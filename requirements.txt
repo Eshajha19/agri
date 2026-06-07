@@ -3,6 +3,7 @@ setuptools
 wheel
 fastapi
 uvicorn
+psutil
 pandas
 numpy
 scikit-learn

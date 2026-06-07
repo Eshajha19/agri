@@ -145,6 +145,9 @@ async def lifespan(app: FastAPI):
     init_ml_pipeline()
     await notification_broker.start()
 
+    from resource_monitor import resource_monitor
+    resource_monitor.start()
+
     # Domain engines — initialized exactly once here at startup.
     drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
     shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
@@ -234,11 +237,25 @@ async def lifespan(app: FastAPI):
 
     yield
     # Shutdown
+    resource_monitor.stop()
     await notification_broker.stop()
     logger.info("Shutting down")
 
 
 app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
+
+
+@app.get("/health")
+async def health_check():
+    """Render health check — returns 200 when the service is alive."""
+    return {"status": "ok"}
+
+
+@app.get("/metrics")
+async def metrics():
+    """Resource usage metrics for monitoring dashboards."""
+    from resource_monitor import resource_monitor
+    return resource_monitor.snapshot()
 
 
 # Initialize Limiter
