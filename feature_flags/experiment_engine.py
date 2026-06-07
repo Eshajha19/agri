@@ -141,12 +141,21 @@ def create_experiment(data: Dict) -> Dict:
     global _exp_cache, _exp_cache_at
     exp_id = data.get("id") or data.get("name", "").lower().replace(" ", "_")
     now = _now_iso()
-    exp = {**data, "id": exp_id, "created_at": now, "updated_at": now,
-           "status": data.get("status", "draft")}
-    exp.setdefault("salt", hashlib.sha256(exp_id.encode()).hexdigest()[:12])
 
-    _exp_cache[exp_id] = exp
-    _exp_cache_at = time.monotonic()
+    with _exp_cache_lock:
+        existing = _exp_cache.get(exp_id)
+        if existing is not None and existing.get("status") != "draft":
+            raise ValueError(
+                f"Experiment '{exp_id}' already exists with status "
+                f"'{existing.get('status')}'. Cannot overwrite a live experiment."
+            )
+
+        exp = {**data, "id": exp_id, "created_at": now, "updated_at": now,
+               "status": data.get("status", "draft")}
+        exp.setdefault("salt", hashlib.sha256(exp_id.encode()).hexdigest()[:12])
+
+        _exp_cache[exp_id] = exp
+        _exp_cache_at = time.monotonic()
 
     _persist_experiment(exp_id)
     return exp
@@ -283,9 +292,6 @@ def assign_user(user_id: str, experiment_id: str) -> Dict:
         "salt":          current_salt,
     }
 
-    # Persist assignment to Firestore only if salt has changed or no assignment exists.
-    # This invalidates stale assignments when experiment salt changes and prevents
-    # redundant writes for already-assigned users.
     if _FIRESTORE_AVAILABLE:
         try:
             doc_id = f"{user_id}_{experiment_id}"
