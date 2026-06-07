@@ -135,13 +135,15 @@ class MigrationRunner:
             return
 
         try:
-            if status != "PREPARED" and status != "COMMITTED":
+            # Phase 1: Prepare — skip only if already completed successfully
+            if status not in ("PREPARED", "COMMITTED", "COMPLETED"):
                 logger.info(f"Phase 1 (PREPARE): {migration.version}")
                 record_ref.set({"version": migration.version, "status": "PREPARING", "updated_at": firestore.SERVER_TIMESTAMP})
                 migration.prepare(self.db)
                 record_ref.update({"status": "PREPARED", "updated_at": firestore.SERVER_TIMESTAMP})
 
-            if status != "COMMITTED":
+            # Phase 2: Commit — skip only if already completed successfully
+            if status not in ("COMMITTED", "COMPLETED"):
                 logger.info(f"Phase 2 (COMMIT): {migration.version}")
                 record_ref.update({"status": "COMMITTING", "updated_at": firestore.SERVER_TIMESTAMP})
                 migration.commit(self.db)
