@@ -229,15 +229,25 @@ class CitationManager:
     Main citation manager.
     Manages citation lifecycle and integrity.
     """
-    
+
+    MAX_CONTEXTS = 1000  # cap to prevent unbounded memory growth
+
     def __init__(self, min_confidence: float = 0.80):
         """Initialize citation manager."""
         self.integrity_checker = CitationIntegrityChecker(min_confidence=min_confidence)
         self.contexts: dict[str, CitationContext] = {}
         self.citation_index: dict[str, list[Citation]] = {}  # By source_id
-    
+
     def create_context(self, response_id: str, query: str = "") -> CitationContext:
-        """Create new citation context for response."""
+        """Create new citation context for response, evicting oldest if over cap."""
+        if len(self.contexts) >= self.MAX_CONTEXTS:
+            oldest_id = next(iter(self.contexts))
+            del self.contexts[oldest_id]
+            logger.warning(
+                "CitationManager.contexts reached cap (%d); evicted oldest context: %s",
+                self.MAX_CONTEXTS,
+                oldest_id,
+            )
         context = CitationContext(response_id=response_id, query=query)
         self.contexts[response_id] = context
         return context

@@ -183,11 +183,17 @@ def _empty_metrics(experiment_id: str) -> Dict:
 def _summarize_counts(experiment_id: str, total: int, counts: Dict[str, Dict[str, int]]) -> Dict:
     summary = {}
     for variant, c in counts.items():
-        imp = c["impressions"] or 1
+        imp = c["impressions"]
+        if imp == 0:
+            conversion_rate = 0.0
+            error_rate = 0.0
+        else:
+            conversion_rate = round(c["conversions"] / imp * 100, 2)
+            error_rate = round(c["errors"] / imp * 100, 2)
         summary[variant] = {
             **c,
-            "conversion_rate": round(c["conversions"] / imp * 100, 2),
-            "error_rate": round(c["errors"] / imp * 100, 2),
+            "conversion_rate": conversion_rate,
+            "error_rate": error_rate,
         }
 
     return {
