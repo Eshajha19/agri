@@ -3,6 +3,8 @@
  * Sends error details to the backend for monitoring and debugging
  */
 
+import { getAuth } from 'firebase/auth';
+
 const ERROR_LOG_ENDPOINT = '/api/log-error';
 
 /**
@@ -16,29 +18,43 @@ const ERROR_LOG_ENDPOINT = '/api/log-error';
  */
 export const reportErrorToBackend = async (errorData) => {
   try {
+    // Only attempt to report in browser environments
+    if (typeof fetch === 'undefined') return;
+
+    // Require an authenticated user — the backend now enforces a valid
+    // Firebase ID token on /api/log-error to prevent unauthenticated log
+    // flooding.  If no user is signed in we skip the report silently rather
+    // than crashing the error boundary.
+    const auth = getAuth();
+    const user = auth.currentUser;
+    if (!user) return;
+
+    let idToken;
+    try {
+      idToken = await user.getIdToken();
+    } catch {
+      // Token refresh failed (e.g. network offline) — skip silently.
+      return;
+    }
+
     const payload = {
       message: errorData.error?.message || 'Unknown error',
       stack: errorData.error?.stack || '',
-      context: errorData.context,
-      timestamp: errorData.timestamp,
-      userAgent: errorData.userAgent || navigator.userAgent,
-      severity: errorData.severity || 'high',
-      url: window.location.href,
+      source: errorData.context,
+      level: errorData.severity === 'low' ? 'warn' : 'error',
     };
 
-    // Only attempt to report in browser environments
-    if (typeof fetch !== 'undefined') {
-      await fetch(ERROR_LOG_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      }).catch(() => {
-        // Silently fail if backend logging endpoint is unavailable
-        // This prevents errors in error reporting from breaking the app
-      });
-    }
+    await fetch(ERROR_LOG_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`,
+      },
+      body: JSON.stringify(payload),
+    }).catch(() => {
+      // Silently fail if backend logging endpoint is unavailable
+      // This prevents errors in error reporting from breaking the app
+    });
   } catch (e) {
     // Prevent error reporting from causing cascading failures
     if (import.meta.env.MODE === 'development') {
