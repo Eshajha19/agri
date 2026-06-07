@@ -1,7 +1,9 @@
 import abc
 import datetime
 import logging
-from typing import List, Any, Optional
+import os
+import uuid
+from typing import List, Any
 from google.cloud import firestore
 
 logger = logging.getLogger(__name__)
@@ -81,6 +83,7 @@ class MigrationRunner:
         self.db = db
         self.migrations_collection = "_schema_migrations"
         self.lock_doc_id = "runner_lock"
+        self._runner_id = f"{os.getpid()}-{uuid.uuid4().hex[:8]}"
 
     @firestore.transactional
     def _acquire_lock_transaction(self, transaction: firestore.Transaction) -> bool:
@@ -96,7 +99,7 @@ class MigrationRunner:
                 if locked_at and (now - locked_at).total_seconds() < 900:
                     return False
 
-        transaction.set(lock_ref, {"locked_at": now})
+        transaction.set(lock_ref, {"locked_at": now, "runner_id": self._runner_id})
         return True
 
     def acquire_lock(self) -> bool:
@@ -108,7 +111,17 @@ class MigrationRunner:
             return False
 
     def release_lock(self):
+        """Release the lock only if this runner still owns it."""
         lock_ref = self.db.collection(self.migrations_collection).document(self.lock_doc_id)
+        snapshot = lock_ref.get()
+        if snapshot.exists:
+            data = snapshot.to_dict()
+            if data and data.get("runner_id") != self._runner_id:
+                logger.warning(
+                    "Lock owned by '%s', not releasing (current runner: '%s')",
+                    data.get("runner_id"), self._runner_id,
+                )
+                return
         lock_ref.delete()
 
     @firestore.transactional
