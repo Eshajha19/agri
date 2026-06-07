@@ -1,134 +1,250 @@
-import React, { useState, useEffect } from 'react';
+/**
+ * QRTraceability.jsx
+ *
+ * Security fix: batch data is now stored and fetched from the backend
+ * (POST /api/supply-chain/trace-batch to register,
+ *  GET  /api/supply-chain/trace-batch/:id to fetch).
+ *
+ * Previously all batch data lived exclusively in localStorage, which meant:
+ *  - Batches disappeared when the browser cache was cleared.
+ *  - Any user could open DevTools and modify journey/status/certification
+ *    data before sharing the QR code.
+ *  - The "Verified Origin" badge shown to consumers was based on
+ *    unverified client-side data.
+ *  - Two hardcoded mock batches were shown as fallback, so consumers
+ *    scanning old QR codes could see fabricated provenance data.
+ *
+ * Now:
+ *  - Batch registration POSTs to the backend (requires auth).
+ *  - The consumer-facing viewer GETs from the backend (public, read-only).
+ *  - localStorage is used only to remember the list of batch IDs the
+ *    farmer registered on this device (for the management list UI).
+ *    The actual batch data always comes from the server.
+ *  - No mock/fallback data is ever shown.
+ */
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
-import { QrCode, Sprout, MapPin, Calendar, CheckCircle, ShieldCheck, ArrowRight, Share2, Download, MessageCircle } from 'lucide-react';
+import {
+  QrCode, Sprout, MapPin, Calendar, CheckCircle,
+  ShieldCheck, ArrowRight, Share2, Download, MessageCircle, AlertCircle,
+} from 'lucide-react';
 import './QRTraceability.css';
 import SoilChatbot from './SoilChatbot';
-import { loadVersionedArray, saveVersionedArray } from './utils/versionedStorage';
+import apiClient from './lib/apiClient';
 
-const BATCH_STORAGE_KEY = 'qrFarmBatches';
-const BATCH_STORAGE_VERSION = 1;
-const MAX_BATCHES = 100;
+// Only the list of batch IDs is kept in localStorage — not the batch data.
+const BATCH_IDS_KEY = 'qrFarmBatchIds_v2';
+const MAX_BATCH_IDS = 100;
 
-const MOCK_BATCHES = [
-  {
-    id: 'BATCH-2026-001',
-    crop: 'Organic Basmati Rice',
-    variety: 'Pusa 1121',
-    harvestDate: '2026-04-15',
-    farm: 'Green Valley Farms, Punjab',
-    status: 'Verified',
-    journey: [
-      { date: '2026-01-10', event: 'Sowing', location: 'Green Valley Farms', details: 'Certified organic seeds used.' },
-      { date: '2026-03-05', event: 'Quality Inspection', location: 'Agri-Gov Lab', details: 'Zero pesticide residue found.' },
-      { date: '2026-04-15', event: 'Harvesting', location: 'Green Valley Farms', details: 'Hand-harvested at peak maturity.' },
-      { date: '2026-04-20', event: 'Packaging', location: 'Fasal Saathi Hub', details: 'Eco-friendly vacuum packaging.' }
-    ]
-  },
-  {
-    id: 'BATCH-2026-002',
-    crop: 'Alphonso Mangoes',
-    variety: 'Ratnagiri',
-    harvestDate: '2026-05-01',
-    farm: 'Ratna Orchards, Maharashtra',
-    status: 'Verified',
-    journey: [
-      { date: '2025-12-01', event: 'Flowering Stage', location: 'Ratna Orchards', details: 'Natural pollination by honeybees.' },
-      { date: '2026-04-20', event: 'Ripening Control', location: 'Ratna Orchards', details: 'Ethylene-free natural ripening.' },
-      { date: '2026-05-01', event: 'Harvesting', location: 'Ratna Orchards', details: 'Selected for export grade.' }
-    ]
+function loadBatchIds() {
+  try {
+    const raw = localStorage.getItem(BATCH_IDS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.slice(0, MAX_BATCH_IDS) : [];
+  } catch {
+    return [];
   }
-];
+}
+
+function saveBatchIds(ids) {
+  try {
+    localStorage.setItem(BATCH_IDS_KEY, JSON.stringify(ids.slice(0, MAX_BATCH_IDS)));
+  } catch {
+    // localStorage quota exceeded — silently ignore; the IDs are a UI convenience only.
+  }
+}
 
 export default function QRTraceability() {
   const { id: routeId } = useParams();
-  const [batches, setBatches] = useState(() => {
-    return loadVersionedArray(BATCH_STORAGE_KEY, {
-      version: BATCH_STORAGE_VERSION,
-      fallback: MOCK_BATCHES,
-      maxItems: MAX_BATCHES,
-    });
-  });
+
+  // List of batch IDs registered on this device (UI convenience only).
+  const [batchIds, setBatchIds] = useState(loadBatchIds);
+
+  // Batches fetched from the server, keyed by ID.
+  const [batchCache, setBatchCache] = useState({});
+
   const [selectedBatch, setSelectedBatch] = useState(null);
-  const [viewMode, setViewMode] = useState('list'); // 'list', 'details', 'viewer'
+  const [viewMode, setViewMode] = useState('list'); // 'list' | 'viewer'
   const [showAdvisor, setShowAdvisor] = useState(false);
 
-  useEffect(() => {
-    if (routeId) {
-      const found = batches.find(b => b.id === routeId);
-      if (found) {
-        setSelectedBatch(found);
-        setViewMode('viewer');
+  // Per-batch loading/error state for the management list.
+  const [listLoading, setListLoading] = useState(false);
+  const [listError, setListError] = useState('');
+
+  // Viewer-specific loading/error (used when navigating via QR URL).
+  const [viewerLoading, setViewerLoading] = useState(false);
+  const [viewerError, setViewerError] = useState('');
+
+  // Form state.
+  const [formError, setFormError] = useState('');
+  const [formSubmitting, setFormSubmitting] = useState(false);
+
+  // ── Fetch a single batch from the server ──────────────────────────────────
+  const fetchBatch = useCallback(async (id) => {
+    if (batchCache[id]) return batchCache[id];
+    try {
+      const res = await apiClient.get(`/api/supply-chain/trace-batch/${encodeURIComponent(id)}`);
+      const batch = res.data?.batch;
+      if (batch) {
+        setBatchCache(prev => ({ ...prev, [id]: batch }));
       }
+      return batch || null;
+    } catch (err) {
+      if (err?.response?.status === 404) return null;
+      throw err;
     }
-  }, [routeId, batches]);
+  }, [batchCache]);
 
+  // ── Load all batches for the management list ──────────────────────────────
   useEffect(() => {
-    saveVersionedArray(BATCH_STORAGE_KEY, batches, {
-      version: BATCH_STORAGE_VERSION,
-      maxItems: MAX_BATCHES,
-    });
-  }, [batches]);
+    if (batchIds.length === 0) return;
+    let cancelled = false;
+    setListLoading(true);
+    setListError('');
 
-  const generateNewBatch = (e) => {
+    Promise.all(batchIds.map(id => fetchBatch(id).catch(() => null)))
+      .then(() => { if (!cancelled) setListLoading(false); })
+      .catch(() => { if (!cancelled) { setListLoading(false); setListError('Failed to load some batches.'); } });
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchIds]);
+
+  // ── Handle direct QR URL navigation (/trace/:id) ─────────────────────────
+  useEffect(() => {
+    if (!routeId) return;
+    let cancelled = false;
+    setViewerLoading(true);
+    setViewerError('');
+
+    fetchBatch(routeId)
+      .then(batch => {
+        if (cancelled) return;
+        if (batch) {
+          setSelectedBatch(batch);
+          setViewMode('viewer');
+        } else {
+          setViewerError('Batch not found. This QR code may be invalid or expired.');
+        }
+        setViewerLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setViewerError('Failed to load batch data. Please try again.');
+          setViewerLoading(false);
+        }
+      });
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeId]);
+
+  // ── Register a new batch ──────────────────────────────────────────────────
+  const generateNewBatch = async (e) => {
     e.preventDefault();
-    const formData = new FormData(e.target);
+    setFormError('');
+    setFormSubmitting(true);
 
-    // Generate a collision-resistant batch ID using the current year,
-    // a millisecond timestamp, and 4 random hex chars.
-    // Format: BATCH-YYYY-<13-digit ms timestamp>-<4 hex chars>
-    // Collision probability is astronomically low — the timestamp alone
-    // makes two IDs generated in the same millisecond extremely unlikely,
-    // and the random suffix eliminates the remaining risk.
-    // The year is derived from the current date so IDs remain accurate
-    // across years instead of being hardcoded to 2026.
+    const formData = new FormData(e.target);
     const year = new Date().getFullYear();
     const ts = Date.now();
     const rand = Math.floor(Math.random() * 0xffff).toString(16).toUpperCase().padStart(4, '0');
     const newId = `BATCH-${year}-${ts}-${rand}`;
 
-    // Guard: reject the (now astronomically unlikely) case where the ID
-    // already exists, so the user gets an actionable error instead of
-    // silent data loss.
-    if (batches.some(b => b.id === newId)) {
-      alert("ID generation collision — please try again.");
-      return;
-    }
-
-    const newBatch = {
+    const payload = {
       id: newId,
       crop: formData.get('crop'),
       variety: formData.get('variety'),
       harvestDate: formData.get('harvestDate'),
       farm: 'My Smart Farm',
-      status: 'Pending Verification',
       journey: [
-        { date: new Date().toISOString().split('T')[0], event: 'Registration', location: 'My Smart Farm', details: 'Batch registered for traceability.' }
-      ]
+        {
+          date: new Date().toISOString().split('T')[0],
+          event: 'Registration',
+          location: 'My Smart Farm',
+          details: 'Batch registered for traceability.',
+        },
+      ],
     };
-    setBatches([newBatch, ...batches]);
-    e.target.reset();
+
+    try {
+      const res = await apiClient.post('/api/supply-chain/trace-batch', payload);
+      const batch = res.data?.batch;
+      if (batch) {
+        setBatchCache(prev => ({ ...prev, [newId]: batch }));
+        const updatedIds = [newId, ...batchIds];
+        setBatchIds(updatedIds);
+        saveBatchIds(updatedIds);
+        e.target.reset();
+      }
+    } catch (err) {
+      const status = err?.response?.status;
+      if (status === 401) {
+        setFormError('You must be logged in to register a batch.');
+      } else if (status === 409) {
+        setFormError('A batch with this ID already exists. Please try again.');
+      } else {
+        setFormError('Failed to register batch. Please try again.');
+      }
+    } finally {
+      setFormSubmitting(false);
+    }
+  };
+
+  const openBatch = async (id) => {
+    try {
+      const batch = await fetchBatch(id);
+      if (batch) {
+        setSelectedBatch(batch);
+        setViewMode('viewer');
+      }
+    } catch {
+      setListError('Failed to load batch details.');
+    }
   };
 
   const shareQR = (batchId) => {
     const url = `${window.location.origin}/trace/${batchId}`;
     if (navigator.share) {
-      navigator.share({
-        title: 'Trace My Produce',
-        text: `Trace the journey of our ${selectedBatch.crop} from farm to table.`,
-        url: url
-      });
+      navigator.share({ title: 'Trace My Produce', url });
     } else {
-      alert(`URL copied to clipboard: ${url}`);
+      navigator.clipboard?.writeText(url).catch(() => {});
+      alert(`Share URL: ${url}`);
     }
   };
+
+  // ── Consumer-facing viewer ────────────────────────────────────────────────
+  if (viewerLoading) {
+    return (
+      <div className="trace-viewer">
+        <div className="trace-header">
+          <p>Loading batch data…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (viewerError && routeId) {
+    return (
+      <div className="trace-viewer">
+        <div className="trace-header">
+          <AlertCircle size={20} style={{ color: '#c62828', marginRight: 8 }} />
+          <p style={{ color: '#c62828' }}>{viewerError}</p>
+        </div>
+      </div>
+    );
+  }
 
   if (viewMode === 'viewer' && selectedBatch) {
     return (
       <div className="trace-viewer">
         <div className="trace-header">
           <button className="back-btn" onClick={() => setViewMode('list')}>← Back to Management</button>
-          <div className="verified-badge"><ShieldCheck size={16} /> Verified Origin</div>
+          {selectedBatch.status === 'Verified' && (
+            <div className="verified-badge"><ShieldCheck size={16} /> Verified Origin</div>
+          )}
         </div>
 
         <div className="trace-content">
@@ -164,7 +280,7 @@ export default function QRTraceability() {
           <div className="journey-section">
             <h3><Sprout size={20} /> Farm-to-Table Journey</h3>
             <div className="timeline">
-              {selectedBatch.journey.map((step, idx) => (
+              {(selectedBatch.journey || []).map((step, idx) => (
                 <div key={idx} className="timeline-item">
                   <div className="timeline-marker"></div>
                   <div className="timeline-content">
@@ -181,7 +297,6 @@ export default function QRTraceability() {
           </div>
         </div>
 
-        {/* Advisor Button and Modal */}
         <button className="advisor-fab" onClick={() => setShowAdvisor(true)} aria-label="Open AI Advisor">
           <MessageCircle size={24} />
         </button>
@@ -195,6 +310,11 @@ export default function QRTraceability() {
       </div>
     );
   }
+
+  // ── Farmer management view ────────────────────────────────────────────────
+  const managedBatches = batchIds
+    .map(id => batchCache[id])
+    .filter(Boolean);
 
   return (
     <div className="qr-farm-container">
@@ -219,18 +339,34 @@ export default function QRTraceability() {
               <label>Harvest Date</label>
               <input name="harvestDate" type="date" required />
             </div>
-            <button type="submit" className="generate-btn">Generate Traceability ID</button>
+            {formError && (
+              <div className="error-msg" role="alert">
+                <AlertCircle size={14} style={{ marginRight: 6 }} />{formError}
+              </div>
+            )}
+            <button type="submit" className="generate-btn" disabled={formSubmitting}>
+              {formSubmitting ? 'Registering…' : 'Generate Traceability ID'}
+            </button>
           </form>
         </div>
 
         <div className="batches-section">
           <h3>Your Tracked Batches</h3>
+          {listLoading && <p className="loading-msg">Loading batches…</p>}
+          {listError && (
+            <div className="error-msg" role="alert">
+              <AlertCircle size={14} style={{ marginRight: 6 }} />{listError}
+            </div>
+          )}
+          {!listLoading && managedBatches.length === 0 && (
+            <p className="empty-msg">No batches registered yet. Use the form to create your first batch.</p>
+          )}
           <div className="batch-list">
-            {batches.map(batch => (
-              <div key={batch.id} className="batch-card" onClick={() => { setSelectedBatch(batch); setViewMode('viewer'); }}>
+            {managedBatches.map(batch => (
+              <div key={batch.id} className="batch-card" onClick={() => openBatch(batch.id)}>
                 <div className="batch-qr">
-                  <QRCodeSVG 
-                    value={`${window.location.origin}/trace/${batch.id}`} 
+                  <QRCodeSVG
+                    value={batch.traceability?.verification_url_with_proof || `${window.location.origin}/trace/${batch.id}`}
                     size={80}
                     includeMargin={true}
                     level="H"
@@ -242,10 +378,15 @@ export default function QRTraceability() {
                   <div className="batch-footer">
                     <span className="status-tag verified">{batch.status}</span>
                     <div className="batch-actions">
-                      <button className="test-link-btn" onClick={(e) => { e.stopPropagation(); window.open(`/trace/${batch.id}`, '_blank'); }}>
+                      <button
+                        className="test-link-btn"
+                        onClick={(e) => { e.stopPropagation(); window.open(batch.traceability?.verification_url_with_proof || `/trace/${batch.id}`, '_blank'); }}
+                      >
                         Test Link
                       </button>
-                      <button className="view-link">View Journey <ArrowRight size={14} /></button>
+                      <button className="view-link">
+                        View Journey <ArrowRight size={14} />
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -254,29 +395,6 @@ export default function QRTraceability() {
           </div>
         </div>
       </div>
-
-      {selectedBatch && viewMode === 'details' && (
-        <div className="qr-modal-overlay" onClick={() => setViewMode('list')}>
-          <div className="qr-print-card" onClick={e => e.stopPropagation()}>
-            <h2>QR Traceability Label</h2>
-            <div className="print-qr-container">
-              <QRCodeSVG value={`${window.location.origin}/trace/${selectedBatch.id}`} size={200} />
-            </div>
-            <div className="print-details">
-              <h3>{selectedBatch.crop}</h3>
-              <p>Scan to verify farm origin and journey.</p>
-              <div className="print-meta">
-                <span><strong>Farm:</strong> {selectedBatch.farm}</span>
-                <span><strong>ID:</strong> {selectedBatch.id}</span>
-              </div>
-            </div>
-            <div className="print-actions">
-              <button onClick={() => window.print()} className="print-btn"><Download size={18} /> Save for Printing</button>
-              <button onClick={() => shareQR(selectedBatch.id)} className="share-btn"><Share2 size={18} /> Share Link</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
