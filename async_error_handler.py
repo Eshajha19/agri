@@ -417,7 +417,9 @@ class CircuitBreakerAsync:
             # driven before the exception propagated, ensuring frame cleanup.
             try:
                 coro.close()
-            except Exception:
+            except Exception as e:
+            import logging
+            logging.error(f"Async error: {e}")
                 pass
             return None, False
     
