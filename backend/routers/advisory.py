@@ -430,7 +430,9 @@ def _store_graph_history(uid: str, entry: dict[str, Any]) -> str:
     if _db is not None:
         try:
             _db.collection("users").document(uid).collection("farm_intelligence_history").document(history_id).set(record, merge=True)
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.error(f"Advisory error: {e}")
             # Firestore unavailable — the in-memory write below still
             # preserves the entry for the current process session.
             pass
