@@ -120,7 +120,8 @@ except ImportError:
     HAS_GCP_KMS = False
 
 # Logger must be configured before lifespan so startup log calls work.
-logging.basicConfig(level=logging.INFO)
+from logging_config import setup_logging, RequestLoggingMiddleware
+setup_logging(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 @asynccontextmanager
@@ -1029,6 +1030,7 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
 )
 app.add_middleware(RBACMiddleware)
+app.add_middleware(RequestLoggingMiddleware)
 logger.info(print_rbac_matrix())
 
 # Import the voice assistant router at module level so app.include_router() can
