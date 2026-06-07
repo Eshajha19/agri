@@ -33,6 +33,7 @@ CACHE_TTL_SECONDS = 300
 _cache: Dict[str, Dict] = {}
 _cache_loaded_at: float = 0.0
 _cache_lock = threading.Lock()
+_defaults_seeded: bool = False
 
 DEFAULT_FLAGS: Dict[str, Dict] = {
     "rag_advisor_v2": {
@@ -109,13 +110,15 @@ def _load_from_firestore() -> Dict[str, Dict]:
 
 def _refresh_cache_locked() -> None:
     """Must be called with _cache_lock already held."""
-    global _cache, _cache_loaded_at
+    global _cache, _cache_loaded_at, _defaults_seeded
     loaded = _load_from_firestore()
     if not loaded:
-        for fid, fdata in DEFAULT_FLAGS.items():
-            loaded[fid] = _enrich(fid, fdata)
-            _write_to_firestore(fid, loaded[fid])
-    _cache = loaded or {fid: _enrich(fid, fd) for fid, fd in DEFAULT_FLAGS.items()}
+        loaded = {fid: _enrich(fid, fdata) for fid, fdata in DEFAULT_FLAGS.items()}
+        if _FIRESTORE_AVAILABLE and not _defaults_seeded:
+            for fid, fdata in loaded.items():
+                _write_to_firestore(fid, fdata)
+            _defaults_seeded = True
+    _cache = loaded
     _cache_loaded_at = time.monotonic()
 
 
