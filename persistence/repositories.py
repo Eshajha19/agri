@@ -222,6 +222,7 @@ class NotificationRepository(BaseRepository):
             return False
 
     def get(self, notification_id: str) -> Optional[Dict[str, Any]]:
+        notification_id = str(notification_id)
         """Retrieve a notification by ID."""
         if self.db is None:
             return None
@@ -275,6 +276,7 @@ class NotificationRepository(BaseRepository):
             return 0
 
     def update(self, notification_id: str, data: Dict[str, Any]) -> bool:
+        notification_id = str(notification_id)
         """Update a notification (rarely used)."""
         if self.db is None:
             return False
@@ -287,6 +289,7 @@ class NotificationRepository(BaseRepository):
             return False
 
     def delete(self, notification_id: str) -> bool:
+        notification_id = str(notification_id)
         """Delete a notification."""
         if self.db is None:
             return False
@@ -421,4 +424,20 @@ class SupplyChainRepository(BaseRepository):
             return True
         except Exception as exc:
             logger.error("Failed to delete supply chain record: %s", exc)
+            return False
+
+    def save_actor(self, actor_id: str, actor_data: Dict[str, Any]) -> bool:
+        """Persist a verified supply chain actor to Firestore."""
+        if self.db is None:
+            logger.warning("Firestore not available; actor %s not persisted.", actor_id)
+            return False
+
+        try:
+            self.db.collection("supply_chain_actors").document(actor_id).set(
+                {**actor_data, "saved_at": datetime.now().isoformat()}
+            )
+            logger.info("Supply chain actor %s persisted to Firestore.", actor_id)
+            return True
+        except Exception as exc:
+            logger.error("Failed to persist supply chain actor %s: %s", actor_id, exc)
             return False

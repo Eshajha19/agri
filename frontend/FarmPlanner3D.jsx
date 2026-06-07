@@ -136,6 +136,8 @@ export default function FarmPlanner3D() {
                 className={`tool-btn ${activeTool === type ? 'active' : ''}`}
                 onClick={() => setActiveTool(type)}
                 title={OBJECT_TYPES[type].name}
+                aria-label={`Select ${OBJECT_TYPES[type].name} tool`}
+                aria-pressed={activeTool === type}
               >
                 {type === 'CROP' && <BoxIcon size={20} />}
                 {type === 'TREE' && <TreePine size={20} />}
@@ -148,24 +150,39 @@ export default function FarmPlanner3D() {
         </div>
 
         <div className="action-section">
-          <button className="action-btn delete" onClick={deleteSelected} disabled={!selectedId}>
-            <Trash2 size={18} /> Delete Selected
+          <button
+            className="action-btn delete"
+            onClick={deleteSelected}
+            disabled={!selectedId}
+            aria-label="Delete selected farm element"
+            aria-disabled={!selectedId}
+          >
+            <Trash2 size={18} aria-hidden="true" /> Delete Selected
           </button>
-          <button className="action-btn save" onClick={exportLayout}>
-            <Download size={18} /> Export JSON
+          <button
+            className="action-btn save"
+            onClick={exportLayout}
+            aria-label="Export farm layout as JSON file"
+          >
+            <Download size={18} aria-hidden="true" /> Export JSON
           </button>
         </div>
 
         <div className="planner-info">
-          <Info size={16} />
-          <p>Click on the grid to place objects. Use mouse to rotate/zoom.</p>
+          <Info size={16} aria-hidden="true" />
+          <p id="planner-hint">Click on the grid to place objects. Use mouse to rotate/zoom.</p>
         </div>
       </div>
 
       <div className="planner-viewport">
         <Canvas shadows>
           <PerspectiveCamera makeDefault position={[10, 10, 10]} fov={50} />
-          <OrbitControls makeDefault minPolarAngle={0} maxPolarAngle={Math.PI / 2.1} />
+          <OrbitControls
+            makeDefault
+            minPolarAngle={0}
+            maxPolarAngle={Math.PI / 2.1}
+            aria-label="3D view rotation and zoom controls"
+          />
           
           <ambientLight intensity={0.5} />
           <pointLight position={[10, 10, 10]} intensity={1} castShadow />
@@ -205,8 +222,8 @@ export default function FarmPlanner3D() {
           <ContactShadows position={[0, 0, 0]} opacity={0.4} scale={20} blur={2} far={4.5} />
         </Canvas>
         
-        <div className="viewport-overlay">
-          <div className="stats-badge">
+        <div className="viewport-overlay" role="status" aria-live="polite" aria-atomic="true">
+          <div className="stats-badge" aria-label={`Total farm elements placed: ${items.length}`}>
             Total Elements: {items.length}
           </div>
         </div>
