@@ -504,8 +504,8 @@ async def http_exception_handler(request, exc):
         content={
             "success": False,
             "error": exc.detail,
-            "status_code": exc.status_code
-        }
+            "status_code": exc.status_code,
+        },
     )
 
 
@@ -519,8 +519,8 @@ async def general_exception_handler(request, exc):
         content={
             "success": False,
             "error": "Internal server error",
-            "status_code": 500
-        }
+            "status_code": 500,
+        },
     )
 
 
