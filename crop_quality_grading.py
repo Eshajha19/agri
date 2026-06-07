@@ -8,6 +8,7 @@ import cv2
 from PIL import Image
 import io
 import json
+from collections import deque
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 import base64
@@ -71,9 +72,18 @@ class QualityAssessment:
 class CropQualityGrader:
     """Main crop quality grading system"""
 
+    # Maximum number of assessments retained in the in-process history.
+    # Each QualityAssessment is a small dataclass (~200 bytes), so 1 000
+    # entries consume roughly 200 KB — a safe upper bound for a long-running
+    # process.  When the cap is reached the oldest entry is automatically
+    # evicted by the deque before the new one is appended.
+    _MAX_HISTORY = 1_000
+
     def __init__(self):
         self.supported_crops = list(CROP_QUALITY_PARAMS.keys())
-        self.quality_history = []
+        # Bounded deque: oldest assessments are evicted automatically when
+        # the cap is reached, preventing unbounded memory growth.
+        self.quality_history: deque = deque(maxlen=self._MAX_HISTORY)
 
     def assess_crop_image(
         self, image_data: bytes, crop_type: str
@@ -353,12 +363,38 @@ class CropQualityGrader:
         }
 
     def get_quality_trends(self, crop_type: str, days: int = 7) -> Dict:
-        """Get quality trends over time"""
-        recent_assessments = [
-            a
-            for a in self.quality_history
-            if a.crop_type == crop_type.lower()
-        ]
+        """Get quality trends over the specified number of days.
+
+        The ``days`` parameter was previously accepted and validated at the
+        API layer (ge=1, le=30) but was never used inside this method — the
+        filter ``[a for a in self.quality_history if a.crop_type == ...]``
+        returned all history for the crop type regardless of age.  A caller
+        requesting ``days=1`` received the same result as ``days=30``, and
+        the response included ``"days": data.days`` from the router,
+        implying the window was respected when it was not.
+
+        Fix: parse each assessment's ``timestamp`` field and exclude entries
+        older than ``days`` calendar days from the current UTC time.
+        """
+        from datetime import timezone, timedelta
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+        recent_assessments = []
+        for a in self.quality_history:
+            if a.crop_type != crop_type.lower():
+                continue
+            try:
+                # timestamp is stored as datetime.now().isoformat() — naive
+                # local time.  Parse it and treat as UTC for comparison.
+                ts = datetime.fromisoformat(a.timestamp)
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                if ts >= cutoff:
+                    recent_assessments.append(a)
+            except (ValueError, TypeError):
+                # Malformed timestamp — include the assessment rather than
+                # silently dropping it.
+                recent_assessments.append(a)
 
         if not recent_assessments:
             return {"error": "No assessment history"}
@@ -368,9 +404,10 @@ class CropQualityGrader:
 
         return {
             "crop_type": crop_type.lower(),
+            "days": days,
             "assessments_count": len(recent_assessments),
             "average_score": round(np.mean(scores), 2),
-            "score_trend": scores[-5:],  # Last 5 scores
+            "score_trend": scores[-5:],  # Last 5 scores within the window
             "grade_distribution": {g: grades.count(g) for g in set(grades)},
             "latest_assessment": asdict(recent_assessments[-1]),
         }
