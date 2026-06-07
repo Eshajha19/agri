@@ -266,7 +266,10 @@ class SeedVerifyRequest(BaseModel):
         if not has_access:
             raise HTTPException(status_code=403, detail="Insufficient permissions")
 
-    return {"uid": uid, "roles": user_roles}
+        @app.get("/user_roles")
+        def get_user_roles(uid: str):
+            user_roles = ["admin", "editor"]  # example
+            return {"uid": uid, "roles": user_roles}
 
     def __init__(self, maxlen: int = _MAX_NOTIFICATIONS, ttl_hours: int = _NOTIFICATION_TTL_HOURS):
         self._deque: collections.deque = collections.deque(maxlen=maxlen)
