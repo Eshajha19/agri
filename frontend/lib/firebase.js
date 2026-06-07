@@ -43,3 +43,22 @@ if (isConfigured) {
 
 export { app, auth, db, doc, onSnapshot, getDoc, setDoc, updateDoc };
 export const isFirebaseConfigured = () => isConfigured && auth !== null;
+
+const requiredVars = [
+  "VITE_FIREBASE_API_KEY",
+  "VITE_FIREBASE_AUTH_DOMAIN",
+  "VITE_FIREBASE_PROJECT_ID",
+  "VITE_FIREBASE_STORAGE_BUCKET",
+  "VITE_FIREBASE_MESSAGING_SENDER_ID",
+  "VITE_FIREBASE_APP_ID",
+  "VITE_BACKEND_URL",
+];
+
+const missingVars = requiredVars.filter(
+  (v) => !import.meta.env[v] || import.meta.env[v].trim() === ""
+);
+
+if (missingVars.length > 0) {
+  console.error("❌ Missing required environment variables:", missingVars.join(", "));
+  throw new Error("Environment misconfiguration. Please check your .env file.");
+}
