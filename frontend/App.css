@@ -360,6 +360,7 @@ body,
  .language-dropdown-mobile {
    display: flex;
    align-items: center;
+   position: absolute; 
  }
 
  .nav-language .language-dropdown-mobile .lang-dropdown-btn {
@@ -2130,4 +2131,8 @@ html body {
 .lite-mode .card .icon {
   background: var(--bg-secondary, #f1f5f9) !important;
   animation: none !important;
+}
+
+.settings-panel {
+  overflow: visible; /* allow dropdown to escape */
 }
