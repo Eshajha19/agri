@@ -328,7 +328,9 @@ class SupplyChainBlockchain:
             
             return batch
 
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.error(f"Blockchain error: {e}")
             self._rollback_to_snapshot(snap)
             raise
 
