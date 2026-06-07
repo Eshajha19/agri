@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import datetime
 from typing import Any, Optional
 
@@ -21,6 +22,28 @@ from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
 
 router = APIRouter()
+
+# ---------------------------------------------------------------------------
+# Simple per-IP rate limiter for public endpoints (no Redis dependency)
+# ---------------------------------------------------------------------------
+_log_error_buckets: dict[str, list[float]] = {}
+
+def _rate_limit_log_error(request: Request, limit: int = 30, window: int = 60) -> None:
+    """Reject with 429 if *ip* exceeds *limit* requests within *window* seconds."""
+    ip = "unknown"
+    if request.client:
+        ip = request.client.host
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        ip = forwarded.split(",")[0].strip()
+
+    now = time.time()
+    bucket = _log_error_buckets.setdefault(ip, [])
+    # Prune timestamps outside the window
+    bucket[:] = [t for t in bucket if now - t < window]
+    if len(bucket) >= limit:
+        raise HTTPException(status_code=429, detail="Too many error log requests. Please retry later.")
+    bucket.append(now)
 logger = logging.getLogger(__name__)
 
 
@@ -363,7 +386,10 @@ async def generate_signed_report(request: Request, data: ReportRequest):
 
 
 @router.post("/log-error")
-async def log_error(body: ClientErrorReport):
+async def log_error(request: Request, body: ClientErrorReport):
+    # Simple per-IP rate limiter: 30 requests per minute
+    _rate_limit_log_error(request, limit=30, window=60)
+
     if sanitise_log_field_fn is None:
         raise HTTPException(status_code=500, detail="Log sanitizer not initialized")
 
