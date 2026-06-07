@@ -21,6 +21,11 @@ export default function useNotifications() {
 
     seenIdsRef.current.add(notificationKey);
 
+    // Prevent unbounded growth during long-running sessions
+    if (seenIdsRef.current.size > 1000) {
+      seenIdsRef.current.clear();
+    }
+
     toast.info(notif.message, {
       position: "top-right",
       autoClose: 4000,
@@ -79,6 +84,7 @@ export default function useNotifications() {
     return () => {
       mountedRef.current = false;
       requestIdRef.current++;
+      seenIdsRef.current.clear();
     };
   }, []);
 
