@@ -1005,19 +1005,17 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # ---------------------------------------------------------------------------
 _CORS_ORIGINS: list[str] = [
     "http://localhost:5173",
-    "http://127.0.0.1:3000",
-    "https://fasal-saathi.vercel.app",
-    "https://fasal-saathi.xyz/"
+    "http://localhost:3000",
 ]
 
-_frontend_url = os.getenv("FRONTEND_URL", "").strip()
+_frontend_url = os.getenv("FRONTEND_URL", "").strip().rstrip("/")
 if _frontend_url and _frontend_url not in _CORS_ORIGINS:
     _CORS_ORIGINS.append(_frontend_url)
 
 _extra_origins = os.getenv("ADDITIONAL_ALLOWED_ORIGINS", "").strip()
 if _extra_origins:
     for _origin in _extra_origins.split(","):
-        _origin = _origin.strip()
+        _origin = _origin.strip().rstrip("/")
         if _origin and _origin not in _CORS_ORIGINS:
             _CORS_ORIGINS.append(_origin)
 
