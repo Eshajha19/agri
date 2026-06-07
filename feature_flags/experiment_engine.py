@@ -2,31 +2,6 @@
 experiment_engine.py
 ─────────────────────
 Deterministic user-to-variant assignment for A/B experiments.
-
-Assignment is deterministic: the same (user_id, experiment_id) pair always
-resolves to the same variant.  This is done via SHA-256 hashing so:
-  - No database lookup is needed to retrieve a cached assignment.
-  - Assignment is consistent across sessions and devices.
-  - Changing the `salt` on an experiment re-randomises all users.
-
-Experiment document shape (Firestore collection: experiments):
-{
-  "id":          "yield_model_ab",
-  "name":        "Yield Model A/B Test",
-  "description": "Compare LSTM vs sklearn yield predictions",
-  "status":      "running",        // draft | running | paused | completed
-  "variants": [
-    {"id": "control",     "name": "Control (sklearn)", "weight": 50},
-    {"id": "treatment_a", "name": "LSTM model",        "weight": 50},
-  ],
-  "salt":        "abc123",         // random string; change to re-randomise
-  "start_date":  "2026-05-16",
-  "end_date":    null,
-  "created_at":  "2026-05-16T00:00:00Z",
-  "updated_at":  "2026-05-16T00:00:00Z",
-  "owner":       "ml-team",
-  "tags":        ["ml", "yield"],
-}
 """
 
 import hashlib
@@ -38,7 +13,6 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# ── Firestore client ───────────────────────────────────────────────────────────
 try:
     from firebase_admin import firestore as fs_admin
     _fs_client = fs_admin.client()
@@ -47,7 +21,7 @@ except Exception:
     _fs_client = None
     _FIRESTORE_AVAILABLE = False
 
-EXP_COLLECTION   = "experiments"
+EXP_COLLECTION    = "experiments"
 ASSIGN_COLLECTION = "experiment_assignments"
 CACHE_TTL_SECONDS = 300
 
@@ -71,20 +45,13 @@ def _persist_experiment(exp_id: str) -> None:
         logger.error("Failed to persist experiment '%s': %s", exp_id, exc)
 
 
-# ── Deterministic assignment ───────────────────────────────────────────────────
-
 def _assign_variant(user_id: str, experiment_id: str, salt: str,
                     variants: List[Dict]) -> str:
-    """
-    Hash (user_id + experiment_id + salt) → [0,100) integer → select variant
-    by cumulative weight.  Always returns a variant id string.
-    """
     if not variants:
         return "control"
 
     raw = f"{user_id}:{experiment_id}:{salt}"
     digest = hashlib.sha256(raw.encode()).hexdigest()
-    # Use first 8 hex chars → 32-bit number → mod 100
     bucket = int(digest[:8], 16) % 100
 
     cumulative = 0
@@ -93,11 +60,8 @@ def _assign_variant(user_id: str, experiment_id: str, salt: str,
         if bucket < cumulative:
             return variant["id"]
 
-    # Fallback to last variant if weights don't sum to 100
     return variants[-1]["id"]
 
-
-# ── Experiment cache ──────────────────────────────────────────────────────────
 
 def _ensure_exp_cache():
     global _exp_cache, _exp_cache_at
@@ -157,8 +121,6 @@ def _default_experiments() -> Dict[str, Dict]:
     }
 
 
-# ── Public API ─────────────────────────────────────────────────────────────────
-
 def list_experiments() -> List[Dict]:
     _ensure_exp_cache()
     return list(_exp_cache.values())
@@ -176,16 +138,15 @@ def create_experiment(data: Dict) -> Dict:
     exp = {**data, "id": exp_id, "created_at": now, "updated_at": now,
            "status": data.get("status", "draft")}
     exp.setdefault("salt", hashlib.sha256(exp_id.encode()).hexdigest()[:12])
-    
+
     _exp_cache[exp_id] = exp
     _exp_cache_at = time.monotonic()
-    
+
     _persist_experiment(exp_id)
     return exp
 
 
 def set_traffic_split(exp_id: str, traffic_split: Dict[str, int]) -> Optional[Dict]:
-    """Set variant weights for an experiment and persist the updated split."""
     _ensure_exp_cache()
     exp = _exp_cache.get(exp_id)
     if not exp:
@@ -213,17 +174,16 @@ def set_traffic_split(exp_id: str, traffic_split: Dict[str, int]) -> Optional[Di
         raise ValueError("Traffic split weights must sum to 100")
 
     exp["variants"] = [
-        {**variant, "weight": dict(normalized_weights)[variant.get("id")]} 
+        {**variant, "weight": dict(normalized_weights)[variant.get("id")]}
         for variant in variants
     ]
-    exp["traffic_split"] = {variant_id: weight for variant_id, weight in normalized_weights}
+    exp["traffic_split"] = {vid: w for vid, w in normalized_weights}
     exp["updated_at"] = _now_iso()
     _persist_experiment(exp_id)
     return exp
 
 
 def promote_winner(exp_id: str, winner_variant_id: str, reason: str = "auto_winner_promotion") -> Optional[Dict]:
-    """Promote the winning variant to 100% traffic and mark the experiment completed."""
     _ensure_exp_cache()
     exp = _exp_cache.get(exp_id)
     if not exp:
@@ -251,10 +211,6 @@ def promote_winner(exp_id: str, winner_variant_id: str, reason: str = "auto_winn
 
 
 def assign_user(user_id: str, experiment_id: str) -> Dict:
-    """
-    Assign a user to an experiment variant.
-    Returns assignment dict with: user_id, experiment_id, variant, assigned_at.
-    """
     _ensure_exp_cache()
     exp = _exp_cache.get(experiment_id)
     if not exp:
@@ -273,9 +229,10 @@ def assign_user(user_id: str, experiment_id: str) -> Dict:
         return {"user_id": user_id, "experiment_id": experiment_id,
                 "variant": "control", "reason": f"experiment_status_{exp.get('status')}"}
 
+    current_salt = exp.get("salt", "default_salt")
     variant_id = _assign_variant(
         user_id, experiment_id,
-        exp.get("salt", "default_salt"),
+        current_salt,
         exp.get("variants", [])
     )
 
@@ -284,16 +241,19 @@ def assign_user(user_id: str, experiment_id: str) -> Dict:
         "experiment_id": experiment_id,
         "variant":       variant_id,
         "assigned_at":   _now_iso(),
-        "salt":          exp.get("salt"),
+        "salt":          current_salt,
     }
 
-    # Persist assignment to Firestore (best-effort)
+    # Persist assignment to Firestore only if salt has changed or no assignment exists.
+    # This invalidates stale assignments when experiment salt changes and prevents
+    # redundant writes for already-assigned users.
     if _FIRESTORE_AVAILABLE:
         try:
             doc_id = f"{user_id}_{experiment_id}"
-            _fs_client.collection(ASSIGN_COLLECTION).document(doc_id).set(
-                assignment, merge=True
-            )
+            doc_ref = _fs_client.collection(ASSIGN_COLLECTION).document(doc_id)
+            existing = doc_ref.get()
+            if not existing.exists or existing.to_dict().get("salt") != current_salt:
+                doc_ref.set(assignment)
         except Exception as e:
             logger.warning("Could not persist assignment: %s", e)
 
@@ -301,7 +261,6 @@ def assign_user(user_id: str, experiment_id: str) -> Dict:
 
 
 def update_experiment_status(exp_id: str, status: str) -> Optional[Dict]:
-    """Update experiment status: draft | running | paused | completed"""
     _ensure_exp_cache()
     if exp_id not in _exp_cache:
         return None
