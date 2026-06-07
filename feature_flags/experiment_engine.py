@@ -18,7 +18,9 @@ try:
     from firebase_admin import firestore as fs_admin
     _fs_client = fs_admin.client()
     _FIRESTORE_AVAILABLE = True
-except Exception:
+except Exception as e:
+    import logging
+    logging.error(f"Experiment engine error: {e}")
     _fs_client = None
     _FIRESTORE_AVAILABLE = False
 
