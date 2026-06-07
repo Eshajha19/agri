@@ -241,6 +241,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
 
 
+@app.get("/health")
+async def health_check():
+    """Render health check — returns 200 when the service is alive."""
+    return {"status": "ok"}
+
+
 # Initialize Limiter
 limiter = build_limiter(default_limits=["120/minute"])
 app.state.limiter = limiter
