@@ -143,6 +143,10 @@ async def lifespan(app: FastAPI):
     """
     logger.info("Starting up: initializing services")
     init_ml_pipeline()
+
+    from startup_checks import verify_startup_dependencies
+    verify_startup_dependencies()
+
     await notification_broker.start()
 
     # Domain engines — initialized exactly once here at startup.
