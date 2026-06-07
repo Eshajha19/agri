@@ -303,7 +303,10 @@ class NotificationBroadcastHub:
         )
 
         try:
-            await asyncio.Event().wait()
+            # Actively read from the socket so we detect client disconnects.
+            # A closed connection raises WebSocketDisconnect.
+            while True:
+                await websocket.receive_text()
         except asyncio.CancelledError:
             pass
         except WebSocketDisconnect:
