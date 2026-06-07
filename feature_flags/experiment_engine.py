@@ -6,6 +6,7 @@ Deterministic user-to-variant assignment for A/B experiments.
 
 import hashlib
 import logging
+import threading
 import time
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -27,6 +28,7 @@ CACHE_TTL_SECONDS = 300
 
 _exp_cache: Dict[str, Dict] = {}
 _exp_cache_at: float = 0.0
+_exp_cache_lock = threading.Lock()
 
 
 def _now_iso() -> str:
@@ -36,7 +38,8 @@ def _now_iso() -> str:
 def _persist_experiment(exp_id: str) -> None:
     if not _FIRESTORE_AVAILABLE:
         return
-    exp = _exp_cache.get(exp_id)
+    with _exp_cache_lock:
+        exp = _exp_cache.get(exp_id)
     if not exp:
         return
     try:
@@ -65,9 +68,10 @@ def _assign_variant(user_id: str, experiment_id: str, salt: str,
 
 def _ensure_exp_cache():
     global _exp_cache, _exp_cache_at
-    if not _exp_cache or (time.monotonic() - _exp_cache_at) > CACHE_TTL_SECONDS:
-        _exp_cache = _load_experiments()
-        _exp_cache_at = time.monotonic()
+    with _exp_cache_lock:
+        if not _exp_cache or (time.monotonic() - _exp_cache_at) > CACHE_TTL_SECONDS:
+            _exp_cache = _load_experiments()
+            _exp_cache_at = time.monotonic()
 
 
 def _load_experiments() -> Dict[str, Dict]:
@@ -123,12 +127,14 @@ def _default_experiments() -> Dict[str, Dict]:
 
 def list_experiments() -> List[Dict]:
     _ensure_exp_cache()
-    return list(_exp_cache.values())
+    with _exp_cache_lock:
+        return list(_exp_cache.values())
 
 
 def get_experiment(exp_id: str) -> Optional[Dict]:
     _ensure_exp_cache()
-    return _exp_cache.get(exp_id)
+    with _exp_cache_lock:
+        return _exp_cache.get(exp_id)
 
 
 def create_experiment(data: Dict) -> Dict:
@@ -148,9 +154,38 @@ def create_experiment(data: Dict) -> Dict:
 
 def set_traffic_split(exp_id: str, traffic_split: Dict[str, int]) -> Optional[Dict]:
     _ensure_exp_cache()
-    exp = _exp_cache.get(exp_id)
-    if not exp:
-        return None
+    with _exp_cache_lock:
+        exp = _exp_cache.get(exp_id)
+        if not exp:
+            return None
+
+        variants = exp.get("variants", [])
+        if not variants:
+            return None
+
+        normalized_weights = []
+        total_weight = 0
+        for variant in variants:
+            variant_id = variant.get("id")
+            if variant_id not in traffic_split:
+                raise ValueError(f"Missing traffic weight for variant '{variant_id}'")
+            weight = int(traffic_split[variant_id])
+            if weight < 0:
+                raise ValueError("Traffic weights must be non-negative")
+            normalized_weights.append((variant_id, weight))
+            total_weight += weight
+
+        if total_weight <= 0:
+            raise ValueError("Traffic split must allocate positive weight")
+        if total_weight != 100:
+            raise ValueError("Traffic split weights must sum to 100")
+
+        exp["variants"] = [
+            {**variant, "weight": dict(normalized_weights)[variant.get("id")]}
+            for variant in variants
+        ]
+        exp["traffic_split"] = {vid: w for vid, w in normalized_weights}
+        exp["updated_at"] = _now_iso()
 
     variants = exp.get("variants", [])
     if not variants:
@@ -185,34 +220,38 @@ def set_traffic_split(exp_id: str, traffic_split: Dict[str, int]) -> Optional[Di
 
 def promote_winner(exp_id: str, winner_variant_id: str, reason: str = "auto_winner_promotion") -> Optional[Dict]:
     _ensure_exp_cache()
-    exp = _exp_cache.get(exp_id)
-    if not exp:
-        return None
+    with _exp_cache_lock:
+        exp = _exp_cache.get(exp_id)
+        if not exp:
+            return None
 
-    variants = exp.get("variants", [])
-    if not any(variant.get("id") == winner_variant_id for variant in variants):
-        raise ValueError(f"Variant '{winner_variant_id}' not found in experiment '{exp_id}'")
+        variants = exp.get("variants", [])
+        if not any(variant.get("id") == winner_variant_id for variant in variants):
+            raise ValueError(f"Variant '{winner_variant_id}' not found in experiment '{exp_id}'")
 
-    exp["status"] = "completed"
-    exp["winner_variant"] = winner_variant_id
-    exp["promotion_reason"] = reason
-    exp["promoted_at"] = _now_iso()
-    exp["updated_at"] = _now_iso()
-    exp["variants"] = [
-        {**variant, "weight": 100 if variant.get("id") == winner_variant_id else 0}
-        for variant in variants
-    ]
-    exp["traffic_split"] = {
-        variant.get("id"): (100 if variant.get("id") == winner_variant_id else 0)
-        for variant in variants
-    }
+        exp["status"] = "completed"
+        exp["winner_variant"] = winner_variant_id
+        exp["promotion_reason"] = reason
+        exp["promoted_at"] = _now_iso()
+        exp["updated_at"] = _now_iso()
+        exp["variants"] = [
+            {**variant, "weight": 100 if variant.get("id") == winner_variant_id else 0}
+            for variant in variants
+        ]
+        exp["traffic_split"] = {
+            variant.get("id"): (100 if variant.get("id") == winner_variant_id else 0)
+            for variant in variants
+        }
+
     _persist_experiment(exp_id)
     return exp
 
 
 def assign_user(user_id: str, experiment_id: str) -> Dict:
     _ensure_exp_cache()
-    exp = _exp_cache.get(experiment_id)
+    with _exp_cache_lock:
+        exp = _exp_cache.get(experiment_id)
+
     if not exp:
         return {"user_id": user_id, "experiment_id": experiment_id,
                 "variant": "control", "reason": "experiment_not_found"}
@@ -262,10 +301,12 @@ def assign_user(user_id: str, experiment_id: str) -> Dict:
 
 def update_experiment_status(exp_id: str, status: str) -> Optional[Dict]:
     _ensure_exp_cache()
-    if exp_id not in _exp_cache:
-        return None
-    _exp_cache[exp_id]["status"] = status
-    _exp_cache[exp_id]["updated_at"] = _now_iso()
+    with _exp_cache_lock:
+        if exp_id not in _exp_cache:
+            return None
+        _exp_cache[exp_id]["status"] = status
+        _exp_cache[exp_id]["updated_at"] = _now_iso()
+
     if _FIRESTORE_AVAILABLE:
         try:
             _fs_client.collection(EXP_COLLECTION).document(exp_id).update(
