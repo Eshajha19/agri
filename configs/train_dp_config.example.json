@@ -1,0 +1,16 @@
+{
+  "dataset": "Train.csv",
+  "seed": 42,
+  "test_size": 0.2,
+  "model_name": "yield_model",
+  "created_by": "local-dev",
+  "training_mode": "dp_sgd",
+  "epsilon": 3.0,
+  "delta": 0.00001,
+  "dp_epochs": 8,
+  "dp_batch_size": 64,
+  "dp_learning_rate": 0.05,
+  "dp_max_grad_norm": 1.0,
+  "dp_hidden_size": 64,
+  "output_model": "yield_model_dp.pt"
+}

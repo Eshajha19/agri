@@ -17,7 +17,13 @@
  *    the owner's listing is marked unavailable server-side.
  *  - GET  /api/marketplace/bookings  — shows the farmer's own bookings.
  */
-import React, { useState, useEffect, useCallback } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
 import "./AgriMarketplace.css";
 import {
   Search, MapPin, Plus, Calendar, Clock, X, AlertCircle, CheckCircle,
@@ -58,9 +64,26 @@ export default function AgriMarketplace({ onClose }) {
   const [bookingSubmitting, setBookingSubmitting] = useState(false);
   const [bookingError, setBookingError]   = useState("");
   const [bookingSuccess, setBookingSuccess] = useState("");
+  const mountedRef = useRef(true);
+  const filterRequestRef = useRef(0);
+  const debounceRef = useRef(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, []);
 
   // ── Fetch listings from server ────────────────────────────────────────────
   const fetchListings = useCallback(async () => {
+    const requestId = ++filterRequestRef.current;
+
     setLoadingListings(true);
     setListingsError("");
     try {
@@ -68,16 +91,50 @@ export default function AgriMarketplace({ onClose }) {
       if (searchQuery)  params.set("search",   searchQuery);
       if (locationQuery) params.set("location", locationQuery);
       const res = await apiClient.get(`/api/marketplace/listings?${params}`);
+
+      if (
+        !mountedRef.current ||
+        requestId !== filterRequestRef.current
+      ) {
+        return;
+      }
+
       setListings(res.data?.data || []);
     } catch {
-      setListingsError("Failed to load equipment listings. Please try again.");
-    } finally {
-      setLoadingListings(false);
+      if (
+        !mountedRef.current ||
+        requestId !== filterRequestRef.current
+      ) {
+        return;
+      }
+
+      setListingsError(
+        "Failed to load equipment listings. Please try again."
+      );
     }
   }, [searchQuery, locationQuery]);
 
   useEffect(() => {
-    fetchListings();
+    const requestId = ++filterRequestRef.current;
+
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+
+    debounceRef.current = setTimeout(() => {
+      if (
+        mountedRef.current &&
+        requestId === filterRequestRef.current
+      ) {
+        fetchListings();
+      }
+    }, 300);
+
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
   }, [fetchListings]);
 
   // ── List new equipment ────────────────────────────────────────────────────
@@ -166,13 +223,30 @@ export default function AgriMarketplace({ onClose }) {
     }
   };
 
-  const selectedItem = showBookingModal
-    ? listings.find(l => l.id === showBookingModal)
-    : null;
+  const selectedItem = useMemo(() => {
+    return showBookingModal
+      ? listings.find(
+          l => l.id === showBookingModal
+        )
+      : null;
+  }, [showBookingModal, listings]);
 
-  const estimatedCost = selectedItem && bookingDuration && Number(bookingDuration) > 0
-    ? selectedItem.price * Number(bookingDuration)
-    : null;
+  const estimatedCost = useMemo(() => {
+    return selectedItem &&
+      bookingDuration &&
+      Number(bookingDuration) > 0
+        ? selectedItem.price *
+            Number(bookingDuration)
+        : null;
+  }, [selectedItem, bookingDuration]);
+
+  const handleSearchChange = useCallback((e) => {
+    setSearchQuery(e.target.value);
+  }, []);
+
+  const handleLocationChange = useCallback((e) => {
+    setLocationQuery(e.target.value);
+  }, []);
 
   return (
     <div className="marketplace-container">
@@ -191,7 +265,7 @@ export default function AgriMarketplace({ onClose }) {
               type="text"
               placeholder="Search tractors, harvesters..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={handleSearchChange}
             />
           </div>
           <div className="location-input">
@@ -200,7 +274,7 @@ export default function AgriMarketplace({ onClose }) {
               type="text"
               placeholder="Enter locality..."
               value={locationQuery}
-              onChange={(e) => setLocationQuery(e.target.value)}
+              onChange={handleLocationChange}
             />
           </div>
         </div>

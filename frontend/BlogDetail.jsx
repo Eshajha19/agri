@@ -1,10 +1,159 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { FaArrowLeft, FaClock, FaUser, FaCalendarAlt, FaLeaf, FaCloudSun, FaLandmark, FaBug, FaTint, FaSeedling, FaBookmark, FaRegBookmark } from "react-icons/fa";
 import "./Blog.css";
 import { getBookmarks, toggleBookmark } from "./utils/bookmarkStorage";
 
 const BLOG_POSTS = [
+  {
+    id: 9,
+    title: "AI-Based Crop Disease Detection for Faster Field Decisions",
+    description: "Learn how image-based disease detection helps farmers identify symptoms early, compare confidence scores, and act before losses spread across the field.",
+    category: "Pest Management",
+    author: "Dr. Priya Nair",
+    date: "May 22, 2026",
+    readTime: "7 min read",
+    thumbnail: "https://images.unsplash.com/photo-1518531933037-91b2f5f229cc?w=900&q=80",
+    tags: ["AI", "Disease Detection", "Mobile Farming"],
+    content: `AI-based crop disease detection is becoming one of the most practical tools available to farmers who need quick decisions in the field. By combining uploaded images with model-based analysis, growers can identify likely diseases earlier and choose a response before the damage spreads.
+
+**Why This Matters**
+
+Many crop diseases begin with subtle changes in leaf colour, texture, and spot formation. These symptoms are easy to miss during busy field rounds. An AI-assisted tool can highlight those patterns, suggest a likely disease, and provide a confidence score so farmers know when to act quickly and when to confirm with a local expert.
+
+**How to Capture Better Images**
+
+Use good natural light, keep the camera steady, and focus on the affected leaf or fruit rather than the entire plant. Avoid strong shadows and blur. If possible, capture a close-up of the symptom as well as a wider shot of the plant to preserve context.
+
+**What to Do After the Prediction**
+
+Compare the treatment advice with your local agronomist or extension officer. High confidence predictions can guide urgent action such as removing infected leaves or adjusting irrigation. Medium-confidence results are still useful, but they should be combined with field scouting and crop history.
+
+**Long-Term Benefit**
+
+When farmers detect disease earlier, they reduce spray cost, prevent yield loss, and improve timing of treatment. Over time, the same analysis also creates a useful record of repeated disease patterns in the farm.
+
+**Best Practice**
+
+Use AI as a decision aid, not a replacement for field knowledge. The strongest results come from combining image analysis, local weather conditions, and the farmer's own observation of symptoms and spread.
+`,
+  },
+  {
+    id: 10,
+    title: "Leaf Colour and Texture: What Plant Symptoms Reveal",
+    description: "A practical guide to reading leaf colour changes, spotting texture irregularities, and deciding whether a crop needs nutrition support or disease treatment.",
+    category: "Crop Management",
+    author: "Prof. Suresh Patel",
+    date: "May 18, 2026",
+    readTime: "6 min read",
+    thumbnail: "https://images.unsplash.com/photo-1457530378978-8bac673b8062?w=900&q=80",
+    tags: ["Scouting", "Leaf Health", "Diagnostics"],
+    content: `The first signs of many crop problems appear on the leaf surface. Colour shifts, uneven patches, and changes in texture often point to either nutritional stress or disease pressure. Learning to read those signals saves time and reduces guesswork.
+
+**Start with Colour**
+
+Yellowing may indicate nitrogen deficiency, moisture stress, or early fungal infection depending on the crop and the pattern. A uniform pale colour often suggests nutrient shortage, while clustered yellow spots can be disease related. Brown or rust-coloured areas are usually more urgent because they can spread quickly.
+
+**Then Check Texture**
+
+Powdery surfaces, raised lesions, and water-soaked tissue are all important clues. A healthy leaf usually has a smooth but slightly firm surface. If the leaf feels soft, crumbly, or unusually rough, inspect neighbouring plants to see whether the pattern is widespread.
+
+**Do Not Diagnose from One Leaf Alone**
+
+Always compare the affected leaf with one from the same plant and one from a healthy plant nearby. This comparison helps separate environmental stress from true disease symptoms. It also prevents unnecessary spraying.
+
+**When to Escalate**
+
+If symptoms spread rapidly across a row, take photos and seek immediate advice. Rapid spread often means an active pathogen or pest population rather than a simple nutrition issue.
+`,
+  },
+  {
+    id: 11,
+    title: "Heat Stress Management for Vegetables During Peak Summer",
+    description: "Protect sensitive crops from heatwaves with mulching, shade nets, irrigation timing, and crop-specific stress reduction strategies.",
+    category: "Weather",
+    author: "Meena Krishnan",
+    date: "May 12, 2026",
+    readTime: "8 min read",
+    thumbnail: "https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=900&q=80",
+    tags: ["Heatwave", "Mulching", "Irrigation Timing"],
+    content: `Heat stress can reduce flowering, fruit set, and vegetative growth in vegetables long before visible wilting appears. The problem is especially severe in tomato, capsicum, cucumber, and leafy greens where high temperature directly affects pollination and plant metabolism.
+
+**Watch the Timing**
+
+The hottest part of the day creates the greatest water demand. Irrigation in the early morning or late evening helps plants recover from the previous day and reduces evaporation loss. Avoid spraying water on leaves under direct midday sun because it can increase stress rather than relieve it.
+
+**Use Protective Cover**
+
+Shade nets and temporary low tunnels can reduce leaf temperature and protect flowers from sunscald. Even partial shading can improve fruit quality during heatwaves. For open-field crops, straw mulch or crop residue mulch helps conserve moisture and stabilise soil temperature.
+
+**Feed the Plant, Not the Stress**
+
+Healthy nutrition makes crops more resilient. Excess nitrogen during peak heat can make foliage lush but weak. Balance nitrogen with potassium and micronutrients so plants can regulate water use more efficiently.
+
+**Plan for the Next Heatwave**
+
+Use weather alerts to prepare irrigation scheduling, mulching, and harvest timing before temperatures spike. A few preventive adjustments are usually cheaper than rescuing a stressed crop after damage appears.
+`,
+  },
+  {
+    id: 12,
+    title: "Balanced Nutrient Management for Better Yield and Lower Costs",
+    description: "Use soil test results, micronutrient correction, and split fertiliser application to improve output without overspending on inputs.",
+    category: "Crop Management",
+    author: "Dr. Kavita Rao",
+    date: "May 8, 2026",
+    readTime: "7 min read",
+    thumbnail: "https://images.unsplash.com/photo-1500937386664-56d1dfef3854?w=900&q=80",
+    tags: ["NPK", "Micronutrients", "Soil Health"],
+    content: `Balanced nutrient management is about applying the right nutrient, in the right amount, at the right time, and in the right place. When fertiliser strategy is based on soil tests rather than habit, farmers often improve yield while reducing waste.
+
+**Read the Soil Before You Feed the Crop**
+
+Soil test results tell you whether nitrogen, phosphorus, potassium, or micronutrients are limiting growth. A crop does not respond equally to all nutrients. If one nutrient is already sufficient, adding more of it will not increase yield and may even create imbalance.
+
+**Split Applications Work Better**
+
+Applying all nitrogen at once increases losses through leaching and volatilisation. Split doses match crop demand more closely. This improves fertiliser efficiency and keeps growth steady during critical stages.
+
+**Micronutrients Matter Too**
+
+Zinc, boron, iron, and manganese deficiencies can quietly reduce performance even when NPK is adequate. Small corrective doses often have a big impact on flowering, fruit setting, and grain development.
+
+**Use Field Observation Alongside Soil Data**
+
+Yellow leaves, weak stems, or poor flowering can point to a nutritional imbalance, but the pattern matters. Compare the symptom with soil test records and recent weather to decide whether the problem is nutrient loss, disease, or water stress.
+`,
+  },
+  {
+    id: 13,
+    title: "Safe Spraying Practices: Timing, Coverage, and Resistance Control",
+    description: "Improve spray efficiency with the right nozzle, weather window, and rotation strategy to reduce waste and slow pest resistance.",
+    category: "Pest Management",
+    author: "Arvind Kulkarni",
+    date: "May 2, 2026",
+    readTime: "9 min read",
+    thumbnail: "https://images.unsplash.com/photo-1598514982901-2f5f4f6d7d13?w=900&q=80",
+    tags: ["Spraying", "Resistance", "Pesticides"],
+    content: `Spraying is most effective when the nozzle, timing, and weather conditions all support good coverage. Poor spray practice wastes money, increases drift, and can leave pests alive to develop resistance.
+
+**Choose the Right Window**
+
+Spray early in the morning or late in the afternoon when wind speed is low and temperatures are moderate. Avoid spraying just before rain or under strong sunlight. Good timing increases deposition on the leaf surface and reduces evaporation.
+
+**Coverage Matters More Than Volume**
+
+Many farmers assume that using more water automatically improves performance. In reality, the correct droplet size and nozzle angle often matter more than the total volume. Make sure the spray reaches the undersides of leaves where many pests hide.
+
+**Rotate Modes of Action**
+
+Repeated use of the same pesticide group increases resistance pressure. Rotate active ingredients and combine chemical control with cultural and biological methods whenever possible. This keeps pesticides effective for longer and lowers total input cost.
+
+**Safety First**
+
+Wear gloves, a mask, and protective clothing while mixing and spraying. Clean equipment immediately after use and store chemicals away from food and seed stock. Safe handling protects both the operator and the farm.
+`,
+  },
   {
     id: 1,
     title: "Modern Drip Irrigation Techniques for Small Farms",
@@ -271,9 +420,22 @@ export default function BlogDetail() {
   const { id } = useParams();
   const post = BLOG_POSTS.find((p) => p.id === parseInt(id, 10));
   const [isBookmarked, setIsBookmarked] = useState(false);
+  const mountedRef = useRef(true);
+  const bookmarkRequestRef = useRef(0);
 
   useEffect(() => {
-    setIsBookmarked(getBookmarks("articles").some((item) => item.id === parseInt(id, 10)));
+    const requestId = ++bookmarkRequestRef.current;
+
+    const bookmarked = getBookmarks("articles").some(
+      (item) => item.id === parseInt(id, 10)
+    );
+
+    if (
+      mountedRef.current &&
+      requestId === bookmarkRequestRef.current
+    ) {
+      setIsBookmarked(bookmarked);
+    }
   }, [id]);
 
   const handleToggleArticleBookmark = () => {
@@ -282,8 +444,13 @@ export default function BlogDetail() {
     setIsBookmarked(updated.some((item) => item.id === post.id));
   };
 
-  React.useEffect(() => {
-    window.scrollTo(0, 0);
+  useEffect(() => {
+    if (!mountedRef.current) return;
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
   }, [id]);
 
   if (!post) {
@@ -339,6 +506,13 @@ export default function BlogDetail() {
                 <FaClock /> {post.readTime}
               </span>
             </div>
+            {post.tags && post.tags.length > 0 && (
+              <div className="blog-detail-tags" aria-label="Blog post tags">
+                {post.tags.map((tag) => (
+                  <span key={tag} className="blog-tag">{tag}</span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
