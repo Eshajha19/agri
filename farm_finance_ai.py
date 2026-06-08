@@ -9,8 +9,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Maximum loan tenure to prevent overflow in EMI calculations (10 years = 120 months)
-MAX_LOAN_TENURE_MONTHS = 120
+# Maximum number of loan applications to keep in memory
+# Prevents unbounded memory growth when using in-memory storage
+MAX_IN_MEMORY_APPLICATIONS = 10000
 
 
 @dataclass(frozen=True)
@@ -239,6 +240,10 @@ class FarmFinanceAI:
         if analysis["financial_health_score"] < 45:
             status = "needs_documents"
 
+        # Enforce in-memory application limit when no persistent repository is configured
+        if self.repository is None and len(self.applications) >= MAX_IN_MEMORY_APPLICATIONS:
+            raise RuntimeError(f"In-memory application limit ({MAX_IN_MEMORY_APPLICATIONS}) reached. Configure a persistent repository to continue.")
+        
         application = FinanceApplication(
             application_id=application_id,
             farmer_name=analysis["farmer_name"],
