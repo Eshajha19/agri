@@ -62,6 +62,9 @@ const MarketPrices = () => {
         setPrices(priceData || []);
         setTrends(trendData || []);
         setLastUpdated(Date.now());
+        console.info(
+          `[MARKET_ANALYTICS] prices=${priceData?.length || 0} trends=${trendData?.length || 0}`
+        );
       }
     } catch (err) {
       if (
@@ -173,6 +176,50 @@ const MarketPrices = () => {
       trend: "Stable"
     };
   }, [prices]);
+
+  const forecastChartData = useMemo(() => {
+    if (!forecast?.forecast) return [];
+
+    return forecast.forecast.map((d) => ({
+      date: new Date(d.date).toLocaleDateString('en-IN', {
+        day: 'numeric',
+        month: 'short',
+      }),
+      price: d.price,
+      lower: d.lower_bound,
+      upper: d.upper_bound,
+      band: [d.lower_bound, d.upper_bound],
+    }));
+  }, [forecast]);
+
+  const bestSellDateLabel = useMemo(() => {
+    if (!forecast?.best_sell_date) return '';
+
+    return new Date(forecast.best_sell_date).toLocaleDateString(
+      'en-IN',
+      {
+        day: 'numeric',
+        month: 'short',
+      }
+    );
+  }, [forecast]);
+
+  const forecastRows = useMemo(() => {
+    if (!forecast?.forecast) return [];
+
+    return forecast.forecast.map((d, i) => ({
+      ...d,
+      key: i,
+      formattedDate: new Date(d.date).toLocaleDateString(
+        'en-IN',
+        {
+          weekday: 'short',
+          day: 'numeric',
+          month: 'short',
+        }
+      ),
+    }));
+  }, [forecast]);
 
   return (
     <div className="market-prices-container">
@@ -443,14 +490,7 @@ const MarketPrices = () => {
                 >
                   <ResponsiveContainer width="100%" height={380}>
                     <AreaChart
-                      data={forecast.forecast.map(d => ({
-                        date: new Date(d.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }),
-                        price: d.price,
-                        lower: d.lower_bound,
-                        upper: d.upper_bound,
-                        // Recharts area needs [lower, upper] as a range
-                        band: [d.lower_bound, d.upper_bound],
-                      }))}
+                      data={forecastChartData}
                       margin={{ top: 10, right: 20, left: 10, bottom: 0 }}
                     >
                       <defs>
@@ -505,7 +545,7 @@ const MarketPrices = () => {
                       />
                       {/* Mark the best sell date */}
                       <ReferenceLine
-                        x={new Date(forecast.best_sell_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                        x={bestSellDateLabel}
                         stroke="#f59e0b"
                         strokeDasharray="4 3"
                         strokeWidth={2}
@@ -529,9 +569,9 @@ const MarketPrices = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {forecast.forecast.map((d, i) => (
-                          <tr key={i} className={d.date === forecast.best_sell_date ? 'best-sell-row' : ''}>
-                            <td>{new Date(d.date).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}</td>
+                        {forecastRows.map((d) => (
+                          <tr key={d.key} className={d.date === forecast.best_sell_date ? 'best-sell-row' : ''}>
+                            <td>{d.formattedDate}</td>
                             <td className="price-val modal-price">₹{d.price.toLocaleString('en-IN')}</td>
                             <td className="price-val">₹{d.lower_bound.toLocaleString('en-IN')}</td>
                             <td className="price-val">₹{d.upper_bound.toLocaleString('en-IN')}</td>

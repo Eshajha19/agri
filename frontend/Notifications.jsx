@@ -4,11 +4,38 @@ import "react-toastify/dist/ReactToastify.css";
 import apiClient from "./lib/apiClient";
 import { auth } from "./lib/firebase";
 
+const MAX_TRACKED_NOTIFICATIONS = 1000;
+const NOTIFICATION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
 export default function useNotifications() {
-  const seenIdsRef = useRef(new Set());
+  const seenIdsRef = useRef(new Map());
 
   const mountedRef = useRef(true);
   const requestIdRef = useRef(0);
+
+  const cleanupSeenNotifications = () => {
+    const now = Date.now();
+
+    for (const [key, timestamp] of seenIdsRef.current.entries()) {
+      if (now - timestamp > NOTIFICATION_TTL_MS) {
+        seenIdsRef.current.delete(key);
+      }
+    }
+
+    if (seenIdsRef.current.size > MAX_TRACKED_NOTIFICATIONS) {
+      const oldestKeys = [...seenIdsRef.current.entries()]
+        .sort((a, b) => a[1] - b[1])
+        .slice(
+          0,
+          seenIdsRef.current.size - MAX_TRACKED_NOTIFICATIONS
+        )
+        .map(([key]) => key);
+
+      oldestKeys.forEach((key) =>
+        seenIdsRef.current.delete(key)
+      );
+    }
+  };
 
   const markAndToast = (notif) => {
     if (!notif || !notif.message) return;
@@ -17,9 +44,16 @@ export default function useNotifications() {
       notif.id ??
       `${notif.type || "notification"}:${notif.time || ""}:${notif.message}`;
 
-    if (seenIdsRef.current.has(notificationKey)) return;
+    cleanupSeenNotifications();
 
-    seenIdsRef.current.add(notificationKey);
+    if (seenIdsRef.current.has(notificationKey)) {
+      return;
+    }
+
+    seenIdsRef.current.set(
+      notificationKey,
+      Date.now()
+    );
 
     toast.info(notif.message, {
       position: "top-right",
@@ -64,6 +98,10 @@ export default function useNotifications() {
         Array.isArray(data?.data)
       ) {
         data.data.forEach(markAndToast);
+
+        console.info(
+          `[NOTIFICATIONS] processed=${data.data.length} tracked=${seenIdsRef.current.size}`
+        );
       }
     } catch (err) {
       console.warn(
@@ -79,6 +117,7 @@ export default function useNotifications() {
     return () => {
       mountedRef.current = false;
       requestIdRef.current++;
+      seenIdsRef.current.clear();
     };
   }, []);
 
@@ -140,6 +179,10 @@ export default function useNotifications() {
                 Array.isArray(payload.data)
               ) {
                 payload.data.forEach(markAndToast);
+
+                console.info(
+                  `[NOTIFICATIONS] snapshot=${payload.data.length} tracked=${seenIdsRef.current.size}`
+                );
               }
 
               if (
