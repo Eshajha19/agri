@@ -141,11 +141,13 @@ class ABTest:
         control_prob = self.control_arm.sample_from_distribution()
         variant_prob = self.variant_arm.sample_from_distribution()
         
-        # Use Thompson sampling to select
+        # Thompson sampling — fair random tie-break when probabilities are equal
         if control_prob > variant_prob:
             return self.control_arm
-        else:
+        elif variant_prob > control_prob:
             return self.variant_arm
+        else:
+            return self.control_arm if random.random() < 0.5 else self.variant_arm
     
     def record_arm_outcome(self, arm_id: str, success: bool, metrics: Dict):
         """Record outcome for an arm"""
