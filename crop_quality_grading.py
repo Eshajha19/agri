@@ -160,8 +160,10 @@ class CropQualityGrader:
         if not isinstance(image, np.ndarray):
             return 50.0
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        # Use Otsu's thresholding to adapt to varying lighting conditions
+        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         contours, _ = cv2.findContours(
-            cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)[1],
+            binary,
             cv2.RETR_EXTERNAL,
             cv2.CHAIN_APPROX_SIMPLE,
         )
