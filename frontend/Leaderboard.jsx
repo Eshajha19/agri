@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { FaTrophy, FaMedal, FaStar, FaSeedling, FaCloudSun, FaUsers } from "react-icons/fa";
 import { useTheme } from "./ThemeContext";
 import { db, isFirebaseConfigured } from "./lib/firebase";
@@ -10,6 +10,10 @@ const PAGE_SIZE = 10;
 
 export default function Leaderboard() {
   const { theme } = useTheme();
+
+  const leaderboardCacheRef = useRef(new Map());
+  const lastFetchRef = useRef(0);
+
   const [timeFilter, setTimeFilter] = useState("all");
   const [farmers, setFarmers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -22,12 +26,21 @@ export default function Leaderboard() {
     }
 
     let cancelled = false;
-    setLoading(true);
-    setError(null);
 
     const fetchLeaderboard = async () => {
       try {
-        // Determine which points field to sort by based on the active filter.
+        setError(null);
+
+        if (leaderboardCacheRef.current.has(timeFilter)) {
+          setFarmers(
+            leaderboardCacheRef.current.get(timeFilter)
+          );
+          setLoading(false);
+          return;
+        }
+
+        setLoading(true);
+
         const sortField =
           timeFilter === "monthly"
             ? "monthlyReputation"
@@ -51,9 +64,21 @@ export default function Leaderboard() {
           return {
             id: docSnap.id,
             name: data.displayName || "Farmer",
-            location: data.address || data.location || "India",
-            points: Number(data[sortField] ?? data.reputation ?? 0),
-            badges: Array.isArray(data.badges) ? data.badges : [],
+            location:
+              data.address ||
+              data.location ||
+              "India",
+            points: Math.max(
+              0,
+              Number(
+                data[sortField] ??
+                  data.reputation ??
+                  0
+              )
+            ),
+            badges: Array.isArray(data.badges)
+              ? data.badges
+              : [],
             avatar: "👨‍🌾",
             updatedAt:
               data.updatedAt?.seconds ??
@@ -62,28 +87,38 @@ export default function Leaderboard() {
           };
         });
 
-        /*
-         * Deterministic ranking:
-         * 1. Higher score first
-         * 2. Most recently updated first
-         * 3. Stable id comparison as final tie-breaker
-         */
-        const sortedResults = [...results].sort((a, b) => {
-          if (b.points !== a.points) {
-            return b.points - a.points;
+        const sortedResults = [...results].sort(
+          (a, b) => {
+            if (b.points !== a.points) {
+              return b.points - a.points;
+            }
+
+            if (
+              b.updatedAt !== a.updatedAt
+            ) {
+              return (
+                b.updatedAt - a.updatedAt
+              );
+            }
+
+            return a.id.localeCompare(b.id);
           }
+        );
 
-          if (b.updatedAt !== a.updatedAt) {
-            return b.updatedAt - a.updatedAt;
-          }
+        const rankedResults =
+          sortedResults.map(
+            (farmer, index) => ({
+              ...farmer,
+              rank: index + 1,
+            })
+          );
 
-          return a.id.localeCompare(b.id);
-        });
+        leaderboardCacheRef.current.set(
+          timeFilter,
+          rankedResults
+        );
 
-        const rankedResults = sortedResults.map((farmer, index) => ({
-          ...farmer,
-          rank: index + 1,
-        }));
+        lastFetchRef.current = Date.now();
 
         console.info(
           `[LEADERBOARD] filter=${timeFilter} entries=${rankedResults.length}`
@@ -92,8 +127,14 @@ export default function Leaderboard() {
         setFarmers(rankedResults);
       } catch (err) {
         if (!cancelled) {
-          console.error("Leaderboard fetch error:", err);
-          setError("Could not load leaderboard. Please try again.");
+          console.error(
+            "Leaderboard fetch error:",
+            err
+          );
+
+          setError(
+            "Could not load leaderboard. Please try again."
+          );
         }
       } finally {
         if (!cancelled) {
@@ -108,6 +149,12 @@ export default function Leaderboard() {
       cancelled = true;
     };
   }, [timeFilter]);
+
+  useEffect(() => {
+    return () => {
+      leaderboardCacheRef.current.clear();
+    };
+  }, []);
 
   const getRankIcon = (rank) => {
     if (rank === 1) return <FaTrophy className="rank-icon gold" />;
