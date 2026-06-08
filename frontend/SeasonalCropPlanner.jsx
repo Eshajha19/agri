@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { 
   Sprout, 
   MapPin, 
@@ -40,25 +40,77 @@ export default function SeasonalCropPlanner() {
   const [yearlyCycle, setYearlyCycle] = useState(null);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("recommendations");
+  const mountedRef = useRef(true);
+  const requestIdRef = useRef(0);
+  const timeoutRef = useRef(null);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+
+    requestIdRef.current++;
+
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+
+    setLoading(false);
+
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
   };
 
   const handlePlan = (e) => {
     e.preventDefault();
+
+    const requestId = ++requestIdRef.current;
+
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+
     setLoading(true);
-    
-    // Simulate API call/processing
-    setTimeout(() => {
-      const recs = getCropRecommendations(formData.location, formData.season, formData.soilType);
-      const cycle = getYearlyCycle(formData.location, formData.soilType);
+
+    timeoutRef.current = setTimeout(() => {
+      const recs = getCropRecommendations(
+        formData.location,
+        formData.season,
+        formData.soilType
+      );
+
+      const cycle = getYearlyCycle(
+        formData.location,
+        formData.soilType
+      );
+
+      if (
+        !mountedRef.current ||
+        requestId !== requestIdRef.current
+      ) {
+        if (requestId === requestIdRef.current) {
+          setLoading(false);
+        }
+        return;
+      }
+
       setResults(recs);
       setYearlyCycle(cycle);
       setLoading(false);
     }, 800);
   };
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div className="crop-planner-page">
@@ -96,7 +148,20 @@ export default function SeasonalCropPlanner() {
                       key={s.id}
                       type="button"
                       className={`season-btn ${formData.season === s.id ? 'active' : ''}`}
-                      onClick={() => setFormData(prev => ({ ...prev, season: s.id }))}
+                      onClick={() => {
+                        requestIdRef.current++;
+
+                        if (timeoutRef.current) {
+                          clearTimeout(timeoutRef.current);
+                        }
+
+                        setLoading(false);
+
+                        setFormData(prev => ({
+                          ...prev,
+                          season: s.id
+                        }));
+                      }}
                     >
                       {s.icon}
                       <span>{s.id}</span>

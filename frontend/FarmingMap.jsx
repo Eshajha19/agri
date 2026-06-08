@@ -61,6 +61,8 @@ function FarmingMapContent() {
   const drawPoints   = useRef([]);
   const tileLayers   = useRef({});
   const syncTimeout  = useRef(null);
+  const locationUpdateRef = useRef(0);
+  const alertCirclesRef = useRef({});
 
   // Core state
   const [userLocation,    setUserLocation]    = useState(null);
@@ -141,8 +143,32 @@ function FarmingMapContent() {
     }
 
     return () => {
-      if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current);
-      if (map.current) { map.current.remove(); map.current = null; }
+      clearTimeout(syncTimeout.current);
+
+      if (watchIdRef.current) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+
+      Object.values(markersRef.current.farmers).forEach(layer =>
+        map.current?.removeLayer(layer)
+      );
+
+      Object.values(markersRef.current.remoteAlerts).forEach(layer =>
+        map.current?.removeLayer(layer)
+      );
+
+      Object.values(alertCirclesRef.current).forEach(layer =>
+        map.current?.removeLayer(layer)
+      );
+
+      Object.values(markersRef.current.remoteBoundaries).forEach(layer =>
+        map.current?.removeLayer(layer)
+      );
+
+      if (map.current) {
+        map.current.remove();
+        map.current = null;
+      }
     };
   }, []);
 
@@ -279,7 +305,15 @@ function FarmingMapContent() {
 
       const pos = [farmer.lat, farmer.lng];
       if (markersRef.current.farmers[farmer.uid]) {
-        markersRef.current.farmers[farmer.uid].setLatLng(pos);
+        const marker = markersRef.current.farmers[farmer.uid];
+        const current = marker.getLatLng();
+
+        if (
+          current.lat !== pos[0] ||
+          current.lng !== pos[1]
+        ) {
+          marker.setLatLng(pos);
+        }
       } else {
         markersRef.current.farmers[farmer.uid] = L.marker(pos, { icon: ICONS.farmer(farmer.name) })
           .addTo(map.current)
@@ -294,7 +328,14 @@ function FarmingMapContent() {
     
     Object.keys(markersRef.current.remoteAlerts).forEach(id => {
       if (!nearbyAlerts.find(a => a.id === id)) {
+
         map.current.removeLayer(markersRef.current.remoteAlerts[id]);
+
+        if (alertCirclesRef.current[id]) {
+          map.current.removeLayer(alertCirclesRef.current[id]);
+          delete alertCirclesRef.current[id];
+        }
+
         delete markersRef.current.remoteAlerts[id];
       }
     });
@@ -322,7 +363,14 @@ function FarmingMapContent() {
         
         // Add severity circle
         const color = alert.severity === 'High' ? '#ef4444' : '#f59e0b';
-        L.circle(pos, { radius: 500, color, fillColor: color, fillOpacity: 0.15 }).addTo(map.current);
+        const circle = L.circle(pos, {
+          radius: 500,
+          color,
+          fillColor: color,
+          fillOpacity: 0.15
+        }).addTo(map.current);
+
+        alertCirclesRef.current[alert.id] = circle;
       }
     });
   }, [nearbyAlerts, showAlerts]);
@@ -374,12 +422,27 @@ function FarmingMapContent() {
     } else {
       watchIdRef.current = navigator.geolocation.watchPosition(
         ({ coords: { latitude: lat, longitude: lng } }) => {
-          setUserLocation([lat, lng]);
-          map.current?.panTo([lat, lng]);
+          const updateId = ++locationUpdateRef.current;
+
+          requestAnimationFrame(() => {
+            if (updateId !== locationUpdateRef.current) return;
+
+            setUserLocation([lat, lng]);
+
+            if (map.current) {
+              map.current.panTo([lat, lng], {
+                animate: false
+              });
+            }
+          });
         },
         () => {},
-        { enableHighAccuracy: true, maximumAge: 3000 }
+        {
+          enableHighAccuracy: true,
+          maximumAge: 3000
+        }
       );
+
       setTracking(true);
     }
   }, [tracking, isOnline]);
@@ -534,8 +597,13 @@ function FarmingMapContent() {
   // ── Background sync ──────────────────────────────────────────────────────
   function handleSync() {
     clearTimeout(syncTimeout.current);
-    syncTimeout.current = setTimeout(() => {
-      loadOfflineData();
+
+    syncTimeout.current = setTimeout(async () => {
+      try {
+        await loadOfflineData();
+      } catch (err) {
+        console.error("Map sync failed:", err);
+      }
     }, 2000);
   }
 
