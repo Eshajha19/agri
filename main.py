@@ -9,32 +9,9 @@ import math
 import re
 import joblib
 import hashlib
-import pandas as pd
-import numpy as np
-
-import sys
-
-# Required environment variables for backend
-REQUIRED_ENV_VARS = [
-    "WEATHER_API_KEY",
-    "SOIL_API_KEY",
-    "FIREBASE_ADMIN_CRED",
-    "BACKEND_PORT",
-]
-
-def validate_env_vars():
-    missing = [var for var in REQUIRED_ENV_VARS if not os.getenv(var)]
-    if missing:
-        print(f"❌ Missing required environment variables: {', '.join(missing)}")
-        sys.exit(1)  # stop app immediately
-
-# Run validation before app starts
-validate_env_vars()
-
 import collections
 import threading
 import time
-import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
@@ -72,18 +49,14 @@ class RAGQuery(BaseModel):
     top_k: int = Field(default=3, ge=1, le=5)
 
 # Rate Limiting
-from slowapi import Limiter
+from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from rate_limit_config import build_limiter, rate_limit_exceeded_handler
 
 import firebase_admin
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
 from firebase_admin import auth, credentials, firestore, storage
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from backend.routers import (
@@ -134,18 +107,9 @@ from weather_alerts import weather_service
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
-
-from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
 
 # KMS Support
 try:
@@ -162,12 +126,7 @@ class ContextFilter(logging.Filter):
         self.context = {}
 
     def filter(self, record):
-        # Only add context to the log record if context is not empty.
-        # Prevents cluttering logs with unused context attributes.
-        if self.context:
-            record.context = self.context
-        else:
-            record.context = ""
+        record.context = self.context
         return True
 
 # Configure structured logging with detailed formatting
@@ -186,12 +145,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 logger.addFilter(_context_filter)
-_handler.setLevel(logging.INFO)
-
-logger = logging.getLogger(__name__)
-logger.addFilter(_context_filter)
-logger.addHandler(_handler)
-logger.setLevel(logging.INFO)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -692,10 +645,6 @@ class SeedVerifyRequest(BaseModel):
 _MAX_NOTIFICATIONS = 200
 _NOTIFICATION_TTL_HOURS = 24
 
-    @app.get("/user_roles")
-    def get_user_roles(uid: str):
-        user_roles = ["admin", "editor"]  # example
-        return {"uid": uid, "roles": user_roles}
 
 class NotificationStore:
     """
@@ -960,21 +909,6 @@ def _build_gdpr_deletion_targets(uid: str) -> list[DeletionTarget]:
 @limiter.limit("60/minute")
 def root(request: Request = None):
     return {"message": "Fasal Saathi API", "status": "running"}
-
-
-@app.get("/health/disk")
-@limiter.limit("60/minute")
-def health_disk(request: Request = None):
-    """
-    Price forecaster disk usage and log rotation health.
-    Returns 503 if disk usage >90% or forecasts log is missing.
-    """
-    from ml.price_forecaster import get_price_forecaster
-    forecaster = get_price_forecaster()
-    health = forecaster.disk_health()
-    if health.get("healthy"):
-        return health
-    raise HTTPException(status_code=503, detail=health)
 
 @app.get("/predict")
 @limiter.limit("30/minute")
