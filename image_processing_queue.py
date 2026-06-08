@@ -173,12 +173,10 @@ class ImageProcessingQueue:
     horizontal scaling support.
     """
 
-    def __init__(self, max_queue_size: int = 10000, enable_persistence: bool = False, enable_backoff: bool = False, backoff_base: float = 1.0, enable_caching: bool = False):
+    def __init__(self, max_queue_size: int = 10000, enable_persistence: bool = False, max_completed_tasks: int = 1000):
         self.max_queue_size = max_queue_size
         self.enable_persistence = enable_persistence
-        # Backoff controls (opt-in to preserve previous behavior in tests)
-        self.enable_backoff = enable_backoff
-        self.backoff_base = backoff_base
+        self.max_completed_tasks = max_completed_tasks
         
         # Task storage (heap of (priority, counter, task) tuples)
         self._task_queue: List[tuple] = []
@@ -217,11 +215,6 @@ class ImageProcessingQueue:
         with self._queue_lock:
             if len(self._task_queue) >= self.max_queue_size:
                 raise RuntimeError(f"Queue is full (max: {self.max_queue_size})")
-            # Push only a heap tuple — never append raw task objects.
-            # The previous code did both self._task_queue.append(task) AND
-            # heapq.heappush(...), which mixed raw ImageProcessingTask objects
-            # with (priority, counter, task) tuples in the same list, breaking
-            # heap ordering and causing TypeErrors on comparison.
             heapq.heappush(self._task_queue, (task.priority.value, self._counter, task))
             self._counter += 1
             self._tasks_by_id[task.task_id] = task
@@ -316,6 +309,9 @@ class ImageProcessingQueue:
             task.completed_at = datetime.now().isoformat()
             task.result = result
             
+            # Release image data to prevent memory exhaustion
+            task.image_data = b''
+            
             # Move to completed
             del self._tasks_by_id[task_id]
             self._completed_tasks[task_id] = task
@@ -328,6 +324,9 @@ class ImageProcessingQueue:
                         json.dump(self._ack_store, f)
                 except Exception:
                     logger.debug("Failed to persist ack_store on complete")
+            
+            # Enforce max completed tasks limit
+            self._enforce_completed_tasks_limit()
             
             logger.info(f"Task {task_id} completed successfully")
             return True
@@ -369,21 +368,32 @@ class ImageProcessingQueue:
                 task.error = error
                 task.completed_at = datetime.now().isoformat()
                 
+                # Release image data to prevent memory exhaustion
+                task.image_data = b''
+                
                 # Move to completed
                 del self._tasks_by_id[task_id]
                 self._completed_tasks[task_id] = task
                 self._total_failed += 1
-                # Ack failed for exactly-once
-                self._ack_store[task_id] = TaskStatus.FAILED.value
-                if self.enable_persistence:
-                    try:
-                        with open(self._ack_file, "w", encoding="utf-8") as f:
-                            json.dump(self._ack_store, f)
-                    except Exception:
-                        logger.debug("Failed to persist ack_store on fail")
-
+                
+                # Enforce max completed tasks limit
+                self._enforce_completed_tasks_limit()
+                
                 logger.error(f"Task {task_id} failed after {task.retry_count} retries: {error}")
                 return False
+
+    def _enforce_completed_tasks_limit(self):
+        """Remove oldest completed tasks if limit exceeded"""
+        if len(self._completed_tasks) > self.max_completed_tasks:
+            # Sort by completed_at and remove oldest
+            sorted_tasks = sorted(
+                self._completed_tasks.items(),
+                key=lambda x: x[1].completed_at or ''
+            )
+            to_remove = len(self._completed_tasks) - self.max_completed_tasks
+            for task_id, _ in sorted_tasks[:to_remove]:
+                del self._completed_tasks[task_id]
+            logger.info(f"Trimmed {to_remove} oldest completed tasks (limit: {self.max_completed_tasks})")
 
     def get_task_status(self, task_id: str) -> Optional[Dict]:
         """Get status of a task"""
@@ -431,8 +441,18 @@ class ImageProcessingQueue:
                 return False
 
             task = self._tasks_by_id[task_id]
-            if task.status not in (TaskStatus.QUEUED, TaskStatus.RETRYING):
-                return False
+            if task.status in (TaskStatus.QUEUED, TaskStatus.RETRYING):
+                task.status = TaskStatus.CANCELLED
+                # Release image data
+                task.image_data = b''
+                self._task_queue = [
+                    entry for entry in self._task_queue if entry[2].task_id != task_id
+                ]
+                del self._tasks_by_id[task_id]
+                self._completed_tasks[task_id] = task
+                self._enforce_completed_tasks_limit()
+                logger.info(f"Task {task_id} cancelled")
+                return True
 
             task.status = TaskStatus.CANCELLED
 
