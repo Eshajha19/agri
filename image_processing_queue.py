@@ -22,6 +22,8 @@ import heapq
 import threading
 import time
 import random
+from PIL import Image, ExifTags
+import io
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +103,7 @@ class ImageProcessingTask:
 
     worker_id: Optional[str] = None
     metadata: Dict = field(default_factory=dict)
+    orientation_metadata: Optional[Dict] = None
 
 
 # -----------------------------
@@ -350,9 +353,85 @@ class ImageProcessingPipeline:
         self.workers: Dict[str, ImageProcessingWorker] = {}
         self.max_workers = max_workers
 
-    def submit(self, **kwargs) -> str:
+    def _extract_exif_orientation(self, image_data: bytes) -> tuple[int, Optional[Dict]]:
+        """Extract EXIF orientation from raw image bytes. Returns (orientation, metadata_dict)."""
+        try:
+            img = Image.open(io.BytesIO(image_data))
+            exif = img._getexif()
+            if exif is None:
+                return 1, None
+
+            orientation_tag = next(
+                (tag for tag, name in ExifTags.TAGS.items() if name == "Orientation"),
+                None,
+            )
+            if orientation_tag is None:
+                return 1, None
+
+            orientation = exif.get(orientation_tag, 1)
+            metadata = {
+                "original_orientation": orientation,
+                "width": img.width,
+                "height": img.height,
+                "format": img.format,
+            }
+            return orientation, metadata
+        except Exception as exc:
+            logger.warning("EXIF extraction failed: %s", exc)
+            return 1, None
+
+    def _normalize_orientation(self, image_data: bytes, orientation: int) -> bytes:
+        """Apply rotation/flop based on EXIF orientation tag, return normalized JPEG bytes."""
+        if orientation == 1:
+            return image_data  # Normal, no change
+
+        try:
+            img = Image.open(io.BytesIO(image_data))
+
+            # Orientation mapping: https://jdhao.github.io/2019/07/31/image_rotation_exif_info/
+            transforms = {
+                2: (Image.FLIP_LEFT_RIGHT,),
+                3: (Image.ROTATE_180,),
+                4: (Image.FLIP_TOP_BOTTOM,),
+                5: (Image.TRANSPOSE,),  # Mirror across top-left diagonal
+                6: (Image.ROTATE_270,),  # 90° CW
+                7: (Image.TRANSVERSE,),  # Mirror across top-right diagonal
+                8: (Image.ROTATE_90,),    # 90° CCW
+            }
+
+            for transform in transforms.get(orientation, ()):
+                img = img.transpose(transform)
+
+            # Strip EXIF and save as JPEG
+            output = io.BytesIO()
+            img.save(output, format="JPEG", quality=95)
+            normalized = output.getvalue()
+
+            logger.info(
+                "Normalized EXIF orientation %d for image (size: %d -> %d bytes)",
+                orientation,
+                len(image_data),
+                len(normalized),
+            )
+            return normalized
+        except Exception as exc:
+            logger.error("Orientation normalization failed: %s", exc)
+            return image_data  # Fallback to original
+
+    def submit(self, image_data: bytes, **kwargs) -> str:
+        orientation, orientation_meta = self._extract_exif_orientation(image_data)
+
+        if orientation != 1 and orientation_meta:
+            logger.warning(
+                "Image submitted with EXIF orientation %d (expected 1). Normalizing before queueing.",
+                orientation,
+            )
+            image_data = self._normalize_orientation(image_data, orientation)
+
         task = ImageProcessingTask(
             task_id=f"task-{uuid.uuid4().hex[:12]}",
+            image_data=image_data,
+            orientation_metadata=orientation_meta,
             **kwargs,
         )
         return self.queue.enqueue(task)
