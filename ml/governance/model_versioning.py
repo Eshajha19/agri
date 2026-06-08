@@ -99,7 +99,11 @@ class ModelVersionManager:
         Returns:
             Version ID
         """
-        version_id = f"{model_name}_v{len([v for v in self.versions.values() if v.model_name == model_name]) + 1}"
+        # Use a UUID suffix so version IDs are unique even after cleanup_old_versions()
+        # removes earlier entries.  A count-based suffix would collide with any deleted
+        # version once the count dropped below the deleted entry's sequence number.
+        import uuid as _uuid
+        version_id = f"{model_name}_{_uuid.uuid4().hex[:8]}"
         
         version = ModelVersion(
             version_id=version_id,
