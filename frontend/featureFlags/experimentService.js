@@ -225,6 +225,106 @@ class ExperimentService {
     };
   }
 
+    /**
+   * Warm cache for a collection of experiments.
+   */
+  async warmCache(
+    experimentIds,
+    userId
+  ) {
+    const results = {};
+
+    for (const experimentId of experimentIds) {
+      results[experimentId] =
+        await this.getVariant(
+          experimentId,
+          userId
+        );
+    }
+
+    return results;
+  }
+
+  /**
+   * Remove a single assignment from cache.
+   */
+  invalidateAssignment(
+    experimentId,
+    userId
+  ) {
+    const cacheKey =
+      this._getCacheKey(
+        experimentId,
+        userId
+      );
+
+    delete this.assignments[
+      cacheKey
+    ];
+
+    this._saveCache();
+  }
+
+  /**
+   * Assignment cache statistics.
+   */
+  getCacheStats() {
+    const now = Date.now();
+
+    const activeEntries =
+      Object.values(
+        this.assignments
+      ).filter(
+        (entry) =>
+          entry?.timestamp &&
+          now - entry.timestamp <
+            ASSIGNMENT_CACHE_TTL_MS
+      ).length;
+
+    return {
+      activeEntries,
+      cacheHits:
+        this.metrics.cacheHits,
+      cacheMisses:
+        this.metrics.cacheMisses,
+      hitRate:
+        this.metrics.cacheHits +
+          this.metrics.cacheMisses >
+        0
+          ? (
+              (this.metrics.cacheHits /
+                (this.metrics.cacheHits +
+                  this.metrics
+                    .cacheMisses)) *
+              100
+            ).toFixed(2)
+          : 0,
+    };
+  }
+
+  /**
+   * Aggregated assignment report.
+   */
+  getAssignmentReport() {
+    return {
+      totalAssignments:
+        this.metrics
+          .totalAssignments,
+      apiCalls:
+        this.metrics.apiCalls,
+      failures:
+        this.metrics.failures,
+      cachedAssignments:
+        Object.keys(
+          this.assignments
+        ).length,
+      pendingRequests:
+        this.pendingRequests.size,
+      generatedAt:
+        new Date().toISOString(),
+    };
+  }
+
   clearCache() {
     this.assignments = {};
 
