@@ -81,17 +81,44 @@ Fasal Saathi is a smart agriculture assistance platform built with React (fronte
 
 ```tree
 agri/
-├── frontend/                 # React application (Vite)
-│   ├── package.json
-│   ├── vite.config.js
-│   ├── index.html
-│   ├── main.jsx
-│   ├── App.jsx
+├── frontend/                 # React frontend application
 │   ├── components/
 │   ├── services/
+│   ├── hooks/
+│   ├── utils/
 │   ├── stores/
-├── ml/                       # Machine learning models
-├── rag/                      # RAG advisor components
+│   ├── locales/
+│   ├── weather/
+│   └── public/
+│
+├── backend/                  # Backend APIs and routers
+│   ├── routers/
+│   └── schemas/
+│
+├── ml/                       # Machine learning pipelines and models
+│   ├── adapters/
+│   └── governance/
+│
+├── rag/                      # Retrieval-Augmented Generation modules
+│
+├── tests/                    # Backend test suite
+├── scripts/                  # Automation and utility scripts
+├── docs/                     # Project documentation
+├── persistence/              # Database and migration logic
+├── feature_flags/            # Feature flag and A/B testing system
+├── routers/                  # Additional ML routers
+├── inference/                # ONNX inference runtime
+├── benchmarks/               # Benchmarking scripts
+├── configs/                  # Configuration files
+├── runs/                     # ML run manifests
+├── runs_test/                # Test run manifests
+├── .github/                  # GitHub workflows and templates
+│
+├── main.py
+├── requirements.txt
+├── package.json
+├── README.md
+└── CONTRIBUTING.md
 ```
 
 ---
@@ -208,6 +235,54 @@ For certified/bank report generation, the backend also needs a signing key sourc
 (Document exact request/response schemas in docs/ or OpenAPI spec.)
 
 ---
+
+## 🚀 Render Deployment Guide
+
+This project can be deployed easily on [Render](https://render.com) for production hosting.
+
+### 1️⃣ Create a Render Service
+- Log in to [Render Dashboard](https://render.com).
+- Click **New + → Web Service**.
+- Connect your GitHub repository.
+- Select the branch you want to deploy (usually `main`).
+- Choose environment: **Python 3.11** (or your project’s version).
+
+---
+
+### 2️⃣ Build Command
+Render will run this to install dependencies and build the frontend:
+
+```bash
+pip install -r requirements.txt
+npm install --prefix frontend && npm run build --prefix frontend
+
+---
+
+### 3️⃣ Start Command
+Render will run this to start the backend service:
+
+bash
+uvicorn main:app --host 0.0.0.0 --port $PORT
+
+### 4️⃣ Required Environment Variables
+Set these in Render → Settings → Environment Variables:
+
+Backend
+env
+WEATHER_API_KEY=your_weather_api_key
+SOIL_API_KEY=your_soil_api_key
+FIREBASE_ADMIN_CRED=/path/to/serviceAccountKey.json
+BACKEND_PORT=5000
+
+Frontend
+env
+VITE_FIREBASE_API_KEY=xxxxxxxxxxxx
+VITE_FIREBASE_AUTH_DOMAIN=your-app.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your-app
+VITE_FIREBASE_STORAGE_BUCKET=your-app.appspot.com
+VITE_FIREBASE_MESSAGING_SENDER_ID=123456789
+VITE_FIREBASE_APP_ID=1:123456789:web:abcdef
+VITE_BACKEND_URL=https://your-render-service.onrender.com
 
 ## 🧪 Testing
 

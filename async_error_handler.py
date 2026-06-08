@@ -5,6 +5,7 @@ Handles errors in async operations with recovery strategies and monitoring
 
 import logging
 import asyncio
+import random
 from enum import Enum
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Callable, Any, TypeVar, Coroutine, Awaitable, Union
@@ -87,6 +88,7 @@ class AsyncErrorHandler:
         self.max_error_history = max_error_history
         self.active_recoveries: Dict[str, RecoveryStrategy] = {}
         self.error_callbacks: List[Callable[[ErrorContext], None]] = []
+        self.recovery_callbacks: List[Callable[[str, str], None]] = []
     
     def classify_error(self, error: Exception) -> tuple[ErrorCategory, ErrorSeverity]:
         """Classify error type and severity"""
@@ -191,7 +193,8 @@ class AsyncErrorHandler:
         source: str,
         strategy: RecoveryStrategy = None,
         context_data: Dict = None,
-        user_id: str = None
+        user_id: str = None,
+        request_id: str = None
     ) -> tuple[Optional[T], Optional[ErrorContext]]:
         """
         Execute coroutine with error recovery
@@ -224,13 +227,19 @@ class AsyncErrorHandler:
                 # Success
                 if attempt > 0:
                     logger.info(f"{source} succeeded on retry {attempt}")
+
+                    for callback in self.recovery_callbacks:
+                        try:
+                            callback(source, "recovered")
+                        except Exception:
+                            pass
                 
                 return result, None
                 
             except asyncio.TimeoutError as e:
                 last_error = e
                 if attempt < strategy.max_retries:
-                    wait_time = 2 ** attempt * strategy.backoff_multiplier
+                    wait_time = (2 ** attempt * strategy.backoff_multiplier) + random.uniform(0, 1)
                     logger.warning(
                         f"{source} timed out, retrying in {wait_time}s "
                         f"(attempt {attempt + 1}/{strategy.max_retries + 1})"
@@ -241,10 +250,14 @@ class AsyncErrorHandler:
             
             except Exception as e:
                 last_error = e
+                category, _ = self.classify_error(e)
+                if category in (ErrorCategory.VALIDATION, ErrorCategory.AUTHENTICATION, ErrorCategory.AUTHORIZATION):
+                    logger.warning(f"{source} failed with non-retryable error: {e}")
+                    break
                 
                 # Check if retryable
                 if attempt < strategy.max_retries:
-                    wait_time = 2 ** attempt * strategy.backoff_multiplier
+                    wait_time = (2 ** attempt * strategy.backoff_multiplier) + random.uniform(0, 1)
                     logger.warning(
                         f"{source} failed: {e}, retrying in {wait_time}s "
                         f"(attempt {attempt + 1}/{strategy.max_retries + 1})"
@@ -259,8 +272,14 @@ class AsyncErrorHandler:
             last_error or Exception("Unknown error"),
             source,
             context_data,
-            user_id
+            user_id,
+            request_id
         )
+        for callback in self.recovery_callbacks:
+            try:
+                callback(source, "failed")
+            except Exception:
+                pass
         
         return strategy.fallback_value, error_context
     
@@ -272,6 +291,21 @@ class AsyncErrorHandler:
         """Remove error callback"""
         if callback in self.error_callbacks:
             self.error_callbacks.remove(callback)
+    
+    def add_recovery_callback(
+        self,
+        callback: Callable[[str, str], None]
+    ):
+        """Register recovery monitoring callback"""
+        self.recovery_callbacks.append(callback)
+
+    def remove_recovery_callback(
+        self,
+        callback: Callable[[str, str], None]
+    ):
+        """Remove recovery monitoring callback"""
+        if callback in self.recovery_callbacks:
+            self.recovery_callbacks.remove(callback)
     
     def get_error_history(
         self,
@@ -410,7 +444,9 @@ class CircuitBreakerAsync:
             # driven before the exception propagated, ensuring frame cleanup.
             try:
                 coro.close()
-            except Exception:
+            except Exception as e:
+            import logging
+            logging.error(f"Async error: {e}")
                 pass
             return None, False
     

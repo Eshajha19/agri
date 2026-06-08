@@ -115,7 +115,7 @@ def region_matches(subscription_region: str, notification_region: str) -> bool:
         return True
     if subscription_region == notification_region:
         return True
-    return notification_region.startswith(subscription_region + ":") or subscription_region.startswith(notification_region + ":")
+    return notification_region.startswith(subscription_region + ":")
 
 
 def notification_matches_regions(notification: Mapping[str, Any], regions: Iterable[str] | None) -> bool:
