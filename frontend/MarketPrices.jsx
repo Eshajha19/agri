@@ -31,6 +31,9 @@ const MarketPrices = () => {
   const mountedRef = useRef(true);
   const requestIdRef = useRef(0);
   const forecastRequestIdRef = useRef(0);
+  const analyticsCacheRef = useRef(new Map());
+  const trendCacheRef = useRef(new Map());
+  const forecastCacheRef = useRef(new Map());
 
   // Derive unique values from the current prices list
   const states = useMemo(() => getUniqueStates(), []);
@@ -43,6 +46,10 @@ const MarketPrices = () => {
       mountedRef.current = false;
       requestIdRef.current++;
       forecastRequestIdRef.current++;
+
+      analyticsCacheRef.current.clear();
+      trendCacheRef.current.clear();
+      forecastCacheRef.current.clear();
     };
   }, []);
 
@@ -53,7 +60,17 @@ const MarketPrices = () => {
 
     try {
       const priceData = await fetchMarketPrices(filters);
-      const trendData = await fetchPriceTrends(selectedCommodity);
+      let trendData;
+
+      if (trendCacheRef.current.has(selectedCommodity)) {
+        trendData = trendCacheRef.current.get(selectedCommodity);
+      } else {
+        trendData = await fetchPriceTrends(selectedCommodity);
+        trendCacheRef.current.set(
+          selectedCommodity,
+          trendData || []
+        );
+      }
 
       if (
         mountedRef.current &&
@@ -96,7 +113,25 @@ const MarketPrices = () => {
     setForecastError(null);
 
     try {
-      const data = await fetchPriceForecast(commodity, 14);
+      let data;
+
+      if (forecastCacheRef.current.has(commodity)) {
+        data = forecastCacheRef.current.get(
+          commodity
+        );
+      } else {
+        data = await fetchPriceForecast(
+          commodity,
+          14
+        );
+
+        if (data) {
+          forecastCacheRef.current.set(
+            commodity,
+            data
+          );
+        }
+      }
 
       if (
         !mountedRef.current ||
@@ -155,27 +190,94 @@ const MarketPrices = () => {
 
   // Analytics Calculations
   const analytics = useMemo(() => {
-    if (!prices || prices.length === 0) {
-      return { avg: 0, highest: 0, highestMandi: "N/A", trend: "Stable" };
+    const cacheKey = JSON.stringify(
+      prices.map((p) => ({
+        modalPrice: p.modalPrice,
+        maxPrice: p.maxPrice,
+        mandi: p.mandi,
+      }))
+    );
+
+    if (
+      analyticsCacheRef.current.has(
+        cacheKey
+      )
+    ) {
+      return analyticsCacheRef.current.get(
+        cacheKey
+      );
     }
-    
-    const validPrices = prices.filter(p => !isNaN(p.modalPrice) && p.modalPrice > 0);
-    const avg = validPrices.length > 0 
-      ? (validPrices.reduce((acc, curr) => acc + curr.modalPrice, 0) / validPrices.length).toFixed(0)
-      : 0;
-    
-    const maxRecord = prices.reduce((prev, curr) => 
-      (Number(prev.maxPrice) || 0) > (Number(curr.maxPrice) || 0) ? prev : curr, 
+
+    if (!prices?.length) {
+      return {
+        avg: 0,
+        highest: 0,
+        highestMandi: "N/A",
+        trend: "Stable",
+      };
+    }
+
+    const validPrices = prices.filter(
+      (p) =>
+        !isNaN(p.modalPrice) &&
+        p.modalPrice > 0
+    );
+
+    const avg =
+      validPrices.length > 0
+        ? (
+            validPrices.reduce(
+              (sum, p) =>
+                sum + p.modalPrice,
+              0
+            ) / validPrices.length
+          ).toFixed(0)
+        : 0;
+
+    const maxRecord = prices.reduce(
+      (prev, curr) =>
+        (Number(prev.maxPrice) || 0) >
+        (Number(curr.maxPrice) || 0)
+          ? prev
+          : curr,
       prices[0]
     );
-    
-    return {
+
+    const result = {
       avg,
       highest: maxRecord.maxPrice || 0,
-      highestMandi: maxRecord.mandi || "N/A",
-      trend: "Stable"
+      highestMandi:
+        maxRecord.mandi || "N/A",
+      trend: "Stable",
     };
+
+    analyticsCacheRef.current.set(
+      cacheKey,
+      result
+    );
+
+    return result;
   }, [prices]);
+
+  const filteredPrices = useMemo(() => {
+    return prices.filter((price) => {
+      const matchesSearch =
+        !filters.search ||
+        price.commodity?.toLowerCase().includes(
+          filters.search.toLowerCase()
+        ) ||
+        price.mandi?.toLowerCase().includes(
+          filters.search.toLowerCase()
+        ) ||
+        price.state?.toLowerCase().includes(
+          filters.search.toLowerCase()
+        );
+
+      return matchesSearch;
+    });
+  }, [prices, filters.search]);
+
+
 
   const forecastChartData = useMemo(() => {
     if (!forecast?.forecast) return [];
@@ -357,7 +459,7 @@ const MarketPrices = () => {
                 </tr>
               </thead>
               <tbody>
-                {prices.map((price, idx) => (
+                {filteredPrices.map((price, idx) => (
                   <tr key={price.id || idx}>
                     <td><span className="commodity-badge">{price.commodity}</span></td>
                     <td>
