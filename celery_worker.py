@@ -329,6 +329,11 @@ def predict_ensemble_task(self, data: list):
 if __name__ == "__main__":
     celery_app.start()
 
+    except Exception:
+        logger.exception("Trend prediction task failed")
+        raise
+
+
 @celery_app.task(bind=True, name="process_whatsapp_webhook_task")
 def process_whatsapp_webhook_task(self, body: str, sender_number: str):
     """Celery task for processing incoming WhatsApp messages asynchronously."""

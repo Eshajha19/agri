@@ -337,6 +337,19 @@ async def lifespan(app: FastAPI):
         logger.info("✅ ML router initialized")
     except Exception as exc:
         logger.error("❌ ML router initialization failed: %s", exc, exc_info=True)
+        raise
+
+    try:
+        logger.info("📈 Starting Celery autoscaler...")
+        from celery_autoscaler import get_autoscaler
+        from celery_worker import celery_app
+        from ml.price_forecaster import get_price_forecaster
+        _autoscaler = get_autoscaler(celery_app, get_price_forecaster())
+        _autoscaler.start()
+        logger.info("✅ Celery autoscaler started")
+    except Exception as exc:
+        logger.error("❌ Celery autoscaler startup failed: %s", exc, exc_info=True)
+        raise
 
     startup_duration = time.time() - startup_time
     logger.info("✅ All services started successfully in %.2fs", startup_duration)
@@ -345,6 +358,14 @@ async def lifespan(app: FastAPI):
 
     # Shutdown phase with logging
     logger.info("🛑 Shutting down services...")
+    try:
+        from celery_autoscaler import get_autoscaler
+        _autoscaler = get_autoscaler()
+        _autoscaler.stop()
+        logger.info("✅ Celery autoscaler stopped")
+    except Exception as exc:
+        logger.error("❌ Error stopping Celery autoscaler: %s", exc, exc_info=True)
+
     try:
         await notification_broker.stop()
         logger.info("✅ Notification broker stopped")
@@ -1384,6 +1405,15 @@ try:
         return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
+
+
+@app.get("/health/autoscale")
+@limiter.limit("60/minute")
+async def health_autoscale(request: Request):
+    """Return current autoscale metrics: workers, queue depth, predicted demand."""
+    from celery_autoscaler import get_autoscaler
+    autoscaler = get_autoscaler()
+    return autoscaler.get_status()
 
 # Middleware and rate-limits — the limiter was already configured above;
 # only the exception handler alias from slowapi's public API is wired here.

@@ -445,6 +445,26 @@ class PriceForecaster:
             "timestamp": _dt.utcnow().isoformat(),
         }
 
+    def get_seasonal_demand_signal(self) -> float:
+        """
+        Return a demand multiplier (0.5–3.0) based on the current month
+        versus the Indian harvest calendar. Higher values indicate predicted
+        traffic spikes during harvest seasons when farmers check prices and
+        request yield predictions most frequently.
+        """
+        month = _dt.now().month
+
+        # Peak harvest months = highest API traffic
+        peak = {3: 2.5, 4: 2.5, 9: 3.0, 10: 3.0}   # Rabi + Kharif
+        high = {2: 1.8, 5: 1.5, 6: 2.0, 7: 2.0, 8: 1.8, 11: 1.5}
+
+        if month in peak:
+            return peak[month]
+        elif month in high:
+            return high[month]
+        else:
+            return 1.0  # Dec, Jan — off-season trough
+
     def check_alerts(self, db, send_fn) -> List[dict]:
         """
         Evaluate all farmer price alerts against current forecasts.
