@@ -15,6 +15,10 @@ const LEADERBOARD_CACHE_TTL = 60000;
 
 export default function Leaderboard() {
   const { theme } = useTheme();
+
+  const leaderboardCacheRef = useRef(new Map());
+  const lastFetchRef = useRef(0);
+
   const [timeFilter, setTimeFilter] = useState("all");
   const [farmers, setFarmers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -33,8 +37,6 @@ export default function Leaderboard() {
     }
 
     let cancelled = false;
-    setLoading(true);
-    setError(null);
 
     const fetchLeaderboard = async () => {
       try {
@@ -86,9 +88,21 @@ export default function Leaderboard() {
           return {
             id: docSnap.id,
             name: data.displayName || "Farmer",
-            location: data.address || data.location || "India",
-            points: Number(data[sortField] ?? data.reputation ?? 0),
-            badges: Array.isArray(data.badges) ? data.badges : [],
+            location:
+              data.address ||
+              data.location ||
+              "India",
+            points: Math.max(
+              0,
+              Number(
+                data[sortField] ??
+                  data.reputation ??
+                  0
+              )
+            ),
+            badges: Array.isArray(data.badges)
+              ? data.badges
+              : [],
             avatar: "👨‍🌾",
             updatedAt:
               data.updatedAt?.seconds ??
@@ -97,23 +111,36 @@ export default function Leaderboard() {
           };
         });
 
-        /*
-         * Deterministic ranking:
-         * 1. Higher score first
-         * 2. Most recently updated first
-         * 3. Stable id comparison as final tie-breaker
-         */
-        const sortedResults = [...results].sort((a, b) => {
-          if (b.points !== a.points) {
-            return b.points - a.points;
-          }
+        const sortedResults = [...results].sort(
+          (a, b) => {
+            if (b.points !== a.points) {
+              return b.points - a.points;
+            }
 
-          if (b.updatedAt !== a.updatedAt) {
-            return b.updatedAt - a.updatedAt;
-          }
+            if (
+              b.updatedAt !== a.updatedAt
+            ) {
+              return (
+                b.updatedAt - a.updatedAt
+              );
+            }
 
-          return a.id.localeCompare(b.id);
-        });
+            return a.id.localeCompare(b.id);
+          }
+        );
+
+        const rankedResults =
+          sortedResults.map(
+            (farmer, index) => ({
+              ...farmer,
+              rank: index + 1,
+            })
+          );
+
+        leaderboardCacheRef.current.set(
+          timeFilter,
+          rankedResults
+        );
 
         const rankedResults =
           sortedResults.map(
@@ -160,8 +187,14 @@ export default function Leaderboard() {
 
       } catch (err) {
         if (!cancelled) {
-          console.error("Leaderboard fetch error:", err);
-          setError("Could not load leaderboard. Please try again.");
+          console.error(
+            "Leaderboard fetch error:",
+            err
+          );
+
+          setError(
+            "Could not load leaderboard. Please try again."
+          );
         }
       } finally {
         if (!cancelled) {
