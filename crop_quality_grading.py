@@ -235,17 +235,29 @@ class CropQualityGrader:
         return min(100, shape_quality)
 
     def _detect_defects(self, image: np.ndarray, params: Dict) -> float:
-        """Detect defects in crops"""
+        """Detect defects in crops using crop region segmentation"""
         if not isinstance(image, np.ndarray):
             return 10.0
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-        # Use edge detection to find defects
-        edges = cv2.Canny(gray, 50, 150)
-        total_pixels = edges.shape[0] * edges.shape[1]
-        defect_pixels = np.count_nonzero(edges)
+        # Segment crop region using adaptive threshold to exclude background
+        _, crop_mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        # Invert if background is larger than foreground (common case)
+        if np.count_nonzero(crop_mask) > crop_mask.size / 2:
+            crop_mask = cv2.bitwise_not(crop_mask)
 
-        defect_percentage = (defect_pixels / total_pixels) * 100
+        # Use edge detection on crop region only
+        edges = cv2.Canny(gray, 50, 150)
+        # Mask edges to crop region only
+        crop_edges = cv2.bitwise_and(edges, edges, mask=crop_mask)
+
+        crop_pixels = np.count_nonzero(crop_mask)
+        defect_pixels = np.count_nonzero(crop_edges)
+
+        if crop_pixels == 0:
+            return 10.0
+
+        defect_percentage = (defect_pixels / crop_pixels) * 100
 
         return min(100, defect_percentage * 2)  # Scale defects
 
