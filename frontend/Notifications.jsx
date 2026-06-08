@@ -10,6 +10,15 @@ const NOTIFICATION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 export default function useNotifications() {
   const seenIdsRef = useRef(new Map());
 
+  const eventStatsRef = useRef({
+    processed: 0,
+    duplicates: 0,
+    snapshots: 0,
+  });
+
+  const lastSnapshotHashRef = useRef(null);
+  const reconnectAttemptsRef = useRef(0);
+
   const mountedRef = useRef(true);
   const requestIdRef = useRef(0);
 
@@ -23,30 +32,46 @@ export default function useNotifications() {
     }
 
     if (seenIdsRef.current.size > MAX_TRACKED_NOTIFICATIONS) {
-      const oldestKeys = [...seenIdsRef.current.entries()]
-        .sort((a, b) => a[1] - b[1])
-        .slice(
-          0,
-          seenIdsRef.current.size - MAX_TRACKED_NOTIFICATIONS
-        )
-        .map(([key]) => key);
+      const oldestEntries = [...seenIdsRef.current.entries()]
+        .sort((a, b) => a[1] - b[1]);
 
-      oldestKeys.forEach((key) =>
-        seenIdsRef.current.delete(key)
+      const excess =
+        seenIdsRef.current.size -
+        MAX_TRACKED_NOTIFICATIONS;
+
+      oldestEntries
+        .slice(0, excess)
+        .forEach(([key]) =>
+          seenIdsRef.current.delete(key)
+        );
+    }
+  };
+
+  const generateSnapshotHash = (notifications) => {
+    try {
+      return JSON.stringify(
+        notifications.map((item) => ({
+          id: item.id,
+          type: item.type,
+          message: item.message,
+        }))
       );
+    } catch {
+      return null;
     }
   };
 
   const markAndToast = (notif) => {
     if (!notif || !notif.message) return;
 
+    cleanupSeenNotifications();
+
     const notificationKey =
       notif.id ??
       `${notif.type || "notification"}:${notif.time || ""}:${notif.message}`;
 
-    cleanupSeenNotifications();
-
     if (seenIdsRef.current.has(notificationKey)) {
+      eventStatsRef.current.duplicates += 1;
       return;
     }
 
@@ -54,6 +79,8 @@ export default function useNotifications() {
       notificationKey,
       Date.now()
     );
+
+    eventStatsRef.current.processed += 1;
 
     toast.info(notif.message, {
       position: "top-right",
@@ -97,11 +124,25 @@ export default function useNotifications() {
         data?.success &&
         Array.isArray(data?.data)
       ) {
+        const snapshotHash =
+          generateSnapshotHash(data.data);
+
+        if (
+          snapshotHash &&
+          snapshotHash === lastSnapshotHashRef.current
+        ) {
+          return;
+        }
+
+        lastSnapshotHashRef.current =
+          snapshotHash;
+
         data.data.forEach(markAndToast);
 
         console.info(
-          `[NOTIFICATIONS] processed=${data.data.length} tracked=${seenIdsRef.current.size}`
+          `[NOTIFICATIONS] processed=${eventStatsRef.current.processed} duplicates=${eventStatsRef.current.duplicates} tracked=${seenIdsRef.current.size}`
         );
+
       }
     } catch (err) {
       console.warn(
@@ -118,6 +159,12 @@ export default function useNotifications() {
       mountedRef.current = false;
       requestIdRef.current++;
       seenIdsRef.current.clear();
+
+      lastSnapshotHashRef.current = null;
+
+      eventStatsRef.current.processed = 0;
+      eventStatsRef.current.duplicates = 0;
+      eventStatsRef.current.snapshots = 0;
     };
   }, []);
 
@@ -178,11 +225,24 @@ export default function useNotifications() {
                 payload.type === "snapshot" &&
                 Array.isArray(payload.data)
               ) {
-                payload.data.forEach(markAndToast);
+                const snapshotHash =
+                  generateSnapshotHash(payload.data);
 
-                console.info(
-                  `[NOTIFICATIONS] snapshot=${payload.data.length} tracked=${seenIdsRef.current.size}`
-                );
+                if (
+                  snapshotHash !==
+                  lastSnapshotHashRef.current
+                ) {
+                  lastSnapshotHashRef.current =
+                    snapshotHash;
+
+                  payload.data.forEach(markAndToast);
+
+                  eventStatsRef.current.snapshots += 1;
+
+                  console.info(
+                    `[NOTIFICATIONS] snapshots=${eventStatsRef.current.snapshots} tracked=${seenIdsRef.current.size}`
+                  );
+                }
               }
 
               if (
@@ -205,6 +265,12 @@ export default function useNotifications() {
         };
 
         websocket.onerror = () => {
+          reconnectAttemptsRef.current += 1;
+
+          console.warn(
+            `[NOTIFICATIONS] websocket error, reconnect=${reconnectAttemptsRef.current}`
+          );
+
           startPollingFallback();
         };
 
