@@ -5,6 +5,8 @@ from fastapi import HTTPException, Request, Response
 OBSERVABILITY_STATUS = {
     "tracing": False,
     "prometheus": False,
+    "fallback_logging": False,
+    "last_error": None,
 }
 
 
@@ -64,11 +66,18 @@ def setup_observability(app, verify_role, logger):
         OBSERVABILITY_STATUS["tracing"] = True
 
         logger.info(
+            "Observability validation passed for tracing subsystem"
+        )
+
+        logger.info(
             "Tracing initialized successfully (service=%s)",
             service_name,
         )
 
     except Exception as exc:
+        OBSERVABILITY_STATUS["fallback_logging"] = True
+        OBSERVABILITY_STATUS["last_error"] = str(exc)
+
         logger.warning(
             "Tracing setup skipped. Falling back to application logging. Error: %s",
             exc,
@@ -80,6 +89,10 @@ def setup_observability(app, verify_role, logger):
         Instrumentator().instrument(app)
 
         OBSERVABILITY_STATUS["prometheus"] = True
+
+        logger.info(
+            "Observability validation passed for metrics subsystem"
+        )
 
         logger.info(
             "Prometheus instrumentation initialized successfully"
@@ -125,6 +138,8 @@ def setup_observability(app, verify_role, logger):
                 "success": True,
                 "tracing_enabled": OBSERVABILITY_STATUS["tracing"],
                 "prometheus_enabled": OBSERVABILITY_STATUS["prometheus"],
+                "fallback_logging": OBSERVABILITY_STATUS["fallback_logging"],
+                "last_error": OBSERVABILITY_STATUS["last_error"],
                 "otlp_endpoint_configured": bool(
                     os.environ.get(
                         "OTEL_EXPORTER_OTLP_ENDPOINT"
@@ -132,7 +147,36 @@ def setup_observability(app, verify_role, logger):
                 ),
             }
 
+        @app.get("/observability/diagnostics")
+        async def observability_diagnostics(request: Request):
+            if verify_role is None:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Auth service not initialized"
+                )
+
+            await verify_role(
+                request,
+                required_roles=["admin"]
+            )
+
+            return {
+                "success": True,
+                "status": OBSERVABILITY_STATUS,
+                "service_name": os.environ.get(
+                    "OTEL_SERVICE_NAME",
+                    "fasal-saathi-backend"
+                ),
+                "otlp_configured": bool(
+                    os.environ.get(
+                        "OTEL_EXPORTER_OTLP_ENDPOINT"
+                    )
+                ),
+            }
+
     except Exception as exc:
+        OBSERVABILITY_STATUS["last_error"] = str(exc)
+
         logger.warning(
             "Prometheus setup skipped. Metrics endpoint unavailable. Error: %s",
             exc,

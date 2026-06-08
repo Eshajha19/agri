@@ -1,12 +1,64 @@
 import { lazy } from 'react';
 
+const routeMetrics = {
+  loadedRoutes: new Set(),
+  loadTimes: {},
+};
+
+const preloadRoute = async (loader, pageName) => {
+  const start = performance.now();
+
+  try {
+    await loader();
+
+    routeMetrics.loadedRoutes.add(pageName);
+    routeMetrics.loadTimes[pageName] = Math.round(
+      performance.now() - start
+    );
+
+    console.info(
+      `[ROUTE_PRELOADED] ${pageName}`
+    );
+  } catch (error) {
+    console.error(
+      `[ROUTE_PRELOAD_FAILED] ${pageName}`,
+      error
+    );
+  }
+};
+
 const lazyPage = (loader, pageName) =>
   lazy(async () => {
-    const module = await loader();
+    const start = performance.now();
 
-    console.info(`[ROUTE_LOADED] ${pageName}`);
+    try {
+      const module = await loader();
 
-    return module;
+      const duration = Math.round(
+        performance.now() - start
+      );
+
+      routeMetrics.loadedRoutes.add(
+        pageName
+      );
+
+      routeMetrics.loadTimes[
+        pageName
+      ] = duration;
+
+      console.info(
+        `[ROUTE_LOADED] ${pageName} (${duration}ms)`
+      );
+
+      return module;
+    } catch (error) {
+      console.error(
+        `[ROUTE_LOAD_FAILED] ${pageName}`,
+        error
+      );
+
+      throw error;
+    }
   });
 
 export const Home = lazyPage(() => import('../Home'), 'Home');
@@ -59,3 +111,52 @@ export const RetrainingPipelineMonitor = lazyPage(() => import('../RetrainingPip
 export const PredictionExplainer = lazyPage(() => import('../PredictionExplainer'), 'PredictionExplainer');
 export const FeatureDriftMonitor = lazyPage(() => import('../FeatureDriftMonitor'), 'FeatureDriftMonitor');
 export const CropInsuranceClaim = lazyPage(() => import('../CropInsuranceClaim'), 'CropInsuranceClaim');
+
+export const getRouteMetrics = () => ({
+  loadedRoutes: [
+    ...routeMetrics.loadedRoutes,
+  ],
+  loadTimes: {
+    ...routeMetrics.loadTimes,
+  },
+});
+
+export const preloadDashboardRoutes =
+  async () => {
+    await Promise.all([
+      preloadRoute(
+        () => import('../Dashboard'),
+        'Dashboard'
+      ),
+      preloadRoute(
+        () => import('../Advisor'),
+        'Advisor'
+      ),
+      preloadRoute(
+        () => import('../ProfileSettings'),
+        'ProfileSettings'
+      ),
+      preloadRoute(
+        () => import('../Leaderboard'),
+        'Leaderboard'
+      ),
+    ]);
+  };
+
+export const preloadCommunityRoutes =
+  async () => {
+    await Promise.all([
+      preloadRoute(
+        () => import('../Community'),
+        'Community'
+      ),
+      preloadRoute(
+        () => import('../Blog'),
+        'Blog'
+      ),
+      preloadRoute(
+        () => import('../Contributors'),
+        'Contributors'
+      ),
+    ]);
+  };
