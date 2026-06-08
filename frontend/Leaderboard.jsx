@@ -1,4 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+} from "react";
 import { FaTrophy, FaMedal, FaStar, FaSeedling, FaCloudSun, FaUsers } from "react-icons/fa";
 import { useTheme } from "./ThemeContext";
 import { db, isFirebaseConfigured } from "./lib/firebase";
@@ -7,6 +11,7 @@ import "./Leaderboard.css";
 
 // Number of farmers shown on the leaderboard
 const PAGE_SIZE = 10;
+const LEADERBOARD_CACHE_TTL = 60000;
 
 export default function Leaderboard() {
   const { theme } = useTheme();
@@ -14,6 +19,12 @@ export default function Leaderboard() {
   const [farmers, setFarmers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  const leaderboardCacheRef = useRef(
+    new Map()
+  );
+
+  const refreshVersionRef = useRef(0);
 
   useEffect(() => {
     if (!isFirebaseConfigured()) {
@@ -27,6 +38,30 @@ export default function Leaderboard() {
 
     const fetchLeaderboard = async () => {
       try {
+        const currentVersion =
+          ++refreshVersionRef.current;
+
+        const cacheKey = timeFilter;
+
+        if (
+          leaderboardCacheRef.current.has(
+            cacheKey
+          )
+        ) {
+          const cached =
+            leaderboardCacheRef.current.get(
+              cacheKey
+            );
+
+          if (
+            Date.now() - cached.timestamp <
+            LEADERBOARD_CACHE_TTL
+          ) {
+            setFarmers(cached.data);
+            setLoading(false);
+            return;
+          }
+        }
         // Determine which points field to sort by based on the active filter.
         const sortField =
           timeFilter === "monthly"
@@ -80,16 +115,49 @@ export default function Leaderboard() {
           return a.id.localeCompare(b.id);
         });
 
-        const rankedResults = sortedResults.map((farmer, index) => ({
-          ...farmer,
-          rank: index + 1,
-        }));
+        const rankedResults =
+          sortedResults.map(
+            (farmer, index) => ({
+              ...farmer,
+              rank: index + 1,
+              scoreBucket: Math.floor(
+                farmer.points / 100
+              ),
+            })
+          );
+
+        const validatedResults =
+          rankedResults.map(
+            (farmer, index) => ({
+              ...farmer,
+              rank: index + 1,
+              normalizedPoints: Number(
+                farmer.points || 0
+              ),
+            })
+          );
+
+        if (
+          currentVersion !==
+          refreshVersionRef.current
+        ) {
+          return;
+        }
+
+        leaderboardCacheRef.current.set(
+          cacheKey,
+          {
+            data: validatedResults,
+            timestamp: Date.now(),
+          }
+        );
+
+        setFarmers(validatedResults);
 
         console.info(
           `[LEADERBOARD] filter=${timeFilter} entries=${rankedResults.length}`
         );
 
-        setFarmers(rankedResults);
       } catch (err) {
         if (!cancelled) {
           console.error("Leaderboard fetch error:", err);
@@ -108,6 +176,13 @@ export default function Leaderboard() {
       cancelled = true;
     };
   }, [timeFilter]);
+
+  useEffect(() => {
+    return () => {
+      leaderboardCacheRef.current.clear();
+      refreshVersionRef.current++;
+    };
+  }, []);
 
   const getRankIcon = (rank) => {
     if (rank === 1) return <FaTrophy className="rank-icon gold" />;
