@@ -1,6 +1,7 @@
 """Reports & Logging Router"""
 import re
 from fastapi import APIRouter, Request, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, validator
 from typing import Optional
 import base64
@@ -8,18 +9,14 @@ import hashlib
 import io
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field, validator
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
-from typing import Optional
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -30,7 +27,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _PROFIT_MAX_INR = 50_000_000   # ₹5 crore per season
 _AREA_MAX_ACRES = 10_000       # 10,000 acres
-
+MAX_EXPORT_RECORDS = 5000      # Future safeguard for large dataset exports
 # Regex that matches a valid Indian-locale number string produced by the
 # frontend (e.g. "50,000" or "1,00,000") or a plain integer string.
 _NUMERIC_RE = re.compile(r"^[\d,]+(\.\d+)?$")
@@ -51,13 +48,6 @@ def _parse_acres(value: str) -> float:
     if not cleaned:
         raise ValueError("Value is empty")
     return float(cleaned)
-
-
-class ClientErrorReport(BaseModel):
-    message: str = Field(..., min_length=1, max_length=500)
-    source: Optional[str] = Field(default=None, max_length=200)
-    stack: Optional[str] = Field(default=None, max_length=2000)
-    level: str = Field(default="error", max_length=20)
 
 
 class ReportRequest(BaseModel):
@@ -135,7 +125,7 @@ def _build_pdf(data: ReportRequest, signature_hex: str, cert_id: str) -> bytes:
     c.setFillColor(colors.HexColor("#1B5E20"))
     c.setFont("Helvetica-Bold", 10)
     c.drawRightString(width - inch, height - 95, f"Certificate ID: {cert_id}")
-    c.drawRightString(width - inch, height - 110, f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}")
+    c.drawRightString(width - inch, height - 110, f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
 
     # ── Section: Farmer Details ──────────────────────────────────────────────
     y = height - 150
@@ -220,8 +210,18 @@ def _sign_report(private_key: Ed25519PrivateKey, data: ReportRequest, cert_id: s
 
 
 def _make_cert_id(data: ReportRequest) -> str:
-    """Derive a short, deterministic certificate ID from the report fields."""
-    raw = f"{data.name}|{data.crop}|{data.season}|{datetime.utcnow().strftime('%Y%m%d')}"
+    """Generate a unique certificate ID for each report request.
+
+    A random 8-byte nonce is mixed into the hash input so that two requests
+    with identical field values (same farmer name, crop, and season on the
+    same day) always produce different IDs. Without the nonce, the ID is fully
+    deterministic and collides silently on repeated submissions, causing the
+    second PDF to overwrite or be confused with the first in any downstream
+    system that indexes by certificate ID.
+    """
+    import secrets
+    nonce = secrets.token_hex(8)
+    raw = f"{data.name}|{data.crop}|{data.season}|{datetime.now(timezone.utc).strftime('%Y%m%d')}|{nonce}"
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:10].upper()
     return f"CERT-{digest}"
 
@@ -246,7 +246,7 @@ async def generate_signed_report(request: Request, data: ReportRequest):
         raise HTTPException(status_code=500, detail="Not initialized")
 
     try:
-        await verify_role_fn(request)
+        await verify_role_fn(request, required_roles=["admin"])
     except HTTPException:
         raise
     except Exception as e:
@@ -265,11 +265,47 @@ async def generate_signed_report(request: Request, data: ReportRequest):
         cert_id = _make_cert_id(data)
         signature_hex = _sign_report(private_key, data, cert_id)
         pdf_bytes = _build_pdf(data, signature_hex, cert_id)
+        MAX_PDF_SIZE_MB = 10
+
+        if len(pdf_bytes) > MAX_PDF_SIZE_MB * 1024 * 1024:
+            logger.error(
+                "Export validation failed: PDF exceeds size limit (%s bytes)",
+                len(pdf_bytes),
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Generated report exceeds supported export size",
+            )
+        
+        if not pdf_bytes.startswith(b"%PDF"):
+            logger.error(
+                "Export validation failed: Invalid PDF structure for certificate %s",
+                cert_id,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Generated report failed integrity validation",
+            )
+        
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"PDF generation error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to generate report")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate report",
+        )
 
     filename = f"FasalSaathi_BankReport_{cert_id}.pdf"
+
+    logger.info(
+        "[EXPORT_AUDIT] cert_id=%s size_bytes=%s farmer=%s crop=%s",
+        cert_id,
+        len(pdf_bytes),
+        data.name,
+        data.crop,
+    )
+    
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
@@ -280,22 +316,7 @@ async def generate_signed_report(request: Request, data: ReportRequest):
     )
 
 
-@router.post("/log-error")
-async def log_error(request: Request, body: ClientErrorReport):
-    if sanitise_log_field_fn is None or logger_instance is None:
-        raise HTTPException(status_code=500, detail="Not initialized")
-    try:
-        message = sanitise_log_field_fn(body.message)
-        source = sanitise_log_field_fn(body.source or "")
-        level = sanitise_log_field_fn(body.level).upper()
-        logger_instance.info(f"Client [{level}] from {source}: {message}")
-        return {"success": True, "message": "Error logged"}
-    except Exception as e:
-        logger.error(f"Log error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to log error")
 
-
-# ---------------------------------------------------------------------------
 # Admin: role assignment with custom-claim sync
 # ---------------------------------------------------------------------------
 
@@ -309,12 +330,12 @@ async def assign_role(request: Request, body: AssignRoleRequest):
     """
     Assign a role to a user and sync the Firebase custom claim.
 
-    Admin only.  Updates both the Firestore users/{uid}.role field and the
-    Firebase Auth custom claim so that Firestore security rules
-    (request.auth.token.role) stay consistent with the stored role.
+    Admin only.  Syncs the Firebase Auth custom claim FIRST, then updates
+    the Firestore users/{uid}.role field.  If the claim sync fails the
+    Firestore update is skipped entirely, keeping both stores consistent.
 
-    The target user's next token refresh will include the updated claim.
-    Existing tokens remain valid until they expire (≤ 1 hour).
+    Refresh tokens are revoked so the target user must sign in again with the
+    updated claim (no stale-role window).
     """
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Not initialized")
@@ -335,30 +356,23 @@ async def assign_role(request: Request, body: AssignRoleRequest):
         if not snap.exists:
             raise HTTPException(status_code=404, detail="User profile not found")
 
+        # Sync the Auth custom claim FIRST so that if it fails we never touch
+        # Firestore, keeping both stores consistent.
+        await sync_role_claim(body.target_uid, body.role)
+
+        # Only update Firestore once the claim is confirmed.
         user_ref.update({"role": body.role})
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("assign_role: Firestore update failed uid=%s: %s", body.target_uid, exc)
+        logger.error("assign_role: update failed uid=%s: %s", body.target_uid, exc)
         raise HTTPException(status_code=503, detail="Authorization service unavailable")
-
-    try:
-        await sync_role_claim(body.target_uid, body.role)
-    except Exception as exc:
-        # Firestore write succeeded; log the claim-sync failure but don't
-        # roll back — the backend verify_role still reads from Firestore,
-        # so access control is not broken.  The claim will be corrected on
-        # the next assign-role call or backfill run.
-        logger.error(
-            "assign_role: custom claim sync failed uid=%s role=%s: %s",
-            body.target_uid, body.role, exc,
-        )
 
     return {
         "success": True,
         "target_uid": body.target_uid,
         "role": body.role,
-        "message": "Role updated. The user's next token refresh will include the new claim.",
+        "message": "Role updated. The user must sign in again to apply the new credentials.",
     }
 
 
