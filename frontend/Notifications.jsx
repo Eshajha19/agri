@@ -3,6 +3,7 @@ import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import apiClient from "./lib/apiClient";
 import { auth } from "./lib/firebase";
+import usePriceAlerts from "./hooks/usePriceAlerts";
 
 const MAX_TRACKED_NOTIFICATIONS = 1000;
 const NOTIFICATION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -21,6 +22,13 @@ export default function useNotifications() {
 
   const mountedRef = useRef(true);
   const requestIdRef = useRef(0);
+
+  // Price alert WebSocket with exponential backoff
+  const {
+    status: priceAlertStatus,
+    subscribeCrops,
+    subscribeRegions,
+  } = usePriceAlerts();
 
   const cleanupSeenNotifications = () => {
     const now = Date.now();
@@ -155,6 +163,27 @@ export default function useNotifications() {
   useEffect(() => {
     mountedRef.current = true;
 
+    // Subscribe to user's crop and region from profile when available
+    const setupPriceSubscriptions = async () => {
+      const user = auth?.currentUser;
+      if (!user) return;
+
+      try {
+        const res = await apiClient.get("/api/user/profile");
+        const profile = res?.data?.data || {};
+        if (profile.cropType) {
+          subscribeCrops([profile.cropType]);
+        }
+        if (profile.region || profile.address) {
+          subscribeRegions([profile.region || profile.address]);
+        }
+      } catch (e) {
+        console.warn("[Notifications] Failed to load profile for price subscriptions:", e);
+      }
+    };
+
+    setupPriceSubscriptions();
+
     return () => {
       mountedRef.current = false;
       requestIdRef.current++;
@@ -166,7 +195,7 @@ export default function useNotifications() {
       eventStatsRef.current.duplicates = 0;
       eventStatsRef.current.snapshots = 0;
     };
-  }, []);
+  }, [subscribeCrops, subscribeRegions]);
 
   useEffect(() => {
     let websocket = null;

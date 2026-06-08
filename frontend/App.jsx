@@ -32,6 +32,7 @@ import { cryptoService } from "./utils/cryptoService";
 import Loader from "./Loader";
 import LanguageDropdown from "./LanguageDropdown";
 import useNotifications from "./Notifications";
+import usePriceAlerts from "./hooks/usePriceAlerts";
 import Footer from "./components/Footer";
 import { SkipLink } from "./NavigationManager";
 import { useTheme } from "./ThemeContext";
@@ -355,6 +356,9 @@ function App() {
 
   const { liteMode, setLiteMode, detectAndSetLiteMode } =
     usePerformanceStore();
+
+  // Price alert WebSocket status for global connection indicator
+  const { status: priceAlertStatus } = usePriceAlerts();
 
   useEffect(() => {
     detectAndSetLiteMode();
@@ -1071,7 +1075,7 @@ useEffect(() => {
             <Route path="/" element={<Home user={user} />} />
             <Route path="/advisor" element={<Advisor userData={userData} />} />
             <Route path="/how-it-works" element={<How />} />
-            <Route path="/dashboard" element={<Dashboard userData={userData} />} />
+            <Route path="/dashboard" element={<Dashboard userData={userData} wsStatus={priceAlertStatus} />} />
             <Route path="/crop-guide" element={<CropGuide />} />
             <Route path="/schemes" element={<Schemes />} />
             <Route path="/resources" element={<Resources />} />

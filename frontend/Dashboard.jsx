@@ -26,6 +26,9 @@ import {
   FaRecycle,
   FaUserPlus,
   FaExclamationTriangle,
+  FaWifi,
+  FaWifiSlash,
+  FaSyncAlt,
 } from "react-icons/fa";
 import "./Dashboard.css";
 import {
@@ -222,7 +225,7 @@ const formatFarmArea = (value) => {
   return areaText;
 };
 
-export default function Dashboard({ userData }) {
+export default function Dashboard({ userData, wsStatus = "disconnected" }) {
   const name = userData?.displayName || "Farmer";
   const preferredLang = userData?.language || "en";
   const normalizedFarmArea = useMemo(
@@ -414,6 +417,14 @@ export default function Dashboard({ userData }) {
     },
   ];
 
+  // WebSocket status indicator config
+  const wsStatusConfig = {
+    connected: { icon: <FaWifi />, label: "Live alerts", color: "#22c55e" },
+    connecting: { icon: <FaSyncAlt className="spin" />, label: "Connecting...", color: "#f59e0b" },
+    reconnecting: { icon: <FaSyncAlt className="spin" />, label: "Reconnecting...", color: "#f59e0b" },
+    disconnected: { icon: <FaWifiSlash />, label: "Alerts paused", color: "#ef4444" },
+  };
+
   // Recent activity is derived from real user actions where available.
   // Static entries are clearly labelled as tips/reminders, not fabricated events.
   const cropLabel = userData?.cropType || "your crop";
@@ -546,6 +557,28 @@ export default function Dashboard({ userData }) {
               <h1>{getGreeting()}, {name}</h1>
               <p className="welcome-date">{getFormattedDate()}</p>
               <p className="welcome-sub">Here is an overview of your farm activity and insights</p>
+            </div>
+            {/* WebSocket Connection Status */}
+            <div
+              className="ws-status-badge"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "6px 12px",
+                borderRadius: "20px",
+                background: `${wsStatusConfig[wsStatus].color}15`,
+                border: `1px solid ${wsStatusConfig[wsStatus].color}40`,
+                color: wsStatusConfig[wsStatus].color,
+                fontSize: "0.75rem",
+                fontWeight: 600,
+                marginLeft: "auto",
+                alignSelf: "center",
+              }}
+              title={`Price alert connection: ${wsStatusConfig[wsStatus].label}`}
+            >
+              {wsStatusConfig[wsStatus].icon}
+              <span>{wsStatusConfig[wsStatus].label}</span>
             </div>
           </div>
            <div className="quick-actions-row">
