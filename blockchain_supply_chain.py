@@ -24,17 +24,25 @@ class BlockchainRecord:
     action: str
     location: str
     data: Dict
+    previous_hash: str = ""
     hash: str = ""
 
     def to_dict(self) -> Dict:
-        """Serialize record to dict (hash excluded — matches calculate_hash input)"""
+        """Serialize record to dict (hash excluded — for calculate_hash input)"""
         return {
             "timestamp": self.timestamp,
             "actor": self.actor,
             "action": self.action,
             "location": self.location,
             "data": self.data,
+            "previous_hash": self.previous_hash,
         }
+
+    def serialize(self) -> Dict:
+        """Serialize record for persistence (includes hash)"""
+        result = self.to_dict()
+        result["hash"] = self.hash
+        return result
 
     def calculate_hash(self) -> str:
         """Calculate SHA256 hash of record (excludes hash field)"""
@@ -43,16 +51,26 @@ class BlockchainRecord:
 
     @staticmethod
     def from_dict(data: Dict) -> 'BlockchainRecord':
-        """Reconstruct record from dict, then compute and verify hash"""
+        """Reconstruct record from dict, compute hash, and verify integrity"""
         record = BlockchainRecord(
             timestamp=data["timestamp"],
             actor=data["actor"],
             action=data["action"],
             location=data["location"],
             data=data.get("data", {}),
+            previous_hash=data.get("previous_hash", ""),
         )
-        if "hash" in data:
+        computed = record.calculate_hash()
+        if "hash" in data and data["hash"]:
+            if data["hash"] != computed:
+                raise ValueError(
+                    f"Hash mismatch: stored hash '{data['hash']}' "
+                    f"does not match computed hash '{computed}'. "
+                    "Record has been tampered with."
+                )
             record.hash = data["hash"]
+        else:
+            record.hash = computed
         return record
 
 
@@ -189,20 +207,19 @@ class SupplyChainBlockchain:
                 farmer_name=farmer_name,
             )
 
-            record = BlockchainRecord(
+            record = self._link_record(BlockchainRecord(
                 timestamp=datetime.now().isoformat(),
                 actor=farmer_name,
                 action="created_batch",
                 location=farm_id,
                 data=asdict(batch),
-            )
-            record.hash = record.calculate_hash()
+            ))
 
             # Commit changes atomically
             self.products[batch_id] = batch
             self.supply_chain_nodes[batch_id] = []
             self.chain.append(record)
-            batch.blockchain_records.append(record.to_dict())
+            batch.blockchain_records.append(record.serialize())
 
             return batch
 
@@ -240,19 +257,18 @@ class SupplyChainBlockchain:
                 notes=kwargs.get("notes", ""),
             )
 
-            record = BlockchainRecord(
+            record = self._link_record(BlockchainRecord(
                 timestamp=node.timestamp,
                 actor=actor_name,
                 action=action,
                 location=location,
                 data=asdict(node),
-            )
-            record.hash = record.calculate_hash()
+            ))
 
             # Commit
             self.supply_chain_nodes.setdefault(batch_id, []).append(node)
             self.chain.append(record)
-            self.products[batch_id].blockchain_records.append(record.to_dict())
+            self.products[batch_id].blockchain_records.append(record.serialize())
 
             if self._repository is not None:
                 self._repository.create(asdict(node))
@@ -287,14 +303,13 @@ class SupplyChainBlockchain:
                 terms=terms or {},
             )
 
-            record = BlockchainRecord(
+            record = self._link_record(BlockchainRecord(
                 timestamp=datetime.now().isoformat(),
                 actor=seller,
                 action="contract_created",
                 location="contract",
                 data=asdict(contract),
-            )
-            record.hash = record.calculate_hash()
+            ))
 
             # Commit
             self.smart_contracts[contract_id] = contract
@@ -318,7 +333,7 @@ class SupplyChainBlockchain:
                 raise ValueError(f"Contract {contract_id} cannot be executed (status: {contract.status})")
 
             # Prepare execution record first (may raise)
-            record = BlockchainRecord(
+            record = self._link_record(BlockchainRecord(
                 timestamp=datetime.now().isoformat(),
                 actor=contract.buyer,
                 action="contract_executed",
@@ -329,8 +344,7 @@ class SupplyChainBlockchain:
                     "amount": contract.price,
                     "currency": contract.currency,
                 },
-            )
-            record.hash = record.calculate_hash()
+            ))
 
             # Commit state updates atomically
             contract.status = "executed"
@@ -487,11 +501,21 @@ class SupplyChainBlockchain:
             "final_price": contracts[-1].price if contracts else None,
         }
 
+    def _link_record(self, record: BlockchainRecord) -> BlockchainRecord:
+        """Set previous_hash from chain tail and return record."""
+        record.previous_hash = self.chain[-1].hash if self.chain else ""
+        record.hash = record.calculate_hash()
+        return record
+
     def _verify_blockchain_integrity(self) -> bool:
-        """Verify blockchain hasn't been tampered with"""
+        """Verify blockchain chain continuity and hash integrity"""
+        prev_hash = ""
         for record in self.chain:
             if record.hash != record.calculate_hash():
                 return False
+            if record.previous_hash != prev_hash:
+                return False
+            prev_hash = record.hash
         return True
 
     def get_blockchain_record_count(self) -> int:
@@ -546,14 +570,13 @@ class SupplyChainBlockchain:
         self._trace_batches[batch_id] = entry
 
         # Also record the registration on the blockchain for auditability.
-        record = BlockchainRecord(
+        record = self._link_record(BlockchainRecord(
             timestamp=entry["registeredAt"],
             actor=entry["registeredByUid"] or "unknown",
             action="trace_batch_registered",
             location=entry["farm"],
             data={"batch_id": batch_id, "crop": entry["crop"]},
-        )
-        record.hash = record.calculate_hash()
+        ))
         self.chain.append(record)
 
         return entry
