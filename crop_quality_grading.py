@@ -182,13 +182,10 @@ class CropQualityGrader:
         return float(min(100, uniformity))
 
     def _assess_color(self, image: np.ndarray, params: Dict) -> float:
-        """Assess color quality"""
+        """Assess color quality against crop-specific target ranges"""
         if not isinstance(image, np.ndarray):
             return 50.0
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        color_quality_score = 0.0
-
-        # Check dominant color in expected range
         h, s, v = cv2.split(hsv)
         avg_h = np.mean(h)
         avg_s = np.mean(s)
@@ -198,7 +195,42 @@ class CropQualityGrader:
         saturation_score = min(100, (avg_s / 255) * 120)
         brightness_score = min(100, (avg_v / 255) * 110)
 
-        color_quality_score = (saturation_score * 0.6 + brightness_score * 0.4)
+        # Hue matching score using crop-specific color ranges
+        hue_score = 50.0  # default neutral
+        color_ranges = params.get("color_ranges", {})
+        if color_ranges:
+            # Check if avg_h falls within expected ranges for the crop
+            # color_ranges has red, green, blue keys but we're in HSV - use hue equivalents
+            # For simplicity, map typical HSV hue ranges: red=0-15/165-180, green=35-85, blue=85-130
+            # Check each channel's expected range
+            in_range_count = 0
+            total_checks = 0
+            
+            # Red hue wraps around 0/180 in HSV
+            red_min, red_max = color_ranges.get("red", (0, 0))
+            if red_min <= red_max:
+                in_range = red_min <= avg_h <= red_max
+            else:  # wraps around 0
+                in_range = avg_h >= red_min or avg_h <= red_max
+            if red_min or red_max:  # only check if range is defined
+                in_range_count += 1 if in_range else 0
+                total_checks += 1
+            
+            green_min, green_max = color_ranges.get("green", (0, 0))
+            if green_min or green_max:
+                in_range_count += 1 if green_min <= avg_h <= green_max else 0
+                total_checks += 1
+            
+            blue_min, blue_max = color_ranges.get("blue", (0, 0))
+            if blue_min or blue_max:
+                in_range_count += 1 if blue_min <= avg_h <= blue_max else 0
+                total_checks += 1
+            
+            if total_checks > 0:
+                hue_score = (in_range_count / total_checks) * 100
+
+        # Combine: saturation (40%), brightness (30%), hue match (30%)
+        color_quality_score = (saturation_score * 0.4 + brightness_score * 0.3 + hue_score * 0.3)
 
         return float(min(100, color_quality_score))
 
