@@ -1,6 +1,8 @@
 import abc
 import datetime
 import logging
+import os
+import uuid
 from typing import List, Any
 from google.cloud import firestore
 
@@ -69,10 +71,11 @@ class MultiPhaseMigration(abc.ABC):
         pass
 
 class MigrationRunner:
-    def __init__(self, db: firestore.Client):
+    def __init__(self, db: firestore.Client, owner_id: str = None):
         self.db = db
         self.migrations_collection = "_schema_migrations"
         self.lock_doc_id = "runner_lock"
+        self.owner_id = owner_id or f"{os.getenv('HOSTNAME', 'unknown')}-{os.getpid()}"
 
     @firestore.transactional
     def _acquire_lock_transaction(self, transaction: firestore.Transaction) -> bool:
@@ -88,7 +91,7 @@ class MigrationRunner:
                 if locked_at and (now - locked_at).total_seconds() < 900:
                     return False
 
-        transaction.set(lock_ref, {"locked_at": now})
+        transaction.set(lock_ref, {"locked_at": now, "owner_id": self.owner_id})
         return True
 
     def acquire_lock(self) -> bool:
@@ -101,6 +104,15 @@ class MigrationRunner:
 
     def release_lock(self):
         lock_ref = self.db.collection(self.migrations_collection).document(self.lock_doc_id)
+        snapshot = lock_ref.get()
+        if snapshot.exists:
+            data = snapshot.to_dict() or {}
+            if data.get("owner_id") != self.owner_id:
+                logger.warning(
+                    "Lock owned by '%s', not '%s'. Skipping release.",
+                    data.get("owner_id"), self.owner_id,
+                )
+                return
         lock_ref.delete()
 
     @firestore.transactional
