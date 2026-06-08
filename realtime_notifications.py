@@ -200,5 +200,10 @@ class NotificationBroadcastHub:
         except Exception as exc:
             logger.warning("Notification pub-sub listener stopped: %s", exc)
 
+    async def _redis_listener_add(self, notification: Dict[str, Any]) -> None:
+        """Test helper: add notification via Redis listener path."""
+        async with self._history_lock:
+            self._history.append(notification)
+
 
 notification_broker = NotificationBroadcastHub()
