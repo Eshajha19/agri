@@ -279,6 +279,13 @@ class ConflictResolver:
         else:
             return self._last_write_wins(local_version, server_version)
     
+    @staticmethod
+    def _parse_ts(ts: str) -> datetime:
+        """Parse an ISO-format timestamp string to datetime for comparison."""
+        if ts.endswith("Z"):
+            ts = ts[:-1] + "+00:00"
+        return datetime.fromisoformat(ts)
+
     def _last_write_wins(
         self,
         local_version: DocumentVersion,
@@ -290,7 +297,7 @@ class ConflictResolver:
             server_version.data
         )
         
-        if local_version.timestamp > server_version.timestamp:
+        if self._parse_ts(local_version.timestamp) > self._parse_ts(server_version.timestamp):
             winner = local_version
         else:
             winner = server_version
@@ -309,7 +316,7 @@ class ConflictResolver:
             server_version.data
         )
         
-        if local_version.timestamp < server_version.timestamp:
+        if self._parse_ts(local_version.timestamp) < self._parse_ts(server_version.timestamp):
             winner = local_version
         else:
             winner = server_version
