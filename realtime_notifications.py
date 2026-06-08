@@ -303,7 +303,10 @@ class NotificationBroadcastHub:
         )
 
         try:
-            await asyncio.Event().wait()
+            # Actively read from the socket so we detect client disconnects.
+            # A closed connection raises WebSocketDisconnect.
+            while True:
+                await websocket.receive_text()
         except asyncio.CancelledError:
             pass
         except WebSocketDisconnect:
@@ -424,49 +427,10 @@ class NotificationBroadcastHub:
         except Exception as exc:
             logger.warning("Notification pub-sub listener stopped: %s", exc)
 
-    def _is_duplicate_notification(self, event: NotificationEvent) -> bool:
-        h = event.get_content_hash()
-        now = time.time()
-        self._recent_hashes = {k: ts for k, ts in self._recent_hashes.items() if now - ts < self._dedup_window}
-        if h in self._recent_hashes:
-            return True
-        self._recent_hashes[h] = now
-        return False
-
-    async def _route_to_priority_queue(self, event: NotificationEvent) -> None:
-        if event.priority == NotificationPriority.CRITICAL:
-            self._critical_queue.append(event)
-        elif event.priority == NotificationPriority.WARNING:
-            self._warning_queue.append(event)
-        else:
-            self._info_queue.append(event)
-
-    async def _persist_notification(self, event: NotificationEvent, uid: str) -> None:
-        now_str = datetime.now().isoformat()
-        record = NotificationDeliveryRecord(
-            notification_id=event.notification_id,
-            user_id=uid,
-            priority=event.priority,
-            status=DeliveryStatus.PENDING,
-            created_at=now_str
-        )
-        async with self._persistence_lock:
-            self._delivery_records[event.notification_id] = record
-            self._pending_notifications.append(event)
-
-    async def _process_retry_queue(self) -> None:
-        try:
-            while True:
-                await asyncio.sleep(60)
-        except asyncio.CancelledError:
-            pass
-
-    async def _process_priority_queues(self) -> None:
-        try:
-            while True:
-                await asyncio.sleep(60)
-        except asyncio.CancelledError:
-            pass
+    async def _redis_listener_add(self, notification: Dict[str, Any]) -> None:
+        """Test helper: add notification via Redis listener path."""
+        async with self._history_lock:
+            self._history.append(notification)
 
 
 notification_broker = NotificationBroadcastHub()

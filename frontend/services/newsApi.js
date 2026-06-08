@@ -3,6 +3,22 @@ import { reportErrorToBackend } from '../utils/errorReporting';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
+const FALLBACK_NEWS_RESPONSE = {
+  success: true,
+  source: 'fallback',
+  articles: [],
+  page: 1,
+  total: 0,
+};
+
+const SOURCE_HEALTH = {
+  failures: 0,
+  lastFailure: null,
+  lastSuccess: null,
+};
+
+const MAX_CONSECUTIVE_FAILURES = 3;
+
 /**
  * Fetch farming news articles with optional filtering, sorting, and pagination
  * @param {number} page - Page number (starts at 1)
@@ -12,7 +28,13 @@ const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
  * @param {string} sortBy - Sort order: 'latest' | 'relevant'
  * @returns {Promise} News list response with articles and pagination info
  */
-export async function fetchFarmingNews(page = 1, pageSize = 10, category = null, search = null, sortBy = 'latest') {
+export async function fetchFarmingNews(
+  page = 1,
+  pageSize = 10,
+  category = null,
+  search = null,
+  sortBy = 'latest'
+) {
   try {
     const params = new URLSearchParams();
     params.append('page', page);
@@ -30,19 +52,61 @@ export async function fetchFarmingNews(page = 1, pageSize = 10, category = null,
       params.append('sort_by', sortBy);
     }
 
-    const response = await axios.get(`${API_BASE}/api/farming-news?${params.toString()}`, {
-      timeout: 15000,
-    });
+    const response = await performNewsRequest(
+      `${API_BASE}/api/farming-news?${params.toString()}`
+    );
 
-    return response.data;
+    if (!response?.data) {
+      console.warn('[NEWS_FALLBACK] Empty API response received');
+
+      return {
+        ...FALLBACK_NEWS_RESPONSE,
+        page,
+        degraded: true,
+        sourceFailures: SOURCE_HEALTH.failures,
+      };
+    }
+
+    return {
+      ...response.data,
+      source: 'api',
+    };
   } catch (error) {
     console.error('Error fetching farming news:', error);
+
     reportErrorToBackend({
       message: 'Failed to fetch farming news',
       source: 'newsApi.js',
       stack: error.stack,
-      level: 'error'
+      level: 'error',
     });
+
+    console.warn('[NEWS_FALLBACK] Serving fallback content');
+
+    return {
+      ...FALLBACK_NEWS_RESPONSE,
+      page,
+      degraded: true,
+      sourceFailures: SOURCE_HEALTH.failures,
+      lastFailure: SOURCE_HEALTH.lastFailure,
+    };
+  }
+}
+
+async function performNewsRequest(url) {
+  try {
+    const response = await axios.get(url, {
+      timeout: 15000,
+    });
+
+    SOURCE_HEALTH.failures = 0;
+    SOURCE_HEALTH.lastSuccess = Date.now();
+
+    return response;
+  } catch (error) {
+    SOURCE_HEALTH.failures += 1;
+    SOURCE_HEALTH.lastFailure = Date.now();
+
     throw error;
   }
 }
@@ -54,13 +118,37 @@ export async function fetchFarmingNews(page = 1, pageSize = 10, category = null,
  */
 export async function fetchFeaturedNews(limit = 3) {
   try {
-    const response = await axios.get(`${API_BASE}/api/farming-news/featured?limit=${limit}`, {
-      timeout: 15000,
-    });
-    return response.data;
+    const response = await performNewsRequest(
+      `${API_BASE}/api/farming-news/featured?limit=${limit}`
+    );
+
+    if (!response?.data) {
+      console.warn('[NEWS_FALLBACK] Empty featured response received');
+
+      return {
+        success: true,
+        source: 'fallback',
+        articles: [],
+        degraded: true,
+        sourceFailures: SOURCE_HEALTH.failures,
+        lastFailure: SOURCE_HEALTH.lastFailure,
+      };
+    }
+
+    return {
+      ...response.data,
+      source: 'api',
+    };
   } catch (error) {
     console.error('Error fetching featured news:', error);
-    return { articles: [] };
+
+    console.warn('[NEWS_FALLBACK] Serving fallback featured content');
+
+    return {
+      success: true,
+      source: 'fallback',
+      articles: [],
+    };
   }
 }
 
@@ -119,4 +207,15 @@ export function formatNewsDate(dateStr) {
   } catch (error) {
     return dateStr;
   }
+}
+
+export function getNewsSourceHealth() {
+  return {
+    failures: SOURCE_HEALTH.failures,
+    lastFailure: SOURCE_HEALTH.lastFailure,
+    lastSuccess: SOURCE_HEALTH.lastSuccess,
+    degraded:
+      SOURCE_HEALTH.failures >=
+      MAX_CONSECUTIVE_FAILURES,
+  };
 }
