@@ -1,0 +1,28 @@
+{
+  "run_id": "54595cd1-aca1-486a-9775-67d70da67427",
+  "created_at": "2026-05-29T17:13:19.205452+00:00",
+  "config": {
+    "dataset": "Train.csv",
+    "seed": 42,
+    "test_size": 0.2,
+    "model_name": "yield_model",
+    "created_by": "dp_experiment",
+    "training_mode": "dp_sgd",
+    "output_model": "C:\\Users\\Deepika\\AppData\\Local\\Temp\\dp-compare-uopew0gu\\dp_model.pt",
+    "epsilon": 3.0,
+    "delta": 1e-05,
+    "dp_epochs": 4,
+    "dp_batch_size": 64
+  },
+  "datasets": {
+    "Train.csv": "ca6a618ba2c291f1786ec93faccaacf621b85fef55c1e312cf10b6c8e8b10089"
+  },
+  "versions": {
+    "numpy": "2.4.6",
+    "pandas": "3.0.3",
+    "xgboost": "3.2.0",
+    "scikit-learn": "1.8.0",
+    "joblib": "1.5.3",
+    "git_commit": "e31771ca6ffe5945a86a89dfe907f033c943d202"
+  }
+}
