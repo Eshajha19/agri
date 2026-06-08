@@ -70,28 +70,35 @@ class SubscriberStore:
     # ------------------------------------------------------------------
 
     def _read_locked(self) -> Dict[str, Subscriber]:
-        """Read and parse the subscribers file.  Returns {} on any error."""
+        """Read and parse the subscribers file.  Raises on corruption."""
         if not os.path.exists(self._filepath):
             return {}
         try:
             with open(self._filepath, "r", encoding="utf-8") as fh:
                 return json.load(fh)
         except json.JSONDecodeError as exc:
-            logger.error(
-                "Subscriber file '%s' contains invalid JSON and could not be "
-                "parsed: %s.  Returning empty subscriber list.",
-                self._filepath,
-                exc,
-            )
-            return {}
+            backup = self._filepath + ".bak"
+            try:
+                import shutil
+                shutil.copy2(self._filepath, backup)
+                logger.error(
+                    "Subscriber file '%s' is corrupt. Backed up to '%s'. "
+                    "Raising error to prevent data loss.",
+                    self._filepath, backup, exc,
+                )
+            except OSError as backup_err:
+                logger.error(
+                    "Subscriber file '%s' is corrupt AND backup to '%s' failed: %s",
+                    self._filepath, backup, backup_err,
+                )
+            raise
         except OSError as exc:
             logger.error(
-                "Could not read subscriber file '%s': %s.  "
-                "Returning empty subscriber list.",
+                "Could not read subscriber file '%s': %s.",
                 self._filepath,
                 exc,
             )
-            return {}
+            raise
 
     def _write_locked(self, subscribers: Dict[str, Subscriber]) -> None:
         """
