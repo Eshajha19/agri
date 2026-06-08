@@ -4,6 +4,7 @@ Provides helpers to export existing state and import it into persistent storage.
 """
 
 import logging
+from dataclasses import asdict
 from typing import Dict, List, Any
 from datetime import datetime
 
@@ -136,8 +137,8 @@ class MigrationManager:
             "errors": [],
         }
 
-        # Migrate batches
-        for batch_id, batch_data in supply_chain_data.get("batches", {}).items():
+        # Migrate batches (export key is "products")
+        for batch_id, batch_data in supply_chain_data.get("products", {}).items():
             try:
                 batch_dict = (
                     batch_data.to_dict()
@@ -154,22 +155,23 @@ class MigrationManager:
                 report["errors"].append({"batch_id": batch_id, "error": str(exc)})
                 logger.error("Failed to migrate batch %s: %s", batch_id, exc)
 
-        # Migrate nodes
-        for node in supply_chain_data.get("nodes", []):
-            try:
-                node_dict = node.to_dict() if hasattr(node, "to_dict") else node
-                batch_id = node_dict.get("batch_id")
-                node_id = node_dict.get("node_id")
+        # Migrate nodes (export key is "supply_chain_nodes", value is dict keyed by batch_id)
+        for batch_id, node_list in supply_chain_data.get("supply_chain_nodes", {}).items():
+            for node in (node_list if isinstance(node_list, list) else [node_list]):
+                try:
+                    node_dict = node
+                    batch_id = node_dict.get("batch_id")
+                    node_id = node_dict.get("node_id")
 
-                if batch_id and node_id:
-                    self.supply_chain_repo.create(node_dict)
-                    report["migrated_nodes"] += 1
-            except Exception as exc:
-                report["failed"] += 1
-                report["errors"].append(
-                    {"node_id": node.get("node_id"), "error": str(exc)}
-                )
-                logger.error("Failed to migrate supply chain node: %s", exc)
+                    if batch_id and node_id:
+                        self.supply_chain_repo.create(node_dict)
+                        report["migrated_nodes"] += 1
+                except Exception as exc:
+                    report["failed"] += 1
+                    report["errors"].append(
+                        {"node_id": node.get("node_id", ""), "error": str(exc)}
+                    )
+                    logger.error("Failed to migrate supply chain node: %s", exc)
 
         logger.info(
             "Supply chain migration: %d batches, %d nodes migrated, %d failed",
@@ -256,14 +258,24 @@ def export_in_memory_state(
     dict
         Structured export of all in-memory state.
     """
+    def _to_dict(obj: Any) -> Any:
+        """Convert dataclass to dict via asdict, or passthrough for dicts."""
+        if isinstance(obj, dict):
+            return {k: _to_dict(v) for k, v in obj.items()}
+        if hasattr(obj, "to_dict"):
+            return obj.to_dict()
+        if hasattr(obj, "__dataclass_fields__"):
+            return asdict(obj)
+        return obj
+
     return {
         "exported_at": datetime.now().isoformat(),
-        "finance_applications": finance_engine.applications,
+        "finance_applications": _to_dict(finance_engine.applications),
         "notifications": list(notification_store.get_recent()),
         "supply_chain": {
-            "chain": supply_chain.chain,
-            "products": supply_chain.products,
-            "supply_chain_nodes": supply_chain.supply_chain_nodes,
-            "smart_contracts": supply_chain.smart_contracts,
+            "chain": [_to_dict(r) for r in supply_chain.chain],
+            "products": _to_dict(supply_chain.products),
+            "supply_chain_nodes": _to_dict(supply_chain.supply_chain_nodes),
+            "smart_contracts": _to_dict(supply_chain.smart_contracts),
         },
     }
