@@ -1,8 +1,4 @@
-import React, {
-  useState,
-  useEffect,
-  useRef,
-} from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { FaTrophy, FaMedal, FaStar, FaSeedling, FaCloudSun, FaUsers } from "react-icons/fa";
 import { useTheme } from "./ThemeContext";
 import { db, isFirebaseConfigured } from "./lib/firebase";
@@ -11,7 +7,6 @@ import "./Leaderboard.css";
 
 // Number of farmers shown on the leaderboard
 const PAGE_SIZE = 10;
-const LEADERBOARD_CACHE_TTL = 60000;
 
 export default function Leaderboard() {
   const { theme } = useTheme();
@@ -24,12 +19,6 @@ export default function Leaderboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const leaderboardCacheRef = useRef(
-    new Map()
-  );
-
-  const refreshVersionRef = useRef(0);
-
   useEffect(() => {
     if (!isFirebaseConfigured()) {
       setLoading(false);
@@ -40,31 +29,18 @@ export default function Leaderboard() {
 
     const fetchLeaderboard = async () => {
       try {
-        const currentVersion =
-          ++refreshVersionRef.current;
+        setError(null);
 
-        const cacheKey = timeFilter;
-
-        if (
-          leaderboardCacheRef.current.has(
-            cacheKey
-          )
-        ) {
-          const cached =
-            leaderboardCacheRef.current.get(
-              cacheKey
-            );
-
-          if (
-            Date.now() - cached.timestamp <
-            LEADERBOARD_CACHE_TTL
-          ) {
-            setFarmers(cached.data);
-            setLoading(false);
-            return;
-          }
+        if (leaderboardCacheRef.current.has(timeFilter)) {
+          setFarmers(
+            leaderboardCacheRef.current.get(timeFilter)
+          );
+          setLoading(false);
+          return;
         }
-        // Determine which points field to sort by based on the active filter.
+
+        setLoading(true);
+
         const sortField =
           timeFilter === "monthly"
             ? "monthlyReputation"
@@ -142,49 +118,13 @@ export default function Leaderboard() {
           rankedResults
         );
 
-        const rankedResults =
-          sortedResults.map(
-            (farmer, index) => ({
-              ...farmer,
-              rank: index + 1,
-              scoreBucket: Math.floor(
-                farmer.points / 100
-              ),
-            })
-          );
-
-        const validatedResults =
-          rankedResults.map(
-            (farmer, index) => ({
-              ...farmer,
-              rank: index + 1,
-              normalizedPoints: Number(
-                farmer.points || 0
-              ),
-            })
-          );
-
-        if (
-          currentVersion !==
-          refreshVersionRef.current
-        ) {
-          return;
-        }
-
-        leaderboardCacheRef.current.set(
-          cacheKey,
-          {
-            data: validatedResults,
-            timestamp: Date.now(),
-          }
-        );
-
-        setFarmers(validatedResults);
+        lastFetchRef.current = Date.now();
 
         console.info(
           `[LEADERBOARD] filter=${timeFilter} entries=${rankedResults.length}`
         );
 
+        setFarmers(rankedResults);
       } catch (err) {
         if (!cancelled) {
           console.error(
@@ -213,7 +153,6 @@ export default function Leaderboard() {
   useEffect(() => {
     return () => {
       leaderboardCacheRef.current.clear();
-      refreshVersionRef.current++;
     };
   }, []);
 
