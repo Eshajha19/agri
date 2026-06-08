@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List
 from sklearn.preprocessing import MinMaxScaler
+import joblib
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -17,6 +18,7 @@ model = None
 scaler = MinMaxScaler()
 
 MODEL_PATH = "lstm_yield_model.keras"
+SCALER_PATH = "lstm_yield_scaler.joblib"
 
 class PredictionRequest(BaseModel):
     # Expecting sequential data for LSTM
@@ -68,6 +70,7 @@ def train_and_save_model():
         model_seq.compile(optimizer='adam', loss='mse')
         model_seq.fit(X, y, epochs=20, batch_size=16)
         model_seq.save(MODEL_PATH)
+        joblib.dump(scaler, SCALER_PATH)
         logger.info("✅ LSTM model trained and saved successfully.")
     except Exception as e:
         logger.error(f"Error during training: {str(e)}")
@@ -76,7 +79,7 @@ def train_and_save_model():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic: Load the model into memory ONCE during application startup
-    global model
+    global model, scaler
     logger.info("Starting up FastAPI application...")
     
     # We delay keras import to avoid slow startup if not needed
@@ -88,7 +91,11 @@ async def lifespan(app: FastAPI):
             
         logger.info(f"Loading model from {MODEL_PATH}...")
         model = load_model(MODEL_PATH)
-        logger.info("✅ Model loaded into memory successfully.")
+        if os.path.exists(SCALER_PATH):
+            scaler = joblib.load(SCALER_PATH)
+            logger.info("✅ Scaler loaded successfully.")
+        else:
+            logger.warning(f"Scaler file {SCALER_PATH} not found. Predictions will be unscaled.")
     except Exception as e:
         logger.error(f"Failed to load model on startup: {str(e)}")
         # If model is None, endpoints will handle it gracefully.
@@ -133,6 +140,10 @@ async def predict(request: PredictionRequest):
         
         # Extract the float prediction
         pred_value = float(prediction_scaled[0][0])
+        
+        # Inverse-transform to original yield unit
+        if scaler is not None:
+            pred_value = float(scaler.inverse_transform([[pred_value]])[0][0])
         
         return PredictionResponse(prediction=pred_value)
     
