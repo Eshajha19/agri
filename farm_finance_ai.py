@@ -8,6 +8,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Maximum loan tenure to prevent overflow in EMI calculations (10 years = 120 months)
+MAX_LOAN_TENURE_MONTHS = 120
+
 
 @dataclass(frozen=True)
 class LoanProduct:
@@ -378,7 +381,7 @@ class FarmFinanceAI:
             "emergency_fund": to_float(payload.get("emergency_fund"), 0.0),
             "credit_score": max(300, min(900, to_int(payload.get("credit_score"), 650))),
             "requested_loan_amount": to_float(payload.get("requested_loan_amount"), 0.0),
-            "loan_tenure_months": max(6, to_int(payload.get("loan_tenure_months"), 36)),
+            "loan_tenure_months": min(120, max(6, to_int(payload.get("loan_tenure_months"), 36))),
         }
 
     def _crop_risk_factor(self, crop_type: str) -> float:
@@ -493,6 +496,8 @@ class FarmFinanceAI:
         monthly_rate = annual_interest_rate / 12 / 100
         if monthly_emi <= 0 or tenure_months <= 0:
             return 0.0
+        if tenure_months > MAX_LOAN_TENURE_MONTHS:
+            tenure_months = MAX_LOAN_TENURE_MONTHS
         if monthly_rate == 0:
             return monthly_emi * tenure_months
         growth = (1 + monthly_rate) ** tenure_months
@@ -502,6 +507,8 @@ class FarmFinanceAI:
         if principal <= 0 or tenure_months <= 0:
             return 0.0
         monthly_rate = annual_interest_rate / 12 / 100
+        if tenure_months > MAX_LOAN_TENURE_MONTHS:
+            tenure_months = MAX_LOAN_TENURE_MONTHS
         if monthly_rate == 0:
             return principal / tenure_months
         growth = (1 + monthly_rate) ** tenure_months
