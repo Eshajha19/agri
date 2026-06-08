@@ -283,6 +283,11 @@ def predict_yield_trend_task(self, data: list):
             "model": "RandomForest Trend Forecast (Lag Features)"
         }
 
+    except Exception:
+        logger.exception("Trend prediction task failed")
+        raise
+
+
 @celery_app.task(bind=True, name="process_whatsapp_webhook_task")
 def process_whatsapp_webhook_task(self, body: str, sender_number: str):
     """Celery task for processing incoming WhatsApp messages asynchronously."""
