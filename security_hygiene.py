@@ -56,34 +56,60 @@ class SecretHygieneProgram:
                 findings.append(Finding(category, match.group(0), location))
         return findings
 
-class RuntimeProtectionMiddleware(BaseHTTPMiddleware):
-    """FastAPI Middleware to block requests containing cleartext secrets."""
-    def __init__(self, app, program: SecretHygieneProgram = None):
-        super().__init__(app)
+class RuntimeProtectionMiddleware:
+    """FastAPI/ASGI Middleware to block requests containing cleartext secrets."""
+    def __init__(self, app, program: SecretHygieneProgram = None, exclude_paths: List[str] = None):
+        self.app = app
         self.program = program or SecretHygieneProgram()
+        self.exclude_paths = exclude_paths or []
 
-    async def dispatch(self, request: Request, call_next):
-        # Scan request body for secret leakages before passing to route handlers
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        if any(path.startswith(prefix) for prefix in self.exclude_paths):
+            await self.app(scope, receive, send)
+            return
+
+        body_bytes = b""
+        more_body = True
+        received_messages = []
+
         try:
-            body_bytes = await request.body()
+            while more_body:
+                message = await receive()
+                received_messages.append(message)
+                if message["type"] == "http.request":
+                    body_bytes += message.get("body", b"")
+                    more_body = message.get("more_body", False)
+                elif message["type"] == "http.disconnect":
+                    break
+
             body_str = body_bytes.decode("utf-8", errors="ignore")
             findings = self.program.scan_text(body_str, location="middleware")
             if findings:
-                return JSONResponse(
+                response = JSONResponse(
                     status_code=400,
                     content={"error": "Request blocked by secrets hygiene policy"}
                 )
-            
-            # Reset body read pointer so downstream handlers can consume it
-            async def receive():
-                return {"type": "http.request", "body": body_bytes, "more_body": False}
-            request._receive = receive
+                await response(scope, receive, send)
+                return
         except Exception:
-            # Fallback in case of body read failures to avoid crashing the server
+            # Fallback to normal request execution if body buffering fails
             pass
 
-        response = await call_next(request)
-        return response
+        message_idx = 0
+        async def mock_receive():
+            nonlocal message_idx
+            if message_idx < len(received_messages):
+                msg = received_messages[message_idx]
+                message_idx += 1
+                return msg
+            return await receive()
+
+        await self.app(scope, mock_receive, send)
 
 def build_secret_fingerprint(value: str) -> str:
     """Generate a cryptographically stable fingerprint of a secret value."""
@@ -91,8 +117,18 @@ def build_secret_fingerprint(value: str) -> str:
         value = str(value)
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
-def redact_sensitive_payload(payload: Any) -> Any:
-    """Recursively traverses and masks PII / Secrets in request/response payloads."""
+_MAX_REDACT_DEPTH = 20
+
+
+def redact_sensitive_payload(payload: Any, _depth: int = 0) -> Any:
+    """Recursively traverses and masks PII / Secrets in request/response payloads.
+
+    Stops recursion at _MAX_REDACT_DEPTH (20) to prevent stack exhaustion
+    from deeply nested attacker-controlled payloads.
+    """
+    if _depth >= _MAX_REDACT_DEPTH:
+        return "[MAX_DEPTH]"
+
     if isinstance(payload, dict):
         new_payload = {}
         for k, v in payload.items():
@@ -102,14 +138,14 @@ def redact_sensitive_payload(payload: Any) -> Any:
             elif any(s in k_lower for s in ["key", "secret", "token", "password", "auth"]):
                 new_payload[k] = "[REDACTED_SECRET]"
             else:
-                new_payload[k] = redact_sensitive_payload(v)
+                new_payload[k] = redact_sensitive_payload(v, _depth + 1)
         return new_payload
     elif isinstance(payload, list):
-        return [redact_sensitive_payload(item) for item in payload]
+        return [redact_sensitive_payload(item, _depth + 1) for item in payload]
     elif isinstance(payload, str):
         email_pattern = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
         phone_pattern = re.compile(r"\+?[0-9]{1,4}[-.\s]?[0-9]{3,5}[-.\s]?[0-9]{4,5}")
-        
+
         redacted = payload
         redacted = email_pattern.sub("[REDACTED_EMAIL]", redacted)
         redacted = phone_pattern.sub("[REDACTED_PHONE]", redacted)
