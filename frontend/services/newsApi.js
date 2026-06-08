@@ -11,6 +11,14 @@ const FALLBACK_NEWS_RESPONSE = {
   total: 0,
 };
 
+const SOURCE_HEALTH = {
+  failures: 0,
+  lastFailure: null,
+  lastSuccess: null,
+};
+
+const MAX_CONSECUTIVE_FAILURES = 3;
+
 /**
  * Fetch farming news articles with optional filtering, sorting, and pagination
  * @param {number} page - Page number (starts at 1)
@@ -44,11 +52,8 @@ export async function fetchFarmingNews(
       params.append('sort_by', sortBy);
     }
 
-    const response = await axios.get(
-      `${API_BASE}/api/farming-news?${params.toString()}`,
-      {
-        timeout: 15000,
-      }
+    const response = await performNewsRequest(
+      `${API_BASE}/api/farming-news?${params.toString()}`
     );
 
     if (!response?.data) {
@@ -57,6 +62,8 @@ export async function fetchFarmingNews(
       return {
         ...FALLBACK_NEWS_RESPONSE,
         page,
+        degraded: true,
+        sourceFailures: SOURCE_HEALTH.failures,
       };
     }
 
@@ -79,7 +86,28 @@ export async function fetchFarmingNews(
     return {
       ...FALLBACK_NEWS_RESPONSE,
       page,
+      degraded: true,
+      sourceFailures: SOURCE_HEALTH.failures,
+      lastFailure: SOURCE_HEALTH.lastFailure,
     };
+  }
+}
+
+async function performNewsRequest(url) {
+  try {
+    const response = await axios.get(url, {
+      timeout: 15000,
+    });
+
+    SOURCE_HEALTH.failures = 0;
+    SOURCE_HEALTH.lastSuccess = Date.now();
+
+    return response;
+  } catch (error) {
+    SOURCE_HEALTH.failures += 1;
+    SOURCE_HEALTH.lastFailure = Date.now();
+
+    throw error;
   }
 }
 
@@ -90,11 +118,8 @@ export async function fetchFarmingNews(
  */
 export async function fetchFeaturedNews(limit = 3) {
   try {
-    const response = await axios.get(
-      `${API_BASE}/api/farming-news/featured?limit=${limit}`,
-      {
-        timeout: 15000,
-      }
+    const response = await performNewsRequest(
+      `${API_BASE}/api/farming-news/featured?limit=${limit}`
     );
 
     if (!response?.data) {
@@ -104,6 +129,9 @@ export async function fetchFeaturedNews(limit = 3) {
         success: true,
         source: 'fallback',
         articles: [],
+        degraded: true,
+        sourceFailures: SOURCE_HEALTH.failures,
+        lastFailure: SOURCE_HEALTH.lastFailure,
       };
     }
 
@@ -179,4 +207,15 @@ export function formatNewsDate(dateStr) {
   } catch (error) {
     return dateStr;
   }
+}
+
+export function getNewsSourceHealth() {
+  return {
+    failures: SOURCE_HEALTH.failures,
+    lastFailure: SOURCE_HEALTH.lastFailure,
+    lastSuccess: SOURCE_HEALTH.lastSuccess,
+    degraded:
+      SOURCE_HEALTH.failures >=
+      MAX_CONSECUTIVE_FAILURES,
+  };
 }
