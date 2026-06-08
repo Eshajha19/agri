@@ -130,8 +130,13 @@ class FarmFinanceAI:
         crop_type = data["crop_type"]
 
         annual_profit = annual_revenue - annual_operating_cost
-        profit_margin = annual_profit / annual_revenue if annual_revenue else 0.0
-        debt_ratio = existing_debt / annual_revenue if annual_revenue else 1.0
+        # Profit margin is undefined/negative when revenue <= 0
+        if annual_revenue > 0:
+            profit_margin = annual_profit / annual_revenue
+            debt_ratio = existing_debt / annual_revenue
+        else:
+            profit_margin = -1.0  # Indicates invalid/negative revenue scenario
+            debt_ratio = 1.0      # Maximum risk
         monthly_surplus = annual_profit / 12 if annual_profit > 0 else 0.0
         emergency_cover_months = emergency_fund / (annual_operating_cost / 12 if annual_operating_cost else 1.0)
         crop_risk = self._crop_risk_factor(crop_type)
