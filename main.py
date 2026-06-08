@@ -351,6 +351,25 @@ async def lifespan(app: FastAPI):
         logger.error("❌ Celery autoscaler startup failed: %s", exc, exc_info=True)
         raise
 
+    try:
+        logger.info("🔄 Initializing offline sync layer...")
+        from persistence.offline_sync import init_schema
+        init_schema()
+        logger.info("✅ Offline sync schema initialized")
+    except Exception as exc:
+        logger.error("❌ Offline sync init failed: %s", exc, exc_info=True)
+        raise
+
+    try:
+        logger.info("🔄 Starting sync worker...")
+        from sync_worker import get_sync_worker
+        _sync_worker = get_sync_worker(db_firestore)
+        _sync_worker.start()
+        logger.info("✅ Sync worker started")
+    except Exception as exc:
+        logger.error("❌ Sync worker startup failed: %s", exc, exc_info=True)
+        raise
+
     startup_duration = time.time() - startup_time
     logger.info("✅ All services started successfully in %.2fs", startup_duration)
 
@@ -358,6 +377,14 @@ async def lifespan(app: FastAPI):
 
     # Shutdown phase with logging
     logger.info("🛑 Shutting down services...")
+    try:
+        from sync_worker import get_sync_worker
+        _sync_worker = get_sync_worker()
+        _sync_worker.stop()
+        logger.info("✅ Sync worker stopped")
+    except Exception as exc:
+        logger.error("❌ Error stopping sync worker: %s", exc, exc_info=True)
+
     try:
         from celery_autoscaler import get_autoscaler
         _autoscaler = get_autoscaler()
@@ -1414,6 +1441,17 @@ async def health_autoscale(request: Request):
     from celery_autoscaler import get_autoscaler
     autoscaler = get_autoscaler()
     return autoscaler.get_status()
+
+
+@app.get("/health/sync")
+@limiter.limit("60/minute")
+async def health_sync(request: Request):
+    """Return offline sync queue status: pending count, failed count, oldest item."""
+    from persistence.offline_sync import get_sync_stats
+    return {
+        "success": True,
+        "sync": get_sync_stats(),
+    }
 
 # Middleware and rate-limits — the limiter was already configured above;
 # only the exception handler alias from slowapi's public API is wired here.
