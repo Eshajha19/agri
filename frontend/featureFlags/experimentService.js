@@ -13,9 +13,14 @@ class ExperimentService {
       cacheMisses: 0,
       apiCalls: 0,
       failures: 0,
+      totalAssignments: 0,
     };
 
     this._loadCachedAssignments();
+  }
+
+  _getCacheKey(experimentId, userId) {
+    return `${userId}:${experimentId}`;
   }
 
   _loadCachedAssignments() {
@@ -29,17 +34,16 @@ class ExperimentService {
       }
 
       const parsed = JSON.parse(cached);
-
       const now = Date.now();
 
       Object.entries(parsed).forEach(
-        ([experimentId, value]) => {
+        ([cacheKey, value]) => {
           if (
             value?.timestamp &&
             now - value.timestamp <
               ASSIGNMENT_CACHE_TTL_MS
           ) {
-            this.assignments[experimentId] = value;
+            this.assignments[cacheKey] = value;
           }
         }
       );
@@ -66,9 +70,9 @@ class ExperimentService {
     const now = Date.now();
 
     Object.keys(this.assignments).forEach(
-      (experimentId) => {
+      (cacheKey) => {
         const assignment =
-          this.assignments[experimentId];
+          this.assignments[cacheKey];
 
         if (
           !assignment?.timestamp ||
@@ -76,7 +80,7 @@ class ExperimentService {
             ASSIGNMENT_CACHE_TTL_MS
         ) {
           delete this.assignments[
-            experimentId
+            cacheKey
           ];
         }
       }
@@ -100,8 +104,14 @@ class ExperimentService {
 
     this._cleanupExpiredAssignments();
 
+    const cacheKey =
+      this._getCacheKey(
+        experimentId,
+        userId
+      );
+
     const cached =
-      this.assignments[experimentId];
+      this.assignments[cacheKey];
 
     if (cached?.variant) {
       this.metrics.cacheHits++;
@@ -113,11 +123,11 @@ class ExperimentService {
 
     if (
       this.pendingRequests.has(
-        experimentId
+        cacheKey
       )
     ) {
       return this.pendingRequests.get(
-        experimentId
+        cacheKey
       );
     }
 
@@ -128,13 +138,14 @@ class ExperimentService {
       })
       .then((response) => {
         this.metrics.apiCalls++;
+        this.metrics.totalAssignments++;
 
         const variant =
           response.data.variant ||
           'control';
 
         this.assignments[
-          experimentId
+          cacheKey
         ] = {
           variant,
           timestamp: Date.now(),
@@ -156,12 +167,12 @@ class ExperimentService {
       })
       .finally(() => {
         this.pendingRequests.delete(
-          experimentId
+          cacheKey
         );
       });
 
     this.pendingRequests.set(
-      experimentId,
+      cacheKey,
       requestPromise
     );
 
