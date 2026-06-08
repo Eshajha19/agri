@@ -36,6 +36,7 @@ import usePriceAlerts from "./hooks/usePriceAlerts";
 import Footer from "./components/Footer";
 import { SkipLink } from "./NavigationManager";
 import { useTheme } from "./ThemeContext";
+import { SyncBadge } from "./src/components/SyncBadge";
 import FarmingMythChecker from "./components/FarmingMythChecker";
 import CropComparison from "./components/CropComparison";
 
@@ -902,6 +903,8 @@ useEffect(() => {
           <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Cycle Theme" title={`Current theme: ${theme}`}>
             {theme === "light" ? "🌙" : theme === "dark" ? "☀️" : "🌙"}
           </button>
+
+          <SyncBadge />
 
           <button
             onClick={(e) => { e.stopPropagation(); setShowMoreMenu(!showMoreMenu); }}
