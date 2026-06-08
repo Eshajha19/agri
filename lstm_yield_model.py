@@ -161,4 +161,4 @@ if __name__ == "__main__":
     # When run as a script, we start the inference server locally
     import uvicorn
     # Note: Run it on a specific port for the dedicated inference server
-    uvicorn.run("lstm_yield_model:app", host="0.0.0.0", port=8001, reload=False)
+    uvicorn.run("lstm_yield_model:app", host="0.0.0.0", port=8001, reload=False)
