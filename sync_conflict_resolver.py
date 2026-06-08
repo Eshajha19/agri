@@ -378,11 +378,16 @@ class ConflictResolver:
                 merged_data[key] = server_val
         
         # Create merged version
+        # Merge version vectors to preserve causal history
+        merged_vector = VersionVector(local_version.version_vector.vector.copy())
+        merged_vector.merge(server_version.version_vector)
+        
         merged_version = DocumentVersion(
             doc_id=server_version.doc_id,
             data=merged_data,
             client_id="system",
-            timestamp=datetime.now().isoformat()
+            timestamp=datetime.now().isoformat(),
+            version_vector=merged_vector
         )
         
         self._log_conflict("three_way_merge", local_version, server_version, merged_version)
