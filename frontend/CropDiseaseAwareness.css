@@ -1,67 +1,129 @@
 .disease-awareness-container {
   padding: 40px 20px;
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
-  min-height: 80vh;
+  min-height: 100vh;
+  background: #fafbfc;
 }
 
 .disease-header {
   text-align: center;
-  margin-bottom: 50px;
+  margin-bottom: 32px;
 }
 
 .disease-header h1 {
   font-size: 2.5rem;
-  color: var(--primary-color, #22c55e);
-  margin-bottom: 10px;
+  color: #1b5e20;
+  margin-bottom: 12px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.disease-header h1 svg {
+  color: #22c55e;
 }
 
 .disease-header p {
-  font-size: 1.1rem;
+  max-width: 700px;
+  margin: 0 auto;
   color: #64748b;
+  font-size: 1.1rem;
+  line-height: 1.6;
+}
+
+.disease-filters {
+  margin-top: 24px;
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.search-wrapper {
+  position: relative;
+  min-width: 300px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.disease-search {
+  width: 100%;
+  padding: 10px 12px 10px 36px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  font-size: 0.95rem;
+  background: white;
+  transition: all 0.2s ease;
+}
+
+.disease-search:focus {
+  outline: none;
+  border-color: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.15);
+}
+
+.crop-filter {
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  font-size: 0.95rem;
+  background: white;
+  cursor: pointer;
+  min-width: 180px;
+  transition: all 0.2s ease;
+}
+
+.crop-filter:focus {
+  outline: none;
+  border-color: #22c55e;
 }
 
 .disease-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 30px;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 24px;
 }
 
 .disease-card {
-  background: #ffffff;
-  border-radius: 20px;
+  background: white;
+  border-radius: 16px;
   overflow: hidden;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+  transition: all 0.3s ease;
   display: flex;
   flex-direction: column;
   border: 1px solid #e2e8f0;
 }
 
 .disease-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 20px 35px rgba(0, 0, 0, 0.1);
+  transform: translateY(-6px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
+  border-color: #cbd5e1;
 }
 
 .disease-image-placeholder {
-  height: 200px;
+  height: 120px;
   background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 4rem;
+  color: #1b5e20;
 }
 
 .disease-content {
-  padding: 24px;
+  padding: 20px;
   flex-grow: 1;
-}
-
-.disease-title {
-  font-size: 1.5rem;
-  font-weight: 700;
-  margin-bottom: 8px;
-  color: #1e293b;
 }
 
 .crop-tag {
@@ -69,38 +131,52 @@
   padding: 4px 12px;
   background: #f1f5f9;
   border-radius: 20px;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: #475569;
-  margin-bottom: 20px;
+  margin-bottom: 12px;
+}
+
+.disease-title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin: 0 0 12px 0;
+  color: #1e293b;
+  letter-spacing: -0.01em;
 }
 
 .disease-section {
-  margin-bottom: 15px;
+  margin-bottom: 16px;
+}
+
+.disease-section:last-child {
+  margin-bottom: 0;
 }
 
 .disease-section h4 {
-  font-size: 1rem;
-  font-weight: 600;
-  color: #334155;
-  margin-bottom: 8px;
   display: flex;
   align-items: center;
   gap: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #334155;
+  margin: 0 0 6px 0;
 }
 
 .disease-section h4 svg {
-  color: var(--primary-color, #22c55e);
+  color: #22c55e;
+  font-size: 14px;
 }
 
 .disease-section p {
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   color: #64748b;
-  line-height: 1.5;
+  line-height: 1.6;
+  margin: 0;
 }
 
 .disease-footer {
-  padding: 20px 24px;
+  padding: 16px 20px;
   background: #f8fafc;
   border-top: 1px solid #e2e8f0;
 }
@@ -109,25 +185,47 @@
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 12px;
+  padding: 12px 14px;
   background: #ecfdf5;
-  border-radius: 12px;
-  border-left: 4px solid #10b981;
+  border-radius: 10px;
+  border-left: 3px solid #10b981;
+}
+
+.remedy-badge svg {
+  color: #10b981;
+  margin-top: 2px;
+  flex-shrink: 0;
 }
 
 .remedy-badge p {
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   color: #065f46;
+  line-height: 1.5;
   margin: 0;
-  line-height: 1.4;
 }
 
 .remedy-badge strong {
   display: block;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
+  font-weight: 600;
+  color: #064e3b;
+}
+
+.no-results {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 60px 20px;
+  background: white;
+  border-radius: 16px;
+  color: #94a3b8;
+  font-size: 1.1rem;
 }
 
 /* Dark Mode Support */
+.theme-dark .disease-awareness-container {
+  background: #0f172a;
+}
+
 .theme-dark .disease-card {
   background: #1e293b;
   border-color: #334155;
@@ -135,10 +233,6 @@
 
 .theme-dark .disease-title {
   color: #f1f5f9;
-}
-
-.theme-dark .disease-header p {
-  color: #94a3b8;
 }
 
 .theme-dark .crop-tag {
@@ -161,146 +255,53 @@
 
 .theme-dark .remedy-badge {
   background: #064e3b;
-  border-left-color: #10b981;
 }
 
 .theme-dark .remedy-badge p {
   color: #d1fae5;
 }
 
-@media (max-width: 768px) {
-  .disease-header h1 {
-    font-size: 2rem;
-  }
-  .disease-grid {
-    grid-template-columns: 1fr;
-  }
+.theme-dark .remedy-badge strong {
+  color: #a7f3d0;
 }
 
-/* CropDiseaseAwareness.css */
-
-.disease-awareness-container {
-  padding: 40px 20px;
-  background: #f4fff4;
-  min-height: 100vh;
-  font-family: "Poppins", sans-serif;
+.theme-dark .disease-search,
+.theme-dark .crop-filter {
+  background: #1e293b;
+  border-color: #334155;
+  color: #f1f5f9;
 }
 
-.disease-header {
-  text-align: center;
-  margin-bottom: 40px;
-}
-
-.disease-header h1 {
-  font-size: 2.7rem;
-  color: #1b5e20;
-  margin-bottom: 10px;
-}
-
-.disease-header p {
-  max-width: 800px;
-  margin: auto;
-  color: #555;
-  font-size: 1rem;
-  line-height: 1.7;
-}
-
-.disease-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-  gap: 25px;
-}
-
-.disease-card {
-  background: white;
-  border-radius: 20px;
-  overflow: hidden;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
-  transition: 0.3s ease;
-  display: flex;
-  flex-direction: column;
-}
-
-.disease-card:hover {
-  transform: translateY(-8px);
-}
-
-.disease-image-placeholder {
-  font-size: 4rem;
-  background: linear-gradient(135deg, #43a047, #66bb6a);
-  color: white;
-  text-align: center;
-  padding: 25px;
-}
-
-.disease-content {
-  padding: 20px;
-  flex: 1;
-}
-
-.crop-tag {
-  background: #e8f5e9;
-  color: #2e7d32;
-  padding: 6px 14px;
-  border-radius: 50px;
-  font-size: 0.85rem;
-  font-weight: 600;
-}
-
-.disease-title {
-  margin: 15px 0;
-  color: #1b5e20;
-  font-size: 1.5rem;
-}
-
-.disease-section {
-  margin-bottom: 18px;
-}
-
-.disease-section h4 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #2e7d32;
-  margin-bottom: 8px;
-  font-size: 1rem;
-}
-
-.disease-section p {
-  color: #555;
-  line-height: 1.7;
-  font-size: 0.95rem;
-}
-
-.disease-footer {
-  padding: 20px;
-  background: #f9fff9;
-  border-top: 1px solid #e0f2e9;
-}
-
-.remedy-badge {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  color: #2e7d32;
-}
-
-.remedy-badge p {
-  color: #444;
-  line-height: 1.6;
-  font-size: 0.92rem;
+.theme-dark .disease-search::placeholder {
+  color: #64748b;
 }
 
 @media (max-width: 768px) {
   .disease-header h1 {
-    font-size: 2rem;
+    font-size: 1.8rem;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .disease-header p {
+    font-size: 1rem;
+  }
+
+  .disease-filters {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .search-wrapper {
+    min-width: 280px;
   }
 
   .disease-grid {
     grid-template-columns: 1fr;
+    gap: 20px;
   }
 
-  .disease-card {
-    border-radius: 16px;
+  .disease-title {
+    font-size: 1.3rem;
   }
 }
