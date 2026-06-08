@@ -423,7 +423,7 @@ class RBACMiddleware:
     avoid unnecessary latency and Firebase API calls.
     """
 
-    PUBLIC_PATH_PREFIXES = frozenset({"/", "/health", "/metrics", "/favicon"})
+    PUBLIC_PATH_PREFIXES = frozenset({"/health", "/metrics", "/favicon"})
 
     def __init__(self, app):
         self.app = app
