@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   AreaChart, Area, ReferenceLine
@@ -28,22 +28,75 @@ const MarketPrices = () => {
   const [forecastError, setForecastError] = useState(null);
   const [forecastCommodity, setForecastCommodity] = useState("Wheat");
 
+  const mountedRef = useRef(true);
+  const requestIdRef = useRef(0);
+  const forecastRequestIdRef = useRef(0);
+  const analyticsCacheRef = useRef(new Map());
+  const trendCacheRef = useRef(new Map());
+  const forecastCacheRef = useRef(new Map());
+
   // Derive unique values from the current prices list
   const states = useMemo(() => getUniqueStates(), []);
   const commodities = useMemo(() => getUniqueCommodities(), []);
 
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      requestIdRef.current++;
+      forecastRequestIdRef.current++;
+
+      analyticsCacheRef.current.clear();
+      trendCacheRef.current.clear();
+      forecastCacheRef.current.clear();
+    };
+  }, []);
+
   const loadData = async () => {
+    const requestId = ++requestIdRef.current;
+
     setLoading(true);
+
     try {
       const priceData = await fetchMarketPrices(filters);
-      const trendData = await fetchPriceTrends(selectedCommodity);
-      setPrices(priceData || []);
-      setTrends(trendData || []);
-      setLastUpdated(Date.now());
+      let trendData;
+
+      if (trendCacheRef.current.has(selectedCommodity)) {
+        trendData = trendCacheRef.current.get(selectedCommodity);
+      } else {
+        trendData = await fetchPriceTrends(selectedCommodity);
+        trendCacheRef.current.set(
+          selectedCommodity,
+          trendData || []
+        );
+      }
+
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        setPrices(priceData || []);
+        setTrends(trendData || []);
+        setLastUpdated(Date.now());
+        console.info(
+          `[MARKET_ANALYTICS] prices=${priceData?.length || 0} trends=${trendData?.length || 0}`
+        );
+      }
     } catch (err) {
-      console.error("Failed to load market data:", err);
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        console.error("Failed to load market data:", err);
+      }
     } finally {
-      setLoading(false);
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        setLoading(false);
+      }
     }
   };
 
@@ -53,21 +106,65 @@ const MarketPrices = () => {
 
   // Load forecast when forecast tab is active or commodity changes
   const loadForecast = async (commodity) => {
+    const requestId = ++forecastRequestIdRef.current;
+
     setForecastLoading(true);
     setForecast(null);
     setForecastError(null);
+
     try {
-      const data = await fetchPriceForecast(commodity, 14);
+      let data;
+
+      if (forecastCacheRef.current.has(commodity)) {
+        data = forecastCacheRef.current.get(
+          commodity
+        );
+      } else {
+        data = await fetchPriceForecast(
+          commodity,
+          14
+        );
+
+        if (data) {
+          forecastCacheRef.current.set(
+            commodity,
+            data
+          );
+        }
+      }
+
+      if (
+        !mountedRef.current ||
+        requestId !== forecastRequestIdRef.current
+      ) {
+        return;
+      }
+
       if (data) {
         setForecast(data);
       } else {
-        setForecastError("Failed to generate forecast. Please try again.");
+        setForecastError(
+          "Failed to generate forecast. Please try again."
+        );
       }
     } catch (err) {
-      console.error("Failed to load forecast:", err);
-      setForecastError("An unexpected error occurred while generating the forecast.");
+      if (
+        mountedRef.current &&
+        requestId === forecastRequestIdRef.current
+      ) {
+        console.error("Failed to load forecast:", err);
+
+        setForecastError(
+          "An unexpected error occurred while generating the forecast."
+        );
+      }
     } finally {
-      setForecastLoading(false);
+      if (
+        mountedRef.current &&
+        requestId === forecastRequestIdRef.current
+      ) {
+        setForecastLoading(false);
+      }
     }
   };
 
@@ -93,27 +190,138 @@ const MarketPrices = () => {
 
   // Analytics Calculations
   const analytics = useMemo(() => {
-    if (!prices || prices.length === 0) {
-      return { avg: 0, highest: 0, highestMandi: "N/A", trend: "Stable" };
+    const cacheKey = JSON.stringify(
+      prices.map((p) => ({
+        modalPrice: p.modalPrice,
+        maxPrice: p.maxPrice,
+        mandi: p.mandi,
+      }))
+    );
+
+    if (
+      analyticsCacheRef.current.has(
+        cacheKey
+      )
+    ) {
+      return analyticsCacheRef.current.get(
+        cacheKey
+      );
     }
-    
-    const validPrices = prices.filter(p => !isNaN(p.modalPrice) && p.modalPrice > 0);
-    const avg = validPrices.length > 0 
-      ? (validPrices.reduce((acc, curr) => acc + curr.modalPrice, 0) / validPrices.length).toFixed(0)
-      : 0;
-    
-    const maxRecord = prices.reduce((prev, curr) => 
-      (Number(prev.maxPrice) || 0) > (Number(curr.maxPrice) || 0) ? prev : curr, 
+
+    if (!prices?.length) {
+      return {
+        avg: 0,
+        highest: 0,
+        highestMandi: "N/A",
+        trend: "Stable",
+      };
+    }
+
+    const validPrices = prices.filter(
+      (p) =>
+        !isNaN(p.modalPrice) &&
+        p.modalPrice > 0
+    );
+
+    const avg =
+      validPrices.length > 0
+        ? (
+            validPrices.reduce(
+              (sum, p) =>
+                sum + p.modalPrice,
+              0
+            ) / validPrices.length
+          ).toFixed(0)
+        : 0;
+
+    const maxRecord = prices.reduce(
+      (prev, curr) =>
+        (Number(prev.maxPrice) || 0) >
+        (Number(curr.maxPrice) || 0)
+          ? prev
+          : curr,
       prices[0]
     );
-    
-    return {
+
+    const result = {
       avg,
       highest: maxRecord.maxPrice || 0,
-      highestMandi: maxRecord.mandi || "N/A",
-      trend: "Stable"
+      highestMandi:
+        maxRecord.mandi || "N/A",
+      trend: "Stable",
     };
+
+    analyticsCacheRef.current.set(
+      cacheKey,
+      result
+    );
+
+    return result;
   }, [prices]);
+
+  const filteredPrices = useMemo(() => {
+    return prices.filter((price) => {
+      const matchesSearch =
+        !filters.search ||
+        price.commodity?.toLowerCase().includes(
+          filters.search.toLowerCase()
+        ) ||
+        price.mandi?.toLowerCase().includes(
+          filters.search.toLowerCase()
+        ) ||
+        price.state?.toLowerCase().includes(
+          filters.search.toLowerCase()
+        );
+
+      return matchesSearch;
+    });
+  }, [prices, filters.search]);
+
+
+
+  const forecastChartData = useMemo(() => {
+    if (!forecast?.forecast) return [];
+
+    return forecast.forecast.map((d) => ({
+      date: new Date(d.date).toLocaleDateString('en-IN', {
+        day: 'numeric',
+        month: 'short',
+      }),
+      price: d.price,
+      lower: d.lower_bound,
+      upper: d.upper_bound,
+      band: [d.lower_bound, d.upper_bound],
+    }));
+  }, [forecast]);
+
+  const bestSellDateLabel = useMemo(() => {
+    if (!forecast?.best_sell_date) return '';
+
+    return new Date(forecast.best_sell_date).toLocaleDateString(
+      'en-IN',
+      {
+        day: 'numeric',
+        month: 'short',
+      }
+    );
+  }, [forecast]);
+
+  const forecastRows = useMemo(() => {
+    if (!forecast?.forecast) return [];
+
+    return forecast.forecast.map((d, i) => ({
+      ...d,
+      key: i,
+      formattedDate: new Date(d.date).toLocaleDateString(
+        'en-IN',
+        {
+          weekday: 'short',
+          day: 'numeric',
+          month: 'short',
+        }
+      ),
+    }));
+  }, [forecast]);
 
   return (
     <div className="market-prices-container">
@@ -251,7 +459,7 @@ const MarketPrices = () => {
                 </tr>
               </thead>
               <tbody>
-                {prices.map((price, idx) => (
+                {filteredPrices.map((price, idx) => (
                   <tr key={price.id || idx}>
                     <td><span className="commodity-badge">{price.commodity}</span></td>
                     <td>
@@ -384,14 +592,7 @@ const MarketPrices = () => {
                 >
                   <ResponsiveContainer width="100%" height={380}>
                     <AreaChart
-                      data={forecast.forecast.map(d => ({
-                        date: new Date(d.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }),
-                        price: d.price,
-                        lower: d.lower_bound,
-                        upper: d.upper_bound,
-                        // Recharts area needs [lower, upper] as a range
-                        band: [d.lower_bound, d.upper_bound],
-                      }))}
+                      data={forecastChartData}
                       margin={{ top: 10, right: 20, left: 10, bottom: 0 }}
                     >
                       <defs>
@@ -446,7 +647,7 @@ const MarketPrices = () => {
                       />
                       {/* Mark the best sell date */}
                       <ReferenceLine
-                        x={new Date(forecast.best_sell_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                        x={bestSellDateLabel}
                         stroke="#f59e0b"
                         strokeDasharray="4 3"
                         strokeWidth={2}
@@ -470,9 +671,9 @@ const MarketPrices = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {forecast.forecast.map((d, i) => (
-                          <tr key={i} className={d.date === forecast.best_sell_date ? 'best-sell-row' : ''}>
-                            <td>{new Date(d.date).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}</td>
+                        {forecastRows.map((d) => (
+                          <tr key={d.key} className={d.date === forecast.best_sell_date ? 'best-sell-row' : ''}>
+                            <td>{d.formattedDate}</td>
                             <td className="price-val modal-price">₹{d.price.toLocaleString('en-IN')}</td>
                             <td className="price-val">₹{d.lower_bound.toLocaleString('en-IN')}</td>
                             <td className="price-val">₹{d.upper_bound.toLocaleString('en-IN')}</td>
