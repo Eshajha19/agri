@@ -13,6 +13,8 @@ import re
 from datetime import datetime
 from typing import Any, Optional
 
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ed25519, padding
 from fastapi import APIRouter, Form, HTTPException, Request, Response
 from pydantic import BaseModel, Field, validator
 from reportlab.lib import colors
@@ -338,7 +340,18 @@ async def generate_signed_report(request: Request, data: ReportRequest):
         "date": datetime.now().date().isoformat(),
     }
     report_data_string = json.dumps(signing_payload, sort_keys=True)
-    signature = private_key.sign(report_data_string.encode("utf-8"))
+    report_data_bytes = report_data_string.encode("utf-8")
+    
+    # Handle both Ed25519 and RSA private keys
+    if isinstance(private_key, ed25519.Ed25519PrivateKey):
+        signature = private_key.sign(report_data_bytes)
+    else:
+        # RSA key - requires padding and hash algorithm
+        signature = private_key.sign(
+            report_data_bytes,
+            padding.PKCS1v15(),
+            hashes.SHA256(),
+        )
     sig_id = hashlib.sha256(signature).hexdigest()[:8].upper()
 
     pdf.setFont("Helvetica-Bold", 14)
