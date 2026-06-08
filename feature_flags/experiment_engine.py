@@ -354,9 +354,4 @@ def update_experiment_status(exp_id: str, status: str) -> Optional[Dict]:
 
     if _FIRESTORE_AVAILABLE:
         try:
-            _fs_client.collection(EXP_COLLECTION).document(exp_id).update(
-                {"status": status, "updated_at": _now_iso()}
-            )
-        except Exception as e:
-            logger.error("Failed to update experiment status: %s", e)
-    return _exp_cache[exp_id]
+            _fs_client.collection(EXP_COLLECTION).document(exp_id).update()
