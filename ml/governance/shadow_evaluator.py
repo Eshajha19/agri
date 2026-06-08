@@ -158,16 +158,6 @@ class ShadowEvaluator:
         # Calculate improvement
         error_reduction = (prod_mean_error - cand_mean_error) / (prod_mean_error + 1e-10)
         
-        # Determine recommendation
-        candidate_better = error_reduction > self.error_improvement_threshold
-        
-        if candidate_better:
-            recommendation = 'promote'
-        elif error_reduction > 0:
-            recommendation = 'keep_monitoring'
-        else:
-            recommendation = 'reject'
-        
         # Calculate confidence based on consistency
         variance_improvement = float(
             np.std(production_errors) - np.std(candidate_errors)
@@ -177,6 +167,16 @@ class ShadowEvaluator:
         confidence_score = float(
             min(1.0, (abs(error_reduction) + abs(variance_improvement)) / 2.0)
         )
+        
+        # Determine recommendation (confidence threshold enforced)
+        candidate_better = error_reduction > self.error_improvement_threshold
+        
+        if candidate_better and confidence_score >= self.confidence_threshold:
+            recommendation = 'promote'
+        elif error_reduction > 0:
+            recommendation = 'keep_monitoring'
+        else:
+            recommendation = 'reject'
         
         result = ShadowEvaluation(
             timestamp=datetime.now().isoformat(),
