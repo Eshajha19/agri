@@ -515,6 +515,19 @@ class SupplyChainBlockchain:
                 })
         return certified
 
+    def _snapshot_state(self) -> Dict:
+        """Snapshot mutable state for rollback."""
+        return {
+            "_trace_batches": dict(self._trace_batches),
+            "chain": list(self.chain),
+        }
+
+    def _rollback(self, snapshot: Dict) -> None:
+        """Restore state from a snapshot."""
+        self._trace_batches.clear()
+        self._trace_batches.update(snapshot["_trace_batches"])
+        self.chain = snapshot["chain"]
+
     # ------------- QR Traceability (farmer-facing) -------------
 
     def register_trace_batch(self, payload: Dict) -> Dict:
@@ -532,6 +545,8 @@ class SupplyChainBlockchain:
         if batch_id in self._trace_batches:
             raise ValueError(f"Batch {batch_id} is already registered")
 
+        snapshot = self._snapshot_state()
+
         entry = {
             "id": batch_id,
             "crop": payload.get("crop", ""),
@@ -543,18 +558,23 @@ class SupplyChainBlockchain:
             "registeredAt": datetime.utcnow().isoformat() + "Z",
             "journey": payload.get("journey", []),
         }
-        self._trace_batches[batch_id] = entry
 
-        # Also record the registration on the blockchain for auditability.
-        record = BlockchainRecord(
-            timestamp=entry["registeredAt"],
-            actor=entry["registeredByUid"] or "unknown",
-            action="trace_batch_registered",
-            location=entry["farm"],
-            data={"batch_id": batch_id, "crop": entry["crop"]},
-        )
-        record.hash = record.calculate_hash()
-        self.chain.append(record)
+        try:
+            self._trace_batches[batch_id] = entry
+
+            # Also record the registration on the blockchain for auditability.
+            record = BlockchainRecord(
+                timestamp=entry["registeredAt"],
+                actor=entry["registeredByUid"] or "unknown",
+                action="trace_batch_registered",
+                location=entry["farm"],
+                data={"batch_id": batch_id, "crop": entry["crop"]},
+            )
+            record.hash = record.calculate_hash()
+            self.chain.append(record)
+        except Exception:
+            self._rollback(snapshot)
+            raise
 
         return entry
 
