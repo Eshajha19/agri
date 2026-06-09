@@ -11,6 +11,18 @@ from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
+# Maximum body size to scan (256 KB)
+MAX_SCAN_BODY_SIZE = 256 * 1024
+# Content-Types that are eligible for body scanning
+SCANNABLE_CONTENT_TYPES = frozenset({
+    "application/json",
+    "text/plain",
+    "text/html",
+    "application/x-www-form-urlencoded",
+    "application/xml",
+    "text/xml",
+})
+
 class Finding:
     """Represents a sensitive data finding during scanning."""
     def __init__(self, category: str, matched_text: str, location: str):
@@ -109,6 +121,22 @@ class RuntimeProtectionMiddleware(BaseHTTPMiddleware):
             try:
                 body_bytes = await request.body()
                 if 0 < len(body_bytes) <= MAX_SCAN_BODY_SIZE:
+        content_type = (request.headers.get("content-type") or "").lower().split(";")[0].strip()
+        content_length_str = request.headers.get("content-length", "0")
+        try:
+            content_length = int(content_length_str)
+        except (ValueError, TypeError):
+            content_length = 0
+
+        should_scan = (
+            content_type in SCANNABLE_CONTENT_TYPES
+            and 0 < content_length <= MAX_SCAN_BODY_SIZE
+        )
+
+        if should_scan:
+            try:
+                body_bytes = await request.body()
+                if len(body_bytes) <= MAX_SCAN_BODY_SIZE:
                     body_str = body_bytes.decode("utf-8", errors="ignore")
                     findings = self.program.scan_text(body_str, location="middleware")
                     if findings:
