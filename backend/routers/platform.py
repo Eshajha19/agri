@@ -37,6 +37,11 @@ class AlertTriggerRequest(BaseModel):
     alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
     message: str = Field(..., min_length=1, max_length=500)
 
+    @validator("message")
+    def strip_control_chars(cls, v):
+        from whatsapp_service import sanitise_message
+        return sanitise_message(v)
+
 
 class ReportRequest(BaseModel):
     name: str = Field(..., max_length=100, description="Full name of the farmer")

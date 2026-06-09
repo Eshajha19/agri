@@ -38,6 +38,7 @@ Fix
 
 import logging
 import os
+import re
 
 from dotenv import load_dotenv
 from twilio.base.exceptions import TwilioRestException
@@ -176,6 +177,11 @@ def send_whatsapp_message(to_number: str, message_body: str) -> dict:
         return {"success": False, "status": "error", "error": str(exc)}
 
 
+def sanitise_message(text: str) -> str:
+    """Strip ASCII control characters (0x00-0x1F, 0x7F) except \\n, \\r, \\t."""
+    return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
+
+
 def format_alert_message(alert_type: str, content: str) -> str:
     """
     Format an alert payload into a WhatsApp-friendly message string.
@@ -192,6 +198,7 @@ def format_alert_message(alert_type: str, content: str) -> str:
     str
         Formatted WhatsApp message with emoji header and footer.
     """
+    content = sanitise_message(content)
     header = "🌾 *Fasal Saathi Alert* 🌾\n\n"
 
     icons = {
