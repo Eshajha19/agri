@@ -114,9 +114,14 @@ class NotificationBroadcastHub:
     available, the hub also publishes to a Redis channel so multiple workers can
     fan out the same event across processes.
 
-    Each WebSocket connection is bound to a Firebase UID; snapshots and live
-    events are filtered so clients only receive notifications they are allowed
-    to see (broadcast or targeted to their UID).
+    Parameters
+    ----------
+    authenticate : callable, optional
+        Async callable ``(token: str) -> dict`` that returns decoded token data
+        on success or raises on failure.  When provided, ``connect()`` requires
+        the client to send a JSON message ``{"token": "..."}`` as the first
+        frame; if validation fails the socket is closed with code 1008.
+        The token is never exposed in URLs, query strings, or proxy logs.
     """
 
     def __init__(
@@ -124,9 +129,7 @@ class NotificationBroadcastHub:
         history_limit: int = 200,
         redis_url: Optional[str] = None,
         redis_channel: str = "fasal_saathi.notifications",
-        enable_persistence: bool = True,
-        dedup_window_seconds: int = 300,
-        max_delivery_records: int = MAX_DELIVERY_RECORDS,
+        authenticate: Optional[callable] = None,
     ) -> None:
         self._history: Deque[Dict[str, Any]] = collections.deque(maxlen=history_limit)
         self._connections: dict[WebSocket, _ConnectionSubscription] = {}
@@ -144,6 +147,11 @@ class NotificationBroadcastHub:
         self._retry_processor_task: Optional[asyncio.Task] = None
         self._priority_processor_task: Optional[asyncio.Task] = None
         self._started = False
+        self._authenticate = authenticate
+
+    def set_authenticate(self, func: callable) -> None:
+        """Set the token verification callable (injected at runtime)."""
+        self._authenticate = func
 
         # Persistence and delivery tracking
         self._enable_persistence = enable_persistence
@@ -352,14 +360,31 @@ class NotificationBroadcastHub:
 
         return event
 
-    async def connect(self, websocket: WebSocket, uid: str, regions: Optional[Iterable[str]] = None) -> None:
-        """Accept a websocket client and keep it subscribed until disconnect."""
+    async def connect(self, websocket: WebSocket) -> None:
+        """Accept a websocket client and keep it subscribed until disconnect.
 
+        If an ``authenticate`` callable was provided, the client **must** send
+        a JSON message ``{"token": "..."}`` as the very first frame.
+        Authentication via the first message keeps the token out of URLs,
+        query strings, and proxy/analytics logs.
+        """
         await websocket.accept()
-        region_scopes = frozenset(resolve_subscription_regions({"role": "guest"}, regions))
-        # Parse crop subscriptions from query params (comma-separated)
-        raw_crops = websocket.query_params.get("crops") or ""
-        crop_scopes = frozenset(c.strip() for c in raw_crops.split(",") if c.strip())
+
+        if self._authenticate is not None:
+            try:
+                msg = await asyncio.wait_for(websocket.receive_json(), timeout=10)
+                token = msg.get("token", "") if isinstance(msg, dict) else ""
+                if not token:
+                    raise ValueError("Missing token")
+                self._authenticate(token)
+            except Exception:
+                try:
+                    await websocket.send_json({"type": "error", "message": "Authentication failed"})
+                    await websocket.close(code=1008)
+                except Exception:
+                    pass
+                return
+
         async with self._history_lock:
             self._connections[websocket] = _ConnectionSubscription(
                 uid=uid, regions=region_scopes, crops=crop_scopes
