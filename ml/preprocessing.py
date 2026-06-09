@@ -116,7 +116,9 @@ class FeaturePreprocessor:
         # This prevents invalid values from reaching the model
         validated_data = validate_ml_inputs(input_data)
         
+        # Ensure deterministic column order from the start
         df = pd.DataFrame([validated_data])
+        df = df.reindex(sorted(df.columns), axis=1)
 
         # --- Validate categorical values against training vocabulary ---
         if self.category_vocab:
@@ -211,6 +213,9 @@ class FeaturePreprocessor:
 
             # Reorder columns to exactly match model expectations and drop extras.
             df = df[self.feature_cols]
+        else:
+            # If no feature_cols are provided, still ensure deterministic order
+            df = df.reindex(sorted(df.columns), axis=1)
 
         return df
 
