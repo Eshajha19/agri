@@ -1,0 +1,7 @@
+{
+  "scan_extensions": [".py", ".json", ".yaml", ".yml", ".toml", ".txt", ".md", ".ini"],
+  "excluded_dirs": [".git", ".github", ".venv", "venv", "env", "node_modules", "dist", "build", "tests", "__pycache__", ".pytest_cache", ".mypy_cache", "logs"],
+  "requirement_files": ["requirements.txt", "requirements-dev.txt"],
+  "forbidden_requirement_patterns": ["^\\s*-e\\s+", "^\\s*git\\+", "^\\s*https?://", "^\\s*file:", "^\\s*--extra-index-url", "^\\s*--find-links"],
+  "blocked_dependencies": ["unsafe-package-example"]
+}

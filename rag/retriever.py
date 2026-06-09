@@ -2,6 +2,8 @@
 RAG Retriever — TF-IDF based document retrieval using scikit-learn.
 No external vector DB required.
 """
+import threading
+
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
@@ -39,10 +41,13 @@ class RAGRetriever:
 
 # Singleton instance — loaded once at startup
 _retriever_instance: RAGRetriever | None = None
+_retriever_lock = threading.Lock()
 
 
 def get_retriever() -> RAGRetriever:
     global _retriever_instance
     if _retriever_instance is None:
-        _retriever_instance = RAGRetriever()
+        with _retriever_lock:
+            if _retriever_instance is None:
+                _retriever_instance = RAGRetriever()
     return _retriever_instance
