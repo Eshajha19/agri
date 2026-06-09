@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from advisory_rules import generate_advisories
 
@@ -71,13 +71,24 @@ class _BoundedUidStore:
         """Ensure *uid* has a deque entry, evicting the LRU entry if needed.
 
         Must be called with ``self._lock`` already held.
+
+        Uses a retry loop to guarantee the size limit is respected even
+        under high concurrency where multiple threads may observe the
+        same pre-eviction size.  Each iteration evicts one LRU entry and
+        rechecks the size, ensuring that when we finally add the new entry
+        the store is guaranteed to be within capacity.
         """
-        if uid in self._data:
-            self._data.move_to_end(uid)
-        else:
-            if len(self._data) >= self._max_uids:
-                self._data.popitem(last=False)  # evict LRU
-            self._data[uid] = deque(maxlen=self._deque_maxlen)
+        with self._lock:
+            while True:
+                if uid in self._data:
+                    self._data.move_to_end(uid)
+                    return
+                if len(self._data) < self._max_uids:
+                    self._data[uid] = deque(maxlen=self._deque_maxlen)
+                    return
+                # Capacity reached — evict one entry and retry to ensure we
+                # never exceed _max_uids even under concurrent contention.
+                self._data.popitem(last=False)
 
 
 _stored_alerts = _BoundedUidStore(deque_maxlen=_MAX_STORED_ALERTS)
@@ -419,7 +430,9 @@ def _store_graph_history(uid: str, entry: dict[str, Any]) -> str:
     if _db is not None:
         try:
             _db.collection("users").document(uid).collection("farm_intelligence_history").document(history_id).set(record, merge=True)
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.error(f"Advisory error: {e}")
             # Firestore unavailable — the in-memory write below still
             # preserves the entry for the current process session.
             pass
@@ -440,8 +453,12 @@ def _load_graph_history(uid: str) -> list[dict[str, Any]]:
             if items:
                 items.sort(key=lambda item: item.get("createdAt", ""), reverse=True)
                 return items
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Firestore history lookup failed for uid=%s, falling back to in-memory store: %s",
+                uid,
+                exc,
+            )
 
     return _graph_history.get(uid)
 
@@ -473,6 +490,35 @@ async def _get_authenticated_uid(request: Request) -> str:
 # Pydantic models
 # ---------------------------------------------------------------------------
 
+# Maximum number of top-level keys accepted in any advisory dict field.
+# Prevents memory exhaustion from oversized payloads submitted by authenticated
+# users (FarmIntelligenceRequest) or anonymous callers (AdvisoryRequest).
+_MAX_DICT_KEYS = 50
+# Maximum character length for any string value inside a dict field.
+_MAX_DICT_VALUE_LEN = 500
+
+
+def _validate_advisory_dict(value: dict[str, Any], field_name: str) -> dict[str, Any]:
+    """Enforce key count and value length limits on advisory dict fields."""
+    if len(value) > _MAX_DICT_KEYS:
+        raise ValueError(
+            f"{field_name} must not exceed {_MAX_DICT_KEYS} keys (got {len(value)})"
+        )
+    for k, v in value.items():
+        if isinstance(v, dict):
+            # Nested dicts are flattened for advisory scoring; block deep nesting
+            # to prevent combinatorial traversal cost.
+            if len(v) > _MAX_DICT_KEYS:
+                raise ValueError(
+                    f"{field_name}.{k} sub-dict must not exceed {_MAX_DICT_KEYS} keys"
+                )
+        elif isinstance(v, str) and len(v) > _MAX_DICT_VALUE_LEN:
+            raise ValueError(
+                f"{field_name}.{k} value length must not exceed {_MAX_DICT_VALUE_LEN} characters"
+            )
+    return value
+
+
 class AdvisoryRequest(BaseModel):
     model_config = {"extra": "forbid"}  # reject unknown fields (e.g. user_id)
 
@@ -480,6 +526,23 @@ class AdvisoryRequest(BaseModel):
     soil: dict[str, Any] = Field(default_factory=dict)
     crop_type: Optional[str] = Field(default=None, max_length=50)
     store_alerts: bool = False
+
+    @field_validator("crop_type", mode="before")
+    @classmethod
+    def _strip_and_reject_whitespace_only(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            stripped = v.strip()
+            if stripped == "":
+                raise ValueError("crop_type must not be blank or whitespace-only")
+            return stripped
+        return v
+
+    @field_validator("weather", "soil", mode="before")
+    @classmethod
+    def _limit_dict_size(cls, v: Any, info) -> Any:
+        if isinstance(v, dict):
+            return _validate_advisory_dict(v, info.field_name)
+        return v
 
 
 class FarmIntelligenceRequest(BaseModel):
@@ -493,6 +556,23 @@ class FarmIntelligenceRequest(BaseModel):
     location: Optional[str] = Field(default=None, max_length=120)
     store_history: bool = True
 
+    @field_validator("crop_type", "location", mode="before")
+    @classmethod
+    def _strip_and_reject_whitespace_only(cls, v: Any, info) -> Any:
+        if isinstance(v, str):
+            stripped = v.strip()
+            if stripped == "" and info.field_name == "crop_type":
+                raise ValueError("crop_type must not be blank or whitespace-only")
+            return stripped
+        return v
+
+    @field_validator("weather", "soil", "pest", "market", mode="before")
+    @classmethod
+    def _limit_dict_size(cls, v: Any, info) -> Any:
+        if isinstance(v, dict):
+            return _validate_advisory_dict(v, info.field_name)
+        return v
+
 
 # ---------------------------------------------------------------------------
 # Endpoints
@@ -501,20 +581,34 @@ class FarmIntelligenceRequest(BaseModel):
 @router.post("/advisory")
 async def create_advisory(payload: AdvisoryRequest, request: Request):
     """
-    Generate rule-based farm advisories for the authenticated user.
+    Generate rule-based farm advisories.
 
     If store_alerts is True the generated alerts are persisted server-side
-    under the caller's verified Firebase UID — never under a client-supplied
-    user_id — so they can be retrieved later via GET /advisory/me.
+    under the caller's verified Firebase UID so they can be retrieved later
+    via GET /advisory/me.
 
-    Authentication is required when store_alerts is True so that:
+    Authentication is required when store_alerts is True:
     1. Alerts are always bound to a verified identity.
-    2. An unauthenticated caller cannot pollute another user's alert store
-       by guessing or enumerating Firebase UIDs (IDOR).
+    2. An unauthenticated caller cannot pollute another user's alert store.
 
-    Unauthenticated callers may still generate transient advisories
-    (store_alerts=False) for the climate simulator and public widgets.
+    Unauthenticated callers may generate transient advisories
+    (store_alerts=False) for the climate simulator and public widgets but are
+    subject to a rate limit to prevent unbounded advisory engine load.
     """
+    # Rate-limit all callers (authenticated and anonymous alike) to prevent
+    # unbounded rule-evaluation passes triggered by anonymous clients sending
+    # large payloads at high frequency.
+    from compute_rate_limit import enforce_compute_rate_limit
+    rate_response = enforce_compute_rate_limit(
+        request,
+        scope="advisory",
+        uid=None,
+        limit=30,
+        window_seconds=60,
+    )
+    if rate_response is not None:
+        return rate_response
+
     alerts = generate_advisories(
         weather=payload.weather,
         soil=payload.soil,
@@ -542,14 +636,35 @@ async def create_advisory(payload: AdvisoryRequest, request: Request):
 async def create_farm_intelligence(payload: "FarmIntelligenceRequest", request: Request):
     uid = await _get_authenticated_uid(request)
     result = _build_farm_graph(payload)
+    # Cap each user-supplied dict to at most _HISTORY_DICT_KEY_CAP entries before
+    # writing to Firestore. The advisory engine only inspects a small set of known
+    # keys, so truncating any excess is safe and prevents permanently storing
+    # multi-kilobyte documents from over-sized request payloads.
+    _HISTORY_DICT_KEY_CAP = 30
+    # Fields that must be preserved even if they exceed the cap.
+    # These are visibility-critical fields that users depend on.
+    _PRESERVED_FIELDS = {"region_id", "farm_id", "user_id", "visibility"}
+
+    def _cap_dict(d: dict) -> dict:
+        if not isinstance(d, dict):
+            return {}
+        # Preserve critical fields, then fill remaining slots with other entries
+        preserved = {k: v for k, v in d.items() if k in _PRESERVED_FIELDS}
+        other_items = [
+            (k, v) for k, v in d.items()
+            if k not in _PRESERVED_FIELDS
+        ][: _HISTORY_DICT_KEY_CAP - len(preserved)]
+        result_dict = {**preserved, **dict(other_items)}
+        return result_dict
+
     history_entry = {
         "uid": uid,
         "crop_type": payload.crop_type,
         "location": payload.location,
-        "weather": payload.weather,
-        "soil": payload.soil,
-        "pest": payload.pest,
-        "market": payload.market,
+        "weather": _cap_dict(payload.weather),
+        "soil": _cap_dict(payload.soil),
+        "pest": _cap_dict(payload.pest),
+        "market": _cap_dict(payload.market),
         "graph": result["graph"],
         "reasoning": result["reasoning"],
         "recommendations": result["recommendations"],

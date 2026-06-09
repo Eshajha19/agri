@@ -1,12 +1,15 @@
 """Farmer referral and village growth router."""
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from firebase_admin import firestore
+
+import logging
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -33,7 +36,7 @@ def init_referrals(db_resolver, vr_fn):
 
 
 def _now_iso() -> str:
-    return datetime.utcnow().isoformat() + "Z"
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _normalize_referral_code(code: str) -> str:
@@ -399,6 +402,8 @@ async def redeem_referral_code(payload: RedeemReferralRequest, request: Request)
         transaction.set(
             referral_ref,
             {
+                "eligibilityVerified": True,
+                "validationSource": "server_side",
                 "inviterUid": inviter_uid,
                 "inviteeUid": invitee_uid,
                 "inviteeName": (invitee_data or {}).get("displayName") or "Farmer",
@@ -453,6 +458,14 @@ async def redeem_referral_code(payload: RedeemReferralRequest, request: Request)
         transaction, invitee_ref, inviter_ref, referral_ref, reward_history_ref
     )
 
+    logger.info(
+        "[REFERRAL_AUDIT] inviter=%s invitee=%s code=%s referrals=%s",
+        inviter_uid,
+        invitee_uid,
+        normalized_code,
+        inviter_count,
+    )
+
     return {
         "success": True,
         "message": "Referral redeemed successfully",
@@ -464,7 +477,6 @@ async def redeem_referral_code(payload: RedeemReferralRequest, request: Request)
             "inviterBadge": _referral_badge(inviter_count),
         },
     }
-
 
 @router.get("/history")
 async def get_referral_history(request: Request, limit: int = Query(default=20, ge=1, le=100)):

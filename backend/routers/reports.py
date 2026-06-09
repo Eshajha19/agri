@@ -18,8 +18,10 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
 
+from backend.core.logging_config import setup_logging
+
 router = APIRouter()
-logger = logging.getLogger(__name__)
+logger = setup_logging(__name__)
 
 # ---------------------------------------------------------------------------
 # Validation bounds — intentionally generous to accommodate large commercial
@@ -27,7 +29,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _PROFIT_MAX_INR = 50_000_000   # ₹5 crore per season
 _AREA_MAX_ACRES = 10_000       # 10,000 acres
-
+MAX_EXPORT_RECORDS = 5000      # Future safeguard for large dataset exports
 # Regex that matches a valid Indian-locale number string produced by the
 # frontend (e.g. "50,000" or "1,00,000") or a plain integer string.
 _NUMERIC_RE = re.compile(r"^[\d,]+(\.\d+)?$")
@@ -90,15 +92,47 @@ class ReportRequest(BaseModel):
 verify_role_fn = None
 get_signing_keys_fn = None
 sanitise_log_field_fn = None
-logger_instance = None
 
 
-def init_reports(vr_fn, gsk_fn, slf_fn, log_inst):
-    global verify_role_fn, get_signing_keys_fn, sanitise_log_field_fn, logger_instance
+from typing import Callable, Optional
+
+def init_reports(
+    vr_fn: Callable,
+    gsk_fn: Callable,
+    slf_fn: Optional[Callable] = None,
+) -> None:
+    """
+    Initialize report router dependencies.
+
+    Args:
+        vr_fn: Authentication/authorization verifier.
+        gsk_fn: Signing key provider.
+        slf_fn: Optional log field sanitization function.
+
+    Raises:
+        ValueError: If required dependencies are missing.
+    """
+    global verify_role_fn, get_signing_keys_fn, sanitise_log_field_fn
+
+    if vr_fn is None:
+        raise ValueError("verify_role_fn cannot be None")
+
+    if gsk_fn is None:
+        raise ValueError("get_signing_keys_fn cannot be None")
+
     verify_role_fn = vr_fn
     get_signing_keys_fn = gsk_fn
     sanitise_log_field_fn = slf_fn
-    logger_instance = log_inst
+
+    logger.info(
+        "reports.router.initialized "
+        "auth_provider=%s "
+        "key_provider=%s "
+        "sanitizer_enabled=%s",
+        getattr(vr_fn, "__name__", type(vr_fn).__name__),
+        getattr(gsk_fn, "__name__", type(gsk_fn).__name__),
+        slf_fn is not None,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -265,11 +299,47 @@ async def generate_signed_report(request: Request, data: ReportRequest):
         cert_id = _make_cert_id(data)
         signature_hex = _sign_report(private_key, data, cert_id)
         pdf_bytes = _build_pdf(data, signature_hex, cert_id)
+        MAX_PDF_SIZE_MB = 10
+
+        if len(pdf_bytes) > MAX_PDF_SIZE_MB * 1024 * 1024:
+            logger.error(
+                "Export validation failed: PDF exceeds size limit (%s bytes)",
+                len(pdf_bytes),
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Generated report exceeds supported export size",
+            )
+        
+        if not pdf_bytes.startswith(b"%PDF"):
+            logger.error(
+                "Export validation failed: Invalid PDF structure for certificate %s",
+                cert_id,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Generated report failed integrity validation",
+            )
+        
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"PDF generation error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to generate report")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate report",
+        )
 
     filename = f"FasalSaathi_BankReport_{cert_id}.pdf"
+
+    logger.info(
+        "[EXPORT_AUDIT] cert_id=%s size_bytes=%s farmer=%s crop=%s",
+        cert_id,
+        len(pdf_bytes),
+        data.name,
+        data.crop,
+    )
+    
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",

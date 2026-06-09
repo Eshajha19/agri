@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -8,16 +9,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Sentinel used by FarmFinanceAI.get_application() to distinguish between
-# "caller explicitly passed None (admin bypass)" and "caller omitted the
-# argument (deny by default)".
-#
-# Defined at module level rather than as a class attribute so that:
-# 1. It cannot be read via FarmFinanceAI._IDOR_GUARD and passed back to
-#    bypass the ownership check.
-# 2. It is created exactly once for the lifetime of the module, regardless
-#    of how many FarmFinanceAI instances are created or destroyed.
-_OWNER_UID_NOT_PROVIDED = object()
+# Maximum number of loan applications to keep in memory
+# Prevents unbounded memory growth when using in-memory storage
+MAX_IN_MEMORY_APPLICATIONS = 10000
 
 
 @dataclass(frozen=True)
@@ -120,7 +114,7 @@ class FarmFinanceAI:
                 requires_collateral=True,
             ),
         ]
-        self.applications: Dict[str, FinanceApplication] = {}
+        self.applications: OrderedDict[str, FinanceApplication] = OrderedDict()
         self.repository = repository
         logger.info("FarmFinanceAI initialized with %s", "persistent repository" if repository else "in-memory storage")
 
@@ -136,8 +130,13 @@ class FarmFinanceAI:
         crop_type = data["crop_type"]
 
         annual_profit = annual_revenue - annual_operating_cost
-        profit_margin = annual_profit / annual_revenue if annual_revenue else 0.0
-        debt_ratio = existing_debt / annual_revenue if annual_revenue else 1.0
+        # Profit margin is undefined/negative when revenue <= 0
+        if annual_revenue > 0:
+            profit_margin = annual_profit / annual_revenue
+            debt_ratio = existing_debt / annual_revenue
+        else:
+            profit_margin = -1.0  # Indicates invalid/negative revenue scenario
+            debt_ratio = 1.0      # Maximum risk
         monthly_surplus = annual_profit / 12 if annual_profit > 0 else 0.0
         emergency_cover_months = emergency_fund / (annual_operating_cost / 12 if annual_operating_cost else 1.0)
         crop_risk = self._crop_risk_factor(crop_type)
@@ -246,6 +245,10 @@ class FarmFinanceAI:
         if analysis["financial_health_score"] < 45:
             status = "needs_documents"
 
+        # Enforce in-memory application limit when no persistent repository is configured
+        if self.repository is None and len(self.applications) >= MAX_IN_MEMORY_APPLICATIONS:
+            raise RuntimeError(f"In-memory application limit ({MAX_IN_MEMORY_APPLICATIONS}) reached. Configure a persistent repository to continue.")
+        
         application = FinanceApplication(
             application_id=application_id,
             farmer_name=analysis["farmer_name"],
@@ -280,7 +283,7 @@ class FarmFinanceAI:
             self.repository.create(app_dict)
             logger.info("Application %s persisted to repository.", application_id)
 
-        self.applications[application_id] = application
+        self._store_application(application_id, application)
 
         return {
             "application_id": application.application_id,
@@ -373,6 +376,15 @@ class FarmFinanceAI:
             "notes": application.notes,
         }
 
+    def _store_application(self, application_id: str, application: FinanceApplication) -> None:
+        if MAX_IN_MEMORY_APPLICATIONS <= 0:
+            return
+        if application_id in self.applications:
+            del self.applications[application_id]
+        while len(self.applications) >= MAX_IN_MEMORY_APPLICATIONS:
+            self.applications.popitem(last=False)
+        self.applications[application_id] = application
+
     def delete_application(self, application_id: str) -> bool:
         """Delete a finance application from both the repository and the
         in-memory cache.
@@ -432,7 +444,7 @@ class FarmFinanceAI:
                 if value in (None, ""):
                     return default
                 return int(float(value))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 return default
 
         return {
@@ -445,7 +457,7 @@ class FarmFinanceAI:
             "emergency_fund": to_float(payload.get("emergency_fund"), 0.0),
             "credit_score": max(300, min(900, to_int(payload.get("credit_score"), 650))),
             "requested_loan_amount": to_float(payload.get("requested_loan_amount"), 0.0),
-            "loan_tenure_months": max(6, to_int(payload.get("loan_tenure_months"), 36)),
+            "loan_tenure_months": min(120, max(6, to_int(payload.get("loan_tenure_months"), 36))),
         }
 
     def _crop_risk_factor(self, crop_type: str) -> float:
@@ -560,18 +572,28 @@ class FarmFinanceAI:
         monthly_rate = annual_interest_rate / 12 / 100
         if monthly_emi <= 0 or tenure_months <= 0:
             return 0.0
+        if tenure_months > MAX_LOAN_TENURE_MONTHS:
+            tenure_months = MAX_LOAN_TENURE_MONTHS
         if monthly_rate == 0:
             return monthly_emi * tenure_months
-        growth = (1 + monthly_rate) ** tenure_months
+        try:
+            growth = (1 + monthly_rate) ** tenure_months
+        except OverflowError:
+            return monthly_emi / monthly_rate
         return monthly_emi * ((growth - 1) / (monthly_rate * growth))
 
     def _calculate_emi(self, principal: float, annual_interest_rate: float, tenure_months: int) -> float:
         if principal <= 0 or tenure_months <= 0:
             return 0.0
         monthly_rate = annual_interest_rate / 12 / 100
+        if tenure_months > MAX_LOAN_TENURE_MONTHS:
+            tenure_months = MAX_LOAN_TENURE_MONTHS
         if monthly_rate == 0:
             return principal / tenure_months
-        growth = (1 + monthly_rate) ** tenure_months
+        try:
+            growth = (1 + monthly_rate) ** tenure_months
+        except OverflowError:
+            return principal * monthly_rate
         return principal * monthly_rate * growth / (growth - 1)
 
     def _action_plan(self, score: float, debt_ratio: float, emergency_cover_months: float) -> List[str]:

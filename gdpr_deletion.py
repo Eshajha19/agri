@@ -15,6 +15,9 @@ from typing import Any, Callable, Iterable
 logger = logging.getLogger(__name__)
 
 
+_TERMINAL_REQUEST_STATUSES = {"completed", "completed_with_errors"}
+
+
 @dataclass(slots=True)
 class DeletionTarget:
     """A user-scoped data sink that can be purged at deletion time."""
@@ -63,7 +66,15 @@ class GDPRDeletionManager:
         self._request_lock = threading.RLock()
         self._audit_lock = threading.Lock()
         self._requests: dict[str, GDPRDeletionRequest] = {}
+        self._post_deletion_hooks: list[Callable[[str], Any]] = []
         self._load_requests()
+
+    @staticmethod
+    def _should_keep_in_memory(request: GDPRDeletionRequest) -> bool:
+        return request.status not in _TERMINAL_REQUEST_STATUSES
+    def register_post_deletion_hook(self, callback_fn: Callable[[str], Any]) -> None:
+        """Register a callback to be run after a deletion request is completed."""
+        self._post_deletion_hooks.append(callback_fn)
 
     def _ensure_parent(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -99,7 +110,10 @@ class GDPRDeletionManager:
                         retained_entities=list(payload.get("retained_entities", [])),
                         target_results=list(payload.get("target_results", [])),
                     )
-                    self._requests[request.request_id] = request
+                    if self._should_keep_in_memory(request):
+                        self._requests[request.request_id] = request
+                    else:
+                        self._requests.pop(request.request_id, None)
         except Exception as exc:
             logger.warning("Unable to load GDPR deletion requests: %s", exc)
 
@@ -107,7 +121,10 @@ class GDPRDeletionManager:
         payload = asdict(request)
         self._append_jsonl(self.request_log_path, payload, self._request_lock)
         with self._request_lock:
-            self._requests[request.request_id] = request
+            if self._should_keep_in_memory(request):
+                self._requests[request.request_id] = request
+            else:
+                self._requests.pop(request.request_id, None)
         return request
 
     def _record_audit(self, event: GDPRAuditEvent) -> GDPRAuditEvent:
@@ -253,6 +270,13 @@ class GDPRDeletionManager:
             request.retained_entities = retained_entities
             request.target_results = target_results
             self._record_request(request)
+
+        # Trigger registered post-deletion callbacks
+        for hook in self._post_deletion_hooks:
+            try:
+                hook(request.uid)
+            except Exception as exc:
+                logger.error("Error executing post-deletion hook for user %s: %s", request.uid, exc)
 
         self._record_audit(
             GDPRAuditEvent(

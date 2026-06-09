@@ -15,6 +15,10 @@ GITHUB_REPO = os.getenv("GITHUB_CONTRIBUTORS_REPO", "agri")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN") or os.getenv("GITHUB_API_TOKEN")
 CACHE_TTL_SECONDS = int(os.getenv("GITHUB_CONTRIBUTORS_CACHE_TTL", "300"))
 
+# Limit contributor records returned to community feeds to reduce
+# rendering overhead and improve scalability in high-engagement views.
+MAX_VISIBLE_CONTRIBUTORS = 50
+
 _contributors_cache = {"expires_at": 0.0, "data": []}
 
 # asyncio.Lock serialises concurrent cache-miss fetches within a single
@@ -58,14 +62,17 @@ def _set_cached_contributors(data):
 
 
 @router.get("/contributors")
-async def get_contributors(per_page: int = Query(default=100, ge=1, le=100)):
+async def get_contributors(
+    per_page: int = Query(default=100, ge=1, le=100),
+    limit: int = Query(default=20, ge=1, le=50),
+):
     # Fast path: return cached data without acquiring the lock.
     # The check is a single dict read — safe to do outside the lock because
     # Python's GIL makes individual dict reads atomic, and a stale-but-valid
     # cache hit is always acceptable.
     cached = _get_cached_contributors()
     if cached is not None:
-        return {"success": True, "source": "cache", "contributors": cached}
+        return {"success": True, "source": "cache", "contributors": cached[:limit], "total": len(cached)}
 
     # Slow path: cache is expired.  Acquire the lock so only one coroutine
     # fetches from GitHub while others wait.  After the lock is released the
@@ -75,7 +82,7 @@ async def get_contributors(per_page: int = Query(default=100, ge=1, le=100)):
         # populated the cache while we were waiting to acquire it.
         cached = _get_cached_contributors()
         if cached is not None:
-            return {"success": True, "source": "cache", "contributors": cached}
+            return {"success": True, "source": "cache", "contributors": cached[:limit], "total": len(cached)}
 
         headers = {
             "Accept": "application/vnd.github+json",
@@ -110,8 +117,20 @@ async def get_contributors(per_page: int = Query(default=100, ge=1, le=100)):
                 if isinstance(item, dict) and item.get("login")
             ]
 
+            contributors = contributors[:MAX_VISIBLE_CONTRIBUTORS]
+
+            logger.info(
+                "[COMMUNITY_FEED] contributors=%s source=github",
+                len(contributors),
+            )
+
             _set_cached_contributors(contributors)
-            return {"success": True, "source": "github", "contributors": contributors}
+            return {
+                "success": True,
+                "source": "github",
+                "contributors": contributors[:limit],
+                "total": len(contributors),
+            }
         except httpx.TimeoutException as exc:
             logger.warning("Contributor fetch timed out: %s", exc)
             raise HTTPException(status_code=504, detail="Contributor data request timed out.")
