@@ -1,0 +1,22 @@
+{
+  "name": "Fasal Saathi",
+  "short_name": "Fasal",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#166534",
+  "theme_color": "#166534",
+  "description": "AI-powered smart agriculture platform for farmers.",
+  "icons": [
+    {
+      "src": "/tractor.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/tractor.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
