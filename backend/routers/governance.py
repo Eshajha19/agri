@@ -130,7 +130,11 @@ async def get_drift_alerts(request: Request, model_name: str = None, limit: int 
 # ---------------------------------------------------------------------------
 
 @router.post("/shadow/start")
-async def start_shadow_evaluation(request: Request, production_model: str, candidate_model: str):
+async def start_shadow_evaluation(
+    request: Request,
+    production_model: str,
+    candidate_model: str,
+):
     """Start a shadow evaluation. Requires admin or expert role."""
     uid = await _require_admin_auth(request)
     if shadow_evaluator is None:
@@ -164,17 +168,55 @@ async def get_shadow_eval_status(request: Request, eval_id: str):
     """Get shadow evaluation status. Requires authentication."""
     await _require_auth(request)
     if shadow_evaluator is None:
-        raise HTTPException(status_code=500, detail="Not initialized")
-    status = shadow_evaluator.get_evaluation_status(eval_id)
-    return {"success": True, "eval_id": eval_id, "status": status}
+        raise HTTPException(
+            status_code=500,
+            detail="Not initialized",
+        )
 
+    logger.info(
+        "governance.shadow_evaluation.request "
+        "user_id=%s production_model=%s candidate_model=%s",
+        user_id,
+        production_model,
+        candidate_model,
+    )
 
-# ---------------------------------------------------------------------------
-# Model version management endpoints
-# ---------------------------------------------------------------------------
+    try:
+        eval_id = shadow_evaluator.start_shadow_evaluation(
+            production_model,
+            candidate_model,
+        )
+
+        logger.info(
+            "governance.shadow_evaluation.success "
+            "user_id=%s eval_id=%s production_model=%s candidate_model=%s",
+            user_id,
+            eval_id,
+            production_model,
+            candidate_model,
+        )
+
+        return {
+            "success": True,
+            "eval_id": eval_id,
+        }
+
+    except Exception:
+        logger.exception(
+            "governance.shadow_evaluation.failed "
+            "user_id=%s production_model=%s candidate_model=%s",
+            user_id,
+            production_model,
+            candidate_model,
+        )
+        raise
+
 
 @router.post("/versions/register")
-async def register_model_version(request: Request, data: RegisterModelVersionRequest):
+async def register_model_version(
+    request: Request,
+    data: RegisterModelVersionRequest,
+):
     """Register a new model version. Requires admin or expert role."""
     uid = await _require_admin_auth(request)
     if version_manager is None:
@@ -184,7 +226,10 @@ async def register_model_version(request: Request, data: RegisterModelVersionReq
     return {"success": True, "version_id": version_id}
 
 @router.post("/versions/promote")
-async def promote_model_version(request: Request, version_id: str):
+async def promote_model_version(
+    request: Request,
+    version_id: str,
+):
     """Promote a model version to production. Requires admin role."""
     uid = await _require_admin_auth(request)
     if version_manager is None:
@@ -195,7 +240,10 @@ async def promote_model_version(request: Request, version_id: str):
     return {"success": True, "production_version": prod_version}
 
 @router.post("/versions/rollback")
-async def rollback_model_version(request: Request, version_id: str):
+async def rollback_model_version(
+    request: Request,
+    version_id: str,
+):
     """Roll back to a previous model version. Requires admin role."""
     uid = await _require_admin_auth(request)
     if version_manager is None:
@@ -228,21 +276,41 @@ async def compare_model_versions(request: Request, v1: str, v2: str):
     """Compare two model versions. Requires authentication."""
     await _require_auth(request)
     if version_manager is None:
-        raise HTTPException(status_code=500, detail="Not initialized")
-    comparison = version_manager.compare_versions(v1, v2)
-    return {"success": True, "comparison": comparison}
+        raise HTTPException(
+            status_code=500,
+            detail="Not initialized",
+        )
 
-@router.get("/status")
-async def get_governance_status(request: Request):
-    """Get overall governance status. Requires authentication."""
-    await _require_auth(request)
-    if not all([drift_detector, shadow_evaluator, version_manager]):
-        raise HTTPException(status_code=500, detail="Not fully initialized")
-    return {
-        "success": True,
-        "governance_status": {
-            "drift_alerts": len(drift_detector.get_alerts()),
-            "active_evals": len(shadow_evaluator.get_evaluations()),
-            "total_versions": len(version_manager.list_versions()),
-        },
-    }
+    logger.info(
+        "governance.rollback_version.request "
+        "user_id=%s version_id=%s",
+        user_id,
+        version_id,
+    )
+
+    try:
+        version_manager.rollback_to_version(version_id)
+
+        production_version = version_manager.get_production_version()
+
+        logger.info(
+            "governance.rollback_version.success "
+            "user_id=%s target_version=%s production_version=%s",
+            user_id,
+            version_id,
+            production_version,
+        )
+
+        return {
+            "success": True,
+            "production_version": production_version,
+        }
+
+    except Exception:
+        logger.exception(
+            "governance.rollback_version.failed "
+            "user_id=%s version_id=%s",
+            user_id,
+            version_id,
+        )
+        raise
