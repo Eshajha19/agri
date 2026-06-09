@@ -33,6 +33,10 @@
   padding-right: 40px;
 }
 
+.pest-management-modal .modal-title {
+  color: var(--brand-primary, #16a34a);
+}
+
 .modal-subtitle {
   color: var(--text-secondary, #555);
   margin-bottom: 24px;

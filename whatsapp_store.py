@@ -30,38 +30,27 @@ Solutions
 import json
 import logging
 import os
+import tempfile
 import threading
-from datetime import datetime
-from typing import Dict, Any
-from filelock import FileLock, Timeout
+from typing import Dict, Optional
+
 
 logger = logging.getLogger(__name__)
-
-# Type alias for the subscriber dict stored per user_id.
-Subscriber = Dict[str, Any]
 
 
 class SubscriberStore:
     """
-    Multi-worker distributed-safe, thread-safe, crash-safe persistence layer for WhatsApp subscribers.
+    Thread-safe persistent subscriber store.
 
-    All public methods acquire ``_lock`` and ``_filelock`` before touching the file, so
-    concurrent FastAPI requests across multiple processes or threads cannot interleave
-    their reads and writes.
-
-    Parameters
-    ----------
-    filepath : str
-        Path to the JSON file used for persistence.
-    timeout : int
-        Timeout in seconds to wait for acquiring the distributed file lock.
+    Features:
+    - atomic writes
+    - thread safety
+    - crash-safe persistence
+    - snapshot reads
     """
 
-    def __init__(self, filepath: str = "whatsapp_subscribers.json", timeout: int = 10) -> None:
-        self._filepath = filepath
-        self._tmp_filepath = filepath + ".tmp"
-        self._lock_filepath = filepath + ".lock"
-        self._timeout = timeout
+    def __init__(self, storage_path: str = "subscribers.json"):
+        self.storage_path = storage_path
         self._lock = threading.Lock()
         self._filelock = FileLock(self._lock_filepath, timeout=self._timeout)
 
@@ -70,127 +59,181 @@ class SubscriberStore:
     # ------------------------------------------------------------------
 
     def _read_locked(self) -> Dict[str, Subscriber]:
-        """Read and parse the subscribers file.  Returns {} on any error."""
+        """Read and parse the subscribers file.  Raises on corruption."""
         if not os.path.exists(self._filepath):
             return {}
         try:
             with open(self._filepath, "r", encoding="utf-8") as fh:
                 return json.load(fh)
         except json.JSONDecodeError as exc:
-            logger.error(
-                "Subscriber file '%s' contains invalid JSON and could not be "
-                "parsed: %s.  Returning empty subscriber list.",
-                self._filepath,
-                exc,
-            )
-            return {}
-        except OSError as exc:
-            logger.error(
-                "Could not read subscriber file '%s': %s.  "
-                "Returning empty subscriber list.",
-                self._filepath,
-                exc,
-            )
-            return {}
-
-    def _write_locked(self, subscribers: Dict[str, Subscriber]) -> None:
-        """
-        Atomically write *subscribers* to disk.
-
-        Writes to a sibling ``.tmp`` file first, then uses ``os.replace``
-        to swap it in.  This guarantees that readers always see a complete,
-        valid JSON file — never a partial write.
-
-        Raises
-        ------
-        OSError
-            If the write or rename fails.  The caller is responsible for
-            surfacing this as an HTTP 500.
-        """
-        try:
-            with open(self._tmp_filepath, "w", encoding="utf-8") as fh:
-                json.dump(subscribers, fh, indent=2, ensure_ascii=False)
-                fh.flush()
-                os.fsync(fh.fileno())  # flush OS buffers before rename
-            os.replace(self._tmp_filepath, self._filepath)
-        except OSError as exc:
-            logger.error(
-                "Failed to write subscriber file '%s': %s",
-                self._filepath,
-                exc,
-            )
-            # Clean up the temp file if it was created.
+            backup = self._filepath + ".bak"
             try:
-                if os.path.exists(self._tmp_filepath):
-                    os.remove(self._tmp_filepath)
-            except OSError:
-                pass
+                import shutil
+                shutil.copy2(self._filepath, backup)
+                logger.error(
+                    "Subscriber file '%s' is corrupt. Backed up to '%s'. "
+                    "Raising error to prevent data loss.",
+                    self._filepath, backup, exc,
+                )
+            except OSError as backup_err:
+                logger.error(
+                    "Subscriber file '%s' is corrupt AND backup to '%s' failed: %s",
+                    self._filepath, backup, backup_err,
+                )
+            raise
+        except OSError as exc:
+            logger.error(
+                "Could not read subscriber file '%s': %s.",
+                self._filepath,
+                exc,
+            )
             raise
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
+    # =========================================================================
+    # INTERNAL
+    # =========================================================================
 
-    def get_all(self) -> Dict[str, Subscriber]:
+    def _load(self) -> None:
         """
-        Return a snapshot of all subscribers.
-
-        The returned dict is a copy — callers cannot accidentally mutate
-        the in-memory state.
+        Safely load subscribers from disk.
         """
-        with self._lock, self._filelock:
-            return dict(self._read_locked())
 
-    def upsert(self, user_id: str, subscriber: Subscriber) -> None:
+        with self._lock:
+            if not os.path.exists(self.storage_path):
+                self._subscribers = {}
+                return
+
+            try:
+                with open(self.storage_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+
+                if not isinstance(data, dict):
+                    raise ValueError("Subscriber data must be a dictionary")
+
+                self._subscribers = data
+
+                logger.info(
+                    "Loaded %s subscribers",
+                    len(self._subscribers),
+                )
+
+            except Exception:
+                logger.exception(
+                    "Failed loading subscriber store"
+                )
+
+                self._subscribers = {}
+
+    def _save(self) -> None:
         """
-        Add or update a single subscriber atomically.
-
-        Parameters
-        ----------
-        user_id : str
-            Unique identifier for the subscriber.
-        subscriber : dict
-            Subscriber data (phone_number, name, subscribed_at, …).
-
-        Raises
-        ------
-        OSError
-            If the file cannot be written or lock acquisition times out.
+        Atomically save subscribers to disk.
         """
-        with self._lock, self._filelock:
-            subscribers = self._read_locked()
-            subscribers[user_id] = subscriber
-            self._write_locked(subscribers)
-            logger.info("Subscriber '%s' upserted successfully.", user_id)
+
+        with self._lock:
+            directory = os.path.dirname(self.storage_path) or "."
+
+            os.makedirs(directory, exist_ok=True)
+
+            fd, temp_path = tempfile.mkstemp(
+                dir=directory,
+                prefix="subs_",
+                suffix=".tmp",
+            )
+
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
+                    json.dump(
+                        self._subscribers,
+                        tmp_file,
+                        indent=2,
+                        ensure_ascii=False,
+                    )
+
+                    tmp_file.flush()
+                    os.fsync(tmp_file.fileno())
+
+                os.replace(temp_path, self.storage_path)
+
+            except Exception:
+                logger.exception(
+                    "Failed saving subscriber store"
+                )
+
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+
+                raise
+
+    # =========================================================================
+    # PUBLIC API
+    # =========================================================================
+
+    def upsert(self, user_id: str, subscriber_data: Dict) -> None:
+        """
+        Create or update subscriber.
+        """
+
+        if not isinstance(user_id, str):
+            raise ValueError("user_id must be string")
+
+        if not isinstance(subscriber_data, dict):
+            raise ValueError("subscriber_data must be dict")
+
+        user_id = user_id.strip()
+
+        if not user_id:
+            raise ValueError("user_id cannot be empty")
+
+        with self._lock:
+            self._subscribers[user_id] = subscriber_data
+
+        self._save()
+
+    def get(self, user_id: str) -> Optional[Dict]:
+        """
+        Get subscriber by user ID.
+        """
+
+        with self._lock:
+            subscriber = self._subscribers.get(user_id)
+
+            if subscriber is None:
+                return None
+
+            return dict(subscriber)
 
     def remove(self, user_id: str) -> bool:
         """
-        Remove a subscriber by user_id.
-
-        Returns
-        -------
-        bool
-            True if the subscriber existed and was removed, False otherwise.
-
-        Raises
-        ------
-        OSError
-            If the file cannot be written or lock acquisition times out.
+        Remove subscriber.
         """
-        with self._lock, self._filelock:
-            subscribers = self._read_locked()
-            if user_id not in subscribers:
+
+        with self._lock:
+            if user_id not in self._subscribers:
                 return False
-            del subscribers[user_id]
-            self._write_locked(subscribers)
-            logger.info("Subscriber '%s' removed.", user_id)
-            return True
+
+            del self._subscribers[user_id]
+
+        self._save()
+
+        return True
+
+    def get_all(self) -> Dict:
+        """
+        Return snapshot copy of subscribers.
+        """
+
+        with self._lock:
+            return dict(self._subscribers)
 
     def count(self) -> int:
-        """Return the number of registered subscribers."""
-        with self._lock, self._filelock:
-            return len(self._read_locked())
+        """
+        Return total subscriber count.
+        """
+
+        with self._lock:
+            return len(self._subscribers)
 
 
-# Module-level singleton — created once at import time.
 subscriber_store = SubscriberStore()
