@@ -211,12 +211,25 @@ async def lifespan(app: FastAPI):
         "domain_engines", "Initialize domain engines", _init_domain_engines
     )
 
+   async def init_app_context():
+    # -----------------------
+    # Repositories
+    # -----------------------
     def _init_repositories():
-        _finance_repository = FinanceApplicationRepository()
-        _notification_repository = NotificationRepository()
-        _supply_chain_repository = SupplyChainRepository()
-        return _finance_repository, _notification_repository, _supply_chain_repository
+        return AppContext(
+            finance_repository=FinanceApplicationRepository(),
+            notification_repository=NotificationRepository(),
+            supply_chain_repository=SupplyChainRepository(),
+            farm_finance_ai=None,
+            supply_chain_blockchain=None,
+            crop_quality_grader=None,
+        )
 
+    ctx = await _run_lifespan_phase(
+        "repositories",
+        "Initialize persistent repositories",
+        _init_repositories
+    )
     Multi-worker guarantee
     ----------------------
     When Uvicorn is started with ``--workers N``, each worker forks/spawns
@@ -232,16 +245,24 @@ async def lifespan(app: FastAPI):
     notification_broker.set_authenticate(firebase_auth.verify_id_token)
     await notification_broker.start()
 
+    # -----------------------
+    # AI Engines (depend on repos)
+    # -----------------------
     def _init_ai_engines():
-        _farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
-        _supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
-        _crop_quality_grader = CropQualityGrader()
-        return _farm_finance_ai, _supply_chain_blockchain, _crop_quality_grader
+        ctx.farm_finance_ai = FarmFinanceAI(repository=ctx.finance_repository)
+        ctx.supply_chain_blockchain = SupplyChainBlockchain(
+            repository=ctx.supply_chain_repository
+        )
+        ctx.crop_quality_grader = CropQualityGrader()
+        return ctx
 
-    _farm_finance_ai, _supply_chain_blockchain, _crop_quality_grader = await _run_lifespan_phase(
-        "ai_engines", "Initialize AI engines", _init_ai_engines
+    ctx = await _run_lifespan_phase(
+        "ai_engines",
+        "Initialize AI engines",
+        _init_ai_engines
     )
 
+    return ctx
     # Router init hooks — run after engines are ready.
     governance.init_governance(drift_detector, shadow_evaluator, version_manager, auth_fn=verify_role)
     finance.init_finance(_farm_finance_ai, RBACManager, Permission)
