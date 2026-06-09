@@ -18,8 +18,10 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
 
+from backend.core.logging_config import setup_logging
+
 router = APIRouter()
-logger = logging.getLogger(__name__)
+logger = setup_logging(__name__)
 
 # ---------------------------------------------------------------------------
 # Validation bounds — intentionally generous to accommodate large commercial
@@ -90,15 +92,13 @@ class ReportRequest(BaseModel):
 verify_role_fn = None
 get_signing_keys_fn = None
 sanitise_log_field_fn = None
-logger_instance = None
 
 
-def init_reports(vr_fn, gsk_fn, slf_fn, log_inst):
-    global verify_role_fn, get_signing_keys_fn, sanitise_log_field_fn, logger_instance
+def init_reports(vr_fn, gsk_fn, slf_fn):
+    global verify_role_fn, get_signing_keys_fn, sanitise_log_field_fn
     verify_role_fn = vr_fn
     get_signing_keys_fn = gsk_fn
     sanitise_log_field_fn = slf_fn
-    logger_instance = log_inst
 
 
 # ---------------------------------------------------------------------------
