@@ -41,15 +41,15 @@ export default function PestCalendar() {
   );
 
   const monthOptions = useMemo(() => {
-  const usedMonths = new Set(
-    pestSeasonalData.flatMap((entry) => entry.activeMonths)
-  );
+    const usedMonths = new Set(
+      pestSeasonalData.flatMap((entry) => entry.activeMonths)
+    );
 
-  return [
-    "All",
-    ...monthOrder.filter((month) => usedMonths.has(month))
-  ];
-}, []);
+    return [
+      "All",
+      ...monthOrder.filter((month) => usedMonths.has(month))
+    ];
+  }, []);
 
   const filteredEntries = pestSeasonalData.filter((entry) => {
     const matchesRegion = selectedRegion === "All" || entry.region === selectedRegion;
@@ -96,7 +96,11 @@ export default function PestCalendar() {
             style={selectStyle}
           >
             {regionOptions.map((option) => (
-              <option key={option} value={option}>
+              <option
+                key={option}
+                value={option}
+                style={optionStyle}
+              >
                 {option}
               </option>
             ))}
@@ -111,7 +115,11 @@ export default function PestCalendar() {
             style={selectStyle}
           >
             {cropOptions.map((option) => (
-              <option key={option} value={option}>
+              <option
+                key={option}
+                value={option}
+                style={optionStyle}
+              >
                 {option}
               </option>
             ))}
@@ -126,7 +134,11 @@ export default function PestCalendar() {
             style={selectStyle}
           >
             {monthOptions.map((option) => (
-              <option key={option} value={option}>
+              <option
+                key={option}
+                value={option}
+                style={optionStyle}
+              >
                 {option}
               </option>
             ))}
@@ -192,14 +204,15 @@ const filterLabelStyle = {
   gap: 8,
   fontSize: 14,
   fontWeight: 600,
-  color: "#1f2937",
+  color: "var(--text-primary)",
 };
 
 const selectStyle = {
   padding: "10px 12px",
   borderRadius: 8,
-  border: "1px solid #cbd5e1",
-  backgroundColor: "#fff",
+  border: "1px solid var(--border-color)",
+  backgroundColor: "var(--bg-card)",
+  color: "var(--text-primary)",
   fontSize: 14,
 };
 
@@ -279,4 +292,8 @@ const emptyStateStyle = {
   backgroundColor: "#f8fafc",
   border: "1px dashed #cbd5e1",
   color: "#334155",
+};
+
+const optionStyle = {
+  color: "#000",
 };
