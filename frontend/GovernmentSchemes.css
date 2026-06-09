@@ -657,7 +657,7 @@
 .scheme-content h2 {
   margin-top: 24px;
   font-size: 1.7rem;
-  color: #0f172a;
+  color: var(--text-primary);
 }
 
 .scheme-fullname {
