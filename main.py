@@ -962,6 +962,14 @@ def _build_gdpr_deletion_targets(uid: str) -> list[DeletionTarget]:
 def root(request: Request = None):
     return {"message": "Fasal Saathi API", "status": "running"}
 
+@app.get("/health")
+@limiter.limit("60/minute")
+def health_check(request: Request = None):
+    """
+    Health check endpoint for deployment platforms and monitoring tools.
+    """
+    return {"status": "ok", "message": "Backend is running"}
+
 @app.get("/predict")
 @limiter.limit("30/minute")
 def predict_get(request: Request = None):
