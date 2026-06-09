@@ -32,7 +32,7 @@ class BlockchainRecord:
     previous_hash: str = ""
 
     def to_dict(self) -> Dict:
-        """Serialize record to dict (hash and previous_hash excluded — matches calculate_hash input)"""
+        """Serialize record to dict (hash excluded — for calculate_hash input)"""
         return {
             "timestamp": self.timestamp,
             "actor": self.actor,
@@ -42,6 +42,12 @@ class BlockchainRecord:
             "previous_hash": self.previous_hash,
         }
 
+    def serialize(self) -> Dict:
+        """Serialize record for persistence (includes hash)"""
+        result = self.to_dict()
+        result["hash"] = self.hash
+        return result
+
     def calculate_hash(self) -> str:
         """Calculate SHA256 hash of record (excludes hash and previous_hash fields)"""
         record_string = json.dumps(self.to_dict(), sort_keys=True)
@@ -49,7 +55,7 @@ class BlockchainRecord:
 
     @staticmethod
     def from_dict(data: Dict) -> 'BlockchainRecord':
-        """Reconstruct record from dict, then compute and verify hash"""
+        """Reconstruct record from dict, compute hash, and verify integrity"""
         record = BlockchainRecord(
             timestamp=data["timestamp"],
             actor=data["actor"],
@@ -58,10 +64,17 @@ class BlockchainRecord:
             data=data.get("data", {}),
             previous_hash=data.get("previous_hash", ""),
         )
-        if "hash" in data:
+        computed = record.calculate_hash()
+        if "hash" in data and data["hash"]:
+            if data["hash"] != computed:
+                raise ValueError(
+                    f"Hash mismatch: stored hash '{data['hash']}' "
+                    f"does not match computed hash '{computed}'. "
+                    "Record has been tampered with."
+                )
             record.hash = data["hash"]
-        if "previous_hash" in data:
-            record.previous_hash = data["previous_hash"]
+        else:
+            record.hash = computed
         return record
 
 
@@ -320,23 +333,20 @@ class SupplyChainBlockchain:
                 owner_uid=owner_uid,
             )
 
-            prev_hash = self.chain[-1].hash if self.chain else ""
-            record = BlockchainRecord(
-                timestamp=datetime.now(timezone.utc).isoformat(),
+            record = self._link_record(BlockchainRecord(
+                timestamp=datetime.now().isoformat(),
                 actor=farmer_name,
                 action="created_batch",
                 location=farm_id,
                 data=asdict(batch),
-                previous_hash=prev_hash,
-            )
-            self._link_and_append(record)
+            ))
 
             # Commit changes atomically
             self.products[batch_id] = batch
             self.supply_chain_nodes[batch_id] = []
-            batch.blockchain_records.append(record.to_dict())
-            self._record_transaction_id(transaction_id)
-            
+            self.chain.append(record)
+            batch.blockchain_records.append(record.serialize())
+
             return batch
 
         except Exception as e:
@@ -391,21 +401,18 @@ class SupplyChainBlockchain:
                 notes=kwargs.get("notes", ""),
             )
 
-            prev_hash = self.chain[-1].hash if self.chain else ""
-            record = BlockchainRecord(
+            record = self._link_record(BlockchainRecord(
                 timestamp=node.timestamp,
                 actor=actor_name,
                 action=action,
                 location=location,
                 data=asdict(node),
-                previous_hash=prev_hash,
-            )
+            ))
 
             # Commit
             self.supply_chain_nodes.setdefault(batch_id, []).append(node)
-            self._link_and_append(record)
-            self.products[batch_id].blockchain_records.append(record.to_dict())
-            self._record_transaction_id(transaction_id)
+            self.chain.append(record)
+            self.products[batch_id].blockchain_records.append(record.serialize())
 
             if self._repository is not None:
                 self._repository.create(asdict(node))
@@ -456,15 +463,13 @@ class SupplyChainBlockchain:
                 terms=terms or {},
             )
 
-            prev_hash = self.chain[-1].hash if self.chain else ""
-            record = BlockchainRecord(
-                timestamp=datetime.now(timezone.utc).isoformat(),
+            record = self._link_record(BlockchainRecord(
+                timestamp=datetime.now().isoformat(),
                 actor=seller,
                 action="contract_created",
                 location="contract",
                 data=asdict(contract),
-                previous_hash=prev_hash,
-            )
+            ))
 
             # Commit
             self.smart_contracts[contract_id] = contract
@@ -504,9 +509,8 @@ class SupplyChainBlockchain:
             transaction_id = self._generate_transaction_id(transaction_payload)
             self._validate_transaction_uniqueness(transaction_id)
             # Prepare execution record first (may raise)
-            prev_hash = self.chain[-1].hash if self.chain else ""
-            record = BlockchainRecord(
-                timestamp=datetime.now(timezone.utc).isoformat(),
+            record = self._link_record(BlockchainRecord(
+                timestamp=datetime.now().isoformat(),
                 actor=contract.buyer,
                 action="contract_executed",
                 location="contract",
@@ -516,8 +520,7 @@ class SupplyChainBlockchain:
                     "amount": contract.price,
                     "currency": contract.currency,
                 },
-                previous_hash=prev_hash,
-            )
+            ))
 
             # Commit state updates atomically
             contract.status = "executed"
@@ -711,25 +714,21 @@ class SupplyChainBlockchain:
             "final_price": contracts[-1].price if contracts else None,
         }
 
-    def _verify_blockchain_integrity(self) -> bool:
-        """Verify blockchain hasn't been tampered with.
+    def _link_record(self, record: BlockchainRecord) -> BlockchainRecord:
+        """Set previous_hash from chain tail and return record."""
+        record.previous_hash = self.chain[-1].hash if self.chain else ""
+        record.hash = record.calculate_hash()
+        return record
 
-        Checks two invariants for every block:
-        1. The stored hash matches the recalculated hash (content integrity).
-        2. Each block's previous_hash matches the preceding block's hash
-           (chain integrity) — prevents insertion, deletion, and reordering.
-        """
-        for i, record in enumerate(self.chain):
-            # Content integrity
+    def _verify_blockchain_integrity(self) -> bool:
+        """Verify blockchain chain continuity and hash integrity"""
+        prev_hash = ""
+        for record in self.chain:
             if record.hash != record.calculate_hash():
                 return False
-            # Chain integrity
-            if i == 0:
-                if record.previous_hash != "0" * 64:
-                    return False
-            else:
-                if record.previous_hash != self.chain[i - 1].hash:
-                    return False
+            if record.previous_hash != prev_hash:
+                return False
+            prev_hash = record.hash
         return True
 
     def get_blockchain_record_count(self) -> int:
