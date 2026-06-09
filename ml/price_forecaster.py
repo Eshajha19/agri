@@ -23,6 +23,7 @@ Architecture
 
 import logging
 import threading
+from collections import OrderedDict
 from datetime import date, timedelta
 from typing import Dict, List, Optional
 
@@ -287,23 +288,29 @@ class PriceForecaster:
 
     Thread-safe: model training is serialised per commodity via a lock.
     Models are trained lazily on first request and cached in memory.
+    The cache is LRU-evicted when it exceeds *max_cache_size* entries.
     """
 
-    def __init__(self) -> None:
-        self._models: Dict[str, _CommodityModel] = {}
+    def __init__(self, max_cache_size: int = 32) -> None:
+        self._max_cache_size = max_cache_size
+        self._models: OrderedDict[str, _CommodityModel] = OrderedDict()
         self._lock = threading.Lock()
 
     def _get_or_train(self, commodity: str) -> _CommodityModel:
         """Return a trained model for *commodity*, training it if needed."""
         with self._lock:
-            if commodity not in self._models:
-                prices = HISTORICAL_PRICES.get(
-                    commodity,
-                    HISTORICAL_PRICES[_DEFAULT_COMMODITY],
-                )
-                m = _CommodityModel(commodity, prices)
-                m.train()
-                self._models[commodity] = m
+            if commodity in self._models:
+                self._models.move_to_end(commodity)
+                return self._models[commodity]
+            prices = HISTORICAL_PRICES.get(
+                commodity,
+                HISTORICAL_PRICES[_DEFAULT_COMMODITY],
+            )
+            m = _CommodityModel(commodity, prices)
+            m.train()
+            self._models[commodity] = m
+            if len(self._models) > self._max_cache_size:
+                self._models.popitem(last=False)
             return self._models[commodity]
 
     def forecast(
