@@ -761,6 +761,19 @@ class SupplyChainBlockchain:
                 })
         return certified
 
+    def _snapshot_state(self) -> Dict:
+        """Snapshot mutable state for rollback."""
+        return {
+            "_trace_batches": dict(self._trace_batches),
+            "chain": list(self.chain),
+        }
+
+    def _rollback(self, snapshot: Dict) -> None:
+        """Restore state from a snapshot."""
+        self._trace_batches.clear()
+        self._trace_batches.update(snapshot["_trace_batches"])
+        self.chain = snapshot["chain"]
+
     # ------------- QR Traceability (farmer-facing) -------------
 
     def register_trace_batch(self, payload: Dict) -> Dict:
@@ -780,24 +793,48 @@ class SupplyChainBlockchain:
                 "journey": payload.get("journey", []),
             }
 
-            transaction_payload = {
-                "batch_id": batch_id,
-                "crop": entry["crop"],
-                "farm": entry["farm"],
-                "registeredAt": entry["registeredAt"],
-            }
-            transaction_id = self._generate_transaction_id(transaction_payload)
-            self._validate_transaction_uniqueness(transaction_id)
+        These batches are distinct from the supply-chain ProductBatch
+        objects — they carry the farmer-entered journey data that
+        consumers see when they scan a QR code.  Storing them here
+        (server-side) means the data cannot be tampered with via
+        DevTools or by clearing browser storage.
+        """
+        batch_id = payload.get("id")
+        if not batch_id:
+            raise ValueError("Batch ID is required")
+        if batch_id in self._trace_batches:
+            raise ValueError(f"Batch {batch_id} is already registered")
 
-        # Also record the registration on the blockchain for auditability.
-        record = self._link_record(BlockchainRecord(
-            timestamp=entry["registeredAt"],
-            actor=entry["registeredByUid"] or "unknown",
-            action="trace_batch_registered",
-            location=entry["farm"],
-            data={"batch_id": batch_id, "crop": entry["crop"]},
-        ))
-        self.chain.append(record)
+        snapshot = self._snapshot_state()
+
+        entry = {
+            "id": batch_id,
+            "crop": payload.get("crop", ""),
+            "variety": payload.get("variety", ""),
+            "harvestDate": payload.get("harvestDate", ""),
+            "farm": payload.get("farm", ""),
+            "status": payload.get("status", "Pending Verification"),
+            "registeredByUid": payload.get("registeredByUid", ""),
+            "registeredAt": datetime.utcnow().isoformat() + "Z",
+            "journey": payload.get("journey", []),
+        }
+
+        try:
+            self._trace_batches[batch_id] = entry
+
+            # Also record the registration on the blockchain for auditability.
+            record = BlockchainRecord(
+                timestamp=entry["registeredAt"],
+                actor=entry["registeredByUid"] or "unknown",
+                action="trace_batch_registered",
+                location=entry["farm"],
+                data={"batch_id": batch_id, "crop": entry["crop"]},
+            )
+            record.hash = record.calculate_hash()
+            self.chain.append(record)
+        except Exception:
+            self._rollback(snapshot)
+            raise
 
             self._record_transaction_id(transaction_id)
             return entry
