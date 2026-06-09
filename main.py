@@ -791,20 +791,37 @@ async def get_task_result(task_id: str, request: Request):
 @limiter.limit("5/minute")
 async def predict_yield_lag(payload: YieldInput, request: Request):
     try:
+        # Offload time-series lag model prediction to Celery worker pool
         from celery_worker import predict_yield_lag_task
         task = predict_yield_lag_task.delay(payload.data)
-        return {"task_id": task.id}
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, task.get)
+
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+
+        return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
-
 
 @app.post("/predict-yield-trend")
 @limiter.limit("5/minute")
 async def predict_yield_trend(payload: YieldInput, request: Request):
     try:
+        # Offload heavy iterative trend forecasting to Celery worker pool
         from celery_worker import predict_yield_trend_task
         task = predict_yield_trend_task.delay(payload.data)
-        return {"task_id": task.id}
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, task.get)
+
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+
+        return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
@@ -978,6 +995,905 @@ if os.getenv("GOOGLE_CLOUD_PROJECT") and not HAS_GCP_KMS:
         f"KMS initialization failed: GOOGLE_CLOUD_PROJECT is set but GCP Secret Manager is unavailable. "
         f"Error: {_kms_init_error}. Set ALLOW_INSECURE_KEY_FALLBACK=true to permit local key fallback (NOT RECOMMENDED)."
     )
+
+    yield
+
+    # Shutdown phase with logging
+    logger.info("🛑 Shutting down services...")
+    try:
+        from sync_worker import get_sync_worker
+        _sync_worker = get_sync_worker()
+        _sync_worker.stop()
+        logger.info("✅ Sync worker stopped")
+    except Exception as exc:
+        logger.error("❌ Error stopping sync worker: %s", exc, exc_info=True)
+
+    try:
+        from celery_autoscaler import get_autoscaler
+        _autoscaler = get_autoscaler()
+        _autoscaler.stop()
+        logger.info("✅ Celery autoscaler stopped")
+    except Exception as exc:
+        logger.error("❌ Error stopping Celery autoscaler: %s", exc, exc_info=True)
+
+    try:
+        await notification_broker.stop()
+        logger.info("✅ Notification broker stopped")
+    except Exception as exc:
+        logger.error("❌ Error stopping notification broker: %s", exc, exc_info=True)
+
+    logger.info("✅ Shutdown complete")
+
+
+app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
+
+
+# Initialize Limiter
+limiter = build_limiter(default_limits=["120/minute"])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+# Wrap limiter.limit so decoration-time checks don't raise during test imports.
+# Some endpoints are defined without an explicit `request` parameter which
+# slowapi's decorator validates eagerly; replace with a safe wrapper that
+# falls back to a no-op decorator when the underlying limiter raises.
+_orig_limit = limiter.limit
+def _safe_limit(rate):
+    def _decorator(fn):
+        try:
+            return _orig_limit(rate)(fn)
+        except Exception:
+            return fn
+    return _decorator
+limiter.limit = _safe_limit
+
+
+db_firestore = None
+gdpr_deletion_manager = GDPRDeletionManager()
+
+if not firebase_admin._apps:
+    try:
+        # In a GCP environment this picks up Application Default Credentials
+        # automatically.  For local dev set GOOGLE_APPLICATION_CREDENTIALS to
+        # the path of a service-account key file.
+        firebase_admin.initialize_app()
+        db_firestore = firestore.client()
+        logger.info("Firebase Admin: successfully initialized")
+    except Exception as e:
+        logger.warning(
+            "Firebase Admin: could not initialize — role-gated endpoints will "
+            "return 503 until Firestore is reachable. Reason: %s", e
+        )
+
+async def verify_role(
+    request: Request,
+    required_roles: list = None,
+    required_tenant_id: str | None = None,
+    allow_cross_tenant_admin: bool = False,
+):
+    """
+    Verify the Firebase ID token and check the caller's role and tenant scope.
+
+    Delegates identity resolution to :meth:`RBACManager.resolve_auth_context`,
+    which uses the JWT custom claim (set via Firebase Admin SDK) as the
+    primary role source and falls back to Firestore ``users/{uid}.role``.
+    """
+    action = f"{request.method} {request.url.path}"
+    try:
+        required_roles = validate_required_roles(required_roles)
+    except ValueError as exc:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="error",
+            reason="invalid_rbac_policy",
+            status_code=500,
+        )
+        raise HTTPException(status_code=500, detail="RBAC policy misconfiguration") from exc
+
+    try:
+        ctx = await RBACManager.resolve_auth_context(
+            request,
+            allow_unauthenticated=False,
+        )
+    except HTTPException as exc:
+        uid = None
+        reason = "authorization_denied"
+        if exc.status_code == 401:
+            detail = str(exc.detail).lower()
+            reason = (
+                "missing_authentication_token"
+                if "missing" in detail
+                else "invalid_authentication_token"
+            )
+        elif exc.status_code == 403:
+            detail = str(exc.detail).lower()
+            if "profile not found" in detail:
+                reason = "user_profile_not_found"
+            elif "stale" in detail:
+                reason = "stale_authentication_token"
+            elif "invalid role" in detail:
+                reason = "invalid_profile_role"
+            else:
+                reason = "insufficient_permissions"
+        elif exc.status_code == 503:
+            reason = "authorization_service_unavailable"
+
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="denied" if exc.status_code in (401, 403) else "error",
+            uid=uid,
+            reason=reason,
+            status_code=exc.status_code,
+            required_roles=required_roles,
+        )
+        raise
+
+    user_role = ctx.role
+
+    if required_roles and user_role not in required_roles:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="denied",
+            uid=ctx.uid,
+            role=user_role,
+            reason="insufficient_permissions",
+            status_code=403,
+            required_roles=required_roles,
+        )
+        raise HTTPException(status_code=403, detail="Access denied: insufficient permissions")
+
+    if required_tenant_id:
+        try:
+            RBACManager.assert_tenant_scope(
+                ctx,
+                required_tenant_id,
+                allow_cross_tenant_admin=allow_cross_tenant_admin,
+            )
+        except HTTPException as exc:
+            reason = "cross_tenant_access_denied"
+            if "missing" in str(exc.detail).lower():
+                reason = "missing_tenant_context"
+            audit_rbac_event(
+                request=request,
+                action=action,
+                outcome="denied",
+                uid=ctx.uid,
+                role=user_role,
+                reason=reason,
+                status_code=exc.status_code,
+                required_roles=required_roles,
+            )
+            raise
+
+    audit_rbac_event(
+        request=request,
+        action=action,
+        outcome="allowed",
+        uid=ctx.uid,
+        role=user_role,
+        required_roles=required_roles,
+        status_code=200,
+    )
+
+    return {
+        "uid": ctx.uid,
+        "role": user_role,
+        "roles": list(ctx.roles),
+        "tenant_id": ctx.tenant_id,
+    }
+
+# --- Models ---
+
+class PredictRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    Crop: str = Field(..., max_length=50)
+    CropCoveredArea: float = Field(..., gt=0)
+    CHeight: int = Field(..., ge=0)
+    CNext: str = Field(..., max_length=50)
+    CLast: str = Field(..., max_length=50)
+    CTransp: str = Field(..., max_length=50)
+    IrriType: str = Field(..., max_length=50)
+    IrriSource: str = Field(..., max_length=50)
+    IrriCount: int = Field(..., ge=1)
+    WaterCov: int = Field(..., ge=0, le=100)
+    Season: str = Field(..., max_length=50)
+
+class PredictResponse(BaseModel):
+    predicted_ExpYield: float
+
+_E164_RE = re.compile(r"^\+[1-9]\d{6,14}$")
+
+
+class WhatsAppSubscribeRequest(BaseModel):
+    phone_number: str
+    name: str
+    region_id: Optional[str] = Field(default=None, max_length=100)
+    # user_id is accepted for backward compatibility but is IGNORED by the
+    # endpoint -- the authoritative user identity is always derived from the
+    # verified Firebase ID token, never from client-supplied data.
+    user_id: Optional[str] = None
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_e164(cls, v: str) -> str:
+        if not _E164_RE.match(v):
+            raise ValueError(
+                "phone_number must be in E.164 format (e.g. +919876543210)"
+            )
+        return v
+
+class YieldInput(BaseModel):
+    data: list[float]
+
+
+_ALLOWED_PREDICTION_FIELDS = frozenset({
+    "Crop", "CropCoveredArea", "CHeight", "CNext", "CLast", "CTransp",
+    "IrriType", "IrriSource", "IrriCount", "WaterCov", "Season",
+    "N", "P", "K", "ph", "pH", "temperature", "rainfall", "humidity",
+})
+
+
+def _coerce_prediction_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
+    sanitized = dict(input_data)
+
+    # Defense-in-depth: reject any field not in the allowlist.
+    # PredictRequest already uses extra="forbid" at the schema level, but
+    # this check protects other code paths that may call this function.
+    extra = [k for k in sanitized if k not in _ALLOWED_PREDICTION_FIELDS]
+    if extra:
+        logger.warning("Rejecting unknown prediction fields: %s", extra)
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown field(s): {', '.join(sorted(extra))}",
+        )
+
+    numeric_fields = {
+        "N",
+        "P",
+        "K",
+        "ph",
+        "pH",
+        "CropCoveredArea",
+        "CHeight",
+        "IrriCount",
+        "WaterCov",
+        "temperature",
+        "rainfall",
+        "humidity",
+    }
+
+    for field in numeric_fields:
+        if field not in sanitized or sanitized[field] is None:
+            continue
+
+        try:
+            numeric_value = float(sanitized[field])
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"Invalid value for '{field}'")
+
+        if not math.isfinite(numeric_value):
+            raise HTTPException(status_code=400, detail=f"Invalid value for '{field}'")
+
+        sanitized[field] = numeric_value
+
+    for field in ("ph", "pH"):
+        if field in sanitized and not (0 <= sanitized[field] <= 14):
+            raise HTTPException(status_code=400, detail="Invalid pH")
+
+    return sanitized
+
+class AlertTriggerRequest(BaseModel):
+    alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
+    message: str = Field(..., min_length=1, max_length=500)
+    region_id: Optional[str] = Field(default=None, max_length=100)
+
+class ReportRequest(BaseModel):
+    name: str = Field(..., max_length=100)
+    crop: str = Field(..., max_length=50)
+    area: str = Field(..., max_length=50)
+    profit: str = Field(..., max_length=50)
+    season: str = Field(..., max_length=50)
+
+    @validator("name", "crop", "area", "profit", "season", pre=True)
+    def reject_pipe_characters(cls, v):
+        # Belt-and-suspenders guard: the signing payload now uses JSON (which
+        # is unambiguous regardless of field content), but we also reject pipe
+        # characters at the model level so legacy code paths or future changes
+        # cannot accidentally reintroduce a delimiter-injection vulnerability.
+        if isinstance(v, str) and "|" in v:
+            raise ValueError(
+                "Field value must not contain the '|' character."
+            )
+        return v
+
+class SeedVerifyRequest(BaseModel):
+    code: str = Field(..., min_length=4, max_length=100)
+
+
+_MAX_NOTIFICATIONS = 200
+_NOTIFICATION_TTL_HOURS = 24
+
+
+class NotificationStore:
+    """
+    Thread-safe, bounded, TTL-aware store for in-process notifications.
+
+    Parameters
+    ----------
+    maxlen : int
+        Hard cap on the number of entries held in memory.  When full,
+        the oldest entry is evicted before the new one is appended.
+    ttl_hours : int
+        Entries older than this many hours are excluded from get_recent().
+    """
+
+    def __init__(self, maxlen: int = _MAX_NOTIFICATIONS, ttl_hours: int = _NOTIFICATION_TTL_HOURS):
+        self._deque: collections.deque = collections.deque(maxlen=maxlen)
+        self._lock = threading.Lock()
+        self._counter = itertools.count(start=1)
+        self._ttl = timedelta(hours=ttl_hours)
+
+    def append(
+        self,
+        alert_type: str,
+        message: str,
+        *,
+        recipient_uid: Optional[str] = None,
+        region_id: Optional[str] = None,
+    ) -> dict:
+        """
+        Add a new notification entry and return it.
+
+        The ID is assigned from a monotonically increasing counter so
+        concurrent calls always produce distinct values.
+
+        When ``recipient_uid`` is None the notification is a broadcast visible
+        to every authenticated user; otherwise only that UID may receive it.
+        """
+        with self._lock:
+            entry = {
+                "id": next(self._counter),
+                "type": alert_type,
+                "message": message,
+                "time": datetime.now().isoformat(),
+                "recipient_uid": recipient_uid,
+                "region_id": normalize_region_identifier(region_id) if region_id else None,
+            }
+            self._deque.append(entry)
+        return entry
+
+    def get_recent(self) -> list:
+        """
+        Return all entries newer than the configured TTL, oldest first.
+
+        Takes a snapshot under the lock so callers always see a consistent
+        view even if append() is running concurrently.
+        """
+        cutoff = datetime.now() - self._ttl
+        with self._lock:
+            snapshot = list(self._deque)
+        return [
+            e for e in snapshot
+            if datetime.fromisoformat(e["time"]) >= cutoff
+        ]
+
+    def get_recent_for_user(self, uid: str) -> list:
+        """Return TTL-valid entries visible to the given Firebase UID."""
+        return filter_notifications_for_user(self.get_recent(), uid)
+
+    def remove_by_uid(self, uid: str) -> int:
+        """Remove in-memory notifications targeted at a specific UID."""
+        with self._lock:
+            snapshot = list(self._deque)
+            retained = [entry for entry in snapshot if entry.get("recipient_uid") != uid]
+            removed = len(snapshot) - len(retained)
+            self._deque = collections.deque(retained, maxlen=self._deque.maxlen)
+            return removed
+
+
+# Seed the store with the initial weather advisory that was previously
+# hard-coded in the bare list.
+_notification_store = NotificationStore()
+_notification_store.append(
+    alert_type="weather",
+    message="🌧️ Heavy rainfall expected in your region today.",
+)
+notification_broker.seed_notifications(_notification_store.get_recent())
+
+
+async def publish_notification(
+    alert_type: str,
+    message: str,
+    *,
+    recipient_uid: Optional[str] = None,
+    region_id: Optional[str] = None,
+) -> dict:
+    """Store a notification and fan it out to authorized websocket subscribers."""
+    entry = _notification_store.append(
+        alert_type=alert_type,
+        message=message,
+        recipient_uid=recipient_uid,
+        region_id=region_id,
+    )
+    await notification_broker.publish(entry)
+    return entry
+
+
+async def _authenticate_notification_websocket(websocket: WebSocket) -> Optional[str]:
+    """
+    Verify Firebase ID token from WebSocket query param before accepting.
+
+    Browsers cannot set Authorization headers on WebSocket handshakes, so clients
+    must pass ``?token=<Firebase ID token>``.
+    """
+    token = websocket.query_params.get("token")
+    if not token or not token.strip():
+        await websocket.close(code=1008, reason="Missing authentication token")
+        return None
+
+    try:
+        decoded = auth.verify_id_token(token.strip())
+    except Exception:
+        await websocket.close(code=1008, reason="Invalid authentication token")
+        return None
+
+    uid = decoded.get("uid")
+    if not uid:
+        await websocket.close(code=1008, reason="Invalid authentication token")
+        return None
+
+    if not db_firestore:
+        await websocket.close(code=1011, reason="Authorization service unavailable")
+        return None
+
+    try:
+        user_doc = db_firestore.collection("users").document(uid).get()
+    except Exception:
+        await websocket.close(code=1011, reason="Authorization service unavailable")
+        return None
+
+    if not user_doc.exists:
+        await websocket.close(code=1008, reason="User profile not found")
+        return None
+
+    return uid
+
+
+def _get_firestore_user_profile(uid: str) -> dict[str, Any]:
+    if not db_firestore:
+        return {}
+
+    try:
+        user_doc = db_firestore.collection("users").document(uid).get()
+    except Exception:
+        return {}
+
+    if not getattr(user_doc, "exists", False):
+        return {}
+    return dict(user_doc.to_dict() or {})
+
+
+def _parse_requested_regions(raw_value: Optional[str]) -> list[str]:
+    if not raw_value:
+        return []
+    return [normalize_region_identifier(part) for part in raw_value.split(",") if normalize_region_identifier(part)]
+
+
+def _resolve_websocket_regions(uid: str, websocket: WebSocket) -> frozenset[str]:
+    profile = _get_firestore_user_profile(uid)
+    requested_regions = _parse_requested_regions(websocket.query_params.get("regions") or websocket.query_params.get("region"))
+    return frozenset(resolve_subscription_regions(profile, requested_regions))
+
+
+def _subscriber_matches_region(subscriber_info: dict[str, Any], region_id: str) -> bool:
+    if not region_id:
+        return True
+    subscriber_regions = profile_regions(subscriber_info)
+    return any(region_matches(subscriber_region, region_id) for subscriber_region in subscriber_regions)
+
+
+def _normalize_dynamic_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Assign non-colliding IDs to request-scoped advisory alerts."""
+    normalized = []
+    for index, alert in enumerate(alerts, start=1):
+        normalized_alert = dict(alert)
+        normalized_alert["id"] = -index
+        normalized_alert.setdefault("source", "advisory")
+        normalized.append(normalized_alert)
+    return normalized
+
+def sanitise_log_field(value: str) -> str:
+    if not isinstance(value, str):
+        value = str(value)
+    sanitised = "".join(ch if ord(ch) >= 32 or ch == "\t" else f"\\x{ord(ch):02x}" for ch in value)
+    return sanitised[:1000]
+
+
+class GDPRDeletionRequestBody(BaseModel):
+    retention_days: int = Field(default=30, ge=0, le=365)
+    reason: str = Field(default="user_requested_erasure", min_length=1, max_length=200)
+
+
+def _delete_firestore_documents_by_field(collection_name: str, field_name: str, uid: str) -> int:
+    if not db_firestore:
+        return 0
+
+    deleted = 0
+    docs = db_firestore.collection(collection_name).where(field_name, "==", uid).stream()
+    for doc in docs:
+        doc.reference.delete()
+        deleted += 1
+    return deleted
+
+
+def _build_gdpr_deletion_targets(uid: str) -> list[DeletionTarget]:
+    targets: list[DeletionTarget] = []
+
+    def delete_user_profile(target_uid: str) -> dict[str, int | str]:
+        if not db_firestore:
+            return {"deleted": 0, "retained": 1, "notes": "firestore_unavailable"}
+        doc = db_firestore.collection("users").document(target_uid)
+        snapshot = doc.get()
+        if not snapshot.exists:
+            return {"deleted": 0, "retained": 1, "notes": "profile_missing"}
+        doc.delete()
+        return {"deleted": 1, "retained": 0, "notes": "profile_deleted"}
+
+    def delete_feedback(target_uid: str) -> dict[str, int | str]:
+        deleted = _delete_firestore_documents_by_field("feedback", "userId", target_uid)
+        return {"deleted": deleted, "retained": 0 if deleted else 1, "notes": "feedback_deleted" if deleted else "no_feedback_found"}
+
+    def delete_finance_applications(target_uid: str) -> dict[str, int | str]:
+        deleted = _delete_firestore_documents_by_field("finance_applications", "owner_uid", target_uid)
+        return {
+            "deleted": deleted,
+            "retained": 0 if deleted else 1,
+            "notes": "finance_applications_deleted" if deleted else "no_finance_applications_found",
+        }
+
+    def purge_whatsapp_subscription(target_uid: str) -> dict[str, int | str]:
+        removed = subscriber_store.remove(target_uid)
+        return {"deleted": int(removed), "retained": 0 if removed else 1, "notes": "subscriber_removed" if removed else "subscriber_missing"}
+
+    def purge_in_memory_notifications(target_uid: str) -> dict[str, int | str]:
+        removed = _notification_store.remove_by_uid(target_uid)
+        return {"deleted": removed, "retained": 0 if removed else 1, "notes": "notifications_removed" if removed else "notifications_missing"}
+
+    targets.append(DeletionTarget(name="user_profile", delete=delete_user_profile))
+    targets.append(DeletionTarget(name="feedback_records", delete=delete_feedback))
+    targets.append(DeletionTarget(name="finance_applications", delete=delete_finance_applications))
+    targets.append(DeletionTarget(name="whatsapp_subscription", delete=purge_whatsapp_subscription))
+    targets.append(DeletionTarget(name="notification_cache", delete=purge_in_memory_notifications))
+    targets.append(
+        DeletionTarget(
+            name="immutable_supply_chain_ledger",
+            delete=None,
+            retain_reason="retained_for_legal_and_audit_integrity",
+        )
+    )
+    return targets
+
+@app.get("/")
+@limiter.limit("60/minute")
+def root(request: Request = None):
+    return {"message": "Fasal Saathi API", "status": "running"}
+
+@app.get("/health")
+@limiter.limit("60/minute")
+def health_check(request: Request = None):
+    """
+    Health check endpoint for deployment platforms and monitoring tools.
+    """
+    return {"status": "ok", "message": "Backend is running"}
+
+@app.get("/predict")
+@limiter.limit("30/minute")
+def predict_get(request: Request = None):
+    return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
+
+@app.post("/predict", response_model=PredictResponse)
+@limiter.limit("5/minute")
+async def predict_yield(data: PredictRequest, request: Request):
+    """
+    Standardised prediction endpoint using ML Router for dynamic model selection.
+
+    Returns HTTP 422 when the input contains an unknown categorical value or a
+    missing required feature, so callers receive an actionable error message
+    rather than a silently corrupted prediction.
+    """
+    await verify_role(request)
+
+    try:
+        input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
+        input_data = _coerce_prediction_inputs(input_data)
+
+        context = {
+            "location": request.headers.get("X-User-Location", "Unknown"),
+            "crop": data.Crop,
+        }
+
+        # Offload heavy model inference to Celery worker to prevent blocking ASGI event loop
+        from celery_worker import predict_yield_task
+        task = predict_yield_task.delay(input_data, context)
+        loop = asyncio.get_running_loop()
+        # timeout=30 prevents executor threads from blocking indefinitely when
+        # a Celery worker is slow or the broker is unreachable.
+        try:
+            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
+        except Exception as celery_exc:
+            raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
+
+        if "error" in result:
+            err_type = result.get("type")
+            if err_type == "UnknownCategoryError":
+                raise HTTPException(status_code=422, detail={"error": "unknown_category", "message": result["error"]})
+            elif err_type == "MissingFeatureError":
+                raise HTTPException(status_code=422, detail={"error": "missing_features", "message": result["error"]})
+            else:
+                raise HTTPException(status_code=400, detail=result["error"])
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Prediction Error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/predict-yield-lag")
+@limiter.limit("5/minute")
+async def predict_yield_lag(payload: YieldInput, request: Request):
+    await verify_role(request)
+
+    try:
+        # Offload time-series lag model prediction to Celery worker pool
+        from celery_worker import predict_yield_lag_task
+        task = predict_yield_lag_task.delay(payload.data)
+        loop = asyncio.get_running_loop()
+        try:
+            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
+        except Exception as celery_exc:
+            raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
+
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal Server Error") from e
+
+@app.post("/predict-yield-trend")
+@limiter.limit("5/minute")
+async def predict_yield_trend(payload: YieldInput, request: Request):
+    await verify_role(request)
+
+    try:
+        # Offload heavy iterative trend forecasting to Celery worker pool
+        from celery_worker import predict_yield_trend_task
+        task = predict_yield_trend_task.delay(payload.data)
+        loop = asyncio.get_running_loop()
+        try:
+            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
+        except Exception as celery_exc:
+            raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
+
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal Server Error") from e
+
+@app.get("/api/notifications")
+@limiter.limit("30/minute")
+async def get_notifications(
+    request: Request,
+    crop: str = Query(default=None),
+    irrigation_count: int = Query(default=None, ge=0),
+    water_coverage: int = Query(default=None, ge=0, le=100),
+    season: str = Query(default=None)
+):
+    """
+    Return recent triggered-alert notifications combined with dynamic
+    farm advisory alerts generated from the query parameters.
+
+    Requires Firebase authentication. Notifications are scoped to broadcast
+    entries and entries targeted at the caller's UID.
+
+    Only notifications newer than the store's TTL window are included,
+    so the response payload stays small regardless of how long the
+    process has been running.
+    """
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+    profile = _get_firestore_user_profile(uid)
+    user_regions = frozenset(profile_regions(profile))
+    dynamic_alerts = generate_alerts(
+        crop=crop,
+        irrigation_count=irrigation_count,
+        water_coverage=water_coverage,
+        season=season
+    )
+    stored = [
+        notification
+        for notification in _notification_store.get_recent_for_user(uid)
+        if notification_matches_regions(notification, user_regions)
+    ]
+    return {
+        "success": True,
+        "data": stored + _normalize_dynamic_alerts(dynamic_alerts),
+    }
+
+# --- WhatsApp Service Endpoints ---
+#
+# Subscriber persistence is handled by whatsapp_store.SubscriberStore, which
+# provides thread-safe, crash-safe read-modify-write operations via a
+# threading.Lock and atomic file replacement (write-to-tmp then os.replace).
+# The old load_subscribers / save_subscribers helpers have been removed because
+# they had no locking and used open(..., "w") directly, which could corrupt the
+# file on a concurrent write or a mid-write crash.
+
+@app.post("/api/whatsapp/subscribe")
+@limiter.limit("2/minute")
+async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
+    # Require authentication so the subscriber's identity is always derived
+    # from the verified Firebase token — never from client-supplied data.
+    # Previously the endpoint accepted user_id from the request body, which
+    # allowed any caller to overwrite another user's subscription by sending
+    # a known user_id with an attacker-controlled phone number.
+    token_data = await verify_role(request)
+    uid = token_data.get("uid")
+
+    subscriber = {
+        "phone_number": data.phone_number,
+        "name": data.name,
+        "subscribed_at": datetime.now().isoformat(),
+        "region_id": normalize_region_identifier(data.region_id) or None,
+    }
+    try:
+        subscriber_store.upsert(uid, subscriber)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save subscription. Please try again.",
+        ) from exc
+
+    welcome_msg = (
+        f"Namaste {data.name}! 🙏\n\n"
+        "Welcome to *Fasal Saathi WhatsApp Alerts*. "
+        "You will now receive real-time updates directly here."
+    )
+    await asyncio.to_thread(send_whatsapp_message, data.phone_number, welcome_msg)
+    return {"success": True, "message": "Successfully subscribed"}
+
+_broadcast_rate_limit = {}
+
+@app.post("/api/whatsapp/trigger-alert")
+@limiter.limit("10/minute")
+async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
+    """
+    Broadcast a WhatsApp alert to all subscribers.
+
+    Requires authentication — admin or expert role only.
+
+    Previously this endpoint had no authentication check, no rate limit,
+    and no input constraints.  Any unauthenticated caller could send
+    arbitrary messages to every subscribed farmer, enabling social
+    engineering attacks (fake market alerts, fake pest warnings) and
+    consuming Twilio API credits at the attacker's discretion.
+    """
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+    role = str(token_data.get("role", "")).strip().lower()
+    region_id = normalize_region_identifier(data.region_id) if data.region_id else ""
+
+    if region_id:
+        if role not in {"admin", "expert"}:
+            profile = _get_firestore_user_profile(uid)
+            if not profile_can_broadcast_region(profile, region_id):
+                raise HTTPException(status_code=403, detail="Access denied: insufficient regional authority")
+    elif role not in {"admin", "expert"}:
+        raise HTTPException(status_code=403, detail="Access denied: insufficient permissions")
+
+    # get_all() acquires the lock and returns a stable snapshot, so this read
+    # cannot race with a concurrent subscription write.
+    subscribers = subscriber_store.get_all()
+    formatted_msg = format_alert_message(data.alert_type, data.message)
+    results = []
+    if region_id:
+        subscribers = {
+            user_id: info
+            for user_id, info in subscribers.items()
+            if _subscriber_matches_region(info, region_id)
+        }
+    for user_id, info in subscribers.items():
+        res = await asyncio.to_thread(send_whatsapp_message, info["phone_number"], formatted_msg)
+        results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})
+
+    # Persist the alert through the bounded, thread-safe notification store.
+    await publish_notification(
+        alert_type=data.alert_type,
+        message=data.message,
+        region_id=region_id or None,
+    )
+
+    delivered = sum(1 for r in results if r["success"])
+    return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
+
+
+@app.websocket("/api/notifications/stream")
+async def notifications_stream(websocket: WebSocket):
+    await notification_broker.connect(websocket)
+
+
+@app.get("/api/admin/rbac-audit")
+@limiter.limit("10/minute")
+async def get_rbac_audit(request: Request, limit: int = Query(default=50, ge=1, le=200)):
+    """Return the most recent RBAC audit events for admins and experts."""
+    await verify_role(request, required_roles=["admin", "expert"])
+    return {"success": True, "data": rbac_audit_trail.snapshot(limit=limit)}
+
+@app.post("/api/whatsapp/webhook")
+@limiter.limit("20/minute")
+async def whatsapp_webhook(request: Request, Body: str = Form(...), From: str = Form(...)):
+    """
+    Handle incoming WhatsApp messages from Twilio.
+    
+    Processing is offloaded to a background Celery task to immediately
+    acknowledge the webhook (preventing Twilio timeout/penalties under burst traffic)
+    and process the message asynchronously.
+    """
+    sender_number = From.replace("whatsapp:", "")
+    
+    # Offload message processing to reliable background task queue
+    from celery_worker import process_whatsapp_webhook_task
+    process_whatsapp_webhook_task.delay(Body, sender_number)
+    
+    return {"status": "success"}
+
+# --- Cryptographic Reports ---
+#
+# Key resolution priority (highest → lowest):
+#   1. In-process cache          – avoids repeated I/O on every request
+#   2. GCP Secret Manager        – production path; key never touches disk
+#   3. Local persistent PEM file – dev/staging fallback; blocked in production
+#   4. Fresh generation          – last resort for local dev only
+#
+# When ENV=production the function raises HTTP 500 at steps 2, 3, and 4
+# rather than falling through to a weaker path, so a plaintext disk key
+# can never silently be used in production.
+
+_cached_private_key = None
+KEYS_DIR = "keys"
+PRIVATE_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.key")
+PUBLIC_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.pub")
+
+HAS_GCP_KMS = False
+secretmanager = None
+_kms_init_error = None
+try:
+    from google.cloud import secretmanager as gcp_secretmanager
+
+    secretmanager = gcp_secretmanager
+    HAS_GCP_KMS = True
+except Exception as e:
+    HAS_GCP_KMS = False
+    _kms_init_error = str(e)
+
+ALLOW_INSECURE_FALLBACK = os.getenv("ALLOW_INSECURE_KEY_FALLBACK", "false").lower() == "true"
+
+if os.getenv("GOOGLE_CLOUD_PROJECT") and not HAS_GCP_KMS:
+    logger.error(
+        f"KMS initialization failed: GOOGLE_CLOUD_PROJECT is set but GCP Secret Manager is unavailable. "
+        f"Error: {_kms_init_error}. Set ALLOW_INSECURE_KEY_FALLBACK=true to permit local key fallback (NOT RECOMMENDED)."
+    )
     if not ALLOW_INSECURE_FALLBACK:
         raise RuntimeError(
             "SECURITY CRITICAL: KMS is required for production use but is unavailable. "
@@ -990,6 +1906,14 @@ def get_signing_keys():
     global _cached_private_key
 
     if _cached_private_key is not None:
+        return _cached_private_key
+
+    if REPORT_SIGNING_PRIVATE_KEY_PEM:
+        _cached_private_key = serialization.load_pem_private_key(
+            REPORT_SIGNING_PRIVATE_KEY_PEM.encode("utf-8"),
+            password=None,
+        )
+        logger.info("Successfully loaded signing key from REPORT_SIGNING_PRIVATE_KEY_PEM")
         return _cached_private_key
 
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
@@ -1168,6 +2092,8 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
 )
+import csrf_protection as _csrf
+_csrf.configure(_CORS_ORIGINS)
 app.add_middleware(RBACMiddleware)
 logger.info(print_rbac_matrix())
 
