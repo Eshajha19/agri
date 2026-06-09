@@ -425,5 +425,114 @@ class TestImageProcessingPipeline:
         assert status["status"] == "queued"
 
 
+class TestExifOrientationNormalization:
+    """Test EXIF orientation extraction and normalization"""
+
+    def test_orientation_1_no_change(self):
+        """Test orientation 1 (normal) returns identical bytes"""
+        pipeline = ImageProcessingPipeline()
+
+        # Create a minimal valid JPEG (1x1 pixel, no EXIF)
+        from PIL import Image
+        import io
+        img = Image.new("RGB", (10, 10), color="red")
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG")
+        raw = buf.getvalue()
+
+        orientation, meta = pipeline._extract_exif_orientation(raw)
+        assert orientation == 1
+        assert meta is None or meta.get("original_orientation") == 1
+
+        normalized = pipeline._normalize_orientation(raw, 1)
+        assert normalized == raw
+
+    def test_orientation_3_180_degrees(self):
+        """Test orientation 3 (180° rotation)"""
+        pipeline = ImageProcessingPipeline()
+
+        from PIL import Image
+        import io
+        img = Image.new("RGB", (20, 10), color="blue")  # Wide rectangle
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG")
+        raw = buf.getvalue()
+
+        # Manually rotate 180° to simulate orientation 3
+        img_rot = img.rotate(180)
+        buf_rot = io.BytesIO()
+        img_rot.save(buf_rot, format="JPEG")
+        raw_rot = buf_rot.getvalue()
+
+        # Normalize should flip it back to original dimensions
+        normalized = pipeline._normalize_orientation(raw_rot, 3)
+        result_img = Image.open(io.BytesIO(normalized))
+        assert result_img.size == (20, 10)
+
+    def test_orientation_6_90_cw(self):
+        """Test orientation 6 (90° CW) — portrait photo from mobile"""
+        pipeline = ImageProcessingPipeline()
+
+        from PIL import Image
+        import io
+        img = Image.new("RGB", (10, 20), color="green")  # Tall rectangle
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG")
+        raw = buf.getvalue()
+
+        # Simulate 90° CW rotation (width/height swap)
+        img_rot = img.rotate(270, expand=True)  # PIL rotate is CCW, so 270 = 90 CW
+        buf_rot = io.BytesIO()
+        img_rot.save(buf_rot, format="JPEG")
+        raw_rot = buf_rot.getvalue()
+
+        # Normalize should restore original portrait dimensions
+        normalized = pipeline._normalize_orientation(raw_rot, 6)
+        result_img = Image.open(io.BytesIO(normalized))
+        assert result_img.size == (10, 20)
+
+    def test_orientation_8_90_ccw(self):
+        """Test orientation 8 (90° CCW)"""
+        pipeline = ImageProcessingPipeline()
+
+        from PIL import Image
+        import io
+        img = Image.new("RGB", (10, 20), color="yellow")  # Tall rectangle
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG")
+        raw = buf.getvalue()
+
+        # Simulate 90° CCW rotation
+        img_rot = img.rotate(90, expand=True)
+        buf_rot = io.BytesIO()
+        img_rot.save(buf_rot, format="JPEG")
+        raw_rot = buf_rot.getvalue()
+
+        # Normalize should restore original portrait dimensions
+        normalized = pipeline._normalize_orientation(raw_rot, 8)
+        result_img = Image.open(io.BytesIO(normalized))
+        assert result_img.size == (10, 20)
+
+    def test_submit_with_orientation_metadata(self):
+        """Test that submit() attaches orientation metadata to task"""
+        pipeline = ImageProcessingPipeline()
+
+        from PIL import Image
+        import io
+        img = Image.new("RGB", (10, 20), color="purple")
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG")
+        raw = buf.getvalue()
+
+        task_id = pipeline.submit(image_data=raw, crop_type="wheat", processor_type="disease_detection")
+        task = pipeline.queue._tasks_by_id.get(task_id)
+
+        assert task is not None
+        assert task.orientation_metadata is not None
+        assert task.orientation_metadata["original_orientation"] == 1
+        assert task.orientation_metadata["width"] == 10
+        assert task.orientation_metadata["height"] == 20
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

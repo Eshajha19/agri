@@ -7,6 +7,10 @@ from fastapi import FastAPI, WebSocket
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+import json
+
+import pytest
+
 from realtime_notifications import NotificationBroadcastHub
 
 TEST_TOKEN = "test-valid-token"
@@ -36,6 +40,7 @@ def create_test_app():
                 "type": "weather",
                 "message": "Heavy rainfall expected in your region today.",
                 "time": "2026-05-20T10:00:00",
+                "recipient_uid": None,
             }
         )
         return {"success": True}
@@ -52,6 +57,7 @@ def test_websocket_receives_snapshot_and_live_notification():
                 "type": "advisory",
                 "message": "Irrigate crops early in the morning.",
                 "time": "2026-05-20T09:00:00",
+                "recipient_uid": None,
             }
         ]
     )
