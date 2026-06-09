@@ -1,10 +1,10 @@
 """ML Governance Router - Drift, shadow eval, versioning"""
-import re
+from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request, Query
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 
-from backend.core.logging_config import setup_logging
+from rbac_audit import audit_rbac_event
 
 router = APIRouter()
 logger = setup_logging(__name__)
@@ -188,17 +188,18 @@ async def get_shadow_eval_status(request: Request, eval_id: str):
         raise
 
 
-async def _enforce_role(request: Request, required_roles: list[str] = None) -> None:
+async def _enforce_role(request: Request, required_roles: list[str] = None) -> dict:
     """Verify the caller is authenticated (and optionally has a required role).
 
     Delegates to the project-wide ``verify_role_fn`` injected at startup via
-    ``init_governance()``. Raises 401/403/503 on failure — never grants access
-    when the auth service is unreachable.
+    ``init_governance()``. Returns ``{"uid": str, "role": str}`` on success.
+    Raises 401/403/503 on failure — never grants access when the auth service
+    is unreachable.
     """
     fn = verify_role_fn
     if fn is None:
         raise HTTPException(status_code=503, detail="Auth service not initialized")
-    await fn(request, required_roles=required_roles)
+    return await fn(request, required_roles=required_roles)
 
 
 @router.post("/versions/register")
@@ -207,34 +208,56 @@ async def register_model_version(
     data: RegisterModelVersionRequest,
 ):
     """Register a new model version. Requires admin or expert role."""
-    await _enforce_role(request, ["admin", "expert"])
+    token = await _enforce_role(request, ["admin", "expert"])
     if version_manager is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     logger.info(f"Admin {uid} registering model version: model_name={data.model_name}, model_path={data.model_path}, rmse={data.rmse}, r2_score={data.r2_score}")
     version_id = version_manager.register_version(data.model_name, data.model_path, data.rmse, data.r2_score, data.metadata)
+    _audit(request, "model_version.register", token, version_id=version_id,
+           extra={"model_name": data.model_name, "rmse": data.rmse, "r2_score": data.r2_score})
     return {"success": True, "version_id": version_id}
 
 @router.post("/versions/promote")
 async def promote_model_version(request: Request, version_id: str):
     """Promote a model version to production. Requires admin or expert role."""
-    await _enforce_role(request, ["admin", "expert"])
+    token = await _enforce_role(request, ["admin", "expert"])
     if version_manager is None:
         raise HTTPException(status_code=500, detail="Not initialized")
-    logger.info(f"Admin {uid} promoting model version {version_id} to production")
+    prev_prod = version_manager.get_production_version()
     version_manager.promote_version(version_id)
     prod_version = version_manager.get_production_version()
+    _audit(request, "model_version.promote", token, version_id=version_id,
+           extra={"previous_production": prev_prod.version_id if prev_prod else None})
     return {"success": True, "production_version": prod_version}
 
 @router.post("/versions/rollback")
 async def rollback_model_version(request: Request, version_id: str):
     """Roll back to a previous model version. Requires admin or expert role."""
-    await _enforce_role(request, ["admin", "expert"])
+    token = await _enforce_role(request, ["admin", "expert"])
     if version_manager is None:
         raise HTTPException(status_code=500, detail="Not initialized")
-    logger.info(f"Admin {uid} rolling back to model version {version_id}")
+    prev_prod = version_manager.get_production_version()
     version_manager.rollback_to_version(version_id)
     prod_version = version_manager.get_production_version()
+    _audit(request, "model_version.rollback", token, version_id=version_id,
+           extra={"previous_production": prev_prod.version_id if prev_prod else None})
     return {"success": True, "production_version": prod_version}
+
+
+def _audit(request: Request, action: str, token: dict, version_id: str, extra: dict = None):
+    """Record a governance audit event with actor identity and context."""
+    detail = f"{action} {version_id}"
+    if extra:
+        detail += " " + "; ".join(f"{k}={v}" for k, v in extra.items())
+    audit_rbac_event(
+        request=request,
+        action=action,
+        outcome="allowed",
+        uid=token.get("uid"),
+        role=token.get("role"),
+        reason=detail,
+        status_code=200,
+    )
 
 @router.get("/versions/production")
 async def get_production_version(request: Request):
