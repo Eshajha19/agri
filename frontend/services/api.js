@@ -202,6 +202,7 @@ const toNumberOr = (value, fallback) => {
 const API_TIMEOUT_MS = toNumberOr(import.meta.env.VITE_API_TIMEOUT_MS, 15000);
 const DEFAULT_RETRIES = toNumberOr(import.meta.env.VITE_API_RETRIES, 2);
 const RETRY_BASE_DELAY_MS = toNumberOr(import.meta.env.VITE_API_RETRY_DELAY_MS, 400);
+const RETRY_BACKOFF_MULTIPLIER = toNumberOr(import.meta.env.VITE_API_RETRY_MULTIPLIER, 2);
 const DEFAULT_CIRCUIT_BREAKER_FAILURES = toNumberOr(import.meta.env.VITE_API_CIRCUIT_BREAKER_FAILURES, 3);
 const DEFAULT_CIRCUIT_BREAKER_RESET_MS = toNumberOr(import.meta.env.VITE_API_CIRCUIT_BREAKER_RESET_MS, 15000);
 
@@ -210,6 +211,13 @@ const inFlightRequests = new Map();
 const circuitBreakers = new Map();
 
 const isIdempotentMethod = (method) => ['get', 'head', 'options', 'put', 'delete'].includes(method);
+
+const createRequestId = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `req-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+};
 
 const sortObjectKeys = (value) => {
   if (Array.isArray(value)) {
@@ -371,10 +379,14 @@ const canRetryRequest = (error, config) => {
   return !status || status === 408 || status === 429 || status >= 500;
 };
 
-const getRetryDelayMs = (retryCount, retryDelayMs) => {
+const getRetryDelayMs = (retryCount, retryDelayMs, retryMultiplier) => {
   const baseDelay =
     typeof retryDelayMs === 'number' ? retryDelayMs : RETRY_BASE_DELAY_MS;
-  return baseDelay * Math.pow(2, retryCount);
+  const multiplier =
+    typeof retryMultiplier === 'number' && retryMultiplier > 0
+      ? retryMultiplier
+      : RETRY_BACKOFF_MULTIPLIER;
+  return baseDelay * Math.pow(multiplier, retryCount);
 };
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -396,18 +408,26 @@ const resolveApiBaseUrl = () => {
     return configuredBaseUrl;
   }
 
-  // If the backend is deployed under the same origin (reverse proxy),
-  // we can safely use relative URLs for all /api/* calls.
-  // If no proxy exists, these requests will fail — but this avoids sending
-  // progress calls to the wrong origin like the static host.
+  // Local development relies on the Vite proxy; production deployments need
+  // an explicit backend URL so requests do not stay on the static frontend host.
   if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    const isLocalhost =
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname.endsWith('.localhost');
+
+    if (!isLocalhost) {
+      console.error(
+        '[api.js] VITE_API_BASE_URL is not configured in production. ' +
+        'API requests will fail. Set VITE_API_BASE_URL to your backend origin.'
+      );
+    }
     return '';
   }
 
   return '';
 };
-
-
 
 /**
  * Retrieve the current Firebase ID token for the signed-in user.
@@ -446,9 +466,6 @@ async function getFirebaseIdToken() {
   return null;
 }
 
-let csrfToken = null;
-let csrfTokenExpiry = 0;
-
 const axiosClient = axios.create({
   baseURL: resolveApiBaseUrl(),
   timeout: API_TIMEOUT_MS,
@@ -463,6 +480,23 @@ axiosClient.interceptors.request.use(
   async (config) => {
     const nextConfig = { ...config };
     const method = (nextConfig.method || 'get').toLowerCase();
+    const requestId = nextConfig.requestId || nextConfig.headers?.['X-Request-ID'] || createRequestId();
+    const currentUserId = auth?.currentUser?.uid || 'anonymous';
+
+    nextConfig.requestId = requestId;
+    nextConfig.userId = nextConfig.userId || currentUserId;
+    nextConfig.errorContext = {
+      ...(typeof nextConfig.errorContext === 'object' ? nextConfig.errorContext : { label: nextConfig.errorContext }),
+      method,
+      url: nextConfig.url,
+      requestId,
+      userId: nextConfig.userId,
+    };
+
+    nextConfig.headers = {
+      ...nextConfig.headers,
+      'X-Request-ID': requestId,
+    };
 
     // Automatically attach idempotency keys to non-idempotent requests (POST)
     // to allow safe retries and prevent duplicate records on the backend.
@@ -485,36 +519,6 @@ axiosClient.interceptors.request.use(
         nextConfig.headers = {
           ...nextConfig.headers,
           Authorization: `Bearer ${token}`,
-        };
-      }
-    }
-
-    // Automatically fetch and attach the CSRF token for state-changing browser requests
-    if (
-      method !== 'get' &&
-      method !== 'head' &&
-      method !== 'options' &&
-      !nextConfig.url.includes('/api/csrf-token') &&
-      !nextConfig.url.includes('/api/log-error')
-    ) {
-      const now = Date.now();
-      if (!csrfToken || now >= csrfTokenExpiry) {
-        try {
-          const mainBackendURL = resolveApiBaseUrl();
-          const authHeader = nextConfig.headers?.Authorization;
-          const response = await axios.get(`${mainBackendURL}/api/csrf-token`, {
-            headers: authHeader ? { Authorization: authHeader } : {},
-          });
-          csrfToken = response.data.csrf_token;
-          csrfTokenExpiry = now + 45 * 60 * 1000; // Cache for 45 minutes
-        } catch (err) {
-          console.warn('[api] Failed to fetch CSRF token:', err?.message);
-        }
-      }
-      if (csrfToken) {
-        nextConfig.headers = {
-          ...nextConfig.headers,
-          'X-CSRF-Token': csrfToken,
         };
       }
     }
@@ -553,7 +557,7 @@ axiosClient.interceptors.response.use(
       config.timeout = 10000;
 
       // Calculate the exponential backoff delay based on the retry count
-      const retryDelay = getRetryDelayMs(retryCount, config.retryDelayMs);
+      const retryDelay = getRetryDelayMs(retryCount, config.retryDelayMs, config.retryMultiplier);
 
       // Pause execution for the calculated delay duration
       await wait(retryDelay);
@@ -566,6 +570,8 @@ axiosClient.interceptors.response.use(
       reportErrorToBackend({
         error,
         context: config.errorContext || 'api-client',
+        requestId: config.requestId,
+        userId: config.userId,
         timestamp: new Date().toISOString(),
       });
     }
@@ -640,4 +646,3 @@ const apiClient = {
 
 export default apiClient;
 // Enhanced API validation
-

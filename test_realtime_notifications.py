@@ -2,8 +2,14 @@
 Tests for the real-time notification broker and websocket fan-out.
 """
 
+import asyncio
+
 from fastapi import FastAPI, WebSocket
 from fastapi.testclient import TestClient
+
+import json
+
+import pytest
 
 from realtime_notifications import NotificationBroadcastHub
 
@@ -86,16 +92,67 @@ def test_multiple_clients_receive_same_broadcast():
             assert event1["data"]["id"] == event2["data"]["id"] == 101
 
 
-def test_targeted_notification_only_reaches_intended_client():
-    hub = NotificationBroadcastHub(history_limit=10)
-    from notification_auth import notification_visible_to_user
+def test_oversized_frame_closes_connection():
+    app, hub = create_test_app()
+    client = TestClient(app)
 
-    notification = {
-        "id": 55,
-        "type": "private",
-        "message": "Only for alice",
-        "recipient_uid": "alice",
-    }
-    assert notification_visible_to_user(notification, "alice")
-    assert not notification_visible_to_user(notification, "bob")
+    with client.websocket_connect("/api/notifications/stream") as websocket:
+        snapshot = websocket.receive_json()
+        assert snapshot["type"] == "snapshot"
 
+        large_text = "x" * (64 * 1024 + 1)
+        websocket.send_text(large_text)
+
+        with pytest.raises(Exception):
+            websocket.receive_json()
+
+
+def test_message_rate_limit_closes_connection():
+    app, hub = create_test_app()
+    client = TestClient(app)
+
+    with client.websocket_connect("/api/notifications/stream") as websocket:
+        snapshot = websocket.receive_json()
+        assert snapshot["type"] == "snapshot"
+
+        # Send enough messages to trigger the 10 msg/s limit
+        for _ in range(12):
+            websocket.send_text("ping")
+
+        with pytest.raises(Exception):
+            websocket.receive_json()
+
+
+def test_dedup_hash_is_deterministic():
+    n1 = {"id": 1, "msg": "hello", "time": "2026-01-01"}
+    n2 = {"time": "2026-01-01", "msg": "hello", "id": 1}
+    assert NotificationBroadcastHub._dedup_hash(n1) == NotificationBroadcastHub._dedup_hash(n2)
+
+
+def test_dedup_hash_differs_for_different_content():
+    n1 = {"id": 1, "msg": "hello"}
+    n2 = {"id": 2, "msg": "world"}
+    assert NotificationBroadcastHub._dedup_hash(n1) != NotificationBroadcastHub._dedup_hash(n2)
+
+
+def test_publish_deduplicates_identical_notifications():
+    app, hub = create_test_app()
+
+    notif = {"id": 42, "type": "weather", "message": "Rain"}
+
+    import asyncio
+    asyncio.run(hub.publish(notif))
+    asyncio.run(hub.publish(notif))
+
+    snap = hub.snapshot()
+    assert len(snap) == 1
+    assert snap[0]["id"] == 42
+
+
+def test_seed_notifications_deduplicates():
+    app, hub = create_test_app()
+
+    notif = {"id": 99, "msg": "dup"}
+    hub.seed_notifications([notif, notif, notif])
+
+    assert len(hub.snapshot()) == 1

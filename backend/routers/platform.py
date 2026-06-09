@@ -11,11 +11,13 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import datetime
 from typing import Any, Optional
 
-from fastapi import APIRouter, Form, HTTPException, Request, Response, Depends
-from csrf_protection import verify_csrf_token_dependency
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ed25519, padding
+from fastapi import APIRouter, Form, HTTPException, Request, Response
 from pydantic import BaseModel, Field, validator
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
@@ -29,6 +31,28 @@ from backend.schemas import AlertTriggerRequest, RAGQuery
 from backend.utils.numeric_validation import validate_numeric_bounds
 
 router = APIRouter()
+
+# ---------------------------------------------------------------------------
+# Simple per-IP rate limiter for public endpoints (no Redis dependency)
+# ---------------------------------------------------------------------------
+_log_error_buckets: dict[str, list[float]] = {}
+
+def _rate_limit_log_error(request: Request, limit: int = 30, window: int = 60) -> None:
+    """Reject with 429 if *ip* exceeds *limit* requests within *window* seconds."""
+    ip = "unknown"
+    if request.client:
+        ip = request.client.host
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        ip = forwarded.split(",")[0].strip()
+
+    now = time.time()
+    bucket = _log_error_buckets.setdefault(ip, [])
+    # Prune timestamps outside the window
+    bucket[:] = [t for t in bucket if now - t < window]
+    if len(bucket) >= limit:
+        raise HTTPException(status_code=429, detail="Too many error log requests. Please retry later.")
+    bucket.append(now)
 logger = logging.getLogger(__name__)
 limiter = Limiter(key_func=get_remote_address)
 
@@ -40,6 +64,16 @@ class WhatsAppSubscribeRequest(BaseModel):
     # The authoritative identity is always derived from the verified
     # Firebase ID token — never from client-supplied data.
     user_id: Optional[str] = None
+
+
+class AlertTriggerRequest(BaseModel):
+    alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
+    message: str = Field(..., min_length=1, max_length=500)
+
+    @validator("message")
+    def strip_control_chars(cls, v):
+        from whatsapp_service import sanitise_message
+        return sanitise_message(v)
 
 
 class ReportRequest(BaseModel):
@@ -517,7 +551,31 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
 
 
-@router.post("/reports/generate", dependencies=[Depends(verify_csrf_token_dependency)])
+MAX_WEBHOOK_BODY_SIZE = 10 * 1024
+
+@router.post("/whatsapp/webhook")
+async def whatsapp_webhook(request: Request, Body: str = Form(...), From: str = Form(...)):
+    """
+    Handle incoming WhatsApp messages from Twilio.
+    
+    Early body-size enforcement prevents memory exhaustion from oversized
+    payloads. Processing is offloaded to a background Celery task.
+    """
+    if len(Body) > MAX_WEBHOOK_BODY_SIZE:
+        raise HTTPException(status_code=413, detail="Request body too large")
+
+    if send_whatsapp_message_fn is None:
+        raise HTTPException(status_code=500, detail="WhatsApp sender not initialized")
+
+    sender_number = From.replace("whatsapp:", "")
+
+    from celery_worker import process_whatsapp_webhook_task
+    process_whatsapp_webhook_task.delay(Body, sender_number)
+    
+    return {"status": "success"}
+
+
+@router.post("/reports/generate")
 async def generate_signed_report(request: Request, data: ReportRequest):
     if verify_role_fn is None or get_signing_keys_fn is None:
         raise HTTPException(status_code=500, detail="Report dependencies not initialized")
@@ -572,7 +630,18 @@ async def generate_signed_report(request: Request, data: ReportRequest):
         "date": datetime.now().date().isoformat(),
     }
     report_data_string = json.dumps(signing_payload, sort_keys=True)
-    signature = private_key.sign(report_data_string.encode("utf-8"))
+    report_data_bytes = report_data_string.encode("utf-8")
+    
+    # Handle both Ed25519 and RSA private keys
+    if isinstance(private_key, ed25519.Ed25519PrivateKey):
+        signature = private_key.sign(report_data_bytes)
+    else:
+        # RSA key - requires padding and hash algorithm
+        signature = private_key.sign(
+            report_data_bytes,
+            padding.PKCS1v15(),
+            hashes.SHA256(),
+        )
     sig_id = hashlib.sha256(signature).hexdigest()[:8].upper()
 
     pdf.setFont("Helvetica-Bold", 14)
@@ -597,26 +666,12 @@ async def generate_signed_report(request: Request, data: ReportRequest):
 
 
 @router.post("/log-error")
-@limiter.limit("10/minute")
 async def log_error(request: Request, body: ClientErrorReport):
-    """
-    Receive a client-side error report and write it to the server log.
+    # Simple per-IP rate limiter: 30 requests per minute
+    _rate_limit_log_error(request, limit=30, window=60)
 
-    Security controls applied:
-    - Authentication required (Firebase ID token) — prevents unauthenticated
-      callers from flooding the log pipeline.
-    - Rate-limited to 10 requests/minute per IP — caps log volume even from
-      authenticated users, preventing log-flooding DoS.
-    - All string fields are sanitised via sanitise_log_field_fn before being
-      written, preventing log-injection via ANSI escape sequences or newlines.
-    """
-    if sanitise_log_field_fn is None or verify_role_fn is None:
-        raise HTTPException(status_code=500, detail="Log service not initialized")
-
-    # Require a valid Firebase ID token.  Any authenticated user (farmer,
-    # expert, admin) may report errors; the token is not used for RBAC here,
-    # only to confirm the caller is a real registered user.
-    await verify_role_fn(request)
+    if sanitise_log_field_fn is None:
+        raise HTTPException(status_code=500, detail="Log sanitizer not initialized")
 
     level = sanitise_log_field_fn(body.level).lower()
     message = sanitise_log_field_fn(body.message)
