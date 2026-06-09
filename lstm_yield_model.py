@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List
 from sklearn.preprocessing import MinMaxScaler
+import joblib
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -149,6 +150,10 @@ async def predict(request: PredictionRequest):
             logger.warning("Scaler not available — returning raw scaled prediction")
             pred_value = float(prediction_scaled[0][0])
         
+        # Inverse-transform to original yield unit
+        if scaler is not None:
+            pred_value = float(scaler.inverse_transform([[pred_value]])[0][0])
+        
         return PredictionResponse(prediction=pred_value)
     
     except Exception as e:
@@ -165,4 +170,4 @@ if __name__ == "__main__":
     # When run as a script, we start the inference server locally
     import uvicorn
     # Note: Run it on a specific port for the dedicated inference server
-    uvicorn.run("lstm_yield_model:app", host="0.0.0.0", port=8001, reload=False)
+    uvicorn.run("lstm_yield_model:app", host="0.0.0.0", port=8001, reload=False)
