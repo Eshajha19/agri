@@ -425,6 +425,56 @@ class NotificationBroadcastHub:
                         "Closing WS %s — frame too large: %d bytes (max %d)",
                         websocket, frame_size, MAX_FRAME_SIZE,
                     )
+                    await websocket.close(code=1009)
+                    break
+
+                # Sliding-window rate limit
+                now = time.time()
+                rate_timestamps.append(now)
+                cutoff = now - RATE_WINDOW
+                rate_timestamps = [t for t in rate_timestamps if t > cutoff]
+                if len(rate_timestamps) > MAX_MESSAGES_PER_SEC:
+                    logger.warning(
+                        "Closing WS %s — rate limit exceeded: %d msg/s (max %d)",
+                        websocket, len(rate_timestamps), MAX_MESSAGES_PER_SEC,
+                    )
+                    await websocket.close(code=1008)
+                    break
+
+                # Parse and validate inbound JSON
+                try:
+                    parsed = json.loads(msg)
+                except json.JSONDecodeError:
+                    logger.warning("Invalid JSON from WS %s, ignoring", websocket)
+                    continue
+                except WebSocketDisconnect:
+                    break
+
+                if not isinstance(parsed, dict) or "type" not in parsed:
+                    continue
+
+                msg_type = parsed.get("type")
+                if msg_type == "delivery_ack":
+                    valid, error = self._validate_delivery_ack(parsed)
+                    if not valid:
+                        logger.warning(
+                            "Invalid delivery_ack from WS %s: %s", websocket, error,
+                        )
+                elif msg_type == "subscribe_crops":
+                    valid, error = self._validate_subscribe_crops(parsed)
+                    if not valid:
+                        logger.warning(
+                            "Invalid subscribe_crops from WS %s: %s", websocket, error,
+                        )
+                if msg is None:
+                    continue
+
+                frame_size = len(msg.encode("utf-8"))
+                if frame_size > MAX_FRAME_SIZE:
+                    logger.warning(
+                        "Closing WS %s — frame too large: %d bytes (max %d)",
+                        websocket, frame_size, MAX_FRAME_SIZE,
+                    )
                     await websocket.close(code=1009)  # Message too big
                     break
 
@@ -446,14 +496,60 @@ class NotificationBroadcastHub:
         except Exception:
             pass
         finally:
-            async with self._connections_lock:
-                self._connections.pop(websocket, None)
-    
-    async def _broadcast(
-        self,
-        payload: Dict[str, Any],
-        clients: list[tuple[WebSocket, _ConnectionSubscription]],
-    ) -> None:
+            async with self._history_lock:
+                self._connections.discard(websocket)
+
+    @staticmethod
+    def _validate_delivery_ack(msg: Dict[str, Any]) -> tuple[bool, str]:
+        """Validate a ``delivery_ack`` message schema.
+
+        Required keys: ``type``, ``notification_id`` (str), ``crops`` (list of str).
+        No unknown keys allowed. Length caps enforced.
+        """
+        allowed = {"type", "notification_id", "crops"}
+        extra = msg.keys() - allowed
+        if extra:
+            return False, f"unknown keys: {', '.join(sorted(extra))}"
+
+        nid = msg.get("notification_id")
+        if not isinstance(nid, str) or len(nid) == 0 or len(nid) > 100:
+            return False, "notification_id must be a non-empty string <= 100 chars"
+
+        crops = msg.get("crops")
+        if not isinstance(crops, list):
+            return False, "crops must be a list"
+        if len(crops) == 0 or len(crops) > 50:
+            return False, "crops must have 1–50 items"
+        for i, c in enumerate(crops):
+            if not isinstance(c, str) or len(c) == 0 or len(c) > 100:
+                return False, f"crops[{i}] must be a non-empty string <= 100 chars"
+
+        return True, ""
+
+    @staticmethod
+    def _validate_subscribe_crops(msg: Dict[str, Any]) -> tuple[bool, str]:
+        """Validate a ``subscribe_crops`` message schema.
+
+        Required keys: ``type``, ``crops`` (list of str).
+        No unknown keys allowed. Length caps enforced.
+        """
+        allowed = {"type", "crops"}
+        extra = msg.keys() - allowed
+        if extra:
+            return False, f"unknown keys: {', '.join(sorted(extra))}"
+
+        crops = msg.get("crops")
+        if not isinstance(crops, list):
+            return False, "crops must be a list"
+        if len(crops) == 0 or len(crops) > 100:
+            return False, "crops must have 1–100 items"
+        for i, c in enumerate(crops):
+            if not isinstance(c, str) or len(c) == 0 or len(c) > 100:
+                return False, f"crops[{i}] must be a non-empty string <= 100 chars"
+
+        return True, ""
+
+    async def _broadcast(self, payload: Dict[str, Any], clients: list[WebSocket]) -> None:
         if not clients:
             return
 

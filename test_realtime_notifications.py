@@ -7,6 +7,8 @@ import asyncio
 from fastapi import FastAPI, WebSocket
 from fastapi.testclient import TestClient
 
+import json
+
 import pytest
 
 from realtime_notifications import NotificationBroadcastHub
