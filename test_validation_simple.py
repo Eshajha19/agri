@@ -212,6 +212,64 @@ def test_boundary_values():
     return True
 
 
+def test_runtime_secrets_protection():
+    """Test that RuntimeProtectionMiddleware blocks requests containing cleartext secrets."""
+    print("Testing Runtime Protection Middleware (Secrets Scanning)...")
+    try:
+        from fastapi.testclient import TestClient
+        from main import app
+        if app is None:
+            print("  ⚠️ Skipping middleware test: FastAPI app unavailable")
+            return True
+    except Exception as e:
+        print(f"  ⚠️ Skipping middleware test: Failed to import app ({e})")
+        return True
+
+    with TestClient(app) as client:
+        secret_payload = {
+            "Crop": "Rice",
+            "CropCoveredArea": 10.0,
+            "CHeight": 5,
+            "CNext": "None",
+            "CLast": "None",
+            "CTransp": "None",
+            "IrriType": "None",
+            "IrriSource": "None",
+            "IrriCount": 2,
+            "WaterCov": 50,
+            "Season": "Kharif",
+            "aws_key": "AKIA1234567890ABCDEF"
+        }
+        response = client.post("/predict", json=secret_payload)
+        assert response.status_code == 400, f"Expected 400, got {response.status_code}"
+        assert response.json() == {"error": "Request blocked by secrets hygiene policy"}
+        print("  ✓ Request with AWS key blocked with 400 Bad Request")
+
+        normal_payload = {
+            "Crop": "Rice",
+            "CropCoveredArea": 10.0,
+            "CHeight": 5,
+            "CNext": "None",
+            "CLast": "None",
+            "CTransp": "None",
+            "IrriType": "None",
+            "IrriSource": "None",
+            "IrriCount": 2,
+            "WaterCov": 50,
+            "Season": "Kharif"
+        }
+        response = client.post("/predict", json=normal_payload)
+        assert response.status_code in (401, 403, 422), f"Expected auth block (401/403) or validation error (422), got {response.status_code}"
+        print("  ✓ Request without secrets bypassed middleware successfully")
+
+        response = client.post("/api/crop-disease/analyze-image", json={"image_base64": "AKIA1234567890ABCDEF"})
+        assert response.status_code != 400, "Excluded path was incorrectly blocked by middleware"
+        print("  ✓ Excluded path bypassed secrets scanning successfully")
+
+    print("✓ All Runtime Protection Middleware tests passed\n")
+    return True
+
+
 def main():
     """Run all tests."""
     print("=" * 60)
@@ -225,6 +283,7 @@ def main():
         test_invalid_types()
         test_full_input_validation()
         test_boundary_values()
+        test_runtime_secrets_protection()
         
         print("=" * 60)
         print("✓ ALL TESTS PASSED")
@@ -243,3 +302,133 @@ def main():
 
 if __name__ == "__main__":
     exit(main())
+
+
+# ---------------------------------------------------------------------------
+# Pytest tests for the shared validate_numeric_bounds utility (Issue #2)
+# ---------------------------------------------------------------------------
+# These tests cover the new backend/utils/numeric_validation.py module which
+# extracts the numeric-safety logic from _coerce_prediction_inputs in main.py.
+# ---------------------------------------------------------------------------
+
+import math
+import pytest
+from fastapi import HTTPException
+
+
+def _import_validator():
+    """Import validate_numeric_bounds, skipping if the module is unavailable."""
+    try:
+        from backend.utils.numeric_validation import validate_numeric_bounds
+        return validate_numeric_bounds
+    except ImportError:
+        pytest.skip("backend.utils.numeric_validation not available")
+
+
+class TestValidateNumericBounds:
+    """pytest tests for validate_numeric_bounds."""
+
+    def test_valid_inputs_pass_through(self):
+        validate = _import_validator()
+        data = {"ph": "7.0", "temperature": "25", "nitrogen": "80"}
+        result = validate(data, ["ph", "temperature", "nitrogen"])
+        assert result["ph"] == 7.0
+        assert result["temperature"] == 25.0
+        assert result["nitrogen"] == 80.0
+
+    def test_nan_ph_rejected(self):
+        validate = _import_validator()
+        with pytest.raises(HTTPException) as exc_info:
+            validate({"ph": float("nan")}, ["ph"])
+        assert exc_info.value.status_code == 400
+        assert "ph" in exc_info.value.detail
+
+    def test_nan_temperature_rejected(self):
+        validate = _import_validator()
+        with pytest.raises(HTTPException) as exc_info:
+            validate({"temperature": float("nan")}, ["temperature"])
+        assert exc_info.value.status_code == 400
+        assert "temperature" in exc_info.value.detail
+
+    def test_positive_inf_temperature_rejected(self):
+        validate = _import_validator()
+        with pytest.raises(HTTPException) as exc_info:
+            validate({"temperature": float("inf")}, ["temperature"])
+        assert exc_info.value.status_code == 400
+
+    def test_negative_inf_nitrogen_rejected(self):
+        validate = _import_validator()
+        with pytest.raises(HTTPException) as exc_info:
+            validate({"nitrogen": float("-inf")}, ["nitrogen"])
+        assert exc_info.value.status_code == 400
+
+    def test_string_inf_rejected(self):
+        validate = _import_validator()
+        with pytest.raises(HTTPException) as exc_info:
+            validate({"temperature": "inf"}, ["temperature"])
+        assert exc_info.value.status_code == 400
+
+    def test_string_nan_rejected(self):
+        validate = _import_validator()
+        with pytest.raises(HTTPException) as exc_info:
+            validate({"ph": "nan"}, ["ph"])
+        assert exc_info.value.status_code == 400
+
+    def test_ph_too_high_rejected(self):
+        validate = _import_validator()
+        with pytest.raises(HTTPException) as exc_info:
+            validate({"ph": 15.0}, ["ph"])
+        assert exc_info.value.status_code == 400
+
+    def test_ph_too_low_rejected(self):
+        validate = _import_validator()
+        with pytest.raises(HTTPException) as exc_info:
+            validate({"ph": -1.0}, ["ph"])
+        assert exc_info.value.status_code == 400
+
+    def test_ph_boundary_values_accepted(self):
+        validate = _import_validator()
+        for boundary in (0.0, 14.0):
+            result = validate({"ph": boundary}, ["ph"])
+            assert result["ph"] == boundary
+
+    def test_missing_field_silently_skipped(self):
+        validate = _import_validator()
+        data = {"temperature": 25.0}
+        result = validate(data, ["temperature", "ph"])
+        assert "ph" not in result
+        assert result["temperature"] == 25.0
+
+    def test_none_field_silently_skipped(self):
+        validate = _import_validator()
+        data = {"ph": None, "temperature": 22.5}
+        result = validate(data, ["ph", "temperature"])
+        assert result["ph"] is None
+        assert result["temperature"] == 22.5
+
+    def test_non_numeric_string_rejected(self):
+        validate = _import_validator()
+        with pytest.raises(HTTPException) as exc_info:
+            validate({"temperature": "twenty-five"}, ["temperature"])
+        assert exc_info.value.status_code == 400
+
+    def test_uppercase_ph_field_validated(self):
+        validate = _import_validator()
+        with pytest.raises(HTTPException) as exc_info:
+            validate({"pH": 20.0}, ["pH"])
+        assert exc_info.value.status_code == 400
+
+    def test_valid_soil_bundle(self):
+        validate = _import_validator()
+        soil_data = {
+            "N": "120", "P": "60", "K": "200",
+            "ph": "6.5", "temperature": "28.0",
+            "humidity": "70", "rainfall": "180",
+        }
+        result = validate(
+            soil_data,
+            ["N", "P", "K", "ph", "temperature", "humidity", "rainfall"],
+        )
+        assert result["ph"] == 6.5
+        assert result["temperature"] == 28.0
+        assert math.isfinite(result["rainfall"])
