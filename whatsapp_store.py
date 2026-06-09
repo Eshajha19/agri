@@ -52,9 +52,42 @@ class SubscriberStore:
     def __init__(self, storage_path: str = "subscribers.json"):
         self.storage_path = storage_path
         self._lock = threading.Lock()
-        self._subscribers: Dict[str, Dict] = {}
+        self._filelock = FileLock(self._lock_filepath, timeout=self._timeout)
 
-        self._load()
+    # ------------------------------------------------------------------
+    # Private helpers (must be called with locks already held)
+    # ------------------------------------------------------------------
+
+    def _read_locked(self) -> Dict[str, Subscriber]:
+        """Read and parse the subscribers file.  Raises on corruption."""
+        if not os.path.exists(self._filepath):
+            return {}
+        try:
+            with open(self._filepath, "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except json.JSONDecodeError as exc:
+            backup = self._filepath + ".bak"
+            try:
+                import shutil
+                shutil.copy2(self._filepath, backup)
+                logger.error(
+                    "Subscriber file '%s' is corrupt. Backed up to '%s'. "
+                    "Raising error to prevent data loss.",
+                    self._filepath, backup, exc,
+                )
+            except OSError as backup_err:
+                logger.error(
+                    "Subscriber file '%s' is corrupt AND backup to '%s' failed: %s",
+                    self._filepath, backup, backup_err,
+                )
+            raise
+        except OSError as exc:
+            logger.error(
+                "Could not read subscriber file '%s': %s.",
+                self._filepath,
+                exc,
+            )
+            raise
 
     # =========================================================================
     # INTERNAL
