@@ -2,6 +2,7 @@ import os
 import joblib
 import numpy as np
 from celery import Celery
+from ml.security import verify_and_load_joblib
 
 # Initialize Celery app
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -30,7 +31,7 @@ def _get_lag_model():
     global _model_lag
     if _model_lag is None:
         try:
-            _model_lag = joblib.load("sklearn_yield_model.joblib")
+            _model_lag = verify_and_load_joblib("sklearn_yield_model.joblib")
         except Exception as e:
             print(f"Failed to load lag model: {e}")
     return _model_lag
@@ -40,7 +41,7 @@ def _get_trend_model():
     if _model_trend is None:
         try:
             if os.path.exists("trend_forecast_model.joblib"):
-                _model_trend = joblib.load("trend_forecast_model.joblib")
+                _model_trend = verify_and_load_joblib("trend_forecast_model.joblib")
         except Exception as e:
             print(f"Failed to load trend model: {e}")
     return _model_trend
