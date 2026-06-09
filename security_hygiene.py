@@ -11,6 +11,18 @@ from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
+# Maximum body size to scan (256 KB)
+MAX_SCAN_BODY_SIZE = 256 * 1024
+# Content-Types that are eligible for body scanning
+SCANNABLE_CONTENT_TYPES = frozenset({
+    "application/json",
+    "text/plain",
+    "text/html",
+    "application/x-www-form-urlencoded",
+    "application/xml",
+    "text/xml",
+})
+
 class Finding:
     """Represents a sensitive data finding during scanning."""
     def __init__(self, category: str, matched_text: str, location: str):
@@ -56,10 +68,34 @@ class SecretHygieneProgram:
                 findings.append(Finding(category, match.group(0), location))
         return findings
 
-class RuntimeProtectionMiddleware:
-    """FastAPI/ASGI Middleware to block requests containing cleartext secrets."""
-    def __init__(self, app, program: SecretHygieneProgram = None, exclude_paths: List[str] = None):
-        self.app = app
+# Content-types eligible for body scanning (MIME type only, no parameters)
+SCANNABLE_TYPES = frozenset({
+    "application/json",
+    "application/x-www-form-urlencoded",
+    "application/xml",
+    "text/plain",
+    "text/html",
+    "text/xml",
+})
+# Maximum body size to scan (256 KB)
+MAX_SCAN_BODY_SIZE = 256 * 1024
+
+
+def _parse_mime_type(content_type: str | None) -> str | None:
+    """Extract the MIME type from a Content-Type header value.
+
+    Handles ``application/json; charset=utf-8`` → ``application/json``,
+    missing or empty header → ``None``, and trailing whitespace.
+    """
+    if not content_type or not content_type.strip():
+        return None
+    return content_type.split(";")[0].strip().lower()
+
+
+class RuntimeProtectionMiddleware(BaseHTTPMiddleware):
+    """FastAPI Middleware to block requests containing cleartext secrets."""
+    def __init__(self, app, program: SecretHygieneProgram = None):
+        super().__init__(app)
         self.program = program or SecretHygieneProgram()
         self.exclude_paths = exclude_paths or []
 
@@ -77,28 +113,45 @@ class RuntimeProtectionMiddleware:
         more_body = True
         received_messages = []
 
-        try:
-            while more_body:
-                message = await receive()
-                received_messages.append(message)
-                if message["type"] == "http.request":
-                    body_bytes += message.get("body", b"")
-                    more_body = message.get("more_body", False)
-                elif message["type"] == "http.disconnect":
-                    break
+    async def dispatch(self, request: Request, call_next):
+        # Only scan text/json content types with bounded size
+        mime = _parse_mime_type(request.headers.get("content-type"))
 
-            body_str = body_bytes.decode("utf-8", errors="ignore")
-            findings = self.program.scan_text(body_str, location="middleware")
-            if findings:
-                response = JSONResponse(
-                    status_code=400,
-                    content={"error": "Request blocked by secrets hygiene policy"}
-                )
-                await response(scope, receive, send)
-                return
-        except Exception:
-            # Fallback to normal request execution if body buffering fails
-            pass
+        if mime in SCANNABLE_TYPES:
+            try:
+                body_bytes = await request.body()
+                if 0 < len(body_bytes) <= MAX_SCAN_BODY_SIZE:
+        content_type = (request.headers.get("content-type") or "").lower().split(";")[0].strip()
+        content_length_str = request.headers.get("content-length", "0")
+        try:
+            content_length = int(content_length_str)
+        except (ValueError, TypeError):
+            content_length = 0
+
+        should_scan = (
+            content_type in SCANNABLE_CONTENT_TYPES
+            and 0 < content_length <= MAX_SCAN_BODY_SIZE
+        )
+
+        if should_scan:
+            try:
+                body_bytes = await request.body()
+                if len(body_bytes) <= MAX_SCAN_BODY_SIZE:
+                    body_str = body_bytes.decode("utf-8", errors="ignore")
+                    findings = self.program.scan_text(body_str, location="middleware")
+                    if findings:
+                        return JSONResponse(
+                            status_code=400,
+                            content={"error": "Request blocked by secrets hygiene policy"}
+                        )
+
+                    # Reset body read pointer so downstream handlers can consume it
+                    async def receive():
+                        return {"type": "http.request", "body": body_bytes, "more_body": False}
+                    request._receive = receive
+            except Exception:
+                # Fallback in case of body read failures to avoid crashing the server
+                pass
 
         message_idx = 0
         async def mock_receive():
