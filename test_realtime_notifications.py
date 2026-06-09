@@ -5,6 +5,8 @@ Tests for the real-time notification broker and websocket fan-out.
 from fastapi import FastAPI, WebSocket
 from fastapi.testclient import TestClient
 
+import pytest
+
 from realtime_notifications import NotificationBroadcastHub
 
 
@@ -81,3 +83,34 @@ def test_multiple_clients_receive_same_broadcast():
             assert event1["type"] == "notification"
             assert event2["type"] == "notification"
             assert event1["data"]["id"] == event2["data"]["id"] == 101
+
+
+def test_oversized_frame_closes_connection():
+    app, hub = create_test_app()
+    client = TestClient(app)
+
+    with client.websocket_connect("/api/notifications/stream") as websocket:
+        snapshot = websocket.receive_json()
+        assert snapshot["type"] == "snapshot"
+
+        large_text = "x" * (64 * 1024 + 1)
+        websocket.send_text(large_text)
+
+        with pytest.raises(Exception):
+            websocket.receive_json()
+
+
+def test_message_rate_limit_closes_connection():
+    app, hub = create_test_app()
+    client = TestClient(app)
+
+    with client.websocket_connect("/api/notifications/stream") as websocket:
+        snapshot = websocket.receive_json()
+        assert snapshot["type"] == "snapshot"
+
+        # Send enough messages to trigger the 10 msg/s limit
+        for _ in range(12):
+            websocket.send_text("ping")
+
+        with pytest.raises(Exception):
+            websocket.receive_json()

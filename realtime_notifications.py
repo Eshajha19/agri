@@ -9,11 +9,18 @@ import collections
 import json
 import logging
 import os
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Deque, Dict, Iterable, Optional
 
 from fastapi import WebSocket, WebSocketDisconnect
+
+# Max inbound WebSocket frame size (64 KB)
+MAX_FRAME_SIZE = 64 * 1024
+# Max inbound messages per second per connection
+MAX_MESSAGES_PER_SEC = 10
+RATE_WINDOW = 1.0
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +148,13 @@ class NotificationBroadcastHub:
         return event
 
     async def connect(self, websocket: WebSocket) -> None:
-        """Accept a websocket client and keep it subscribed until disconnect."""
+        """Accept a websocket client and keep it subscribed until disconnect.
+
+        Enforces a maximum inbound frame size (``MAX_FRAME_SIZE``) and a
+        per-connection message rate limit (``MAX_MESSAGES_PER_SEC``).
+        Oversized or high-rate connections are closed with an appropriate
+        close code.
+        """
         await websocket.accept()
         async with self._history_lock:
             self._connections.add(websocket)
@@ -156,11 +169,46 @@ class NotificationBroadcastHub:
             }
         )
 
+        rate_timestamps: list[float] = []
+
         try:
-            await asyncio.Event().wait()
+            while True:
+                try:
+                    msg = await asyncio.wait_for(websocket.receive_text(), timeout=10.0)
+                except asyncio.TimeoutError:
+                    # No message received — periodic liveness check
+                    continue
+                except WebSocketDisconnect:
+                    break
+
+                if msg is None:
+                    continue
+
+                frame_size = len(msg.encode("utf-8"))
+                if frame_size > MAX_FRAME_SIZE:
+                    logger.warning(
+                        "Closing WS %s — frame too large: %d bytes (max %d)",
+                        websocket, frame_size, MAX_FRAME_SIZE,
+                    )
+                    await websocket.close(code=1009)  # Message too big
+                    break
+
+                # Sliding-window rate limit
+                now = time.time()
+                rate_timestamps.append(now)
+                # Prune timestamps outside the window
+                cutoff = now - RATE_WINDOW
+                rate_timestamps = [t for t in rate_timestamps if t > cutoff]
+                if len(rate_timestamps) > MAX_MESSAGES_PER_SEC:
+                    logger.warning(
+                        "Closing WS %s — rate limit exceeded: %d msg/s (max %d)",
+                        websocket, len(rate_timestamps), MAX_MESSAGES_PER_SEC,
+                    )
+                    await websocket.close(code=1008)  # Policy violation
+                    break
         except asyncio.CancelledError:
             pass
-        except WebSocketDisconnect:
+        except Exception:
             pass
         finally:
             async with self._history_lock:
