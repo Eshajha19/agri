@@ -5,6 +5,8 @@ Tests for the real-time notification broker and websocket fan-out.
 from fastapi import FastAPI, WebSocket
 from fastapi.testclient import TestClient
 
+import json
+
 import pytest
 
 from realtime_notifications import NotificationBroadcastHub
