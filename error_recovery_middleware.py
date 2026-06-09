@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.exceptions import HTTPException
 import traceback
-import re
+from typing import Dict
 
 logger = logging.getLogger(__name__)
 SUSPICIOUS_PATTERNS = [
@@ -33,34 +33,8 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
     - Automatic error tracking
     - Structured error responses
     - Request/response logging
-    - Circuit breaker integration (rolling 60 s window)
-
-    .. warning:: Per-process circuit breaker state
-
-        The circuit breaker state (``_failure_timestamps``,
-        ``_circuit_state``, ``_circuit_open_since``) is stored as instance
-        attributes on this middleware object.  In a multi-worker deployment
-        (e.g. ``uvicorn main:app --workers 4`` or Gunicorn with multiple
-        worker processes), each worker process has its own independent
-        ``ErrorRecoveryMiddleware`` instance with its own isolated state.
-
-        This means:
-        - Worker A may open its circuit after 5 failures while Worker B's
-          circuit remains closed and continues routing requests to the same
-          broken downstream endpoint.
-        - A manual ``reset_circuit()`` call only affects the worker that
-          handles that specific admin request.
-        - The ``get_error_stats()`` endpoint returns per-worker statistics,
-          not an aggregate view across all workers.
-
-        The circuit breaker therefore provides **no protection** in
-        multi-worker deployments.  It is only effective in single-worker
-        or single-process deployments (e.g. development, or production
-        with ``--workers 1``).
-
-        For multi-worker protection, use a shared external store (Redis,
-        Memcached) to coordinate circuit state across processes, or rely
-        on an upstream load balancer or service mesh for circuit breaking.
+    - Circuit breaker integration
+    - Rate-limited log emission per endpoint per window
     """
 
     _FAILURE_THRESHOLD = 5
@@ -85,12 +59,14 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
             for pattern in SUSPICIOUS_PATTERNS
         )
     
-    def __init__(self, app):
+    def __init__(self, app, log_cooldown: float = 5.0):
         super().__init__(app)
-        self._failure_timestamps: dict[str, list[float]] = {}
-        self._circuit_state: dict[str, str] = {}
-        self._circuit_open_since: dict[str, float] = {}
-
+        self.error_counts = {}  # endpoint -> count
+        self.error_timestamps = {}  # endpoint -> timestamp
+        self._log_cooldown = log_cooldown  # seconds between same-category logs per endpoint
+        self._log_last_emitted: Dict[str, float] = {}  # key -> last log time
+        self._log_suppressed: Dict[str, int] = {}  # key -> count of suppressed logs
+    
     async def dispatch(self, request: Request, call_next) -> Response:
         """Handle request with error recovery"""
 
@@ -164,9 +140,10 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
 
             # Log successful request
             duration = time.time() - start_time
-            logger.info(
-                f"[{request_id}] {endpoint} - Status: {response.status_code} - "
-                f"Duration: {duration:.2f}s"
+            self._rate_log(
+                f"info:{endpoint}", logging.INFO,
+                "[%s] %s - Status: %s - Duration: %.2fs",
+                request_id, endpoint, response.status_code, duration,
             )
 
             # Half-open → closed on success; otherwise retain failure
@@ -194,10 +171,11 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
         except HTTPException as http_exc:
             # Handle HTTP exceptions
             duration = time.time() - start_time
-
-            logger.warning(
-                f"[{request_id}] {endpoint} - HTTP Error: {http_exc.status_code} - "
-                f"Detail: {http_exc.detail} - Duration: {duration:.2f}s"
+            
+            self._rate_log(
+                f"http_error:{endpoint}", logging.WARNING,
+                "[%s] %s - HTTP Error: %s - Detail: %s - Duration: %.2fs",
+                request_id, endpoint, http_exc.status_code, http_exc.detail, duration,
             )
 
             return JSONResponse(
@@ -216,10 +194,11 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
         except ValueError as val_exc:
             # Handle validation errors
             duration = time.time() - start_time
-
-            logger.warning(
-                f"[{request_id}] {endpoint} - Validation Error: {val_exc} - "
-                f"Duration: {duration:.2f}s"
+            
+            self._rate_log(
+                f"validation_error:{endpoint}", logging.WARNING,
+                "[%s] %s - Validation Error: %s - Duration: %.2fs",
+                request_id, endpoint, val_exc, duration,
             )
 
             return JSONResponse(
@@ -238,9 +217,11 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
         except TimeoutError as timeout_exc:
             # Handle timeout errors
             duration = time.time() - start_time
-
-            logger.error(
-                f"[{request_id}] {endpoint} - Timeout Error - Duration: {duration:.2f}s"
+            
+            self._rate_log(
+                f"timeout:{endpoint}", logging.ERROR,
+                "[%s] %s - Timeout Error - Duration: %.2fs",
+                request_id, endpoint, duration,
             )
 
             # Record failure and check circuit breaker
@@ -264,10 +245,11 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
             # Handle unexpected errors
             duration = time.time() - start_time
             error_id = str(uuid.uuid4())
-
-            logger.error(
-                f"[{request_id}] {endpoint} - Unexpected Error [{error_id}]: {exc} - "
-                f"Duration: {duration:.2f}s\n{traceback.format_exc()}"
+            
+            self._rate_log(
+                f"unexpected:{endpoint}", logging.ERROR,
+                "[%s] %s - Unexpected Error [%s]: %s - Duration: %.2fs\n%s",
+                request_id, endpoint, error_id, exc, duration, traceback.format_exc(),
             )
 
             # Record failure and check circuit breaker
@@ -392,6 +374,51 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
         elif status_code >= 500:
             return "server_error"
         return "unknown"
+    
+    def _check_circuit_breaker(self, endpoint: str) -> bool:
+        """Check if circuit breaker should open"""
+        
+        # Get error count and last error time
+        error_count = self.error_counts.get(endpoint, 0)
+        error_time = self.error_timestamps.get(endpoint, time.time())
+        
+        # Update timestamp
+        self.error_timestamps[endpoint] = time.time()
+        
+        # Open circuit if more than 5 errors in 60 seconds
+        time_since_error = time.time() - error_time
+        
+        if error_count >= 5 and time_since_error < 60:
+            self._rate_log(
+                f"circuit_breaker:{endpoint}", logging.WARNING,
+                "Circuit breaker opened for %s: %d errors in %.0fs",
+                endpoint, error_count, time_since_error,
+            )
+            return True
+        
+        # Reset if 60 seconds have passed
+        if time_since_error >= 60:
+            self.error_counts[endpoint] = 0
+        
+        return False
+    
+    def _rate_log(self, key: str, level: int, msg: str, *args):
+        """Emit log at most once per ``_log_cooldown`` seconds per key.
+        
+        Suppressed calls increment a counter; periodic summary lines are
+        emitted so that suppressed events remain measurable.
+        """
+        now = time.time()
+        last = self._log_last_emitted.get(key, 0.0)
+        if now - last >= self._log_cooldown:
+            self._log_last_emitted[key] = now
+            suppressed = self._log_suppressed.pop(key, 0)
+            if suppressed:
+                logger.log(level, "%s — (%d similar messages suppressed in the last %.0fs)", msg, suppressed, self._log_cooldown, *args)
+            else:
+                logger.log(level, msg, *args)
+        else:
+            self._log_suppressed[key] = self._log_suppressed.get(key, 0) + 1
 
     def get_error_stats(self) -> dict:
         """Get error statistics including per-endpoint circuit details."""
@@ -418,10 +445,12 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
             circuit_detail[ep] = detail
 
         return {
-            "circuit_states": dict(self._circuit_state),
-            "circuit_detail": circuit_detail,
-            "failure_counts": {k: len(v) for k, v in pruned.items()},
-            "failure_timestamps": {k: v for k, v in pruned.items()},
+            "endpoints_with_errors": len(self.error_counts),
+            "error_counts": self.error_counts,
+            "timestamps": {
+                k: v for k, v in self.error_timestamps.items()
+            },
+            "log_suppressed": dict(self._log_suppressed),
         }
 
 
