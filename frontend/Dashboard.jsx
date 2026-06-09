@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, memo } from "react";
+import React, { useState, useEffect, useMemo, useCallback, memo, lazy, Suspense } from "react";
 import { Link } from "react-router-dom";
 import {
   FaUser,
@@ -26,9 +26,6 @@ import {
   FaRecycle,
   FaUserPlus,
   FaExclamationTriangle,
-  FaWifi,
-  FaWifiSlash,
-  FaSyncAlt,
 } from "react-icons/fa";
 import "./Dashboard.css";
 import {
@@ -44,6 +41,31 @@ import AdvisoryPanel from "./AdvisoryPanel";
 // ============================================
 // Performance Utilities
 // ============================================
+
+/**
+ * Memoized selector cache to prevent unnecessary recalculations
+ */
+class SelectorCache {
+  constructor() {
+    this.cache = new Map();
+  }
+
+  memoize(key, fn, deps = []) {
+    const cacheKey = JSON.stringify({ key, deps });
+
+    if (!this.cache.has(cacheKey)) {
+      this.cache.set(cacheKey, fn());
+    }
+
+    return this.cache.get(cacheKey);
+  }
+
+  clear() {
+    this.cache.clear();
+  }
+}
+
+const selectorCache = new SelectorCache();
 
 /**
  * Lazy loading image component with Intersection Observer
@@ -106,52 +128,6 @@ const DashboardCard = memo(({ title, icon: Icon, children, link, className }) =>
     </div>
   );
 });
-
-const StatCard = memo(({ stat }) => (
-  <div className="stat-card">
-    <div className="stat-card-icon">{stat.icon}</div>
-    <div className="stat-card-info">
-      <span className="stat-card-value">{stat.value}</span>
-      <span className="stat-card-label notranslate">{stat.label}</span>
-      <span className="stat-card-trend">{stat.trend}</span>
-    </div>
-  </div>
-));
-
-const ActivityItem = memo(({ item }) => (
-  <div className="activity-item">
-    <div className={`activity-icon activity-${item.type}`}>{item.icon}</div>
-    <div className="activity-content">
-      <span className="activity-title">{item.title}</span>
-      <span className="activity-desc">{item.description}</span>
-      <span className="activity-time">{item.time}</span>
-    </div>
-  </div>
-));
-
-const RecommendationItem = memo(({ rec }) => (
-  <div
-    className="recommendation-card"
-    role="button"
-    tabIndex={0}
-    aria-label={`Recommendation: ${rec.title}. ${rec.description}`}
-    onKeyDown={(e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-      }
-    }}
-  >
-    <div className="rec-icon" aria-hidden="true">{rec.icon}</div>
-    <div className="rec-content">
-      <div className="rec-header-row">
-        <span className="rec-title">{rec.title}</span>
-        <span className="rec-tag">{rec.tag}</span>
-      </div>
-      <p className="rec-desc">{rec.description}</p>
-    </div>
-    <FaArrowRight className="rec-arrow" aria-hidden="true" />
-  </div>
-));
 
 /**
  * Virtualized list component for large datasets
@@ -246,7 +222,7 @@ const formatFarmArea = (value) => {
   return areaText;
 };
 
-export default function Dashboard({ userData, wsStatus = "disconnected" }) {
+export default function Dashboard({ userData }) {
   const name = userData?.displayName || "Farmer";
   const preferredLang = userData?.language || "en";
   const normalizedFarmArea = useMemo(
@@ -395,23 +371,23 @@ export default function Dashboard({ userData, wsStatus = "disconnected" }) {
     }
   };
 
-  const greeting = useMemo(() => {
+  const getGreeting = () => {
     const hour = currentTime.getHours();
     if (hour < 12) return "Good Morning";
     if (hour < 17) return "Good Afternoon";
     return "Good Evening";
-  }, [currentTime]);
+  };
 
-  const formattedDate = useMemo(() => {
+  const getFormattedDate = () => {
     return currentTime.toLocaleDateString("en-IN", {
       weekday: "long",
       year: "numeric",
       month: "long",
       day: "numeric",
     });
-  }, [currentTime]);
+  };
 
-  const quickStats = useMemo(() => [
+  const quickStats = [
     {
       label: "Primary Crop",
       value: userData?.cropType || "—",
@@ -436,21 +412,12 @@ export default function Dashboard({ userData, wsStatus = "disconnected" }) {
       icon: <FaCalendarAlt />,
       trend: userData?.season || normalizedIrrigation ? `${userData.season || normalizedIrrigation} planning` : "Set up your profile",
     },
-  ], [nextHarvestValue, normalizedFarmArea, normalizedIrrigation, userData, yieldScoreValue]);
-
-  // WebSocket status indicator config
-  const wsStatusConfig = useMemo(() => ({
-    connected: { icon: <FaWifi />, label: "Live alerts", color: "#22c55e" },
-    connecting: { icon: <FaSyncAlt className="spin" />, label: "Connecting...", color: "#f59e0b" },
-    reconnecting: { icon: <FaSyncAlt className="spin" />, label: "Reconnecting...", color: "#f59e0b" },
-    disconnected: { icon: <FaWifiSlash />, label: "Alerts paused", color: "#ef4444" },
-  }), []);
-  const activeWsStatus = wsStatusConfig[wsStatus] || wsStatusConfig.disconnected;
+  ];
 
   // Recent activity is derived from real user actions where available.
   // Static entries are clearly labelled as tips/reminders, not fabricated events.
   const cropLabel = userData?.cropType || "your crop";
-  const recentActivity = useMemo(() => [
+  const recentActivity = [
     {
       icon: <FaCloudSun />,
       title: "Weather Alerts",
@@ -493,14 +460,14 @@ export default function Dashboard({ userData, wsStatus = "disconnected" }) {
       time: "Tip",
       type: "info",
     },
-  ], [cropLabel]);
+  ];
 
   // Recommendations are derived from the user's actual profile data.
   // Generic fallbacks are shown only when profile fields are missing,
   // and are clearly framed as general tips rather than personalised AI output.
   const userCrop = userData?.cropType?.toLowerCase() || "";
   const userIrrigation = normalizedIrrigation?.toLowerCase() || "";
-  const recommendations = useMemo(() => [
+  const recommendations = [
     {
       icon: <FaLeaf />,
       title: userIrrigation && userIrrigation !== "drip"
@@ -535,9 +502,9 @@ export default function Dashboard({ userData, wsStatus = "disconnected" }) {
         : "Check the Market Prices section for live mandi rates before deciding when to sell.",
       tag: "Market",
     },
-  ], [userCrop, userData, userIrrigation]);
+  ];
 
-  const quickActions = useMemo(() => [
+  const quickActions = [
     { label: "AI Advisor", icon: <FaSeedling />, link: "/advisor" },
     { label: "Yield Predictor", icon: <FaChartBar />, link: "/yield-predictor" },
     { label: "Farm Autopilot", icon: <FaRobot />, link: "/smart-farm-autopilot" },
@@ -550,16 +517,7 @@ export default function Dashboard({ userData, wsStatus = "disconnected" }) {
     { label: "Helpline", icon: <FaPhoneAlt />, link: "/helpline" },
     { label: "Glossary", icon: <FaBook />, link: "/glossary" },
     { label: "Risk Index", icon: <FaShieldAlt />, link: "/risk-index" },
-  ], []);
-
-  const weatherInsight = useMemo(() => {
-    if (historicalWeather.length === 0) return "Analyzing data...";
-
-    const averageRainfall = historicalWeather.reduce((sum, d) => sum + d.rainfall, 0) / historicalWeather.length;
-    return averageRainfall > 140
-      ? "Rice is suitable based on historical rainfall trends"
-      : "Wheat is more suitable based on climate trends";
-  }, [historicalWeather]);
+  ];
   const filteredData = useMemo(() => {
     return yieldData.filter((item) => {
       return (
@@ -585,31 +543,9 @@ export default function Dashboard({ userData, wsStatus = "disconnected" }) {
               <FaUser />
             </div>
             <div className="welcome-text">
-              <h1>{greeting}, {name}</h1>
-              <p className="welcome-date">{formattedDate}</p>
+              <h1>{getGreeting()}, {name}</h1>
+              <p className="welcome-date">{getFormattedDate()}</p>
               <p className="welcome-sub">Here is an overview of your farm activity and insights</p>
-            </div>
-            {/* WebSocket Connection Status */}
-            <div
-              className="ws-status-badge"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "6px",
-                padding: "6px 12px",
-                borderRadius: "20px",
-                background: `${activeWsStatus.color}15`,
-                border: `1px solid ${activeWsStatus.color}40`,
-                color: activeWsStatus.color,
-                fontSize: "0.75rem",
-                fontWeight: 600,
-                marginLeft: "auto",
-                alignSelf: "center",
-              }}
-              title={`Price alert connection: ${activeWsStatus.label}`}
-            >
-              {activeWsStatus.icon}
-              <span>{activeWsStatus.label}</span>
             </div>
           </div>
            <div className="quick-actions-row">
@@ -656,8 +592,15 @@ export default function Dashboard({ userData, wsStatus = "disconnected" }) {
             </span>
           </div>
         )}
-        {quickStats.map((stat) => (
-          <StatCard stat={stat} key={stat.label} />
+        {quickStats.map((stat, idx) => (
+          <div className="stat-card" key={idx}>
+            <div className="stat-card-icon">{stat.icon}</div>
+            <div className="stat-card-info">
+              <span className="stat-card-value">{stat.value}</span>
+              <span className="stat-card-label notranslate">{stat.label}</span>
+              <span className="stat-card-trend">{stat.trend}</span>
+            </div>
+          </div>
         ))}
       </section>
 
@@ -671,8 +614,17 @@ export default function Dashboard({ userData, wsStatus = "disconnected" }) {
               <span className="section-badge">{recentActivity.length} updates</span>
             </div>
             <div className="activity-list">
-              {recentActivity.map((item) => (
-                <ActivityItem item={item} key={item.title} />
+              {recentActivity.map((item, idx) => (
+                <div className="activity-item" key={idx}>
+                  <div className={`activity-icon activity-${item.type}`}>
+                    {item.icon}
+                  </div>
+                  <div className="activity-content">
+                    <span className="activity-title">{item.title}</span>
+                    <span className="activity-desc">{item.description}</span>
+                    <span className="activity-time">{item.time}</span>
+                  </div>
+                </div>
               ))}
             </div>
           </div>
@@ -685,8 +637,29 @@ export default function Dashboard({ userData, wsStatus = "disconnected" }) {
               <span className="section-badge">AI Powered</span>
             </div>
             <div className="recommendations-list">
-              {recommendations.map((rec) => (
-                 <RecommendationItem rec={rec} key={rec.title} />
+              {recommendations.map((rec, idx) => (
+                 <div 
+                   className="recommendation-card" 
+                   key={idx}
+                   role="button"
+                   tabIndex={0}
+                   aria-label={`Recommendation: ${rec.title}. ${rec.description}`}
+                   onKeyDown={(e) => {
+                     if (e.key === 'Enter' || e.key === ' ') {
+                       e.preventDefault();
+                     }
+                   }}
+                 >
+                   <div className="rec-icon" aria-hidden="true">{rec.icon}</div>
+                   <div className="rec-content">
+                     <div className="rec-header-row">
+                       <span className="rec-title">{rec.title}</span>
+                       <span className="rec-tag">{rec.tag}</span>
+                     </div>
+                     <p className="rec-desc">{rec.description}</p>
+                   </div>
+                   <FaArrowRight className="rec-arrow" aria-hidden="true" />
+                 </div>
               ))}
             </div>
           </div>
@@ -773,7 +746,7 @@ export default function Dashboard({ userData, wsStatus = "disconnected" }) {
                   type="text" 
                   placeholder="+91 9876543210" 
                   value={phoneNumber} 
-                  onChange={handlePhoneChange}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
                   aria-label="Phone number with country code"
                 />
               </div>
@@ -782,7 +755,7 @@ export default function Dashboard({ userData, wsStatus = "disconnected" }) {
                   type="checkbox" 
                   id="wa-toggle" 
                   checked={whatsappAlerts} 
-                  onChange={handleWhatsappToggle}
+                  onChange={(e) => setWhatsappAlerts(e.target.checked)}
                 />
                 <label htmlFor="wa-toggle">Enable Real-time Alerts</label>
               </div>
@@ -1005,7 +978,16 @@ export default function Dashboard({ userData, wsStatus = "disconnected" }) {
 
         {/* Insight */}
         <div style={{ marginTop: "15px", fontWeight: "500", color: "#374151" }}>
-          <FaSeedling /> Insight: {weatherInsight}
+          <FaSeedling /> Insight: {
+            historicalWeather.length > 0
+              ? (
+                  historicalWeather.reduce((sum, d) => sum + d.rainfall, 0) /
+                  historicalWeather.length
+                ) > 140
+                ? "Rice is suitable based on historical rainfall trends"
+                : "Wheat is more suitable based on climate trends"
+              : "Analyzing data..."
+          }
         </div>
       </section>
     </div>
