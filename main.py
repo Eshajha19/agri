@@ -166,6 +166,38 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+# --- Global Error Handlers ---
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error("Unhandled error: %s", exc, exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "code": "INTERNAL_ERROR",
+            "message": "Something went wrong. Please try again later."
+        },
+    )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=400,
+        content={"code": "VALIDATION_ERROR", "message": "Invalid request payload."},
+    )
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"code": "HTTP_ERROR", "message": exc.detail},
+    )
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
