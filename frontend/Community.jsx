@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { 
   MessageSquare, 
   ThumbsUp, 
@@ -96,6 +96,9 @@ const Community = () => {
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [showP2PChat, setShowP2PChat] = useState(null); // stores the recipient object
   const [authorsData, setAuthorsData] = useState({});
+  const processedPostIdsRef = useRef(new Set());
+  const feedVersionRef = useRef(0);
+  const latestSnapshotRef = useRef(0);
 
   // ── Rate-limit / spam state ──────────────────────────────────────────────
   /** Timestamp (ms) of the user's last successful post. null = never posted. */
@@ -177,11 +180,44 @@ const Community = () => {
     }
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const docs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setPosts(docs);
+      const snapshotVersion = ++latestSnapshotRef.current;
+
+      processedPostIdsRef.current.clear();
+
+      const docs = snapshot.docs
+        .map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }))
+        .filter(post => {
+          if (processedPostIdsRef.current.has(post.id)) {
+            return false;
+          }
+
+          processedPostIdsRef.current.add(post.id);
+          return true;
+        })
+        .sort((a, b) => {
+          const aTime = a.createdAt?.seconds || 0;
+          const bTime = b.createdAt?.seconds || 0;
+
+          if (bTime !== aTime) {
+            return bTime - aTime;
+          }
+
+          return a.id.localeCompare(b.id);
+        });
+
+      feedVersionRef.current += 1;
+
+      console.info(
+        `[COMMUNITY_FEED] version=${feedVersionRef.current} posts=${docs.length}`
+      );
+
+      if (snapshotVersion === latestSnapshotRef.current) {
+        setPosts(docs);
+      }
+
       setLoading(false);
     }, (error) => {
       console.error("Error fetching posts:", error);
@@ -494,10 +530,14 @@ const Community = () => {
     return "";
   };
 
-  const filteredPosts = posts.filter(post => 
-    post.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    post.userName.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredPosts = useMemo(() => {
+    const query = searchQuery.toLowerCase();
+
+    return posts.filter(post =>
+      post.content.toLowerCase().includes(query) ||
+      post.userName.toLowerCase().includes(query)
+    );
+  }, [posts, searchQuery]);
 
   return (
     <div className="community-container">
@@ -780,4 +820,3 @@ const Community = () => {
   );
 };
 export default Community;
-
