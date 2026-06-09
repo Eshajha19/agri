@@ -160,18 +160,33 @@ class ABTest:
             self.current_allocation[self.control_arm.model_id] = control_score / total_score
             self.current_allocation[self.variant_arm.model_id] = variant_score / total_score
     
+    def _probability_variant_better(self) -> float:
+        """Compute P(variant > control) via Monte Carlo from Beta posteriors."""
+        n = 10000
+        control_samples = np.random.beta(
+            self.control_arm.successes + 1,
+            self.control_arm.failures + 1,
+            size=n,
+        )
+        variant_samples = np.random.beta(
+            self.variant_arm.successes + 1,
+            self.variant_arm.failures + 1,
+            size=n,
+        )
+        return float(np.mean(variant_samples > control_samples))
+
     def get_winner(self) -> Optional[Arm]:
+        """Determine winner using Bayesian probability of being better."""
         total_trials = self.control_arm.total_trials + self.variant_arm.total_trials
         if total_trials < self.min_samples:
             return None
         
-        control_mean = self.control_arm.successes / max(self.control_arm.total_trials, 1)
-        variant_mean = self.variant_arm.successes / max(self.variant_arm.total_trials, 1)
+        prob = self._probability_variant_better()
         
-        # Simple confidence check — higher confidence_threshold requires a
-        # larger observed difference before declaring a winner.
-        if abs(control_mean - variant_mean) > self.confidence_threshold:
-            return self.variant_arm if variant_mean > control_mean else self.control_arm
+        if prob >= self.confidence_threshold:
+            return self.variant_arm
+        elif prob <= 1.0 - self.confidence_threshold:
+            return self.control_arm
         
         return None
 
