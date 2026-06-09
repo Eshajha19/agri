@@ -1941,16 +1941,25 @@ app.include_router(flags_router, tags=["Feature Flags"])
 app.include_router(lms.router, prefix="/api", tags=["LMS"])
 
 
-# --- Smart Farm Autopilot ---
+from pydantic import BaseModel, Field, ConfigDict, field_validator
+from typing import Optional, Literal
+
 
 class SeasonPlanRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     farm_name: str = Field(default="My Farm", max_length=100)
     state: str = Field(..., min_length=2, max_length=50)
     district: str = Field(default="", max_length=100)
+
     area_acres: float = Field(..., gt=0, le=10000)
+
     soil_type: str = Field(..., min_length=2, max_length=50)
-    season: str = Field(..., pattern="^(Kharif|Rabi|Zaid)$")
+
+    season: Literal["Kharif", "Rabi", "Zaid"]
+
     water_source: str = Field(default="Canal", max_length=50)
+
     budget_inr: Optional[float] = Field(default=None, ge=0)
 
 
