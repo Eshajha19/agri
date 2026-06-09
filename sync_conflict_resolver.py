@@ -206,16 +206,49 @@ class ConflictResolver:
             return merged_version, conflicting_fields
         else:
             return self._last_write_wins(local_version, server_version)
+    
+    @staticmethod
+    def _parse_ts(ts: str) -> datetime:
+        """Parse an ISO-format timestamp string to datetime for comparison."""
+        if ts.endswith("Z"):
+            ts = ts[:-1] + "+00:00"
+        return datetime.fromisoformat(ts)
 
-    def _last_write_wins(self, local_version: DocumentVersion, server_version: DocumentVersion) -> Tuple[DocumentVersion, List[str]]:
-        conflicting_fields = ConflictDetector.find_conflicting_fields(local_version.data, server_version.data)
-        winner = local_version if local_version.timestamp > server_version.timestamp else server_version
+    def _last_write_wins(
+        self,
+        local_version: DocumentVersion,
+        server_version: DocumentVersion
+    ) -> Tuple[DocumentVersion, List[str]]:
+        """Use version with most recent timestamp"""
+        conflicting_fields = ConflictDetector.find_conflicting_fields(
+            local_version.data,
+            server_version.data
+        )
+        
+        if self._parse_ts(local_version.timestamp) > self._parse_ts(server_version.timestamp):
+            winner = local_version
+        else:
+            winner = server_version
+        
         self._log_conflict("last_write_wins", local_version, server_version, winner)
         return winner, conflicting_fields
-
-    def _first_write_wins(self, local_version: DocumentVersion, server_version: DocumentVersion) -> Tuple[DocumentVersion, List[str]]:
-        conflicting_fields = ConflictDetector.find_conflicting_fields(local_version.data, server_version.data)
-        winner = local_version if local_version.timestamp < server_version.timestamp else server_version
+    
+    def _first_write_wins(
+        self,
+        local_version: DocumentVersion,
+        server_version: DocumentVersion
+    ) -> Tuple[DocumentVersion, List[str]]:
+        """Use version with earliest timestamp"""
+        conflicting_fields = ConflictDetector.find_conflicting_fields(
+            local_version.data,
+            server_version.data
+        )
+        
+        if self._parse_ts(local_version.timestamp) < self._parse_ts(server_version.timestamp):
+            winner = local_version
+        else:
+            winner = server_version
+        
         self._log_conflict("first_write_wins", local_version, server_version, winner)
         return winner, conflicting_fields
 
@@ -250,7 +283,18 @@ class ConflictResolver:
                 merged_data[key] = local_val
             elif server_changed:
                 merged_data[key] = server_val
-        merged_version = DocumentVersion(doc_id=server_version.doc_id, data=merged_data, client_id="system", timestamp=datetime.now().isoformat())
+        
+        # Create merged version with combined causal history
+        merged_vector = VersionVector(local_version.version_vector.vector.copy())
+        merged_vector.merge(server_version.version_vector)
+        merged_version = DocumentVersion(
+            doc_id=server_version.doc_id,
+            data=merged_data,
+            client_id="system",
+            version_vector=merged_vector,
+            timestamp=datetime.now().isoformat()
+        )
+        
         self._log_conflict("three_way_merge", local_version, server_version, merged_version)
         return merged_version, conflicting_fields
 

@@ -3,23 +3,92 @@ import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import apiClient from "./lib/apiClient";
 import { auth } from "./lib/firebase";
+import usePriceAlerts from "./hooks/usePriceAlerts";
+
+const MAX_TRACKED_NOTIFICATIONS = 1000;
+const NOTIFICATION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export default function useNotifications() {
-  const seenIdsRef = useRef(new Set());
+  const seenIdsRef = useRef(new Map());
+
+  const eventStatsRef = useRef({
+    processed: 0,
+    duplicates: 0,
+    snapshots: 0,
+  });
+
+  const lastSnapshotHashRef = useRef(null);
+  const reconnectAttemptsRef = useRef(0);
 
   const mountedRef = useRef(true);
   const requestIdRef = useRef(0);
 
+  // Price alert WebSocket with exponential backoff
+  const {
+    status: priceAlertStatus,
+    subscribeCrops,
+    subscribeRegions,
+  } = usePriceAlerts();
+
+  const cleanupSeenNotifications = () => {
+    const now = Date.now();
+
+    for (const [key, timestamp] of seenIdsRef.current.entries()) {
+      if (now - timestamp > NOTIFICATION_TTL_MS) {
+        seenIdsRef.current.delete(key);
+      }
+    }
+
+    if (seenIdsRef.current.size > MAX_TRACKED_NOTIFICATIONS) {
+      const oldestEntries = [...seenIdsRef.current.entries()]
+        .sort((a, b) => a[1] - b[1]);
+
+      const excess =
+        seenIdsRef.current.size -
+        MAX_TRACKED_NOTIFICATIONS;
+
+      oldestEntries
+        .slice(0, excess)
+        .forEach(([key]) =>
+          seenIdsRef.current.delete(key)
+        );
+    }
+  };
+
+  const generateSnapshotHash = (notifications) => {
+    try {
+      return JSON.stringify(
+        notifications.map((item) => ({
+          id: item.id,
+          type: item.type,
+          message: item.message,
+        }))
+      );
+    } catch {
+      return null;
+    }
+  };
+
   const markAndToast = (notif) => {
     if (!notif || !notif.message) return;
+
+    cleanupSeenNotifications();
 
     const notificationKey =
       notif.id ??
       `${notif.type || "notification"}:${notif.time || ""}:${notif.message}`;
 
-    if (seenIdsRef.current.has(notificationKey)) return;
+    if (seenIdsRef.current.has(notificationKey)) {
+      eventStatsRef.current.duplicates += 1;
+      return;
+    }
 
-    seenIdsRef.current.add(notificationKey);
+    seenIdsRef.current.set(
+      notificationKey,
+      Date.now()
+    );
+
+    eventStatsRef.current.processed += 1;
 
     toast.info(notif.message, {
       position: "top-right",
@@ -63,7 +132,25 @@ export default function useNotifications() {
         data?.success &&
         Array.isArray(data?.data)
       ) {
+        const snapshotHash =
+          generateSnapshotHash(data.data);
+
+        if (
+          snapshotHash &&
+          snapshotHash === lastSnapshotHashRef.current
+        ) {
+          return;
+        }
+
+        lastSnapshotHashRef.current =
+          snapshotHash;
+
         data.data.forEach(markAndToast);
+
+        console.info(
+          `[NOTIFICATIONS] processed=${eventStatsRef.current.processed} duplicates=${eventStatsRef.current.duplicates} tracked=${seenIdsRef.current.size}`
+        );
+
       }
     } catch (err) {
       console.warn(
@@ -76,11 +163,39 @@ export default function useNotifications() {
   useEffect(() => {
     mountedRef.current = true;
 
+    // Subscribe to user's crop and region from profile when available
+    const setupPriceSubscriptions = async () => {
+      const user = auth?.currentUser;
+      if (!user) return;
+
+      try {
+        const res = await apiClient.get("/api/user/profile");
+        const profile = res?.data?.data || {};
+        if (profile.cropType) {
+          subscribeCrops([profile.cropType]);
+        }
+        if (profile.region || profile.address) {
+          subscribeRegions([profile.region || profile.address]);
+        }
+      } catch (e) {
+        console.warn("[Notifications] Failed to load profile for price subscriptions:", e);
+      }
+    };
+
+    setupPriceSubscriptions();
+
     return () => {
       mountedRef.current = false;
       requestIdRef.current++;
+      seenIdsRef.current.clear();
+
+      lastSnapshotHashRef.current = null;
+
+      eventStatsRef.current.processed = 0;
+      eventStatsRef.current.duplicates = 0;
+      eventStatsRef.current.snapshots = 0;
     };
-  }, []);
+  }, [subscribeCrops, subscribeRegions]);
 
   useEffect(() => {
     let websocket = null;
@@ -139,7 +254,24 @@ export default function useNotifications() {
                 payload.type === "snapshot" &&
                 Array.isArray(payload.data)
               ) {
-                payload.data.forEach(markAndToast);
+                const snapshotHash =
+                  generateSnapshotHash(payload.data);
+
+                if (
+                  snapshotHash !==
+                  lastSnapshotHashRef.current
+                ) {
+                  lastSnapshotHashRef.current =
+                    snapshotHash;
+
+                  payload.data.forEach(markAndToast);
+
+                  eventStatsRef.current.snapshots += 1;
+
+                  console.info(
+                    `[NOTIFICATIONS] snapshots=${eventStatsRef.current.snapshots} tracked=${seenIdsRef.current.size}`
+                  );
+                }
               }
 
               if (
@@ -162,6 +294,12 @@ export default function useNotifications() {
         };
 
         websocket.onerror = () => {
+          reconnectAttemptsRef.current += 1;
+
+          console.warn(
+            `[NOTIFICATIONS] websocket error, reconnect=${reconnectAttemptsRef.current}`
+          );
+
           startPollingFallback();
         };
 

@@ -9,18 +9,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Sentinel used by FarmFinanceAI.get_application() to distinguish between
-# "caller explicitly passed None (admin bypass)" and "caller omitted the
-# argument (deny by default)".
-#
-# Defined at module level rather than as a class attribute so that:
-# 1. It cannot be read via FarmFinanceAI._IDOR_GUARD and passed back to
-#    bypass the ownership check.
-# 2. It is created exactly once for the lifetime of the module, regardless
-#    of how many FarmFinanceAI instances are created or destroyed.
-_OWNER_UID_NOT_PROVIDED = object()
-MIN_LOAN_TENURE_MONTHS = 6
-MAX_LOAN_TENURE_MONTHS = 600
+# Maximum number of loan applications to keep in memory
+# Prevents unbounded memory growth when using in-memory storage
+MAX_IN_MEMORY_APPLICATIONS = 10000
 
 
 @dataclass(frozen=True)
@@ -139,8 +130,13 @@ class FarmFinanceAI:
         crop_type = data["crop_type"]
 
         annual_profit = annual_revenue - annual_operating_cost
-        profit_margin = annual_profit / annual_revenue if annual_revenue else 0.0
-        debt_ratio = existing_debt / annual_revenue if annual_revenue else 1.0
+        # Profit margin is undefined/negative when revenue <= 0
+        if annual_revenue > 0:
+            profit_margin = annual_profit / annual_revenue
+            debt_ratio = existing_debt / annual_revenue
+        else:
+            profit_margin = -1.0  # Indicates invalid/negative revenue scenario
+            debt_ratio = 1.0      # Maximum risk
         monthly_surplus = annual_profit / 12 if annual_profit > 0 else 0.0
         emergency_cover_months = emergency_fund / (annual_operating_cost / 12 if annual_operating_cost else 1.0)
         crop_risk = self._crop_risk_factor(crop_type)
@@ -249,6 +245,10 @@ class FarmFinanceAI:
         if analysis["financial_health_score"] < 45:
             status = "needs_documents"
 
+        # Enforce in-memory application limit when no persistent repository is configured
+        if self.repository is None and len(self.applications) >= MAX_IN_MEMORY_APPLICATIONS:
+            raise RuntimeError(f"In-memory application limit ({MAX_IN_MEMORY_APPLICATIONS}) reached. Configure a persistent repository to continue.")
+        
         application = FinanceApplication(
             application_id=application_id,
             farmer_name=analysis["farmer_name"],
@@ -457,10 +457,7 @@ class FarmFinanceAI:
             "emergency_fund": to_float(payload.get("emergency_fund"), 0.0),
             "credit_score": max(300, min(900, to_int(payload.get("credit_score"), 650))),
             "requested_loan_amount": to_float(payload.get("requested_loan_amount"), 0.0),
-            "loan_tenure_months": max(
-                MIN_LOAN_TENURE_MONTHS,
-                min(MAX_LOAN_TENURE_MONTHS, to_int(payload.get("loan_tenure_months"), 36)),
-            ),
+            "loan_tenure_months": min(120, max(6, to_int(payload.get("loan_tenure_months"), 36))),
         }
 
     def _crop_risk_factor(self, crop_type: str) -> float:
@@ -575,6 +572,8 @@ class FarmFinanceAI:
         monthly_rate = annual_interest_rate / 12 / 100
         if monthly_emi <= 0 or tenure_months <= 0:
             return 0.0
+        if tenure_months > MAX_LOAN_TENURE_MONTHS:
+            tenure_months = MAX_LOAN_TENURE_MONTHS
         if monthly_rate == 0:
             return monthly_emi * tenure_months
         try:
@@ -587,6 +586,8 @@ class FarmFinanceAI:
         if principal <= 0 or tenure_months <= 0:
             return 0.0
         monthly_rate = annual_interest_rate / 12 / 100
+        if tenure_months > MAX_LOAN_TENURE_MONTHS:
+            tenure_months = MAX_LOAN_TENURE_MONTHS
         if monthly_rate == 0:
             return principal / tenure_months
         try:

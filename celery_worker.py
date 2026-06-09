@@ -282,6 +282,57 @@ def predict_yield_trend_task(self, data: list):
             "prediction": trend[-1],
             "model": "RandomForest Trend Forecast (Lag Features)"
         }
+    except Exception as e:
+        return {"error": str(e), "type": type(e).__name__}
+
+@celery_app.task(bind=True, name="predict_ensemble_task")
+def predict_ensemble_task(self, data: list):
+    """Celery task for yield prediction using ensemble of models."""
+    lag_model = _get_lag_model()
+    trend_model = _get_trend_model()
+    
+    if not lag_model and not trend_model:
+        raise RuntimeError("No models loaded in worker")
+    
+    try:
+        if len(data) != 5:
+            raise ValueError("Exactly 5 values are required")
+        
+        predictions = []
+        
+        if lag_model:
+            data_arr = np.array(data).reshape(1, -1)
+            lag_pred = lag_model.predict(data_arr)[0]
+            predictions.append(float(lag_pred))
+        
+        if trend_model:
+            temp = list(data)
+            for _ in range(5):
+                features = temp[:5]
+                trend_pred = trend_model.predict([features])[0]
+                predictions.append(float(trend_pred))
+                temp = temp[1:] + [trend_pred]
+        
+        if not predictions:
+            raise RuntimeError("No predictions generated")
+        
+        ensemble_pred = sum(predictions) / len(predictions)
+        
+        return {
+            "prediction": round(ensemble_pred, 2),
+            "model": "Ensemble (Lag + Trend)",
+            "individual_predictions": [round(p, 2) for p in predictions],
+        }
+    except Exception as e:
+        return {"error": str(e), "type": type(e).__name__}
+
+if __name__ == "__main__":
+    celery_app.start()
+
+    except Exception:
+        logger.exception("Trend prediction task failed")
+        raise
+
 
 @celery_app.task(bind=True, name="process_whatsapp_webhook_task")
 def process_whatsapp_webhook_task(self, body: str, sender_number: str):

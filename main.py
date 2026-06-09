@@ -9,32 +9,9 @@ import math
 import re
 import joblib
 import hashlib
-import pandas as pd
-import numpy as np
-
-import sys
-
-# Required environment variables for backend
-REQUIRED_ENV_VARS = [
-    "WEATHER_API_KEY",
-    "SOIL_API_KEY",
-    "FIREBASE_ADMIN_CRED",
-    "BACKEND_PORT",
-]
-
-def validate_env_vars():
-    missing = [var for var in REQUIRED_ENV_VARS if not os.getenv(var)]
-    if missing:
-        print(f"❌ Missing required environment variables: {', '.join(missing)}")
-        sys.exit(1)  # stop app immediately
-
-# Run validation before app starts
-validate_env_vars()
-
 import collections
 import threading
 import time
-import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
@@ -72,18 +49,14 @@ class RAGQuery(BaseModel):
     top_k: int = Field(default=3, ge=1, le=5)
 
 # Rate Limiting
-from slowapi import Limiter
+from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from rate_limit_config import build_limiter, rate_limit_exceeded_handler
 
 import firebase_admin
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
 from firebase_admin import auth, credentials, firestore, storage
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from backend.routers import (
@@ -134,18 +107,9 @@ from weather_alerts import weather_service
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
-
-from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
 
 # KMS Support
 try:
@@ -162,12 +126,7 @@ class ContextFilter(logging.Filter):
         self.context = {}
 
     def filter(self, record):
-        # Only add context to the log record if context is not empty.
-        # Prevents cluttering logs with unused context attributes.
-        if self.context:
-            record.context = self.context
-        else:
-            record.context = ""
+        record.context = self.context
         return True
 
 # Configure structured logging with detailed formatting
@@ -186,12 +145,43 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 logger.addFilter(_context_filter)
-_handler.setLevel(logging.INFO)
 
-logger = logging.getLogger(__name__)
-logger.addFilter(_context_filter)
-logger.addHandler(_handler)
-logger.setLevel(logging.INFO)
+
+async def _run_lifespan_phase(component: str, action: str, operation, *, required: bool = True):
+    """Run one startup phase with consistent structured timing and errors."""
+    started_at = time.perf_counter()
+    logger.info(
+        "➡️ %s",
+        action,
+        extra={"phase": "startup", "component": component, "status": "starting"},
+    )
+    try:
+        result = operation()
+        if asyncio.iscoroutine(result):
+            result = await result
+    except Exception as exc:
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        extra = {
+            "phase": "startup",
+            "component": component,
+            "status": "failed" if required else "skipped",
+            "duration_ms": duration_ms,
+            "error_type": type(exc).__name__,
+        }
+        if required:
+            logger.error("❌ %s failed after %sms", action, duration_ms, extra=extra, exc_info=True)
+            raise
+        logger.warning("⚠️ %s skipped after %sms: %s", action, duration_ms, exc, extra=extra)
+        return None
+
+    duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+    logger.info(
+        "✅ %s completed in %sms",
+        action,
+        duration_ms,
+        extra={"phase": "startup", "component": component, "status": "ready", "duration_ms": duration_ms},
+    )
+    return result
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -202,67 +192,54 @@ async def lifespan(app: FastAPI):
     ML pipeline and services are always initialized. Provides detailed logging
     for startup sequence and error tracking.
     """
-    startup_time = time.time()
-    logger.info("🚀 Starting up: initializing FastAPI services")
+    startup_time = time.perf_counter()
+    logger.info(
+        "🚀 Starting FastAPI lifespan initialization",
+        extra={"phase": "startup", "component": "lifespan", "status": "starting"},
+    )
 
-    try:
-        logger.info("📊 Initializing ML pipeline...")
-        init_ml_pipeline()
-        logger.info("✅ ML pipeline initialized successfully")
-    except Exception as exc:
-        logger.error("❌ ML pipeline initialization failed: %s", exc, exc_info=True)
-        raise
+    await _run_lifespan_phase("ml_pipeline", "Initialize ML pipeline", init_ml_pipeline)
+    await _run_lifespan_phase("notification_broker", "Start notification broker", notification_broker.start)
 
-    try:
-        logger.info("📢 Starting notification broker...")
-        await notification_broker.start()
-        logger.info("✅ Notification broker started")
-    except Exception as exc:
-        logger.error("❌ Notification broker startup failed: %s", exc, exc_info=True)
-        raise
-
-    try:
-        logger.info("🔧 Initializing domain engines...")
+    def _init_domain_engines():
         drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
         shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
         version_manager = ModelVersionManager(versions_dir="./model_versions")
-        logger.info("✅ Domain engines initialized: drift_detector, shadow_evaluator, version_manager")
-    except Exception as exc:
-        logger.error("❌ Domain engines initialization failed: %s", exc, exc_info=True)
-        raise
+        return drift_detector, shadow_evaluator, version_manager
 
-    try:
-        logger.info("💾 Initializing persistent repositories...")
+    drift_detector, shadow_evaluator, version_manager = await _run_lifespan_phase(
+        "domain_engines", "Initialize domain engines", _init_domain_engines
+    )
+
+    def _init_repositories():
         _finance_repository = FinanceApplicationRepository()
         _notification_repository = NotificationRepository()
         _supply_chain_repository = SupplyChainRepository()
-        logger.info("✅ Repositories initialized")
-    except Exception as exc:
-        logger.error("❌ Repository initialization failed: %s", exc, exc_info=True)
-        raise
+        return _finance_repository, _notification_repository, _supply_chain_repository
 
-    try:
-        logger.info("🤖 Initializing AI engines...")
+    _finance_repository, _notification_repository, _supply_chain_repository = await _run_lifespan_phase(
+        "repositories", "Initialize persistent repositories", _init_repositories
+    )
+
+    def _init_ai_engines():
         _farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
         _supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
         _crop_quality_grader = CropQualityGrader()
-        logger.info("✅ AI engines initialized: farm_finance, blockchain, quality_grader")
-    except Exception as exc:
-        logger.error("❌ AI engines initialization failed: %s", exc, exc_info=True)
-        raise
+        return _farm_finance_ai, _supply_chain_blockchain, _crop_quality_grader
 
-    try:
-        logger.info("🔗 Initializing routers with domain engines...")
+    _farm_finance_ai, _supply_chain_blockchain, _crop_quality_grader = await _run_lifespan_phase(
+        "ai_engines", "Initialize AI engines", _init_ai_engines
+    )
+
+    def _init_core_routers():
         governance.init_governance(drift_detector, shadow_evaluator, version_manager, verify_role)
         finance.init_finance(_farm_finance_ai, RBACManager, Permission)
         quality.init_quality(_crop_quality_grader, RBACManager, Permission)
         blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
         referrals.init_referrals(lambda: db_firestore, verify_role)
         reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
-        logger.info("✅ Core routers initialized")
-    except Exception as exc:
-        logger.error("❌ Router initialization failed: %s", exc, exc_info=True)
-        raise
+
+    await _run_lifespan_phase("core_routers", "Initialize core routers", _init_core_routers)
 
     async def _notify_booking(booking: dict) -> None:
         owner_uid = booking.get("ownerUid")
@@ -293,105 +270,133 @@ async def lifespan(app: FastAPI):
             except Exception as exc:
                 logger.warning("Failed to send WhatsApp notification for booking: %s", exc)
 
-    try:
-        logger.info("🔗 Initializing marketplace and LMS routers...")
+    def _init_user_routers():
         marketplace.init_marketplace(verify_role, _notify_booking)
         lms.init_lms(verify_role, db_firestore)
         advisory.init_advisory(verify_role, db_firestore)
-        logger.info("✅ Marketplace, LMS, and advisory routers initialized")
-    except Exception as exc:
-        logger.error("❌ Marketplace/LMS initialization failed: %s", exc, exc_info=True)
-        raise
+
+    await _run_lifespan_phase("user_routers", "Initialize marketplace, LMS, and advisory routers", _init_user_routers)
 
     if db_firestore:
-        try:
-            logger.info("🔄 Backfilling Firebase role claims...")
+        async def _backfill_role_claims():
             from role_sync import backfill_role_claims
             import asyncio as _asyncio
             loop = _asyncio.get_event_loop()
             await loop.run_in_executor(None, backfill_role_claims, db_firestore)
-            logger.info("✅ Firebase role claims backfilled successfully")
-        except Exception as _exc:
-            logger.warning("Role-claim backfill skipped: %s", _exc)
 
-    rag_generate_fn = None
-    try:
-        logger.info("📚 Initializing RAG generator...")
+        await _run_lifespan_phase("role_claims", "Backfill Firebase role claims", _backfill_role_claims, required=False)
+
+    def _init_rag_generator():
         from rag.generator import generate_response as rag_generate_fn
-        logger.info("✅ RAG generator initialized")
-    except Exception as exc:
-        logger.warning("RAG init skipped: %s", exc)
+        return rag_generate_fn
 
-    knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
-    alerts.init_alerts(
-        [],
-        subscriber_store,
-        lambda **kwargs: [],
-        send_whatsapp_message,
-        format_alert_message,
-        verify_role,
-        lambda uid: _get_firestore_user_profile(uid),
-    )
-    init_feature_flags(verify_role)
-    platform.init_platform(
-        verify_role,
-        get_signing_keys,
-        sanitise_log_field,
-        rag_generate_fn,
-        subscriber_store,
-        send_whatsapp_message,
-        format_alert_message,
-        weather_service,
-        RBACManager,
-        Permission,
-    )
+    rag_generate_fn = await _run_lifespan_phase("rag_generator", "Initialize RAG generator", _init_rag_generator, required=False)
+
+    def _init_platform_routers():
+        knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
+        alerts.init_alerts(
+            [],
+            subscriber_store,
+            lambda **kwargs: [],
+            send_whatsapp_message,
+            format_alert_message,
+            verify_role,
+            lambda uid: _get_firestore_user_profile(uid),
+        )
+        init_feature_flags(verify_role)
+        platform.init_platform(
+            verify_role,
+            get_signing_keys,
+            sanitise_log_field,
+            rag_generate_fn,
+            subscriber_store,
+            send_whatsapp_message,
+            format_alert_message,
+            weather_service,
+            RBACManager,
+            Permission,
+        )
+
+    await _run_lifespan_phase("platform_routers", "Initialize knowledge, alerts, flags, and platform routers", _init_platform_routers)
 
     if voice_assistant_router is not None:
-        try:
-            logger.info("🎤 Initializing voice assistant...")
+        def _init_voice_assistant():
             from voice_assistant import OfflineCacheManager, VoiceAssistant
 
             voice_asst = VoiceAssistant(offline_mode=True)
             cache_mgr = OfflineCacheManager(cache_dir="./voice_assistant_cache")
             voice_assistant_router.init_voice_assistant(voice_asst, cache_mgr, verify_role)
-            logger.info("✅ Voice assistant initialized")
-        except Exception as exc:
-            logger.warning("Voice assistant init skipped: %s", exc)
 
-    try:
-        logger.info("🧠 Loading ML models...")
+        await _run_lifespan_phase("voice_assistant", "Initialize voice assistant", _init_voice_assistant, required=False)
+
+    def _load_sklearn_yield_model():
         import joblib as _joblib
-        model_lag = _joblib.load("sklearn_yield_model.joblib")
-        logger.info("✅ Sklearn yield model loaded")
-    except Exception as exc:
-        logger.warning("Sklearn yield model not found: %s", exc)
-        model_lag = None
+        return _joblib.load("sklearn_yield_model.joblib")
 
-    model_trend = None
-    try:
+    model_lag = await _run_lifespan_phase("sklearn_yield_model", "Load sklearn yield model", _load_sklearn_yield_model, required=False)
+
+    def _load_trend_model():
         if os.path.exists("trend_forecast_model.joblib"):
-            logger.info("📈 Loading trend forecast model...")
             import joblib as _joblib2
-            model_trend = _joblib2.load("trend_forecast_model.joblib")
-            logger.info("✅ Trend forecast model loaded successfully")
-    except Exception as exc:
-        logger.warning("Trend forecast model loading failed: %s", exc)
-        model_trend = None
+            return _joblib2.load("trend_forecast_model.joblib")
+        return None
 
-    try:
-        logger.info("🤖 Initializing ML router...")
+    model_trend = await _run_lifespan_phase("trend_forecast_model", "Load trend forecast model", _load_trend_model, required=False)
+
+    def _init_ml_router():
         ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend, verify_role)
-        logger.info("✅ ML router initialized")
-    except Exception as exc:
-        logger.error("❌ ML router initialization failed: %s", exc, exc_info=True)
 
-    startup_duration = time.time() - startup_time
-    logger.info("✅ All services started successfully in %.2fs", startup_duration)
+    await _run_lifespan_phase("ml_router", "Initialize ML router", _init_ml_router)
+
+    def _start_celery_autoscaler():
+        from celery_autoscaler import get_autoscaler
+        from celery_worker import celery_app
+        from ml.price_forecaster import get_price_forecaster
+        _autoscaler = get_autoscaler(celery_app, get_price_forecaster())
+        _autoscaler.start()
+
+    await _run_lifespan_phase("celery_autoscaler", "Start Celery autoscaler", _start_celery_autoscaler)
+
+    def _init_offline_sync():
+        from persistence.offline_sync import init_schema
+        init_schema()
+
+    await _run_lifespan_phase("offline_sync", "Initialize offline sync layer", _init_offline_sync)
+
+    def _start_sync_worker():
+        from sync_worker import get_sync_worker
+        _sync_worker = get_sync_worker(db_firestore)
+        _sync_worker.start()
+
+    await _run_lifespan_phase("sync_worker", "Start sync worker", _start_sync_worker)
+
+    startup_duration = round((time.perf_counter() - startup_time) * 1000, 2)
+    logger.info(
+        "✅ FastAPI lifespan initialization completed in %sms",
+        startup_duration,
+        extra={"phase": "startup", "component": "lifespan", "status": "ready", "duration_ms": startup_duration},
+    )
 
     yield
 
     # Shutdown phase with logging
     logger.info("🛑 Shutting down services...")
+    try:
+        from sync_worker import get_sync_worker
+        _sync_worker = get_sync_worker()
+        _sync_worker.stop()
+        logger.info("✅ Sync worker stopped")
+    except Exception as exc:
+        logger.error("❌ Error stopping sync worker: %s", exc, exc_info=True)
+
+    try:
+        from celery_autoscaler import get_autoscaler
+        _autoscaler = get_autoscaler()
+        _autoscaler.stop()
+        logger.info("✅ Celery autoscaler stopped")
+    except Exception as exc:
+        logger.error("❌ Error stopping Celery autoscaler: %s", exc, exc_info=True)
+
     try:
         await notification_broker.stop()
         logger.info("✅ Notification broker stopped")
@@ -692,10 +697,6 @@ class SeedVerifyRequest(BaseModel):
 _MAX_NOTIFICATIONS = 200
 _NOTIFICATION_TTL_HOURS = 24
 
-    @app.get("/user_roles")
-    def get_user_roles(uid: str):
-        user_roles = ["admin", "editor"]  # example
-        return {"uid": uid, "roles": user_roles}
 
 class NotificationStore:
     """
@@ -961,20 +962,13 @@ def _build_gdpr_deletion_targets(uid: str) -> list[DeletionTarget]:
 def root(request: Request = None):
     return {"message": "Fasal Saathi API", "status": "running"}
 
-
-@app.get("/health/disk")
+@app.get("/health")
 @limiter.limit("60/minute")
-def health_disk(request: Request = None):
+def health_check(request: Request = None):
     """
-    Price forecaster disk usage and log rotation health.
-    Returns 503 if disk usage >90% or forecasts log is missing.
+    Health check endpoint for deployment platforms and monitoring tools.
     """
-    from ml.price_forecaster import get_price_forecaster
-    forecaster = get_price_forecaster()
-    health = forecaster.disk_health()
-    if health.get("healthy"):
-        return health
-    raise HTTPException(status_code=503, detail=health)
+    return {"status": "ok", "message": "Backend is running"}
 
 @app.get("/predict")
 @limiter.limit("30/minute")
@@ -1450,6 +1444,26 @@ try:
         return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
+
+
+@app.get("/health/autoscale")
+@limiter.limit("60/minute")
+async def health_autoscale(request: Request):
+    """Return current autoscale metrics: workers, queue depth, predicted demand."""
+    from celery_autoscaler import get_autoscaler
+    autoscaler = get_autoscaler()
+    return autoscaler.get_status()
+
+
+@app.get("/health/sync")
+@limiter.limit("60/minute")
+async def health_sync(request: Request):
+    """Return offline sync queue status: pending count, failed count, oldest item."""
+    from persistence.offline_sync import get_sync_stats
+    return {
+        "success": True,
+        "sync": get_sync_stats(),
+    }
 
 # Middleware and rate-limits — the limiter was already configured above;
 # only the exception handler alias from slowapi's public API is wired here.

@@ -18,8 +18,10 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
 
+from backend.core.logging_config import setup_logging
+
 router = APIRouter()
-logger = logging.getLogger(__name__)
+logger = setup_logging(__name__)
 
 # ---------------------------------------------------------------------------
 # Validation bounds — intentionally generous to accommodate large commercial
@@ -90,15 +92,47 @@ class ReportRequest(BaseModel):
 verify_role_fn = None
 get_signing_keys_fn = None
 sanitise_log_field_fn = None
-logger_instance = None
 
 
-def init_reports(vr_fn, gsk_fn, slf_fn, log_inst):
-    global verify_role_fn, get_signing_keys_fn, sanitise_log_field_fn, logger_instance
+from typing import Callable, Optional
+
+def init_reports(
+    vr_fn: Callable,
+    gsk_fn: Callable,
+    slf_fn: Optional[Callable] = None,
+) -> None:
+    """
+    Initialize report router dependencies.
+
+    Args:
+        vr_fn: Authentication/authorization verifier.
+        gsk_fn: Signing key provider.
+        slf_fn: Optional log field sanitization function.
+
+    Raises:
+        ValueError: If required dependencies are missing.
+    """
+    global verify_role_fn, get_signing_keys_fn, sanitise_log_field_fn
+
+    if vr_fn is None:
+        raise ValueError("verify_role_fn cannot be None")
+
+    if gsk_fn is None:
+        raise ValueError("get_signing_keys_fn cannot be None")
+
     verify_role_fn = vr_fn
     get_signing_keys_fn = gsk_fn
     sanitise_log_field_fn = slf_fn
-    logger_instance = log_inst
+
+    logger.info(
+        "reports.router.initialized "
+        "auth_provider=%s "
+        "key_provider=%s "
+        "sanitizer_enabled=%s",
+        getattr(vr_fn, "__name__", type(vr_fn).__name__),
+        getattr(gsk_fn, "__name__", type(gsk_fn).__name__),
+        slf_fn is not None,
+    )
 
 
 # ---------------------------------------------------------------------------

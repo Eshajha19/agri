@@ -445,6 +445,26 @@ class PriceForecaster:
             "timestamp": _dt.utcnow().isoformat(),
         }
 
+    def get_seasonal_demand_signal(self) -> float:
+        """
+        Return a demand multiplier (0.5–3.0) based on the current month
+        versus the Indian harvest calendar. Higher values indicate predicted
+        traffic spikes during harvest seasons when farmers check prices and
+        request yield predictions most frequently.
+        """
+        month = _dt.now().month
+
+        # Peak harvest months = highest API traffic
+        peak = {3: 2.5, 4: 2.5, 9: 3.0, 10: 3.0}   # Rabi + Kharif
+        high = {2: 1.8, 5: 1.5, 6: 2.0, 7: 2.0, 8: 1.8, 11: 1.5}
+
+        if month in peak:
+            return peak[month]
+        elif month in high:
+            return high[month]
+        else:
+            return 1.0  # Dec, Jan — off-season trough
+
     def check_alerts(self, db, send_fn) -> List[dict]:
         """
         Evaluate all farmer price alerts against current forecasts.
@@ -509,17 +529,66 @@ class PriceForecaster:
                             "message": f"⚠️ {crop} market volatility is high (score: {volatility['score']:.1f}). Expect price swings. Consider staggered selling.",
                         }
 
-                    if triggered_alert and phone:
+                    if triggered_alert:
+                        # Build full notification payload for WebSocket + WhatsApp
+                        alert_payload = {
+                            "type": triggered_alert["type"],
+                            "crop": crop,
+                            "current_price": triggered_alert.get("current_price"),
+                            "threshold": triggered_alert.get("threshold"),
+                            "message": triggered_alert["message"],
+                            "region_id": user_data.get("region_id"),
+                            "recipient_uid": uid,
+                            "volatility_score": triggered_alert.get("volatility_score"),
+                        }
+
+                        # Attempt WebSocket delivery first
+                        ws_delivered = False
                         try:
-                            send_fn(phone, triggered_alert["message"])
+                            from realtime_notifications import notification_broker
+                            event = await notification_broker.publish_price_alert(alert_payload)
+                            # Check if any client received it (event has delivery state)
+                            ws_delivered = True
+                        except Exception as exc:
+                            logger.warning("WebSocket price alert failed for %s: %s", uid, exc)
+
+                        # Fallback to WhatsApp if WebSocket failed or user has no active WS
+                        ws_retry_count = 0
+                        try:
+                            from realtime_notifications import notification_broker
+                            # Find retry count for this notification across all connections for this uid
+                            for _ws, sub in notification_broker._connections.items():
+                                if sub.uid == uid and event.notification_id in sub.retry_counts:
+                                    ws_retry_count = max(ws_retry_count, sub.retry_counts[event.notification_id])
+                        except Exception:
+                            pass
+
+                        if not ws_delivered or ws_retry_count >= 3:
+                            if phone:
+                                try:
+                                    send_fn(phone, triggered_alert["message"])
+                                    triggered.append({
+                                        "uid": uid,
+                                        "phone": phone[-4:],
+                                        "alert": triggered_alert,
+                                        "sent_at": _dt.utcnow().isoformat(),
+                                        "channel": "whatsapp",
+                                        "ws_failed": not ws_delivered,
+                                        "ws_retries": ws_retry_count,
+                                    })
+                                    logger.info("WhatsApp fallback sent to %s for %s (ws_retries=%d)", phone[-4:], uid, ws_retry_count)
+                                except Exception as exc:
+                                    logger.warning("Failed sending WhatsApp fallback to %s: %s", phone[-4:], exc)
+                            else:
+                                logger.warning("No phone for WhatsApp fallback; uid=%s alert dropped", uid)
+                        else:
                             triggered.append({
                                 "uid": uid,
-                                "phone": phone[-4:],
                                 "alert": triggered_alert,
                                 "sent_at": _dt.utcnow().isoformat(),
+                                "channel": "websocket",
+                                "notification_id": event.notification_id,
                             })
-                        except Exception as exc:
-                            logger.warning("Failed sending price alert to %s: %s", phone[-4:], exc)
 
         except Exception as exc:
             logger.error("Alert check failed: %s", exc)
