@@ -4,7 +4,10 @@ from fastapi import APIRouter, HTTPException, Request, Query
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Dict, Any
 
+from backend.core.logging_config import setup_logging
+
 router = APIRouter()
+logger = setup_logging(__name__)
 
 # Allowlist: only portable path characters.  Rejects path traversal sequences
 # (../, ..\) and shell metacharacters before the value reaches any filesystem
@@ -91,7 +94,7 @@ _MAX_BASELINE_PREDICTIONS = 100_000
 @router.post("/drift/baseline")
 async def set_drift_baseline(request: Request, model_name: str, predictions: list[float]):
     """Set drift baseline. Requires admin or expert role."""
-    await _require_admin_auth(request)
+    uid = await _require_admin_auth(request)
     if drift_detector is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     if len(predictions) > _MAX_BASELINE_PREDICTIONS:
@@ -99,6 +102,7 @@ async def set_drift_baseline(request: Request, model_name: str, predictions: lis
             status_code=400,
             detail=f"Baseline prediction list exceeds maximum size of {_MAX_BASELINE_PREDICTIONS}",
         )
+    logger.info(f"Admin {uid} setting drift baseline for model {model_name} with {len(predictions)} predictions")
     drift_detector.set_baseline(model_name, predictions)
     return {"success": True, "message": f"Baseline set for {model_name}"}
 
@@ -128,9 +132,10 @@ async def get_drift_alerts(request: Request, model_name: str = None, limit: int 
 @router.post("/shadow/start")
 async def start_shadow_evaluation(request: Request, production_model: str, candidate_model: str):
     """Start a shadow evaluation. Requires admin or expert role."""
-    await _require_admin_auth(request)
+    uid = await _require_admin_auth(request)
     if shadow_evaluator is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    logger.info(f"Admin {uid} starting shadow evaluation: production_model={production_model}, candidate_model={candidate_model}")
     eval_id = shadow_evaluator.start_shadow_evaluation(production_model, candidate_model)
     return {"success": True, "eval_id": eval_id}
 
@@ -147,9 +152,10 @@ async def record_shadow_predictions(request: Request, eval_id: str, production_p
 @router.post("/shadow/evaluate")
 async def evaluate_candidate_model(request: Request, eval_id: str):
     """Evaluate a candidate model. Requires admin or expert role."""
-    await _require_admin_auth(request)
+    uid = await _require_admin_auth(request)
     if shadow_evaluator is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    logger.info(f"Admin {uid} evaluating candidate model for eval_id={eval_id}")
     result = shadow_evaluator.evaluate_candidate(eval_id)
     return {"success": True, "result": result}
 
@@ -170,18 +176,20 @@ async def get_shadow_eval_status(request: Request, eval_id: str):
 @router.post("/versions/register")
 async def register_model_version(request: Request, data: RegisterModelVersionRequest):
     """Register a new model version. Requires admin or expert role."""
-    await _require_admin_auth(request)
+    uid = await _require_admin_auth(request)
     if version_manager is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    logger.info(f"Admin {uid} registering model version: model_name={data.model_name}, model_path={data.model_path}, rmse={data.rmse}, r2_score={data.r2_score}")
     version_id = version_manager.register_version(data.model_name, data.model_path, data.rmse, data.r2_score, data.metadata)
     return {"success": True, "version_id": version_id}
 
 @router.post("/versions/promote")
 async def promote_model_version(request: Request, version_id: str):
     """Promote a model version to production. Requires admin role."""
-    await _require_admin_auth(request)
+    uid = await _require_admin_auth(request)
     if version_manager is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    logger.info(f"Admin {uid} promoting model version {version_id} to production")
     version_manager.promote_version(version_id)
     prod_version = version_manager.get_production_version()
     return {"success": True, "production_version": prod_version}
@@ -189,9 +197,10 @@ async def promote_model_version(request: Request, version_id: str):
 @router.post("/versions/rollback")
 async def rollback_model_version(request: Request, version_id: str):
     """Roll back to a previous model version. Requires admin role."""
-    await _require_admin_auth(request)
+    uid = await _require_admin_auth(request)
     if version_manager is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    logger.info(f"Admin {uid} rolling back to model version {version_id}")
     version_manager.rollback_to_version(version_id)
     prod_version = version_manager.get_production_version()
     return {"success": True, "production_version": prod_version}
