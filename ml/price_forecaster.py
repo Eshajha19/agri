@@ -178,10 +178,15 @@ class _CommodityModel:
             validation_split=0.1,
         )
 
-        # Estimate residual std on training data for confidence intervals
-        preds = model.predict(X, verbose=0).flatten()
-        residuals = y - preds
-        self._residual_std = float(np.std(residuals))
+        # Estimate residual std on validation split (last 10%) for confidence intervals
+        split = int(len(X) * 0.9)
+        if split < len(X):
+            val_preds = model.predict(X[split:], verbose=0).flatten()
+            residuals = y[split:] - val_preds
+            self._residual_std = float(np.std(residuals))
+        else:
+            preds = model.predict(X, verbose=0).flatten()
+            self._residual_std = float(np.std(y - preds))
 
         self._model = model
         self._trained = True
