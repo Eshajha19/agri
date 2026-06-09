@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { collection, addDoc } from "firebase/firestore";
-import { db, auth, isFirebaseConfigured } from "./lib/firebase";
+import { auth } from "./lib/firebase";
 import {
   Star,
   Send,
@@ -10,6 +9,11 @@ import {
   MessageSquare,
   CheckCircle2,
 } from "lucide-react";
+import {
+  submitFeedback,
+  validateFeedbackData,
+  sanitizeFeedbackData,
+} from "./services/feedbackService";
 import "./Feedback.css";
 
 const CROP_OPTIONS = [
@@ -86,69 +90,36 @@ export default function Feedback() {
     e.preventDefault();
     setError("");
 
-    if (!form.message.trim()) {
-      setError("Please enter your feedback message.");
-      return;
-    }
+    const user = auth?.currentUser;
 
-    if (form.rating === 0) {
-      setError("Please select a rating.");
+    const feedbackData = {
+      userId: user?.uid || "anonymous",
+      userEmail: user?.email || "anonymous",
+      name: form.name || (user?.displayName ?? "Anonymous"),
+      cropType: form.cropType,
+      location: form.location,
+      category: form.category,
+      message: form.message,
+      rating: form.rating,
+    };
+
+    const { isValid, errors } = validateFeedbackData(feedbackData);
+    if (!isValid) {
+      setError(Object.values(errors)[0]);
       return;
     }
 
     setLoading(true);
     try {
-      const user = auth?.currentUser;
-      
-      // Prepare data for API submission
-      const feedbackData = {
-        userId: user?.uid || "anonymous",
-        userEmail: user?.email || "anonymous",
-        name: form.name || (user?.displayName ?? "Anonymous"),
-        cropType: form.cropType,
-        location: form.location,
-        category: form.category,
-        message: form.message,
-        rating: form.rating,
-      };
-
-      // Submit to secure backend API instead of direct Firestore write
-      const response = await fetch("/api/feedback", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(feedbackData),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.detail || result.error || "Failed to submit feedback");
-      }
-
+      const sanitized = sanitizeFeedbackData(feedbackData);
+      const result = await submitFeedback(sanitized);
       if (!result.success) {
-        throw new Error(result.message || "Feedback submission failed");
+        throw new Error(result.error);
       }
-
-      console.log("Feedback submitted successfully. ID:", result.feedback_id);
       setSubmitted(true);
     } catch (err) {
       console.error("Feedback submit error:", err);
-      
-      // User-friendly error messages
-      let errorMessage = "Failed to submit feedback. Please try again.";
-      
-      if (err.message.includes("Message is required")) {
-        errorMessage = "Please enter a valid feedback message.";
-      } else if (err.message.includes("Invalid data format")) {
-        errorMessage = "Your feedback contains invalid characters. Please remove any special symbols and try again.";
-      } else if (err.message.includes("rating")) {
-        errorMessage = "Please select a valid rating between 1 and 5 stars.";
-      } else {
-        errorMessage = err.message || "Failed to submit feedback. Please try again.";
-      }
-      
+      const errorMessage = err.message || "Failed to submit feedback. Please try again.";
       setError(errorMessage);
     } finally {
       setLoading(false);
