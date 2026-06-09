@@ -10,18 +10,20 @@ import { registerSW } from 'virtual:pwa-register'
 
 console.log('Fasal Saathi: Booting application...');
 
-// Register service worker with auto-update
-const updateSW = registerSW({
-  onNeedRefresh() {
-    console.log('New content available, reloading...');
-    if (confirm('New version available. Reload now?')) {
-      updateSW(true);
+// Register service worker only in production to avoid dev reload loops.
+if (import.meta.env.PROD) {
+  const updateSW = registerSW({
+    onNeedRefresh() {
+      console.log('New content available, reloading...');
+      if (confirm('New version available. Reload now?')) {
+        updateSW(true);
+      }
+    },
+    onOfflineReady() {
+      console.log('App ready for offline usage.');
     }
-  },
-  onOfflineReady() {
-    console.log('App ready for offline usage.');
-  }
-});
+  });
+}
 
 // Forcibly remove preloader once React starts
 const removePreloader = () => {
