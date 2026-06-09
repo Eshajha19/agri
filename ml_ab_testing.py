@@ -115,22 +115,22 @@ class ABTest:
         logger.info("Started A/B test: %s", self.test_name)
 
     def select_arm(self) -> Arm:
-        return max(
-            (self.control_arm, self.variant_arm),
-            key=lambda arm: arm.sample_score(),
-        )
-
-    def _get_arm(self, arm_id: str) -> Optional[Arm]:
-        if arm_id == self.control_arm.model_id:
+        """Select arm using Thompson sampling"""
+        control_prob = self.control_arm.sample_from_distribution()
+        variant_prob = self.variant_arm.sample_from_distribution()
+        
+        # Thompson sampling — fair random tie-break when probabilities are equal
+        if control_prob > variant_prob:
             return self.control_arm
-        if arm_id == self.variant_arm.model_id:
+        elif variant_prob > control_prob:
             return self.variant_arm
-        return None
-
-    def record_arm_outcome(self, arm_id: str, success: bool, metrics: Dict[str, float]) -> None:
-        arm = self._get_arm(arm_id)
-        if not arm:
-            return
+        else:
+            return self.control_arm if random.random() < 0.5 else self.variant_arm
+    
+    def record_arm_outcome(self, arm_id: str, success: bool, metrics: Dict):
+        """Record outcome for an arm"""
+        arm = self.control_arm if arm_id == self.control_arm.model_id else self.variant_arm
+        
         arm.record_outcome(success)
         if {"mae", "rmse", "latency"}.issubset(metrics):
             arm.record_prediction(metrics["mae"], metrics["rmse"], metrics["latency"])
