@@ -8,7 +8,7 @@ import urllib.parse
 from datetime import datetime
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 
 router = APIRouter()
 
@@ -16,6 +16,11 @@ router = APIRouter()
 class AlertTriggerRequest(BaseModel):
     alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
     message: str = Field(..., min_length=1, max_length=500)
+
+    @validator("message")
+    def strip_control_chars(cls, v):
+        from whatsapp_service import sanitise_message
+        return sanitise_message(v)
 
 
 notification_store = None

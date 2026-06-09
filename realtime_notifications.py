@@ -39,6 +39,15 @@ class NotificationBroadcastHub:
     immediate snapshot. If REDIS_URL is configured and redis.asyncio is
     available, the hub also publishes to a Redis channel so multiple workers can
     fan out the same event across processes.
+
+    Parameters
+    ----------
+    authenticate : callable, optional
+        Async callable ``(token: str) -> dict`` that returns decoded token data
+        on success or raises on failure.  When provided, ``connect()`` requires
+        the client to send a JSON message ``{"token": "..."}`` as the first
+        frame; if validation fails the socket is closed with code 1008.
+        The token is never exposed in URLs, query strings, or proxy logs.
     """
 
     def __init__(
@@ -46,6 +55,7 @@ class NotificationBroadcastHub:
         history_limit: int = 200,
         redis_url: Optional[str] = None,
         redis_channel: str = "fasal_saathi.notifications",
+        authenticate: Optional[callable] = None,
     ) -> None:
         self._history: Deque[Dict[str, Any]] = collections.deque(maxlen=history_limit)
         self._connections: set[WebSocket] = set()
@@ -57,6 +67,11 @@ class NotificationBroadcastHub:
         self._redis_pubsub = None
         self._redis_listener_task: Optional[asyncio.Task] = None
         self._started = False
+        self._authenticate = authenticate
+
+    def set_authenticate(self, func: callable) -> None:
+        """Set the token verification callable (injected at runtime)."""
+        self._authenticate = func
 
     def seed_notifications(self, notifications: Iterable[Dict[str, Any]]) -> None:
         """Seed the local history from existing notifications."""
@@ -141,8 +156,30 @@ class NotificationBroadcastHub:
         return event
 
     async def connect(self, websocket: WebSocket) -> None:
-        """Accept a websocket client and keep it subscribed until disconnect."""
+        """Accept a websocket client and keep it subscribed until disconnect.
+
+        If an ``authenticate`` callable was provided, the client **must** send
+        a JSON message ``{"token": "..."}`` as the very first frame.
+        Authentication via the first message keeps the token out of URLs,
+        query strings, and proxy/analytics logs.
+        """
         await websocket.accept()
+
+        if self._authenticate is not None:
+            try:
+                msg = await asyncio.wait_for(websocket.receive_json(), timeout=10)
+                token = msg.get("token", "") if isinstance(msg, dict) else ""
+                if not token:
+                    raise ValueError("Missing token")
+                self._authenticate(token)
+            except Exception:
+                try:
+                    await websocket.send_json({"type": "error", "message": "Authentication failed"})
+                    await websocket.close(code=1008)
+                except Exception:
+                    pass
+                return
+
         async with self._history_lock:
             self._connections.add(websocket)
             snapshot = list(self._history)
