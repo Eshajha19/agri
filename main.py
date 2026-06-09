@@ -1,6 +1,7 @@
 # main.py
 import os
 import asyncio
+import itertools
 import io
 import json
 import logging
@@ -11,14 +12,13 @@ import hashlib
 import collections
 import threading
 import time
-import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
 from fastapi import FastAPI, HTTPException, Request, Form, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from pydantic import BaseModel, Field, ConfigDict, validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
 
 class SimulationRequest(BaseModel):
     crop_type: str
@@ -49,18 +49,14 @@ class RAGQuery(BaseModel):
     top_k: int = Field(default=3, ge=1, le=5)
 
 # Rate Limiting
-from slowapi import Limiter
+from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from rate_limit_config import build_limiter, rate_limit_exceeded_handler
 
 import firebase_admin
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
 from firebase_admin import auth, credentials, firestore, storage
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from backend.routers import (
@@ -82,7 +78,7 @@ from backend.routers import (
 from blockchain_supply_chain import SupplyChainBlockchain
 from crop_quality_grading import CropQualityGrader
 from farm_finance_ai import FarmFinanceAI
-from feature_flags.routes import router as flags_router
+from feature_flags.routes import init_feature_flags, router as flags_router
 from ml.adapters.xgboost_adapter import XGBoostAdapter
 from ml.governance import DriftDetector, ModelVersionManager, ShadowEvaluator
 from ml.registry import ModelRegistry
@@ -93,10 +89,14 @@ from ml.preprocessing import UnknownCategoryError, MissingFeatureError
 from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
+from csrf_protection import generate_token, reject_cross_origin
 from error_recovery_middleware import ErrorRecoveryMiddleware
+from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, resolve_subscription_regions, normalize_region_identifier
+from notification_auth import filter_notifications_for_user
 from realtime_notifications import notification_broker
 from rbac_audit import audit_rbac_event, rbac_audit_trail, validate_required_roles
 from rbac import RBACMiddleware, print_rbac_matrix, RBACManager, Permission
+from gdpr_deletion import GDPRDeletionManager, DeletionTarget
 from persistence.repositories import (
     FinanceApplicationRepository,
     NotificationRepository,
@@ -107,7 +107,6 @@ from weather_alerts import weather_service
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
@@ -119,19 +118,104 @@ try:
 except ImportError:
     HAS_GCP_KMS = False
 
-# Logger must be configured before lifespan so startup log calls work.
-logging.basicConfig(level=logging.INFO)
+# Logger configuration with structured output and context tracking
+class ContextFilter(logging.Filter):
+    """Add request/operation context to all log records."""
+    def __init__(self):
+        super().__init__()
+        self.context = {}
+
+    def filter(self, record):
+        record.context = self.context
+        return True
+
+# Configure structured logging with detailed formatting
+_context_filter = ContextFilter()
+_handler = logging.StreamHandler()
+_formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - [%(context)s] - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+_handler.setFormatter(_formatter)
+
+logging.basicConfig(
+    level=logging.INFO,
+    handlers=[_handler],
+    format='%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
+)
 logger = logging.getLogger(__name__)
+logger.addFilter(_context_filter)
+
+
+async def _run_lifespan_phase(component: str, action: str, operation, *, required: bool = True):
+    """Run one startup phase with consistent structured timing and errors."""
+    started_at = time.perf_counter()
+    logger.info(
+        "➡️ %s",
+        action,
+        extra={"phase": "startup", "component": component, "status": "starting"},
+    )
+    try:
+        result = operation()
+        if asyncio.iscoroutine(result):
+            result = await result
+    except Exception as exc:
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        extra = {
+            "phase": "startup",
+            "component": component,
+            "status": "failed" if required else "skipped",
+            "duration_ms": duration_ms,
+            "error_type": type(exc).__name__,
+        }
+        if required:
+            logger.error("❌ %s failed after %sms", action, duration_ms, extra=extra, exc_info=True)
+            raise
+        logger.warning("⚠️ %s skipped after %sms: %s", action, duration_ms, exc, extra=extra)
+        return None
+
+    duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+    logger.info(
+        "✅ %s completed in %sms",
+        action,
+        duration_ms,
+        extra={"phase": "startup", "component": component, "status": "ready", "duration_ms": duration_ms},
+    )
+    return result
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    FastAPI lifespan context manager.
+    FastAPI lifespan context manager with comprehensive logging.
 
-    Runs inside **every** Uvicorn/Gunicorn worker process on startup, so the
-    ML pipeline is always initialised regardless of how many workers are
-    spawned.  This replaces the previous bare ``init_ml_pipeline()`` call at
-    module level, which only ran reliably in single-worker deployments.
+    Runs inside every Uvicorn/Gunicorn worker process on startup, ensuring
+    ML pipeline and services are always initialized. Provides detailed logging
+    for startup sequence and error tracking.
+    """
+    startup_time = time.perf_counter()
+    logger.info(
+        "🚀 Starting FastAPI lifespan initialization",
+        extra={"phase": "startup", "component": "lifespan", "status": "starting"},
+    )
+
+    await _run_lifespan_phase("ml_pipeline", "Initialize ML pipeline", init_ml_pipeline)
+    await _run_lifespan_phase("notification_broker", "Start notification broker", notification_broker.start)
+
+    def _init_domain_engines():
+        drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
+        shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
+        version_manager = ModelVersionManager(versions_dir="./model_versions")
+        return drift_detector, shadow_evaluator, version_manager
+
+    drift_detector, shadow_evaluator, version_manager = await _run_lifespan_phase(
+        "domain_engines", "Initialize domain engines", _init_domain_engines
+    )
+
+    def _init_repositories():
+        _finance_repository = FinanceApplicationRepository()
+        _notification_repository = NotificationRepository()
+        _supply_chain_repository = SupplyChainRepository()
+        return _finance_repository, _notification_repository, _supply_chain_repository
 
     Multi-worker guarantee
     ----------------------
@@ -148,74 +232,111 @@ async def lifespan(app: FastAPI):
     notification_broker.set_authenticate(firebase_auth.verify_id_token)
     await notification_broker.start()
 
-    # Domain engines — initialized exactly once here at startup.
-    drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
-    shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
-    version_manager = ModelVersionManager(versions_dir="./model_versions")
+    def _init_ai_engines():
+        _farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
+        _supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
+        _crop_quality_grader = CropQualityGrader()
+        return _farm_finance_ai, _supply_chain_blockchain, _crop_quality_grader
 
-    _finance_repository = FinanceApplicationRepository()
-    _notification_repository = NotificationRepository()  # noqa: F841 — kept for symmetry / future use
-    _supply_chain_repository = SupplyChainRepository()
-    _farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
-    _supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
-    _crop_quality_grader = CropQualityGrader()
-    logger.info("Domain engines initialized with persistent repositories")
+    _farm_finance_ai, _supply_chain_blockchain, _crop_quality_grader = await _run_lifespan_phase(
+        "ai_engines", "Initialize AI engines", _init_ai_engines
+    )
 
-    # Router init hooks — run after engines are ready.
-    governance.init_governance(drift_detector, shadow_evaluator, version_manager)
-    finance.init_finance(_farm_finance_ai, RBACManager, Permission)
-    quality.init_quality(_crop_quality_grader, RBACManager, Permission)
-    blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
-    referrals.init_referrals(lambda: db_firestore)
-    reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
-    marketplace.init_marketplace(verify_role)
-    lms.init_lms(verify_role, db_firestore)
-    advisory.init_advisory(verify_role)
+    def _init_core_routers():
+        governance.init_governance(drift_detector, shadow_evaluator, version_manager, verify_role)
+        finance.init_finance(_farm_finance_ai, RBACManager, Permission)
+        quality.init_quality(_crop_quality_grader, RBACManager, Permission)
+        blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
+        referrals.init_referrals(lambda: db_firestore, verify_role)
+        reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
 
-    # Backfill Firebase custom-claim 'role' for all existing users so that
-    # Firestore security rules (request.auth.token.role) are consistent with
-    # the Firestore users/{uid}.role field from day one.
-    # Runs in a thread-pool executor so it doesn't block the event loop.
-    # Safe to run on every startup — idempotent.
-    if db_firestore:
+    await _run_lifespan_phase("core_routers", "Initialize core routers", _init_core_routers)
+
+    async def _notify_booking(booking: dict) -> None:
+        owner_uid = booking.get("ownerUid")
+        if not owner_uid:
+            logger.debug("Skipping booking notification: no owner_uid")
+            return
+        msg = (
+            f"📦 New booking for *{booking.get('equipmentName', 'equipment')}* "
+            f"on {booking.get('date', 'unknown date')}."
+        )
         try:
+            await notification_broker.publish(
+                {"type": "booking", "booking": booking, "message": msg},
+                source="marketplace",
+            )
+            logger.info("Booking notification published: %s", booking.get('id', 'unknown'))
+        except Exception as exc:
+            logger.error("Failed to publish booking notification: %s", exc)
+
+        if db_firestore:
+            try:
+                owner_snap = db_firestore.collection("users").document(owner_uid).get()
+                owner_data = owner_snap.to_dict() if owner_snap.exists else {}
+                phone = owner_data.get("phone_number") or owner_data.get("phoneNumber") or owner_data.get("phone")
+                if phone:
+                    await asyncio.to_thread(send_whatsapp_message, phone, msg)
+                    logger.info("WhatsApp notification sent for booking")
+            except Exception as exc:
+                logger.warning("Failed to send WhatsApp notification for booking: %s", exc)
+
+    def _init_user_routers():
+        marketplace.init_marketplace(verify_role, _notify_booking)
+        lms.init_lms(verify_role, db_firestore)
+        advisory.init_advisory(verify_role, db_firestore)
+
+    await _run_lifespan_phase("user_routers", "Initialize marketplace, LMS, and advisory routers", _init_user_routers)
+
+    if db_firestore:
+        async def _backfill_role_claims():
             from role_sync import backfill_role_claims
             import asyncio as _asyncio
             loop = _asyncio.get_event_loop()
             await loop.run_in_executor(None, backfill_role_claims, db_firestore)
-        except Exception as _exc:
-            logger.warning("Role-claim backfill skipped: %s", _exc)
 
-    rag_generate_fn = None
-    try:
+        await _run_lifespan_phase("role_claims", "Backfill Firebase role claims", _backfill_role_claims, required=False)
+
+    def _init_rag_generator():
         from rag.generator import generate_response as rag_generate_fn
-    except Exception as exc:
-        logger.warning("RAG init skipped: %s", exc)
+        return rag_generate_fn
 
-    knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
-    alerts.init_alerts([], subscriber_store, lambda **kwargs: [], send_whatsapp_message, format_alert_message, verify_role)
-    platform.init_platform(
-        verify_role,
-        get_signing_keys,
-        sanitise_log_field,
-        rag_generate_fn,
-        subscriber_store,
-        send_whatsapp_message,
-        format_alert_message,
-        weather_service,
-        RBACManager,
-        Permission,
-    )
+    rag_generate_fn = await _run_lifespan_phase("rag_generator", "Initialize RAG generator", _init_rag_generator, required=False)
+
+    def _init_platform_routers():
+        knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
+        alerts.init_alerts(
+            [],
+            subscriber_store,
+            lambda **kwargs: [],
+            send_whatsapp_message,
+            format_alert_message,
+            verify_role,
+            lambda uid: _get_firestore_user_profile(uid),
+        )
+        init_feature_flags(verify_role)
+        platform.init_platform(
+            verify_role,
+            get_signing_keys,
+            sanitise_log_field,
+            rag_generate_fn,
+            subscriber_store,
+            send_whatsapp_message,
+            format_alert_message,
+            weather_service,
+            RBACManager,
+            Permission,
+        )
+
+    await _run_lifespan_phase("platform_routers", "Initialize knowledge, alerts, flags, and platform routers", _init_platform_routers)
 
     if voice_assistant_router is not None:
-        try:
+        def _init_voice_assistant():
             from voice_assistant import OfflineCacheManager, VoiceAssistant
 
             voice_asst = VoiceAssistant(offline_mode=True)
             cache_mgr = OfflineCacheManager(cache_dir="./voice_assistant_cache")
             voice_assistant_router.init_voice_assistant(voice_asst, cache_mgr, verify_role)
-        except Exception as exc:
-            logger.warning("Voice assistant init skipped: %s", exc)
 
     # All models are now registered in init_ml_pipeline() above.
     # Look them up from ModelRegistry instead of loading directly.
@@ -540,55 +661,34 @@ class NotificationStore:
         self._counter = itertools.count(start=1)
         self._ttl = timedelta(hours=ttl_hours)
 
-    def append(self, alert_type: str, message: str) -> dict:
-        """
-        Add a new notification entry and return it.
+    model_trend = await _run_lifespan_phase("trend_forecast_model", "Load trend forecast model", _load_trend_model, required=False)
 
-        The ID is assigned from a monotonically increasing counter so
-        concurrent calls always produce distinct values.
-        """
-        with self._lock:
-            entry = {
-                "id": next(self._counter),
-                "type": alert_type,
-                "message": message,
-                "time": datetime.now().isoformat(),
-            }
-            self._deque.append(entry)
-        return entry
+    def _init_ml_router():
+        ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend, verify_role)
 
-    def get_recent(self) -> list:
-        """
-        Return all entries newer than the configured TTL, oldest first.
+    await _run_lifespan_phase("ml_router", "Initialize ML router", _init_ml_router)
 
-        Takes a snapshot under the lock so callers always see a consistent
-        view even if append() is running concurrently.
-        """
-        cutoff = datetime.now() - self._ttl
-        with self._lock:
-            snapshot = list(self._deque)
-        return [
-            e for e in snapshot
-            if datetime.fromisoformat(e["time"]) >= cutoff
-        ]
+    def _start_celery_autoscaler():
+        from celery_autoscaler import get_autoscaler
+        from celery_worker import celery_app
+        from ml.price_forecaster import get_price_forecaster
+        _autoscaler = get_autoscaler(celery_app, get_price_forecaster())
+        _autoscaler.start()
 
+    await _run_lifespan_phase("celery_autoscaler", "Start Celery autoscaler", _start_celery_autoscaler)
 
-# Seed the store with the initial weather advisory that was previously
-# hard-coded in the bare list.
-_notification_store = NotificationStore()
-_notification_store.append(
-    alert_type="weather",
-    message="🌧️ Heavy rainfall expected in your region today.",
-)
-notification_broker.seed_notifications(_notification_store.get_recent())
+    def _init_offline_sync():
+        from persistence.offline_sync import init_schema
+        init_schema()
 
+    await _run_lifespan_phase("offline_sync", "Initialize offline sync layer", _init_offline_sync)
 
-async def publish_notification(alert_type: str, message: str) -> dict:
-    """Store a notification and broadcast it to websocket subscribers."""
-    entry = _notification_store.append(alert_type=alert_type, message=message)
-    await notification_broker.publish(entry)
-    return entry
+    def _start_sync_worker():
+        from sync_worker import get_sync_worker
+        _sync_worker = get_sync_worker(db_firestore)
+        _sync_worker.start()
 
+    await _run_lifespan_phase("sync_worker", "Start sync worker", _start_sync_worker)
 
 def _normalize_dynamic_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Assign non-colliding IDs to request-scoped advisory alerts."""

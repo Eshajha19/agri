@@ -4,6 +4,7 @@ Manages model versions and enables safe rollback to previous versions.
 """
 import logging
 import json
+import threading
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, asdict
 from datetime import datetime
@@ -47,6 +48,8 @@ class ModelVersionManager:
         self.versions: Dict[str, ModelVersion] = {}
         self.production_version: Optional[str] = None
         self.version_history: List[Dict[str, Any]] = []
+        self._lock = threading.Lock()
+        self._version_counters: Dict[str, int] = {}
         
         self._load_versions()
     
@@ -62,6 +65,11 @@ class ModelVersionManager:
                     }
                     self.production_version = data.get('production_version')
                     self.version_history = data.get('version_history', [])
+                for v in self.versions.values():
+                    prev = self._version_counters.get(v.model_name, 0)
+                    num = int(v.version_id.rsplit("_v", 1)[-1])
+                    if num > prev:
+                        self._version_counters[v.model_name] = num
                 logger.info(f"Loaded {len(self.versions)} model versions from disk")
             except Exception as e:
                 logger.error(f"Error loading versions: {e}")
@@ -99,7 +107,10 @@ class ModelVersionManager:
         Returns:
             Version ID
         """
-        version_id = f"{model_name}_v{len([v for v in self.versions.values() if v.model_name == model_name]) + 1}"
+        with self._lock:
+            self._version_counters[model_name] = self._version_counters.get(model_name, 0) + 1
+            counter = self._version_counters[model_name]
+            version_id = f"{model_name}_v{counter}"
         
         version = ModelVersion(
             version_id=version_id,
