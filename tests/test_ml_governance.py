@@ -338,6 +338,90 @@ class TestModelVersionManager:
         assert any(h['action'] == 'rollback' for h in history)
 
 
+class TestGovernanceRbacRoutes:
+    """RBAC enforcement for ML governance HTTP routes."""
+
+    @pytest.fixture
+    def app(self):
+        from fastapi import FastAPI
+        from backend.routers.governance import router, init_governance
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api/ml-governance")
+
+        mock_dd = DriftDetector()
+        mock_se = ShadowEvaluator(min_samples=5)
+        mock_vm = ModelVersionManager(versions_dir="./test_versions_rbac")
+
+        async def allow_auth_fn(request, required_roles=None):
+            pass
+
+        init_governance(mock_dd, mock_se, mock_vm, auth_fn=allow_auth_fn)
+        app.state._mock_dd = mock_dd
+        app.state._mock_se = mock_se
+        app.state._mock_vm = mock_vm
+        yield app
+
+    @pytest.fixture
+    def client(self, app):
+        from fastapi.testclient import TestClient
+        yield TestClient(app)
+
+    AUTH_ROUTES = {
+        "GET": ["/api/ml-governance/drift/alerts"],
+        "POST": [
+            "/api/ml-governance/drift/check",
+            "/api/ml-governance/shadow/record",
+            "/api/ml-governance/versions/list",
+        ],
+    }
+    ADMIN_ROUTES = {
+        "POST": [
+            "/api/ml-governance/drift/baseline",
+            "/api/ml-governance/shadow/start",
+            "/api/ml-governance/shadow/evaluate",
+            "/api/ml-governance/versions/register",
+            "/api/ml-governance/versions/promote",
+            "/api/ml-governance/versions/rollback",
+        ],
+        "GET": [
+            "/api/ml-governance/versions/production",
+            "/api/ml-governance/versions/compare",
+            "/api/ml-governance/status",
+        ],
+    }
+
+    def test_unauthenticated_requests_return_401(self, client):
+        for method, routes in {**self.AUTH_ROUTES, **self.ADMIN_ROUTES}.items():
+            for route in routes:
+                resp = client.request(method, route)
+                assert resp.status_code in (401, 403, 503), (
+                    f"{method} {route} expected 401/403/503, got {resp.status_code}"
+                )
+
+    def test_unauthorized_role_returns_403(self, client, app):
+        from backend.routers.governance import init_governance
+        from fastapi import HTTPException
+
+        async def deny_auth_fn(request, required_roles=None):
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        init_governance(
+            app.state._mock_dd, app.state._mock_se, app.state._mock_vm,
+            auth_fn=deny_auth_fn,
+        )
+
+        for method, routes in self.ADMIN_ROUTES.items():
+            for route in routes:
+                resp = client.request(
+                    method, route,
+                    headers={"Authorization": "Bearer faketoken"},
+                )
+                assert resp.status_code == 403, (
+                    f"{method} {route} expected 403, got {resp.status_code}"
+                )
+
+
 class TestGovernancePipeline:
     """Integration tests for complete governance pipeline"""
     

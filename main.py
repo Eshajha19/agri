@@ -159,7 +159,7 @@ async def lifespan(app: FastAPI):
     logger.info("Domain engines initialized with persistent repositories")
 
     # Router init hooks — run after engines are ready.
-    governance.init_governance(drift_detector, shadow_evaluator, version_manager)
+    governance.init_governance(drift_detector, shadow_evaluator, version_manager, auth_fn=verify_role)
     finance.init_finance(_farm_finance_ai, RBACManager, Permission)
     quality.init_quality(_crop_quality_grader, RBACManager, Permission)
     blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
