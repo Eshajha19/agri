@@ -4,7 +4,10 @@ from fastapi import APIRouter, HTTPException, Request, Query
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Dict, Any
 
+from backend.core.logging_config import setup_logging
+
 router = APIRouter()
+logger = setup_logging(__name__)
 
 # Allowlist: only portable path characters.  Rejects path traversal sequences
 # (../, ..\) and shell metacharacters before the value reaches any filesystem
