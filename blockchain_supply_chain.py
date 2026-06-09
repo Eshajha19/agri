@@ -49,7 +49,7 @@ class BlockchainRecord:
 
     @staticmethod
     def from_dict(data: Dict) -> 'BlockchainRecord':
-        """Reconstruct record from dict, then compute and verify hash"""
+        """Reconstruct record from dict, compute hash, and verify integrity"""
         record = BlockchainRecord(
             timestamp=data["timestamp"],
             actor=data["actor"],
@@ -58,10 +58,17 @@ class BlockchainRecord:
             data=data.get("data", {}),
             previous_hash=data.get("previous_hash", ""),
         )
-        if "hash" in data:
+        computed = record.calculate_hash()
+        if "hash" in data and data["hash"]:
+            if data["hash"] != computed:
+                raise ValueError(
+                    f"Hash mismatch: stored hash '{data['hash']}' "
+                    f"does not match computed hash '{computed}'. "
+                    "Record has been tampered with."
+                )
             record.hash = data["hash"]
-        if "previous_hash" in data:
-            record.previous_hash = data["previous_hash"]
+        else:
+            record.hash = computed
         return record
 
 
