@@ -242,6 +242,16 @@ async def lifespan(app: FastAPI):
         "ai_engines", "Initialize AI engines", _init_ai_engines
     )
 
+    # Router init hooks — run after engines are ready.
+    governance.init_governance(drift_detector, shadow_evaluator, version_manager, auth_fn=verify_role)
+    finance.init_finance(_farm_finance_ai, RBACManager, Permission)
+    quality.init_quality(_crop_quality_grader, RBACManager, Permission)
+    blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
+    referrals.init_referrals(lambda: db_firestore)
+    reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
+    marketplace.init_marketplace(verify_role)
+    lms.init_lms(verify_role, db_firestore)
+    advisory.init_advisory(verify_role)
     def _init_core_routers():
         governance.init_governance(drift_detector, shadow_evaluator, version_manager, verify_role)
         finance.init_finance(_farm_finance_ai, RBACManager, Permission)
