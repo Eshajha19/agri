@@ -28,6 +28,7 @@ class AsyncErrorBoundary extends React.Component {
       errorStack: "",
       timestamp: null,
       showDetails: false,
+      showRetryWarning: false,
     };
 
     this.retryTimeout = null;
@@ -184,7 +185,7 @@ class AsyncErrorBoundary extends React.Component {
     const { retryCount, maxRetries, errorCategory } = this.state;
 
     if (retryCount >= maxRetries) {
-      alert("Maximum retries reached. Please refresh the page.");
+      this.setState({ showRetryWarning: true });
       return;
     }
 
@@ -214,6 +215,7 @@ class AsyncErrorBoundary extends React.Component {
       errorStack: "",
       timestamp: null,
       showDetails: false,
+      showRetryWarning: false,
     });
   };
 
@@ -263,7 +265,7 @@ class AsyncErrorBoundary extends React.Component {
     };
 
     return (
-      <div className="async-error-boundary">
+      <div className="async-error-boundary" role="alert" aria-live="assertive">
         <div className="error-container">
           <div
             className="error-header"
@@ -359,8 +361,8 @@ class AsyncErrorBoundary extends React.Component {
             </button>
           </div>
 
-          {retryCount >= maxRetries && (
-            <div className="error-warning">
+          {showRetryWarning && (
+            <div className="error-warning" role="status">
               Maximum retries reached. Please contact support or refresh the
               page.
             </div>
