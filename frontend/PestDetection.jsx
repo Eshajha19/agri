@@ -17,11 +17,23 @@ export default function PestDetection({ onClose }) {
   const [modelLoading, setModelLoading] = useState(true);
   const fileInputRef = useRef(null);
   const dropZoneRef = useRef(null);
+  const mountedRef = useRef(true);
+  const requestIdRef = useRef(0);
+  const abortControllerRef = useRef(null);
 
   // Load pest history and regional alerts
   useEffect(() => {
     setHistory(getPestHistory());
     setRegionalAlerts(getRegionalAlerts());
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      abortControllerRef.current?.abort();
+    };
   }, []);
 
   // Cleanup preview URL
@@ -51,7 +63,12 @@ export default function PestDetection({ onClose }) {
     }
 
     if (preview) URL.revokeObjectURL(preview);
+    // Cancel any active detection
+    abortControllerRef.current?.abort();
 
+    // Invalidate older requests
+    requestIdRef.current++;
+    setLoading(false);
     setImage(file);
     setPreview(URL.createObjectURL(file));
     setResult(null);
@@ -113,15 +130,26 @@ export default function PestDetection({ onClose }) {
       // Call the backend proxy — the Gemini API key stays server-side and is
       // never bundled into the compiled JavaScript.
       const apiBase = import.meta.env.VITE_API_BASE_URL || "";
-      const response = await fetch(`${apiBase}/api/gemini/analyze-image`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          image_base64: base64,
-          mime_type: image.type,
-          prompt,
-        }),
-      });
+      abortControllerRef.current?.abort();
+
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      const response = await fetch(
+        `${apiBase}/api/gemini/analyze-image`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          signal: controller.signal,
+          body: JSON.stringify({
+            image_base64: base64,
+            mime_type: image.type,
+            prompt,
+          }),
+        }
+      );
 
       if (!response.ok) {
         throw new Error(`API Error (${response.status})`);
@@ -194,6 +222,8 @@ export default function PestDetection({ onClose }) {
   const handleDetect = async () => {
     if (!image || loading) return;
 
+    const requestId = ++requestIdRef.current;
+
     setLoading(true);
     setError(null);
 
@@ -204,11 +234,24 @@ export default function PestDetection({ onClose }) {
       try {
         detectionResult = await detectWithAI();
       } catch (aiError) {
+
+        if (aiError.name === "AbortError") {
+          return;
+        }
+
         detectionResult = await detectWithTensorFlow();
       }
 
       // Save to history
+      if (
+        !mountedRef.current ||
+        requestId !== requestIdRef.current
+      ) {
+        return;
+      }
+
       const historyEntry = savePestHistory(detectionResult);
+
       if (historyEntry) {
         setHistory(prev => [historyEntry, ...prev]);
       }
@@ -216,9 +259,21 @@ export default function PestDetection({ onClose }) {
       setResult(detectionResult);
 
     } catch (err) {
-      setError(err.message || "❌ Detection failed. Try again.");
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        setError(
+          err.message || "❌ Detection failed. Try again."
+        );
+      }
     } finally {
-      setLoading(false);
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        setLoading(false);
+      }
     }
   };
 
