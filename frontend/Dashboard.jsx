@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useCallback, memo, lazy, Suspense } from "react";
 import { Link } from "react-router-dom";
 import {
   FaUser,
@@ -34,9 +34,186 @@ import {
 } from "recharts";
 import { getHistoricalWeatherData } from "./weather/weatherService";
 import ErrorBoundary from "./ErrorBoundary";
+import AsyncErrorBoundary from "./AsyncErrorBoundary";
+import Loader from "./Loader";
 import apiClient from "./lib/apiClient";
 import { getBookmarks } from "./utils/bookmarkStorage";
 import AdvisoryPanel from "./AdvisoryPanel";
+
+// ============================================
+// Performance Utilities
+// ============================================
+
+/**
+ * Memoized selector cache to prevent unnecessary recalculations
+ */
+class SelectorCache {
+  constructor() {
+    this.cache = new Map();
+  }
+
+  memoize(key, fn, deps = []) {
+    const cacheKey = JSON.stringify({ key, deps });
+
+    if (!this.cache.has(cacheKey)) {
+      this.cache.set(cacheKey, fn());
+    }
+
+    return this.cache.get(cacheKey);
+  }
+
+  clear() {
+    this.cache.clear();
+  }
+}
+
+const selectorCache = new SelectorCache();
+
+/**
+ * Lazy loading image component with Intersection Observer
+ */
+const LazyImage = memo(({ src, alt, width, height, placeholder }) => {
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [imageSrc, setImageSrc] = useState(placeholder);
+  const imgRef = React.useRef();
+
+  useEffect(() => {
+    if (!imgRef.current) return;
+
+    const observer = new IntersectionObserver(
+      entries => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            setImageSrc(src);
+            observer.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.1 }
+    );
+
+    observer.observe(imgRef.current);
+
+    return () => observer.disconnect();
+  }, [src]);
+
+  return (
+    <img
+      ref={imgRef}
+      src={imageSrc}
+      alt={alt}
+      width={width}
+      height={height}
+      className={isLoaded ? "loaded" : "loading"}
+      onLoad={() => setIsLoaded(true)}
+      style={{ transition: "opacity 0.3s" }}
+    />
+  );
+});
+
+/**
+ * Dashboard Card Component (Memoized)
+ */
+const DashboardCard = memo(({ title, icon: Icon, children, link, className }) => {
+  return (
+    <div className={`card ${className}`}>
+      <div className="card-header">
+        <h3>{title}</h3>
+        {Icon && <Icon className="card-icon" />}
+      </div>
+      <div className="card-content">{children}</div>
+      {link && (
+        <Link to={link} className="card-link">
+          Learn more <FaArrowRight />
+        </Link>
+      )}
+    </div>
+  );
+});
+
+/**
+ * Virtualized list component for large datasets
+ */
+const VirtualizedList = memo(({ items, itemHeight, renderItem, maxHeight = 400 }) => {
+  const [scrollTop, setScrollTop] = useState(0);
+
+  const visibleRange = useMemo(() => {
+    const startIdx = Math.floor(scrollTop / itemHeight);
+    const visibleCount = Math.ceil(maxHeight / itemHeight);
+    const endIdx = Math.min(startIdx + visibleCount + 1, items.length);
+
+    return {
+      start: Math.max(0, startIdx),
+      end: endIdx,
+      offset: startIdx * itemHeight
+    };
+  }, [scrollTop, itemHeight, maxHeight, items.length]);
+
+  const visibleItems = useMemo(
+    () => items.slice(visibleRange.start, visibleRange.end),
+    [items, visibleRange]
+  );
+
+  return (
+    <div
+      style={{
+        height: maxHeight,
+        overflow: "auto",
+        position: "relative"
+      }}
+      onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+    >
+      <div style={{ height: items.length * itemHeight, position: "relative" }}>
+        <div style={{ transform: `translateY(${visibleRange.offset}px)` }}>
+          {visibleItems.map((item, idx) => (
+            <div key={visibleRange.start + idx} style={{ height: itemHeight }}>
+              {renderItem(item, visibleRange.start + idx)}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+/**
+ * Data cache with TTL (Time To Live)
+ */
+class DataCache {
+  constructor(ttl = 5 * 60 * 1000) {
+    this.ttl = ttl;
+    this.data = new Map();
+  }
+
+  set(key, value) {
+    this.data.set(key, {
+      value,
+      timestamp: Date.now()
+    });
+  }
+
+  get(key) {
+    const item = this.data.get(key);
+    if (!item) return null;
+
+    if (Date.now() - item.timestamp > this.ttl) {
+      this.data.delete(key);
+      return null;
+    }
+
+    return item.value;
+  }
+
+  clear() {
+    this.data.clear();
+  }
+}
+
+const dataCache = new DataCache();
+
+// ============================================
+// Dashboard Component
+// ============================================
 
 const formatFarmArea = (value) => {
   if (value === undefined || value === null || value === "") return "";
@@ -50,7 +227,10 @@ const formatFarmArea = (value) => {
 export default function Dashboard({ userData }) {
   const name = userData?.displayName || "Farmer";
   const preferredLang = userData?.language || "en";
-  const normalizedFarmArea = formatFarmArea(userData?.farmArea || userData?.farmSize);
+  const normalizedFarmArea = useMemo(
+    () => formatFarmArea(userData?.farmArea || userData?.farmSize),
+    [userData?.farmArea, userData?.farmSize]
+  );
   const normalizedIrrigation = userData?.irrigationType || userData?.irrigationMethod || "";
   const nextHarvestValue = userData?.nextHarvest || userData?.harvestDate || userData?.expectedHarvest || (userData?.season ? `${userData.season} season` : "Plan with Crop Planner");
   const yieldScoreValue = userData?.yieldScore ?? userData?.yieldPredictionScore ?? userData?.estimatedYieldScore ?? (userData?.cropType ? "Use Yield Predictor" : "—");
@@ -67,6 +247,17 @@ export default function Dashboard({ userData }) {
   const [selectedSeason, setSelectedSeason] = useState("");
   const [savedCrops, setSavedCrops] = useState([]);
   const [savedArticles, setSavedArticles] = useState([]);
+  const mountedRef = React.useRef(true);
+  const dashboardRequestRef = React.useRef(0);
+
+  // Memoize callback functions to prevent unnecessary re-renders
+  const handlePhoneChange = useCallback((e) => {
+    setPhoneNumber(e.target.value);
+  }, []);
+
+  const handleWhatsappToggle = useCallback(() => {
+    setWhatsappAlerts(prev => !prev);
+  }, []);
 
   useEffect(() => {
     if (userData) {
@@ -76,30 +267,79 @@ export default function Dashboard({ userData }) {
   }, [userData]);
 
   useEffect(() => {
-    setSavedCrops(getBookmarks("crops"));
-    setSavedArticles(getBookmarks("articles"));
+    // Use cached bookmarks data
+    const cachedCrops = dataCache.get("bookmarks:crops");
+    const cachedArticles = dataCache.get("bookmarks:articles");
+
+    if (cachedCrops && cachedArticles) {
+      setSavedCrops(cachedCrops);
+      setSavedArticles(cachedArticles);
+    } else {
+      const crops = getBookmarks("crops");
+      const articles = getBookmarks("articles");
+      dataCache.set("bookmarks:crops", crops);
+      dataCache.set("bookmarks:articles", articles);
+      setSavedCrops(crops);
+      setSavedArticles(articles);
+    }
   }, []);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
-  }, [setCurrentTime]);
-  useEffect(() => {
-    setYieldData([
+  }, []);
+
+  // Memoize yield data calculation
+  const processedYieldData = useMemo(() => {
+    return [
       { year: "2019", crop: "Wheat", yield: 30, region: "North", season: "Rabi" },
       { year: "2020", crop: "Rice", yield: 45, region: "South", season: "Kharif" },
       { year: "2021", crop: "Wheat", yield: 50, region: "North", season: "Rabi" },
       { year: "2022", crop: "Rice", yield: 60, region: "South", season: "Kharif" },
-    ]);
-  }, [setYieldData]);
+    ];
+  }, []);
+
   useEffect(() => {
+    if (!mountedRef.current) return;
+
+    setYieldData(processedYieldData);
+  }, [processedYieldData]);
+
+  useEffect(() => {
+    const requestId = ++dashboardRequestRef.current;
+
     const fetchData = async () => {
-      const data = await getHistoricalWeatherData();
-      setHistoricalWeather(data);
+      try {
+        const cachedData = dataCache.get("weather:historical");
+
+        if (cachedData) {
+          if (
+            mountedRef.current &&
+            requestId === dashboardRequestRef.current
+          ) {
+            setHistoricalWeather(cachedData);
+          }
+          return;
+        }
+
+        const data = await getHistoricalWeatherData();
+
+        if (
+          !mountedRef.current ||
+          requestId !== dashboardRequestRef.current
+        ) {
+          return;
+        }
+
+        dataCache.set("weather:historical", data);
+        setHistoricalWeather(data);
+      } catch (error) {
+        console.error(error);
+      }
     };
 
     fetchData();
-  }, [setHistoricalWeather]);
+  }, []);
   const handleUpdateWhatsApp = async () => {
     setIsUpdating(true);
     setUpdateMsg("");
@@ -114,13 +354,22 @@ export default function Dashboard({ userData }) {
         name: name,
       });
       if (response.data?.success) {
+      if (mountedRef.current) {
         setUpdateMsg("Settings saved successfully!");
+      }
         setTimeout(() => setUpdateMsg(""), 3000);
       }
     } catch {
+  if (mountedRef.current) {
+    if (mountedRef.current) {
       setUpdateMsg("Error saving settings.");
-    } finally {
-      setIsUpdating(false);
+    }
+  }
+    }
+    finally {
+      if (mountedRef.current) {
+        setIsUpdating(false);
+      }
     }
   };
 
@@ -271,13 +520,20 @@ export default function Dashboard({ userData }) {
     { label: "Glossary", icon: <FaBook />, link: "/glossary" },
     { label: "Risk Index", icon: <FaShieldAlt />, link: "/risk-index" },
   ];
-  const filteredData = yieldData.filter((item) => {
-    return (
-      (selectedCrop === "" || item.crop === selectedCrop) &&
-      (selectedRegion === "" || item.region === selectedRegion) &&
-      (selectedSeason === "" || item.season === selectedSeason)
-    );
-  });
+  const filteredData = useMemo(() => {
+    return yieldData.filter((item) => {
+      return (
+        (selectedCrop === "" || item.crop === selectedCrop) &&
+        (selectedRegion === "" || item.region === selectedRegion) &&
+        (selectedSeason === "" || item.season === selectedSeason)
+      );
+    });
+  }, [
+    yieldData,
+    selectedCrop,
+    selectedRegion,
+    selectedSeason,
+  ]);
 
   return (
     <div className="dashboard">
@@ -527,7 +783,7 @@ export default function Dashboard({ userData }) {
       </section>
       <section className="dashboard-section-card" style={{ marginTop: "30px" }}>
         <div className="section-card-header">
-          <h2>📊 Crop Yield Insights</h2>
+          <h2><FaChartBar /> Crop Yield Insights</h2>
           <span className="section-badge">Analytics</span>
         </div>
 
@@ -591,16 +847,7 @@ export default function Dashboard({ userData }) {
 
         {/* CONDITION START */}
         {yieldData.length === 0 ? (
-          <div
-            style={{
-              padding: "60px",
-              textAlign: "center",
-              color: "#6b7280",
-              fontSize: "14px",
-            }}
-          >
-            Loading chart...
-          </div>
+          <Loader message="Loading chart data..." />
         ) : (
           /* GRID */
           <div
@@ -686,7 +933,7 @@ export default function Dashboard({ userData }) {
       </section>
       <section className="dashboard-section-card" style={{ marginTop: "30px" }}>
         <div className="section-card-header">
-          <h2>🌦 Historical Weather Trends</h2>
+          <h2><FaCloudSun /> Historical Weather Trends</h2>
           <span className="section-badge">Weather</span>
         </div>
 
@@ -695,12 +942,10 @@ export default function Dashboard({ userData }) {
         </p>
 
         {/* Weather Chart */}
-        <ErrorBoundary>
+        <AsyncErrorBoundary>
           <div style={{ width: "100%", height: 350 }}>
             {historicalWeather.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "40px" }}>
-                Loading weather data...
-              </div>
+              <Loader message="Loading weather data..." />
             ) : (
               <ResponsiveContainer>
                 <LineChart data={historicalWeather}>
@@ -720,11 +965,11 @@ export default function Dashboard({ userData }) {
               </ResponsiveContainer>
             )}
           </div>
-        </ErrorBoundary>
+        </AsyncErrorBoundary>
 
         {/* Insight */}
         <div style={{ marginTop: "15px", fontWeight: "500", color: "#374151" }}>
-          🌱 Insight: {
+          <FaSeedling /> Insight: {
             historicalWeather.length > 0
               ? (
                   historicalWeather.reduce((sum, d) => sum + d.rainfall, 0) /
@@ -739,3 +984,4 @@ export default function Dashboard({ userData }) {
     </div>
   );
 }
+// Optimized Dashboard.jsx for performance

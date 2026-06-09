@@ -96,24 +96,50 @@ class TestNoSQLMigrationFramework(unittest.TestCase):
         self.assertEqual(args[1]['version'], "001_dummy")
 
     def test_run_multi_phase_migration_success(self):
-        mock_snapshot = MagicMock()
-        mock_snapshot.exists = False
-        self.mock_record_ref.get.return_value = mock_snapshot
-
         migration = DummyMultiPhaseMigration()
         migration.prepare = MagicMock()
         migration.commit = MagicMock()
         migration.cleanup = MagicMock()
-        
+
+        self.runner._claim_next_phase = MagicMock(
+            side_effect=["prepare", "commit", "cleanup"]
+        )
+        self.runner._complete_phase = MagicMock()
+        self.runner._complete_cleanup = MagicMock()
+
         self.runner._run_multi_phase_migration(migration)
-        
+
         migration.prepare.assert_called_once_with(self.mock_db)
         migration.commit.assert_called_once_with(self.mock_db)
         migration.cleanup.assert_called_once_with(self.mock_db)
-        
-        # Should be called 6 times total: 
-        # set PREPARING, update PREPARED, update COMMITTING, update COMMITTED, update CLEANING_UP, update COMPLETED
-        self.assertTrue(self.mock_record_ref.update.call_count >= 5)
+        self.runner._complete_phase.assert_has_calls(
+            [
+                call(self.mock_record_ref, "PREPARING", "PREPARED"),
+                call(self.mock_record_ref, "COMMITTING", "COMMITTED"),
+            ]
+        )
+        self.runner._complete_cleanup.assert_called_once_with(self.mock_record_ref)
+
+    def test_run_multi_phase_migration_already_completed(self):
+        self.runner._claim_next_phase = MagicMock(return_value=None)
+
+        migration = DummyMultiPhaseMigration()
+        migration.prepare = MagicMock()
+
+        self.runner._run_multi_phase_migration(migration)
+
+        migration.prepare.assert_not_called()
+
+    def test_run_multi_phase_migration_blocks_concurrent_runner(self):
+        from nosql_migration_framework import ConcurrentMigrationError
+
+        self.runner._claim_next_phase = MagicMock(
+            side_effect=ConcurrentMigrationError("in progress")
+        )
+
+        migration = DummyMultiPhaseMigration()
+        with self.assertRaises(ConcurrentMigrationError):
+            self.runner._run_multi_phase_migration(migration)
 
 if __name__ == '__main__':
     unittest.main()
