@@ -370,11 +370,281 @@ async def lifespan(app: FastAPI):
 
     await _run_lifespan_phase("sync_worker", "Start sync worker", _start_sync_worker)
 
-    startup_duration = round((time.perf_counter() - startup_time) * 1000, 2)
-    logger.info(
-        "✅ FastAPI lifespan initialization completed in %sms",
-        startup_duration,
-        extra={"phase": "startup", "component": "lifespan", "status": "ready", "duration_ms": startup_duration},
+def _normalize_dynamic_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Assign non-colliding IDs to request-scoped advisory alerts."""
+    normalized = []
+    for index, alert in enumerate(alerts, start=1):
+        normalized_alert = dict(alert)
+        normalized_alert["id"] = -index
+        normalized_alert.setdefault("source", "advisory")
+        normalized.append(normalized_alert)
+    return normalized
+
+def sanitise_log_field(value: str) -> str:
+    if not isinstance(value, str):
+        value = str(value)
+    sanitised = "".join(ch if ord(ch) >= 32 or ch == "\t" else f"\\x{ord(ch):02x}" for ch in value)
+    return sanitised[:1000]
+
+@app.get("/")
+@limiter.limit("60/minute")
+def root(request: Request):
+    return {"message": "Fasal Saathi API", "status": "running"}
+
+@app.get("/predict")
+@limiter.limit("30/minute")
+def predict_get(request: Request):
+    return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
+
+@app.post("/predict", response_model=PredictResponse)
+@limiter.limit("5/minute")
+async def predict_yield(data: PredictRequest, request: Request):
+    """
+    Standardised prediction endpoint using ML Router for dynamic model selection.
+
+    Returns HTTP 422 when the input contains an unknown categorical value or a
+    missing required feature, so callers receive an actionable error message
+    rather than a silently corrupted prediction.
+    """
+    try:
+        input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
+        input_data = _coerce_prediction_inputs(input_data)
+
+        context = {
+            "location": request.headers.get("X-User-Location", "Unknown"),
+            "crop": data.Crop,
+        }
+
+        # Offload heavy model inference to Celery worker to prevent blocking ASGI event loop
+        from celery_worker import predict_yield_task
+        task = predict_yield_task.delay(input_data, context)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, task.get)
+
+        if "error" in result:
+            err_type = result.get("type")
+            if err_type == "UnknownCategoryError":
+                raise HTTPException(status_code=422, detail={"error": "unknown_category", "message": result["error"]})
+            elif err_type == "MissingFeatureError":
+                raise HTTPException(status_code=422, detail={"error": "missing_features", "message": result["error"]})
+            else:
+                raise HTTPException(status_code=400, detail=result["error"])
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Prediction Error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/predict-yield-lag")
+@limiter.limit("5/minute")
+async def predict_yield_lag(payload: YieldInput, request: Request):
+    try:
+        # Offload time-series lag model prediction to Celery worker pool
+        from celery_worker import predict_yield_lag_task
+        task = predict_yield_lag_task.delay(payload.data)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, task.get)
+
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal Server Error") from e
+
+@app.post("/predict-yield-trend")
+@limiter.limit("5/minute")
+async def predict_yield_trend(payload: YieldInput, request: Request):
+    try:
+        # Offload heavy iterative trend forecasting to Celery worker pool
+        from celery_worker import predict_yield_trend_task
+        task = predict_yield_trend_task.delay(payload.data)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, task.get)
+
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal Server Error") from e
+
+@app.get("/api/notifications")
+@limiter.limit("30/minute")
+def get_notifications(
+    request: Request,
+    crop: str = Query(default=None),
+    irrigation_count: int = Query(default=None, ge=0),
+    water_coverage: int = Query(default=None, ge=0, le=100),
+    season: str = Query(default=None)
+):
+    """
+    Return recent triggered-alert notifications combined with dynamic
+    farm advisory alerts generated from the query parameters.
+
+    Only notifications newer than the store's TTL window are included,
+    so the response payload stays small regardless of how long the
+    process has been running.
+    """
+    dynamic_alerts = generate_alerts(
+        crop=crop,
+        irrigation_count=irrigation_count,
+        water_coverage=water_coverage,
+        season=season
+    )
+    return {"success": True, "data": _notification_store.get_recent() + _normalize_dynamic_alerts(dynamic_alerts)}
+
+# --- WhatsApp Service Endpoints ---
+#
+# Subscriber persistence is handled by whatsapp_store.SubscriberStore, which
+# provides thread-safe, crash-safe read-modify-write operations via a
+# threading.Lock and atomic file replacement (write-to-tmp then os.replace).
+# The old load_subscribers / save_subscribers helpers have been removed because
+# they had no locking and used open(..., "w") directly, which could corrupt the
+# file on a concurrent write or a mid-write crash.
+
+@app.post("/api/whatsapp/subscribe")
+@limiter.limit("2/minute")
+async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
+    # Require authentication so the subscriber's identity is always derived
+    # from the verified Firebase token — never from client-supplied data.
+    # Previously the endpoint accepted user_id from the request body, which
+    # allowed any caller to overwrite another user's subscription by sending
+    # a known user_id with an attacker-controlled phone number.
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+
+    subscriber = {
+        "phone_number": data.phone_number,
+        "name": data.name,
+        "subscribed_at": datetime.now().isoformat(),
+    }
+    try:
+        subscriber_store.upsert(uid, subscriber)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save subscription. Please try again.",
+        ) from exc
+
+    welcome_msg = (
+        f"Namaste {data.name}! 🙏\n\n"
+        "Welcome to *Fasal Saathi WhatsApp Alerts*. "
+        "You will now receive real-time updates directly here."
+    )
+    send_whatsapp_message(data.phone_number, welcome_msg)
+    return {"success": True, "message": "Successfully subscribed"}
+
+_broadcast_rate_limit = {}
+
+@app.post("/api/whatsapp/trigger-alert")
+@limiter.limit("10/minute")
+async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
+    """
+    Broadcast a WhatsApp alert to all subscribers.
+
+    Requires authentication — admin or expert role only.
+
+    Previously this endpoint had no authentication check, no rate limit,
+    and no input constraints.  Any unauthenticated caller could send
+    arbitrary messages to every subscribed farmer, enabling social
+    engineering attacks (fake market alerts, fake pest warnings) and
+    consuming Twilio API credits at the attacker's discretion.
+    """
+    # RBAC: only admins and experts may broadcast alerts to all farmers.
+    await verify_role(request, required_roles=["admin", "expert"])
+
+    # get_all() acquires the lock and returns a stable snapshot, so this read
+    # cannot race with a concurrent subscription write.
+    subscribers = subscriber_store.get_all()
+    formatted_msg = format_alert_message(data.alert_type, data.message)
+    results = []
+    for user_id, info in subscribers.items():
+        res = send_whatsapp_message(info["phone_number"], formatted_msg)
+        results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})
+
+    # Persist the alert through the bounded, thread-safe notification store.
+    await publish_notification(
+        alert_type=data.alert_type,
+        message=data.message,
+    )
+
+    delivered = sum(1 for r in results if r["success"])
+    return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
+
+
+@app.websocket("/api/notifications/stream")
+async def notifications_stream(websocket: WebSocket):
+    await notification_broker.connect(websocket)
+
+
+@app.get("/api/admin/rbac-audit")
+@limiter.limit("10/minute")
+async def get_rbac_audit(request: Request, limit: int = Query(default=50, ge=1, le=200)):
+    """Return the most recent RBAC audit events for admins and experts."""
+    await verify_role(request, required_roles=["admin", "expert"])
+    return {"success": True, "data": rbac_audit_trail.snapshot(limit=limit)}
+
+@app.post("/api/whatsapp/webhook")
+@limiter.limit("20/minute")
+async def whatsapp_webhook(request: Request, Body: str = Form(...), From: str = Form(...)):
+    """
+    Handle incoming WhatsApp messages from Twilio.
+    
+    Processing is offloaded to a background Celery task to immediately
+    acknowledge the webhook (preventing Twilio timeout/penalties under burst traffic)
+    and process the message asynchronously.
+    """
+    sender_number = From.replace("whatsapp:", "")
+    
+    # Offload message processing to reliable background task queue
+    from celery_worker import process_whatsapp_webhook_task
+    process_whatsapp_webhook_task.delay(Body, sender_number)
+    
+    return {"status": "success"}
+
+# --- Cryptographic Reports ---
+#
+# Key resolution priority (highest → lowest):
+#   1. In-process cache          – avoids repeated I/O on every request
+#   2. GCP Secret Manager        – production path; key never touches disk
+#   3. Local persistent PEM file – dev/staging fallback; blocked in production
+#   4. Fresh generation          – last resort for local dev only
+#
+# When ENV=production the function raises HTTP 500 at steps 2, 3, and 4
+# rather than falling through to a weaker path, so a plaintext disk key
+# can never silently be used in production.
+
+_cached_private_key = None
+KEYS_DIR = "keys"
+PRIVATE_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.key")
+PUBLIC_KEY_PATH = os.path.join(KEYS_DIR, "report_signing.pub")
+
+HAS_GCP_KMS = False
+secretmanager = None
+_kms_init_error = None
+try:
+    from google.cloud import secretmanager as gcp_secretmanager
+
+    secretmanager = gcp_secretmanager
+    HAS_GCP_KMS = True
+except Exception as e:
+    HAS_GCP_KMS = False
+    _kms_init_error = str(e)
+
+ALLOW_INSECURE_FALLBACK = os.getenv("ALLOW_INSECURE_KEY_FALLBACK", "false").lower() == "true"
+
+if os.getenv("GOOGLE_CLOUD_PROJECT") and not HAS_GCP_KMS:
+    logger.error(
+        f"KMS initialization failed: GOOGLE_CLOUD_PROJECT is set but GCP Secret Manager is unavailable. "
+        f"Error: {_kms_init_error}. Set ALLOW_INSECURE_KEY_FALLBACK=true to permit local key fallback (NOT RECOMMENDED)."
     )
 
     yield
