@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.exceptions import HTTPException
 import traceback
+from typing import Dict
 
 logger = logging.getLogger(__name__)
 
@@ -24,12 +25,16 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
     - Structured error responses
     - Request/response logging
     - Circuit breaker integration
+    - Rate-limited log emission per endpoint per window
     """
     
-    def __init__(self, app):
+    def __init__(self, app, log_cooldown: float = 5.0):
         super().__init__(app)
         self.error_counts = {}  # endpoint -> count
         self.error_timestamps = {}  # endpoint -> timestamp
+        self._log_cooldown = log_cooldown  # seconds between same-category logs per endpoint
+        self._log_last_emitted: Dict[str, float] = {}  # key -> last log time
+        self._log_suppressed: Dict[str, int] = {}  # key -> count of suppressed logs
     
     async def dispatch(self, request: Request, call_next) -> Response:
         """Handle request with error recovery"""
@@ -48,9 +53,10 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
             
             # Log successful request
             duration = time.time() - start_time
-            logger.info(
-                f"[{request_id}] {endpoint} - Status: {response.status_code} - "
-                f"Duration: {duration:.2f}s"
+            self._rate_log(
+                f"info:{endpoint}", logging.INFO,
+                "[%s] %s - Status: %s - Duration: %.2fs",
+                request_id, endpoint, response.status_code, duration,
             )
             
             # Reset error count on success
@@ -66,9 +72,10 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
             """Handle HTTP exceptions"""
             duration = time.time() - start_time
             
-            logger.warning(
-                f"[{request_id}] {endpoint} - HTTP Error: {http_exc.status_code} - "
-                f"Detail: {http_exc.detail} - Duration: {duration:.2f}s"
+            self._rate_log(
+                f"http_error:{endpoint}", logging.WARNING,
+                "[%s] %s - HTTP Error: %s - Detail: %s - Duration: %.2fs",
+                request_id, endpoint, http_exc.status_code, http_exc.detail, duration,
             )
             
             return JSONResponse(
@@ -88,9 +95,10 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
             """Handle validation errors"""
             duration = time.time() - start_time
             
-            logger.warning(
-                f"[{request_id}] {endpoint} - Validation Error: {val_exc} - "
-                f"Duration: {duration:.2f}s"
+            self._rate_log(
+                f"validation_error:{endpoint}", logging.WARNING,
+                "[%s] %s - Validation Error: %s - Duration: %.2fs",
+                request_id, endpoint, val_exc, duration,
             )
             
             return JSONResponse(
@@ -110,8 +118,10 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
             """Handle timeout errors"""
             duration = time.time() - start_time
             
-            logger.error(
-                f"[{request_id}] {endpoint} - Timeout Error - Duration: {duration:.2f}s"
+            self._rate_log(
+                f"timeout:{endpoint}", logging.ERROR,
+                "[%s] %s - Timeout Error - Duration: %.2fs",
+                request_id, endpoint, duration,
             )
             
             # Increment error count
@@ -136,9 +146,10 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
             duration = time.time() - start_time
             error_id = str(uuid.uuid4())
             
-            logger.error(
-                f"[{request_id}] {endpoint} - Unexpected Error [{error_id}]: {exc} - "
-                f"Duration: {duration:.2f}s\n{traceback.format_exc()}"
+            self._rate_log(
+                f"unexpected:{endpoint}", logging.ERROR,
+                "[%s] %s - Unexpected Error [%s]: %s - Duration: %.2fs\n%s",
+                request_id, endpoint, error_id, exc, duration, traceback.format_exc(),
             )
             
             # Increment error count
@@ -208,9 +219,10 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
         time_since_error = time.time() - error_time
         
         if error_count >= 5 and time_since_error < 60:
-            logger.warning(
-                f"Circuit breaker opened for {endpoint}: "
-                f"{error_count} errors in {time_since_error:.0f}s"
+            self._rate_log(
+                f"circuit_breaker:{endpoint}", logging.WARNING,
+                "Circuit breaker opened for %s: %d errors in %.0fs",
+                endpoint, error_count, time_since_error,
             )
             return True
         
@@ -220,6 +232,24 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
         
         return False
     
+    def _rate_log(self, key: str, level: int, msg: str, *args):
+        """Emit log at most once per ``_log_cooldown`` seconds per key.
+        
+        Suppressed calls increment a counter; periodic summary lines are
+        emitted so that suppressed events remain measurable.
+        """
+        now = time.time()
+        last = self._log_last_emitted.get(key, 0.0)
+        if now - last >= self._log_cooldown:
+            self._log_last_emitted[key] = now
+            suppressed = self._log_suppressed.pop(key, 0)
+            if suppressed:
+                logger.log(level, "%s — (%d similar messages suppressed in the last %.0fs)", msg, suppressed, self._log_cooldown, *args)
+            else:
+                logger.log(level, msg, *args)
+        else:
+            self._log_suppressed[key] = self._log_suppressed.get(key, 0) + 1
+
     def get_error_stats(self) -> dict:
         """Get error statistics"""
         return {
@@ -227,7 +257,8 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
             "error_counts": self.error_counts,
             "timestamps": {
                 k: v for k, v in self.error_timestamps.items()
-            }
+            },
+            "log_suppressed": dict(self._log_suppressed),
         }
 
 
