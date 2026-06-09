@@ -99,6 +99,7 @@ function SustainabilityAnalyticsPage({ userData }) {
 // Libs
 import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc, getDoc } from "./lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
+import { clearOfflineData, clearOfflineRequests } from "./lib/db";
 import { loadAppState, loadUserProfileSnapshot, persistAppState, persistUserProfileSnapshot } from "./lib/offlinePersistence";
 import { syncOfflineRequests } from "./lib/syncOfflineRequests";
 
@@ -524,6 +525,16 @@ function App() {
   const handleLogout = async () => {
     try {
       await signOut(auth);
+      await Promise.allSettled([
+        clearOfflineData(),
+        clearOfflineRequests(),
+        new Promise((resolve, reject) => {
+          const req = indexedDB.deleteDatabase("fasal_e2ee");
+          req.onsuccess = resolve;
+          req.onerror = () => reject(req.error);
+          req.onblocked = resolve;
+        }),
+      ]);
       window.location.href = "/";
     } catch (error) {
       console.error("Sign out error:", error);

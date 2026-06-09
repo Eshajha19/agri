@@ -27,6 +27,10 @@ export const clearOfflineData = async () => {
   return (await dbPromise).clear('offline-data');
 };
 
+export const clearOfflineRequests = async () => {
+  return (await dbPromise).clear('offline-requests');
+};
+
 export const saveOfflineSnapshot = async (key, value) => {
   return setOfflineData(key, {
     value,
