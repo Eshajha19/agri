@@ -1985,29 +1985,47 @@ try:
 except Exception as e:
     logger.warning(f"Could not load ML Model Management API: {e}")
 
-# Include Retraining Pipeline Router
+def load_router(router, name: str):
+    try:
+        app.include_router(router)
+        logger.info(f"{name} API loaded successfully")
+    except Exception as e:
+        logger.warning(f"Could not load {name} API: {e}")
+
+
 try:
     from routers.retraining_pipeline import router as retraining_router
-    app.include_router(retraining_router)
-    logger.info("Retraining Pipeline API loaded successfully")
+    load_router(retraining_router, "Retraining Pipeline")
 except Exception as e:
-    logger.warning(f"Could not load Retraining Pipeline API: {e}")
-# Include Feature Drift Detection Router
+    logger.warning(f"Could not import Retraining Pipeline API: {e}")
+
+
 try:
-    from routers.feature_drift import router as feature_drift_router, init_auth as init_drift_auth
+    from routers.feature_drift import (
+        router as feature_drift_router,
+        init_auth as init_drift_auth
+    )
+
     init_drift_auth(verify_role)
-    app.include_router(feature_drift_router)
-    logger.info("Feature Drift Detection API loaded successfully")
+    load_router(feature_drift_router, "Feature Drift Detection")
+
 except Exception as e:
-    logger.warning(f"Could not load Feature Drift Detection API: {e}")
-# Include Crop Recommendation Router
+    logger.warning(f"Could not import Feature Drift Detection API: {e}")
+
+
 try:
     from routers.crop_recommendation import router as crop_router
-    app.include_router(crop_router)
-    logger.info("Crop Recommendation API loaded successfully")
+    load_router(crop_router, "Crop Recommendation")
 except Exception as e:
-    logger.warning(f"Could not load Crop Recommendation API: {e}")
+    logger.warning(f"Could not import Crop Recommendation API: {e}")
+
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True
+    )
