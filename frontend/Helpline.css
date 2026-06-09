@@ -121,6 +121,9 @@
   margin-bottom: 24px;
 }
 
+.theme-dark .card-body {
+  background: transparent;
+}
 .number-display {
   display: flex;
   align-items: center;
@@ -164,11 +167,13 @@
   justify-content: center;
   gap: 10px;
   font-weight: 700;
-  transition: filter 0.3s;
+  transition: opacity 0.3s ease;
 }
 
 .call-btn:hover {
-  filter: brightness(1.1);
+  background: var(--accent-color);
+  color: white;
+  opacity: 0.7;
 }
 
 .info-btn {

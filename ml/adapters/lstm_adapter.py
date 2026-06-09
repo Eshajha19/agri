@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import joblib
 from ml.base import YieldModel
 
 try:
@@ -15,6 +16,7 @@ class LSTMAdapter(YieldModel):
 
     def __init__(self, time_steps: int = 1, feature_names: list[str] | None = None):
         self.model = None
+        self.scaler = None
         self.time_steps = time_steps
         self._feature_names = feature_names or []
 
@@ -28,6 +30,14 @@ class LSTMAdapter(YieldModel):
         except Exception as e:
             print(f"Error loading LSTM model: {e}")
             raise
+        
+        # Load scaler if path provided
+        if self.scaler_path:
+            try:
+                self.scaler = joblib.load(self.scaler_path)
+                print(f"Scaler loaded from {self.scaler_path}")
+            except Exception as e:
+                print(f"Warning: Could not load scaler from {self.scaler_path}: {e}")
 
     def predict(self, input_data: pd.DataFrame) -> float:
         if self.model is None:
@@ -48,7 +58,12 @@ class LSTMAdapter(YieldModel):
 
         # LSTM models require 3D input: (samples, time_steps, features_per_step)
         # We use the stored time_steps metadata to preserve temporal structure.
-        data_array = input_data.values
+    if not isinstance(input_data, pd.DataFrame):
+        raise ValueError("input_data must be a pandas DataFrame")
+    data_array = input_data.values
+
+    if len(input_data) == 0:
+            raise ValueError("input_data is empty — cannot run LSTM inference on zero samples")
         num_samples = data_array.shape[0]
         total_features = data_array.shape[1]
 
@@ -62,7 +77,13 @@ class LSTMAdapter(YieldModel):
         reshaped_data = data_array.reshape((num_samples, self.time_steps, features_per_step))
 
         prediction = self.model.predict(reshaped_data)
-        return float(prediction[0][0])
+        pred_value = float(prediction[0][0])
+        
+        # Inverse-transform to original yield unit
+        if self.scaler is not None:
+            pred_value = float(self.scaler.inverse_transform([[pred_value]])[0][0])
+        
+        return pred_value
 
     @property
     def model_type(self) -> str:
