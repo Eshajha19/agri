@@ -11,25 +11,10 @@ import {
   FaUserPlus,
 } from "react-icons/fa";
 import { useSearchParams } from "react-router-dom";
-import apiClient from "./lib/apiClient";
 import { useTheme } from "./ThemeContext";
+import { auth, db, doc, getDoc, setDoc, updateDoc } from "./lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
 import "./ReferralHub.css";
-
-const EMPTY_DATA = {
-  referralCode: "",
-  referralLink: "",
-  share: { whatsapp: "", sms: "" },
-  stats: {
-    referralCount: 0,
-    referralPoints: 0,
-    referralBadge: "Starter",
-    community: "Unknown village",
-    unlockedPremium: false,
-  },
-  milestones: { all: [1, 3, 5, 10], unlocked: [], next: 1 },
-  history: [],
-  leaderboard: { farmers: [], villages: [] },
-};
 
 export default function ReferralHub() {
   const { theme } = useTheme();
@@ -50,28 +35,143 @@ export default function ReferralHub() {
     return Math.min(100, Math.round((count / next) * 100));
   }, [data]);
 
+  const normalizeReferralCode = (code) => {
+    if (!code) return "";
+    return code.replace(/[^A-Z0-9]/g, "").toUpperCase();
+  };
+
+  const generateReferralCode = () => {
+    const array = new Uint8Array(10);
+    crypto.getRandomValues(array);
+    const hash = Array.from(array, (b) => b.toString(16).padStart(2, "0")).join("");
+    return `FS${hash.slice(0, 10).toUpperCase()}`;
+  };
+
+  const getReferralBadge = (count) => {
+    if (count >= 10) return "Village Mentor";
+    if (count >= 5) return "Community Champion";
+    if (count >= 3) return "Seed Builder";
+    if (count >= 1) return "First Harvester";
+    return "Starter";
+  };
+
   const fetchDashboard = async () => {
     setLoading(true);
     setError("");
     try {
-      const res = await apiClient.get("/api/referrals/dashboard");
-      setData(res?.data?.data || null);
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        setError("Please sign in to view your referral dashboard.");
+        setLoading(false);
+        return;
+      }
+
+      const uid = currentUser.uid;
+      const userRef = doc(db, "users", uid);
+      const userSnap = await getDoc(userRef);
+      const userData = userSnap.exists() ? userSnap.data() : {};
+
+      // Generate or retrieve referral code
+      let referralCode = normalizeReferralCode(userData?.referralCode || "");
+      if (!referralCode) {
+        for (let attempt = 0; attempt < 5; attempt++) {
+          referralCode = generateReferralCode();
+          const codeRef = doc(db, "referral_codes", referralCode);
+          const codeSnap = await getDoc(codeRef);
+          if (!codeSnap.exists()) {
+            await setDoc(codeRef, {
+              uid,
+              displayName: userData?.displayName || "Farmer",
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            });
+            await updateDoc(userRef, {
+              referralCode,
+              referralCodeIssuedAt: new Date().toISOString(),
+            });
+            break;
+          }
+        }
+      }
+
+      // Compute stats
+      const referralCount = Number(userData?.referralCount || 0);
+      const referralPoints = Number(userData?.referralPoints || referralCount * 50);
+      const referralBadge = userData?.referralBadge || getReferralBadge(referralCount);
+      const community = userData?.villageName || userData?.village || userData?.address || "Unknown village";
+      const unlockedPremium = referralCount >= 5;
+
+      // Build referral link
+      const baseUrl = window.location.origin;
+      const referralLink = `${baseUrl}/login?ref=${referralCode}`;
+
+      // Fetch referral history
+      const historyRef = doc(db, "referrals_history", uid);
+      const historySnap = await getDoc(historyRef);
+      let history = [];
+      if (historySnap.exists()) {
+        const historyData = historySnap.data();
+        history = historyData?.items || [];
+      }
+
+      // Compute milestones
+      const milestones = [1, 3, 5, 10];
+      const unlockedMilestones = milestones.filter((m) => referralCount >= m);
+      const nextMilestone = milestones.find((m) => referralCount < m);
+
+      // Fetch leaderboard
+      const leaderboardRef = doc(db, "leaderboard", "referrals");
+      const leaderboardSnap = await getDoc(leaderboardRef);
+      let farmers = [];
+      let villages = [];
+      if (leaderboardSnap.exists()) {
+        const lbData = leaderboardSnap.data();
+        farmers = lbData?.farmers || [];
+        villages = lbData?.villages || [];
+      }
+
+      setData({
+        referralCode,
+        referralLink,
+        share: {
+          whatsapp: `https://wa.me/?text=Join%20Fasal%20Saathi%20using%20my%20referral%20code%20${referralCode}%20-%20${referralLink}`,
+          sms: `sms:?body=Join%20Fasal%20Saathi%20using%20my%20referral%20code%20${referralCode}%20-%20${referralLink}`,
+        },
+        stats: {
+          referralCount,
+          referralPoints,
+          referralBadge,
+          community,
+          unlockedPremium,
+        },
+        milestones: {
+          all: milestones,
+          unlocked: unlockedMilestones,
+          next: nextMilestone,
+        },
+        history,
+        leaderboard: { farmers, villages },
+      });
     } catch (err) {
-      const msg =
-        err?.response?.data?.detail ||
-        "Unable to load referral dashboard. Please sign in and try again.";
-
+      const msg = err?.message || "Unable to load referral dashboard. Please try again.";
       setError(msg);
-
       setData(null);
-
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchDashboard();
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        fetchDashboard();
+      } else {
+        setData(null);
+        setLoading(false);
+      }
+    });
+    return () => unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const copyToClipboard = async (text) => {
@@ -108,15 +208,98 @@ export default function ReferralHub() {
     setLoadingRedeem(true);
     setError("");
     setSuccess("");
+
     try {
-      const res = await apiClient.post("/api/referrals/redeem", {
-        referral_code: redeemCode.trim(),
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        setError("Please sign in to redeem a referral code.");
+        setLoadingRedeem(false);
+        return;
+      }
+
+      const inviteeUid = currentUser.uid;
+      const normalizedCode = normalizeReferralCode(redeemCode.trim());
+
+      // Look up the inviter
+      const codeRef = doc(db, "referral_codes", normalizedCode);
+      const codeSnap = await getDoc(codeRef);
+      if (!codeSnap.exists()) {
+        setError("Referral code not found.");
+        setLoadingRedeem(false);
+        return;
+      }
+
+      const inviterUid = codeSnap.data()?.uid;
+      if (!inviterUid) {
+        setError("Invalid referral code.");
+        setLoadingRedeem(false);
+        return;
+      }
+      if (inviterUid === inviteeUid) {
+        setError("Self referral is not allowed.");
+        setLoadingRedeem(false);
+        return;
+      }
+
+      // Check if already redeemed
+      const inviteeRef = doc(db, "users", inviteeUid);
+      const inviteeSnap = await getDoc(inviteeRef);
+      const inviteeData = inviteeSnap.exists() ? inviteeSnap.data() : {};
+      if (inviteeData?.referredByUid || inviteeData?.referralRedeemedAt) {
+        setError("Referral already redeemed for this account.");
+        setLoadingRedeem(false);
+        return;
+      }
+
+      const inviterRef = doc(db, "users", inviterUid);
+      const inviterSnap = await getDoc(inviterRef);
+      const inviterData = inviterSnap.exists() ? inviterSnap.data() : {};
+
+      const createdAt = new Date().toISOString();
+      const rewardPoints = 50;
+      const newReferrerCount = Number(inviterData?.referralCount || 0) + 1;
+      const newReferrerPoints = Number(inviterData?.referralPoints || 0) + rewardPoints;
+
+      // Record the referral history for inviter
+      const historyDocRef = doc(db, "referrals_history", inviterUid);
+      const historyDocSnap = await getDoc(historyDocRef);
+      let existingHistory = [];
+      if (historyDocSnap.exists()) {
+        existingHistory = historyDocSnap.data()?.items || [];
+      }
+      const newHistoryItem = {
+        id: `${inviterUid}_${inviteeUid}`,
+        inviteeUid,
+        inviteeName: inviteeData?.displayName || "Farmer",
+        inviteeLocation: inviteeData?.villageName || inviteeData?.village || "Unknown village",
+        referralCode: normalizedCode,
+        status: "redeemed",
+        rewardPoints,
+        createdAt,
+      };
+      await setDoc(historyDocRef, { items: [newHistoryItem, ...existingHistory] });
+
+      // Update invitee
+      await updateDoc(inviteeRef, {
+        referredByUid: inviterUid,
+        referredByCode: normalizedCode,
+        referralRedeemedAt: createdAt,
       });
-      setSuccess(res?.data?.message || "Referral redeemed successfully.");
+
+      // Update inviter
+      await updateDoc(inviterRef, {
+        referralCount: newReferrerCount,
+        referralPoints: newReferrerPoints,
+        referralBadge: getReferralBadge(newReferrerCount),
+        premiumUnlocked: newReferrerCount >= 5,
+        updatedAt: createdAt,
+      });
+
+      setSuccess("Referral redeemed successfully!");
       setRedeemCode("");
       await fetchDashboard();
     } catch (err) {
-      const msg = err?.response?.data?.detail || "Failed to redeem referral code.";
+      const msg = err?.message || "Failed to redeem referral code.";
       setError(msg);
     } finally {
       setLoadingRedeem(false);
@@ -141,12 +324,7 @@ export default function ReferralHub() {
         ) : error ? (
           <div className="referral-status error">
             <p>{error}</p>
-
-            <button
-              type="button"
-              className="retry-btn"
-              onClick={fetchDashboard}
-            >
+            <button type="button" className="retry-btn" onClick={fetchDashboard}>
               Retry
             </button>
           </div>
