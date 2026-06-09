@@ -804,6 +804,14 @@ async def notifications_stream(websocket: WebSocket):
     await notification_broker.connect(websocket)
 
 
+@app.get("/metrics")
+async def metrics_endpoint(request: Request):
+    """Prometheus metrics, restricted to admin/expert roles."""
+    await verify_role(request, required_roles=["admin", "expert"])
+    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
 @app.get("/api/admin/rbac-audit")
 @limiter.limit("10/minute")
 async def get_rbac_audit(request: Request, limit: int = Query(default=50, ge=1, le=200)):
@@ -981,9 +989,10 @@ except Exception as exc:
 try:
     from prometheus_fastapi_instrumentator import Instrumentator
 
-    Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+    Instrumentator().instrument(app)
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
+    instrumentator = None
 
 # Middleware and rate-limits — the limiter was already configured above;
 # only the exception handler alias from slowapi's public API is wired here.
