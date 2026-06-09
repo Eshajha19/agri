@@ -97,7 +97,9 @@ async def verify_csrf_token_dependency(request: Request) -> None:
     from rbac import RBACManager
     try:
         ctx = await RBACManager.resolve_auth_context(request, allow_unauthenticated=True)
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.error(f"CSRF validation error: {e}")
         ctx = None
 
     if ctx is not None:

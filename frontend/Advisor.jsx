@@ -7,6 +7,7 @@ import Forecast from "./Forecast";
 import SoilChatbot from "./SoilChatbot";
 import SoilAnalysis from "./SoilAnalysis";
 import SoilGuide from "./SoilGuide";
+import CropInsuranceClaim from "./CropInsuranceClaim";
 import CropGrowthStageGuide from "./CropGrowthStageGuide";
 import SeasonalFarmingStrategyGuide from "./SeasonalFarmingStrategyGuide";
 import WeatherFarmingImpactGuide from "./WeatherFarmingImpactGuide";
@@ -26,6 +27,7 @@ import CropDiseaseDetection from "./CropDiseaseDetection";
 import PestDetection from "./PestDetection";
 import PestManagement from "./PestManagement";
 import SprayReminder from "./SprayReminder";
+import SprayScheduler from "./SprayScheduler";
 import PestCalendar from "./PestCalendar";
 import SeedVerifier from "./SeedVerifier";
 import ClimateSimulator from "./ClimateSimulator";
@@ -51,35 +53,36 @@ import TeleConsultation from "./components/TeleConsultation";
 import ConsultationHistory from "./components/ConsultationHistory";
 import { Leaf } from "lucide-react";
 import {
-  Sun,
-  Droplets,
-  IndianRupee,
-  Sprout,
-  Languages,
-  WifiOff,
-  Landmark,
-  Calendar,
-  MessageSquare,
-  Info,
-  Map,
-  FlaskConical,
-  Layers,
-  ShoppingCart,
-  Book,
-  CloudSun,
-  QrCode,
-  Award,
-  Star,
-  ThumbsUp,
-  X,
-  AlertTriangle,
-  TrendingDown,
-  Bug,
-  BarChart3,
-  Rocket,
-  Trophy,
-  Medal,
-   Gem,
+   Sun,
+   Droplets,
+   IndianRupee,
+   Sprout,
+   Languages,
+   WifiOff,
+   Landmark,
+   Calendar,
+   MessageSquare,
+   Info,
+   Map,
+   FlaskConical,
+   Layers,
+   ShoppingCart,
+   Book,
+   CloudSun,
+   QrCode,
+   Award,
+   Star,
+   ThumbsUp,
+   X,
+   AlertTriangle,
+   TrendingDown,
+   Bug,
+   BarChart3,
+   Rocket,
+   Trophy,
+   Medal,
+   Shield,
+    Gem,
    FileText,
    Construction,
    CloudRain,
@@ -165,9 +168,11 @@ export default function Advisor({ userData }) {
      setShowCropDiseaseDetection,
 showPestManagement,
       setShowPestManagement,
-      showSprayReminder,
-      setShowSprayReminder,
-      showPestCalendar,
+       showSprayReminder,
+       setShowSprayReminder,
+       showSprayScheduler,
+       setShowSprayScheduler,
+       showPestCalendar,
       setShowPestCalendar,
       showAgriMarketplace,
      setShowAgriMarketplace,
@@ -213,8 +218,10 @@ showGreenPractices,
        setShowTeleConsultation,
        activeConsultation,
        setActiveConsultation,
-       showConsultationHistory,
-       setShowConsultationHistory,
+showConsultationHistory,
+      setShowConsultationHistory,
+      showCropInsuranceClaim,
+      setShowCropInsuranceClaim,
     } = useAdvisorStore();
 
 
@@ -880,7 +887,7 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             <p>Early warnings & organic pest control tips.</p>
           </div>
 
-<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowSprayReminder(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSprayReminder(true); }} aria-label="Spray Scheduler: Weather-aware spray scheduling">
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowSprayScheduler(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSprayScheduler(true); }} aria-label="Spray Scheduler: Weather-aware spray scheduling">
              <div className="icon" aria-hidden="true"><CloudRain size={32} /></div>
              <h3><span className="notranslate">Spray Scheduler</span></h3>
              <p>Weather-aware spray scheduling &amp; rotation recommendations.</p>
@@ -1272,10 +1279,27 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
               <BarChart3 size={32} strokeWidth={2} />
             </div>
             <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#f59e0b', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>NEW</div>
-            <h3><span className="notranslate">Crop Grading</span></h3>
-            <p>Analyze crop quality metrics, get grading recommendations, and estimate market value.</p>
-          </div>
-        </div>
+<h3><span className="notranslate">Crop Grading</span></h3>
+             <p>Analyze crop quality metrics, get grading recommendations, and estimate market value.</p>
+           </div>
+
+<div
+              className="card reveal crop-insurance-card"
+              style={{ border: '2px solid #0d9488', background: 'rgba(13, 148, 136, 0.04)' }}
+              role="button"
+              tabIndex={0}
+              onClick={() => setShowCropInsuranceClaim(true)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowCropInsuranceClaim(true); }}
+              aria-label="Crop Insurance Claim: File insurance claims with AI assessment"
+            >
+             <div className="icon" aria-hidden="true" style={{ background: 'rgba(13, 148, 136, 0.1)', color: '#0d9488' }}>
+               <Shield size={32} strokeWidth={2} />
+             </div>
+             <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#0d9488', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>NEW</div>
+             <h3><span className="notranslate">Crop Insurance Claim</span></h3>
+             <p>Document crop damage with AI-powered analysis and generate insurance claim reports.</p>
+           </div>
+         </div>
         
         <div className="weather-dashboard">
           <div className="weather-dashboard-header">
@@ -1742,7 +1766,16 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
          </div>
        )}
 
-       {showPestCalendar && (
+      {showSprayScheduler && (
+         <div key="modal-spray-scheduler" className="weather-overlay" onClick={() => setShowSprayScheduler(false)}>
+           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1100px', width: '95vw' }}>
+             <button className="close-btn" onClick={() => setShowSprayScheduler(false)} aria-label="Close spray scheduler"><X /></button>
+             <SprayScheduler schedules={[]} weatherData={weatherSnapshot} location={weatherLocation} />
+           </div>
+         </div>
+       )}
+
+        {showPestCalendar && (
          <div key="modal-pest-calendar" className="weather-overlay" onClick={() => setShowPestCalendar(false)}>
            <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1100px', width: '95vw' }}>
              <button className="close-btn" onClick={() => setShowPestCalendar(false)} aria-label="Close pest calendar"><X /></button>
@@ -1966,20 +1999,29 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
         </div>
       )}
 
-      {showTeleConsultation && activeConsultation && (
-        <div key={`modal-tele-consultation-${activeConsultation.createdAt || activeConsultation.date || ''}`} className="weather-overlay" onClick={() => setShowTeleConsultation(false)}>
-          <div onClick={(e) => e.stopPropagation()}>
-            <TeleConsultation 
-              consultation={activeConsultation}
-              userData={userData}
-              onEnd={() => {
-                setShowTeleConsultation(false);
-                setActiveConsultation(null);
-              }}
-            />
-          </div>
-        </div>
-      )}
-     </section>
+{showTeleConsultation && activeConsultation && (
+         <div key={`modal-tele-consultation-${activeConsultation.createdAt || activeConsultation.date || ''}`} className="weather-overlay" onClick={() => setShowTeleConsultation(false)}>
+           <div onClick={(e) => e.stopPropagation()}>
+             <TeleConsultation 
+               consultation={activeConsultation}
+               userData={userData}
+               onEnd={() => {
+                 setShowTeleConsultation(false);
+                 setActiveConsultation(null);
+               }}
+             />
+           </div>
+         </div>
+       )}
+
+       {showCropInsuranceClaim && (
+         <div key="modal-crop-insurance-claim" className="weather-overlay" onClick={() => setShowCropInsuranceClaim(false)}>
+           <div className="weather-popup" style={{ maxWidth: '900px', width: '95vw' }} onClick={(e) => e.stopPropagation()}>
+             <button className="close-btn" onClick={() => setShowCropInsuranceClaim(false)} aria-label="Close crop insurance claim"><X /></button>
+             <CropInsuranceClaim />
+           </div>
+         </div>
+       )}
+      </section>
    );
           }

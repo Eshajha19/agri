@@ -29,9 +29,10 @@ class BlockchainRecord:
     data: Dict
     previous_hash: str = ""
     hash: str = ""
+    previous_hash: str = ""
 
     def to_dict(self) -> Dict:
-        """Serialize record to dict (hash excluded — matches calculate_hash input)"""
+        """Serialize record to dict (hash and previous_hash excluded — matches calculate_hash input)"""
         return {
             "timestamp": self.timestamp,
             "actor": self.actor,
@@ -42,8 +43,8 @@ class BlockchainRecord:
         }
 
     def calculate_hash(self) -> str:
-        """Calculate SHA256 hash of record (excludes hash field)"""
-        record_string = json.dumps(self.to_dict(), sort_keys=True, default=str)
+        """Calculate SHA256 hash of record (excludes hash and previous_hash fields)"""
+        record_string = json.dumps(self.to_dict(), sort_keys=True)
         return hashlib.sha256(record_string.encode()).hexdigest()
 
     @staticmethod
@@ -59,6 +60,8 @@ class BlockchainRecord:
         )
         if "hash" in data:
             record.hash = data["hash"]
+        if "previous_hash" in data:
+            record.previous_hash = data["previous_hash"]
         return record
 
 
@@ -145,6 +148,18 @@ class SupplyChainBlockchain:
         self._repository = repository
         self._qr_signing_secret = os.getenv("BLOCKCHAIN_QR_SECRET", "").strip()
 
+    def _last_hash(self) -> str:
+        """Return the hash of the last block in the chain, or '0'*64 for genesis."""
+        if self.chain:
+            return self.chain[-1].hash
+        return "0" * 64
+
+    def _link_and_append(self, record: BlockchainRecord) -> None:
+        """Set previous_hash, compute hash, and append to chain."""
+        record.previous_hash = self._last_hash()
+        record.hash = record.calculate_hash()
+        self.chain.append(record)
+
     # ------------- Utilities for atomicity -------------
     def _snapshot_state(self):
         """Create snapshot of current state for rollback"""
@@ -152,7 +167,7 @@ class SupplyChainBlockchain:
             "chain_len": len(self.chain),
             "products_copy": _copy.deepcopy(self.products),
             "supply_chain_nodes_copy": {k: list(v) for k, v in self.supply_chain_nodes.items()},
-            "smart_contracts_copy": {k: v.status for k, v in self.smart_contracts.items()},
+            "smart_contracts_copy": _copy.deepcopy(self.smart_contracts),
             "trace_batches_copy": _copy.deepcopy(self._trace_batches),
             "processed_transaction_ids_copy": OrderedDict(self._processed_transaction_ids),
         }
@@ -162,9 +177,7 @@ class SupplyChainBlockchain:
         self.chain = self.chain[: snap["chain_len"]]
         self.products = _copy.deepcopy(snap["products_copy"])
         self.supply_chain_nodes = {k: list(v) for k, v in snap["supply_chain_nodes_copy"].items()}
-        for cid, status in snap["smart_contracts_copy"].items():
-            if cid in self.smart_contracts:
-                self.smart_contracts[cid].status = status
+        self.smart_contracts = _copy.deepcopy(snap["smart_contracts_copy"])
         self._trace_batches = _copy.deepcopy(snap["trace_batches_copy"])
         self._processed_transaction_ids = OrderedDict(snap["processed_transaction_ids_copy"])
 
@@ -305,18 +318,19 @@ class SupplyChainBlockchain:
                 data=asdict(batch),
                 previous_hash=prev_hash,
             )
-            record.hash = record.calculate_hash()
+            self._link_and_append(record)
 
             # Commit changes atomically
             self.products[batch_id] = batch
             self.supply_chain_nodes[batch_id] = []
-            self.chain.append(record)
             batch.blockchain_records.append(record.to_dict())
             self._record_transaction_id(transaction_id)
             
             return batch
 
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.error(f"Blockchain error: {e}")
             self._rollback_to_snapshot(snap)
             raise
 
@@ -370,11 +384,10 @@ class SupplyChainBlockchain:
                 data=asdict(node),
                 previous_hash=prev_hash,
             )
-            record.hash = record.calculate_hash()
 
             # Commit
             self.supply_chain_nodes.setdefault(batch_id, []).append(node)
-            self.chain.append(record)
+            self._link_and_append(record)
             self.products[batch_id].blockchain_records.append(record.to_dict())
             self._record_transaction_id(transaction_id)
 
@@ -431,12 +444,11 @@ class SupplyChainBlockchain:
                 data=asdict(contract),
                 previous_hash=prev_hash,
             )
-            record.hash = record.calculate_hash()
 
             # Commit
             self.smart_contracts[contract_id] = contract
-            self.chain.append(record)
-            self._record_transaction_id(transaction_id)
+            self._link_and_append(record)
+
             return contract
 
         except Exception:
@@ -480,12 +492,11 @@ class SupplyChainBlockchain:
                 },
                 previous_hash=prev_hash,
             )
-            record.hash = record.calculate_hash()
 
             # Commit state updates atomically
             contract.status = "executed"
-            contract.executed_at = datetime.now(timezone.utc).isoformat()
-            self.chain.append(record)
+            contract.executed_at = datetime.now().isoformat()
+            self._link_and_append(record)
 
             self._record_transaction_id(transaction_id)
             return {
@@ -675,13 +686,24 @@ class SupplyChainBlockchain:
         }
 
     def _verify_blockchain_integrity(self) -> bool:
-        """Verify blockchain hasn't been tampered with (chained hash continuity)"""
+        """Verify blockchain hasn't been tampered with.
+
+        Checks two invariants for every block:
+        1. The stored hash matches the recalculated hash (content integrity).
+        2. Each block's previous_hash matches the preceding block's hash
+           (chain integrity) — prevents insertion, deletion, and reordering.
+        """
         for i, record in enumerate(self.chain):
+            # Content integrity
             if record.hash != record.calculate_hash():
                 return False
-            expected_prev = self.chain[i - 1].hash if i > 0 else ""
-            if record.previous_hash != expected_prev:
-                return False
+            # Chain integrity
+            if i == 0:
+                if record.previous_hash != "0" * 64:
+                    return False
+            else:
+                if record.previous_hash != self.chain[i - 1].hash:
+                    return False
         return True
 
     def get_blockchain_record_count(self) -> int:
@@ -718,24 +740,15 @@ class SupplyChainBlockchain:
         """
         snap = self._snapshot_state()
 
-        try:
-            batch_id = payload.get("id")
-
-            if not batch_id:
-                raise ValueError("Batch ID is required")
-
-            if batch_id in self._trace_batches:
-                raise ValueError(f"Batch {batch_id} is already registered")
-
-            transaction_payload = {
-                "batch_id": batch_id,
-                "crop": payload.get("crop", ""),
-                "farm": payload.get("farm", ""),
-            }
-
-            transaction_id = self._generate_transaction_id(
-                transaction_payload
-            )
+        # Also record the registration on the blockchain for auditability.
+        record = BlockchainRecord(
+            timestamp=entry["registeredAt"],
+            actor=entry["registeredByUid"] or "unknown",
+            action="trace_batch_registered",
+            location=entry["farm"],
+            data={"batch_id": batch_id, "crop": entry["crop"]},
+        )
+        self._link_and_append(record)
 
             self._validate_transaction_uniqueness(
                 transaction_id

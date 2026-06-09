@@ -3,6 +3,7 @@ import { Routes, Route, Link, NavLink, Navigate, useLocation, useNavigate } from
 import { useTranslation } from "react-i18next";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import SprayScheduler from "./SprayScheduler";
 import {
   FaComments,
   FaLeaf,
@@ -1119,6 +1120,19 @@ useEffect(() => {
             <Route path="/blog/:id" element={<BlogDetail />} />
             <Route path="/weather" element={<Weather />} />
             <Route path="/voice-assistant" element={<VoiceAssistant />} />
+            <Route
+  path="/spray-scheduler"
+  element={
+    <SprayScheduler
+      schedules={[
+        { crop: "Wheat", pest: "Rust", product: "Fungicide A", date: "2026-06-10", status: "upcoming" },
+        { crop: "Rice", pest: "Blast", product: "Fungicide B", date: "2026-06-07", status: "today" },
+        { crop: "Maize", pest: "Stem Borer", product: "Insecticide C", date: "2026-06-05", status: "overdue" },
+      ]}
+    />
+  }
+/>
+
             <Route path="/prediction-explainer" element={<PredictionExplainer />} />
             <Route path="/retraining-monitor" element={<RetrainingPipelineMonitor />} />
             <Route path="/insurance-claim" element={<CropInsuranceClaim />} />

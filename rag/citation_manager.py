@@ -10,7 +10,7 @@ Manages:
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 import hashlib
 import logging
@@ -26,7 +26,7 @@ class Citation:
     title: str
     url: Optional[str] = None
     author: Optional[str] = None
-    date_retrieved: datetime = field(default_factory=datetime.now)
+    date_retrieved: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     confidence: float = 0.95  # Confidence score (0.0 to 1.0)
     section: Optional[str] = None  # Specific section cited
     relevance_score: Optional[float] = None
@@ -65,13 +65,12 @@ class CitationContext:
     """Context for a single answer/response."""
     response_id: str
     citations: list[Citation] = field(default_factory=list)
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     query: Optional[str] = None
     response_text: Optional[str] = None
     
     def add_citation(self, citation: Citation) -> bool:
         """Add citation if not duplicate."""
-        # Check for duplicates
         citation_hash = citation.get_hash()
         for existing in self.citations:
             if existing.get_hash() == citation_hash:
@@ -83,7 +82,6 @@ class CitationContext:
     
     def get_citations_for_claim(self, claim: str) -> list[Citation]:
         """Find citations relevant to specific claim."""
-        # Simple keyword matching (can be enhanced)
         claim_lower = claim.lower()
         relevant = []
         
@@ -98,24 +96,11 @@ class CitationIntegrityChecker:
     """Validates citation integrity and completeness."""
     
     def __init__(self, min_confidence: float = 0.80, max_citations: int = 10):
-        """
-        Initialize checker.
-        
-        Args:
-            min_confidence: Minimum confidence threshold for citations
-            max_citations: Maximum citations per response
-        """
         self.min_confidence = min_confidence
         self.max_citations = max_citations
         self.source_registry: dict[str, Citation] = {}
     
     def validate_citations(self, citations: list[Citation]) -> tuple[bool, list[str]]:
-        """
-        Validate set of citations.
-        
-        Returns:
-            (is_valid, list_of_issues)
-        """
         issues = []
         
         if not citations:
@@ -125,7 +110,6 @@ class CitationIntegrityChecker:
         if len(citations) > self.max_citations:
             issues.append(f"Too many citations ({len(citations)} > {self.max_citations})")
         
-        # Check for duplicates
         seen_hashes = set()
         for citation in citations:
             h = citation.get_hash()
@@ -133,14 +117,12 @@ class CitationIntegrityChecker:
                 issues.append(f"Duplicate citation: {citation.title}")
             seen_hashes.add(h)
         
-        # Check confidence levels
         for citation in citations:
             if citation.confidence < self.min_confidence:
                 issues.append(
                     f"Low confidence citation: {citation.title} ({citation.confidence})"
                 )
         
-        # Check for required fields
         for citation in citations:
             if not citation.source_id:
                 issues.append("Citation missing source_id")
@@ -150,27 +132,18 @@ class CitationIntegrityChecker:
         return len(issues) == 0, issues
     
     def detect_circular_references(self, citations: list[Citation]) -> list[tuple[str, str]]:
-        """
-        Detect if citations reference each other circularly.
-        
-        Returns:
-            List of (source_id1, source_id2) circular references
-        """
         circular = []
         
-        # Build reference graph
         graph: dict[str, set[str]] = {}
         for citation in citations:
             if citation.source_id not in graph:
                 graph[citation.source_id] = set()
             
-            # Check if title references other sources
             for other in citations:
                 if other.source_id != citation.source_id:
                     if other.source_id in citation.title.lower():
                         graph[citation.source_id].add(other.source_id)
         
-        # Simple cycle detection (DFS)
         def has_cycle(node: str, visited: set, rec_stack: set) -> bool:
             visited.add(node)
             rec_stack.add(node)
@@ -193,18 +166,9 @@ class CitationIntegrityChecker:
         return circular
     
     def check_citation_coverage(self, response_text: str, citations: list[Citation]) -> tuple[float, list[str]]:
-        """
-        Check if response is adequately cited.
-        
-        Returns:
-            (coverage_score, uncited_topics)
-        """
         uncited_topics = []
+        topics = response_text.split()[:20]
         
-        # Extract key topics from response
-        topics = response_text.split()[:20]  # First 20 words as topics
-        
-        # Check which topics are covered by citations
         covered = 0
         for topic in topics:
             if any(topic.lower() in c.title.lower() for c in citations):
@@ -216,11 +180,9 @@ class CitationIntegrityChecker:
         return coverage_score, uncited_topics
     
     def register_source(self, citation: Citation) -> None:
-        """Register a source for future reference."""
         self.source_registry[citation.source_id] = citation
     
     def get_source(self, source_id: str) -> Optional[Citation]:
-        """Retrieve registered source."""
         return self.source_registry.get(source_id)
 
 
@@ -229,21 +191,29 @@ class CitationManager:
     Main citation manager.
     Manages citation lifecycle and integrity.
     """
-    
+
+    MAX_CONTEXTS = 1000
+
     def __init__(self, min_confidence: float = 0.80):
-        """Initialize citation manager."""
         self.integrity_checker = CitationIntegrityChecker(min_confidence=min_confidence)
         self.contexts: dict[str, CitationContext] = {}
-        self.citation_index: dict[str, list[Citation]] = {}  # By source_id
-    
+        self.citation_index: dict[str, list[Citation]] = {}
+
     def create_context(self, response_id: str, query: str = "") -> CitationContext:
-        """Create new citation context for response."""
+        """Create new citation context for response, evicting oldest if over cap."""
+        if len(self.contexts) >= self.MAX_CONTEXTS:
+            oldest_id = next(iter(self.contexts))
+            del self.contexts[oldest_id]
+            logger.warning(
+                "CitationManager.contexts reached cap (%d); evicted oldest context: %s",
+                self.MAX_CONTEXTS,
+                oldest_id,
+            )
         context = CitationContext(response_id=response_id, query=query)
         self.contexts[response_id] = context
         return context
     
     def add_citation(self, response_id: str, citation: Citation) -> bool:
-        """Add citation to response context."""
         if response_id not in self.contexts:
             logger.error(f"Context {response_id} not found")
             return False
@@ -251,18 +221,14 @@ class CitationManager:
         added = self.contexts[response_id].add_citation(citation)
         
         if added:
-            # Index by source
             if citation.source_id not in self.citation_index:
                 self.citation_index[citation.source_id] = []
             self.citation_index[citation.source_id].append(citation)
-            
-            # Register source
             self.integrity_checker.register_source(citation)
         
         return added
     
     def validate_response_citations(self, response_id: str) -> tuple[bool, list[str]]:
-        """Validate all citations in a response."""
         if response_id not in self.contexts:
             return False, ["Response context not found"]
         
@@ -270,18 +236,6 @@ class CitationManager:
         return self.integrity_checker.validate_citations(context.citations)
     
     def check_citation_integrity(self, response_id: str) -> dict:
-        """
-        Comprehensive citation integrity check.
-        
-        Returns:
-            {
-                "is_valid": bool,
-                "issues": list[str],
-                "circular_refs": list[tuple],
-                "coverage_score": float,
-                "uncited_topics": list[str]
-            }
-        """
         if response_id not in self.contexts:
             return {
                 "is_valid": False,
@@ -294,16 +248,13 @@ class CitationManager:
         context = self.contexts[response_id]
         citations = context.citations
         
-        # Validate citations
         is_valid, issues = self.integrity_checker.validate_citations(citations)
         
-        # Check for circular references
         circular_refs = self.integrity_checker.detect_circular_references(citations)
         if circular_refs:
             is_valid = False
             issues.append(f"Circular references detected: {circular_refs}")
         
-        # Check coverage
         coverage_score, uncited = (
             self.integrity_checker.check_citation_coverage(context.response_text or "", citations)
             if context.response_text
@@ -319,16 +270,6 @@ class CitationManager:
         }
     
     def format_citations(self, response_id: str, format_style: str = "markdown") -> str:
-        """
-        Format citations for display.
-        
-        Args:
-            response_id: ID of response
-            format_style: 'markdown', 'html', 'json'
-            
-        Returns:
-            Formatted citations
-        """
         if response_id not in self.contexts:
             return ""
         
@@ -360,11 +301,9 @@ class CitationManager:
         return ""
     
     def get_context(self, response_id: str) -> Optional[CitationContext]:
-        """Retrieve citation context."""
         return self.contexts.get(response_id)
     
     def cleanup_context(self, response_id: str) -> None:
-        """Remove citation context (cleanup)."""
         if response_id in self.contexts:
             del self.contexts[response_id]
             logger.info(f"Cleaned up context: {response_id}")
