@@ -22,6 +22,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from math import ceil
+from ipaddress import ip_address
 from threading import Lock
 from time import monotonic
 from typing import Optional
@@ -72,12 +73,44 @@ def reset_compute_rate_limit_state() -> None:
         _last_compute_rate_limit_prune = 0.0
 
 
+def _extract_client_ip(request: Request) -> Optional[str]:
+    forwarded_for = request.headers.get("x-forwarded-for")
+
+    if forwarded_for:
+        for candidate in forwarded_for.split(","):
+            candidate = candidate.strip()
+
+            try:
+                ip_address(candidate)
+                return candidate.lower()
+            except ValueError:
+                continue
+
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        try:
+            ip_address(real_ip.strip())
+            return real_ip.strip().lower()
+        except ValueError:
+            pass
+
+    if request.client and request.client.host:
+        try:
+            ip_address(request.client.host.strip())
+            return request.client.host.strip().lower()
+        except ValueError:
+            pass
+
+    return None
+
 def _request_actor_key(request: Request, uid: Optional[str]) -> str:
     if uid:
         return f"uid:{uid.strip().lower()}"
 
-    if request.client and request.client.host:
-        return f"ip:{request.client.host.strip().lower()}"
+    client_ip = _extract_client_ip(request)
+
+    if client_ip:
+        return f"ip:{client_ip}"
 
     return "ip:unknown"
 
