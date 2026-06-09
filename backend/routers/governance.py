@@ -1,10 +1,10 @@
 """ML Governance Router - Drift, shadow eval, versioning"""
-import re
+from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request, Query
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 
-from backend.core.logging_config import setup_logging
+from rbac_audit import audit_rbac_event
 
 router = APIRouter()
 logger = setup_logging(__name__)
@@ -53,36 +53,12 @@ shadow_evaluator = None
 version_manager = None
 verify_role_fn = None
 
-def init_governance(dd, se, vm, vr_fn):
+def init_governance(dd, se, vm, auth_fn=None):
     global drift_detector, shadow_evaluator, version_manager, verify_role_fn
     drift_detector = dd
     shadow_evaluator = se
     version_manager = vm
-    verify_role_fn = vr_fn
-
-
-# ---------------------------------------------------------------------------
-# Auth helpers
-# ---------------------------------------------------------------------------
-
-async def _require_auth(request: Request) -> str:
-    if verify_role_fn is None:
-        raise HTTPException(status_code=500, detail="Auth not initialized")
-    token_data = await verify_role_fn(request)
-    uid = token_data.get("uid")
-    if not uid:
-        raise HTTPException(status_code=401, detail="Invalid authentication token")
-    return uid
-
-
-async def _require_admin_auth(request: Request) -> str:
-    if verify_role_fn is None:
-        raise HTTPException(status_code=500, detail="Auth not initialized")
-    token_data = await verify_role_fn(request, required_roles=["admin", "expert"])
-    uid = token_data.get("uid")
-    if not uid:
-        raise HTTPException(status_code=401, detail="Invalid authentication token")
-    return uid
+    verify_role_fn = auth_fn
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +70,7 @@ _MAX_BASELINE_PREDICTIONS = 100_000
 @router.post("/drift/baseline")
 async def set_drift_baseline(request: Request, model_name: str, predictions: list[float]):
     """Set drift baseline. Requires admin or expert role."""
-    uid = await _require_admin_auth(request)
+    await _enforce_role(request, ["admin", "expert"])
     if drift_detector is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     if len(predictions) > _MAX_BASELINE_PREDICTIONS:
@@ -109,7 +85,7 @@ async def set_drift_baseline(request: Request, model_name: str, predictions: lis
 @router.post("/drift/check")
 async def check_drift(request: Request, body: DriftCheckRequest):
     """Check for model drift. Requires authentication."""
-    await _require_auth(request)
+    await _enforce_role(request)
     if drift_detector is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     drift_info = drift_detector.check_prediction_drift(body.model_name, body.prediction, body.actual_value)
@@ -118,7 +94,7 @@ async def check_drift(request: Request, body: DriftCheckRequest):
 @router.get("/drift/alerts")
 async def get_drift_alerts(request: Request, model_name: str = None, limit: int = Query(10, ge=1, le=100)):
     """Get drift alerts. Requires authentication."""
-    await _require_auth(request)
+    await _enforce_role(request)
     if drift_detector is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     alerts = drift_detector.get_alerts(model_name) if model_name else []
@@ -136,7 +112,7 @@ async def start_shadow_evaluation(
     candidate_model: str,
 ):
     """Start a shadow evaluation. Requires admin or expert role."""
-    uid = await _require_admin_auth(request)
+    await _enforce_role(request, ["admin", "expert"])
     if shadow_evaluator is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     logger.info(f"Admin {uid} starting shadow evaluation: production_model={production_model}, candidate_model={candidate_model}")
@@ -146,7 +122,7 @@ async def start_shadow_evaluation(
 @router.post("/shadow/record")
 async def record_shadow_predictions(request: Request, eval_id: str, production_prediction: float, candidate_prediction: float, actual_value: float):
     """Record shadow predictions. Requires authentication."""
-    await _require_auth(request)
+    await _enforce_role(request)
     if shadow_evaluator is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     shadow_evaluator.record_predictions(eval_id, production_prediction, candidate_prediction, actual_value)
@@ -156,7 +132,7 @@ async def record_shadow_predictions(request: Request, eval_id: str, production_p
 @router.post("/shadow/evaluate")
 async def evaluate_candidate_model(request: Request, eval_id: str):
     """Evaluate a candidate model. Requires admin or expert role."""
-    uid = await _require_admin_auth(request)
+    await _enforce_role(request, ["admin", "expert"])
     if shadow_evaluator is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     logger.info(f"Admin {uid} evaluating candidate model for eval_id={eval_id}")
@@ -166,7 +142,7 @@ async def evaluate_candidate_model(request: Request, eval_id: str):
 @router.get("/shadow/status/{eval_id}")
 async def get_shadow_eval_status(request: Request, eval_id: str):
     """Get shadow evaluation status. Requires authentication."""
-    await _require_auth(request)
+    await _enforce_role(request)
     if shadow_evaluator is None:
         raise HTTPException(
             status_code=500,
@@ -212,51 +188,81 @@ async def get_shadow_eval_status(request: Request, eval_id: str):
         raise
 
 
+async def _enforce_role(request: Request, required_roles: list[str] = None) -> dict:
+    """Verify the caller is authenticated (and optionally has a required role).
+
+    Delegates to the project-wide ``verify_role_fn`` injected at startup via
+    ``init_governance()``. Returns ``{"uid": str, "role": str}`` on success.
+    Raises 401/403/503 on failure — never grants access when the auth service
+    is unreachable.
+    """
+    fn = verify_role_fn
+    if fn is None:
+        raise HTTPException(status_code=503, detail="Auth service not initialized")
+    return await fn(request, required_roles=required_roles)
+
+
 @router.post("/versions/register")
 async def register_model_version(
     request: Request,
     data: RegisterModelVersionRequest,
 ):
     """Register a new model version. Requires admin or expert role."""
-    uid = await _require_admin_auth(request)
+    token = await _enforce_role(request, ["admin", "expert"])
     if version_manager is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     logger.info(f"Admin {uid} registering model version: model_name={data.model_name}, model_path={data.model_path}, rmse={data.rmse}, r2_score={data.r2_score}")
     version_id = version_manager.register_version(data.model_name, data.model_path, data.rmse, data.r2_score, data.metadata)
+    _audit(request, "model_version.register", token, version_id=version_id,
+           extra={"model_name": data.model_name, "rmse": data.rmse, "r2_score": data.r2_score})
     return {"success": True, "version_id": version_id}
 
 @router.post("/versions/promote")
-async def promote_model_version(
-    request: Request,
-    version_id: str,
-):
-    """Promote a model version to production. Requires admin role."""
-    uid = await _require_admin_auth(request)
+async def promote_model_version(request: Request, version_id: str):
+    """Promote a model version to production. Requires admin or expert role."""
+    token = await _enforce_role(request, ["admin", "expert"])
     if version_manager is None:
         raise HTTPException(status_code=500, detail="Not initialized")
-    logger.info(f"Admin {uid} promoting model version {version_id} to production")
+    prev_prod = version_manager.get_production_version()
     version_manager.promote_version(version_id)
     prod_version = version_manager.get_production_version()
+    _audit(request, "model_version.promote", token, version_id=version_id,
+           extra={"previous_production": prev_prod.version_id if prev_prod else None})
     return {"success": True, "production_version": prod_version}
 
 @router.post("/versions/rollback")
-async def rollback_model_version(
-    request: Request,
-    version_id: str,
-):
-    """Roll back to a previous model version. Requires admin role."""
-    uid = await _require_admin_auth(request)
+async def rollback_model_version(request: Request, version_id: str):
+    """Roll back to a previous model version. Requires admin or expert role."""
+    token = await _enforce_role(request, ["admin", "expert"])
     if version_manager is None:
         raise HTTPException(status_code=500, detail="Not initialized")
-    logger.info(f"Admin {uid} rolling back to model version {version_id}")
+    prev_prod = version_manager.get_production_version()
     version_manager.rollback_to_version(version_id)
     prod_version = version_manager.get_production_version()
+    _audit(request, "model_version.rollback", token, version_id=version_id,
+           extra={"previous_production": prev_prod.version_id if prev_prod else None})
     return {"success": True, "production_version": prod_version}
+
+
+def _audit(request: Request, action: str, token: dict, version_id: str, extra: dict = None):
+    """Record a governance audit event with actor identity and context."""
+    detail = f"{action} {version_id}"
+    if extra:
+        detail += " " + "; ".join(f"{k}={v}" for k, v in extra.items())
+    audit_rbac_event(
+        request=request,
+        action=action,
+        outcome="allowed",
+        uid=token.get("uid"),
+        role=token.get("role"),
+        reason=detail,
+        status_code=200,
+    )
 
 @router.get("/versions/production")
 async def get_production_version(request: Request):
     """Get current production version. Requires authentication."""
-    await _require_auth(request)
+    await _enforce_role(request)
     if version_manager is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     prod_version = version_manager.get_production_version()
@@ -265,7 +271,7 @@ async def get_production_version(request: Request):
 @router.get("/versions/list")
 async def list_model_versions(request: Request, model_name: str = None):
     """List model versions. Requires authentication."""
-    await _require_auth(request)
+    await _enforce_role(request)
     if version_manager is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     versions = version_manager.list_versions(model_name) if model_name else []
@@ -274,36 +280,24 @@ async def list_model_versions(request: Request, model_name: str = None):
 @router.get("/versions/compare")
 async def compare_model_versions(request: Request, v1: str, v2: str):
     """Compare two model versions. Requires authentication."""
-    await _require_auth(request)
+    await _enforce_role(request)
     if version_manager is None:
-        raise HTTPException(
-            status_code=500,
-            detail="Not initialized",
-        )
+        raise HTTPException(status_code=500, detail="Not initialized")
+    comparison = version_manager.compare_versions(v1, v2)
+    return {"success": True, "comparison": comparison}
 
-    logger.info(
-        "governance.rollback_version.request "
-        "user_id=%s version_id=%s",
-        user_id,
-        version_id,
-    )
-
-    try:
-        version_manager.rollback_to_version(version_id)
-
-        production_version = version_manager.get_production_version()
-
-        logger.info(
-            "governance.rollback_version.success "
-            "user_id=%s target_version=%s production_version=%s",
-            user_id,
-            version_id,
-            production_version,
-        )
-
-        return {
-            "success": True,
-            "production_version": production_version,
+@router.get("/status")
+async def get_governance_status(request: Request):
+    """Get overall governance status. Requires authentication."""
+    await _enforce_role(request)
+    if not all([drift_detector, shadow_evaluator, version_manager]):
+        raise HTTPException(status_code=500, detail="Not fully initialized")
+    return {
+        "success": True,
+        "governance_status": {
+            "drift_alerts": len(drift_detector.get_alerts("all") if hasattr(drift_detector, 'alerts') else []),
+            "active_evals": len(shadow_evaluator.active_evaluations if hasattr(shadow_evaluator, 'active_evaluations') else []),
+            "total_versions": len(version_manager.versions if hasattr(version_manager, 'versions') else [])
         }
 
     except Exception:

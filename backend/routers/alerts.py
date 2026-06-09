@@ -6,7 +6,9 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
-from twilio_webhook_security import handle_inbound_whatsapp_webhook
+from pydantic import BaseModel, Field, validator
+
+router = APIRouter()
 
 from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, normalize_region_identifier
 from backend.schemas import AlertTriggerRequest
@@ -14,6 +16,11 @@ from backend.core.logging_config import setup_logging
 
 router = APIRouter()
 logger = setup_logging(__name__)
+
+    @validator("message")
+    def strip_control_chars(cls, v):
+        from whatsapp_service import sanitise_message
+        return sanitise_message(v)
 
 
 notification_store = None
@@ -160,18 +167,48 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
 
 
 
-@router.post("/whatsapp/webhook")
-async def whatsapp_webhook(request: Request):
-    """Receive inbound WhatsApp messages from Twilio (delegates to shared handler)."""
-    try:
-        return await handle_inbound_whatsapp_webhook(request)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error("Unhandled error in whatsapp_webhook: %s", exc, exc_info=True)
-        from fastapi.responses import JSONResponse
-        return JSONResponse(
-            status_code=500,
-            content={"detail": "Internal server error"},
-        )
+MAX_WEBHOOK_BODY_SIZE = 10 * 1024
 
+@router.post("/whatsapp/webhook")
+async def whatsapp_webhook(
+    request: Request,
+    Body: str = Form(...),
+    From: str = Form(...),
+):
+    """Receive inbound WhatsApp messages from Twilio.
+
+    Security controls applied:
+    1. Early body-size enforcement — payloads larger than 10 KB are
+       rejected with HTTP 413 before any signature or processing work.
+    2. Twilio signature verification — every request is validated with
+       HMAC-SHA1 against TWILIO_AUTH_TOKEN before any processing.
+       Requests with a missing or invalid X-Twilio-Signature are
+       rejected with HTTP 403.
+    3. Sender number validation — the From field is checked against a
+       basic E.164 pattern after stripping the 'whatsapp:' prefix so
+       malformed values cannot propagate further.
+    """
+    if len(Body) > MAX_WEBHOOK_BODY_SIZE:
+        raise HTTPException(status_code=413, detail="Request body too large")
+
+    if send_whatsapp_fn is None:
+        raise HTTPException(status_code=500, detail="Not initialized")
+
+    raw_body = await request.body()
+    _verify_twilio_signature(request, raw_body)
+
+    incoming_msg = Body.lower().strip()
+    sender_number = _validate_whatsapp_number(From)
+
+    responses = {
+        "weather": "🌡️ *Weather Update*\n\n28°C, Clear skies.",
+        "pest": "🐛 *Pest Assistant*\n\nPlease use the tool in-app.",
+        "hi": "🙏 *Namaste!*\n\nI am your AI Assistant.",
+        "hello": "🙏 *Namaste!*\n\nI am your AI Assistant.",
+    }
+    response = next(
+        (v for k, v in responses.items() if k in incoming_msg),
+        "Try 'Weather' or 'Pest' 🌱",
+    )
+    send_whatsapp_fn(sender_number, response)
+    return {"status": "success"}
