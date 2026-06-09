@@ -1,4 +1,5 @@
 import os
+import threading
 import joblib
 import numpy as np
 from celery import Celery
@@ -25,42 +26,49 @@ celery_app.conf.update(
 _model_lag = None
 _model_trend = None
 _ml_router = None
+_model_lock = threading.Lock()
 
 def _get_lag_model():
     global _model_lag
     if _model_lag is None:
-        try:
-            _model_lag = joblib.load("sklearn_yield_model.joblib")
-        except Exception as e:
-            print(f"Failed to load lag model: {e}")
+        with _model_lock:
+            if _model_lag is None:
+                try:
+                    _model_lag = joblib.load("sklearn_yield_model.joblib")
+                except Exception as e:
+                    print(f"Failed to load lag model: {e}")
     return _model_lag
 
 def _get_trend_model():
     global _model_trend
     if _model_trend is None:
-        try:
-            if os.path.exists("trend_forecast_model.joblib"):
-                _model_trend = joblib.load("trend_forecast_model.joblib")
-        except Exception as e:
-            print(f"Failed to load trend model: {e}")
+        with _model_lock:
+            if _model_trend is None:
+                try:
+                    if os.path.exists("trend_forecast_model.joblib"):
+                        _model_trend = joblib.load("trend_forecast_model.joblib")
+                except Exception as e:
+                    print(f"Failed to load trend model: {e}")
     return _model_trend
 
 def _get_ml_router():
     global _ml_router
     if _ml_router is None:
-        try:
-            from ml.router import ModelRouter
-            from ml.registry import ModelRegistry
-            from ml.adapters.xgboost_adapter import XGBoostAdapter
-            
-            xgb_adapter = XGBoostAdapter()
-            if os.path.exists("yield_model.joblib"):
-                xgb_adapter.load("yield_model.joblib")
-                ModelRegistry.register("xgboost", xgb_adapter)
-            
-            _ml_router = ModelRouter(default_model="xgboost")
-        except Exception as e:
-            print(f"Failed to initialize ML router: {e}")
+        with _model_lock:
+            if _ml_router is None:
+                try:
+                    from ml.router import ModelRouter
+                    from ml.registry import ModelRegistry
+                    from ml.adapters.xgboost_adapter import XGBoostAdapter
+                    
+                    xgb_adapter = XGBoostAdapter()
+                    if os.path.exists("yield_model.joblib"):
+                        xgb_adapter.load("yield_model.joblib")
+                        ModelRegistry.register("xgboost", xgb_adapter)
+                    
+                    _ml_router = ModelRouter(default_model="xgboost")
+                except Exception as e:
+                    print(f"Failed to initialize ML router: {e}")
     return _ml_router
 
 @celery_app.task(bind=True, name="predict_yield_task")
