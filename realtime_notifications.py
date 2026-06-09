@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import hashlib
 import json
 import logging
 import os
@@ -136,7 +137,8 @@ class NotificationBroadcastHub:
         authenticate: Optional[callable] = None,
     ) -> None:
         self._history: Deque[Dict[str, Any]] = collections.deque(maxlen=history_limit)
-        self._connections: dict[WebSocket, _ConnectionSubscription] = {}
+        self._seen_hashes: set[str] = set()
+        self._connections: set[WebSocket] = set()
         self._history_lock = asyncio.Lock()
         # Dedicated lock for websocket connection registry mutations.
         # Prevents concurrent connection updates from racing with
@@ -157,32 +159,24 @@ class NotificationBroadcastHub:
         """Set the token verification callable (injected at runtime)."""
         self._authenticate = func
 
-        # Persistence and delivery tracking
-        self._enable_persistence = enable_persistence
-        self._max_delivery_records = max(1, max_delivery_records)
-        self._delivery_records: collections.OrderedDict[str, NotificationDeliveryRecord] = collections.OrderedDict()
-        self._pending_notifications: Deque[NotificationEvent] = collections.deque()
-        self._dead_letter_queue: Deque[NotificationDeliveryRecord] = collections.deque(maxlen=10000)
-        self._retry_queue: List[tuple[float, NotificationDeliveryRecord]] = []
-        self._persistence_lock = asyncio.Lock()
+    @staticmethod
+    def _dedup_hash(notification: Dict[str, Any]) -> str:
+        """SHA-256 hash of the canonical JSON representation of a notification."""
+        canonical = json.dumps(notification, sort_keys=True, ensure_ascii=False, default=str)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
-        # Deduplication
-        self._dedup_window = dedup_window_seconds
-        self._recent_hashes: Dict[str, float] = {}  # content_hash -> timestamp
+    def _is_duplicate(self, notification: Dict[str, Any]) -> bool:
+        h = self._dedup_hash(notification)
+        if h in self._seen_hashes:
+            return True
+        self._seen_hashes.add(h)
+        return False
 
-        # Priority queues
-        self._critical_queue: Deque[NotificationEvent] = collections.deque()
-        self._warning_queue: Deque[NotificationEvent] = collections.deque()
-        self._info_queue: Deque[NotificationEvent] = collections.deque()
-
-    def seed_notifications(
-        self,
-        notifications: Iterable[Dict[str, Any]],
-    ) -> None:
-        """Seed the local history from existing notifications."""
-
+    def seed_notifications(self, notifications: Iterable[Dict[str, Any]]) -> None:
+        """Seed the local history from existing notifications (deduplicated)."""
         for notification in notifications:
-            self._history.append(notification)
+            if not self._is_duplicate(notification):
+                self._history.append(notification)
 
     async def snapshot(self) -> list[Dict[str, Any]]:
         """Return a copy of the current history."""
@@ -344,15 +338,9 @@ class NotificationBroadcastHub:
         }
 
         async with self._history_lock:
-            self._history.append(payload)
-
-        async with self._connections_lock:
-            clients = [
-                (websocket, subscription)
-                for websocket, subscription in self._connections.items()
-                if notification_visible_to_user(notification, subscription.uid)
-                and notification_matches_regions(notification, subscription.regions)
-            ]
+            if not self._is_duplicate(notification):
+                self._history.append(notification)
+            clients = list(self._connections)
 
         await self._broadcast(payload, clients)
 
@@ -642,15 +630,9 @@ class NotificationBroadcastHub:
                 notification = payload.get("data")
                 if isinstance(notification, dict):
                     async with self._history_lock:
-                        self._history.append(payload)
-
-                    async with self._connections_lock:
-                        clients = [
-                            (websocket, subscription)
-                            for websocket, subscription in self._connections.items()
-                            if notification_visible_to_user(notification, subscription.uid)
-                            and notification_matches_regions(notification, subscription.regions)
-                        ]
+                        if not self._is_duplicate(notification):
+                            self._history.append(notification)
+                        clients = list(self._connections)
                     await self._broadcast(payload, clients)
         except asyncio.CancelledError:
             raise

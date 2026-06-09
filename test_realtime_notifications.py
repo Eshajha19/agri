@@ -121,3 +121,38 @@ def test_message_rate_limit_closes_connection():
 
         with pytest.raises(Exception):
             websocket.receive_json()
+
+
+def test_dedup_hash_is_deterministic():
+    n1 = {"id": 1, "msg": "hello", "time": "2026-01-01"}
+    n2 = {"time": "2026-01-01", "msg": "hello", "id": 1}
+    assert NotificationBroadcastHub._dedup_hash(n1) == NotificationBroadcastHub._dedup_hash(n2)
+
+
+def test_dedup_hash_differs_for_different_content():
+    n1 = {"id": 1, "msg": "hello"}
+    n2 = {"id": 2, "msg": "world"}
+    assert NotificationBroadcastHub._dedup_hash(n1) != NotificationBroadcastHub._dedup_hash(n2)
+
+
+def test_publish_deduplicates_identical_notifications():
+    app, hub = create_test_app()
+
+    notif = {"id": 42, "type": "weather", "message": "Rain"}
+
+    import asyncio
+    asyncio.run(hub.publish(notif))
+    asyncio.run(hub.publish(notif))
+
+    snap = hub.snapshot()
+    assert len(snap) == 1
+    assert snap[0]["id"] == 42
+
+
+def test_seed_notifications_deduplicates():
+    app, hub = create_test_app()
+
+    notif = {"id": 99, "msg": "dup"}
+    hub.seed_notifications([notif, notif, notif])
+
+    assert len(hub.snapshot()) == 1
