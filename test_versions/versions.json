@@ -1,0 +1,277 @@
+{
+  "versions": {
+    "xgboost_v1": {
+      "version_id": "xgboost_v1",
+      "model_name": "xgboost",
+      "model_path": "/prod.joblib",
+      "created_at": "2026-05-20T17:27:20.529825",
+      "promoted_at": "2026-05-20T17:27:20.530779",
+      "is_production": false,
+      "performance_metrics": {
+        "rmse": 0.2
+      },
+      "metadata": {}
+    },
+    "xgboost_v2": {
+      "version_id": "xgboost_v2",
+      "model_name": "xgboost",
+      "model_path": "/cand.joblib",
+      "created_at": "2026-05-20T17:27:20.530286",
+      "promoted_at": null,
+      "is_production": false,
+      "performance_metrics": {
+        "rmse": 0.15
+      },
+      "metadata": {}
+    },
+    "xgboost_v3": {
+      "version_id": "xgboost_v3",
+      "model_name": "xgboost",
+      "model_path": "/prod.joblib",
+      "created_at": "2026-05-20T17:27:34.923433",
+      "promoted_at": "2026-05-20T17:27:34.925954",
+      "is_production": false,
+      "performance_metrics": {
+        "rmse": 0.2
+      },
+      "metadata": {}
+    },
+    "xgboost_v4": {
+      "version_id": "xgboost_v4",
+      "model_name": "xgboost",
+      "model_path": "/cand.joblib",
+      "created_at": "2026-05-20T17:27:34.923955",
+      "promoted_at": "2026-05-20T17:27:34.926865",
+      "is_production": false,
+      "performance_metrics": {
+        "rmse": 0.15
+      },
+      "metadata": {}
+    },
+    "xgboost_v5": {
+      "version_id": "xgboost_v5",
+      "model_name": "xgboost",
+      "model_path": "/prod.joblib",
+      "created_at": "2026-05-20T17:32:37.756787",
+      "promoted_at": "2026-05-20T17:32:37.761534",
+      "is_production": false,
+      "performance_metrics": {
+        "rmse": 0.2
+      },
+      "metadata": {}
+    },
+    "xgboost_v6": {
+      "version_id": "xgboost_v6",
+      "model_name": "xgboost",
+      "model_path": "/cand.joblib",
+      "created_at": "2026-05-20T17:32:37.759522",
+      "promoted_at": "2026-05-20T17:32:37.761534",
+      "is_production": false,
+      "performance_metrics": {
+        "rmse": 0.15
+      },
+      "metadata": {}
+    },
+    "xgboost_v7": {
+      "version_id": "xgboost_v7",
+      "model_name": "xgboost",
+      "model_path": "/prod.joblib",
+      "created_at": "2026-05-20T17:37:21.285457",
+      "promoted_at": "2026-05-20T17:37:21.291993",
+      "is_production": false,
+      "performance_metrics": {
+        "rmse": 0.2
+      },
+      "metadata": {}
+    },
+    "xgboost_v8": {
+      "version_id": "xgboost_v8",
+      "model_name": "xgboost",
+      "model_path": "/cand.joblib",
+      "created_at": "2026-05-20T17:37:21.285457",
+      "promoted_at": "2026-05-20T17:37:21.294558",
+      "is_production": false,
+      "performance_metrics": {
+        "rmse": 0.15
+      },
+      "metadata": {}
+    },
+    "xgboost_v9": {
+      "version_id": "xgboost_v9",
+      "model_name": "xgboost",
+      "model_path": "/prod.joblib",
+      "created_at": "2026-05-30T22:36:10.859457",
+      "promoted_at": "2026-05-30T22:36:10.863715",
+      "is_production": true,
+      "performance_metrics": {
+        "rmse": 0.2
+      },
+      "metadata": {}
+    },
+    "xgboost_v10": {
+      "version_id": "xgboost_v10",
+      "model_name": "xgboost",
+      "model_path": "/cand.joblib",
+      "created_at": "2026-05-30T22:36:10.861462",
+      "promoted_at": null,
+      "is_production": false,
+      "performance_metrics": {
+        "rmse": 0.15
+      },
+      "metadata": {}
+    }
+  },
+  "production_version": "xgboost_v9",
+  "version_history": [
+    {
+      "timestamp": "2026-05-20T17:27:20.529834",
+      "action": "register",
+      "version_id": "xgboost_v1",
+      "details": "Registered xgboost with RMSE=0.2"
+    },
+    {
+      "timestamp": "2026-05-20T17:27:20.530295",
+      "action": "register",
+      "version_id": "xgboost_v2",
+      "details": "Registered xgboost with RMSE=0.15"
+    },
+    {
+      "timestamp": "2026-05-20T17:27:20.530784",
+      "action": "promote",
+      "version_id": "xgboost_v1",
+      "details": "Promoted xgboost_v1 to production (RMSE=0.2)"
+    },
+    {
+      "timestamp": "2026-05-20T17:27:34.923440",
+      "action": "register",
+      "version_id": "xgboost_v3",
+      "details": "Registered xgboost with RMSE=0.2"
+    },
+    {
+      "timestamp": "2026-05-20T17:27:34.924018",
+      "action": "register",
+      "version_id": "xgboost_v4",
+      "details": "Registered xgboost with RMSE=0.15"
+    },
+    {
+      "timestamp": "2026-05-20T17:27:34.925943",
+      "action": "demote",
+      "version_id": "xgboost_v1",
+      "details": "Demoted xgboost_v1 (was in production for X days)"
+    },
+    {
+      "timestamp": "2026-05-20T17:27:34.925955",
+      "action": "promote",
+      "version_id": "xgboost_v3",
+      "details": "Promoted xgboost_v3 to production (RMSE=0.2)"
+    },
+    {
+      "timestamp": "2026-05-20T17:27:34.926862",
+      "action": "demote",
+      "version_id": "xgboost_v3",
+      "details": "Demoted xgboost_v3 (was in production for X days)"
+    },
+    {
+      "timestamp": "2026-05-20T17:27:34.926866",
+      "action": "promote",
+      "version_id": "xgboost_v4",
+      "details": "Promoted xgboost_v4 to production (RMSE=0.15)"
+    },
+    {
+      "timestamp": "2026-05-20T17:32:37.756787",
+      "action": "register",
+      "version_id": "xgboost_v5",
+      "details": "Registered xgboost with RMSE=0.2"
+    },
+    {
+      "timestamp": "2026-05-20T17:32:37.759522",
+      "action": "register",
+      "version_id": "xgboost_v6",
+      "details": "Registered xgboost with RMSE=0.15"
+    },
+    {
+      "timestamp": "2026-05-20T17:32:37.761534",
+      "action": "demote",
+      "version_id": "xgboost_v4",
+      "details": "Demoted xgboost_v4 (was in production for X days)"
+    },
+    {
+      "timestamp": "2026-05-20T17:32:37.761534",
+      "action": "promote",
+      "version_id": "xgboost_v5",
+      "details": "Promoted xgboost_v5 to production (RMSE=0.2)"
+    },
+    {
+      "timestamp": "2026-05-20T17:32:37.761534",
+      "action": "demote",
+      "version_id": "xgboost_v5",
+      "details": "Demoted xgboost_v5 (was in production for X days)"
+    },
+    {
+      "timestamp": "2026-05-20T17:32:37.761534",
+      "action": "promote",
+      "version_id": "xgboost_v6",
+      "details": "Promoted xgboost_v6 to production (RMSE=0.15)"
+    },
+    {
+      "timestamp": "2026-05-20T17:37:21.285457",
+      "action": "register",
+      "version_id": "xgboost_v7",
+      "details": "Registered xgboost with RMSE=0.2"
+    },
+    {
+      "timestamp": "2026-05-20T17:37:21.285457",
+      "action": "register",
+      "version_id": "xgboost_v8",
+      "details": "Registered xgboost with RMSE=0.15"
+    },
+    {
+      "timestamp": "2026-05-20T17:37:21.291993",
+      "action": "demote",
+      "version_id": "xgboost_v6",
+      "details": "Demoted xgboost_v6 (was in production for X days)"
+    },
+    {
+      "timestamp": "2026-05-20T17:37:21.291993",
+      "action": "promote",
+      "version_id": "xgboost_v7",
+      "details": "Promoted xgboost_v7 to production (RMSE=0.2)"
+    },
+    {
+      "timestamp": "2026-05-20T17:37:21.294558",
+      "action": "demote",
+      "version_id": "xgboost_v7",
+      "details": "Demoted xgboost_v7 (was in production for X days)"
+    },
+    {
+      "timestamp": "2026-05-20T17:37:21.294558",
+      "action": "promote",
+      "version_id": "xgboost_v8",
+      "details": "Promoted xgboost_v8 to production (RMSE=0.15)"
+    },
+    {
+      "timestamp": "2026-05-30T22:36:10.859457",
+      "action": "register",
+      "version_id": "xgboost_v9",
+      "details": "Registered xgboost with RMSE=0.2"
+    },
+    {
+      "timestamp": "2026-05-30T22:36:10.861462",
+      "action": "register",
+      "version_id": "xgboost_v10",
+      "details": "Registered xgboost with RMSE=0.15"
+    },
+    {
+      "timestamp": "2026-05-30T22:36:10.863715",
+      "action": "demote",
+      "version_id": "xgboost_v8",
+      "details": "Demoted xgboost_v8 (was in production for X days)"
+    },
+    {
+      "timestamp": "2026-05-30T22:36:10.863715",
+      "action": "promote",
+      "version_id": "xgboost_v9",
+      "details": "Promoted xgboost_v9 to production (RMSE=0.2)"
+    }
+  ]
+}
