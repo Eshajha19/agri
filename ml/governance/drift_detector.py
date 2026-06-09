@@ -3,9 +3,9 @@ Drift Detection Module
 Monitors model prediction drift and data distribution changes.
 """
 import logging
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, Tuple, List
 from dataclasses import dataclass, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 import numpy as np
 from collections import deque
 
@@ -60,7 +60,41 @@ class DriftDetector:
         self.input_history: Dict[str, deque] = {}       # model_name -> deque of input stats
         self.baseline_stats: Dict[str, Dict[str, Any]] = {}  # model_name -> baseline
         self.alerts: List[DriftAlert] = []
-    
+
+        # Registered callbacks fired when drift is detected.
+        # Each callable receives a single dict (DriftAlert.to_dict()) so that
+        # callers can trigger rollback, send notifications, or log externally
+        # without coupling this module to any infrastructure code.
+        self._drift_callbacks: List = []
+
+    def on_drift_detected(self, callback) -> None:
+        """Register a callback to be invoked whenever drift breaches a threshold.
+
+        The callback is called with a single argument: a dict representation of
+        the DriftAlert that triggered it (see DriftAlert.to_dict()).
+
+        Example::
+
+            def my_handler(alert: dict):
+                logger.critical("Drift detected: %s", alert)
+
+            detector.on_drift_detected(my_handler)
+        """
+        self._drift_callbacks.append(callback)
+
+    def _fire_drift_callbacks(self, alert: DriftAlert) -> None:
+        """Invoke all registered drift callbacks with the alert dict.
+
+        Exceptions raised by individual callbacks are logged and suppressed so
+        that a broken callback never silences the detection result.
+        """
+        alert_dict = alert.to_dict()
+        for cb in self._drift_callbacks:
+            try:
+                cb(alert_dict)
+            except Exception as exc:  # pragma: no cover
+                logger.error("Drift callback %r raised an error: %s", cb, exc, exc_info=True)
+
     def set_baseline(self, model_name: str, baseline_predictions: List[float]):
         """
         Set baseline statistics for a model (from training set)
@@ -125,7 +159,7 @@ class DriftDetector:
         
         if drift_magnitude > self.prediction_drift_threshold:
             alert = DriftAlert(
-                timestamp=datetime.now().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 model_name=model_name,
                 drift_type='prediction',
                 severity=self._calculate_severity(drift_magnitude),
@@ -134,6 +168,7 @@ class DriftDetector:
                 details=f"Recent mean {recent_mean:.2f} vs baseline {baseline['mean']:.2f}"
             )
             self.alerts.append(alert)
+            self._fire_drift_callbacks(alert)
             logger.warning(f"Prediction drift detected for {model_name}: {drift_magnitude:.2%}")
             return True, alert
         
@@ -186,7 +221,7 @@ class DriftDetector:
         
         if drift_magnitude > self.input_drift_threshold:
             alert = DriftAlert(
-                timestamp=datetime.now().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 model_name=model_name,
                 drift_type='input',
                 severity=self._calculate_severity(drift_magnitude),
@@ -195,6 +230,7 @@ class DriftDetector:
                 details=f"Input mean {recent_input_mean:.2f} vs baseline {baseline['mean']:.2f}"
             )
             self.alerts.append(alert)
+            self._fire_drift_callbacks(alert)
             logger.warning(f"Input drift detected for {model_name}: {drift_magnitude:.2%}")
             return True, alert
         
