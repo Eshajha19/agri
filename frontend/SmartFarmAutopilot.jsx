@@ -5,10 +5,15 @@ import {
   CheckCircle2, ChevronDown, ChevronUp, RefreshCw,
   TrendingUp, CloudRain, Leaf, ArrowRight, Info
 } from "lucide-react";
-import axios from "axios";
 import "./SmartFarmAutopilot.css";
+import apiClient from "./services/api";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+// apiClient (from services/api.js) automatically injects the Firebase auth
+// token via its Axios request interceptor. Raw axios has no interceptor and
+// would send requests without an Authorization header, causing 401 rejections
+// from the authenticated /api/autopilot/generate-plan endpoint.
+// API_BASE is no longer needed — apiClient uses relative paths so it works
+// correctly in both local development (via Vite proxy) and production.
 
 const STATES = [
   "Andhra Pradesh","Bihar","Gujarat","Haryana","Karnataka",
@@ -62,30 +67,96 @@ export default function SmartFarmAutopilot() {
   const [loading, setLoading] = useState(false);
   const [error, setError]   = useState("");
   const [activeTab, setActiveTab] = useState("sowing");
+  const mountedRef = React.useRef(true);
+  const requestIdRef = React.useRef(0);
+  const submitControllerRef = React.useRef(null);
 
-  const handleChange = e => {
+  React.useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      submitControllerRef.current?.abort();
+    };
+  }, []);
+
+  const handleChange = (e) => {
     const { name, value } = e.target;
-    setForm(prev => ({ ...prev, [name]: value }));
+
+    requestIdRef.current++;
+
+    submitControllerRef.current?.abort();
+
+    setForm((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
   };
 
-  const handleSubmit = async e => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+
+    const requestId = ++requestIdRef.current;
+
+    submitControllerRef.current?.abort();
+
+    const controller = new AbortController();
+    submitControllerRef.current = controller;
+
     setError("");
     setLoading(true);
     setPlan(null);
+
     try {
       const payload = {
         ...form,
         area_acres: parseFloat(form.area_acres),
-        budget_inr: form.budget_inr ? parseFloat(form.budget_inr) : null,
+        budget_inr: form.budget_inr
+          ? parseFloat(form.budget_inr)
+          : null,
       };
-      const { data } = await axios.post(`${API_BASE}/api/autopilot/generate-plan`, payload);
+
+      const { data } = await apiClient.post(
+        "/api/autopilot/generate-plan",
+        payload,
+        {
+          signal: controller.signal,
+        }
+      );
+
+      if (
+        !mountedRef.current ||
+        requestId !== requestIdRef.current
+      ) {
+        return;
+      }
+
       setPlan(data.plan);
       setActiveTab("sowing");
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to generate plan. Please try again.");
+      if (
+        err.name === "AbortError" ||
+        err.code === "ERR_CANCELED"
+      ) {
+        return;
+      }
+
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        setError(
+          err.response?.data?.detail ||
+          "Failed to generate plan. Please try again."
+        );
+      }
     } finally {
-      setLoading(false);
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        setLoading(false);
+      }
     }
   };
 
@@ -151,7 +222,16 @@ export default function SmartFarmAutopilot() {
                   {SEASONS.map(s => (
                     <button key={s.id} type="button"
                       className={`sfa-season-btn ${form.season === s.id ? "active" : ""}`}
-                      onClick={() => setForm(p => ({ ...p, season: s.id }))}>
+                      onClick={() => {
+                        requestIdRef.current++;
+
+                        submitControllerRef.current?.abort();
+
+                        setForm((p) => ({
+                          ...p,
+                          season: s.id,
+                        }));
+                      }}>
                       {s.icon} {s.id}
                     </button>
                   ))}
