@@ -708,12 +708,12 @@ def sanitise_log_field(value: str) -> str:
 
 @app.get("/")
 @limiter.limit("60/minute")
-def root(request: Request):
+def root(request: Request = None):
     return {"message": "Fasal Saathi API", "status": "running"}
 
 @app.get("/predict")
 @limiter.limit("30/minute")
-def predict_get(request: Request):
+def predict_get(request: Request = None):
     return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
 
 @app.post("/predict", response_model=PredictResponse)
@@ -735,12 +735,25 @@ async def predict_yield(data: PredictRequest, request: Request):
             "crop": data.Crop,
         }
 
-        # Offload heavy model inference to Celery worker — return task_id immediately
-        # so clients poll instead of blocking a thread pool worker.
+        # Offload heavy model inference to Celery worker to prevent blocking ASGI event loop
         from celery_worker import predict_yield_task
         task = predict_yield_task.delay(input_data, context)
-        return {"task_id": task.id}
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, task.get)
 
+        if "error" in result:
+            err_type = result.get("type")
+            if err_type == "UnknownCategoryError":
+                raise HTTPException(status_code=422, detail={"error": "unknown_category", "message": result["error"]})
+            elif err_type == "MissingFeatureError":
+                raise HTTPException(status_code=422, detail={"error": "missing_features", "message": result["error"]})
+            else:
+                raise HTTPException(status_code=400, detail=result["error"])
+
+        return result
+
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Prediction Error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -941,19 +954,24 @@ async def get_rbac_audit(request: Request, limit: int = Query(default=50, ge=1, 
     await verify_role(request, required_roles=["admin", "expert"])
     return {"success": True, "data": rbac_audit_trail.snapshot(limit=limit)}
 
+# Max inbound Twilio webhook body size (10 KB — WhatsApp messages are short)
+# Max inbound Twilio webhook body size (10 KB — WhatsApp messages are short)
+MAX_WEBHOOK_BODY_SIZE = 10 * 1024
+
 @app.post("/api/whatsapp/webhook")
 @limiter.limit("20/minute")
 async def whatsapp_webhook(request: Request, Body: str = Form(...), From: str = Form(...)):
     """
     Handle incoming WhatsApp messages from Twilio.
     
-    Processing is offloaded to a background Celery task to immediately
-    acknowledge the webhook (preventing Twilio timeout/penalties under burst traffic)
-    and process the message asynchronously.
+    Early body-size enforcement prevents memory exhaustion from oversized
+    payloads. Processing is offloaded to a background Celery task.
     """
+    if len(Body) > MAX_WEBHOOK_BODY_SIZE:
+        raise HTTPException(status_code=413, detail="Request body too large")
+
     sender_number = From.replace("whatsapp:", "")
     
-    # Offload message processing to reliable background task queue
     from celery_worker import process_whatsapp_webhook_task
     process_whatsapp_webhook_task.delay(Body, sender_number)
     
@@ -1830,7 +1848,10 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
 
 @app.websocket("/api/notifications/stream")
 async def notifications_stream(websocket: WebSocket):
-    await notification_broker.connect(websocket)
+    uid = await _authenticate_notification_websocket(websocket)
+    if uid is None:
+        return
+    await notification_broker.connect(websocket, uid, regions=_resolve_websocket_regions(uid, websocket))
 
 
 @app.get("/api/admin/rbac-audit")
@@ -1840,23 +1861,52 @@ async def get_rbac_audit(request: Request, limit: int = Query(default=50, ge=1, 
     await verify_role(request, required_roles=["admin", "expert"])
     return {"success": True, "data": rbac_audit_trail.snapshot(limit=limit)}
 
+@app.get("/api/csrf-token")
+@limiter.limit("30/minute")
+async def get_csrf_token(request: Request):
+    """Return a signed CSRF token tied to the authenticated user."""
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+    token = generate_token(uid)
+    return {"csrf_token": token}
+
+
+@app.post("/api/privacy/deletion-requests")
+@limiter.limit("5/minute")
+async def request_gdpr_deletion(
+    request: Request,
+    body: GDPRDeletionRequestBody,
+):
+    """Create a retention-aware deletion request for the authenticated user."""
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+    deletion_request = gdpr_deletion_manager.create_request(
+        uid,
+        requested_by=uid,
+        reason=body.reason,
+        retention_days=body.retention_days,
+    )
+    deletion_request["target_names"] = [target.name for target in _build_gdpr_deletion_targets(uid)]
+    return {"success": True, "data": deletion_request}
+
+
+@app.post("/api/admin/privacy/deletion-requests/process-due")
+@limiter.limit("5/minute")
+async def process_due_gdpr_deletions(request: Request):
+    """Execute any deletion requests whose retention window has elapsed."""
+    await verify_role(request, required_roles=["admin", "expert"])
+    targets = _build_gdpr_deletion_targets("system")
+    processed = gdpr_deletion_manager.process_due_requests(targets)
+    return {"success": True, "processed": processed, "count": len(processed)}
+
+
 @app.post("/api/whatsapp/webhook")
 @limiter.limit("20/minute")
-async def whatsapp_webhook(request: Request, Body: str = Form(...), From: str = Form(...)):
-    """
-    Handle incoming WhatsApp messages from Twilio.
-    
-    Processing is offloaded to a background Celery task to immediately
-    acknowledge the webhook (preventing Twilio timeout/penalties under burst traffic)
-    and process the message asynchronously.
-    """
-    sender_number = From.replace("whatsapp:", "")
-    
-    # Offload message processing to reliable background task queue
-    from celery_worker import process_whatsapp_webhook_task
-    process_whatsapp_webhook_task.delay(Body, sender_number)
-    
-    return {"status": "success"}
+async def whatsapp_webhook(request: Request):
+    """Handle inbound Twilio WhatsApp webhooks (signature-verified)."""
+    from twilio_webhook_security import handle_inbound_whatsapp_webhook
+
+    return await handle_inbound_whatsapp_webhook(request)
 
 # --- Cryptographic Reports ---
 #
@@ -1888,8 +1938,9 @@ except Exception as e:
     _kms_init_error = str(e)
 
 ALLOW_INSECURE_FALLBACK = os.getenv("ALLOW_INSECURE_KEY_FALLBACK", "false").lower() == "true"
+REPORT_SIGNING_PRIVATE_KEY_PEM = os.getenv("REPORT_SIGNING_PRIVATE_KEY_PEM", "").strip()
 
-if os.getenv("GOOGLE_CLOUD_PROJECT") and not HAS_GCP_KMS:
+if os.getenv("GOOGLE_CLOUD_PROJECT") and not HAS_GCP_KMS and not REPORT_SIGNING_PRIVATE_KEY_PEM:
     logger.error(
         f"KMS initialization failed: GOOGLE_CLOUD_PROJECT is set but GCP Secret Manager is unavailable. "
         f"Error: {_kms_init_error}. Set ALLOW_INSECURE_KEY_FALLBACK=true to permit local key fallback (NOT RECOMMENDED)."
@@ -1991,33 +2042,6 @@ def init_ml_pipeline() -> None:
     except Exception as exc:
         logger.warning("ML Pipeline initialization failed: %s", exc)
 
-    # Register sklearn yield-lag model in the registry so every consumer
-    # uses a single lookup path instead of direct joblib.load() calls.
-    try:
-        import joblib as _joblib
-        sklearn_path = "sklearn_yield_model.joblib"
-        if os.path.exists(sklearn_path):
-            model_lag = _joblib.load(sklearn_path)
-            ModelRegistry.register("sklearn_lag", model_lag)
-            logger.info("ML Pipeline: Registered sklearn yield-lag model")
-        else:
-            logger.warning("ML Pipeline: %s not found", sklearn_path)
-    except Exception as exc:
-        logger.warning("ML Pipeline: sklearn yield-lag model init failed: %s", exc)
-
-    # Register trend forecast model.
-    try:
-        trend_path = "trend_forecast_model.joblib"
-        if os.path.exists(trend_path):
-            import joblib as _joblib2
-            model_trend = _joblib2.load(trend_path)
-            ModelRegistry.register("trend_forecast", model_trend)
-            logger.info("ML Pipeline: Registered trend forecast model")
-        else:
-            logger.warning("ML Pipeline: %s not found", trend_path)
-    except Exception as exc:
-        logger.warning("ML Pipeline: trend forecast model init failed: %s", exc)
-
 
 # Observability setup
 try:
@@ -2045,9 +2069,38 @@ except Exception as exc:
 try:
     from prometheus_fastapi_instrumentator import Instrumentator
 
-    Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+    Instrumentator().instrument(app)
+
+    @app.get("/metrics")
+    async def metrics(request: Request):
+        if verify_role is None:
+            raise HTTPException(status_code=500, detail="Auth service not initialized")
+        # Only admins may view operational telemetry.
+        await verify_role(request, required_roles=["admin"])
+        from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
+
+
+@app.get("/health/autoscale")
+@limiter.limit("60/minute")
+async def health_autoscale(request: Request):
+    """Return current autoscale metrics: workers, queue depth, predicted demand."""
+    from celery_autoscaler import get_autoscaler
+    autoscaler = get_autoscaler()
+    return autoscaler.get_status()
+
+
+@app.get("/health/sync")
+@limiter.limit("60/minute")
+async def health_sync(request: Request):
+    """Return offline sync queue status: pending count, failed count, oldest item."""
+    from persistence.offline_sync import get_sync_stats
+    return {
+        "success": True,
+        "sync": get_sync_stats(),
+    }
 
 # Middleware and rate-limits — the limiter was already configured above;
 # only the exception handler alias from slowapi's public API is wired here.
@@ -2071,7 +2124,7 @@ _CORS_ORIGINS: list[str] = [
     "http://localhost:5173",
     "http://127.0.0.1:3000",
     "https://fasal-saathi.vercel.app",
-    "https://fasal-saathi.xyz/"
+    "https://fasal-saathi.xyz"
 ]
 
 _frontend_url = os.getenv("FRONTEND_URL", "").strip()
@@ -2251,7 +2304,7 @@ app.include_router(referrals.router, prefix="/api/referrals", tags=["Referrals"]
 app.include_router(platform.router, prefix="/api", tags=["Platform"])
 app.include_router(advisory.router, prefix="/api", tags=["Advisory"])
 app.include_router(alerts.router, prefix="/api/notifications", tags=["Alerts"])
-app.include_router(flags_router, prefix="/api/flags", tags=["Feature Flags"])
+app.include_router(flags_router, tags=["Feature Flags"])
 app.include_router(lms.router, prefix="/api", tags=["LMS"])
 
 
@@ -2299,7 +2352,29 @@ try:
 except Exception as e:
     logger.warning(f"Could not load ML Model Management API: {e}")
 
+# Include Retraining Pipeline Router
+try:
+    from routers.retraining_pipeline import router as retraining_router
+    app.include_router(retraining_router)
+    logger.info("Retraining Pipeline API loaded successfully")
+except Exception as e:
+    logger.warning(f"Could not load Retraining Pipeline API: {e}")
+# Include Feature Drift Detection Router
+try:
+    from routers.feature_drift import router as feature_drift_router, init_auth as init_drift_auth
+    init_drift_auth(verify_role)
+    app.include_router(feature_drift_router)
+    logger.info("Feature Drift Detection API loaded successfully")
+except Exception as e:
+    logger.warning(f"Could not load Feature Drift Detection API: {e}")
+# Include Crop Recommendation Router
+try:
+    from routers.crop_recommendation import router as crop_router
+    app.include_router(crop_router)
+    logger.info("Crop Recommendation API loaded successfully")
+except Exception as e:
+    logger.warning(f"Could not load Crop Recommendation API: {e}")
+
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
