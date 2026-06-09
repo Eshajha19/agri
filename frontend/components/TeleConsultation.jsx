@@ -1,44 +1,65 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { JitsiMeeting } from "@jitsi/react-sdk";
 import "./ExpertDirectory.css";
-import { db } from "../lib/firebase";
+import { db, auth } from "../lib/firebase";
 import { collection, getDocs, updateDoc, doc, query, where } from "firebase/firestore";
 import { toast } from "react-toastify";
 import {
-  X,
   Video,
-  Phone,
-  Mic,
-  MicOff,
-  Camera,
-  CameraOff,
   PhoneOff,
   MessageSquare,
   Clock,
-  User,
-  CheckCircle,
+  ShieldCheck,
+  Users,
+  LoaderCircle,
 } from "lucide-react";
 
+const JITSI_DOMAIN = "meet.jit.si";
+
+const slugifyRoomName = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+
+const buildRoomName = (consultation) => {
+  const baseSeed = consultation?.roomName || consultation?.meetingRoom || consultation?.id || consultation?.expertName || "live-expert-consultation";
+  const randomSuffix = typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID().slice(0, 8)
+    : Math.random().toString(36).slice(2, 10);
+
+  return slugifyRoomName(`fasal-saathi-${baseSeed}-${randomSuffix}`) || `fasal-saathi-live-${Date.now()}`;
+};
+
 function TeleConsultation({ userData, consultation, onEnd }) {
-  const [isVideoEnabled, setIsVideoEnabled] = useState(true);
-  const [isMicEnabled, setIsMicEnabled] = useState(true);
   const [callDuration, setCallDuration] = useState(0);
-  const [callStatus, setCallStatus] = useState("connecting");
-  const [showNotes, setShowNotes] = useState(false);
+  const [isMeetingReady, setIsMeetingReady] = useState(false);
+  const [meetingError, setMeetingError] = useState("");
   const [notes, setNotes] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
+  const [isSavingEndState, setIsSavingEndState] = useState(false);
+
+  const roomName = useMemo(() => buildRoomName(consultation), [consultation?.roomName, consultation?.meetingRoom, consultation?.id, consultation?.expertName]);
+  const expertName = consultation?.expertName || "Live Expert Consultation";
+  const sessionLabel = consultation?.expertSpecialization || "Crop guidance, soil analysis, fertilizer recommendations, and disease diagnosis";
+  const farmerName = userData?.displayName || userData?.name || userData?.fullName || "Farmer";
 
   useEffect(() => {
     const timer = setInterval(() => {
       setCallDuration((prev) => prev + 1);
     }, 1000);
 
-    setTimeout(() => {
-      setCallStatus("connected");
-      toast.success("Connected to expert");
-    }, 2000);
-
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    setCallDuration(0);
+    setIsMeetingReady(false);
+    setMeetingError("");
+    setShowNotes(false);
+    setNotes("");
+  }, [roomName]);
 
   const formatDuration = (seconds) => {
     const mins = Math.floor(seconds / 60);
@@ -46,21 +67,53 @@ function TeleConsultation({ userData, consultation, onEnd }) {
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
+  const handleMeetingReady = () => {
+    setIsMeetingReady(true);
+    toast.success("Connected to expert");
+  };
+
   const handleEndCall = async () => {
-    setIsLoading(true);
+    setIsSavingEndState(true);
     try {
       const consultationsRef = collection(db, "consultations");
-      const q = query(consultationsRef, where("expertId", "==", consultation.expertId));
-      const snapshot = await getDocs(q);
 
-      if (!snapshot.empty) {
-        const docRef = snapshot.docs[0].ref;
+      // If the consultation object already carries its Firestore document ID,
+      // do a direct point-lookup — no query needed, no risk of touching another
+      // user's record.
+      if (consultation.id) {
+        const docRef = doc(db, "consultations", consultation.id);
         await updateDoc(docRef, {
           status: "completed",
           duration: callDuration,
           endTime: new Date().toISOString(),
           notes: notes,
         });
+      } else {
+        // Fallback: scope the query to BOTH the expert AND the current user so
+        // we never accidentally update another farmer's consultation record.
+        // Previously the query only filtered on expertId, meaning snapshot.docs[0]
+        // could be any farmer's record for that expert.
+        const currentUid = auth?.currentUser?.uid || userData?.uid;
+        const constraints = [
+          where("expertId", "==", consultation.expertId),
+          where("status", "==", "scheduled"),
+        ];
+        if (currentUid) {
+          constraints.push(where("userId", "==", currentUid));
+        }
+        const q = query(consultationsRef, ...constraints);
+        const snapshot = await getDocs(q);
+
+        if (!snapshot.empty) {
+          // Update only the first matching record that belongs to this user
+          const docRef = snapshot.docs[0].ref;
+          await updateDoc(docRef, {
+            status: "completed",
+            duration: callDuration,
+            endTime: new Date().toISOString(),
+            notes: notes,
+          });
+        }
       }
 
       toast.success("Consultation completed!");
@@ -69,130 +122,119 @@ function TeleConsultation({ userData, consultation, onEnd }) {
       console.error("Error ending call:", error);
       toast.error("Failed to end consultation");
     } finally {
-      setIsLoading(false);
+      setIsSavingEndState(false);
     }
   };
 
-  const toggleVideo = () => setIsVideoEnabled(!isVideoEnabled);
-  const toggleMic = () => setIsMicEnabled(!isMicEnabled);
-
   return (
-    <div className="tele-consultation-container">
+    <div className="tele-consultation-container tele-consultation-shell">
         <div className="call-header">
           <div className="expert-info">
             <img src={consultation.avatar || "https://randomuser.me/api/portraits/men/32.jpg"} alt="Expert" className="expert-video-avatar" />
             <div>
-              <h3>{consultation.expertName}</h3>
-              <p>{callStatus === "connecting" ? "Connecting..." : callStatus === "connected" ? "Connected" : "Call Ended"}</p>
+              <h3>{expertName}</h3>
+              <p>{isMeetingReady ? "Connected" : "Connecting..."}</p>
             </div>
           </div>
           <div className="call-timer">
             <Clock size={16} />
             <span>{formatDuration(callDuration)}</span>
           </div>
-          <button className="close-call-btn" onClick={handleEndCall} disabled={isLoading}>
-            <X size={20} />
+          <button className="close-call-btn" onClick={handleEndCall} disabled={isSavingEndState}>
+            <PhoneOff size={18} />
+            <span>Leave</span>
           </button>
         </div>
 
-        <div className="video-area">
-          <div className="video-placeholder">
-            {isVideoEnabled ? (
-              <div className="video-enabled">
-                <User size={64} />
-                <p>Camera would show here</p>
-                <p className="demo-note">(Demo Mode - Video integration available)</p>
-              </div>
-            ) : (
-              <div className="video-disabled">
-                <CameraOff size={64} />
-                <p>Camera is off</p>
-              </div>
-            )}
-          </div>
-
-          <div className="self-view">
-            {isVideoEnabled ? (
-              <div className="self-video">
-                <User size={32} />
-              </div>
-            ) : (
-              <div className="self-video-off">
-                <CameraOff size={24} />
-              </div>
-            )}
-          </div>
-
-          {callStatus === "connecting" && (
-            <div className="connecting-overlay">
-              <div className="spinner"></div>
-              <p>Connecting to {consultation.expertName}...</p>
+        <div className="tele-consultation-hero">
+          <div className="tele-consultation-copy">
+            <span className="tele-consultation-badge">Live Expert Consultation</span>
+            <h3>{expertName}</h3>
+            <p>{sessionLabel}</p>
+            <div className="tele-consultation-meta">
+              <span><ShieldCheck size={14} /> Secure Jitsi room</span>
+              <span><MessageSquare size={14} /> Chat enabled</span>
+              <span><Users size={14} /> {farmerName}</span>
             </div>
+          </div>
+          <div className="tele-consultation-illustration" aria-hidden="true">
+            <Video size={48} />
+          </div>
+        </div>
+
+        <div className="tele-consultation-stage">
+          {!isMeetingReady && !meetingError && (
+            <div className="tele-consultation-loading">
+              <div className="spinner"></div>
+              <h4>Starting secure video room...</h4>
+              <p>Connecting you to an agriculture expert.</p>
+            </div>
+          )}
+
+          {meetingError ? (
+            <div className="tele-consultation-error">
+              <LoaderCircle size={40} />
+              <h4>Unable to load the meeting room.</h4>
+              <p>{meetingError}</p>
+              <button className="save-notes-btn" onClick={handleEndCall} disabled={isSavingEndState}>
+                Leave Consultation
+              </button>
+            </div>
+          ) : (
+            <JitsiMeeting
+              domain={JITSI_DOMAIN}
+              roomName={roomName}
+              userInfo={{ displayName: farmerName }}
+              configOverwrite={{
+                prejoinPageEnabled: false,
+                startWithAudioMuted: false,
+                startWithVideoMuted: false,
+                disableDeepLinking: true,
+                toolbarButtons: [
+                  "microphone",
+                  "camera",
+                  "chat",
+                  "tileview",
+                  "raisehand",
+                  "desktop",
+                  "fullscreen",
+                  "hangup",
+                ],
+              }}
+              interfaceConfigOverwrite={{
+                DEFAULT_BACKGROUND: "#0f172a",
+                MOBILE_APP_PROMO: false,
+                SHOW_BRAND_WATERMARK: false,
+                SHOW_JITSI_WATERMARK: false,
+                SHOW_WATERMARK_FOR_GUESTS: false,
+                TOOLBAR_ALWAYS_VISIBLE: true,
+              }}
+              onApiReady={() => handleMeetingReady()}
+              onReadyToClose={handleEndCall}
+              getIFrameRef={(iframeRef) => {
+                if (iframeRef) {
+                  iframeRef.style.width = "100%";
+                  iframeRef.style.height = "100%";
+                  iframeRef.style.border = "0";
+                  iframeRef.title = `${expertName} consultation room`;
+                }
+              }}
+            />
           )}
         </div>
 
-        <div className="call-controls">
-          <button
-            className={`control-btn ${!isMicEnabled ? "disabled" : ""}`}
-            onClick={toggleMic}
-            title={isMicEnabled ? "Mute" : "Unmute"}
-          >
-            {isMicEnabled ? <Mic size={24} /> : <MicOff size={24} />}
-          </button>
-
-          <button
-            className={`control-btn ${!isVideoEnabled ? "disabled" : ""}`}
-            onClick={toggleVideo}
-            title={isVideoEnabled ? "Turn off camera" : "Turn on camera"}
-          >
-            {isVideoEnabled ? <Camera size={24} /> : <CameraOff size={24} />}
-          </button>
-
-          <button
-            className={`control-btn ${showNotes ? "active" : ""}`}
-            onClick={() => setShowNotes(!showNotes)}
-            title="Notes"
-          >
-            <MessageSquare size={24} />
-          </button>
-
-          <button
-            className="control-btn end-call"
-            onClick={handleEndCall}
-            disabled={isLoading}
-            title="End call"
-          >
-            <PhoneOff size={24} />
-          </button>
-        </div>
-
-        {showNotes && (
-          <div className="notes-panel">
-            <h4>Consultation Notes</h4>
-            <textarea
-              placeholder="Add notes about this consultation..."
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={4}
-            />
-            <button onClick={() => setShowNotes(false)} className="save-notes-btn">
-              Save Notes
-            </button>
-          </div>
-        )}
-
-        <div className="call-status-bar">
+        <div className="call-status-bar consultation-footer">
           <div className="status-item">
-            <CheckCircle size={14} />
-            <span>Secure Connection</span>
+            <ShieldCheck size={14} />
+            <span>Secure room</span>
           </div>
           <div className="status-item">
-            <Video size={14} />
-            <span>{isVideoEnabled ? "Video On" : "Video Off"}</span>
+            <MessageSquare size={14} />
+            <span>Chat available</span>
           </div>
           <div className="status-item">
-            <Phone size={14} />
-            <span>{isMicEnabled ? "Mic On" : "Mic Off"}</span>
+            <Clock size={14} />
+            <span>Room: {roomName}</span>
           </div>
         </div>
     </div>

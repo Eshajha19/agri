@@ -6,7 +6,7 @@ Uses Firestore as the backing store for all domain entities.
 import os
 import logging
 from typing import Dict, List, Optional, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from abc import ABC, abstractmethod
 
 try:
@@ -42,12 +42,10 @@ class BaseRepository(ABC):
 
         try:
             if not firebase_admin._apps:
-                # Try to initialize from credentials file
                 if os.path.exists("firebase-credentials.json"):
                     cred = credentials.Certificate("firebase-credentials.json")
                     firebase_admin.initialize_app(cred)
                 else:
-                    # Try environment variable
                     cred_json = os.getenv("FIREBASE_CREDENTIALS_JSON")
                     if cred_json:
                         import json
@@ -98,14 +96,21 @@ class FinanceApplicationRepository(BaseRepository):
         super().__init__("finance_applications")
 
     def create(self, application_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a new finance application."""
+        """Create a new finance application. Raises ValueError if application_id already exists."""
         if self.db is None:
             logger.error("Firestore not available; application not persisted.")
             return application_data
 
         try:
             application_id = application_data.get("application_id")
-            self.db.collection(self.collection_name).document(application_id).set(
+            doc_ref = self.db.collection(self.collection_name).document(application_id)
+            existing = doc_ref.get()
+            if existing.exists:
+                raise ValueError(
+                    f"Finance application '{application_id}' already exists. "
+                    "Use update() to modify an existing application."
+                )
+            doc_ref.set(
                 {
                     **application_data,
                     "created_at": datetime.now().isoformat(),
@@ -114,6 +119,8 @@ class FinanceApplicationRepository(BaseRepository):
             )
             logger.info("Finance application %s persisted to Firestore.", application_id)
             return application_data
+        except ValueError:
+            raise
         except Exception as exc:
             logger.error("Failed to create finance application: %s", exc)
             return application_data
@@ -203,7 +210,7 @@ class NotificationRepository(BaseRepository):
             return False
 
         try:
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
             ttl_expiry = (now + timedelta(hours=self.ttl_hours)).isoformat()
 
             self.db.collection(self.collection_name).document(str(notification_id)).set(
@@ -222,6 +229,7 @@ class NotificationRepository(BaseRepository):
             return False
 
     def get(self, notification_id: str) -> Optional[Dict[str, Any]]:
+        notification_id = str(notification_id)
         """Retrieve a notification by ID."""
         if self.db is None:
             return None
@@ -241,7 +249,7 @@ class NotificationRepository(BaseRepository):
             return []
 
         try:
-            now = datetime.now().isoformat()
+            now = datetime.now(timezone.utc).isoformat()
             query = self.db.collection(self.collection_name).where(
                 "ttl_expiry", ">=", now
             )
@@ -261,7 +269,7 @@ class NotificationRepository(BaseRepository):
             return 0
 
         try:
-            now = datetime.now().isoformat()
+            now = datetime.now(timezone.utc).isoformat()
             query = self.db.collection(self.collection_name).where("ttl_expiry", "<", now)
             docs = query.stream()
             count = 0
@@ -275,6 +283,7 @@ class NotificationRepository(BaseRepository):
             return 0
 
     def update(self, notification_id: str, data: Dict[str, Any]) -> bool:
+        notification_id = str(notification_id)
         """Update a notification (rarely used)."""
         if self.db is None:
             return False
@@ -287,6 +296,7 @@ class NotificationRepository(BaseRepository):
             return False
 
     def delete(self, notification_id: str) -> bool:
+        notification_id = str(notification_id)
         """Delete a notification."""
         if self.db is None:
             return False
@@ -315,7 +325,6 @@ class SupplyChainRepository(BaseRepository):
             node_id = record_data.get("node_id")
             batch_id = record_data.get("batch_id")
 
-            # Store in nested collection: batches/{batch_id}/nodes/{node_id}
             self.db.collection("supply_chain_batches").document(batch_id).collection(
                 "nodes"
             ).document(node_id).set(
@@ -372,7 +381,6 @@ class SupplyChainRepository(BaseRepository):
                 )
                 results = [doc.to_dict() for doc in docs]
             else:
-                # List all batches and their nodes
                 batches = self.db.collection("supply_chain_batches").stream()
                 for batch_doc in batches:
                     nodes = batch_doc.reference.collection("nodes").stream()
@@ -421,4 +429,20 @@ class SupplyChainRepository(BaseRepository):
             return True
         except Exception as exc:
             logger.error("Failed to delete supply chain record: %s", exc)
+            return False
+
+    def save_actor(self, actor_id: str, actor_data: Dict[str, Any]) -> bool:
+        """Persist a verified supply chain actor to Firestore."""
+        if self.db is None:
+            logger.warning("Firestore not available; actor %s not persisted.", actor_id)
+            return False
+
+        try:
+            self.db.collection("supply_chain_actors").document(actor_id).set(
+                {**actor_data, "saved_at": datetime.now().isoformat()}
+            )
+            logger.info("Supply chain actor %s persisted to Firestore.", actor_id)
+            return True
+        except Exception as exc:
+            logger.error("Failed to persist supply chain actor %s: %s", actor_id, exc)
             return False
