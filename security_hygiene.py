@@ -68,10 +68,34 @@ class SecretHygieneProgram:
                 findings.append(Finding(category, match.group(0), location))
         return findings
 
-class RuntimeProtectionMiddleware:
-    """FastAPI/ASGI Middleware to block requests containing cleartext secrets."""
-    def __init__(self, app, program: SecretHygieneProgram = None, exclude_paths: List[str] = None):
-        self.app = app
+# Content-types eligible for body scanning (MIME type only, no parameters)
+SCANNABLE_TYPES = frozenset({
+    "application/json",
+    "application/x-www-form-urlencoded",
+    "application/xml",
+    "text/plain",
+    "text/html",
+    "text/xml",
+})
+# Maximum body size to scan (256 KB)
+MAX_SCAN_BODY_SIZE = 256 * 1024
+
+
+def _parse_mime_type(content_type: str | None) -> str | None:
+    """Extract the MIME type from a Content-Type header value.
+
+    Handles ``application/json; charset=utf-8`` → ``application/json``,
+    missing or empty header → ``None``, and trailing whitespace.
+    """
+    if not content_type or not content_type.strip():
+        return None
+    return content_type.split(";")[0].strip().lower()
+
+
+class RuntimeProtectionMiddleware(BaseHTTPMiddleware):
+    """FastAPI Middleware to block requests containing cleartext secrets."""
+    def __init__(self, app, program: SecretHygieneProgram = None):
+        super().__init__(app)
         self.program = program or SecretHygieneProgram()
         self.exclude_paths = exclude_paths or []
 
@@ -91,6 +115,12 @@ class RuntimeProtectionMiddleware:
 
     async def dispatch(self, request: Request, call_next):
         # Only scan text/json content types with bounded size
+        mime = _parse_mime_type(request.headers.get("content-type"))
+
+        if mime in SCANNABLE_TYPES:
+            try:
+                body_bytes = await request.body()
+                if 0 < len(body_bytes) <= MAX_SCAN_BODY_SIZE:
         content_type = (request.headers.get("content-type") or "").lower().split(";")[0].strip()
         content_length_str = request.headers.get("content-length", "0")
         try:

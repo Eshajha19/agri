@@ -551,7 +551,31 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
 
 
-@router.post("/reports/generate", dependencies=[Depends(verify_csrf_token_dependency)])
+MAX_WEBHOOK_BODY_SIZE = 10 * 1024
+
+@router.post("/whatsapp/webhook")
+async def whatsapp_webhook(request: Request, Body: str = Form(...), From: str = Form(...)):
+    """
+    Handle incoming WhatsApp messages from Twilio.
+    
+    Early body-size enforcement prevents memory exhaustion from oversized
+    payloads. Processing is offloaded to a background Celery task.
+    """
+    if len(Body) > MAX_WEBHOOK_BODY_SIZE:
+        raise HTTPException(status_code=413, detail="Request body too large")
+
+    if send_whatsapp_message_fn is None:
+        raise HTTPException(status_code=500, detail="WhatsApp sender not initialized")
+
+    sender_number = From.replace("whatsapp:", "")
+
+    from celery_worker import process_whatsapp_webhook_task
+    process_whatsapp_webhook_task.delay(Body, sender_number)
+    
+    return {"status": "success"}
+
+
+@router.post("/reports/generate")
 async def generate_signed_report(request: Request, data: ReportRequest):
     if verify_role_fn is None or get_signing_keys_fn is None:
         raise HTTPException(status_code=500, detail="Report dependencies not initialized")
