@@ -11,8 +11,8 @@ from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
-# Maximum body size to scan (100 KB)
-MAX_SCAN_BODY_SIZE = 100 * 1024
+# Maximum body size to scan (256 KB)
+MAX_SCAN_BODY_SIZE = 256 * 1024
 # Content-Types that are eligible for body scanning
 SCANNABLE_CONTENT_TYPES = frozenset({
     "application/json",
