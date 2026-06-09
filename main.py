@@ -214,21 +214,14 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.warning("Voice assistant init skipped: %s", exc)
 
-    try:
-        import joblib as _joblib
-
-        model_lag = _joblib.load("sklearn_yield_model.joblib")
-    except Exception:
-        model_lag = None
-
-    model_trend = None
-    try:
-        if os.path.exists("trend_forecast_model.joblib"):
-            import joblib as _joblib2
-            model_trend = _joblib2.load("trend_forecast_model.joblib")
-            logger.info("Dedicated trend forecast model loaded")
-    except Exception:
-        model_trend = None
+    # All models are now registered in init_ml_pipeline() above.
+    # Look them up from ModelRegistry instead of loading directly.
+    model_lag = ModelRegistry.get_model("sklearn_lag")
+    model_trend = ModelRegistry.get_model("trend_forecast")
+    if model_lag:
+        logger.info("ML: sklearn yield-lag model loaded from registry")
+    if model_trend:
+        logger.info("ML: trend forecast model loaded from registry")
 
     ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend)
 
@@ -607,12 +600,12 @@ def sanitise_log_field(value: str) -> str:
 
 @app.get("/")
 @limiter.limit("60/minute")
-def root(request: Request = None):
+def root(request: Request):
     return {"message": "Fasal Saathi API", "status": "running"}
 
 @app.get("/predict")
 @limiter.limit("30/minute")
-def predict_get(request: Request = None):
+def predict_get(request: Request):
     return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
 
 @app.post("/predict", response_model=PredictResponse)
@@ -634,64 +627,76 @@ async def predict_yield(data: PredictRequest, request: Request):
             "crop": data.Crop,
         }
 
-        # Offload heavy model inference to Celery worker to prevent blocking ASGI event loop
+        # Offload heavy model inference to Celery worker — return task_id immediately
+        # so clients poll instead of blocking a thread pool worker.
         from celery_worker import predict_yield_task
         task = predict_yield_task.delay(input_data, context)
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, task.get)
+        return {"task_id": task.id}
 
-        if "error" in result:
-            err_type = result.get("type")
-            if err_type == "UnknownCategoryError":
-                raise HTTPException(status_code=422, detail={"error": "unknown_category", "message": result["error"]})
-            elif err_type == "MissingFeatureError":
-                raise HTTPException(status_code=422, detail={"error": "missing_features", "message": result["error"]})
-            else:
-                raise HTTPException(status_code=400, detail=result["error"])
-
-        return result
-
-    except HTTPException:
-        raise
     except Exception as e:
         print(f"Prediction Error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+
+async def _await_task_result(task_id: str, timeout: int = 300):
+    """Look up a Celery AsyncResult and block in executor to retrieve it."""
+    from celery.result import AsyncResult
+    from celery_worker import celery_app
+    result = AsyncResult(task_id, app=celery_app)
+    loop = asyncio.get_running_loop()
+    value = await loop.run_in_executor(None, lambda: result.get(timeout=timeout))
+    if "error" in value:
+        err_type = value.get("type")
+        if err_type == "UnknownCategoryError":
+            raise HTTPException(status_code=422, detail={"error": "unknown_category", "message": value["error"]})
+        elif err_type == "MissingFeatureError":
+            raise HTTPException(status_code=422, detail={"error": "missing_features", "message": value["error"]})
+        else:
+            raise HTTPException(status_code=400, detail=value["error"])
+    return value
+
+
+@app.get("/api/task/{task_id}")
+@limiter.limit("60/minute")
+async def get_task_result(task_id: str, request: Request):
+    """Poll endpoint for Celery task results. Returns status and result if ready."""
+    from celery.result import AsyncResult
+    from celery_worker import celery_app
+
+    result = AsyncResult(task_id, app=celery_app)
+
+    if result.failed():
+        try:
+            exc = result.get(propagate=True)
+        except Exception as e:
+            return {"status": "FAILURE", "error": str(e), "task_id": task_id}
+
+    if result.ready():
+        value = result.result
+        if isinstance(value, dict) and "error" in value:
+            return {"status": "FAILURE", "error": value["error"], "task_id": task_id}
+        return {"status": "SUCCESS", "result": value, "task_id": task_id}
+
+    return {"status": "PENDING", "task_id": task_id}
+
 
 @app.post("/predict-yield-lag")
 @limiter.limit("5/minute")
 async def predict_yield_lag(payload: YieldInput, request: Request):
     try:
-        # Offload time-series lag model prediction to Celery worker pool
         from celery_worker import predict_yield_lag_task
         task = predict_yield_lag_task.delay(payload.data)
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, task.get)
-
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-
-        return result
-    except HTTPException:
-        raise
+        return {"task_id": task.id}
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
+
 
 @app.post("/predict-yield-trend")
 @limiter.limit("5/minute")
 async def predict_yield_trend(payload: YieldInput, request: Request):
     try:
-        # Offload heavy iterative trend forecasting to Celery worker pool
         from celery_worker import predict_yield_trend_task
         task = predict_yield_trend_task.delay(payload.data)
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, task.get)
-
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-
-        return result
-    except HTTPException:
-        raise
+        return {"task_id": task.id}
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
@@ -953,6 +958,33 @@ def init_ml_pipeline() -> None:
             logger.warning("ML Pipeline: %s not found", model_path)
     except Exception as exc:
         logger.warning("ML Pipeline initialization failed: %s", exc)
+
+    # Register sklearn yield-lag model in the registry so every consumer
+    # uses a single lookup path instead of direct joblib.load() calls.
+    try:
+        import joblib as _joblib
+        sklearn_path = "sklearn_yield_model.joblib"
+        if os.path.exists(sklearn_path):
+            model_lag = _joblib.load(sklearn_path)
+            ModelRegistry.register("sklearn_lag", model_lag)
+            logger.info("ML Pipeline: Registered sklearn yield-lag model")
+        else:
+            logger.warning("ML Pipeline: %s not found", sklearn_path)
+    except Exception as exc:
+        logger.warning("ML Pipeline: sklearn yield-lag model init failed: %s", exc)
+
+    # Register trend forecast model.
+    try:
+        trend_path = "trend_forecast_model.joblib"
+        if os.path.exists(trend_path):
+            import joblib as _joblib2
+            model_trend = _joblib2.load(trend_path)
+            ModelRegistry.register("trend_forecast", model_trend)
+            logger.info("ML Pipeline: Registered trend forecast model")
+        else:
+            logger.warning("ML Pipeline: %s not found", trend_path)
+    except Exception as exc:
+        logger.warning("ML Pipeline: trend forecast model init failed: %s", exc)
 
 
 # Observability setup
