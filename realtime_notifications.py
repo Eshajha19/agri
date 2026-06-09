@@ -118,9 +118,14 @@ class NotificationBroadcastHub:
     available, the hub also publishes to a Redis channel so multiple workers can
     fan out the same event across processes.
 
-    Each WebSocket connection is bound to a Firebase UID; snapshots and live
-    events are filtered so clients only receive notifications they are allowed
-    to see (broadcast or targeted to their UID).
+    Parameters
+    ----------
+    authenticate : callable, optional
+        Async callable ``(token: str) -> dict`` that returns decoded token data
+        on success or raises on failure.  When provided, ``connect()`` requires
+        the client to send a JSON message ``{"token": "..."}`` as the first
+        frame; if validation fails the socket is closed with code 1008.
+        The token is never exposed in URLs, query strings, or proxy logs.
     """
 
     def __init__(
@@ -128,9 +133,7 @@ class NotificationBroadcastHub:
         history_limit: int = 200,
         redis_url: Optional[str] = None,
         redis_channel: str = "fasal_saathi.notifications",
-        enable_persistence: bool = True,
-        dedup_window_seconds: int = 300,
-        max_delivery_records: int = MAX_DELIVERY_RECORDS,
+        authenticate: Optional[callable] = None,
     ) -> None:
         self._history: Deque[Dict[str, Any]] = collections.deque(maxlen=history_limit)
         self._connections: dict[WebSocket, _ConnectionSubscription] = {}
@@ -148,6 +151,11 @@ class NotificationBroadcastHub:
         self._retry_processor_task: Optional[asyncio.Task] = None
         self._priority_processor_task: Optional[asyncio.Task] = None
         self._started = False
+        self._authenticate = authenticate
+
+    def set_authenticate(self, func: callable) -> None:
+        """Set the token verification callable (injected at runtime)."""
+        self._authenticate = func
 
         # Persistence and delivery tracking
         self._enable_persistence = enable_persistence
@@ -365,10 +373,22 @@ class NotificationBroadcastHub:
         close code.
         """
         await websocket.accept()
-        region_scopes = frozenset(resolve_subscription_regions({"role": "guest"}, regions))
-        # Parse crop subscriptions from query params (comma-separated)
-        raw_crops = websocket.query_params.get("crops") or ""
-        crop_scopes = frozenset(c.strip() for c in raw_crops.split(",") if c.strip())
+
+        if self._authenticate is not None:
+            try:
+                msg = await asyncio.wait_for(websocket.receive_json(), timeout=10)
+                token = msg.get("token", "") if isinstance(msg, dict) else ""
+                if not token:
+                    raise ValueError("Missing token")
+                self._authenticate(token)
+            except Exception:
+                try:
+                    await websocket.send_json({"type": "error", "message": "Authentication failed"})
+                    await websocket.close(code=1008)
+                except Exception:
+                    pass
+                return
+
         async with self._history_lock:
             self._connections[websocket] = _ConnectionSubscription(
                 uid=uid, regions=region_scopes, crops=crop_scopes
@@ -427,6 +447,8 @@ class NotificationBroadcastHub:
                 except json.JSONDecodeError:
                     logger.warning("Invalid JSON from WS %s, ignoring", websocket)
                     continue
+                except WebSocketDisconnect:
+                    break
 
                 if not isinstance(parsed, dict) or "type" not in parsed:
                     continue
@@ -444,6 +466,31 @@ class NotificationBroadcastHub:
                         logger.warning(
                             "Invalid subscribe_crops from WS %s: %s", websocket, error,
                         )
+                if msg is None:
+                    continue
+
+                frame_size = len(msg.encode("utf-8"))
+                if frame_size > MAX_FRAME_SIZE:
+                    logger.warning(
+                        "Closing WS %s — frame too large: %d bytes (max %d)",
+                        websocket, frame_size, MAX_FRAME_SIZE,
+                    )
+                    await websocket.close(code=1009)  # Message too big
+                    break
+
+                # Sliding-window rate limit
+                now = time.time()
+                rate_timestamps.append(now)
+                # Prune timestamps outside the window
+                cutoff = now - RATE_WINDOW
+                rate_timestamps = [t for t in rate_timestamps if t > cutoff]
+                if len(rate_timestamps) > MAX_MESSAGES_PER_SEC:
+                    logger.warning(
+                        "Closing WS %s — rate limit exceeded: %d msg/s (max %d)",
+                        websocket, len(rate_timestamps), MAX_MESSAGES_PER_SEC,
+                    )
+                    await websocket.close(code=1008)  # Policy violation
+                    break
         except asyncio.CancelledError:
             pass
         except Exception:
