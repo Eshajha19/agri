@@ -6,7 +6,9 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
-from twilio_webhook_security import handle_inbound_whatsapp_webhook
+from pydantic import BaseModel, Field, validator
+
+router = APIRouter()
 
 from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, normalize_region_identifier
 from backend.schemas import AlertTriggerRequest
@@ -14,6 +16,11 @@ from backend.core.logging_config import setup_logging
 
 router = APIRouter()
 logger = setup_logging(__name__)
+
+    @validator("message")
+    def strip_control_chars(cls, v):
+        from whatsapp_service import sanitise_message
+        return sanitise_message(v)
 
 
 notification_store = None
