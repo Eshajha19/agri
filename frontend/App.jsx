@@ -316,7 +316,6 @@ function App() {
       }
     }, 300);
 
-    return () => clearInterval(id);
     const applyTranslation = async () => {
       if (applyGoogleTranslate(preferredLang)) return;
 
@@ -348,6 +347,7 @@ function App() {
     document.addEventListener("googleTranslateWidgetLoaded", handleWidgetLoad);
 
     return () => {
+      clearInterval(id);
       clearInterval(widgetCheckInterval);
       document.removeEventListener("googleTranslateWidgetLoaded", handleWidgetLoad);
     };
