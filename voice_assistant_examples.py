@@ -1,3 +1,4 @@
+import logging
 """
 Quick Start - Voice Assistant Examples
 Demonstrates how to use the Voice Assistant API and components
@@ -14,13 +15,13 @@ from voice_assistant import VoiceAssistant, OfflineCacheManager
 va = VoiceAssistant(offline_mode=True)
 cache_manager = OfflineCacheManager(cache_dir="./voice_assistant_cache")
 
-print("✓ Voice Assistant initialized in offline mode")
+logging.info("✓ Voice Assistant initialized in offline mode")
 
 
 # --- Example 2: Create User Session ---
 # Each user gets a session for managing conversations
 session = va.create_session(user_id="farmer_001", language_code="hi")
-print(f"✓ Session created: {session.session_id}")
+logging.info(f"✓ Session created: {session.session_id}")
 
 
 # --- Example 3: Process Simple Query ---
@@ -34,9 +35,9 @@ voice_input = VoiceInput(
 )
 
 response = va.process_voice_input(voice_input, session.session_id)
-print(f"\n📢 Query: {query_text}")
-print(f"🤖 Response: {response.text}")
-print(f"🎯 Intent: {response.intent}")
+logging.info(f"\n📢 Query: {query_text}")
+logging.info(f"🤖 Response: {response.text}")
+logging.info(f"🎯 Intent: {response.intent}")
 
 
 # --- Example 4: Detect Intent Automatically ---
@@ -46,8 +47,8 @@ text = "गेहूँ को कौन सी खाद दें?"  # "Which 
 detected_lang = detect_language(text)
 intent, confidence = va.language_model.detect_intent(text)
 
-print(f"\n🔍 Language detected: {detected_lang}")
-print(f"💡 Intent: {intent} (confidence: {confidence})")
+logging.info(f"\n🔍 Language detected: {detected_lang}")
+logging.info(f"💡 Intent: {intent} (confidence: {confidence})")
 
 
 # --- Example 5: Analyze Query Quality ---
@@ -56,18 +57,18 @@ from voice_assistant import VoiceQueryAnalyzer
 query = "मेरी धान में समस्या है"
 analysis = VoiceQueryAnalyzer.analyze(query, "hi")
 
-print(f"\n📊 Query Analysis:")
-print(f"  - Clarity: {analysis['clarity_score']}")
-print(f"  - Has crop mention: {analysis['has_crop_mention']}")
-print(f"  - Has disease mention: {analysis['has_disease_mention']}")
+logging.info(f"\n📊 Query Analysis:")
+logging.info(f"  - Clarity: {analysis['clarity_score']}")
+logging.info(f"  - Has crop mention: {analysis['has_crop_mention']}")
+logging.info(f"  - Has disease mention: {analysis['has_disease_mention']}")
 
 
 # --- Example 6: Access Offline Knowledge Base ---
 crops = list(va.offline_cache["crop_diseases"].keys())
-print(f"\n🌾 Crops in knowledge base: {crops}")
+logging.info(f"\n🌾 Crops in knowledge base: {crops}")
 
 rice_diseases = va.offline_cache["crop_diseases"]["rice"]
-print(f"Rice diseases: {rice_diseases}")
+logging.info(f"Rice diseases: {rice_diseases}")
 
 
 # --- Example 7: Handle Multiple Languages ---
@@ -85,7 +86,7 @@ for lang in languages:
         session = va.create_session("user", lang)
         voice_input = VoiceInput(b"", lang, queries[lang])
         response = va.process_voice_input(voice_input, session.session_id)
-        print(f"\n{lang.upper()}: {response.text[:100]}...")
+        logging.info(f"\n{lang.upper()}: {response.text[:100]}...")
 
 
 # --- Example 8: Extract Entities from Query ---
@@ -93,9 +94,9 @@ query = "मेरे धान में blast बीमारी है"
 intent, _ = va.language_model.detect_intent(query)
 entities = va.language_model.extract_entities(query, intent)
 
-print(f"\n🔑 Entities extracted:")
-print(f"  - Crop: {entities.get('crop', 'Not found')}")
-print(f"  - Disease: {entities.get('disease', 'Not found')}")
+logging.info(f"\n🔑 Entities extracted:")
+logging.info(f"  - Crop: {entities.get('crop', 'Not found')}")
+logging.info(f"  - Disease: {entities.get('disease', 'Not found')}")
 
 
 # ============================================================================
@@ -263,22 +264,22 @@ test_queries = {
 def complete_farmer_workflow():
     """Complete workflow: session creation -> query -> response"""
     
-    print("\n" + "="*50)
-    print("COMPLETE FARMER WORKFLOW")
-    print("="*50)
+    logging.info("\n" + "="*50)
+    logging.info("COMPLETE FARMER WORKFLOW")
+    logging.info("="*50)
     
     # Step 1: Initialize
-    print("\n1️⃣  Initializing Voice Assistant...")
+    logging.info("\n1️⃣  Initializing Voice Assistant...")
     assistant = VoiceAssistant(offline_mode=True)
-    print("   ✓ Ready in offline mode")
+    logging.info("   ✓ Ready in offline mode")
     
     # Step 2: Create session
-    print("\n2️⃣  Creating session for farmer...")
+    logging.info("\n2️⃣  Creating session for farmer...")
     session = assistant.create_session(user_id="farmer_001", language_code="hi")
-    print(f"   ✓ Session ID: {session.session_id[:8]}...")
+    logging.info(f"   ✓ Session ID: {session.session_id[:8]}...")
     
     # Step 3: Process multiple queries
-    print("\n3️⃣  Processing queries...")
+    logging.info("\n3️⃣  Processing queries...")
     
     queries = [
         "नमस्ते! मेरी धान में समस्या है",
@@ -287,7 +288,7 @@ def complete_farmer_workflow():
     ]
     
     for i, query in enumerate(queries, 1):
-        print(f"\n   Query {i}: {query}")
+        logging.info(f"\n   Query {i}: {query}")
         
         voice_input = VoiceInput(
             audio_bytes=b"",
@@ -296,31 +297,31 @@ def complete_farmer_workflow():
         )
         
         response = assistant.process_voice_input(voice_input, session.session_id)
-        print(f"   Intent: {response.intent}")
-        print(f"   Response: {response.text[:80]}...")
+        logging.info(f"   Intent: {response.intent}")
+        logging.info(f"   Response: {response.text[:80]}...")
     
     # Step 4: Retrieve history
-    print("\n4️⃣  Session history:")
+    logging.info("\n4️⃣  Session history:")
     history = assistant.get_session_history(session.session_id)
-    print(f"   User: {history['user_id']}")
-    print(f"   Language: {history['language']}")
-    print(f"   Last query: {history['last_query'][:50]}...")
+    logging.info(f"   User: {history['user_id']}")
+    logging.info(f"   Language: {history['language']}")
+    logging.info(f"   Last query: {history['last_query'][:50]}...")
     
-    print("\n✓ Workflow complete!")
+    logging.info("\n✓ Workflow complete!")
 
 
 # Run the example
 if __name__ == "__main__":
-    print("\n" + "🎤 VOICE ASSISTANT - QUICK START EXAMPLES".center(50))
-    print("="*50)
+    logging.info("\n" + "🎤 VOICE ASSISTANT - QUICK START EXAMPLES".center(50))
+    logging.info("="*50)
     
     # Run workflow
     complete_farmer_workflow()
     
-    print("\n" + "="*50)
-    print("For more examples, check:")
-    print("- VOICE_ASSISTANT.md (full documentation)")
-    print("- test_voice_assistant.py (test cases)")
-    print("- backend/routers/voice_assistant.py (API endpoints)")
-    print("- frontend/VoiceAssistant.jsx (React component)")
-    print("="*50 + "\n")
+    logging.info("\n" + "="*50)
+    logging.info("For more examples, check:")
+    logging.info("- VOICE_ASSISTANT.md (full documentation)")
+    logging.info("- test_voice_assistant.py (test cases)")
+    logging.info("- backend/routers/voice_assistant.py (API endpoints)")
+    logging.info("- frontend/VoiceAssistant.jsx (React component)")
+    logging.info("="*50 + "\n")
