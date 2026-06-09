@@ -34,6 +34,8 @@ import {
 } from "recharts";
 import { getHistoricalWeatherData } from "./weather/weatherService";
 import ErrorBoundary from "./ErrorBoundary";
+import AsyncErrorBoundary from "./AsyncErrorBoundary";
+import Loader from "./Loader";
 import apiClient from "./lib/apiClient";
 import { getBookmarks } from "./utils/bookmarkStorage";
 import AdvisoryPanel from "./AdvisoryPanel";
@@ -845,16 +847,7 @@ export default function Dashboard({ userData }) {
 
         {/* CONDITION START */}
         {yieldData.length === 0 ? (
-          <div
-            style={{
-              padding: "60px",
-              textAlign: "center",
-              color: "#6b7280",
-              fontSize: "14px",
-            }}
-          >
-            Loading chart...
-          </div>
+          <Loader message="Loading chart data..." />
         ) : (
           /* GRID */
           <div
@@ -949,12 +942,10 @@ export default function Dashboard({ userData }) {
         </p>
 
         {/* Weather Chart */}
-        <ErrorBoundary>
+        <AsyncErrorBoundary>
           <div style={{ width: "100%", height: 350 }}>
             {historicalWeather.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "40px" }}>
-                Loading weather data...
-              </div>
+              <Loader message="Loading weather data..." />
             ) : (
               <ResponsiveContainer>
                 <LineChart data={historicalWeather}>
@@ -974,7 +965,7 @@ export default function Dashboard({ userData }) {
               </ResponsiveContainer>
             )}
           </div>
-        </ErrorBoundary>
+        </AsyncErrorBoundary>
 
         {/* Insight */}
         <div style={{ marginTop: "15px", fontWeight: "500", color: "#374151" }}>
