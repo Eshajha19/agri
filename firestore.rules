@@ -8,26 +8,27 @@ service cloud.firestore {
 
     // Role check via Firebase custom claims — zero extra Firestore reads.
     //
-    // The backend sets request.auth.token.role when issuing or refreshing
-    // tokens (via Firebase Admin SDK setCustomUserClaims). This avoids the
-    // previous pattern of calling get() on the users document on every rule
-    // evaluation, which:
-    //   1. Consumed one Firestore read per rule invocation (quota + latency).
-    //   2. Caused a recursive read when evaluating rules on /users/{userId}
-    //      itself (reading a user doc triggered another read of the same doc).
-    //   3. Could not be cached across multiple hasRole() calls in one request.
+    // The backend stores the user's role as a single string under `request.auth.token.role`
+    // (set via Firebase Admin SDK setCustomUserClaims). For forward compatibility
+    // this helper also accepts a `roles` list — whichever key is present is used.
     //
     // Custom claims are embedded in the JWT and evaluated locally — no network
     // round-trip, no quota cost, no recursion risk.
+    function _getRole() {
+      if (request.auth == null) return null;
+      if ("roles" in request.auth.token) {
+        return request.auth.token.roles;
+      }
+      return request.auth.token.get("role", "farmer");
+    }
+
     function hasRole(role) {
-      return request.auth != null
-        && request.auth.token.get("role", "farmer") == role;
+      return request.auth != null && _getRole() == role;
     }
 
     // Convenience: caller has one of several roles.
     function hasAnyRole(roles) {
-      return request.auth != null
-        && request.auth.token.get("role", "farmer") in roles;
+      return request.auth != null && _getRole() in roles;
     }
 
     function isAuthed() {
