@@ -9,6 +9,51 @@ import joblib
 import hashlib
 import pandas as pd
 import numpy as np
+
+import sys
+
+# Required environment variables for backend
+REQUIRED_ENV_VARS = [
+    "WEATHER_API_KEY",
+    "SOIL_API_KEY",
+    "FIREBASE_ADMIN_CRED",
+    "BACKEND_PORT",
+]
+
+def validate_env_vars():
+    missing = [var for var in REQUIRED_ENV_VARS if not os.getenv(var)]
+    if missing:
+        print(f"❌ Missing required environment variables: {', '.join(missing)}")
+        sys.exit(1)  # stop app immediately
+
+# Run validation before app starts
+validate_env_vars()
+
+
+from fastapi import Depends, Header, HTTPException
+from backend.security.csrf import generate_csrf_token, validate_csrf_token
+
+@app.get("/csrf-token")
+async def get_csrf_token():
+    return {"csrf_token": generate_csrf_token()}
+
+def csrf_protect(x_csrf_token: str = Header(...)):
+    if not validate_csrf_token(x_csrf_token):
+        raise HTTPException(status_code=403, detail="Invalid or expired CSRF token")
+
+from fastapi import Depends
+
+@app.post("/finance/transfer-funds", dependencies=[Depends(csrf_protect)])
+async def transfer_funds(request: TransferRequest):
+    # business logic here
+    return {"success": True}
+
+@app.delete("/platform/delete-user/{user_id}", dependencies=[Depends(csrf_protect)])
+async def delete_user(user_id: str):
+    # delete logic
+    return {"deleted": True}
+
+
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
@@ -16,6 +61,11 @@ from fastapi import FastAPI, HTTPException, Request, Form, Query, Response, WebS
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field, validator
+
+from backend.utils.safe_log import sanitize_log_field
+
+# Expose sanitizer globally so routers can use it
+sanitise_log_field_fn = sanitize_log_field
 
 class SimulationRequest(BaseModel):
     crop_type: str
@@ -104,6 +154,14 @@ from reportlab.lib.units import inch
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
 
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
+
 # KMS Support
 try:
     from google.cloud import secretmanager
@@ -137,6 +195,38 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+# --- Global Error Handlers ---
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error("Unhandled error: %s", exc, exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "code": "INTERNAL_ERROR",
+            "message": "Something went wrong. Please try again later."
+        },
+    )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=400,
+        content={"code": "VALIDATION_ERROR", "message": "Invalid request payload."},
+    )
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"code": "HTTP_ERROR", "message": exc.detail},
+    )
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -266,7 +356,10 @@ class SeedVerifyRequest(BaseModel):
         if not has_access:
             raise HTTPException(status_code=403, detail="Insufficient permissions")
 
-    return {"uid": uid, "roles": user_roles}
+    @app.get("/user_roles")
+    def get_user_roles(uid: str):
+        user_roles = ["admin", "editor"]  # example
+        return {"uid": uid, "roles": user_roles}
 
     def __init__(self, maxlen: int = _MAX_NOTIFICATIONS, ttl_hours: int = _NOTIFICATION_TTL_HOURS):
         self._deque: collections.deque = collections.deque(maxlen=maxlen)

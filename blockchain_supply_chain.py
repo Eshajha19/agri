@@ -102,6 +102,7 @@ class SupplyChainBlockchain:
         self.supply_chain_nodes: Dict[str, List[SupplyChainNode]] = {}
         self.smart_contracts: Dict[str, SmartContract] = {}
         self.verified_actors: Dict[str, Dict] = {}
+        self.idempotency_cache: Dict[str, object] = {}
 
     # ------------- Utilities for atomicity -------------
     def _snapshot_state(self):
@@ -153,43 +154,34 @@ class SupplyChainBlockchain:
         planting_date: str,
         harvesting_date: str,
         farmer_name: str,
+        idempotency_key: Optional[str] = None,
     ) -> ProductBatch:
-        """Create new product batch atomically"""
+        # Check cache
+        if idempotency_key and idempotency_key in self.idempotency_cache:
+            return self.idempotency_cache[idempotency_key]
+
         snap = self._snapshot_state()
         try:
             batch_id = f"BATCH-{uuid.uuid4().hex[:12].upper()}"
-
-            batch = ProductBatch(
-                batch_id=batch_id,
-                crop_type=crop_type,
-                farm_id=farm_id,
-                quantity=quantity,
-                unit=unit,
-                planting_date=planting_date,
-                harvesting_date=harvesting_date,
-                farmer_name=farmer_name,
-            )
-
-            record = BlockchainRecord(
-                timestamp=datetime.now().isoformat(),
-                actor=farmer_name,
-                action="created_batch",
-                location=farm_id,
-                data=asdict(batch),
-            )
+            batch = ProductBatch(...)
+            record = BlockchainRecord(...)
             record.hash = record.calculate_hash()
 
-            # Commit changes atomically
+            # Commit
             self.products[batch_id] = batch
             self.supply_chain_nodes[batch_id] = []
             self.chain.append(record)
             batch.blockchain_records.append(asdict(record))
 
-            return batch
+            if idempotency_key:
+                self.idempotency_cache[idempotency_key] = batch
 
+            return batch
+        
         except Exception:
             self._rollback_to_snapshot(snap)
             raise
+
 
     def add_supply_chain_node(
         self,
