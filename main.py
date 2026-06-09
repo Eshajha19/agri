@@ -811,19 +811,24 @@ async def get_rbac_audit(request: Request, limit: int = Query(default=50, ge=1, 
     await verify_role(request, required_roles=["admin", "expert"])
     return {"success": True, "data": rbac_audit_trail.snapshot(limit=limit)}
 
+# Max inbound Twilio webhook body size (10 KB — WhatsApp messages are short)
+# Max inbound Twilio webhook body size (10 KB — WhatsApp messages are short)
+MAX_WEBHOOK_BODY_SIZE = 10 * 1024
+
 @app.post("/api/whatsapp/webhook")
 @limiter.limit("20/minute")
 async def whatsapp_webhook(request: Request, Body: str = Form(...), From: str = Form(...)):
     """
     Handle incoming WhatsApp messages from Twilio.
     
-    Processing is offloaded to a background Celery task to immediately
-    acknowledge the webhook (preventing Twilio timeout/penalties under burst traffic)
-    and process the message asynchronously.
+    Early body-size enforcement prevents memory exhaustion from oversized
+    payloads. Processing is offloaded to a background Celery task.
     """
+    if len(Body) > MAX_WEBHOOK_BODY_SIZE:
+        raise HTTPException(status_code=413, detail="Request body too large")
+
     sender_number = From.replace("whatsapp:", "")
     
-    # Offload message processing to reliable background task queue
     from celery_worker import process_whatsapp_webhook_task
     process_whatsapp_webhook_task.delay(Body, sender_number)
     

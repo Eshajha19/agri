@@ -168,6 +168,8 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+MAX_WEBHOOK_BODY_SIZE = 10 * 1024
+
 @router.post("/whatsapp/webhook")
 async def whatsapp_webhook(
     request: Request,
@@ -177,19 +179,22 @@ async def whatsapp_webhook(
     """Receive inbound WhatsApp messages from Twilio.
 
     Security controls applied:
-    1. Twilio signature verification — every request is validated with
+    1. Early body-size enforcement — payloads larger than 10 KB are
+       rejected with HTTP 413 before any signature or processing work.
+    2. Twilio signature verification — every request is validated with
        HMAC-SHA1 against TWILIO_AUTH_TOKEN before any processing.
        Requests with a missing or invalid X-Twilio-Signature are
        rejected with HTTP 403.
-    2. Sender number validation — the From field is checked against a
+    3. Sender number validation — the From field is checked against a
        basic E.164 pattern after stripping the 'whatsapp:' prefix so
        malformed values cannot propagate further.
     """
+    if len(Body) > MAX_WEBHOOK_BODY_SIZE:
+        raise HTTPException(status_code=413, detail="Request body too large")
+
     if send_whatsapp_fn is None:
         raise HTTPException(status_code=500, detail="Not initialized")
 
-    # Read the raw body for signature verification before FastAPI
-    # consumes it via Form parameters.
     raw_body = await request.body()
     _verify_twilio_signature(request, raw_body)
 
