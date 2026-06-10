@@ -326,7 +326,7 @@ async def verify_role(request: Request, required_roles: list = None):
         raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
 
     try:
-        decoded_token = auth.verify_id_token(id_token)
+        decoded_token = auth.verify_id_token(id_token, check_revoked=True)
     except Exception:
         audit_rbac_event(
             request=request,

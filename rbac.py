@@ -230,7 +230,7 @@ class RBACManager:
 
             # Verify Firebase token
             try:
-                decoded_token = firebase_auth.verify_id_token(token)
+                decoded_token = firebase_auth.verify_id_token(token, check_revoked=True)
                 uid = decoded_token.get("uid")
             except Exception as exc:
                 logger.error("Token verification failed: %s", exc)

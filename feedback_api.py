@@ -192,7 +192,7 @@ async def verify_admin(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
 
     try:
-        decoded = firebase_auth.verify_id_token(id_token)
+        decoded = firebase_auth.verify_id_token(id_token, check_revoked=True)
     except Exception:
         raise HTTPException(status_code=401, detail="Authentication failed")
 
@@ -314,7 +314,7 @@ async def get_feedback_stats(
 
     try:
         id_token = auth_header.split(" ")[1]
-        decoded = firebase_auth.verify_id_token(id_token)
+        decoded = firebase_auth.verify_id_token(id_token, check_revoked=True)
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
