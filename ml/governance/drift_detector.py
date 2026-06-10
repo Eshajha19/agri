@@ -42,6 +42,7 @@ class DriftDetector:
         window_size: int = 100,
         prediction_drift_threshold: float = 0.2,
         input_drift_threshold: float = 0.15,
+        max_alerts: int = 1000,
     ):
         """
         Initialize DriftDetector
@@ -50,6 +51,7 @@ class DriftDetector:
             window_size: Number of recent predictions to track
             prediction_drift_threshold: Alert if drift > this value
             input_drift_threshold: Alert if input drift > this value
+            max_alerts: Maximum number of drift alerts to retain
         """
         self.window_size = window_size
         self.prediction_drift_threshold = prediction_drift_threshold
@@ -59,7 +61,7 @@ class DriftDetector:
         self.prediction_history: Dict[str, deque] = {}  # model_name -> deque of predictions
         self.input_history: Dict[str, deque] = {}       # model_name -> deque of input stats
         self.baseline_stats: Dict[str, Dict[str, Any]] = {}  # model_name -> baseline
-        self.alerts: List[DriftAlert] = []
+        self.alerts: deque = deque(maxlen=max_alerts)
     
     def set_baseline(self, model_name: str, baseline_predictions: List[float]):
         """
@@ -212,7 +214,9 @@ class DriftDetector:
     
     def get_alerts(self, model_name: str = None, limit: int = 10) -> List[Dict[str, Any]]:
         """Get recent drift alerts"""
-        alerts = self.alerts if model_name is None else [a for a in self.alerts if a.model_name == model_name]
+        alerts = list(self.alerts)
+        if model_name is not None:
+            alerts = [a for a in alerts if a.model_name == model_name]
         return [a.to_dict() for a in alerts[-limit:]]
     
     def clear_alerts(self):
