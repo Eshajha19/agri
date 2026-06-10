@@ -1,0 +1,42 @@
+.schedule-card {
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 15px;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.schedule-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+}
+
+.badge {
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  margin-top: 10px;
+  animation: pulse 2s infinite;
+}
+
+.badge.upcoming { background: #3b82f6; }
+.badge.today { background: #f59e0b; }
+.badge.completed { background: #10b981; }
+.badge.overdue { background: #ef4444; }
+
+@keyframes pulse {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.05); opacity: 0.8; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.schedule-card:focus {
+  outline: 2px solid #0ea5a4;
+  outline-offset: 3px;
+  border-radius: 8px;
+}

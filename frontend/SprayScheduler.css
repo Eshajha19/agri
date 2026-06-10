@@ -1,0 +1,59 @@
+.spray-scheduler {
+  padding: 20px;
+  font-family: "Poppins", sans-serif;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #1e3c72, #2a5298); /* deep blue gradient */
+  color: #f9fafb;
+}
+
+.calendar-view {
+  margin-bottom: 20px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 10px;
+  backdrop-filter: blur(10px);
+}
+
+.filters input {
+  padding: 10px;
+  width: 100%;
+  margin-bottom: 15px;
+  border-radius: 8px;
+  border: none;
+  outline: none;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+.filters input::placeholder {
+  color: #d1d5db;
+}
+
+.summary {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.summary-card {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.15);
+  padding: 15px;
+  border-radius: 12px;
+  text-align: center;
+  font-weight: 600;
+  color: #fff;
+  transition: transform 0.2s ease;
+}
+
+.summary-card:hover {
+  transform: translateY(-3px);
+}
+
+.filters input:focus,
+.summary-card:focus,
+.schedule-card:focus {
+  outline: 2px solid #0ea5a4;
+  outline-offset: 3px;
+  border-radius: 8px;
+}
