@@ -82,37 +82,37 @@ class Permission(Enum):
     FINANCE_UPDATE_OWN = "finance:update:own"
     FINANCE_UPDATE_ALL = "finance:update:all"
     FINANCE_DELETE = "finance:delete"
-    
+
     # Supply Chain
     SUPPLY_CHAIN_CREATE = "supply_chain:create"
     SUPPLY_CHAIN_READ = "supply_chain:read"
     SUPPLY_CHAIN_UPDATE = "supply_chain:update"
     SUPPLY_CHAIN_DELETE = "supply_chain:delete"
-    
+
     # Notifications
     NOTIFICATIONS_READ = "notifications:read"
     NOTIFICATIONS_CREATE = "notifications:create"
     NOTIFICATIONS_DELETE = "notifications:delete"
-    
+
     # Reports
     REPORTS_CREATE = "reports:create"
     REPORTS_READ_OWN = "reports:read:own"
     REPORTS_READ_ALL = "reports:read:all"
     REPORTS_DELETE = "reports:delete"
-    
+
     # Quality Grading
     QUALITY_ASSESS = "quality:assess"
     QUALITY_READ = "quality:read"
-    
+
     # Seeds
     SEEDS_VERIFY = "seeds:verify"
     SEEDS_READ = "seeds:read"
-    
+
     # WhatsApp
     WHATSAPP_SUBSCRIBE = "whatsapp:subscribe"
     WHATSAPP_TRIGGER = "whatsapp:trigger"
     WHATSAPP_WEBHOOK = "whatsapp:webhook"
-    
+
     # System
     SYSTEM_LOG = "system:log"
     SYSTEM_ADMIN = "system:admin"
@@ -157,7 +157,7 @@ class RBACMatrix:
             Permission.FINANCE_UPDATE_OWN,
             Permission.FINANCE_READ_OWN,
         ],
-        
+
         Role.EXPERT: [
             # Expert: Read finance/supply chain, assess quality, verify seeds
             Permission.FINANCE_READ_ALL,
@@ -172,7 +172,7 @@ class RBACMatrix:
             Permission.RAG_QUERY,
             Permission.CLIMATE_SIMULATE,
         ],
-        
+
         Role.FARMER: [
             # Farmer: Read own finance, create supply chain, quality checks
             Permission.FINANCE_CREATE,
@@ -191,7 +191,7 @@ class RBACMatrix:
             Permission.RAG_QUERY,
             Permission.CLIMATE_SIMULATE,
         ],
-        
+
         Role.VENDOR: [
             # Vendor: Read supply chain, manage marketplace
             Permission.SUPPLY_CHAIN_READ,
@@ -204,7 +204,7 @@ class RBACMatrix:
             Permission.RAG_QUERY,
             Permission.CLIMATE_SIMULATE,
         ],
-        
+
         Role.SYSTEM: [
             # System: All permissions (for internal processes)
             Permission.FINANCE_CREATE,
@@ -218,7 +218,7 @@ class RBACMatrix:
             Permission.SYSTEM_LOG,
             Permission.WHATSAPP_WEBHOOK,
         ],
-        
+
         Role.GUEST: [
             # Guest: Read-only public data
             Permission.RAG_QUERY,
@@ -449,21 +449,21 @@ class RBACManager:
                     detail=STALE_TOKEN_DETAIL,
                 )
 
-            if not user_doc.exists:
-                logger.warning("User %s not found in Firestore, defaulting to farmer", uid)
-                return Role.FARMER
+        claim_tenant = RBACManager._extract_tenant(decoded_token)
+        if claim_tenant and tenant_id and claim_tenant != tenant_id:
+            logger.warning(
+                "Stale JWT tenant for uid=%s: claim=%s firestore=%s",
+                uid,
+                claim_tenant,
+                tenant_id,
+            )
 
-            role_str = user_doc.get("role", "farmer").lower()
-            try:
-                return Role(role_str)
-            except ValueError:
-                logger.warning("Invalid role for user %s: %s, defaulting to farmer", uid, role_str)
-                return Role.FARMER
 
-        except HTTPException:
-            raise
-        except Exception as exc:
-            logger.error("Unexpected error getting user role: %s", exc)
+
+
+
+
+
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=STALE_TOKEN_DETAIL,
