@@ -250,6 +250,35 @@ async def _run_lifespan_phase(component: str, action: str, operation, *, require
     )
     return result
 
+def trigger_whatsapp_alert(subscribers: list[str], message: str):
+    delivered = 0
+    rate_limited = 0
+    client_errors = 0
+    server_errors = 0
+    failed = 0
+
+    for number in subscribers:
+        result = send_whatsapp_message(number, message)
+
+        if result["status"] == "sent":
+            delivered += 1
+        elif result["status"] == "rate_limited":
+            rate_limited += 1
+        elif result["status"] == "client_error":
+            client_errors += 1
+        elif result["status"] == "server_error":
+            server_errors += 1
+        else:
+            failed += 1
+
+    return {
+        "delivered": delivered,
+        "rate_limited": rate_limited,
+        "client_errors": client_errors,
+        "server_errors": server_errors,
+        "failed": failed,
+    }
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
