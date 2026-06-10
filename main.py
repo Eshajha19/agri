@@ -1,68 +1,14 @@
 # main.py
 import os
 import asyncio
-import itertools
-import io
-import json
 import logging
 import math
-import re
-import joblib
-import hashlib
-import pandas as pd
-import numpy as np
-
-import sys
-
-# Required environment variables for backend
-REQUIRED_ENV_VARS = [
-    "WEATHER_API_KEY",
-    "SOIL_API_KEY",
-    "FIREBASE_ADMIN_CRED",
-    "BACKEND_PORT",
-]
-
-def validate_env_vars():
-    missing = [var for var in REQUIRED_ENV_VARS if not os.getenv(var)]
-    if missing:
-        print(f"❌ Missing required environment variables: {', '.join(missing)}")
-        sys.exit(1)  # stop app immediately
-
-# Run validation before app starts
-validate_env_vars()
-
-
-from fastapi import Depends, Header, HTTPException
-from backend.security.csrf import generate_csrf_token, validate_csrf_token
-
-@app.get("/csrf-token")
-async def get_csrf_token():
-    return {"csrf_token": generate_csrf_token()}
-
-def csrf_protect(x_csrf_token: str = Header(...)):
-    if not validate_csrf_token(x_csrf_token):
-        raise HTTPException(status_code=403, detail="Invalid or expired CSRF token")
-
-from fastapi import Depends
-
-@app.post("/finance/transfer-funds", dependencies=[Depends(csrf_protect)])
-async def transfer_funds(request: TransferRequest):
-    # business logic here
-    return {"success": True}
-
-@app.delete("/platform/delete-user/{user_id}", dependencies=[Depends(csrf_protect)])
-async def delete_user(user_id: str):
-    # delete logic
-    return {"deleted": True}
-
-
 import collections
 import threading
-import time
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
-from fastapi import FastAPI, HTTPException, Request, Form, Query, Response, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, Form, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
@@ -109,14 +55,6 @@ import firebase_admin
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from firebase_admin import auth, credentials, firestore, storage
-from opentelemetry import trace
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor
-from prometheus_fastapi_instrumentator import Instrumentator
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
 
 from backend.routers import (
     advisory,
@@ -2269,7 +2207,6 @@ try:
     Instrumentator().instrument(app)
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
-    instrumentator = None
 
 # ---------------------------------------------------------------------------
 # CORS — explicit origin allowlist
