@@ -244,22 +244,60 @@ class PriceForecaster:
         seasonal_map = df.groupby("doy")["detrended"].mean().to_dict()
         df["seasonal"] = df["doy"].map(seasonal_map)
 
-        # Residual
-        df["residual"] = df["detrended"] - df["seasonal"]
+        prices = self._prices
+        self._scaler_min = float(prices.min())
+        self._scaler_range = float(prices.max() - prices.min()) or 1.0
 
-        return {
-            "dates": df["date"].dt.strftime("%Y-%m-%d").tolist(),
-            "price": df["price"].round(2).tolist(),
-            "trend": df["trend"].round(2).tolist(),
-            "seasonal": df["seasonal"].round(2).tolist(),
-            "residual": df["residual"].round(2).tolist(),
-        }
+        scaled = self._scale(prices)
 
-    # -------------------------------------------------------------------------
-    # FORECAST
-    # -------------------------------------------------------------------------
+        # Build (X, y) sequences
+        X, y = [], []
+        for i in range(len(scaled) - SEQ_LEN):
+            X.append(scaled[i : i + SEQ_LEN])
+            y.append(scaled[i + SEQ_LEN])
+        X = np.array(X).reshape(-1, SEQ_LEN, 1)
+        y = np.array(y)
 
-    def forecast(self, crop: str, days: int = 14) -> dict:
+        # Build model
+        model = tf.keras.Sequential([
+            tf.keras.layers.LSTM(32, activation="tanh", input_shape=(SEQ_LEN, 1)),
+            tf.keras.layers.Dense(16, activation="relu"),
+            tf.keras.layers.Dense(1),
+        ])
+        model.compile(optimizer="adam", loss="mse")
+
+        # Suppress TF progress output
+        model.fit(
+            X, y,
+            epochs=30,
+            batch_size=8,
+            verbose=0,
+            validation_split=0.1,
+        )
+
+        # Estimate residual std on validation split (last 10%) for confidence intervals
+        split = int(len(X) * 0.9)
+        if split < len(X):
+            val_preds = model.predict(X[split:], verbose=0).flatten()
+            residuals = y[split:] - val_preds
+            self._residual_std = float(np.std(residuals))
+        else:
+            preds = model.predict(X, verbose=0).flatten()
+            self._residual_std = float(np.std(y - preds))
+
+        self._model = model
+        self._trained = True
+        logger.info(
+            "PriceForecaster: trained LSTM for '%s' "
+            "(residual_std=%.4f, scaler_range=%.0f)",
+            self.commodity, self._residual_std, self._scaler_range,
+        )
+
+    # ------------------------------------------------------------------
+    # Forecasting
+    # ------------------------------------------------------------------
+
+    def forecast(self, days: int = 14) -> List[Dict]:
         """
         Generate price forecast with confidence intervals.
         """
