@@ -8,6 +8,7 @@ import cv2
 from PIL import Image
 import io
 import json
+from collections import deque
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 import base64
@@ -71,9 +72,18 @@ class QualityAssessment:
 class CropQualityGrader:
     """Main crop quality grading system"""
 
+    # Maximum number of assessments retained in the in-process history.
+    # Each QualityAssessment is a small dataclass (~200 bytes), so 1 000
+    # entries consume roughly 200 KB — a safe upper bound for a long-running
+    # process.  When the cap is reached the oldest entry is automatically
+    # evicted by the deque before the new one is appended.
+    _MAX_HISTORY = 1_000
+
     def __init__(self):
         self.supported_crops = list(CROP_QUALITY_PARAMS.keys())
-        self.quality_history = []
+        # Bounded deque: oldest assessments are evicted automatically when
+        # the cap is reached, preventing unbounded memory growth.
+        self.quality_history: deque = deque(maxlen=self._MAX_HISTORY)
 
     def assess_crop_image(
         self, image_data: bytes, crop_type: str
@@ -150,8 +160,10 @@ class CropQualityGrader:
         if not isinstance(image, np.ndarray):
             return 50.0
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        # Use Otsu's thresholding to adapt to varying lighting conditions
+        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         contours, _ = cv2.findContours(
-            cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)[1],
+            binary,
             cv2.RETR_EXTERNAL,
             cv2.CHAIN_APPROX_SIMPLE,
         )
@@ -170,13 +182,10 @@ class CropQualityGrader:
         return float(min(100, uniformity))
 
     def _assess_color(self, image: np.ndarray, params: Dict) -> float:
-        """Assess color quality"""
+        """Assess color quality against crop-specific target ranges"""
         if not isinstance(image, np.ndarray):
             return 50.0
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        color_quality_score = 0.0
-
-        # Check dominant color in expected range
         h, s, v = cv2.split(hsv)
         avg_h = np.mean(h)
         avg_s = np.mean(s)
@@ -186,7 +195,42 @@ class CropQualityGrader:
         saturation_score = min(100, (avg_s / 255) * 120)
         brightness_score = min(100, (avg_v / 255) * 110)
 
-        color_quality_score = (saturation_score * 0.6 + brightness_score * 0.4)
+        # Hue matching score using crop-specific color ranges
+        hue_score = 50.0  # default neutral
+        color_ranges = params.get("color_ranges", {})
+        if color_ranges:
+            # Check if avg_h falls within expected ranges for the crop
+            # color_ranges has red, green, blue keys but we're in HSV - use hue equivalents
+            # For simplicity, map typical HSV hue ranges: red=0-15/165-180, green=35-85, blue=85-130
+            # Check each channel's expected range
+            in_range_count = 0
+            total_checks = 0
+            
+            # Red hue wraps around 0/180 in HSV
+            red_min, red_max = color_ranges.get("red", (0, 0))
+            if red_min <= red_max:
+                in_range = red_min <= avg_h <= red_max
+            else:  # wraps around 0
+                in_range = avg_h >= red_min or avg_h <= red_max
+            if red_min or red_max:  # only check if range is defined
+                in_range_count += 1 if in_range else 0
+                total_checks += 1
+            
+            green_min, green_max = color_ranges.get("green", (0, 0))
+            if green_min or green_max:
+                in_range_count += 1 if green_min <= avg_h <= green_max else 0
+                total_checks += 1
+            
+            blue_min, blue_max = color_ranges.get("blue", (0, 0))
+            if blue_min or blue_max:
+                in_range_count += 1 if blue_min <= avg_h <= blue_max else 0
+                total_checks += 1
+            
+            if total_checks > 0:
+                hue_score = (in_range_count / total_checks) * 100
+
+        # Combine: saturation (40%), brightness (30%), hue match (30%)
+        color_quality_score = (saturation_score * 0.4 + brightness_score * 0.3 + hue_score * 0.3)
 
         return float(min(100, color_quality_score))
 
@@ -223,17 +267,29 @@ class CropQualityGrader:
         return min(100, shape_quality)
 
     def _detect_defects(self, image: np.ndarray, params: Dict) -> float:
-        """Detect defects in crops"""
+        """Detect defects in crops using crop region segmentation"""
         if not isinstance(image, np.ndarray):
             return 10.0
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-        # Use edge detection to find defects
-        edges = cv2.Canny(gray, 50, 150)
-        total_pixels = edges.shape[0] * edges.shape[1]
-        defect_pixels = np.count_nonzero(edges)
+        # Segment crop region using adaptive threshold to exclude background
+        _, crop_mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        # Invert if background is larger than foreground (common case)
+        if np.count_nonzero(crop_mask) > crop_mask.size / 2:
+            crop_mask = cv2.bitwise_not(crop_mask)
 
-        defect_percentage = (defect_pixels / total_pixels) * 100
+        # Use edge detection on crop region only
+        edges = cv2.Canny(gray, 50, 150)
+        # Mask edges to crop region only
+        crop_edges = cv2.bitwise_and(edges, edges, mask=crop_mask)
+
+        crop_pixels = np.count_nonzero(crop_mask)
+        defect_pixels = np.count_nonzero(crop_edges)
+
+        if crop_pixels == 0:
+            return 10.0
+
+        defect_percentage = (defect_pixels / crop_pixels) * 100
 
         return min(100, defect_percentage * 2)  # Scale defects
 
@@ -275,33 +331,57 @@ class CropQualityGrader:
         self, images_data: List[bytes], crop_type: str
     ) -> Dict:
         """
-        Grade multiple crops in batch
-        
+        Grade multiple crops in batch.
+
         Args:
-            images_data: List of image bytes
-            crop_type: Type of crop
-            
+            images_data: List of image bytes. Each entry must be non-empty bytes.
+            crop_type: Type of crop being assessed.
+
         Returns:
-            Dictionary with batch results and statistics
+            Dictionary with per-image assessments and aggregate batch statistics.
         """
+        if not images_data:
+            return {
+                "assessments": [],
+                "batch_statistics": {
+                    "total_crops": 0,
+                    "graded_crops": 0,
+                    "failed_crops": 0,
+                    "average_score": 0,
+                    "grade_distribution": {},
+                    "average_price_adjustment": 0,
+                },
+                "crop_type": crop_type,
+                "timestamp": datetime.now().isoformat(),
+            }
+
         assessments = []
-        for image_data in images_data:
+        for idx, image_data in enumerate(images_data):
+            if not isinstance(image_data, (bytes, bytearray)) or len(image_data) == 0:
+                assessments.append({
+                    "error": f"Image at index {idx} is empty or not valid bytes",
+                    "index": idx,
+                    "timestamp": datetime.now().isoformat(),
+                })
+                continue
             try:
                 assessment = self.assess_crop_image(image_data, crop_type)
                 assessments.append(asdict(assessment))
             except Exception as e:
                 assessments.append(
-                    {"error": str(e), "timestamp": datetime.now().isoformat()}
+                    {"error": str(e), "index": idx, "timestamp": datetime.now().isoformat()}
                 )
 
         # Calculate batch statistics
         valid_assessments = [a for a in assessments if "error" not in a]
+        failed_count = len(assessments) - len(valid_assessments)
         if valid_assessments:
             scores = [a["score"] for a in valid_assessments]
             grades = [a["grade"] for a in valid_assessments]
             batch_stats = {
                 "total_crops": len(images_data),
                 "graded_crops": len(valid_assessments),
+                "failed_crops": failed_count,
                 "average_score": round(np.mean(scores), 2),
                 "grade_distribution": {
                     g: grades.count(g) for g in set(grades)
@@ -315,6 +395,7 @@ class CropQualityGrader:
             batch_stats = {
                 "total_crops": len(images_data),
                 "graded_crops": 0,
+                "failed_crops": failed_count,
                 "average_score": 0,
                 "grade_distribution": {},
                 "average_price_adjustment": 0,
@@ -323,16 +404,43 @@ class CropQualityGrader:
         return {
             "assessments": assessments,
             "batch_statistics": batch_stats,
+            "crop_type": crop_type,
             "timestamp": datetime.now().isoformat(),
         }
 
     def get_quality_trends(self, crop_type: str, days: int = 7) -> Dict:
-        """Get quality trends over time"""
-        recent_assessments = [
-            a
-            for a in self.quality_history
-            if a.crop_type == crop_type.lower()
-        ]
+        """Get quality trends over the specified number of days.
+
+        The ``days`` parameter was previously accepted and validated at the
+        API layer (ge=1, le=30) but was never used inside this method — the
+        filter ``[a for a in self.quality_history if a.crop_type == ...]``
+        returned all history for the crop type regardless of age.  A caller
+        requesting ``days=1`` received the same result as ``days=30``, and
+        the response included ``"days": data.days`` from the router,
+        implying the window was respected when it was not.
+
+        Fix: parse each assessment's ``timestamp`` field and exclude entries
+        older than ``days`` calendar days from the current UTC time.
+        """
+        from datetime import timezone, timedelta
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+        recent_assessments = []
+        for a in self.quality_history:
+            if a.crop_type != crop_type.lower():
+                continue
+            try:
+                # timestamp is stored as datetime.now().isoformat() — naive
+                # local time.  Parse it and treat as UTC for comparison.
+                ts = datetime.fromisoformat(a.timestamp)
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                if ts >= cutoff:
+                    recent_assessments.append(a)
+            except (ValueError, TypeError):
+                # Malformed timestamp — include the assessment rather than
+                # silently dropping it.
+                recent_assessments.append(a)
 
         if not recent_assessments:
             return {"error": "No assessment history"}
@@ -342,9 +450,10 @@ class CropQualityGrader:
 
         return {
             "crop_type": crop_type.lower(),
+            "days": days,
             "assessments_count": len(recent_assessments),
             "average_score": round(np.mean(scores), 2),
-            "score_trend": scores[-5:],  # Last 5 scores
+            "score_trend": scores[-5:],  # Last 5 scores within the window
             "grade_distribution": {g: grades.count(g) for g in set(grades)},
             "latest_assessment": asdict(recent_assessments[-1]),
         }

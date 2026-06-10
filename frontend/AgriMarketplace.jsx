@@ -1,8 +1,34 @@
-import React, { useState } from "react";
+/**
+ * AgriMarketplace.jsx — P2P Agri-Equipment Marketplace
+ *
+ * Security / correctness fix: all equipment listings and booking requests
+ * are now persisted server-side via the /api/marketplace/* endpoints.
+ *
+ * Previously:
+ *  - 16 listings were hardcoded in INITIAL_EQUIPMENT (client-only).
+ *  - "List Equipment" added entries to React state only — gone on refresh.
+ *  - "Confirm Booking" showed a browser alert() with no API call, no
+ *    Firestore write, and no notification to the equipment owner.
+ *
+ * Now:
+ *  - GET  /api/marketplace/listings  — fetches server-side listings on mount.
+ *  - POST /api/marketplace/listings  — persists new listings (auth required).
+ *  - POST /api/marketplace/bookings  — persists bookings (auth required);
+ *    the owner's listing is marked unavailable server-side.
+ *  - GET  /api/marketplace/bookings  — shows the farmer's own bookings.
+ */
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
 import "./AgriMarketplace.css";
-import { Search, MapPin, Plus, Calendar, Clock, Phone, Info, X } from "lucide-react";
-
-
+import {
+  Search, MapPin, Plus, Calendar, Clock, X, AlertCircle, CheckCircle,
+} from "lucide-react";
+import apiClient from "./lib/apiClient";
 
 const TYPE_ICONS = {
   Tractor:   "🚜",
@@ -10,85 +36,217 @@ const TYPE_ICONS = {
   Drone:     "🚁",
   Tillage:   "⚙️",
   Sowing:    "🌱",
+  Other:     "🔧",
 };
 
-const INITIAL_EQUIPMENT = [
-  { id: 1,  name: "John Deere Tractor 5050D",    type: "Tractor",   price: 800,  priceUnit: "hr",  location: "Karnal, Haryana",      distance: "5 km",  rating: 4.8, owner: "Suresh Kumar",        available: true  },
-  { id: 2,  name: "Mahindra Rice Harvester",      type: "Harvester", price: 2500, priceUnit: "day", location: "Ludhiana, Punjab",      distance: "12 km", rating: 4.5, owner: "Hardeep Singh",       available: true  },
-  { id: 3,  name: "DJI Agras T40 Drone",          type: "Drone",     price: 1500, priceUnit: "hr",  location: "Bhopal, MP",           distance: "8 km",  rating: 4.9, owner: "TechAgri Solutions",   available: false },
-  { id: 4,  name: "Sonalika Rotavator 200",        type: "Tillage",   price: 400,  priceUnit: "hr",  location: "Nagpur, Maharashtra",   distance: "3 km",  rating: 4.2, owner: "Ramesh Patil",        available: true  },
-  { id: 5,  name: "Kubota MU5501 Tractor",         type: "Tractor",   price: 900,  priceUnit: "hr",  location: "Pune, Maharashtra",     distance: "4 km",  rating: 4.7, owner: "Santosh Shinde",      available: true  },
-  { id: 6,  name: "Mahindra JIVO 245 DI",          type: "Tractor",   price: 750,  priceUnit: "hr",  location: "Nashik, Maharashtra",   distance: "6 km",  rating: 4.6, owner: "Ganesh Deshmukh",     available: true  },
-  { id: 7,  name: "Preet 987 Combine Harvester",   type: "Harvester", price: 3200, priceUnit: "day", location: "Amravati, Maharashtra", distance: "9 km",  rating: 4.3, owner: "Vijay Bhalerao",      available: true  },
-  { id: 8,  name: "AgriDrone Sprayer X8",          type: "Drone",     price: 1200, priceUnit: "hr",  location: "Pune, Maharashtra",     distance: "2 km",  rating: 4.8, owner: "DroneAgri Pvt Ltd",   available: true  },
-  { id: 9,  name: "New Holland Excel 4710",        type: "Tractor",   price: 1100, priceUnit: "hr",  location: "Mumbai, Maharashtra",   distance: "15 km", rating: 4.4, owner: "Pramod Jadhav",      available: false },
-  { id: 10, name: "Swaraj 744 FE Tractor",         type: "Tractor",   price: 700,  priceUnit: "hr",  location: "Solapur, Maharashtra",  distance: "7 km",  rating: 4.1, owner: "Arjun Kulkarni",     available: true  },
-  { id: 11, name: "Fieldking Offset Disc Harrow",  type: "Tillage",   price: 350,  priceUnit: "hr",  location: "Aurangabad, Maharashtra",distance: "11 km",rating: 4.0, owner: "Sunil Mane",         available: true  },
-  { id: 12, name: "VST Shakti Tractor 270 DI",     type: "Tractor",   price: 600,  priceUnit: "hr",  location: "Bengaluru, Karnataka",  distance: "10 km", rating: 4.3, owner: "Ravi Naik",          available: true  },
-  { id: 13, name: "CLAAS Crop Tiger 30 Terra",      type: "Harvester", price: 4000, priceUnit: "day", location: "Hyderabad, Telangana",  distance: "18 km", rating: 4.7, owner: "Krishnamurthy Agro",  available: true  },
-  { id: 14, name: "Ecorobotix ARA Sprayer",        type: "Drone",     price: 1800, priceUnit: "hr",  location: "Jaipur, Rajasthan",     distance: "6 km",  rating: 4.9, owner: "SmartFarm Solutions", available: true  },
-  { id: 15, name: "Landforce Potato Planter",      type: "Sowing",    price: 500,  priceUnit: "hr",  location: "Agra, UP",              distance: "5 km",  rating: 4.2, owner: "Dinesh Agarwal",     available: true  },
-  { id: 16, name: "Massey Ferguson 9500",          type: "Tractor",   price: 950,  priceUnit: "hr",  location: "Patna, Bihar",          distance: "14 km", rating: 4.5, owner: "Manoj Singh",        available: false },
-];
+const EMPTY_LISTING = {
+  name: "", type: "Tractor", price: "", priceUnit: "hr", location: "",
+};
 
 export default function AgriMarketplace({ onClose }) {
-  const [equipment, setEquipment] = useState(INITIAL_EQUIPMENT);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [listings, setListings]           = useState([]);
+  const [loadingListings, setLoadingListings] = useState(true);
+  const [listingsError, setListingsError] = useState("");
+
+  const [searchQuery, setSearchQuery]     = useState("");
   const [locationQuery, setLocationQuery] = useState("");
+
   const [showListModal, setShowListModal] = useState(false);
-  const [showBookingModal, setShowBookingModal] = useState(null);
-  const [bookingDate, setBookingDate] = useState("");
-  const [bookingTime, setBookingTime] = useState("");
+  const [newListing, setNewListing]       = useState(EMPTY_LISTING);
+  const [listSubmitting, setListSubmitting] = useState(false);
+  const [listError, setListError]         = useState("");
+  const [listSuccess, setListSuccess]     = useState("");
+
+  const [showBookingModal, setShowBookingModal] = useState(null); // equipmentId | null
+  const [bookingDate, setBookingDate]     = useState("");
+  const [bookingTime, setBookingTime]     = useState("");
   const [bookingDuration, setBookingDuration] = useState("");
-  const [bookingError, setBookingError] = useState("");
-  const [newListing, setNewListing] = useState({
-    name: "",
-    type: "Tractor",
-    price: "",
-    priceUnit: "hr",
-    location: ""
-  });
+  const [bookingSubmitting, setBookingSubmitting] = useState(false);
+  const [bookingError, setBookingError]   = useState("");
+  const [bookingSuccess, setBookingSuccess] = useState("");
+  const mountedRef = useRef(true);
+  const filterRequestRef = useRef(0);
+  const debounceRef = useRef(null);
 
-  const filteredEquipment = equipment.filter(item => 
-    item.name.toLowerCase().includes(searchQuery.toLowerCase()) &&
-    item.location.toLowerCase().includes(locationQuery.toLowerCase())
-  );
+  useEffect(() => {
+    mountedRef.current = true;
 
-  const handleListEquipment = (e) => {
-    e.preventDefault();
-    const listing = {
-      ...newListing,
-      id: equipment.length + 1,
-      distance: "0 km",
-      rating: 5.0,
-      owner: "You",
-      available: true
+    return () => {
+      mountedRef.current = false;
+
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
     };
-    setEquipment([listing, ...equipment]);
-    setShowListModal(false);
-    setNewListing({ name: "", type: "Tractor", price: "", priceUnit: "hr", location: "" });
+  }, []);
+
+  // ── Fetch listings from server ────────────────────────────────────────────
+  const fetchListings = useCallback(async () => {
+    const requestId = ++filterRequestRef.current;
+
+    setLoadingListings(true);
+    setListingsError("");
+    try {
+      const params = new URLSearchParams();
+      if (searchQuery)  params.set("search",   searchQuery);
+      if (locationQuery) params.set("location", locationQuery);
+      const res = await apiClient.get(`/api/marketplace/listings?${params}`);
+
+      if (
+        !mountedRef.current ||
+        requestId !== filterRequestRef.current
+      ) {
+        return;
+      }
+
+      setListings(res.data?.data || []);
+    } catch {
+      if (
+        !mountedRef.current ||
+        requestId !== filterRequestRef.current
+      ) {
+        return;
+      }
+
+      setListingsError(
+        "Failed to load equipment listings. Please try again."
+      );
+    }
+  }, [searchQuery, locationQuery]);
+
+  useEffect(() => {
+    const requestId = ++filterRequestRef.current;
+
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+
+    debounceRef.current = setTimeout(() => {
+      if (
+        mountedRef.current &&
+        requestId === filterRequestRef.current
+      ) {
+        fetchListings();
+      }
+    }, 300);
+
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, [fetchListings]);
+
+  // ── List new equipment ────────────────────────────────────────────────────
+  const handleListEquipment = async (e) => {
+    e.preventDefault();
+    setListError("");
+    setListSuccess("");
+    setListSubmitting(true);
+    try {
+      const res = await apiClient.post("/api/marketplace/listings", {
+        name:      newListing.name,
+        type:      newListing.type,
+        price:     Number(newListing.price),
+        priceUnit: newListing.priceUnit,
+        location:  newListing.location,
+      });
+      const created = res.data?.listing;
+      if (created) {
+        setListings(prev => [created, ...prev]);
+        setListSuccess(`"${created.name}" listed successfully.`);
+        setNewListing(EMPTY_LISTING);
+        setTimeout(() => { setShowListModal(false); setListSuccess(""); }, 1800);
+      }
+    } catch (err) {
+      const status = err?.response?.status;
+      if (status === 401) {
+        setListError("You must be logged in to list equipment.");
+      } else {
+        setListError("Failed to post listing. Please try again.");
+      }
+    } finally {
+      setListSubmitting(false);
+    }
   };
 
-  const handleBooking = (id) => {
-    if (!bookingDate) {
-      setBookingError("Please select a date.");
-      return;
-    }
-    if (!bookingTime) {
-      setBookingError("Please select a start time.");
-      return;
-    }
-    if (!bookingDuration || Number(bookingDuration) < 1) {
-      setBookingError("Please enter a valid duration (minimum 1).");
-      return;
-    }
+  // ── Book equipment ────────────────────────────────────────────────────────
+  const handleBooking = async (equipmentId) => {
+    if (!bookingDate)                          { setBookingError("Please select a date."); return; }
+    if (!bookingTime)                          { setBookingError("Please select a start time."); return; }
+    if (!bookingDuration || Number(bookingDuration) < 1) { setBookingError("Please enter a valid duration (minimum 1)."); return; }
+
     setBookingError("");
-    alert(`Booking request sent for ${equipment.find(e => e.id === id).name}! The owner will contact you shortly.`);
-    setShowBookingModal(null);
-    setBookingDate("");
-    setBookingTime("");
-    setBookingDuration("");
+    setBookingSuccess("");
+    setBookingSubmitting(true);
+
+    try {
+      const res = await apiClient.post("/api/marketplace/bookings", {
+        equipmentId,
+        date:     bookingDate,
+        time:     bookingTime,
+        duration: Number(bookingDuration),
+      });
+      const booking = res.data?.booking;
+      if (booking) {
+        // Mark the listing as unavailable in local state immediately.
+        setListings(prev =>
+          prev.map(l => l.id === equipmentId ? { ...l, available: false } : l)
+        );
+        setBookingSuccess(
+          `Booking confirmed! Booking ID: ${booking.id.slice(0, 8).toUpperCase()}. ` +
+          `The owner has been notified.`
+        );
+        // Close modal after a short delay so the farmer can read the confirmation.
+        setTimeout(() => {
+          setShowBookingModal(null);
+          setBookingDate(""); setBookingTime(""); setBookingDuration("");
+          setBookingSuccess("");
+        }, 2500);
+      }
+    } catch (err) {
+      const status = err?.response?.status;
+      if (status === 401) {
+        setBookingError("You must be logged in to book equipment.");
+      } else if (status === 409) {
+        setBookingError("This equipment is no longer available. Please choose another.");
+        setListings(prev =>
+          prev.map(l => l.id === equipmentId ? { ...l, available: false } : l)
+        );
+      } else if (status === 404) {
+        setBookingError("Equipment listing not found.");
+      } else {
+        setBookingError("Booking failed. Please try again.");
+      }
+    } finally {
+      setBookingSubmitting(false);
+    }
   };
+
+  const selectedItem = useMemo(() => {
+    return showBookingModal
+      ? listings.find(
+          l => l.id === showBookingModal
+        )
+      : null;
+  }, [showBookingModal, listings]);
+
+  const estimatedCost = useMemo(() => {
+    return selectedItem &&
+      bookingDuration &&
+      Number(bookingDuration) > 0
+        ? selectedItem.price *
+            Number(bookingDuration)
+        : null;
+  }, [selectedItem, bookingDuration]);
+
+  const handleSearchChange = useCallback((e) => {
+    setSearchQuery(e.target.value);
+  }, []);
+
+  const handleLocationChange = useCallback((e) => {
+    setLocationQuery(e.target.value);
+  }, []);
 
   return (
     <div className="marketplace-container">
@@ -99,33 +257,40 @@ export default function AgriMarketplace({ onClose }) {
             <Plus size={20} /> List Equipment
           </button>
         </div>
-        
+
         <div className="search-bar-container">
           <div className="search-input">
             <Search size={20} />
-            <input 
-              type="text" 
-              placeholder="Search tractors, harvesters..." 
+            <input
+              type="text"
+              placeholder="Search tractors, harvesters..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={handleSearchChange}
             />
           </div>
           <div className="location-input">
             <MapPin size={20} />
-            <input 
-              type="text" 
-              placeholder="Enter locality..." 
+            <input
+              type="text"
+              placeholder="Enter locality..."
               value={locationQuery}
-              onChange={(e) => setLocationQuery(e.target.value)}
+              onChange={handleLocationChange}
             />
           </div>
         </div>
       </div>
 
-      <div className="equipment-grid">
-        {filteredEquipment.length > 0 ? (
-          filteredEquipment.map(item => (
-            <div key={item.id} className={`equipment-card ${!item.available ? 'unavailable' : ''}`}>
+      {/* Listings grid */}
+      {loadingListings ? (
+        <div className="loading-msg">Loading equipment listings…</div>
+      ) : listingsError ? (
+        <div className="error-msg" role="alert">
+          <AlertCircle size={16} style={{ marginRight: 6 }} />{listingsError}
+        </div>
+      ) : (
+        <div className="equipment-grid">
+          {listings.length > 0 ? listings.map(item => (
+            <div key={item.id} className={`equipment-card ${!item.available ? "unavailable" : ""}`}>
               <div className="card-icon-header">
                 <span className="type-icon">{TYPE_ICONS[item.type] || "🔧"}</span>
                 <div className="badge">{item.type}</div>
@@ -134,33 +299,37 @@ export default function AgriMarketplace({ onClose }) {
               <div className="card-content">
                 <div className="card-header">
                   <h3>{item.name}</h3>
-                  <div className="rating">⭐ {item.rating}</div>
+                  <div className="rating">⭐ {item.rating?.toFixed(1) ?? "—"}</div>
                 </div>
                 <p className="owner">Owner: {item.owner}</p>
                 <div className="details">
                   <div className="detail-item">
-                    <MapPin size={16} /> {item.location} ({item.distance})
+                    <MapPin size={16} /> {item.location}
                   </div>
                   <div className="price">
                     ₹{item.price}<span>/{item.priceUnit}</span>
                   </div>
                 </div>
-                <button 
-                  className="book-btn" 
+                <button
+                  className="book-btn"
                   disabled={!item.available}
-                  onClick={() => setShowBookingModal(item.id)}
+                  onClick={() => {
+                    setShowBookingModal(item.id);
+                    setBookingError(""); setBookingSuccess("");
+                    setBookingDate(""); setBookingTime(""); setBookingDuration("");
+                  }}
                 >
                   {item.available ? "Book Now" : "Unavailable"}
                 </button>
               </div>
             </div>
-          ))
-        ) : (
-          <div className="no-results">
-            <p>No equipment found matching your criteria. Try adjusting your search.</p>
-          </div>
-        )}
-      </div>
+          )) : (
+            <div className="no-results">
+              <p>No equipment found matching your criteria. Try adjusting your search.</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* List Equipment Modal */}
       {showListModal && (
@@ -171,42 +340,33 @@ export default function AgriMarketplace({ onClose }) {
             <form onSubmit={handleListEquipment}>
               <div className="form-group">
                 <label>Equipment Name</label>
-                <input 
-                  type="text" 
-                  required 
-                  placeholder="e.g. Sonalika Tractor" 
+                <input
+                  type="text" required placeholder="e.g. Sonalika Tractor"
                   value={newListing.name}
-                  onChange={(e) => setNewListing({...newListing, name: e.target.value})}
+                  onChange={(e) => setNewListing({ ...newListing, name: e.target.value })}
                 />
               </div>
               <div className="form-row">
                 <div className="form-group">
                   <label>Type</label>
-                  <select 
-                    value={newListing.type}
-                    onChange={(e) => setNewListing({...newListing, type: e.target.value})}
-                  >
+                  <select value={newListing.type} onChange={(e) => setNewListing({ ...newListing, type: e.target.value })}>
                     <option>Tractor</option>
                     <option>Harvester</option>
                     <option>Drone</option>
                     <option>Tillage</option>
                     <option>Sowing</option>
+                    <option>Other</option>
                   </select>
                 </div>
                 <div className="form-group">
                   <label>Price</label>
                   <div className="price-input">
-                    <input 
-                      type="number" 
-                      required 
-                      placeholder="Amount" 
+                    <input
+                      type="number" required placeholder="Amount" min="1"
                       value={newListing.price}
-                      onChange={(e) => setNewListing({...newListing, price: e.target.value})}
+                      onChange={(e) => setNewListing({ ...newListing, price: e.target.value })}
                     />
-                    <select 
-                      value={newListing.priceUnit}
-                      onChange={(e) => setNewListing({...newListing, priceUnit: e.target.value})}
-                    >
+                    <select value={newListing.priceUnit} onChange={(e) => setNewListing({ ...newListing, priceUnit: e.target.value })}>
                       <option value="hr">/hr</option>
                       <option value="day">/day</option>
                     </select>
@@ -215,49 +375,53 @@ export default function AgriMarketplace({ onClose }) {
               </div>
               <div className="form-group">
                 <label>Location</label>
-                <input 
-                  type="text" 
-                  required 
-                  placeholder="Your locality" 
+                <input
+                  type="text" required placeholder="Your locality"
                   value={newListing.location}
-                  onChange={(e) => setNewListing({...newListing, location: e.target.value})}
+                  onChange={(e) => setNewListing({ ...newListing, location: e.target.value })}
                 />
               </div>
-
-              <button type="submit" className="submit-btn">Post Listing</button>
+              {listError && (
+                <div className="error-msg" role="alert">
+                  <AlertCircle size={14} style={{ marginRight: 6 }} />{listError}
+                </div>
+              )}
+              {listSuccess && (
+                <div className="success-msg" role="status">
+                  <CheckCircle size={14} style={{ marginRight: 6 }} />{listSuccess}
+                </div>
+              )}
+              <button type="submit" className="submit-btn" disabled={listSubmitting}>
+                {listSubmitting ? "Posting…" : "Post Listing"}
+              </button>
             </form>
           </div>
         </div>
       )}
 
       {/* Booking Modal */}
-      {showBookingModal && (
+      {showBookingModal && selectedItem && (
         <div className="modal-overlay" onClick={() => setShowBookingModal(null)}>
           <div className="modal-content booking-modal" onClick={(e) => e.stopPropagation()}>
             <button className="close-modal" onClick={() => setShowBookingModal(null)}><X size={24} /></button>
             <h2>📅 Schedule Booking</h2>
             <div className="item-info">
-              <span className="item-info-icon">{TYPE_ICONS[equipment.find(e => e.id === showBookingModal).type] || "🔧"}</span>
+              <span className="item-info-icon">{TYPE_ICONS[selectedItem.type] || "🔧"}</span>
               <div>
-                <h3>{equipment.find(e => e.id === showBookingModal).name}</h3>
-                <p>₹{equipment.find(e => e.id === showBookingModal).price}/{equipment.find(e => e.id === showBookingModal).priceUnit}</p>
+                <h3>{selectedItem.name}</h3>
+                <p>₹{selectedItem.price}/{selectedItem.priceUnit}</p>
               </div>
             </div>
-            
+
             <div className="booking-form">
               <div className="form-group">
                 <label><Calendar size={16} /> Select Date</label>
                 <input
                   type="date"
                   value={bookingDate}
-                  min={new Date().toISOString().split('T')[0]}
+                  min={new Date().toISOString().split("T")[0]}
                   onChange={(e) => { setBookingDate(e.target.value); setBookingError(""); }}
                 />
-                {bookingError && !bookingTime && !bookingDuration && (
-                  <div style={{ color: '#f87171', fontSize: '0.82rem', marginTop: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                    ⚠️ {bookingError}
-                  </div>
-                )}
               </div>
               <div className="form-row">
                 <div className="form-group">
@@ -267,37 +431,41 @@ export default function AgriMarketplace({ onClose }) {
                     value={bookingTime}
                     onChange={(e) => { setBookingTime(e.target.value); setBookingError(""); }}
                   />
-                  {bookingDate && bookingError && !bookingDuration && (
-                    <div style={{ color: '#f87171', fontSize: '0.82rem', marginTop: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                      ⚠️ {bookingError}
-                    </div>
-                  )}
                 </div>
                 <div className="form-group">
-                  <label><Clock size={16} /> Duration ({equipment.find(e => e.id === showBookingModal).priceUnit === 'hr' ? 'Hours' : 'Days'})</label>
+                  <label>
+                    <Clock size={16} /> Duration ({selectedItem.priceUnit === "hr" ? "Hours" : "Days"})
+                  </label>
                   <input
-                    type="number"
-                    min="1"
-                    placeholder="e.g. 5"
+                    type="number" min="1" placeholder="e.g. 5"
                     value={bookingDuration}
                     onChange={(e) => { setBookingDuration(e.target.value); setBookingError(""); }}
                   />
-                  {bookingDate && bookingTime && bookingError && (
-                    <div style={{ color: '#f87171', fontSize: '0.82rem', marginTop: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                      ⚠️ {bookingError}
-                    </div>
-                  )}
                 </div>
               </div>
+
               <div className="total-cost">
                 <span>Estimated Total:</span>
-                <strong>{bookingDuration && Number(bookingDuration) > 0
-                  ? `₹${equipment.find(e => e.id === showBookingModal).price * Number(bookingDuration)}`
-                  : '₹ --'}
-                </strong>
+                <strong>{estimatedCost !== null ? `₹${estimatedCost}` : "₹ --"}</strong>
               </div>
-              <button className="confirm-btn" onClick={() => handleBooking(showBookingModal)}>
-                Confirm Booking
+
+              {bookingError && (
+                <div className="error-msg" role="alert">
+                  <AlertCircle size={14} style={{ marginRight: 6 }} />{bookingError}
+                </div>
+              )}
+              {bookingSuccess && (
+                <div className="success-msg" role="status">
+                  <CheckCircle size={14} style={{ marginRight: 6 }} />{bookingSuccess}
+                </div>
+              )}
+
+              <button
+                className="confirm-btn"
+                onClick={() => handleBooking(showBookingModal)}
+                disabled={bookingSubmitting || !!bookingSuccess}
+              >
+                {bookingSubmitting ? "Confirming…" : "Confirm Booking"}
               </button>
             </div>
           </div>
