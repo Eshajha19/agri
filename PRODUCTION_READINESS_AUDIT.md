@@ -115,3 +115,7 @@ the service will be marked as unhealthy and restarted repeatedly.
 | Scalability | ✅ Ready (free tier) |
 | Reliability | ⚠️ Needs health endpoint |
 | **Overall** | **Ready after health endpoint added** |
+
+### Health & Readiness Endpoints
+- `/health`: Liveness probe. Returns HTTP 200 if service process is alive.
+- `/ready`: Readiness probe. Returns HTTP 200 only if Firestore, Celery broker, and ML models are available. Returns 503 otherwise.

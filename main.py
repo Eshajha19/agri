@@ -8,6 +8,9 @@ import threading
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
+from firebase_admin import firestore
+import celery
+
 from fastapi import FastAPI, HTTPException, Request, Form, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -134,47 +137,46 @@ app = FastAPI()
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok"}
+    # Liveness probe: service is running
+    return {"status": "alive"}
 
-from fastapi import FastAPI
+@app.get("/ready")
+def readiness_check():
+    dependencies = {}
 
-app = FastAPI()
+    # Firestore check
+    try:
+        db = firestore.client()
+        db.collection("test").document("ping").get()
+        dependencies["firestore"] = "ok"
+    except Exception as e:
+        dependencies["firestore"] = f"error: {str(e)}"
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
+    # Celery broker check
+    try:
+        broker_url = os.getenv("CELERY_BROKER_URL")
+        if broker_url:
+            celery_app = celery.Celery(broker=broker_url)
+            celery_app.connection().ensure_connection(max_retries=1)
+            dependencies["celery"] = "ok"
+        else:
+            dependencies["celery"] = "missing broker url"
+    except Exception as e:
+        dependencies["celery"] = f"error: {str(e)}"
 
-from fastapi import FastAPI
+    # ML model check (example: ensure file exists)
+    model_path = "ml/models/crop_predictor.pkl"
+    if os.path.exists(model_path):
+        dependencies["ml_model"] = "ok"
+    else:
+        dependencies["ml_model"] = "missing"
 
-app = FastAPI()
+    all_ok = all(v == "ok" for v in dependencies.values())
+    status_code = 200 if all_ok else 503
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
+    return {"status": "ready" if all_ok else "not ready", "dependencies": dependencies}, status_code
 
-from fastapi import FastAPI
 
-app = FastAPI()
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
-
-from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
-
-from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
 
 # KMS Support
 try:

@@ -279,6 +279,13 @@ Use this checklist to ensure a smooth deployment of the attribute-based access c
 
 ---
 
+
+- [ ] Verify `/health` endpoint responds with 200.
+- [ ] Verify `/ready` endpoint responds with 200 only when dependencies are available.
+- [ ] Configure Render/Kubernetes probes:
+  - Liveness probe → `/health`
+  - Readiness probe → `/ready`
+
 ## Rollback Procedures
 
 ### If Issues Arise
