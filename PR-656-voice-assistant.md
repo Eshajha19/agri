@@ -52,7 +52,7 @@ cd frontend
 npm run dev
 ```
 
-Notes & TODO
+Notes
 ------------
 - STT/TTS implementations include safe placeholders and instructions to enable `vosk` and `pyttsx3` for offline usage; see `VOICE_ASSISTANT_COMBINED.md` for setup.
 - Frontend route was added to `frontend/App.jsx` and the link placed in "More" dropdown. You can add additional links (footer/banner) if desired.

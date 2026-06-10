@@ -109,7 +109,12 @@ export default function WeatherCard({
 
     return advice;
   };
-
+const handleUseMyLocation = useCallback(async () => {
+  await loadWeather(async () => {
+    const location = await getCurrentPosition();
+    return fetchWeatherByLocation(location);
+  });
+}, [loadWeather]);
   /* Auto location load */
   useEffect(() => {
     if (!embedded || snapshot) return;
@@ -163,13 +168,6 @@ export default function WeatherCard({
       return fetchWeatherByLocation(location);
     });
   }, [searchQuery, setWeatherError, loadWeather]);
-
-  const handleUseMyLocation = useCallback(async () => {
-    await loadWeather(async () => {
-      const location = await getCurrentPosition();
-      return fetchWeatherByLocation(location);
-    });
-  }, [loadWeather]);
 
   const topAlert = snapshot?.alerts?.[0];
   const units = snapshot?.units || {};

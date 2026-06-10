@@ -74,7 +74,7 @@ export default function ResourcesPage() {
 
   return (
     <div className="resources-page">
-      
+
       {/* HERO */}
       <div className="resources-hero">
         <h1>Knowledge Hub 🌱</h1>
@@ -100,7 +100,7 @@ export default function ResourcesPage() {
           return (
             <button
               key={type}
-              className={filter === type ? "active" : ""}
+              className={`category-tab ${filter === type ? "active" : ""}`}
               onClick={() => setFilter(type)}
             >
               {type} ({count})
@@ -121,7 +121,7 @@ export default function ResourcesPage() {
 
               <div className="tags">
                 {item.tags.map((tag, i) => (
-                   <span key={i}>{tag}</span>
+                  <span key={i}>{tag}</span>
                 ))}
               </div>
 
@@ -159,9 +159,9 @@ export default function ResourcesPage() {
       <div className="about-section">
         <h2>About Knowledge Hub 🌾</h2>
         <p>
-          This platform is designed to help farmers, students, and agriculture 
-          enthusiasts access reliable knowledge in one place. From seasonal 
-          farming tips to modern agricultural technologies, we aim to simplify 
+          This platform is designed to help farmers, students, and agriculture
+          enthusiasts access reliable knowledge in one place. From seasonal
+          farming tips to modern agricultural technologies, we aim to simplify
           learning and improve productivity.
         </p>
 

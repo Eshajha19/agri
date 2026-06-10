@@ -1,111 +1,190 @@
 import logging
-from typing import Optional, Dict, Any, Tuple
+from typing import Any, Dict, Optional
 
 from ml.registry import ModelRegistry
-from ml.preprocessing import FeaturePreprocessor
+
 
 logger = logging.getLogger(__name__)
 
 
 class ModelRouter:
     """
-    Routes prediction requests to the appropriate registered model.
+    Central ML inference router.
 
-    The router selects a model based on context (location, crop), then
-    delegates preprocessing and prediction to that model's adapter.
-
-    If the selected model is unavailable the router falls back to the
-    default model and logs a warning — it does NOT silently switch to a
-    model with a different feature schema without telling the caller.
+    Responsibilities:
+    - model selection
+    - safe prediction execution
+    - fallback handling
+    - registry validation
     """
 
     def __init__(self, default_model: str = "xgboost"):
         self.default_model = default_model
-        self.preprocessor = FeaturePreprocessor()
 
-    def route(self, context: Dict[str, Any]) -> str:
-        """Return the name of the model to use for this request."""
-        location = context.get("location", "").lower()
-        crop = context.get("crop", "").lower()
+    # =========================================================================
+    # INTERNAL HELPERS
+    # =========================================================================
 
-        if "punjab" in location or "haryana" in location:
-            return "xgboost"
-        elif "karnataka" in location and crop == "rice":
-            return "lstm"
+    def _resolve_model_name(
+        self,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """
+        Resolve model name using request context.
+        """
+
+        if context is None:
+            context = {}
+
+        requested_model = context.get("model")
+
+        if requested_model:
+            try:
+                ModelRegistry.get(requested_model)
+                return requested_model
+
+            except Exception:
+                logger.warning(
+                    "Requested model '%s' unavailable. Falling back.",
+                    requested_model,
+                )
 
         return self.default_model
+
+    def _get_model(self, model_name: str):
+        """
+        Safely retrieve model from registry.
+        """
+
+        try:
+            model = ModelRegistry.get(model_name)
+
+        except Exception as exc:
+            logger.exception(
+                "Failed retrieving model '%s'",
+                model_name,
+            )
+
+            raise RuntimeError(
+                f"Model '{model_name}' unavailable"
+            ) from exc
+
+        if model is None:
+            raise RuntimeError(
+                f"Model '{model_name}' not found"
+            )
+
+        return model
+
+    # =========================================================================
+    # PUBLIC API
+    # =========================================================================
 
     def predict(
         self,
         input_data: Dict[str, Any],
-        context: Dict[str, Any] = None,
-    ) -> float:
+        context: Optional[Dict[str, Any]] = None,
+    ):
         """
-        Preprocess input and run prediction through the selected model.
-
-        Parameters
-        ----------
-        input_data : dict
-            Raw feature dictionary from the API request.
-        context : dict, optional
-            Routing hints (e.g. ``location``, ``crop``).
-
-        Returns
-        -------
-        float
-            Predicted yield value.
-
-        Raises
-        ------
-        ml.preprocessing.UnknownCategoryError
-            If a categorical input value was not seen during training.
-        ml.preprocessing.MissingFeatureError
-            If required feature columns are absent after encoding.
-        ValueError
-            If no model is available (neither selected nor default).
+        Run single-sample prediction using resolved model.
         """
-        if context is None:
-            context = {}
 
-        selected_name = self.route(context)
-        model = ModelRegistry.get_model(selected_name)
-        active_name = selected_name
+        if not isinstance(input_data, dict):
+            raise ValueError("input_data must be dictionary")
 
-        if model is None and selected_name != self.default_model:
-            logger.warning(
-                "Model '%s' is not registered. Falling back to default model '%s'. "
-                "Note: the default model may have been trained on a different feature "
-                "schema — ensure inputs are compatible.",
-                selected_name,
-                self.default_model,
-            )
-            model = ModelRegistry.get_model(self.default_model)
-            active_name = self.default_model
+        model_name = self._resolve_model_name(context)
 
-        if model is None:
-            raise ValueError(
-                f"No model available: '{selected_name}' was selected but is not "
-                f"registered, and the default model '{self.default_model}' is also "
-                "not registered. Check that init_ml_pipeline() completed successfully."
-            )
-
-        # Bind the preprocessor to this model's expected feature schema.
-        # Each model adapter exposes the exact column list it was trained on.
-        if hasattr(model, "feature_names") and model.feature_names:
-            self.preprocessor.feature_cols = model.feature_names
-        else:
-            logger.warning(
-                "Model '%s' does not expose feature_names. "
-                "Preprocessing will not validate column alignment.",
-                active_name,
-            )
-
-        # Raises UnknownCategoryError or MissingFeatureError on bad input —
-        # never silently fills missing columns with 0.
-        processed_df = self.preprocessor.preprocess(input_data)
+        model = self._get_model(model_name)
 
         logger.info(
-            "[ML Router] Routing to model: %s (%s)", active_name, model.model_type
+            "Running single prediction using model='%s'",
+            model_name,
         )
 
-        return model.predict(processed_df)
+        try:
+            prediction = model.predict(input_data)
+
+        except Exception as exc:
+            logger.exception(
+                "Prediction failed for model='%s'",
+                model_name,
+            )
+
+            raise RuntimeError(
+                f"Inference failed for model '{model_name}'"
+            ) from exc
+
+        return prediction
+
+    def predict_batch(
+        self,
+        inputs: list[Dict[str, Any]],
+        context: Optional[Dict[str, Any]] = None,
+    ) -> list[Any]:
+        """
+        Run batch prediction using resolved model.
+
+        Falls back to individual predict() calls if the model adapter
+        does not implement predict_batch().
+        """
+        if not inputs:
+            return []
+
+        model_name = self._resolve_model_name(context)
+        model = self._get_model(model_name)
+
+        logger.info(
+            "Running batch prediction using model='%s', n=%d",
+            model_name,
+            len(inputs),
+        )
+
+        if hasattr(model, "predict_batch"):
+            try:
+                return model.predict_batch(inputs)
+            except Exception as exc:
+                logger.warning(
+                    "Batch predict failed for model='%s', falling back to loop. Error: %s",
+                    model_name,
+                    exc,
+                )
+
+        # Fallback: loop over individual predictions
+        results = []
+        for idx, item in enumerate(inputs):
+            try:
+                results.append(model.predict(item))
+            except Exception as exc:
+                logger.warning("Batch item %d failed: %s", idx, exc)
+                results.append(None)
+
+        return results
+
+    def available_models(self):
+        """
+        Return list of registered models.
+        """
+
+        try:
+            return ModelRegistry.list_models()
+
+        except Exception:
+            logger.exception(
+                "Failed listing models"
+            )
+
+            return []
+
+    def health(self):
+        """
+        Simple router health snapshot.
+        """
+
+        models = self.available_models()
+
+        return {
+            "status": "healthy",
+            "default_model": self.default_model,
+            "registered_models": models,
+            "total_models": len(models),
+        }

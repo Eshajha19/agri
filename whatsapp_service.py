@@ -38,171 +38,260 @@ Fix
 
 import logging
 import os
+import re
 
-from dotenv import load_dotenv
 from twilio.base.exceptions import TwilioRestException
 from twilio.rest import Client
 
-load_dotenv()
-
 logger = logging.getLogger(__name__)
 
-# ── Twilio configuration ──────────────────────────────────────────────────────
-TWILIO_ACCOUNT_SID    = os.getenv("TWILIO_ACCOUNT_SID", "")
-TWILIO_AUTH_TOKEN     = os.getenv("TWILIO_AUTH_TOKEN", "")
-TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER", "+14155238886")
+# =============================================================================
+# ENV CONFIG
+# =============================================================================
 
-# ── Shared client singleton ───────────────────────────────────────────────────
-# Initialised once at module import time.  The Twilio SDK maintains an internal
-# connection pool, so all send operations reuse the same pool of persistent
-# HTTP connections — no per-message TCP/TLS overhead.
-_twilio_client: Client | None = None
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
+TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER", "").strip()
 
-def _init_client() -> Client | None:
-    """Create and return the Twilio Client, or None if credentials are missing."""
-    if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN:
-        logger.warning(
-            "Twilio credentials not configured — "
-            "TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN must be set in .env"
+# =============================================================================
+# VALIDATION
+# =============================================================================
+
+E164_RE = re.compile(r"^\+[1-9]\d{7,14}$")
+
+MAX_MESSAGE_LENGTH = 1500
+
+# =============================================================================
+# TWILIO CLIENT
+# =============================================================================
+
+_client = None
+
+
+def _get_client() -> Client:
+    global _client
+
+    if _client is not None:
+        return _client
+
+    if not TWILIO_ACCOUNT_SID:
+        raise RuntimeError("TWILIO_ACCOUNT_SID missing")
+
+    if not TWILIO_AUTH_TOKEN:
+        raise RuntimeError("TWILIO_AUTH_TOKEN missing")
+
+    _client = Client(
+        TWILIO_ACCOUNT_SID,
+        TWILIO_AUTH_TOKEN,
+    )
+
+    return _client
+
+
+# =============================================================================
+# HELPERS
+# =============================================================================
+
+def _validate_phone_number(phone_number: str) -> str:
+    if not isinstance(phone_number, str):
+        raise ValueError("Phone number must be string")
+
+    phone_number = phone_number.strip()
+
+    if not E164_RE.fullmatch(phone_number):
+        raise ValueError(
+            "Phone number must be valid E.164 format"
         )
-        return None
+
+    return phone_number
+
+
+def _sanitize_message(message: str) -> str:
+    if not isinstance(message, str):
+        raise ValueError("Message must be string")
+
+    message = message.strip()
+
+    if not message:
+        raise ValueError("Message cannot be empty")
+
+    message = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", message)
+
+    if len(message) > MAX_MESSAGE_LENGTH:
+        message = message[:MAX_MESSAGE_LENGTH]
+
+    return message
+
+
+# =============================================================================
+# PUBLIC API
+# =============================================================================
+
+def format_alert_message(alert_type: str, message: str) -> str:
+    """
+    Create formatted WhatsApp alert message.
+    """
+
+    alert_type = (alert_type or "").strip().lower()
+
+    emoji_map = {
+        "weather": "🌦️",
+        "pest": "🐛",
+        "advisory": "📢",
+    }
+
+    title_map = {
+        "weather": "WEATHER ALERT",
+        "pest": "PEST ALERT",
+        "advisory": "FARM ADVISORY",
+    }
+
+    emoji = emoji_map.get(alert_type, "📢")
+    title = title_map.get(alert_type, "ALERT")
+
+    message = _sanitize_message(message)
+
+    return (
+        f"{emoji} *{title}*\n\n"
+        f"{message}\n\n"
+        f"- Fasal Saathi"
+    )
+
+
+def send_whatsapp_message(
+    phone_number: str,
+    message: str,
+) -> Dict:
+    """
+    Send WhatsApp message safely using Twilio.
+    """
+
     try:
-        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-        logger.info("Twilio client initialised (account: %s…)", TWILIO_ACCOUNT_SID[:8])
-        return client
-    except Exception as exc:
-        logger.error("Failed to initialise Twilio client: %s", exc)
-        return None
+        phone_number = _validate_phone_number(phone_number)
+        message = _sanitize_message(message)
 
-_twilio_client = _init_client()
+        if not TWILIO_WHATSAPP_NUMBER:
+            raise RuntimeError(
+                "TWILIO_WHATSAPP_NUMBER missing"
+            )
 
+        client = _get_client()
 
-def get_twilio_client() -> Client | None:
-    """
-    Return the shared Twilio client singleton.
-
-    Returns None when credentials are missing or initialisation failed.
-    Callers should treat None as a non-retryable configuration error.
-    """
-    return _twilio_client
-
-
-def send_whatsapp_message(to_number: str, message_body: str) -> dict:
-    """
-    Send a WhatsApp message via the shared Twilio client.
-
-    Parameters
-    ----------
-    to_number : str
-        Recipient phone number with country code (e.g. +911234567890).
-        The ``whatsapp:`` prefix is added automatically if absent.
-    message_body : str
-        Text content of the message.
-
-    Returns
-    -------
-    dict
-        Always returns a dict with at least:
-          - ``success`` (bool)
-          - ``status``  (str) — one of:
-              "success" | "not_configured" | "rate_limited" |
-              "client_error" | "server_error" | "error"
-        On success also includes:
-          - ``sid`` (str) — Twilio message SID
-        On failure also includes:
-          - ``error`` (str) — human-readable description
-          - ``code``  (int, optional) — Twilio error code when available
-    """
-    client = get_twilio_client()
-    if client is None:
-        return {
-            "success": False,
-            "status": "not_configured",
-            "error": "Twilio client is not initialised. Check credentials.",
-        }
-
-    # Normalise the recipient number to the whatsapp: URI scheme.
-    if not to_number.startswith("whatsapp:"):
-        to_number = f"whatsapp:{to_number}"
-
-    try:
-        message = client.messages.create(
+        twilio_message = client.messages.create(
+            body=message,
             from_=f"whatsapp:{TWILIO_WHATSAPP_NUMBER}",
-            body=message_body,
-            to=to_number,
+            to=f"whatsapp:{phone_number}",
         )
-        logger.debug("WhatsApp message sent to %s — SID: %s", to_number, message.sid)
-        return {"success": True, "status": "success", "sid": message.sid}
+
+        logger.info(
+            "WhatsApp message sent successfully sid=%s to=%s",
+            twilio_message.sid,
+            phone_number[-4:],
+        )
+
+        return {
+            "success": True,
+            "status": "sent",
+            "sid": twilio_message.sid,
+        }
 
     except TwilioRestException as exc:
-        # Distinguish rate-limit errors from other Twilio API errors so
-        # callers can implement back-off or skip retries appropriately.
-        if exc.status == 429:
-            logger.warning(
-                "Twilio rate limit hit sending to %s (code=%s): %s",
-                to_number, exc.code, exc.msg,
-            )
-            return {
-                "success": False,
-                "status": "rate_limited",
-                "error": "Twilio rate limit exceeded. Retry after a delay.",
-                "code": exc.code,
-            }
-        if 400 <= exc.status < 500:
-            logger.error(
-                "Twilio client error sending to %s (HTTP %s, code=%s): %s",
-                to_number, exc.status, exc.code, exc.msg,
-            )
-            return {
-                "success": False,
-                "status": "client_error",
-                "error": exc.msg,
-                "code": exc.code,
-            }
-        # 5xx — Twilio server-side error
         logger.error(
-            "Twilio server error sending to %s (HTTP %s, code=%s): %s",
-            to_number, exc.status, exc.code, exc.msg,
+            "Twilio API error code=%s message=%s",
+            getattr(exc, "code", "unknown"),
+            str(exc),
         )
+
         return {
             "success": False,
-            "status": "server_error",
-            "error": exc.msg,
-            "code": exc.code,
+            "status": "twilio_error",
+            "error": str(exc),
         }
 
     except Exception as exc:
-        logger.exception("Unexpected error sending WhatsApp message to %s", to_number)
-        return {"success": False, "status": "error", "error": str(exc)}
+        logger.exception(
+            "WhatsApp send failed"
+        )
+
+        return {
+            "success": False,
+            "status": "internal_error",
+            "error": str(exc),
+        }
+
+
+def sanitise_message(text: str) -> str:
+    """Strip ASCII control characters (0x00-0x1F, 0x7F) except \\n, \\r, \\t."""
+    return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
 
 
 def format_alert_message(alert_type: str, content: str) -> str:
     """
-    Format an alert payload into a WhatsApp-friendly message string.
-
-    Parameters
-    ----------
-    alert_type : str
-        One of "weather", "pest", "advisory", or any other string.
-    content : str
-        The body text of the alert.
-
-    Returns
-    -------
-    str
-        Formatted WhatsApp message with emoji header and footer.
+    Process inbound WhatsApp webhook messages.
     """
+    content = sanitise_message(content)
     header = "🌾 *Fasal Saathi Alert* 🌾\n\n"
 
-    icons = {
-        "weather":  ("⛈️",  "*Weather Warning*"),
-        "pest":     ("🐛",  "*Pest Outbreak Alert*"),
-        "advisory": ("📝",  "*Farming Advisory*"),
-    }
-    icon, title = icons.get(alert_type, ("📢", "*Notification*"))
+    body = _sanitize_message(body)
+    sender_number = _validate_phone_number(sender_number)
 
-    return (
-        f"{header}{icon} {title}\n\n"
-        f"{content}\n\n"
-        "_Stay safe and stay informed with Fasal Saathi._"
+    normalized = body.lower().strip()
+
+    if normalized in {"hi", "hello", "start"}:
+        reply = (
+            "🙏 Welcome to Fasal Saathi!\n\n"
+            "Available commands:\n"
+            "- weather\n"
+            "- help\n"
+            "- market\n"
+            "- support"
+        )
+
+        return send_whatsapp_message(
+            sender_number,
+            reply,
+        )
+
+    if normalized == "help":
+        reply = (
+            "📘 Fasal Saathi Help\n\n"
+            "Send:\n"
+            "- weather\n"
+            "- market\n"
+            "- support"
+        )
+
+        return send_whatsapp_message(
+            sender_number,
+            reply,
+        )
+
+    if normalized == "weather":
+        reply = (
+            "🌦️ Weather updates feature connected successfully."
+        )
+
+        return send_whatsapp_message(
+            sender_number,
+            reply,
+        )
+
+    if normalized == "market":
+        reply = (
+            "📈 Market prices feature connected successfully."
+        )
+
+        return send_whatsapp_message(
+            sender_number,
+            reply,
+        )
+
+    reply = (
+        "❓ Unknown command.\n"
+        "Send 'help' to view commands."
+    )
+
+    return send_whatsapp_message(
+        sender_number,
+        reply,
     )

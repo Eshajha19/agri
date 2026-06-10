@@ -28,6 +28,12 @@
   --p-size: 1.15rem;
   /* ~20.7px */
   /* Slightly larger than standard for better readability */
+  --tab-bg: var(--card-bg);
+  --tab-text: var(--text-primary);
+  --tab-hover-bg: var(--accent-color);
+  --tab-hover-text: #fff;
+  --tab-active-bg: var(--accent-color);
+  --tab-active-text: #fff;
 }
 
 /* Dark theme overrides (applied via <html class="theme-dark">) */
@@ -51,6 +57,12 @@
   --chat-bot-bg: rgba(255, 255, 255, 0.08);
 
   --focus-ring: rgba(34, 197, 94, 0.45);
+  --tab-bg: var(--card-bg);
+  --tab-text: var(--text-primary);
+  --tab-hover-bg: var(--accent-color);
+  --tab-hover-text: #fff;
+  --tab-active-bg: var(--accent-color);
+  --tab-active-text: #fff;
 }
 
 .theme-night {
@@ -73,6 +85,12 @@
   --chat-bot-bg: rgba(104, 66, 35, 0.38);
 
   --focus-ring: rgba(248, 194, 125, 0.42);
+  --tab-bg: var(--card-bg);
+  --tab-text: var(--text-primary);
+  --tab-hover-bg: var(--accent-color);
+  --tab-hover-text: #fff;
+  --tab-active-bg: var(--accent-color);
+  --tab-active-text: #fff;
 }
 
 * {
@@ -94,6 +112,12 @@
   --border-color: #000000;
   --base-size: 22px;
   --p-size: 1.5rem;
+  --tab-bg: #f0f0f0;        
+  --tab-text: #000000;     
+  --tab-hover-bg: var(--accent-color);
+  --tab-hover-text: #fff;
+  --tab-active-bg: var(--accent-color);
+  --tab-active-text: #fff;
 }
 
 body {
