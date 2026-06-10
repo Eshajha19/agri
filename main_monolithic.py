@@ -268,7 +268,7 @@ async def verify_role(request: Request, required_roles: list = None):
 
     # Verify the token signature with Firebase — raises on invalid/expired tokens.
     try:
-        decoded_token = firebase_auth.verify_id_token(id_token)
+        decoded_token = firebase_auth.verify_id_token(id_token, check_revoked=True)
     except Exception:
         raise HTTPException(status_code=401, detail="Authentication failed")
 
