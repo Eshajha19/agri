@@ -82,37 +82,37 @@ class Permission(Enum):
     FINANCE_UPDATE_OWN = "finance:update:own"
     FINANCE_UPDATE_ALL = "finance:update:all"
     FINANCE_DELETE = "finance:delete"
-    
+
     # Supply Chain
     SUPPLY_CHAIN_CREATE = "supply_chain:create"
     SUPPLY_CHAIN_READ = "supply_chain:read"
     SUPPLY_CHAIN_UPDATE = "supply_chain:update"
     SUPPLY_CHAIN_DELETE = "supply_chain:delete"
-    
+
     # Notifications
     NOTIFICATIONS_READ = "notifications:read"
     NOTIFICATIONS_CREATE = "notifications:create"
     NOTIFICATIONS_DELETE = "notifications:delete"
-    
+
     # Reports
     REPORTS_CREATE = "reports:create"
     REPORTS_READ_OWN = "reports:read:own"
     REPORTS_READ_ALL = "reports:read:all"
     REPORTS_DELETE = "reports:delete"
-    
+
     # Quality Grading
     QUALITY_ASSESS = "quality:assess"
     QUALITY_READ = "quality:read"
-    
+
     # Seeds
     SEEDS_VERIFY = "seeds:verify"
     SEEDS_READ = "seeds:read"
-    
+
     # WhatsApp
     WHATSAPP_SUBSCRIBE = "whatsapp:subscribe"
     WHATSAPP_TRIGGER = "whatsapp:trigger"
     WHATSAPP_WEBHOOK = "whatsapp:webhook"
-    
+
     # System
     SYSTEM_LOG = "system:log"
     SYSTEM_ADMIN = "system:admin"
@@ -157,7 +157,7 @@ class RBACMatrix:
             Permission.FINANCE_UPDATE_OWN,
             Permission.FINANCE_READ_OWN,
         ],
-        
+
         Role.EXPERT: [
             # Expert: Read finance/supply chain, assess quality, verify seeds
             Permission.FINANCE_READ_ALL,
@@ -172,7 +172,7 @@ class RBACMatrix:
             Permission.RAG_QUERY,
             Permission.CLIMATE_SIMULATE,
         ],
-        
+
         Role.FARMER: [
             # Farmer: Read own finance, create supply chain, quality checks
             Permission.FINANCE_CREATE,
@@ -191,7 +191,7 @@ class RBACMatrix:
             Permission.RAG_QUERY,
             Permission.CLIMATE_SIMULATE,
         ],
-        
+
         Role.VENDOR: [
             # Vendor: Read supply chain, manage marketplace
             Permission.SUPPLY_CHAIN_READ,
@@ -204,7 +204,7 @@ class RBACMatrix:
             Permission.RAG_QUERY,
             Permission.CLIMATE_SIMULATE,
         ],
-        
+
         Role.SYSTEM: [
             # System: All permissions (for internal processes)
             Permission.FINANCE_CREATE,
@@ -218,7 +218,7 @@ class RBACMatrix:
             Permission.SYSTEM_LOG,
             Permission.WHATSAPP_WEBHOOK,
         ],
-        
+
         Role.GUEST: [
             # Guest: Read-only public data
             Permission.RAG_QUERY,
@@ -398,13 +398,16 @@ class RBACManager:
                 detail="Invalid or expired authorization token",
             )
 
-        db = RBACManager.get_db()
-        if db is None:
-            logger.error("Firestore not available; cannot retrieve user role")
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Authentication database service temporarily unavailable",
-            )
+            # Verify Firebase token
+            try:
+                decoded_token = firebase_auth.verify_id_token(token, check_revoked=True)
+                uid = decoded_token.get("uid")
+            except Exception as exc:
+                logger.error("Token verification failed: %s", exc)
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid or expired authorization token"
+                )
 
         try:
             # Firestore's .get() is a blocking network call; run it off the
@@ -454,6 +457,13 @@ class RBACManager:
                 claim_tenant,
                 tenant_id,
             )
+
+
+
+
+
+
+
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=STALE_TOKEN_DETAIL,
@@ -642,26 +652,16 @@ class RBACMiddleware(BaseHTTPMiddleware):
     def __init__(self, app):
         super().__init__(app)
 
-    async def dispatch(self, request: Request, call_next):
-        """Log all API requests with user role."""
+    async def __call__(self, request: Request, call_next):
+        """Log all API requests."""
         path = request.url.path
-        if any(path.startswith(prefix) for prefix in self.PUBLIC_PATH_PREFIXES):
-            user_role = Role.GUEST
-        else:
-            try:
-                user_role = await RBACManager.get_user_role(request)
-            except HTTPException:
-                user_role = Role.GUEST
-
-        # Log the access attempt
+        response = await call_next(request)
         logger.info(
-            "API Request - Method: %s, Path: %s, Role: %s",
+            "API Response - Method: %s, Path: %s, Status: %s",
             request.method,
             path,
-            user_role.value if user_role else "unknown",
+            response.status_code,
         )
-
-        response = await call_next(request)
         return response
 
 
