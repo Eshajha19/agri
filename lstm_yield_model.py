@@ -1,45 +1,173 @@
+import joblib
 import pandas as pd
 import numpy as np
+import logging
+import os
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import List
 from sklearn.preprocessing import MinMaxScaler
+import joblib
 
-# Load data
-df = pd.read_csv("Train.csv")
+# Configure logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger(__name__)
 
-df['SDate'] = pd.to_datetime(df['SDate'], errors='coerce', dayfirst=True)
-df = df.dropna(subset=['SDate'])
-df = df.sort_values('SDate')
+# Global variables for model and scaler caching
+model = None
+scaler = None
 
-df = df.groupby('SDate')['ExpYield'].mean().reset_index()
-df.set_index('SDate', inplace=True)
+MODEL_PATH = "lstm_yield_model.keras"
+SCALER_PATH = "lstm_yield_scaler.joblib"
 
-print("After grouping:")
-print(df.head())
+class PredictionRequest(BaseModel):
+    # Expecting sequential data for LSTM
+    # e.g., list of past 'seq_length' values
+    features: List[List[float]]
 
-# Scaling
-scaler = MinMaxScaler()
-scaled_data = scaler.fit_transform(df)
+class PredictionResponse(BaseModel):
+    prediction: float
 
-def create_sequences(data, seq_length=5):
-    X, y = [], []
-    for i in range(len(data) - seq_length):
-        X.append(data[i:i+seq_length])
-        y.append(data[i+seq_length])
-    return np.array(X), np.array(y)
+def train_and_save_model():
+    """Original script functionality: Train and save the model."""
+    logger.info("Starting model training process...")
+    try:
+        from tensorflow.keras.models import Sequential
+        from tensorflow.keras.layers import LSTM, Dense
+        
+        # Load data
+        df = pd.read_csv("Train.csv")
 
-X, y = create_sequences(scaled_data)
+        df['SDate'] = pd.to_datetime(df['SDate'], errors='coerce', dayfirst=True)
+        df = df.dropna(subset=['SDate'])
+        df = df.sort_values('SDate')
 
-print("X shape:", X.shape)
-print("y shape:", y.shape)
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense
+        df = df.groupby('SDate')['ExpYield'].mean().reset_index()
+        df.set_index('SDate', inplace=True)
 
-model = Sequential([
-    LSTM(64, activation='relu', input_shape=(X.shape[1], 1)),
-    Dense(1)
-])
+        logger.info(f"Data after grouping:\n{df.head()}")
 
-model.compile(optimizer='adam', loss='mse')
+        # Scaling
+        scaler.fit(df)
+        scaled_data = scaler.transform(df)
 
-model.fit(X, y, epochs=20, batch_size=16)
-model.save("lstm_yield_model.keras")
-print("✅ LSTM model trained and saved")
+        def create_sequences(data, seq_length=5):
+            X, y = [], []
+            for i in range(len(data) - seq_length):
+                X.append(data[i:i+seq_length])
+                y.append(data[i+seq_length])
+            return np.array(X), np.array(y)
+
+        X, y = create_sequences(scaled_data)
+
+        logger.info(f"X shape: {X.shape}")
+        logger.info(f"y shape: {y.shape}")
+
+        model_seq = Sequential([
+            LSTM(64, activation='relu', input_shape=(X.shape[1], 1)),
+            Dense(1)
+        ])
+
+        model_seq.compile(optimizer='adam', loss='mse')
+        model_seq.fit(X, y, epochs=20, batch_size=16)
+        model_seq.save(MODEL_PATH)
+        joblib.dump(scaler, SCALER_PATH)
+        logger.info("✅ LSTM model trained and saved successfully.")
+    except Exception as e:
+        logger.error(f"Error during training: {str(e)}")
+        raise
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup logic: Load the model into memory ONCE during application startup
+    global model, scaler
+    logger.info("Starting up FastAPI application...")
+    
+    # We delay keras import to avoid slow startup if not needed
+    try:
+        from tensorflow.keras.models import load_model
+        if not os.path.exists(MODEL_PATH):
+            logger.warning(f"Model file {MODEL_PATH} not found. Attempting to train...")
+            train_and_save_model()
+            
+        logger.info(f"Loading model from {MODEL_PATH}...")
+        model = load_model(MODEL_PATH)
+        logger.info("✅ Model loaded into memory successfully.")
+        
+        if os.path.exists(SCALER_PATH):
+            scaler = joblib.load(SCALER_PATH)
+            logger.info("✅ Scaler loaded from %s", SCALER_PATH)
+        else:
+            logger.warning("Scaler file %s not found — predictions will NOT be inverse-transformed.", SCALER_PATH)
+    except Exception as e:
+        logger.error(f"Failed to load model on startup: {str(e)}")
+        # If model is None, endpoints will handle it gracefully.
+        
+    yield
+    
+    # Shutdown logic
+    logger.info("Shutting down FastAPI application... Cleaning up resources.")
+    model = None
+    scaler = None
+
+
+# Initialize FastAPI application with lifespan event
+app = FastAPI(
+    title="LSTM Yield Inference API",
+    description="Dedicated inference server for LSTM yield model, loading model once on startup to avoid latency.",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+
+@app.post("/predict", response_model=PredictionResponse)
+async def predict(request: PredictionRequest):
+    """
+    Inference endpoint.
+    Expects input features matching the sequence length used during training.
+    """
+    if model is None:
+        raise HTTPException(status_code=503, detail="Model is not loaded. Cannot serve predictions.")
+    
+    try:
+        # Convert request data to numpy array
+        # Reshape to match the expected input shape: (batch_size, sequence_length, num_features)
+        input_data = np.array(request.features)
+        
+        if len(input_data.shape) == 2:
+            input_data = np.expand_dims(input_data, axis=0)
+            
+        logger.info(f"Received prediction request with input shape: {input_data.shape}")
+        
+        # The model is cached in memory, so prediction is fast and doesn't hit disk
+        prediction_scaled = model.predict(input_data)
+        
+        # Inverse-transform to restore original yield scale
+        if scaler is not None:
+            pred_value = float(scaler.inverse_transform(prediction_scaled)[0][0])
+        else:
+            logger.warning("Scaler not available — returning raw scaled prediction")
+            pred_value = float(prediction_scaled[0][0])
+        
+        # Inverse-transform to original yield unit
+        if scaler is not None:
+            pred_value = float(scaler.inverse_transform([[pred_value]])[0][0])
+        
+        return PredictionResponse(prediction=pred_value)
+    
+    except Exception as e:
+        logger.error(f"Error during prediction: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint to verify model status."""
+    status = "healthy" if model is not None else "degraded"
+    return {"status": status, "model_loaded": model is not None}
+
+if __name__ == "__main__":
+    # When run as a script, we start the inference server locally
+    import uvicorn
+    # Note: Run it on a specific port for the dedicated inference server
+    uvicorn.run("lstm_yield_model:app", host="0.0.0.0", port=8001, reload=False)
