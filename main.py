@@ -86,7 +86,7 @@ from feature_flags.routes import router as flags_router
 from ml.adapters.xgboost_adapter import XGBoostAdapter
 from ml.governance import DriftDetector, ModelVersionManager, ShadowEvaluator
 from ml.registry import ModelRegistry
-from ml.router import ModelRouter
+from ml.router import ModelRouter, init_governance_router
 from ml.preprocessing import UnknownCategoryError, MissingFeatureError
 
 # Other internal modules
@@ -231,6 +231,7 @@ async def lifespan(app: FastAPI):
         model_trend = None
 
     ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend)
+    init_governance_router(drift_detector, shadow_evaluator, version_manager)
 
     yield
     # Shutdown

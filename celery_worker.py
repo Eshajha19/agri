@@ -49,7 +49,7 @@ def _get_ml_router():
     global _ml_router
     if _ml_router is None:
         try:
-            from ml.router import ModelRouter
+            from ml.router import ModelRouter, init_governance_router
             from ml.registry import ModelRegistry
             from ml.adapters.xgboost_adapter import XGBoostAdapter
             
@@ -57,6 +57,13 @@ def _get_ml_router():
             if os.path.exists("yield_model.joblib"):
                 xgb_adapter.load("yield_model.joblib")
                 ModelRegistry.register("xgboost", xgb_adapter)
+            
+            # Initialise governance in this worker so predictions are tracked
+            from ml.governance import DriftDetector, ShadowEvaluator, ModelVersionManager
+            _dd = DriftDetector()
+            _se = ShadowEvaluator()
+            _vm = ModelVersionManager(versions_dir="./model_versions")
+            init_governance_router(_dd, _se, _vm)
             
             _ml_router = ModelRouter(default_model="xgboost")
         except Exception as e:
