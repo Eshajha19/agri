@@ -449,14 +449,21 @@ class RBACManager:
                     detail=STALE_TOKEN_DETAIL,
                 )
 
-        claim_tenant = RBACManager._extract_tenant(decoded_token)
-        if claim_tenant and tenant_id and claim_tenant != tenant_id:
-            logger.warning(
-                "Stale JWT tenant for uid=%s: claim=%s firestore=%s",
-                uid,
-                claim_tenant,
-                tenant_id,
-            )
+            if not user_doc.exists:
+                logger.warning("User %s not found in Firestore, defaulting to farmer", uid)
+                return Role.FARMER
+
+            role_str = user_doc.get("role", "farmer").lower()
+            try:
+                return Role(role_str)
+            except ValueError:
+                logger.warning("Invalid role for user %s: %s, defaulting to farmer", uid, role_str)
+                return Role.FARMER
+
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("Unexpected error getting user role: %s", exc)
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=STALE_TOKEN_DETAIL,
