@@ -1885,6 +1885,14 @@ async def notifications_stream(websocket: WebSocket):
     await notification_broker.connect(websocket, uid, regions=_resolve_websocket_regions(uid, websocket))
 
 
+@app.get("/metrics")
+async def metrics_endpoint(request: Request):
+    """Prometheus metrics, restricted to admin/expert roles."""
+    await verify_role(request, required_roles=["admin", "expert"])
+    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
 @app.get("/api/admin/rbac-audit")
 @limiter.limit("10/minute")
 async def get_rbac_audit(request: Request, limit: int = Query(default=50, ge=1, le=200)):
@@ -2101,17 +2109,9 @@ try:
     from prometheus_fastapi_instrumentator import Instrumentator
 
     Instrumentator().instrument(app)
-
-    @app.get("/metrics")
-    async def metrics(request: Request):
-        if verify_role is None:
-            raise HTTPException(status_code=500, detail="Auth service not initialized")
-        # Only admins may view operational telemetry.
-        await verify_role(request, required_roles=["admin"])
-        from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
+    instrumentator = None
 
 
 @app.get("/health/autoscale")
