@@ -3,10 +3,11 @@ import { Link } from "react-router-dom";
 import {
   FaLeaf, FaBullseye, FaEye, FaHeart, FaSeedling,
   FaBrain, FaSun, FaHandHoldingWater, FaChartLine,
-  FaShieldAlt, FaRocket, FaGlobe,
-  FaGithub, FaLinkedin, FaTwitter, FaArrowRight,
-  FaCrown,
+  FaShieldAlt, FaRocket, FaGlobe, FaGlobeAsia,
+  FaGithub, FaLinkedin, FaLightbulb, FaRobot,
+  FaArrowRight,
 } from "react-icons/fa";
+import { Wheat, Tractor, Bird, Sprout, UserCheck } from "lucide-react";
 import "./AboutUs.css";
 
 const VALUES = [
@@ -26,20 +27,20 @@ const FEATURES = [
 ];
 
 const TIMELINE = [
-  { year: "2022", title: "Idea Born", desc: <><span className="notranslate" translate="no">Fasal Saathi</span> started as a college project to solve real problems faced by Indian farmers.</>, emoji: "💡" },
-  { year: "2023", title: "First Prototype", desc: "Launched MVP with crop recommendations and basic weather alerts for 3 states.", emoji: "🚀" },
-  { year: "2024", title: "Multi-language Launch", desc: "Expanded to 12 Indian languages and onboarded 10,000+ farmers.", emoji: "🌍" },
-  { year: "2025", title: "AI Integration", desc: "Integrated machine learning models for yield prediction and soil analysis.", emoji: "🤖" },
-  { year: "2026", title: "Growing Strong", desc: "50,000+ farmers, community features, and expanding to more regions.", emoji: "🌱" },
+  { year: "2022", title: "Idea Born", desc: <><span className="notranslate" translate="no">Fasal Saathi</span> started as a college project to solve real problems faced by Indian farmers.</>, emoji: <FaLightbulb /> },
+  { year: "2023", title: "First Prototype", desc: "Launched MVP with crop recommendations and basic weather alerts for 3 states.", emoji: <FaRocket /> },
+  { year: "2024", title: "Multi-language Launch", desc: "Expanded to 12 Indian languages and onboarded 10,000+ farmers.", emoji: <FaGlobeAsia /> },
+  { year: "2025", title: "AI Integration", desc: "Integrated machine learning models for yield prediction and soil analysis.", emoji: <FaRobot /> },
+  { year: "2026", title: "Growing Strong", desc: "50,000+ farmers, community features, and expanding to more regions.", emoji: <FaSeedling /> },
 ];
 
 const TEAM = [
-    { name: "Esha Jha", role: "Owner & Backend+Frontend Developer", github: "#", linkedin: "#", twitter: "#", initial: "E", isOwner: true },
-    { name: "Eshita Jha", role: "Owner & Research Analyst", github: "#", linkedin: "#", twitter: "#", initial: "E", isOwner: true },
-    { name: "Shreyshi Sriwastav", role: "Owner & ML Engineer", github: "#", linkedin: "#", twitter: "#", initial: "S", isOwner: true },
-    { name: "Annsu Choudhary", role: "Owner & Backend Developer", github: "#", linkedin: "#", twitter: "#", initial: "A", isOwner: true },
-    { name: "Devanshi Singh", role: "Owner & Research Analyst", github: "#", linkedin: "#", twitter: "#", initial: "D", isOwner: true },
-    { name: "Bhargavi Kanojiya", role: "Owner & ML Engineer", github: "#", linkedin: "#", twitter: "#", initial: "B", isOwner: true },
+  { name: "Esha Jha", role: "Owner & Backend+Frontend Developer", initial: "E", accent: "#fde0c5", github: "#", linkedin: "#" },
+  { name: "Eshita Jha", role: "Owner & Research Analyst", initial: "E", accent: "#f9c0c0", github: "#", linkedin: "#" },
+  { name: "Shreyshi Sriwastav", role: "Owner & ML Engineer", initial: "S", accent: "#d7e7ff", github: "#", linkedin: "#" },
+  { name: "Annsu Choudhary", role: "Owner & Backend Developer", initial: "A", accent: "#f9d7b1", github: "#", linkedin: "#" },
+  { name: "Devanshi Singh", role: "Owner & Research Analyst", initial: "D", accent: "#d9eff2", github: "#", linkedin: "#" },
+  { name: "Bhargavi Kanojiya", role: "Owner & ML Engineer", initial: "B", accent: "#f3d7ef", github: "#", linkedin: "#" },
 ];
 
 const FARM_ICONS = [];
@@ -228,37 +229,44 @@ export default function AboutUs() {
       {/* TEAM */}
       <div className="about-section">
         <div className="about-section-header">
-          <div className="about-section-badge">The Team</div>
-           <h2>People Behind <span className="notranslate" translate="no">Fasal Saathi</span></h2>
-          <p>A passionate group of developers and agri-tech enthusiasts.</p>
+          <div className="about-section-badge about-section-badge-team">The Team</div>
+          <h2>Meet Our Team</h2>
+          <p>A passionate group of developers and agri-tech enthusiasts behind <span className="notranslate" translate="no">Fasal Saathi</span>.</p>
         </div>
-        <div className="about-team-grid">
-{TEAM.map((m, i) => (
-             <div className="about-team-card" key={i}>
-               <div className="team-avatar">{m.initial}</div>
-                <h3><span className="notranslate">{m.name}</span></h3>
-                <p><span className="notranslate">{m.role}</span></p>
-               {m.isOwner && (
-                 <div className="founder-badge">
-                   <FaCrown /> Owner
-                 </div>
-               )}
-               {/* TODO: Replace href="#" with real social profile links */}
-               <div className="team-socials">
-                 {m.github && m.github !== "#" && <a href={m.github} aria-label="GitHub" target="_blank" rel="noopener noreferrer"><FaGithub /></a>}
-                 {m.linkedin && m.linkedin !== "#" && <a href={m.linkedin} aria-label="LinkedIn" target="_blank" rel="noopener noreferrer"><FaLinkedin /></a>}
-                 {m.twitter && m.twitter !== "#" && <a href={m.twitter} aria-label="Twitter" target="_blank" rel="noopener noreferrer"><FaTwitter /></a>}
-               </div>
-             </div>
-           ))}
+        <div className="team-showcase">
+          <div className="team-showcase-track">
+            {TEAM.map((m) => (
+              <article className="team-showcase-card" key={m.name} style={{ "--team-accent": m.accent }}>
+                <div className="team-showcase-card-top">
+                  <div className="team-showcase-avatar">{m.initial}</div>
+                </div>
+                <div className="team-showcase-card-body">
+                  <h3><span className="notranslate">{m.name}</span></h3>
+                  <p><span className="notranslate">{m.role}</span></p>
+                  <div className="team-showcase-socials">
+                    <a href={m.github} aria-label={`${m.name} GitHub`} target="_blank" rel="noreferrer">
+                      <FaGithub />
+                    </a>
+                    <a href={m.linkedin} aria-label={`${m.name} LinkedIn`} target="_blank" rel="noreferrer">
+                      <FaLinkedin />
+                    </a>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
         </div>
       </div>
 
       {/* CTA */}
       <section className="about-cta">
         <div className="about-cta-inner">
-          <div className="about-cta-farm-row">
-            <span>🌾</span><span>🚜</span><span>🐄</span><span>🌽</span><span>👩‍🌾</span>
+          <div className="about-cta-farm-row" aria-hidden="true">
+            <span><Wheat size={24} /></span>
+            <span><Tractor size={24} /></span>
+            <span><Bird size={24} /></span>
+            <span><Sprout size={24} /></span>
+            <span><UserCheck size={24} /></span>
           </div>
           <FaLeaf className="about-cta-icon" />
           <h2>Ready to Farm Smarter?</h2>
