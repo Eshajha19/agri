@@ -172,12 +172,8 @@ class ImageProcessingQueue:
     def enqueue(self, task: ImageProcessingTask) -> str:
         with self._queue_lock:
             if len(self._task_queue) >= self.max_queue_size:
-                raise RuntimeError("Queue full")
-
-            heapq.heappush(
-                self._task_queue,
-                (task.priority.value, self._counter, task),
-            )
+                raise RuntimeError(f"Queue is full (max: {self.max_queue_size})")
+            heapq.heappush(self._task_queue, (task.priority.value, self._counter, task))
             self._counter += 1
             self._tasks_by_id[task.task_id] = task
             self._total_enqueued += 1
@@ -270,8 +266,17 @@ class ImageProcessingQueue:
             if not task:
                 return False
 
-            if task.status not in (TaskStatus.QUEUED, TaskStatus.RETRYING):
-                return False
+            task = self._tasks_by_id[task_id]
+            if task.status in (TaskStatus.QUEUED, TaskStatus.RETRYING):
+                task.status = TaskStatus.CANCELLED
+                self._task_queue = [
+                    entry for entry in self._task_queue if entry[2].task_id != task_id
+                ]
+                heapq.heapify(self._task_queue)
+                del self._tasks_by_id[task_id]
+                self._completed_tasks[task_id] = task
+                logger.info(f"Task {task_id} cancelled")
+                return True
 
             self._set_status(task, TaskStatus.CANCELLED)
             task.image_data = b""
