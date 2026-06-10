@@ -1,6 +1,33 @@
 # main.py
 import os
 import asyncio
+import io
+import json
+import re
+import joblib
+import hashlib
+import pandas as pd
+import numpy as np
+
+import sys
+
+# Required environment variables for backend
+REQUIRED_ENV_VARS = [
+    "WEATHER_API_KEY",
+    "SOIL_API_KEY",
+    "FIREBASE_ADMIN_CRED",
+    "BACKEND_PORT",
+]
+
+def validate_env_vars():
+    missing = [var for var in REQUIRED_ENV_VARS if not os.getenv(var)]
+    if missing:
+        print(f"❌ Missing required environment variables: {', '.join(missing)}")
+        sys.exit(1)  # stop app immediately
+
+# Run validation before app starts
+validate_env_vars()
+
 import logging
 import math
 import collections
@@ -11,6 +38,8 @@ from typing import Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, Request, Form, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from pydantic import BaseModel, Field, validator
+from init_services import get_logger
 from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
 
 from backend.utils.safe_log import sanitize_log_field
@@ -73,9 +102,20 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from rate_limit_config import build_limiter, rate_limit_exceeded_handler
 
-import firebase_admin
+from init_services import firebase_admin, firestore
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from opentelemetry import trace
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor
+from prometheus_fastapi_instrumentator import Instrumentator
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 from firebase_admin import auth, credentials, firestore, storage
 
 from backend.routers import (
@@ -127,6 +167,14 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.units import inch
+
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
 
 from fastapi import FastAPI
 

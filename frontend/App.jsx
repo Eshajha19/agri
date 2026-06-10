@@ -3,6 +3,7 @@ import { Routes, Route, Link, NavLink, Navigate, useLocation, useNavigate } from
 import { useTranslation } from "react-i18next";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import ErrorBoundary from "./ErrorBoundary";
 import SprayScheduler from "./SprayScheduler";
 import {
   FaComments,
@@ -1070,8 +1071,16 @@ useEffect(() => {
         <Navigate to="/profile-setup" />
       )}
 
-      <main id="main-content" tabIndex="-1" style={{ outline: 'none' }}>
-        <React.Suspense fallback={<Loader fullPage={true} message={<span className="notranslate">Loading route...</span>} />}>
+      <main id="main-content" tabIndex={-1} style={{ outline: 'none' }}>
+        <React.Suspense
+          fallback={
+            <Loader
+              fullPage={true}
+              message={<span className="notranslate">Loading route...</span>}
+            />
+          }
+    >
+        <ErrorBoundary>
           <Routes>
             <Route path="/" element={<Home user={user} />} />
             <Route path="/advisor" element={<Advisor userData={userData} />} />
@@ -1152,6 +1161,7 @@ useEffect(() => {
             <Route path="/crop-comparison" element={<CropComparison />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </ErrorBoundary>
         </React.Suspense>
       </main>
 

@@ -34,3 +34,9 @@
   50% { transform: scale(1.05); opacity: 0.8; }
   100% { transform: scale(1); opacity: 1; }
 }
+
+.schedule-card:focus {
+  outline: 2px solid #0ea5a4;
+  outline-offset: 3px;
+  border-radius: 8px;
+}

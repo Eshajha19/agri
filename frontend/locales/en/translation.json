@@ -81,5 +81,15 @@
     "delete": "Delete",
     "edit": "Edit",
     "close": "Close"
+  },
+  "sprayScheduler": {
+    "title": "Spray Scheduler",
+    "searchPlaceholder": "Search by crop or pest...",
+    "searchAria": "Search schedules by crop or pest",
+    "total": "Total",
+    "upcoming": "Upcoming",
+    "overdue": "Overdue",
+    "completed": "Completed",
+    "emptyState": "No spray schedules yet."
   }
 }

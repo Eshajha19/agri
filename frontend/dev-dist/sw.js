@@ -79,6 +79,7 @@ define(['./workbox-8c5d9594'], (function (workbox) { 'use strict';
    */
   workbox.precacheAndRoute([{
     "url": "index.html",
+    "revision": "0.nsp3m8irnig"
 "revision": "0.92h9uq2gdf"
   }], {});
   workbox.cleanupOutdatedCaches();

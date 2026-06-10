@@ -81,5 +81,16 @@
     "delete": "हटाएं",
     "edit": "संपादित करें",
     "close": "बंद करें"
-  }
+  },
+  "sprayScheduler": {
+    "title": "स्प्रे शेड्यूलर",
+    "searchPlaceholder": "फसल या कीट से खोजें...",
+    "searchAria": "फसल या कीट से शेड्यूल खोजें",
+    "total": "कुल",
+    "upcoming": "आगामी",
+    "overdue": "विलंबित",
+    "completed": "पूर्ण",
+    "emptyState": "अभी तक कोई स्प्रे शेड्यूल नहीं।"
+}
+
 }
