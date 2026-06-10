@@ -14,6 +14,30 @@ from starlette.exceptions import HTTPException
 import traceback
 from typing import Dict
 
+import re
+import base64
+
+BINARY_MAGIC = [b"\x1F\x8B", b"PK\x03\x04"]  # gzip, zip signatures
+
+def looks_like_binary(payload: bytes) -> bool:
+    # Check magic headers
+    for magic in BINARY_MAGIC:
+        if payload.startswith(magic):
+            return True
+    # Heuristic: if >30% of bytes are non‑printable, treat as binary
+    non_printable = sum(1 for b in payload if b < 9 or (13 < b < 32))
+    return non_printable / max(len(payload), 1) > 0.3
+
+def looks_like_base64(text: str) -> bool:
+    # Simple heuristic: long alphanumeric string with padding
+    if len(text) > 100 and re.fullmatch(r"[A-Za-z0-9+/=]+", text):
+        try:
+            base64.b64decode(text, validate=True)
+            return True
+        except Exception:
+            return False
+    return False
+
 logger = logging.getLogger(__name__)
 SUSPICIOUS_PATTERNS = [
     r"<script.*?>",
@@ -135,6 +159,33 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
                 )
 
         try:
+            # --- NEW: inspect body before scanning ---
+            body = await request.body()
+            if isinstance(body, bytes) and looks_like_binary(body):
+                # Skip regex scanning for binary/compressed payloads
+                return await call_next(request)
+
+            body_text = body.decode(errors="ignore")
+            if looks_like_base64(body_text):
+                # Skip regex scanning for base64-like payloads
+                return await call_next(request)
+
+            # Apply suspicious regex only for text/JSON
+            suspicious_regex = re.compile(r"(DROP\s+TABLE|<script>|UNION\s+SELECT)", re.IGNORECASE)
+            if suspicious_regex.search(body_text):
+                logger.warning(f"[{request_id}] Suspicious payload detected at {endpoint}")
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "request_id": request_id,
+                        "error": {
+                            "message": "Suspicious payload detected",
+                            "status_code": 400,
+                            "category": "security"
+                    }
+                }
+            )
             # Call the endpoint
             response = await call_next(request)
 
