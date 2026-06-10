@@ -2446,7 +2446,7 @@ async def generate_farm_plan(request: Request, data: SeasonPlanRequest):
     await verify_role(request)   # raises 401/403 if token is missing or invalid
     try:
         from smart_farm_autopilot import generate_season_plan
-        plan = generate_season_plan(data.dict())
+        plan = generate_season_plan(data.model_dump() if hasattr(data, "model_dump") else data.dict())
         return {"success": True, "plan": plan}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
