@@ -429,22 +429,15 @@ class RBACMiddleware:
         self.app = app
 
     async def __call__(self, request: Request, call_next):
-        """Log all API requests with user role."""
+        """Log all API requests."""
         path = request.url.path
-        if any(path.startswith(prefix) for prefix in self.PUBLIC_PATH_PREFIXES):
-            user_role = Role.GUEST
-        else:
-            user_role = await RBACManager.get_user_role(request)
-
-        # Log the access attempt
+        response = await call_next(request)
         logger.info(
-            "API Request - Method: %s, Path: %s, Role: %s",
+            "API Response - Method: %s, Path: %s, Status: %s",
             request.method,
             path,
-            user_role.value if user_role else "unknown",
+            response.status_code,
         )
-
-        response = await call_next(request)
         return response
 
 
