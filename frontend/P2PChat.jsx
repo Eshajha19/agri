@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Send, Lock, ShieldCheck, X, KeyRound } from "lucide-react";
-import { db, auth } from "./lib/firebase";
+import { db } from "./lib/firebase";
 import { 
   collection, 
   addDoc, 
@@ -20,7 +20,7 @@ import "./P2PChat.css";
 const P2PChat = ({ recipient, onClose }) => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
-  const [isRecipientVerified, setIsRecipientVerified] = useState(true); // Mock verification
+  const [isRecipientVerified] = useState(true); // Mock verification
   const [sharedKey, setSharedKey] = useState(null);
   const [keyStatus, setKeyStatus] = useState("initializing"); // initializing, ready, waiting
   
@@ -197,7 +197,6 @@ const P2PChat = ({ recipient, onClose }) => {
 
   // 3. Send Message
   const handleSendMessage = async (e) => {
-    e.preventDefault();
     if (!newMessage.trim() || !currentUser || !sharedKey) return;
 
     const chatId = [currentUser.uid, effectiveRecipient.userId].sort().join("-");
@@ -306,4 +305,3 @@ const P2PChat = ({ recipient, onClose }) => {
 };
 
 export default P2PChat;
-

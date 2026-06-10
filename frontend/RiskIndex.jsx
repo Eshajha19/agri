@@ -37,7 +37,6 @@ const RiskIndex = () => {
     historical: 25
   });
 
-  const [activeTab, setActiveTab] = useState("analysis");
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
