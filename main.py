@@ -20,6 +20,28 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field, ConfigDict, validator
 
+class CSPMiddleware:
+    """Add Content-Security-Policy header to every response."""
+
+    def __init__(self, app, policy: str):
+        self.app = app
+        self.policy = policy
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_csp(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers.append((b"content-security-policy", self.policy.encode()))
+                message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, send_with_csp)
+
+
 class SimulationRequest(BaseModel):
     crop_type: str
     temp_delta: float = Field(..., ge=-5, le=5)
@@ -1027,6 +1049,19 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+)
+app.add_middleware(
+    CSPMiddleware,
+    policy="default-src 'self'; "
+           "script-src 'self' https://translate.google.com https://*.google.com 'unsafe-inline' 'unsafe-eval'; "
+           "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; "
+           "font-src 'self' https://fonts.gstatic.com; "
+           "img-src 'self' data: https:; "
+           "connect-src 'self' https://*.firebaseio.com https://*.googleapis.com wss:; "
+           "frame-src https://translate.google.com; "
+           "object-src 'none'; "
+           "base-uri 'self'; "
+           "frame-ancestors 'self';",
 )
 app.add_middleware(RBACMiddleware)
 logger.info(print_rbac_matrix())
