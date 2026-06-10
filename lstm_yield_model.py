@@ -1,3 +1,4 @@
+import joblib
 import pandas as pd
 import numpy as np
 import logging
@@ -15,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 # Global variables for model and scaler caching
 model = None
-scaler = MinMaxScaler()
+scaler = None
 
 MODEL_PATH = "lstm_yield_model.keras"
 SCALER_PATH = "lstm_yield_scaler.joblib"
@@ -48,7 +49,8 @@ def train_and_save_model():
         logger.info(f"Data after grouping:\n{df.head()}")
 
         # Scaling
-        scaled_data = scaler.fit_transform(df)
+        scaler.fit(df)
+        scaled_data = scaler.transform(df)
 
         def create_sequences(data, seq_length=5):
             X, y = [], []
@@ -91,11 +93,13 @@ async def lifespan(app: FastAPI):
             
         logger.info(f"Loading model from {MODEL_PATH}...")
         model = load_model(MODEL_PATH)
+        logger.info("✅ Model loaded into memory successfully.")
+        
         if os.path.exists(SCALER_PATH):
             scaler = joblib.load(SCALER_PATH)
-            logger.info("✅ Scaler loaded successfully.")
+            logger.info("✅ Scaler loaded from %s", SCALER_PATH)
         else:
-            logger.warning(f"Scaler file {SCALER_PATH} not found. Predictions will be unscaled.")
+            logger.warning("Scaler file %s not found — predictions will NOT be inverse-transformed.", SCALER_PATH)
     except Exception as e:
         logger.error(f"Failed to load model on startup: {str(e)}")
         # If model is None, endpoints will handle it gracefully.
@@ -105,6 +109,7 @@ async def lifespan(app: FastAPI):
     # Shutdown logic
     logger.info("Shutting down FastAPI application... Cleaning up resources.")
     model = None
+    scaler = None
 
 
 # Initialize FastAPI application with lifespan event
@@ -138,8 +143,12 @@ async def predict(request: PredictionRequest):
         # The model is cached in memory, so prediction is fast and doesn't hit disk
         prediction_scaled = model.predict(input_data)
         
-        # Extract the float prediction
-        pred_value = float(prediction_scaled[0][0])
+        # Inverse-transform to restore original yield scale
+        if scaler is not None:
+            pred_value = float(scaler.inverse_transform(prediction_scaled)[0][0])
+        else:
+            logger.warning("Scaler not available — returning raw scaled prediction")
+            pred_value = float(prediction_scaled[0][0])
         
         # Inverse-transform to original yield unit
         if scaler is not None:

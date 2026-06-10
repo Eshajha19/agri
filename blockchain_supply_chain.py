@@ -152,6 +152,7 @@ class SupplyChainBlockchain:
         self.supply_chain_nodes: Dict[str, List[SupplyChainNode]] = {}
         self.smart_contracts: Dict[str, SmartContract] = {}
         self.verified_actors: Dict[str, Dict] = {}
+        self.idempotency_cache: Dict[str, object] = {}
         self._trace_batches: Dict[str, Dict] = {}
         self._processed_transaction_ids: OrderedDict[str, None] = OrderedDict()
         self._harvest_ids: set[str] = set()
@@ -298,6 +299,18 @@ class SupplyChainBlockchain:
         planting_date: str,
         harvesting_date: str,
         farmer_name: str,
+        idempotency_key: Optional[str] = None,
+    ) -> ProductBatch:
+        # Check cache
+        if idempotency_key and idempotency_key in self.idempotency_cache:
+            return self.idempotency_cache[idempotency_key]
+
+        snap = self._snapshot_state()
+        try:
+            batch_id = f"BATCH-{uuid.uuid4().hex[:12].upper()}"
+            batch = ProductBatch(...)
+            record = BlockchainRecord(...)
+            record.hash = record.calculate_hash()
         owner_uid: str = "",
         harvest_id: str = "",
     ) -> ProductBatch:
@@ -341,19 +354,24 @@ class SupplyChainBlockchain:
                 data=asdict(batch),
             ))
 
-            # Commit changes atomically
+            # Commit
             self.products[batch_id] = batch
             self.supply_chain_nodes[batch_id] = []
             self.chain.append(record)
             batch.blockchain_records.append(record.serialize())
 
-            return batch
+            if idempotency_key:
+                self.idempotency_cache[idempotency_key] = batch
 
+            return batch
+        
+        except Exception:
         except Exception as e:
             import logging
             logging.error(f"Blockchain error: {e}")
             self._rollback_to_snapshot(snap)
             raise
+
 
     def add_supply_chain_node(
         self,
