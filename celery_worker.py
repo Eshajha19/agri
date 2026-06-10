@@ -10,12 +10,6 @@ import numpy as np
 from celery import Celery
 from ml.security import verify_and_load_joblib
 
-logger = logging.getLogger(__name__)
-
-# =============================================================================
-# CELERY CONFIG
-# =============================================================================
-
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 celery_app = Celery(
@@ -61,15 +55,7 @@ def _get_lag_model():
 
     if _model_lag is None:
         try:
-            model_path = "sklearn_yield_model.joblib"
-
-            if not os.path.exists(model_path):
-                raise FileNotFoundError(f"{model_path} not found")
-
-            _model_lag = verify_and_load_joblib(model_path)
-
-            logger.info("Lag model loaded successfully")
-
+            _model_lag = verify_and_load_joblib("sklearn_yield_model.joblib")
         except Exception as e:
             import logging
             logging.error(f"Celery worker error: {e}")
@@ -84,19 +70,10 @@ def _get_trend_model():
 
     if _model_trend is None:
         try:
-            model_path = "trend_forecast_model.joblib"
-
-            if not os.path.exists(model_path):
-                raise FileNotFoundError(f"{model_path} not found")
-
-            _model_trend = verify_and_load_joblib(model_path)
-
-            logger.info("Trend model loaded successfully")
-
-        except Exception:
-            logger.exception("Failed to load trend model")
-            raise
-
+            if os.path.exists("trend_forecast_model.joblib"):
+                _model_trend = verify_and_load_joblib("trend_forecast_model.joblib")
+        except Exception as e:
+            print(f"Failed to load trend model: {e}")
     return _model_trend
 
 
