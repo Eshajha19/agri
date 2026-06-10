@@ -288,16 +288,11 @@ async def lifespan(app: FastAPI):
     notification_broker.set_authenticate(firebase_auth.verify_id_token)
     await notification_broker.start()
 
-    # -----------------------
-    # AI Engines (depend on repos)
-    # -----------------------
-    def _init_ai_engines():
-        ctx.farm_finance_ai = FarmFinanceAI(repository=ctx.finance_repository)
-        ctx.supply_chain_blockchain = SupplyChainBlockchain(
-            repository=ctx.supply_chain_repository
-        )
-        ctx.crop_quality_grader = CropQualityGrader()
-        return ctx
+
+    # Domain engines — initialized exactly once here at startup.
+    drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
+    shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
+    version_manager = ModelVersionManager(versions_dir="./model_versions")
 
     ctx = await _run_lifespan_phase(
         "ai_engines",
@@ -1546,7 +1541,6 @@ _notification_store.append(
     alert_type="weather",
     message="🌧️ Heavy rainfall expected in your region today.",
 )
-notification_broker.seed_notifications(_notification_store.get_recent())
 
 
 async def publish_notification(
