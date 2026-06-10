@@ -184,6 +184,14 @@ app = FastAPI()
 def health_check():
     return {"status": "ok"}
 
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
+
 # KMS Support
 try:
     from google.cloud import secretmanager
