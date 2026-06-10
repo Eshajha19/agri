@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useRef, useEffect, useState } from "react";
 import "./PersonalizedAdvisory.css";
 import { generateRecommendations } from "./utils/recommendationEngine";
 import { 
@@ -86,21 +86,73 @@ function getCropIcon(cropType) {
 
 export default function PersonalizedRecommendations({ userData, weatherData }) {
 
+  const mountedRef = useRef(true);
+  const requestIdRef = useRef(0);
+
+  const [recommendations, setRecommendations] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
+
   const resolvedSeason = useMemo(() => {
     if (userData?.season) return userData.season;
     return deriveSeasonFromCalendar();
   }, [userData?.season]);
 
-  const recommendations = useMemo(() => {
-    if (!userData) return [];
+  useEffect(() => {
+    mountedRef.current = true;
 
-    return generateRecommendations({
-      weatherData,
-      cropType: userData.cropType,
-      season: resolvedSeason,
-    });
+    return () => {
+      mountedRef.current = false;
+      requestIdRef.current++;
+    };
+  }, []);
 
+  useEffect(() => {
+    const requestId = ++requestIdRef.current;
+
+    const loadRecommendations = async () => {
+      setLoading(true);
+
+      try {
+        const generated = generateRecommendations({
+          weatherData,
+          cropType: userData?.cropType,
+          season: resolvedSeason,
+        });
+
+        if (
+          mountedRef.current &&
+          requestId === requestIdRef.current
+        ) {
+          setRecommendations(generated || []);
+          setLastUpdated(Date.now());
+        }
+      } finally {
+        if (
+          mountedRef.current &&
+          requestId === requestIdRef.current
+        ) {
+          setLoading(false);
+        }
+      }
+    };
+
+    if (userData) {
+      loadRecommendations();
+    } else {
+      setRecommendations([]);
+    }
   }, [userData, weatherData, resolvedSeason]);
+
+  if (loading) {
+    return (
+      <div className="personalized-section">
+        <div className="empty-state">
+          <p>Generating recommendations...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!userData) {
     return (
@@ -149,6 +201,11 @@ export default function PersonalizedRecommendations({ userData, weatherData }) {
           <span className="header-icon-wrap">🎯</span>
           Recommendations for You
         </h2>
+        {lastUpdated && (
+          <div className="recommendation-timestamp">
+            Updated: {new Date(lastUpdated).toLocaleTimeString()}
+          </div>
+        )}
         <div className="recommendation-meta">
           {userData.cropType && (
             <span className="crop-badge">
