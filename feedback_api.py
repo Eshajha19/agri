@@ -3,12 +3,13 @@ Feedback API Endpoint
 Provides secure server-side API for feedback submission with validation.
 """
 
+import asyncio
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, validator
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 import firebase_admin
 from firebase_admin import credentials, firestore, auth as firebase_auth
 import os
@@ -22,6 +23,7 @@ from rate_limit_config import build_limiter, rate_limit_exceeded_handler
 
 # Import our validator
 from feedback_validation import FeedbackValidator
+from csrf_protection import verify_csrf_token_dependency
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -53,64 +55,112 @@ except Exception as e:
 # Initialize Firestore
 db = firestore.client()
 
+# PII fields that must never appear in HTTP response bodies.
+_PII_FIELDS = {"ipAddress", "userAgent", "userEmail"}
+
+
+async def verify_firebase_token(request: Request) -> dict:
+    """
+    FastAPI dependency that verifies a Firebase ID token.
+
+    Reads the token from the Authorization: Bearer header, verifies it
+    with the Firebase Admin SDK, and returns the decoded token payload.
+
+    This is used on the feedback submission endpoint so that:
+    - Only registered users can submit feedback (prevents anonymous spam
+      that exhausts Firestore write quota and incurs billing charges).
+    - The caller's uid is derived from the verified token, never from
+      client-supplied data (prevents impersonation via userId field).
+
+    Raises
+    ------
+    HTTPException 401  Missing or invalid token.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required. Please sign in to submit feedback.",
+        )
+
+    id_token = auth_header[7:].strip()
+    if not id_token:
+        raise HTTPException(status_code=401, detail="Missing authentication token")
+
+    try:
+        decoded = firebase_auth.verify_id_token(id_token, check_revoked=True)
+    except firebase_auth.RevokedIdTokenError:
+        raise HTTPException(status_code=401, detail="Session revoked. Please sign in again.")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired authentication token")
+
+    uid = decoded.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+
+    return decoded
+
 # Pydantic models for request/response validation
 class FeedbackRequest(BaseModel):
-    """Request model for feedback submission"""
+    """Request model for feedback submission.
+
+    userId and userEmail are intentionally absent — the authoritative
+    identity is always derived from the verified Firebase ID token, never
+    from client-supplied data.  Accepting userId from the body previously
+    allowed any caller to submit feedback attributed to an arbitrary user.
+    """
     name: Optional[str] = Field(None, max_length=100)
     cropType: Optional[str] = Field(None, max_length=50)
     location: Optional[str] = Field(None, max_length=200)
     category: str = Field("general", max_length=50)
     message: str = Field(..., max_length=2000)
     rating: int = Field(..., ge=1, le=5)
-    userId: Optional[str] = Field(None, max_length=128)
-    userEmail: Optional[str] = Field(None, max_length=254)
-    
+
     @validator('name')
     def validate_name(cls, v):
         if v is not None:
             return FeedbackValidator.validate_name(v)
         return v
-    
+
     @validator('location')
     def validate_location(cls, v):
         if v is not None:
             return FeedbackValidator.validate_location(v)
         return v
-    
+
     @validator('cropType')
     def validate_crop_type(cls, v):
         if v is not None:
             return FeedbackValidator.validate_crop_type(v)
         return v
-    
+
     @validator('category')
     def validate_category(cls, v):
         return FeedbackValidator.validate_category(v)
-    
+
     @validator('message')
     def validate_message(cls, v):
         validated = FeedbackValidator.validate_message(v)
         if not validated:
             raise ValueError("Message is required and must be valid")
         return validated
-    
+
     @validator('rating')
     def validate_rating(cls, v):
         return FeedbackValidator.validate_rating(v)
-    
-    @validator('userEmail')
-    def validate_email(cls, v):
-        if v and ('@' not in v or '.' not in v or len(v) > 254):
-            raise ValueError("Invalid email format")
-        return v
 
 
 class FeedbackResponse(BaseModel):
-    """Response model for feedback submission"""
+    """Response model for feedback submission.
+
+    validated_data is intentionally absent.  The stored document contains
+    server-collected PII fields (ipAddress, userAgent) that must never be
+    echoed back in the HTTP response body — they would be captured by CDN
+    access logs, browser devtools, and any proxy between client and server.
+    """
     success: bool
     feedback_id: Optional[str] = None
     message: str
-    validated_data: Optional[dict] = None
     timestamp: str
 
 
@@ -138,6 +188,25 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 # ─────────────────────────────────────────────────────────────────────────────
 
+from slowapi.util import get_remote_address
+
+def feedback_rate_limit_key(request: Request):
+    """
+    Prefer stable authenticated UID for rate limiting.
+    Fall back to IP address if no UID is available.
+    """
+    uid = getattr(request.state, "uid", None)
+    if uid:
+        return f"user:{uid}"
+    return get_remote_address(request)
+
+# ── Rate limiting ─────────────────────────────────────────────────────────────
+limiter = Limiter(key_func=feedback_rate_limit_key, default_limits=["120/minute"])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -157,9 +226,14 @@ async def validate_request(request: Request) -> dict:
         raise HTTPException(status_code=415, detail="Unsupported media type")
     
     # Check request size
-    content_length = request.headers.get("content-length", 0)
-    if int(content_length) > 10240:  # 10KB max
-        raise HTTPException(status_code=413, detail="Request too large")
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            length_int = int(content_length)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid Content-Length header")
+        if length_int > 10240:  # 10KB max
+            raise HTTPException(status_code=413, detail="Request too large")
     
     return {}
 
@@ -171,6 +245,13 @@ async def verify_admin(request: Request) -> dict:
     Reads the Firebase ID token from the Authorization: Bearer header,
     verifies it with the Firebase Admin SDK, then reads the caller's
     Firestore user document and checks that role == 'admin'.
+
+    Both the Firebase token verification and the Firestore role lookup are
+    synchronous SDK calls.  Running them directly inside an async function
+    would block the event loop and serialise all concurrent requests behind
+    the network round-trips.  They are therefore offloaded to asyncio's
+    default ThreadPoolExecutor via run_in_executor so the event loop
+    remains free to process other requests while I/O is in flight.
 
     Fail-closed design — any missing or invalid token, unavailable
     Firestore, missing user document, or non-admin role results in a
@@ -191,6 +272,9 @@ async def verify_admin(request: Request) -> dict:
     if not id_token:
         raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
 
+    loop = asyncio.get_event_loop()
+
+    # Offload blocking Firebase SDK call to thread pool.
     try:
         decoded = firebase_auth.verify_id_token(id_token, check_revoked=True)
     except Exception:
@@ -198,8 +282,11 @@ async def verify_admin(request: Request) -> dict:
 
     uid = decoded["uid"]
 
+    # Offload blocking Firestore network call to thread pool.
     try:
-        user_doc = db.collection("users").document(uid).get()
+        user_doc = await loop.run_in_executor(
+            None, lambda: db.collection("users").document(uid).get()
+        )
     except Exception as exc:
         logger.error("Firestore role check failed for uid=%s: %s", uid, exc)
         raise HTTPException(status_code=503, detail="Authorization service temporarily unavailable")
@@ -226,78 +313,88 @@ async def root(request: Request):
     }
 
 
-@app.post("/api/feedback", response_model=FeedbackResponse)
+@app.post("/api/feedback", response_model=FeedbackResponse, dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("5/minute")
 async def submit_feedback(
     feedback: FeedbackRequest,
     request: Request,
-    validation: dict = Depends(validate_request)
+    token_data: dict = Depends(verify_firebase_token),
+    validation: dict = Depends(validate_request),
 ):
     """
     Submit feedback with server-side validation.
 
-    Rate-limited to 5 requests per minute per IP address.  Without this
-    limit an attacker could exhaust the Firestore free-tier write quota
-    (20,000 writes/day) in seconds, taking down the entire application's
-    Firestore access and incurring direct billing costs.
+    Requires a valid Firebase ID token (Authorization: Bearer <token>).
+    Authentication prevents:
+    - Anonymous spam exhausting Firestore write quota (20,000/day free tier).
+    - Impersonation via client-supplied userId fields.
+    - Automated abuse bypassing IP-based rate limits via proxy rotation.
 
-    This endpoint validates all input data, sanitizes it, and stores it
-    securely in Firestore.  It prevents NoSQL injection and ensures data
-    integrity.
+    The caller's uid is derived exclusively from the verified token.
+    PII fields (ipAddress, userAgent) are stored server-side for audit
+    purposes but are never returned in the response body.
     """
+    # uid comes from the verified token — never from the request body.
+    uid = token_data["uid"]
+
     try:
-        logger.info(f"Received feedback submission from user: {feedback.userId}")
-        
+        logger.info("Received feedback submission from uid: %s", uid)
+
         # Convert Pydantic model to dict
         feedback_dict = feedback.dict(exclude_none=True)
-        
+
+        # Bind the verified uid to the record so ownership is always accurate.
+        feedback_dict["userId"] = uid
+
         # Additional validation using our validator
         validated_data = FeedbackValidator.validate_feedback_data(feedback_dict)
-        
+
         # Check if data is safe for Firestore
         if not FeedbackValidator.is_safe_for_firestore(validated_data):
-            logger.warning(f"Unsafe data detected from user: {feedback.userId}")
+            logger.warning("Unsafe data detected from uid: %s", uid)
             raise HTTPException(status_code=400, detail="Invalid data format")
-        
-        # Add timestamp
-        validated_data['createdAt'] = datetime.utcnow()
+
+        # Add server-side metadata — stored for audit/abuse investigation
+        # but intentionally excluded from the response body.
+        validated_data['createdAt'] = datetime.now(timezone.utc)
         validated_data['ipAddress'] = request.client.host if request.client else None
         validated_data['userAgent'] = request.headers.get("user-agent", "")
-        
+
         # Store in Firestore
         try:
             doc_ref = db.collection("feedback").add(validated_data)
             feedback_id = doc_ref[1].id
-            
-            logger.info(f"Feedback stored successfully. ID: {feedback_id}")
-            
+
+            logger.info("Feedback stored successfully. ID: %s", feedback_id)
+
+            # PII fields (ipAddress, userAgent) are stored server-side for
+            # audit purposes but must not be echoed back in the response.
             return FeedbackResponse(
                 success=True,
                 feedback_id=feedback_id,
                 message="Feedback submitted successfully",
-                validated_data=validated_data,
-                timestamp=datetime.utcnow().isoformat()
+                timestamp=datetime.now(timezone.utc).isoformat(),
             )
-            
+
         except Exception as firestore_error:
-            logger.error(f"Firestore error: {firestore_error}")
+            logger.error("Firestore error: %s", firestore_error)
             raise HTTPException(
                 status_code=500,
-                detail="Failed to store feedback. Please try again later."
+                detail="Failed to store feedback. Please try again later.",
             )
-            
+
     except ValueError as ve:
-        logger.warning(f"Validation error: {ve}")
+        logger.warning("Validation error: %s", ve)
         raise HTTPException(status_code=400, detail=str(ve))
-        
+
     except HTTPException:
         raise
-        
+
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
+        logger.error("Unexpected error: %s", e)
         raise HTTPException(
             status_code=500,
-            detail="An unexpected error occurred. Please try again later."
+            detail="An unexpected error occurred. Please try again later.",
         )
 
 
@@ -356,11 +453,14 @@ async def get_feedback_stats(
         total_count = len(feedbacks)
         avg_rating = total_rating / total_count if total_count > 0 else 0
 
-        # Return only the last 10 entries for the recent list, and strip
-        # PII fields (ipAddress, userAgent, userEmail) so sensitive data
-        # is never serialised into the HTTP response body.
-        _PII_FIELDS = {"ipAddress", "userAgent", "userEmail"}
-        recent_raw = feedbacks[-10:] if len(feedbacks) > 10 else feedbacks
+        # Strip PII fields before returning to the caller.
+        # Use the module-level _PII_FIELDS constant — avoids shadowing it
+        # with a local re-definition that could silently diverge over time.
+        # Sort by timestamp descending before slicing so recent_feedbacks
+        # always contains the 10 most recently submitted entries, not an
+        # arbitrary tail of whatever order Firestore stream() returned.
+        feedbacks.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+        recent_raw = feedbacks[:10]
         recent = [
             {k: v for k, v in entry.items() if k not in _PII_FIELDS}
             for entry in recent_raw
@@ -437,22 +537,30 @@ async def validate_test(request: Request):
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
     """Handle HTTP exceptions"""
-    return {
-        "success": False,
-        "error": exc.detail,
-        "status_code": exc.status_code
-    }
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            "error": exc.detail,
+            "status_code": exc.status_code,
+        },
+    )
 
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request, exc):
     """Handle general exceptions"""
+    from fastapi.responses import JSONResponse
     logger.error(f"Unhandled exception: {exc}")
-    return {
-        "success": False,
-        "error": "Internal server error",
-        "status_code": 500
-    }
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "error": "Internal server error",
+            "status_code": 500,
+        },
+    )
 
 
 if __name__ == "__main__":
