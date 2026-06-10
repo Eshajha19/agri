@@ -305,3 +305,4 @@ const P2PChat = ({ recipient, onClose }) => {
 };
 
 export default P2PChat;
+export default P2PChat;

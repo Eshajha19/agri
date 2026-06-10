@@ -1,7 +1,8 @@
 """Blockchain Supply Chain Router"""
+from dataclasses import asdict
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field
-from typing import Optional, Dict
+from typing import List, Optional, Dict
 import logging
 
 router = APIRouter()
@@ -13,6 +14,26 @@ class RegisterActorRequest(BaseModel):
     actor_type: str = Field(..., min_length=1, max_length=50)
     location: str = Field(..., min_length=1, max_length=100)
 
+class JourneyStep(BaseModel):
+    date: str = Field(..., min_length=1, max_length=30)
+    event: str = Field(..., min_length=1, max_length=100)
+    location: str = Field(..., min_length=1, max_length=200)
+    details: str = Field(..., max_length=500)
+
+class RegisterTraceBatchRequest(BaseModel):
+    """Register a QR-traceability batch with its initial journey data.
+
+    This replaces the previous localStorage-only approach so batch data
+    is stored server-side and cannot be tampered with by consumers or
+    farmers after the QR code has been shared.
+    """
+    id: str = Field(..., min_length=1, max_length=100)
+    crop: str = Field(..., min_length=1, max_length=100)
+    variety: str = Field(..., min_length=1, max_length=100)
+    harvestDate: str = Field(..., min_length=1, max_length=30)
+    farm: str = Field(..., min_length=1, max_length=200)
+    journey: List[JourneyStep] = Field(..., min_items=1)
+
 class CreateProductBatchRequest(BaseModel):
     crop_type: str = Field(..., min_length=1, max_length=50)
     farm_id: str = Field(..., min_length=1, max_length=50)
@@ -21,6 +42,15 @@ class CreateProductBatchRequest(BaseModel):
     planting_date: str = Field(..., min_length=1)
     harvesting_date: str = Field(..., min_length=1)
     farmer_name: str = Field(..., min_length=1, max_length=100)
+    harvest_id: str = Field(default="", max_length=200)
+
+class AddSupplyChainNodeRequest(BaseModel):
+    batch_id: str = Field(..., min_length=1, max_length=100)
+    node_type: str = Field(..., min_length=1, max_length=50)
+    actor_name: str = Field(..., min_length=1, max_length=100)
+    location: str = Field(..., min_length=1, max_length=200)
+    action: str = Field(..., min_length=1, max_length=100)
+    harvest_id: str = Field(default="", max_length=200)
 
 class CreateSmartContractRequest(BaseModel):
     batch_id: str = Field(..., min_length=1)
@@ -28,83 +58,300 @@ class CreateSmartContractRequest(BaseModel):
     buyer: str = Field(..., min_length=1, max_length=100)
     price: float = Field(..., gt=0)
     terms: Optional[Dict] = None
+    harvest_id: str = Field(default="", max_length=200)
 
 supply_chain_blockchain = None
+verify_role_fn = None
 
-def init_blockchain(scb):
-    global supply_chain_blockchain
+
+def _get_token_role(token_data: Dict) -> str:
+    return str((token_data or {}).get("role", "")).strip().lower()
+
+
+def _is_privileged_role(token_data: Dict) -> bool:
+    return _get_token_role(token_data) in {"admin", "expert"}
+
+
+def _require_owner_uid(token_data: Dict) -> str:
+    uid = (token_data or {}).get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+    return uid
+
+
+def _require_role_or_owner(token_data: Dict, allowed_roles: set[str], owner_uid: str) -> str:
+    uid = _require_owner_uid(token_data)
+    role = _get_token_role(token_data)
+    if uid == owner_uid:
+        return uid
+    if role in allowed_roles or _is_privileged_role(token_data):
+        return uid
+    raise HTTPException(status_code=403, detail="Access denied: insufficient permissions")
+
+
+def _get_batch(batch_id: str):
+    batch = supply_chain_blockchain.products.get(batch_id) if supply_chain_blockchain is not None else None
+    if batch is None:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    return batch
+
+def init_blockchain(scb, vr_fn=None):
+    global supply_chain_blockchain, verify_role_fn
     supply_chain_blockchain = scb
+    verify_role_fn = vr_fn
 
 @router.post("/register-actor")
 async def register_actor(request: Request, data: RegisterActorRequest):
+    """Register a supply chain actor. Requires admin or expert role.
+
+    Without authentication any caller could inject fake verified actors
+    (farms, warehouses, distributors) into the blockchain, inflating
+    verification scores and making fraudulent produce appear certified.
+    """
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    await verify_role_fn(request, required_roles=["admin", "expert"])
     try:
-        actor = supply_chain_blockchain.register_actor(data.model_dump())
+        actor = supply_chain_blockchain.register_actor(
+            data.actor_id, data.name, data.actor_type, data.location
+        )
         return {"success": True, "actor": actor}
     except Exception as e:
         logger.error(f"Actor registration error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.post("/create-batch")
-async def create_batch(request: Request, data: CreateProductBatchRequest):
+
+@router.post("/trace-batch")
+async def register_trace_batch(request: Request, data: RegisterTraceBatchRequest):
+    """Persist a QR-traceability batch server-side.
+
+    Requires authentication so only the owning farmer can register a
+    batch under their account. The batch is stored in Firestore via the
+    supply-chain blockchain so the data is immutable from the consumer's
+    perspective — it cannot be edited through DevTools or by clearing
+    browser storage.
+    """
+    if supply_chain_blockchain is None:
+        raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Not initialized")
+
+    token_data = await verify_role_fn(request)
+    uid = token_data.get("uid")
+
+    try:
+        # register_trace_batch() does not exist on SupplyChainBlockchain.
+        # Map the RegisterTraceBatchRequest fields to create_product_batch(),
+        # which is the correct method for persisting a new batch server-side.
+        #
+        # Field mapping:
+        #   data.crop      → crop_type   (crop name, e.g. "Rice")
+        #   data.farm      → farm_id     (farm identifier / name)
+        #   data.variety   → farmer_name (closest available field; variety
+        #                                 is stored in the batch metadata)
+        #   data.harvestDate → harvesting_date
+        #   quantity / unit  → defaults (not in RegisterTraceBatchRequest)
+        batch = supply_chain_blockchain.create_product_batch(
+            crop_type=data.crop,
+            farm_id=data.farm,
+            quantity=1.0,           # not provided by this request schema
+            unit="unit",            # not provided by this request schema
+            planting_date="",       # not provided by this request schema
+            harvesting_date=data.harvestDate,
+            farmer_name=data.variety,
+            owner_uid=uid or "",
+        )
+        batch_id = batch.batch_id
+        traceability = supply_chain_blockchain.get_traceability_qr_payload(batch_id)
+        return {
+            "success": True,
+            "batch": {
+                "id": batch_id,
+                "crop": data.crop,
+                "variety": data.variety,
+                "harvestDate": data.harvestDate,
+                "farm": data.farm,
+                "journey": [step.model_dump() for step in data.journey],
+                "registeredByUid": uid,
+                "status": "Pending Verification",
+                "traceability": traceability,
+            },
+        }
+    except Exception as e:
+        logger.error(f"Trace batch registration error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/trace-batch/{batch_id}")
+async def get_trace_batch(batch_id: str):
+    """Fetch a single QR-traceability batch by ID.
+
+    This endpoint is intentionally public (no auth required) so that
+    consumers scanning a QR code can verify the batch without needing
+    an account. The data is read-only and served from the server, so
+    it cannot be tampered with client-side.
+    """
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     try:
-        batch = supply_chain_blockchain.create_product_batch(data.model_dump())
-        return {"success": True, "batch": batch}
+        # get_trace_batch() does not exist on SupplyChainBlockchain.
+        # Use products.get() to look up the batch by ID, which is the
+        # correct way to retrieve a persisted batch.
+        from dataclasses import asdict
+        batch = supply_chain_blockchain.products.get(batch_id)
+        if batch is None:
+            raise HTTPException(status_code=404, detail="Batch not found")
+        return {"success": True, "batch": asdict(batch)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Trace batch fetch error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/create-batch")
+async def create_batch(request: Request, data: CreateProductBatchRequest):
+    """Create a product batch on the blockchain. Requires authentication."""
+    if supply_chain_blockchain is None:
+        raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    token_data = await verify_role_fn(request)
+    uid = _require_owner_uid(token_data)
+    role = _get_token_role(token_data)
+    if role not in {"farmer", "vendor"} and not _is_privileged_role(token_data):
+        raise HTTPException(status_code=403, detail="Access denied: farmer or seller role required")
+    try:
+        batch = supply_chain_blockchain.create_product_batch(
+            data.crop_type, data.farm_id, data.quantity, data.unit,
+            data.planting_date, data.harvesting_date, data.farmer_name,
+            owner_uid=uid, harvest_id=data.harvest_id,
+        )
+        return {"success": True, "batch": asdict(batch)}
+    except ValueError as e:
+        if "Duplicate harvest_id" in str(e):
+            raise HTTPException(status_code=409, detail={"error": "duplicate_harvest", "harvest_id": data.harvest_id})
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Batch error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/add-node")
-async def add_node(request: Request, batch_id: str, node_type: str, actor_name: str, location: str, action: str):
+async def add_node(request: Request, data: AddSupplyChainNodeRequest):
+    """Add a supply chain node to an existing batch. Requires authentication."""
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    token_data = await verify_role_fn(request)
+    uid = _require_owner_uid(token_data)
+    batch = _get_batch(data.batch_id)
+    if not _is_privileged_role(token_data):
+        if batch.owner_uid and batch.owner_uid != uid:
+            raise HTTPException(status_code=403, detail="Access denied: only the batch owner can modify this batch")
+        if not batch.owner_uid:
+            raise HTTPException(status_code=403, detail="Access denied: batch is not bound to an owner")
     try:
-        node = supply_chain_blockchain.add_supply_chain_node(batch_id, node_type, actor_name, location, action)
+        node = supply_chain_blockchain.add_supply_chain_node(
+            data.batch_id, data.node_type, data.actor_name, data.location, data.action,
+            harvest_id=data.harvest_id,
+        )
         return {"success": True, "node": node}
+    except ValueError as e:
+        if "Duplicate harvest_id" in str(e):
+            raise HTTPException(status_code=409, detail={"error": "duplicate_harvest", "harvest_id": data.harvest_id})
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Node error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/create-contract")
 async def create_contract(request: Request, data: CreateSmartContractRequest):
+    """Create a smart contract between a seller and buyer. Requires authentication."""
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    token_data = await verify_role_fn(request)
+    uid = _require_owner_uid(token_data)
+    role = _get_token_role(token_data)
+    batch = _get_batch(data.batch_id)
+    if not _is_privileged_role(token_data):
+        if role not in {"farmer", "vendor"}:
+            raise HTTPException(status_code=403, detail="Access denied: seller role required")
+        if batch.owner_uid and batch.owner_uid != uid:
+            raise HTTPException(status_code=403, detail="Access denied: only the batch owner can create a contract for this batch")
+        if not batch.owner_uid:
+            raise HTTPException(status_code=403, detail="Access denied: batch is not bound to an owner")
+        if data.seller != batch.farmer_name:
+            raise HTTPException(status_code=403, detail="Access denied: contract seller must match the batch owner")
     try:
-        contract = supply_chain_blockchain.create_smart_contract(data.model_dump())
+        contract = supply_chain_blockchain.create_smart_contract(
+            data.batch_id, data.seller, data.buyer, data.price, data.terms,
+            created_by_uid=uid, harvest_id=data.harvest_id,
+        )
         return {"success": True, "contract": contract}
+    except ValueError as e:
+        if "Duplicate harvest_id" in str(e):
+            raise HTTPException(status_code=409, detail={"error": "duplicate_harvest", "harvest_id": data.harvest_id})
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Contract error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.post("/execute-contract")
+@router.post("/execute-contract/{contract_id}")
 async def execute_contract(request: Request, contract_id: str):
+    """Execute a smart contract. Requires authentication."""
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    token_data = await verify_role_fn(request)
+    uid = _require_owner_uid(token_data)
+    contract = supply_chain_blockchain.smart_contracts.get(contract_id)
+    if contract is None:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    if not _is_privileged_role(token_data) and contract.created_by_uid and contract.created_by_uid != uid:
+        raise HTTPException(status_code=403, detail="Access denied: only the contract creator can execute it")
     try:
         result = supply_chain_blockchain.execute_smart_contract(contract_id)
         return {"success": True, "result": result}
+    except ValueError as e:
+        if "Duplicate harvest_id" in str(e):
+            raise HTTPException(status_code=409, detail={"error": "duplicate_harvest", "harvest_id": contract_id})
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Execution error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/qr-code/{batch_id}")
-async def get_qr_code(batch_id: str):
+async def get_qr_code(request: Request, batch_id: str):
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    await verify_role_fn(request)
     try:
         qr_code = supply_chain_blockchain.generate_qr_code(batch_id)
-        return {"success": True, "batch_id": batch_id, "qr_code_base64": qr_code}
+        qr_payload = supply_chain_blockchain.get_traceability_qr_payload(batch_id)
+        return {
+            "success": True,
+            "batch_id": batch_id,
+            "qr_code_base64": qr_code,
+            "qr_payload": qr_payload,
+        }
     except Exception as e:
         logger.error(f"QR error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/verify/{batch_id}")
-async def verify_batch(batch_id: str):
+async def verify_batch(request: Request, batch_id: str):
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    await verify_role_fn(request)
     try:
         verification = supply_chain_blockchain.verify_batch(batch_id)
         return {"success": True, "verification": verification}
@@ -113,9 +360,12 @@ async def verify_batch(batch_id: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/journey/{batch_id}")
-async def get_journey(batch_id: str):
+async def get_journey(request: Request, batch_id: str):
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    await verify_role_fn(request)
     try:
         journey = supply_chain_blockchain.get_supply_chain_journey(batch_id)
         return {"success": True, "data": journey}
@@ -124,9 +374,14 @@ async def get_journey(batch_id: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/analytics/{batch_id}")
-async def get_analytics(batch_id: str):
+async def get_analytics(request: Request, batch_id: str):
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    token_data = await verify_role_fn(request)
+    if not _is_privileged_role(token_data):
+        raise HTTPException(status_code=403, detail="Access denied: admin or expert role required")
     try:
         analytics = supply_chain_blockchain.get_supply_chain_analytics(batch_id)
         return {"success": True, "data": analytics}
@@ -135,9 +390,12 @@ async def get_analytics(batch_id: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/marketplace")
-async def get_marketplace():
+async def get_marketplace(request: Request):
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    await verify_role_fn(request)
     try:
         marketplace = supply_chain_blockchain.get_certified_products()
         return {"success": True, "marketplace": marketplace}
@@ -146,16 +404,36 @@ async def get_marketplace():
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/stats")
-async def get_stats():
+async def get_stats(request: Request):
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    token_data = await verify_role_fn(request)
+    if not _is_privileged_role(token_data):
+        raise HTTPException(status_code=403, detail="Access denied: admin or expert role required")
     try:
         stats = {
             "total_records": supply_chain_blockchain.get_blockchain_record_count(),
-            "actors": len(supply_chain_blockchain.verified_actors if hasattr(supply_chain_blockchain, 'verified_actors') else []),
-            "contracts": len(supply_chain_blockchain.smart_contracts if hasattr(supply_chain_blockchain, 'smart_contracts') else [])
+            "actors": len(supply_chain_blockchain.verified_actors),
+            "contracts": len(supply_chain_blockchain.smart_contracts)
         }
         return {"success": True, "stats": stats}
     except Exception as e:
         logger.error(f"Stats error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/health/blockchain")
+async def health_blockchain(request: Request):
+    """Return blockchain dedup stats: unique_records vs total_blocks."""
+    if supply_chain_blockchain is None:
+        raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    token_data = await verify_role_fn(request)
+    if not _is_privileged_role(token_data):
+        raise HTTPException(status_code=403, detail="Access denied: admin or expert role required")
+    return {
+        "success": True,
+        "blockchain": supply_chain_blockchain.get_blockchain_stats(),
+    }
