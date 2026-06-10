@@ -3,6 +3,7 @@ import { Routes, Route, Link, Navigate, useLocation, useNavigate } from "react-r
 import { useTranslation } from "react-i18next";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import CropDiseaseLifecycleExplorer from "./CropDiseaseLifecycleExplorer";
 import {
   FaComments,
   FaLeaf,
@@ -207,6 +208,12 @@ function App() {
     return () => clearInterval(id);
   }, [preferredLang]);
 
+    function LifecyclePage() {
+  const navigate = useNavigate();
+  return (
+    <CropDiseaseLifecycleExplorer onClose={() => navigate(-1)} />
+  );
+}
   /* ---------------- AUTH & FIRESTORE SYNC ---------------- */
   useEffect(() => {
     if (!isFirebaseConfigured()) {
@@ -566,6 +573,7 @@ function App() {
             <Route path="/farming-news" element={<FarmingNews userData={userData} />} />
             <Route path="/yield-predictor" element={<YieldPredictor />} />
             <Route path="/smart-farm-autopilot" element={<SmartFarmAutopilot />} />
+            <Route path="/disease-lifecycle" element={<CropDiseaseLifecycleExplorer onClose={() => navigate(-1)} />} />
             <Route
               path="/sustainability-analytics"
               element={<SustainabilityAnalyticsPage userData={userData} />}

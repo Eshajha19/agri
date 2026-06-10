@@ -119,6 +119,13 @@ const features = [
     category: "Analytics",
     link: "/risk-index",
   },
+  {
+  icon: <FaShieldAlt />,
+  title: "Disease Lifecycle Explorer",
+  desc: "Interactive timeline to understand disease progression and prevention points",
+  category: "Education",
+  link: "/disease-lifecycle",
+},
 ];
 
 const stats = [
