@@ -398,13 +398,16 @@ class RBACManager:
                 detail="Invalid or expired authorization token",
             )
 
-        db = RBACManager.get_db()
-        if db is None:
-            logger.error("Firestore not available; cannot retrieve user role")
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Authentication database service temporarily unavailable",
-            )
+            # Verify Firebase token
+            try:
+                decoded_token = firebase_auth.verify_id_token(token, check_revoked=True)
+                uid = decoded_token.get("uid")
+            except Exception as exc:
+                logger.error("Token verification failed: %s", exc)
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid or expired authorization token"
+                )
 
         try:
             # Firestore's .get() is a blocking network call; run it off the
