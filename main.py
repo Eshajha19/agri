@@ -975,6 +975,19 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
 
 @app.websocket("/api/notifications/stream")
 async def notifications_stream(websocket: WebSocket):
+    auth_header = websocket.headers.get("authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        await websocket.close(code=4001)
+        return
+    id_token = auth_header[7:].strip()
+    if not id_token:
+        await websocket.close(code=4001)
+        return
+    try:
+        auth.verify_id_token(id_token)
+    except Exception:
+        await websocket.close(code=4001)
+        return
     await notification_broker.connect(websocket)
 
 
