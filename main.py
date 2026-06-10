@@ -1,21 +1,14 @@
 # main.py
 import os
 import asyncio
-import io
-import json
 import logging
 import math
-import re
-import joblib
-import hashlib
 import collections
 import threading
-import time
-import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
-from fastapi import FastAPI, HTTPException, Request, Form, Query, Response, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, Form, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field, ConfigDict, validator
@@ -56,12 +49,7 @@ from rate_limit_config import build_limiter, rate_limit_exceeded_handler
 import firebase_admin
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
 from firebase_admin import auth, credentials, firestore, storage
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 
 from backend.routers import (
     advisory,
@@ -984,10 +972,6 @@ try:
     Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
-
-# Middleware and rate-limits — the limiter was already configured above;
-# only the exception handler alias from slowapi's public API is wired here.
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ---------------------------------------------------------------------------
 # CORS — explicit origin allowlist
