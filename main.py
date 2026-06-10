@@ -483,9 +483,16 @@ def _coerce_prediction_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
 
         sanitized[field] = numeric_value
 
-    for field in ("ph", "pH"):
-        if field in sanitized and not (0 <= sanitized[field] <= 14):
-            raise HTTPException(status_code=400, detail="Invalid pH")
+    if "ph" in sanitized and "pH" in sanitized:
+        raise HTTPException(
+            status_code=400,
+            detail="Duplicate pH fields: provide either 'ph' or 'pH', not both",
+        )
+    ph_value = sanitized.pop("pH", None)
+    if ph_value is not None:
+        sanitized["ph"] = ph_value
+    if "ph" in sanitized and not (0 <= sanitized["ph"] <= 14):
+        raise HTTPException(status_code=400, detail="Invalid pH")
 
     return sanitized
 
