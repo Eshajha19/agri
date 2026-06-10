@@ -347,6 +347,44 @@ async def lifespan(app: FastAPI):
             crop_quality_grader=None,
         )
 
+
+    Runs inside every Uvicorn/Gunicorn worker process on startup, ensuring
+    ML pipeline and services are always initialized. Provides detailed logging
+    for startup sequence and error tracking.
+    """
+    startup_time = time.perf_counter()
+    logger.info(
+        "🚀 Starting FastAPI lifespan initialization",
+        extra={"phase": "startup", "component": "lifespan", "status": "starting"},
+    )
+
+    await _run_lifespan_phase("ml_pipeline", "Initialize ML pipeline", init_ml_pipeline)
+    await _run_lifespan_phase("notification_broker", "Start notification broker", notification_broker.start)
+
+    def _init_domain_engines():
+        drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
+        shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
+        version_manager = ModelVersionManager(versions_dir="./model_versions")
+        return drift_detector, shadow_evaluator, version_manager
+
+    drift_detector, shadow_evaluator, version_manager = await _run_lifespan_phase(
+        "domain_engines", "Initialize domain engines", _init_domain_engines
+    )
+
+   async def init_app_context():
+    # -----------------------
+    # Repositories
+    # -----------------------
+    def _init_repositories():
+        return AppContext(
+            finance_repository=FinanceApplicationRepository(),
+            notification_repository=NotificationRepository(),
+            supply_chain_repository=SupplyChainRepository(),
+            farm_finance_ai=None,
+            supply_chain_blockchain=None,
+            crop_quality_grader=None,
+        )
+
     ctx = await _run_lifespan_phase(
         "repositories",
         "Initialize persistent repositories",
@@ -929,6 +967,341 @@ async def predict_yield(data: PredictRequest, request: Request):
     rather than a silently corrupted prediction.
     """
     try:
+
+async def verify_role(request: Request, required_roles: list = None):
+    """
+    Verify the Firebase ID token and check the caller's role against Firestore.
+    Expects 'Authorization: Bearer <ID_TOKEN>' header.
+
+    Fail-closed design:
+    - If Firestore is unavailable the request is rejected with 503.
+    - If the user document does not exist the request is rejected with 403.
+    - The function never grants a role that was not explicitly stored in Firestore.
+    """
+    action = f"{request.method} {request.url.path}"
+    try:
+        required_roles = validate_required_roles(required_roles)
+    except ValueError as exc:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="error",
+            reason="invalid_rbac_policy",
+            status_code=500,
+        )
+        raise HTTPException(status_code=500, detail="RBAC policy misconfiguration") from exc
+
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="denied",
+            reason="missing_authentication_token",
+            status_code=401,
+            required_roles=required_roles,
+        )
+        raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
+
+    # Use a slice instead of split()[1] to avoid IndexError when the header
+    # is exactly "Bearer " with no token following it.
+    id_token = auth_header[7:].strip()
+    if not id_token:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="denied",
+            reason="missing_authentication_token",
+            status_code=401,
+            required_roles=required_roles,
+        )
+        raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
+
+    try:
+        decoded_token = auth.verify_id_token(id_token)
+    except Exception:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="denied",
+            reason="invalid_authentication_token",
+            status_code=401,
+            required_roles=required_roles,
+        )
+        raise HTTPException(status_code=401, detail="Authentication failed")
+
+    uid = decoded_token["uid"]
+
+    # Firestore must be available to resolve the caller's role.
+    # Failing open (granting admin when Firestore is down) is a security bug,
+    # so we reject the request instead.
+    if not db_firestore:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="error",
+            uid=uid,
+            reason="authorization_service_unavailable",
+            status_code=503,
+            required_roles=required_roles,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Authorization service temporarily unavailable"
+        )
+
+    # Wrap the Firestore fetch so a transient network error (timeout, reset)
+    # returns the same clean 503 as a missing db_firestore, rather than an
+    # unhandled exception that leaks internal details as a raw 500.
+    try:
+        user_doc = db_firestore.collection("users").document(uid).get()
+    except Exception as e:
+        logger.error(
+            "Firestore fetch failed for uid=%s during role check: %s", uid, e
+        )
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="error",
+            uid=uid,
+            reason="role_lookup_failed",
+            status_code=503,
+            required_roles=required_roles,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Authorization service temporarily unavailable"
+        )
+
+    if not user_doc.exists:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="denied",
+            uid=uid,
+            reason="user_profile_not_found",
+            status_code=403,
+            required_roles=required_roles,
+        )
+        raise HTTPException(status_code=403, detail="User profile not found")
+
+    user_role = user_doc.to_dict().get("role", "farmer")
+
+    if required_roles and user_role not in required_roles:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="denied",
+            uid=uid,
+            role=user_role,
+            reason="insufficient_permissions",
+            status_code=403,
+            required_roles=required_roles,
+        )
+        raise HTTPException(status_code=403, detail="Access denied: insufficient permissions")
+
+    audit_rbac_event(
+        request=request,
+        action=action,
+        outcome="allowed",
+        uid=uid,
+        role=user_role,
+        required_roles=required_roles,
+        status_code=200,
+    )
+
+    return {"uid": uid, "role": user_role}
+
+# --- Models ---
+
+class PredictRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    Crop: str = Field(..., max_length=50)
+    CropCoveredArea: float = Field(..., gt=0)
+    CHeight: int = Field(..., ge=0)
+    CNext: str = Field(..., max_length=50)
+    CLast: str = Field(..., max_length=50)
+    CTransp: str = Field(..., max_length=50)
+    IrriType: str = Field(..., max_length=50)
+    IrriSource: str = Field(..., max_length=50)
+    IrriCount: int = Field(..., ge=1)
+    WaterCov: int = Field(..., ge=0, le=100)
+    Season: str = Field(..., max_length=50)
+
+class PredictResponse(BaseModel):
+    predicted_ExpYield: float
+
+class WhatsAppSubscribeRequest(BaseModel):
+    phone_number: str
+    name: str
+    # user_id is accepted for backward compatibility but is IGNORED by the
+    # endpoint — the authoritative user identity is always derived from the
+    # verified Firebase ID token, never from client-supplied data.
+    user_id: Optional[str] = None
+
+class YieldInput(BaseModel):
+    data: list[float]
+
+
+def _coerce_prediction_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
+    sanitized = dict(input_data)
+    numeric_fields = {
+        "N",
+        "P",
+        "K",
+        "ph",
+        "pH",
+        "CropCoveredArea",
+        "CHeight",
+        "IrriCount",
+        "WaterCov",
+        "temperature",
+        "rainfall",
+        "humidity",
+    }
+
+    for field in numeric_fields:
+        if field not in sanitized or sanitized[field] is None:
+            continue
+
+        try:
+            numeric_value = float(sanitized[field])
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"Invalid value for '{field}'")
+
+        if not math.isfinite(numeric_value):
+            raise HTTPException(status_code=400, detail=f"Invalid value for '{field}'")
+
+        sanitized[field] = numeric_value
+
+    for field in ("ph", "pH"):
+        if field in sanitized and not (0 <= sanitized[field] <= 14):
+            raise HTTPException(status_code=400, detail="Invalid pH")
+
+    return sanitized
+
+class AlertTriggerRequest(BaseModel):
+    alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
+    message: str = Field(..., min_length=1, max_length=500)
+
+    @validator("message")
+    def strip_control_chars(cls, v):
+        from whatsapp_service import sanitise_message
+        return sanitise_message(v)
+
+class ReportRequest(BaseModel):
+    name: str = Field(..., max_length=100)
+    crop: str = Field(..., max_length=50)
+    area: str = Field(..., max_length=50)
+    profit: str = Field(..., max_length=50)
+    season: str = Field(..., max_length=50)
+
+    @validator("name", "crop", "area", "profit", "season", pre=True)
+    def reject_pipe_characters(cls, v):
+        # Belt-and-suspenders guard: the signing payload now uses JSON (which
+        # is unambiguous regardless of field content), but we also reject pipe
+        # characters at the model level so legacy code paths or future changes
+        # cannot accidentally reintroduce a delimiter-injection vulnerability.
+        if isinstance(v, str) and "|" in v:
+            raise ValueError(
+                "Field value must not contain the '|' character."
+            )
+        return v
+
+class SeedVerifyRequest(BaseModel):
+    code: str = Field(..., min_length=4, max_length=100)
+
+
+_MAX_NOTIFICATIONS = 200
+_NOTIFICATION_TTL_HOURS = 24
+
+
+class NotificationStore:
+    """
+    Thread-safe, bounded, TTL-aware store for in-process notifications.
+
+    Parameters
+    ----------
+    maxlen : int
+        Hard cap on the number of entries held in memory.  When full,
+        the oldest entry is evicted before the new one is appended.
+    ttl_hours : int
+        Entries older than this many hours are excluded from get_recent().
+    """
+
+    def __init__(self, maxlen: int = _MAX_NOTIFICATIONS, ttl_hours: int = _NOTIFICATION_TTL_HOURS):
+        self._deque: collections.deque = collections.deque(maxlen=maxlen)
+        self._lock = threading.Lock()
+        self._counter = itertools.count(start=1)
+        self._ttl = timedelta(hours=ttl_hours)
+
+    model_trend = await _run_lifespan_phase("trend_forecast_model", "Load trend forecast model", _load_trend_model, required=False)
+
+    def _init_ml_router():
+        ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend, verify_role)
+
+    await _run_lifespan_phase("ml_router", "Initialize ML router", _init_ml_router)
+
+    def _start_celery_autoscaler():
+        from celery_autoscaler import get_autoscaler
+        from celery_worker import celery_app
+        from ml.price_forecaster import get_price_forecaster
+        _autoscaler = get_autoscaler(celery_app, get_price_forecaster())
+        _autoscaler.start()
+
+    await _run_lifespan_phase("celery_autoscaler", "Start Celery autoscaler", _start_celery_autoscaler)
+
+    def _init_offline_sync():
+        from persistence.offline_sync import init_schema
+        init_schema()
+
+    await _run_lifespan_phase("offline_sync", "Initialize offline sync layer", _init_offline_sync)
+
+    def _start_sync_worker():
+        from sync_worker import get_sync_worker
+        _sync_worker = get_sync_worker(db_firestore)
+        _sync_worker.start()
+
+    await _run_lifespan_phase("sync_worker", "Start sync worker", _start_sync_worker)
+
+def _normalize_dynamic_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Assign non-colliding IDs to request-scoped advisory alerts."""
+    normalized = []
+    for index, alert in enumerate(alerts, start=1):
+        normalized_alert = dict(alert)
+        normalized_alert["id"] = -index
+        normalized_alert.setdefault("source", "advisory")
+        normalized.append(normalized_alert)
+    return normalized
+
+def sanitise_log_field(value: str) -> str:
+    if not isinstance(value, str):
+        value = str(value)
+    sanitised = "".join(ch if ord(ch) >= 32 or ch == "\t" else f"\\x{ord(ch):02x}" for ch in value)
+    return sanitised[:1000]
+
+@app.get("/")
+@limiter.limit("60/minute")
+def root(request: Request = None):
+    return {"message": "Fasal Saathi API", "status": "running"}
+
+@app.get("/predict")
+@limiter.limit("30/minute")
+def predict_get(request: Request = None):
+    return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
+
+@app.post("/predict", response_model=PredictResponse)
+@limiter.limit("5/minute")
+async def predict_yield(data: PredictRequest, request: Request):
+    """
+    Standardised prediction endpoint using ML Router for dynamic model selection.
+
+    Returns HTTP 422 when the input contains an unknown categorical value or a
+    missing required feature, so callers receive an actionable error message
+    rather than a silently corrupted prediction.
+    """
+    try:
         input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
         input_data = _coerce_prediction_inputs(input_data)
 
@@ -951,6 +1324,76 @@ async def predict_yield(data: PredictRequest, request: Request):
                 raise HTTPException(status_code=422, detail={"error": "missing_features", "message": result["error"]})
             else:
                 raise HTTPException(status_code=400, detail=result["error"])
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Prediction Error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+async def _await_task_result(task_id: str, timeout: int = 300):
+    """Look up a Celery AsyncResult and block in executor to retrieve it."""
+    from celery.result import AsyncResult
+    from celery_worker import celery_app
+    result = AsyncResult(task_id, app=celery_app)
+    loop = asyncio.get_running_loop()
+    value = await loop.run_in_executor(None, lambda: result.get(timeout=timeout))
+    if "error" in value:
+        err_type = value.get("type")
+        if err_type == "UnknownCategoryError":
+            raise HTTPException(status_code=422, detail={"error": "unknown_category", "message": value["error"]})
+        elif err_type == "MissingFeatureError":
+            raise HTTPException(status_code=422, detail={"error": "missing_features", "message": value["error"]})
+        else:
+            raise HTTPException(status_code=400, detail=value["error"])
+    return value
+
+
+@app.get("/api/task/{task_id}")
+@limiter.limit("60/minute")
+async def get_task_result(task_id: str, request: Request):
+    """Poll endpoint for Celery task results. Returns status and result if ready."""
+    from celery.result import AsyncResult
+    from celery_worker import celery_app
+
+    result = AsyncResult(task_id, app=celery_app)
+
+    if result.failed():
+        try:
+            exc = result.get(propagate=True)
+        except Exception as e:
+            return {"status": "FAILURE", "error": str(e), "task_id": task_id}
+
+    if result.ready():
+        value = result.result
+        if isinstance(value, dict) and "error" in value:
+            return {"status": "FAILURE", "error": value["error"], "task_id": task_id}
+        return {"status": "SUCCESS", "result": value, "task_id": task_id}
+
+    return {"status": "PENDING", "task_id": task_id}
+
+
+@app.post("/predict-yield-lag")
+@limiter.limit("5/minute")
+async def predict_yield_lag(payload: YieldInput, request: Request):
+    try:
+        # Offload time-series lag model prediction to Celery worker pool
+        from celery_worker import predict_yield_lag_task
+        task = predict_yield_lag_task.delay(payload.data)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, task.get)
+
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal Server Error") from e
+
 
         return result
 
@@ -1410,6 +1853,138 @@ async def verify_role(
         status_code=200,
     )
 
+
+
+db_firestore = None
+gdpr_deletion_manager = GDPRDeletionManager()
+
+if not firebase_admin._apps:
+    try:
+        # In a GCP environment this picks up Application Default Credentials
+        # automatically.  For local dev set GOOGLE_APPLICATION_CREDENTIALS to
+        # the path of a service-account key file.
+        firebase_admin.initialize_app()
+        db_firestore = firestore.client()
+        logger.info("Firebase Admin: successfully initialized")
+    except Exception as e:
+        logger.warning(
+            "Firebase Admin: could not initialize — role-gated endpoints will "
+            "return 503 until Firestore is reachable. Reason: %s", e
+        )
+
+async def verify_role(
+    request: Request,
+    required_roles: list = None,
+    required_tenant_id: str | None = None,
+    allow_cross_tenant_admin: bool = False,
+):
+    """
+    Verify the Firebase ID token and check the caller's role and tenant scope.
+
+    Delegates identity resolution to :meth:`RBACManager.resolve_auth_context`,
+    which uses the JWT custom claim (set via Firebase Admin SDK) as the
+    primary role source and falls back to Firestore ``users/{uid}.role``.
+    """
+    action = f"{request.method} {request.url.path}"
+    try:
+        required_roles = validate_required_roles(required_roles)
+    except ValueError as exc:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="error",
+            reason="invalid_rbac_policy",
+            status_code=500,
+        )
+        raise HTTPException(status_code=500, detail="RBAC policy misconfiguration") from exc
+
+    try:
+        ctx = await RBACManager.resolve_auth_context(
+            request,
+            allow_unauthenticated=False,
+        )
+    except HTTPException as exc:
+        uid = None
+        reason = "authorization_denied"
+        if exc.status_code == 401:
+            detail = str(exc.detail).lower()
+            reason = (
+                "missing_authentication_token"
+                if "missing" in detail
+                else "invalid_authentication_token"
+            )
+        elif exc.status_code == 403:
+            detail = str(exc.detail).lower()
+            if "profile not found" in detail:
+                reason = "user_profile_not_found"
+            elif "stale" in detail:
+                reason = "stale_authentication_token"
+            elif "invalid role" in detail:
+                reason = "invalid_profile_role"
+            else:
+                reason = "insufficient_permissions"
+        elif exc.status_code == 503:
+            reason = "authorization_service_unavailable"
+
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="denied" if exc.status_code in (401, 403) else "error",
+            uid=uid,
+            reason=reason,
+            status_code=exc.status_code,
+            required_roles=required_roles,
+        )
+        raise
+
+    user_role = ctx.role
+
+    if required_roles and user_role not in required_roles:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="denied",
+            uid=ctx.uid,
+            role=user_role,
+            reason="insufficient_permissions",
+            status_code=403,
+            required_roles=required_roles,
+        )
+        raise HTTPException(status_code=403, detail="Access denied: insufficient permissions")
+
+    if required_tenant_id:
+        try:
+            RBACManager.assert_tenant_scope(
+                ctx,
+                required_tenant_id,
+                allow_cross_tenant_admin=allow_cross_tenant_admin,
+            )
+        except HTTPException as exc:
+            reason = "cross_tenant_access_denied"
+            if "missing" in str(exc.detail).lower():
+                reason = "missing_tenant_context"
+            audit_rbac_event(
+                request=request,
+                action=action,
+                outcome="denied",
+                uid=ctx.uid,
+                role=user_role,
+                reason=reason,
+                status_code=exc.status_code,
+                required_roles=required_roles,
+            )
+            raise
+
+    audit_rbac_event(
+        request=request,
+        action=action,
+        outcome="allowed",
+        uid=ctx.uid,
+        role=user_role,
+        required_roles=required_roles,
+        status_code=200,
+    )
+
     return {
         "uid": ctx.uid,
         "role": user_role,
@@ -1556,6 +2131,9 @@ _NOTIFICATION_TTL_HOURS = 24
 
         return {"uid": uid, "roles": user_roles}
 
+    def get_user_roles(uid: str):
+        user_roles = ["admin", "editor"]  # example
+        return {"uid": uid, "roles": user_roles}
 class NotificationStore:
     """
     Thread-safe, bounded, TTL-aware store for in-process notifications.
@@ -2505,6 +3083,8 @@ app.include_router(flags_router, tags=["Feature Flags"])
 app.include_router(lms.router, prefix="/api", tags=["LMS"])
 
 
+
+
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 from typing import Optional, Literal
 
@@ -2601,4 +3181,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8000,
         reload=True
+    )
     )

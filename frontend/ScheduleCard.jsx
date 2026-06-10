@@ -20,6 +20,9 @@ const ScheduleCard = ({ schedule, onSelect }) => {
         }
       }}
     >
+const ScheduleCard = ({ schedule }) => {
+  return (
+    <div className={`schedule-card status-${schedule.status}`}>
       <h3>{schedule.crop}</h3>
       <p>Disease/Pest: {schedule.pest}</p>
       <p>Product: {schedule.product}</p>
@@ -30,4 +33,5 @@ const ScheduleCard = ({ schedule, onSelect }) => {
 };
 
 
+export default ScheduleCard;
 export default ScheduleCard;

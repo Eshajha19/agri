@@ -80,9 +80,11 @@ class ModelSelector:
         
         # Check rollout percentage
         if flag["rollout_percentage"] > 0:
-            # Use user_id for consistent rollout
+            # Use deterministic hashing (SHA-256) so assignments survive restarts
             if user_id:
-                hash_val = hash(user_id + flag_name) % 100
+                import hashlib
+                digest = hashlib.sha256(f"{user_id}:{flag_name}".encode()).hexdigest()
+                hash_val = int(digest[:8], 16) % 100
                 if hash_val >= flag["rollout_percentage"]:
                     return False
         
