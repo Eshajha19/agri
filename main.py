@@ -1,68 +1,14 @@
 # main.py
 import os
 import asyncio
-import itertools
-import io
-import json
 import logging
 import math
-import re
-import joblib
-import hashlib
-import pandas as pd
-import numpy as np
-
-import sys
-
-# Required environment variables for backend
-REQUIRED_ENV_VARS = [
-    "WEATHER_API_KEY",
-    "SOIL_API_KEY",
-    "FIREBASE_ADMIN_CRED",
-    "BACKEND_PORT",
-]
-
-def validate_env_vars():
-    missing = [var for var in REQUIRED_ENV_VARS if not os.getenv(var)]
-    if missing:
-        print(f"❌ Missing required environment variables: {', '.join(missing)}")
-        sys.exit(1)  # stop app immediately
-
-# Run validation before app starts
-validate_env_vars()
-
-
-from fastapi import Depends, Header, HTTPException
-from backend.security.csrf import generate_csrf_token, validate_csrf_token
-
-@app.get("/csrf-token")
-async def get_csrf_token():
-    return {"csrf_token": generate_csrf_token()}
-
-def csrf_protect(x_csrf_token: str = Header(...)):
-    if not validate_csrf_token(x_csrf_token):
-        raise HTTPException(status_code=403, detail="Invalid or expired CSRF token")
-
-from fastapi import Depends
-
-@app.post("/finance/transfer-funds", dependencies=[Depends(csrf_protect)])
-async def transfer_funds(request: TransferRequest):
-    # business logic here
-    return {"success": True}
-
-@app.delete("/platform/delete-user/{user_id}", dependencies=[Depends(csrf_protect)])
-async def delete_user(user_id: str):
-    # delete logic
-    return {"deleted": True}
-
-
 import collections
 import threading
-import time
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
-from fastapi import FastAPI, HTTPException, Request, Form, Query, Response, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, Form, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
@@ -131,14 +77,6 @@ import firebase_admin
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from firebase_admin import auth, credentials, firestore, storage
-from opentelemetry import trace
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor
-from prometheus_fastapi_instrumentator import Instrumentator
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
 
 from backend.routers import (
     advisory,
@@ -372,16 +310,11 @@ async def lifespan(app: FastAPI):
     notification_broker.set_authenticate(firebase_auth.verify_id_token)
     await notification_broker.start()
 
-    # -----------------------
-    # AI Engines (depend on repos)
-    # -----------------------
-    def _init_ai_engines():
-        ctx.farm_finance_ai = FarmFinanceAI(repository=ctx.finance_repository)
-        ctx.supply_chain_blockchain = SupplyChainBlockchain(
-            repository=ctx.supply_chain_repository
-        )
-        ctx.crop_quality_grader = CropQualityGrader()
-        return ctx
+
+    # Domain engines — initialized exactly once here at startup.
+    drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
+    shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
+    version_manager = ModelVersionManager(versions_dir="./model_versions")
 
     ctx = await _run_lifespan_phase(
         "ai_engines",
@@ -637,7 +570,7 @@ async def verify_role(request: Request, required_roles: list = None):
         raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
 
     try:
-        decoded_token = auth.verify_id_token(id_token)
+        decoded_token = auth.verify_id_token(id_token, check_revoked=True)
     except Exception:
         audit_rbac_event(
             request=request,
@@ -794,9 +727,16 @@ def _coerce_prediction_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
 
         sanitized[field] = numeric_value
 
-    for field in ("ph", "pH"):
-        if field in sanitized and not (0 <= sanitized[field] <= 14):
-            raise HTTPException(status_code=400, detail="Invalid pH")
+    if "ph" in sanitized and "pH" in sanitized:
+        raise HTTPException(
+            status_code=400,
+            detail="Duplicate pH fields: provide either 'ph' or 'pH', not both",
+        )
+    ph_value = sanitized.pop("pH", None)
+    if ph_value is not None:
+        sanitized["ph"] = ph_value
+    if "ph" in sanitized and not (0 <= sanitized["ph"] <= 14):
+        raise HTTPException(status_code=400, detail="Invalid pH")
 
     return sanitized
 
@@ -1630,7 +1570,6 @@ _notification_store.append(
     alert_type="weather",
     message="🌧️ Heavy rainfall expected in your region today.",
 )
-notification_broker.seed_notifications(_notification_store.get_recent())
 
 
 async def publish_notification(
@@ -2200,6 +2139,7 @@ def get_signing_keys():
         logger.info("Successfully loaded signing key from GCP KMS")
         return _cached_private_key
 
+    _compromised_key_detected = False
     if os.path.exists(PRIVATE_KEY_PATH):
         if not ALLOW_INSECURE_FALLBACK:
             logger.warning(
@@ -2209,10 +2149,29 @@ def get_signing_keys():
             )
         with open(PRIVATE_KEY_PATH, "rb") as key_file:
             _cached_private_key = serialization.load_pem_private_key(key_file.read(), password=None)
-        logger.warning("Using local file-based signing key - NOT SECURE FOR PRODUCTION")
-        return _cached_private_key
+        # Detect the known compromised key that was exposed in git history (SHA-256 of raw key bytes)
+        _raw = _cached_private_key.private_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PrivateFormat.Raw,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        if hashlib.sha256(_raw).hexdigest() == "b7df138712f2fc298b11bb9ed7726dacb1e349a78099e6ce90a2b9c939cf46a1":
+            logger.critical(
+                "DETECTED EXPOSED SIGNING KEY — the key loaded from %s matches the key that was "
+                "committed to git history. This key MUST NOT be used. Generating a fresh key.",
+                PRIVATE_KEY_PATH,
+            )
+            _cached_private_key = None
+            os.remove(PRIVATE_KEY_PATH)
+            pub_path = PRIVATE_KEY_PATH.replace(".key", ".pub")
+            if os.path.exists(pub_path):
+                os.remove(pub_path)
+            _compromised_key_detected = True
+        else:
+            logger.warning("Using local file-based signing key - NOT SECURE FOR PRODUCTION")
+            return _cached_private_key
 
-    if not ALLOW_INSECURE_FALLBACK:
+    if not ALLOW_INSECURE_FALLBACK and not _compromised_key_detected:
         logger.error(
             "SECURITY CRITICAL: No secure key source available and ALLOW_INSECURE_KEY_FALLBACK is not enabled. "
             "Refusing to generate insecure keys. Set ALLOW_INSECURE_KEY_FALLBACK=true to permit key generation."
@@ -2291,7 +2250,6 @@ try:
     Instrumentator().instrument(app)
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
-    instrumentator = None
 
 # ---------------------------------------------------------------------------
 # CORS — explicit origin allowlist
@@ -2542,7 +2500,7 @@ async def generate_farm_plan(request: Request, data: SeasonPlanRequest):
     await verify_role(request)   # raises 401/403 if token is missing or invalid
     try:
         from smart_farm_autopilot import generate_season_plan
-        plan = generate_season_plan(data.dict())
+        plan = generate_season_plan(data.model_dump() if hasattr(data, "model_dump") else data.dict())
         return {"success": True, "plan": plan}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
