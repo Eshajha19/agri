@@ -1,6 +1,25 @@
 import React from "react";
 import "./ScheduleCard.css";
 
+const ScheduleCard = ({ schedule, onSelect }) => {
+  const handleSelect = () => {
+    if (onSelect) onSelect(schedule);
+  };
+
+  return (
+    <div
+      className={`schedule-card status-${schedule.status}`}
+      role="button"
+      tabIndex={0}
+      aria-label={`Schedule for ${schedule.crop}, product ${schedule.product}, date ${schedule.date}, status ${schedule.status}`}
+      onClick={handleSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handleSelect();
+        }
+      }}
+    >
 const ScheduleCard = ({ schedule }) => {
   return (
     <div className={`schedule-card status-${schedule.status}`}>
@@ -13,4 +32,6 @@ const ScheduleCard = ({ schedule }) => {
   );
 };
 
+
+export default ScheduleCard;
 export default ScheduleCard;

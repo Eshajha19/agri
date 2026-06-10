@@ -1,3 +1,6 @@
+import React from 'react';
+import { FaExclamationTriangle, FaRedo } from 'react-icons/fa';
+import { reportErrorToBackend } from "../utils/errorReporting";
 import React, { useState } from 'react';
 import { FaExclamationTriangle, FaRedo, FaTimesCircle, FaCheckCircle } from 'react-icons/fa';
 
@@ -32,6 +35,15 @@ class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, errorInfo) {
+  this.setState({ errorInfo });
+  reportErrorToBackend({
+    error,
+    context: "ErrorBoundary",
+    timestamp: new Date().toISOString(),
+    userAgent: navigator.userAgent,
+    severity: "high"
+  });
+}
     const { errorId } = this.state;
     this.setState({ errorInfo });
 

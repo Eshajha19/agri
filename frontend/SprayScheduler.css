@@ -49,3 +49,12 @@
 .summary-card:hover {
   transform: translateY(-3px);
 }
+
+.filters input:focus,
+.summary-card:focus,
+.schedule-card:focus {
+  outline: 2px solid #0ea5a4;
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+}
