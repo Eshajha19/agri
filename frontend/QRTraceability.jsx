@@ -366,7 +366,7 @@ export default function QRTraceability() {
               <div key={batch.id} className="batch-card" onClick={() => openBatch(batch.id)}>
                 <div className="batch-qr">
                   <QRCodeSVG
-                    value={`${window.location.origin}/trace/${batch.id}`}
+                    value={batch.traceability?.verification_url_with_proof || `${window.location.origin}/trace/${batch.id}`}
                     size={80}
                     includeMargin={true}
                     level="H"
@@ -380,7 +380,7 @@ export default function QRTraceability() {
                     <div className="batch-actions">
                       <button
                         className="test-link-btn"
-                        onClick={(e) => { e.stopPropagation(); window.open(`/trace/${batch.id}`, '_blank'); }}
+                        onClick={(e) => { e.stopPropagation(); window.open(batch.traceability?.verification_url_with_proof || `/trace/${batch.id}`, '_blank'); }}
                       >
                         Test Link
                       </button>
