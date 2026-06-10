@@ -3,6 +3,7 @@ import { Routes, Route, Link, Navigate, useLocation, useNavigate } from "react-r
 import { useTranslation } from "react-i18next";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import ErrorBoundary from "./ErrorBoundary";
 import {
   FaComments,
   FaLeaf,
@@ -522,8 +523,16 @@ function App() {
         <Navigate to="/profile-setup" />
       )}
 
-      <main id="main-content" tabIndex="-1" style={{ outline: 'none' }}>
-        <React.Suspense fallback={<Loader fullPage={true} message={<span className="notranslate">Loading route...</span>} />}>
+      <main id="main-content" tabIndex={-1} style={{ outline: 'none' }}>
+        <React.Suspense
+          fallback={
+            <Loader
+              fullPage={true}
+              message={<span className="notranslate">Loading route...</span>}
+            />
+          }
+    >
+        <ErrorBoundary>
           <Routes>
             <Route path="/" element={<Home user={user} />} />
             <Route path="/advisor" element={<Advisor userData={userData} />} />
@@ -576,6 +585,7 @@ function App() {
             <Route path="/voice-assistant" element={<VoiceAssistant />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </ErrorBoundary>
         </React.Suspense>
       </main>
 

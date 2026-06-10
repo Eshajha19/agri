@@ -56,3 +56,14 @@ async def log_error(request: Request, body: ClientErrorReport):
     except Exception as e:
         logger.error(f"Log error: {e}")
         raise HTTPException(status_code=500, detail="Failed to log error")
+
+@app.post("/api/log-error")
+async def log_error(payload: dict):
+    sanitized = {
+        "message": payload.get("message"),
+        "stack": payload.get("stack"),
+        "context": payload.get("context"),
+        "timestamp": payload.get("timestamp"),
+    }
+    logger.error(f"Client error: {sanitized}")
+    return {"status": "ok"}

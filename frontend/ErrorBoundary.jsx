@@ -1,5 +1,6 @@
 import React from 'react';
 import { FaExclamationTriangle, FaRedo } from 'react-icons/fa';
+import { reportErrorToBackend } from "../utils/errorReporting";
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -12,9 +13,15 @@ class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    this.setState({ errorInfo });
-    console.error('Error caught by boundary:', error, errorInfo);
-  }
+  this.setState({ errorInfo });
+  reportErrorToBackend({
+    error,
+    context: "ErrorBoundary",
+    timestamp: new Date().toISOString(),
+    userAgent: navigator.userAgent,
+    severity: "high"
+  });
+}
 
   render() {
     if (this.state.hasError) {

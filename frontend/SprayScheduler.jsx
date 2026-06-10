@@ -114,16 +114,30 @@ const SprayScheduler = ({ schedules = [], weatherData: _weatherData, location: _
             );
           }
 
-          return filtered
-            .slice()
-            .sort((a, b) => String(a.date).localeCompare(String(b.date)))
-            .map((schedule, idx) => (
-              <ScheduleCard
-                key={schedule.id || idx}
-                schedule={schedule}
-                onSelect={(s) => console.log("Selected", s)}
-            />
-            ));
+          try {
+  return filtered
+    .slice()
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+    .map((schedule, idx) => (
+      <ScheduleCard
+        key={schedule.id || idx}
+        schedule={schedule}
+        onSelect={(s) => console.log("Selected", s)}
+      />
+    ));
+} catch (error) {
+  reportErrorToBackend({
+    error,
+    context: "SprayScheduler rendering schedules",
+    timestamp: new Date().toISOString(),
+    severity: "medium"
+  });
+  return (
+    <div className="error-state">
+      <p>Something went wrong while loading schedules.</p>
+    </div>
+  );
+}
         })()}
       </div>
     </div>
