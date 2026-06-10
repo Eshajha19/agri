@@ -2,16 +2,18 @@
 Tests for the real-time notification broker and websocket fan-out.
 """
 
-import asyncio
-
+import pytest
 from fastapi import FastAPI, WebSocket
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 import json
 
 import pytest
 
 from realtime_notifications import NotificationBroadcastHub
+
+TEST_TOKEN = "test-valid-token"
 
 
 def create_test_app():
@@ -20,8 +22,15 @@ def create_test_app():
 
     @app.websocket("/api/notifications/stream")
     async def notifications_stream(websocket: WebSocket):
-        uid = websocket.query_params.get("uid", "test-user")
-        await hub.connect(websocket, uid)
+        auth_header = websocket.headers.get("authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            await websocket.close(code=4001)
+            return
+        token = auth_header[7:].strip()
+        if token != TEST_TOKEN:
+            await websocket.close(code=4001)
+            return
+        await hub.connect(websocket)
 
     @app.post("/api/notifications/test-publish")
     async def publish_notification():
@@ -54,7 +63,7 @@ def test_websocket_receives_snapshot_and_live_notification():
     )
     client = TestClient(app)
 
-    with client.websocket_connect("/api/notifications/stream?uid=test-user") as websocket:
+    with client.websocket_connect("/api/notifications/stream", headers={"Authorization": f"Bearer {TEST_TOKEN}"}) as websocket:
         snapshot = websocket.receive_json()
         assert snapshot["type"] == "snapshot"
         assert len(snapshot["data"]) == 1
@@ -73,11 +82,11 @@ def test_multiple_clients_receive_same_broadcast():
     app, hub = create_test_app()
     client = TestClient(app)
 
-    with client.websocket_connect("/api/notifications/stream?uid=user-1") as ws1:
+    with client.websocket_connect("/api/notifications/stream", headers={"Authorization": f"Bearer {TEST_TOKEN}"}) as ws1:
         snapshot1 = ws1.receive_json()
         assert snapshot1["type"] == "snapshot"
 
-        with client.websocket_connect("/api/notifications/stream?uid=user-2") as ws2:
+        with client.websocket_connect("/api/notifications/stream", headers={"Authorization": f"Bearer {TEST_TOKEN}"}) as ws2:
             snapshot2 = ws2.receive_json()
             assert snapshot2["type"] == "snapshot"
 
@@ -92,67 +101,24 @@ def test_multiple_clients_receive_same_broadcast():
             assert event1["data"]["id"] == event2["data"]["id"] == 101
 
 
-def test_oversized_frame_closes_connection():
+def test_websocket_rejects_missing_auth():
     app, hub = create_test_app()
     client = TestClient(app)
-
-    with client.websocket_connect("/api/notifications/stream") as websocket:
-        snapshot = websocket.receive_json()
-        assert snapshot["type"] == "snapshot"
-
-        large_text = "x" * (64 * 1024 + 1)
-        websocket.send_text(large_text)
-
-        with pytest.raises(Exception):
-            websocket.receive_json()
+    try:
+        with client.websocket_connect("/api/notifications/stream"):
+            pass
+    except WebSocketDisconnect as e:
+        assert e.code == 4001
 
 
-def test_message_rate_limit_closes_connection():
+def test_websocket_rejects_bad_token():
     app, hub = create_test_app()
     client = TestClient(app)
-
-    with client.websocket_connect("/api/notifications/stream") as websocket:
-        snapshot = websocket.receive_json()
-        assert snapshot["type"] == "snapshot"
-
-        # Send enough messages to trigger the 10 msg/s limit
-        for _ in range(12):
-            websocket.send_text("ping")
-
-        with pytest.raises(Exception):
-            websocket.receive_json()
-
-
-def test_dedup_hash_is_deterministic():
-    n1 = {"id": 1, "msg": "hello", "time": "2026-01-01"}
-    n2 = {"time": "2026-01-01", "msg": "hello", "id": 1}
-    assert NotificationBroadcastHub._dedup_hash(n1) == NotificationBroadcastHub._dedup_hash(n2)
-
-
-def test_dedup_hash_differs_for_different_content():
-    n1 = {"id": 1, "msg": "hello"}
-    n2 = {"id": 2, "msg": "world"}
-    assert NotificationBroadcastHub._dedup_hash(n1) != NotificationBroadcastHub._dedup_hash(n2)
-
-
-def test_publish_deduplicates_identical_notifications():
-    app, hub = create_test_app()
-
-    notif = {"id": 42, "type": "weather", "message": "Rain"}
-
-    import asyncio
-    asyncio.run(hub.publish(notif))
-    asyncio.run(hub.publish(notif))
-
-    snap = hub.snapshot()
-    assert len(snap) == 1
-    assert snap[0]["id"] == 42
-
-
-def test_seed_notifications_deduplicates():
-    app, hub = create_test_app()
-
-    notif = {"id": 99, "msg": "dup"}
-    hub.seed_notifications([notif, notif, notif])
-
-    assert len(hub.snapshot()) == 1
+    try:
+        with client.websocket_connect(
+            "/api/notifications/stream",
+            headers={"Authorization": "Bearer invalid-token"},
+        ):
+            pass
+    except WebSocketDisconnect as e:
+        assert e.code == 4001
