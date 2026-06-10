@@ -201,7 +201,10 @@ async def record_shadow_predictions(request: Request, eval_id: str, production_p
     await _enforce_role(request)
     if shadow_evaluator is None:
         raise HTTPException(status_code=500, detail="Not initialized")
-    shadow_evaluator.record_predictions(eval_id, production_prediction, candidate_prediction, actual_value)
+    try:
+        shadow_evaluator.record_predictions(eval_id, production_prediction, candidate_prediction, actual_value)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     status = shadow_evaluator.get_evaluation_status(eval_id)
     return {"success": True, "eval_id": eval_id, "status": status}
 
