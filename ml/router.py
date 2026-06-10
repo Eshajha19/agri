@@ -1,10 +1,36 @@
 import logging
-from typing import Any, Dict, Optional
+from typing import Optional, Dict, Any
 
 from ml.registry import ModelRegistry
 
 
 logger = logging.getLogger(__name__)
+
+# Per-process governance instances — initialised by calling
+# ``init_governance_router()`` from the FastAPI lifespan and from the
+# Celery worker init so that every process that runs predictions also
+# runs governance checks.
+_drift_detector = None
+_shadow_evaluator = None
+_version_manager = None
+
+
+def init_governance_router(drift_detector=None, shadow_evaluator=None, version_manager=None):
+    """Inject governance instances into this process's ML router module.
+
+    Must be called from every worker process that runs predictions
+    (both the FastAPI lifespan and the Celery worker initialiser).
+    """
+    global _drift_detector, _shadow_evaluator, _version_manager
+    _drift_detector = drift_detector
+    _shadow_evaluator = shadow_evaluator
+    _version_manager = version_manager
+    logger.info(
+        "Governance router initialised: drift=%s shadow=%s versions=%s",
+        drift_detector is not None,
+        shadow_evaluator is not None,
+        version_manager is not None,
+    )
 
 
 class ModelRouter:
@@ -133,58 +159,26 @@ class ModelRouter:
         model_name = self._resolve_model_name(context)
         model = self._get_model(model_name)
 
+        # Governance: check for input drift against this model's baseline
+        if _drift_detector is not None:
+            try:
+                _drift_detector.check_input_drift(active_name, input_data)
+            except Exception as exc:
+                logger.warning("Input drift check failed: %s", exc)
+
         logger.info(
             "Running batch prediction using model='%s', n=%d",
             model_name,
             len(inputs),
         )
 
-        if hasattr(model, "predict_batch"):
+        result = model.predict(processed_df)
+
+        # Governance: check prediction drift after inference
+        if _drift_detector is not None:
             try:
-                return model.predict_batch(inputs)
+                _drift_detector.check_prediction_drift(active_name, float(result))
             except Exception as exc:
-                logger.warning(
-                    "Batch predict failed for model='%s', falling back to loop. Error: %s",
-                    model_name,
-                    exc,
-                )
+                logger.warning("Prediction drift check failed: %s", exc)
 
-        # Fallback: loop over individual predictions
-        results = []
-        for idx, item in enumerate(inputs):
-            try:
-                results.append(model.predict(item))
-            except Exception as exc:
-                logger.warning("Batch item %d failed: %s", idx, exc)
-                results.append(None)
-
-        return results
-
-    def available_models(self):
-        """
-        Return list of registered models.
-        """
-
-        try:
-            return ModelRegistry.list_models()
-
-        except Exception:
-            logger.exception(
-                "Failed listing models"
-            )
-
-            return []
-
-    def health(self):
-        """
-        Simple router health snapshot.
-        """
-
-        models = self.available_models()
-
-        return {
-            "status": "healthy",
-            "default_model": self.default_model,
-            "registered_models": models,
-            "total_models": len(models),
-        }
+        return result
