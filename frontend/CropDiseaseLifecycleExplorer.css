@@ -59,3 +59,39 @@
 .cdl-stage-btn.yellow.active { border-color: #facc15; color: #facc15; }
 .cdl-stage-btn.orange.active { border-color: #fb923c; color: #fb923c; }
 .cdl-stage-btn.red.active { border-color: #ef4444; color: #ef4444; }
+.cdl-overlay{position:fixed;inset:0;background:rgba(2,6,23,0.6);display:flex;align-items:center;justify-content:center;z-index:1200;padding:18px;animation:cdlFadeIn 0.2s ease-out}
+@keyframes cdlFadeIn{from{opacity:0}to{opacity:1}}
+.cdl-modal{background:#fff;max-width:900px;width:100%;max-height:92vh;overflow:auto;border-radius:12px;box-shadow:0 20px 60px rgba(2,6,23,0.4);position:relative}
+.cdl-header{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid #eef2f7;background:linear-gradient(135deg,#fef2f2,#fff5f5)}
+.cdl-header h2{margin:0;font-size:1.35rem;font-weight:600;color:#1e293b}
+.cdl-close{background:transparent;border:0;font-size:22px;cursor:pointer;color:#64748b;width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;transition:background 0.15s,color 0.15s}
+.cdl-close:hover{background:#e2e8f0;color:#1e293b}
+.cdl-controls{padding:14px 22px;border-bottom:1px solid #f1f5f9}
+.cdl-controls label{color:#334155;font-weight:500}
+.cdl-controls select{margin-left:8px;padding:6px 10px;border-radius:6px;border:1px solid #e2e8f0}
+.cdl-body{display:flex;gap:20px;padding:20px}
+.cdl-stages{width:240px;display:flex;flex-direction:column;gap:6px}
+.cdl-stage-btn{display:flex;gap:10px;align-items:center;border:0;background:transparent;padding:12px 14px;cursor:pointer;text-align:left;border-radius:8px;transition:all 0.2s;width:100%}
+.cdl-icon{font-size:1.5rem}
+.cdl-stage-btn span:last-child{font-size:0.925rem;color:#334155;font-weight:500}
+.cdl-stage-btn:hover{background:#f8fafc}
+.cdl-stage-btn.active{background:linear-gradient(135deg,#e0f2fe,#f0f9ff);outline:2px solid #0ea5a4}
+.cdl-detail{flex:1;display:flex;flex-direction:column;gap:16px}
+.cdl-detail-icon{font-size:5rem;align-self:center;margin:20px 0}
+.cdl-note{color:#475569;line-height:1.5;margin-bottom:16px}
+.cdl-info h3{margin-top:0;font-size:1.25rem;color:#1e293b;margin-bottom:8px}
+.cdl-progression p{color:#475569;line-height:1.6;margin-top:4px}
+.cdl-prevention ul{padding-left:20px;margin:0;color:#475569;line-height:1.8}
+.cdl-prevention li{margin-bottom:6px}
+.cdl-actions{margin-top:18px}
+.cdl-primary{background:#0ea5a4;color:white;border:0;padding:10px 20px;border-radius:6px;cursor:pointer;font-weight:500;transition:background 0.2s;min-width:100px}
+.cdl-primary:hover{background:#0d9488}
+
+@media (max-width: 920px){
+  .cdl-body{flex-direction:column}
+  .cdl-stages{width:100%;flex-direction:row;overflow-x:auto;gap:8px;padding-bottom:12px}
+  .cdl-stage-btn{flex-direction:column;min-width:100px;max-width:120px;padding:8px}
+  .cdl-icon{font-size:2rem}
+  .cdl-stage-btn span:last-child{font-size:0.8rem;text-align:center}
+  .cdl-detail-icon{font-size:4rem;margin:12px 0}
+}
