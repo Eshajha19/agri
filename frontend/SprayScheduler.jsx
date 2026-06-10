@@ -3,8 +3,10 @@ import Calendar from "react-calendar";
 import "react-calendar/dist/Calendar.css"; 
 import ScheduleCard from "./ScheduleCard";
 import "./SprayScheduler.css";
+import { useTranslation } from "react-i18next";
 
 const SprayScheduler = ({ schedules = [], weatherData: _weatherData, location: _location }) => {
+  const { t } = useTranslation();
   const [viewDate, setViewDate] = useState(new Date());
   const [filter, setFilter] = useState("");
 
@@ -61,36 +63,36 @@ const SprayScheduler = ({ schedules = [], weatherData: _weatherData, location: _
 
   return (
     <div className="spray-scheduler">
-      <h2>Spray Scheduler</h2>
+      <h2>{t("sprayScheduler.title")}</h2>
 
       <Calendar
         onChange={setViewDate}
         value={viewDate}
         className="calendar-view"
-        aria-label="Spray schedule calendar"
+        aria-label={t("sprayScheduler.calendarAria")}
       />
 
       <div className="filters">
         <input
           type="text"
-          placeholder="Search by crop or pest..."
-          aria-label="Search schedules by crop or pest"
+          placeholder={t("sprayScheduler.searchPlaceholder")}
+          aria-label={t("sprayScheduler.searchAria")}
           onChange={(e) => setFilter(e.target.value)}
         />
       </div>
 
       <div className="summary">
-        <div className="summary-card" role="status" aria-label="Total schedules">
-            Total: {merged.length}
+        <div className="summary-card" role="status" aria-label={t("sprayScheduler.totalAria")}>
+            {t("sprayScheduler.total")}: {merged.length}
         </div>
-        <div className="summary-card" role="status" aria-label="Upcoming schedules">
-          Upcoming: {merged.filter((s) => s.status === "upcoming").length}
+        <div className="summary-card" role="status" aria-label={t("sprayScheduler.upcomingAria")}>
+          {t("sprayScheduler.upcoming")}: {merged.filter((s) => s.status === "upcoming").length}
         </div>
-        <div className="summary-card" role="status" aria-label="Overdue schedules">
-          Overdue: {merged.filter((s) => s.status === "overdue").length}
+        <div className="summary-card" role="status" aria-label={t("sprayScheduler.overdueAria")}>
+          {t("sprayScheduler.overdue")}: {merged.filter((s) => s.status === "overdue").length}
         </div>
-        <div className="summary-card" role="status" aria-label="Completed schedules">
-          Completed: {merged.filter((s) => s.status === "completed").length}
+        <div className="summary-card" role="status" aria-label={t("sprayScheduler.completedAria")}>
+         {t("sprayScheduler.completed")}: {merged.filter((s) => s.status === "completed").length}
         </div>
       </div>
 
