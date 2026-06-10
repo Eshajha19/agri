@@ -424,6 +424,31 @@ async def generate_signed_report(request: Request, data: ReportRequest):
         logger.error(f"Key retrieval error: {e}")
         raise HTTPException(status_code=500, detail="Failed to load signing key")
 
+@router.post("/log-error")
+async def log_error(body: ClientErrorReport):
+    if sanitise_log_field_fn is None:
+        raise HTTPException(status_code=500, detail="Log sanitizer not initialized")
+
+    level = sanitise_log_field_fn(body.level).lower()
+    message = sanitise_log_field_fn(body.message)
+    source = sanitise_log_field_fn(body.source) if body.source else "unknown"
+    stack = sanitise_log_field_fn(body.stack) if body.stack else ""
+
+    log_fn = {
+        "error": logger.error,
+        "warn": logger.warning,
+        "warning": logger.warning,
+        "info": logger.info,
+    }.get(level, logger.error)
+
+    log_fn(
+        "[ClientError] level=%s source=%s message=%s%s",
+        level,
+        source,
+        message,
+        f" stack={stack}" if stack else "",
+    )
+    return {"success": True}
     try:
         cert_id = _make_cert_id(data)
         signature_hex = _sign_report(private_key, data, cert_id)

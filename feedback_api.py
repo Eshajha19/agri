@@ -188,6 +188,25 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 # ─────────────────────────────────────────────────────────────────────────────
 
+from slowapi.util import get_remote_address
+
+def feedback_rate_limit_key(request: Request):
+    """
+    Prefer stable authenticated UID for rate limiting.
+    Fall back to IP address if no UID is available.
+    """
+    uid = getattr(request.state, "uid", None)
+    if uid:
+        return f"user:{uid}"
+    return get_remote_address(request)
+
+# ── Rate limiting ─────────────────────────────────────────────────────────────
+limiter = Limiter(key_func=feedback_rate_limit_key, default_limits=["120/minute"])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,

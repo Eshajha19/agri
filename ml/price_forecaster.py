@@ -8,13 +8,10 @@ No external dependencies beyond pandas, numpy, scikit-learn.
 import gzip
 import json
 import logging
-import logging.handlers
-import math
-import os
-import shutil
-from datetime import datetime as _dt, timedelta
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+import threading
+from collections import OrderedDict
+from datetime import date, timedelta
+from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -247,22 +244,60 @@ class PriceForecaster:
         seasonal_map = df.groupby("doy")["detrended"].mean().to_dict()
         df["seasonal"] = df["doy"].map(seasonal_map)
 
-        # Residual
-        df["residual"] = df["detrended"] - df["seasonal"]
+        prices = self._prices
+        self._scaler_min = float(prices.min())
+        self._scaler_range = float(prices.max() - prices.min()) or 1.0
 
-        return {
-            "dates": df["date"].dt.strftime("%Y-%m-%d").tolist(),
-            "price": df["price"].round(2).tolist(),
-            "trend": df["trend"].round(2).tolist(),
-            "seasonal": df["seasonal"].round(2).tolist(),
-            "residual": df["residual"].round(2).tolist(),
-        }
+        scaled = self._scale(prices)
 
-    # -------------------------------------------------------------------------
-    # FORECAST
-    # -------------------------------------------------------------------------
+        # Build (X, y) sequences
+        X, y = [], []
+        for i in range(len(scaled) - SEQ_LEN):
+            X.append(scaled[i : i + SEQ_LEN])
+            y.append(scaled[i + SEQ_LEN])
+        X = np.array(X).reshape(-1, SEQ_LEN, 1)
+        y = np.array(y)
 
-    def forecast(self, crop: str, days: int = 14) -> dict:
+        # Build model
+        model = tf.keras.Sequential([
+            tf.keras.layers.LSTM(32, activation="tanh", input_shape=(SEQ_LEN, 1)),
+            tf.keras.layers.Dense(16, activation="relu"),
+            tf.keras.layers.Dense(1),
+        ])
+        model.compile(optimizer="adam", loss="mse")
+
+        # Suppress TF progress output
+        model.fit(
+            X, y,
+            epochs=30,
+            batch_size=8,
+            verbose=0,
+            validation_split=0.1,
+        )
+
+        # Estimate residual std on validation split (last 10%) for confidence intervals
+        split = int(len(X) * 0.9)
+        if split < len(X):
+            val_preds = model.predict(X[split:], verbose=0).flatten()
+            residuals = y[split:] - val_preds
+            self._residual_std = float(np.std(residuals))
+        else:
+            preds = model.predict(X, verbose=0).flatten()
+            self._residual_std = float(np.std(y - preds))
+
+        self._model = model
+        self._trained = True
+        logger.info(
+            "PriceForecaster: trained LSTM for '%s' "
+            "(residual_std=%.4f, scaler_range=%.0f)",
+            self.commodity, self._residual_std, self._scaler_range,
+        )
+
+    # ------------------------------------------------------------------
+    # Forecasting
+    # ------------------------------------------------------------------
+
+    def forecast(self, days: int = 14) -> List[Dict]:
         """
         Generate price forecast with confidence intervals.
         """
@@ -369,42 +404,38 @@ class PriceForecaster:
         # Score 0-100
         score = min(100, cv * 500)
 
-        if score < 20:
-            classification = "low"
-        elif score < 50:
-            classification = "moderate"
-        elif score < 80:
-            classification = "high"
-        else:
-            classification = "extreme"
+    Thread-safe: model training is serialised per commodity via a lock.
+    Models are trained lazily on first request and cached in memory.
+    The cache is LRU-evicted when it exceeds *max_cache_size* entries.
+    """
 
-        # Persist
-        try:
-            vol_data = json.loads(_VOLATILITY_PATH.read_text()) if _VOLATILITY_PATH.exists() else {}
-            vol_data[crop] = {
-                "score": round(score, 2),
-                "classification": classification,
-                "cv": round(cv, 4),
-                "updated_at": _dt.utcnow().isoformat(),
-            }
-            with open(_VOLATILITY_PATH, "w", encoding="utf-8") as f:
-                json.dump(vol_data, f, indent=2)
-        except Exception:
-            pass
+    def __init__(self, max_cache_size: int = 32) -> None:
+        self._max_cache_size = max_cache_size
+        self._models: OrderedDict[str, _CommodityModel] = OrderedDict()
+        self._lock = threading.Lock()
 
-        return {
-            "score": round(score, 2),
-            "classification": classification,
-            "coefficient_of_variation": round(cv, 4),
-            "mean_price": round(mean_price, 2),
-            "std_price": round(std_price, 2),
-        }
+    def _get_or_train(self, commodity: str) -> _CommodityModel:
+        """Return a trained model for *commodity*, training it if needed."""
+        with self._lock:
+            if commodity in self._models:
+                self._models.move_to_end(commodity)
+                return self._models[commodity]
+            prices = HISTORICAL_PRICES.get(
+                commodity,
+                HISTORICAL_PRICES[_DEFAULT_COMMODITY],
+            )
+            m = _CommodityModel(commodity, prices)
+            m.train()
+            self._models[commodity] = m
+            if len(self._models) > self._max_cache_size:
+                self._models.popitem(last=False)
+            return self._models[commodity]
 
-    # -------------------------------------------------------------------------
-    # ALERT EVALUATION
-    # -------------------------------------------------------------------------
-
-    def disk_health(self) -> dict:
+    def forecast(
+        self,
+        commodity: str,
+        days: int = 14,
+    ) -> Dict:
         """
         Return disk usage metrics for the forecasts log directory.
         """
