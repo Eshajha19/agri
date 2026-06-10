@@ -580,7 +580,6 @@ _notification_store.append(
     alert_type="weather",
     message="🌧️ Heavy rainfall expected in your region today.",
 )
-notification_broker.seed_notifications(_notification_store.get_recent())
 
 
 async def publish_notification(alert_type: str, message: str) -> dict:
