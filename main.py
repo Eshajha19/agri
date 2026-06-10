@@ -57,6 +57,8 @@ import firebase_admin
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from firebase_admin import auth, credentials, firestore, storage
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from backend.routers import (
@@ -2125,30 +2127,6 @@ try:
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
     instrumentator = None
-
-
-@app.get("/health/autoscale")
-@limiter.limit("60/minute")
-async def health_autoscale(request: Request):
-    """Return current autoscale metrics: workers, queue depth, predicted demand."""
-    from celery_autoscaler import get_autoscaler
-    autoscaler = get_autoscaler()
-    return autoscaler.get_status()
-
-
-@app.get("/health/sync")
-@limiter.limit("60/minute")
-async def health_sync(request: Request):
-    """Return offline sync queue status: pending count, failed count, oldest item."""
-    from persistence.offline_sync import get_sync_stats
-    return {
-        "success": True,
-        "sync": get_sync_stats(),
-    }
-
-# Middleware and rate-limits — the limiter was already configured above;
-# only the exception handler alias from slowapi's public API is wired here.
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ---------------------------------------------------------------------------
 # CORS — explicit origin allowlist
