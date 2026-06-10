@@ -145,6 +145,7 @@ async def lifespan(app: FastAPI):
     init_ml_pipeline()
     await notification_broker.start()
 
+
     # Domain engines — initialized exactly once here at startup.
     drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
     shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
