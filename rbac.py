@@ -258,15 +258,15 @@ class RBACManager:
                 )
 
             if not user_doc.exists:
-                logger.warning("User %s not found in Firestore", uid)
-                return Role.GUEST
+                logger.warning("User %s not found in Firestore, defaulting to farmer", uid)
+                return Role.FARMER
 
-            role_str = user_doc.get("role", "guest").lower()
+            role_str = user_doc.get("role", "farmer").lower()
             try:
                 return Role(role_str)
             except ValueError:
-                logger.warning("Invalid role for user %s: %s", uid, role_str)
-                return Role.GUEST
+                logger.warning("Invalid role for user %s: %s, defaulting to farmer", uid, role_str)
+                return Role.FARMER
 
         except HTTPException:
             raise
