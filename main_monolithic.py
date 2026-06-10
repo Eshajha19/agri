@@ -1,34 +1,395 @@
 # main.py
-import os
+import collections
 import io
 import json
-import collections
-            try:
-                prod_version = version_manager.get_production_version()
-                recent_alerts = drift_detector.get_alerts(limit=5)
-                recent_evals = shadow_evaluator.get_evaluations(limit=5)
+import logging
+import os
+import re
+import threading
+import itertools
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
+from typing import Any, Dict, Optional
 
-                return {
-                    "success": True,
-                    "governance_status": {
-                        "drift_detection": {
-                            "recent_alerts": recent_alerts,
-                            "alert_count": len(drift_detector.alerts)
-                        },
-                        "shadow_evaluation": {
-                            "active_evaluations": len(shadow_evaluator.active_evaluations),
-                            "completed_evaluations": len(shadow_evaluator.evaluations),
-                            "recent_evaluations": recent_evals
-                        },
-                        "model_versioning": {
-                            "production_version": prod_version.to_dict() if prod_version else None,
-                            "total_versions": len(version_manager.versions)
-                        }
-                    }
-                }
-            except Exception as e:
-                logger.error("Get governance status error: %s", str(e))
-                raise HTTPException(status_code=500, detail="Failed to get governance status")
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field, validator
+
+import joblib
+
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+
+class SimulationRequest(BaseModel):
+    crop_type: str
+    temp_delta: float = Field(..., ge=-5, le=5)
+    rain_delta: float = Field(..., ge=-100, le=100)
+
+class ClientErrorReport(BaseModel):
+    """
+    Typed, bounded schema for frontend error reports sent to /api/log-error.
+
+    Fields are intentionally narrow:
+    - message  : the human-readable error description (capped at 500 chars)
+    - source   : optional filename / module where the error originated
+    - stack    : optional stack trace (capped to prevent log flooding)
+    - level    : severity hint from the client; defaults to "error"
+
+    All string fields are stripped of ANSI escape sequences and ASCII
+    control characters before being written to the log, so a crafted
+    payload cannot inject terminal control codes or forge log lines.
+    """
+    message: str = Field(..., min_length=1, max_length=500)
+    source: Optional[str] = Field(default=None, max_length=200)
+    stack: Optional[str] = Field(default=None, max_length=2000)
+    level: str = Field(default="error", max_length=20)
+
+class RAGQuery(BaseModel):
+    query: str = Field(..., min_length=3, max_length=500)
+    top_k: int = Field(default=3, ge=1, le=5)
+
+# Blockchain Supply Chain Models
+class RegisterActorRequest(BaseModel):
+    actor_id: str = Field(..., min_length=1, max_length=50)
+    name: str = Field(..., min_length=1, max_length=100)
+    actor_type: str = Field(..., min_length=1, max_length=50)
+    location: str = Field(..., min_length=1, max_length=100)
+
+class CreateProductBatchRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    farm_id: str = Field(..., min_length=1, max_length=50)
+    quantity: float = Field(..., gt=0)
+    unit: str = Field(..., min_length=1, max_length=20)
+    planting_date: str = Field(..., min_length=1)
+    harvesting_date: str = Field(..., min_length=1)
+    farmer_name: str = Field(..., min_length=1, max_length=100)
+
+class AddSupplyChainNodeRequest(BaseModel):
+    batch_id: str = Field(..., min_length=1)
+    node_type: str = Field(..., min_length=1, max_length=50)
+    actor_name: str = Field(..., min_length=1, max_length=100)
+    location: str = Field(..., min_length=1, max_length=100)
+    action: str = Field(..., min_length=1, max_length=50)
+    temperature: Optional[float] = None
+    humidity: Optional[float] = None
+    quality_check: Optional[str] = None
+    notes: str = Field(default="", max_length=500)
+
+class CreateSmartContractRequest(BaseModel):
+    batch_id: str = Field(..., min_length=1)
+    seller: str = Field(..., min_length=1, max_length=100)
+    buyer: str = Field(..., min_length=1, max_length=100)
+    price: float = Field(..., gt=0)
+    terms: Optional[Dict] = None
+
+class ExecuteContractRequest(BaseModel):
+    contract_id: str = Field(..., min_length=1)
+
+# Crop Quality Grading Models
+class CropQualityGradingRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    image_base64: str = Field(..., min_length=100)  # Base64 encoded image
+
+class CropQualityBatchRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    images_base64: list = Field(..., min_items=1, max_items=100)  # Multiple images
+
+class QualityTrendsRequest(BaseModel):
+    crop_type: str = Field(..., min_length=1, max_length=50)
+    days: int = Field(default=7, ge=1, le=30)
+
+# Date/Time utilities
+from datetime import datetime, timezone
+
+# Rate Limiting
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+# Firebase Admin SDK
+import firebase_admin
+from firebase_admin import credentials, auth as firebase_auth, firestore
+
+# ML Ops Imports
+from ml.registry import ModelRegistry
+from ml.adapters.xgboost_adapter import XGBoostAdapter
+from ml.router import ModelRouter
+from ml.preprocessing import UnknownCategoryError, MissingFeatureError
+
+# Persistence Layer
+from persistence.repositories import (
+    FinanceApplicationRepository,
+    NotificationRepository,
+    SupplyChainRepository,
+)
+
+# RBAC (Role-Based Access Control)
+from rbac import (
+    RBACManager,
+    RBACMiddleware,
+    Permission,
+    require_permission,
+    print_rbac_matrix,
+)
+
+# ML Governance (Drift Detection, Shadow Evaluation, Rollback Safety)
+from ml.governance import (
+    DriftDetector,
+    ShadowEvaluator,
+    ModelVersionManager,
+)
+
+# Other internal modules
+from alert_rules import generate_alerts
+from whatsapp_service import send_whatsapp_message, format_alert_message
+from whatsapp_store import subscriber_store
+from crop_quality_grading import CropQualityGrader
+from blockchain_supply_chain import SupplyChainBlockchain
+from farm_finance_ai import FarmFinanceAI
+
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from reportlab.lib import colors
+from reportlab.lib.units import inch
+from cryptography.hazmat.primitives.asymmetric import ed25519, padding
+from cryptography.hazmat.primitives import serialization, hashes
+
+# KMS Support
+try:
+    from google.cloud import secretmanager
+    HAS_GCP_KMS = True
+except ImportError:
+    HAS_GCP_KMS = False
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    FastAPI lifespan context manager.
+
+    Runs inside **every** Uvicorn/Gunicorn worker process on startup, so the
+    ML pipeline and domain engines are always initialised regardless of how
+    many workers are spawned.
+
+    Multi-worker guarantee
+    ----------------------
+    When Uvicorn is started with ``--workers N``, each worker forks/spawns
+    from the main process and imports ``main.py`` independently.  The
+    ``lifespan`` hook is invoked by FastAPI in every worker's event loop,
+    ensuring ``ModelRegistry`` is populated and domain engines are ready in
+    every process before the first request is served.
+
+    Domain engines are intentionally initialised here rather than at module
+    scope: module-level code runs on every import (e.g. during tests or
+    hot-reload), which would cause unnecessary re-construction and would
+    overwrite any in-memory state accumulated since the last reload.
+    """
+    global _finance_repository, _notification_repository, _supply_chain_repository
+    global _farm_finance_ai, _supply_chain_blockchain, _crop_quality_grader
+
+    init_ml_pipeline()
+
+    # Domain engines — initialized exactly once per worker process at startup.
+    _finance_repository = FinanceApplicationRepository()
+    _notification_repository = NotificationRepository()
+    _supply_chain_repository = SupplyChainRepository()
+    _crop_quality_grader = CropQualityGrader()
+    _supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
+    _farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
+    logger.info("Domain engines initialized with persistent repositories")
+
+    yield
+    # Shutdown: nothing to clean up for in-memory models.
+
+
+app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
+
+logger = logging.getLogger(__name__)
+
+# Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
+# ASCII control characters (0x00-0x1f, 0x7f) except tab and newline.
+# Used to sanitise client-supplied strings before they reach the log, so a
+# crafted payload cannot inject terminal control codes or forge log lines.
+_CONTROL_CHAR_RE = re.compile(
+    r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]"   # ANSI CSI sequences
+    r"|\x1B[@-_]"                          # other ESC sequences
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"  # control chars except \t \n
+)
+
+def _sanitise_log_field(value: str) -> str:
+    """Strip ANSI escape sequences and ASCII control characters from *value*."""
+    if not isinstance(value, str):
+        return ""
+    return _CONTROL_CHAR_RE.sub("", value)
+
+# Initialize Limiter
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Initialize Firebase Admin
+# Explicitly set to None before the try block so db_firestore is always
+# defined at module level, even if an exception is raised mid-init.
+db_firestore = None
+
+if not firebase_admin._apps:
+    try:
+        # In a GCP environment this picks up Application Default Credentials
+        # automatically.  For local dev set GOOGLE_APPLICATION_CREDENTIALS to
+        # the path of a service-account key file.
+        firebase_admin.initialize_app()
+        db_firestore = firestore.client()
+        logger.info("Firebase Admin: successfully initialized")
+    except Exception as e:
+        logger.warning(
+            "Firebase Admin: could not initialize — role-gated endpoints will "
+            "return 503 until Firestore is reachable. Reason: %s", e
+        )
+
+async def verify_role(request: Request, required_roles: list = None):
+    """
+    Verify the Firebase ID token and check the caller's role against Firestore.
+    Expects 'Authorization: Bearer <ID_TOKEN>' header.
+
+    Fail-closed design:
+    - If Firestore is unavailable the request is rejected with 503.
+    - If the user document does not exist the request is rejected with 403.
+    - The function never grants a role that was not explicitly stored in Firestore.
+    """
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
+
+    # Use a slice instead of split()[1] to avoid IndexError when the header
+    # is exactly "Bearer " with no token following it.
+    id_token = auth_header[7:].strip()
+    if not id_token:
+        raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
+
+    # Verify the token signature with Firebase — raises on invalid/expired tokens.
+    try:
+        decoded_token = firebase_auth.verify_id_token(id_token, check_revoked=True)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Authentication failed")
+
+    uid = decoded_token["uid"]
+
+    # Firestore must be available to resolve the caller's role.
+    # Failing open (granting admin when Firestore is down) is a security bug,
+    # so we reject the request instead.
+    if not db_firestore:
+        raise HTTPException(
+            status_code=503,
+            detail="Authorization service temporarily unavailable"
+        )
+
+    # Wrap the Firestore fetch so a transient network error (timeout, reset)
+    # returns the same clean 503 as a missing db_firestore, rather than an
+    # unhandled exception that leaks internal details as a raw 500.
+    try:
+        user_doc = db_firestore.collection("users").document(uid).get()
+    except Exception as e:
+        logger.error(
+            "Firestore fetch failed for uid=%s during role check: %s", uid, e
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Authorization service temporarily unavailable"
+        )
+
+    if not user_doc.exists:
+        raise HTTPException(status_code=403, detail="User profile not found")
+
+    user_role = user_doc.to_dict().get("role", "farmer")
+
+    if required_roles and user_role not in required_roles:
+        raise HTTPException(status_code=403, detail="Access denied: insufficient permissions")
+
+    return {"uid": uid, "role": user_role}
+
+# --- Secure CORS Configuration ---
+frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+trusted_origins = [
+    "http://localhost:5173",     # Local development
+    "http://127.0.0.1:5173",     # Local development alternative
+    "https://yourfrontend.com",  # Production domain placeholder
+]
+
+# Add any custom frontend URLs from environment
+if frontend_url and frontend_url not in trusted_origins:
+    trusted_origins.append(frontend_url)
+
+# Support comma-separated list of additional origins
+extra_origins = os.getenv("ADDITIONAL_ALLOWED_ORIGINS")
+if extra_origins:
+    trusted_origins.extend([origin.strip() for origin in extra_origins.split(",")])
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=trusted_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+)
+
+# Add RBAC middleware for access logging
+app.add_middleware(RBACMiddleware)
+
+# Log RBAC matrix on startup
+logger.info(print_rbac_matrix())
+
+# --- Models ---
+
+class PredictRequest(BaseModel):
+    Crop: str = Field(..., max_length=50)
+    CropCoveredArea: float = Field(..., gt=0)
+    CHeight: int = Field(..., ge=0)
+    CNext: str = Field(..., max_length=50)
+    CLast: str = Field(..., max_length=50)
+    CTransp: str = Field(..., max_length=50)
+    IrriType: str = Field(..., max_length=50)
+    IrriSource: str = Field(..., max_length=50)
+    IrriCount: int = Field(..., ge=1)
+    WaterCov: int = Field(..., ge=0, le=100)
+    Season: str = Field(..., max_length=50)
+
+class PredictResponse(BaseModel):
+    predicted_ExpYield: float
+
+class WhatsAppSubscribeRequest(BaseModel):
+    phone_number: str
+    name: str
+    # user_id is accepted for backward compatibility but is IGNORED by the
+    # endpoint — the authoritative user identity is always derived from the
+    # verified Firebase ID token, never from client-supplied data.
+    user_id: Optional[str] = None
+
+class YieldInput(BaseModel):
+    data: list[float]
+
+class AlertTriggerRequest(BaseModel):
+    alert_type: str = Field(..., pattern=r'^(weather|pest|advisory)$')
+    message: str = Field(..., min_length=1, max_length=500)
+
+class ReportRequest(BaseModel):
+    name: str = Field(..., max_length=100)
+    crop: str = Field(..., max_length=50)
+    area: str = Field(..., max_length=50)
+    profit: str = Field(..., max_length=50)
+    season: str = Field(..., max_length=50)
+
+    @validator("name", "crop", "area", "profit", "season", pre=True)
+    def reject_pipe_characters(cls, v):
+        # Belt-and-suspenders guard: the signing payload now uses JSON (which
+        # is unambiguous regardless of field content), but we also reject pipe
+        # characters at the model level so legacy code paths or future changes
+        # cannot accidentally reintroduce a delimiter-injection vulnerability.
+        if isinstance(v, str) and "|" in v:
+            raise ValueError(
+                "Field value must not contain the '|' character."
+            )
+        return v
+
 
 
 class SeedVerifyRequest(BaseModel):
@@ -97,25 +458,24 @@ def init_ml_pipeline():
         if os.path.exists(model_path):
             xgb_adapter.load(model_path)
             ModelRegistry.register("xgboost", xgb_adapter)
-            print("ML Pipeline: Registered XGBoost model.")
+            logger.info("ML Pipeline: Registered XGBoost model.")
         else:
-            print(f"ML Pipeline Warning: {model_path} not found.")
+            logger.warning("ML Pipeline: %s not found.", model_path)
             
         # You can register other models here (e.g., LSTM) as they become available
         # ModelRegistry.register("lstm", LSTMAdapter("lstm_model.h5"))
         
     except Exception as e:
-        print(f"ML Pipeline Error: {e}")
+        logger.error("ML Pipeline Error: %s", e)
 
-init_ml_pipeline()
 
 # Load model directly for backward compatibility or simple use cases if needed
 try:
     model = joblib.load("yield_model.joblib")
     model_lag = joblib.load("sklearn_yield_model.pkl")
-    print("Models loaded successfully")
+    logger.info("Models loaded successfully")
 except Exception as e:
-    print(f"Error loading models: {e}")
+    logger.error("Error loading models: %s", e)
     model = None
     model_lag = None
 
@@ -218,21 +578,16 @@ _notification_store.append(
     message="🌧️ Heavy rainfall expected in your region today.",
 )
 
-# Initialize repositories for persistent storage
-_finance_repository = FinanceApplicationRepository()
-_notification_repository = NotificationRepository()
-_supply_chain_repository = SupplyChainRepository()
-
-# Initialize Crop Quality Grader
-_crop_quality_grader = CropQualityGrader()
-
-# Initialize Supply Chain Blockchain with persistent repository
-_supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
-
-# Initialize Farm Finance AI with persistent repository
-_farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
-
-logger.info("Domain engines initialized with persistent repositories")
+# Domain engine placeholders — actual instances are created once inside the
+# lifespan context manager above, which runs at server startup (not on import).
+# Endpoint handlers reference these module-level names; the lifespan assigns
+# the real objects via ``global`` before any request is served.
+_finance_repository = None
+_notification_repository = None
+_supply_chain_repository = None
+_crop_quality_grader = None
+_supply_chain_blockchain = None
+_farm_finance_ai = None
 
 # --- Routes ---
 
@@ -287,7 +642,7 @@ def predict_yield(data: PredictRequest, request: Request):
             },
         )
     except Exception as e:
-        print(f"Prediction Error: {e}")
+        logger.error("Prediction Error: %s", e)
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/predict-yield-lag")
@@ -428,7 +783,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     # allowed any caller to overwrite another user's subscription by sending
     # a known user_id with an attacker-controlled phone number.
     token_data = await verify_role(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
 
     subscriber = {
         "phone_number": data.phone_number,
@@ -490,18 +845,19 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
 
 @app.post("/api/whatsapp/webhook")
 async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
-    incoming_msg = Body.lower().strip()
+    """
+    Handle incoming WhatsApp messages from Twilio.
+    
+    Processing is offloaded to a background Celery task to immediately
+    acknowledge the webhook (preventing Twilio timeout/penalties under burst traffic)
+    and process the message asynchronously.
+    """
     sender_number = From.replace("whatsapp:", "")
     
-    responses = {
-        "weather": "🌡️ *Weather Update*\n\n28°C, Clear skies. No rain expected.",
-        "pest": "🐛 *Pest Assistant*\n\nPlease use the Pest Management tool in-app for diagnosis.",
-        "hi": "🙏 *Namaste!*\n\nI am your AI Farming Assistant. Try 'Weather' or 'Pest'.",
-        "hello": "🙏 *Namaste!*\n\nI am your AI Farming Assistant. Try 'Weather' or 'Pest'."
-    }
+    # Offload message processing to reliable background task queue
+    from celery_worker import process_whatsapp_webhook_task
+    process_whatsapp_webhook_task.delay(Body, sender_number)
     
-    response = next((v for k, v in responses.items() if k in incoming_msg), f"Received: '{Body}'. Try 'Weather' or 'Pest' 🌱")
-    send_whatsapp_message(sender_number, response)
     return {"status": "success"}
 
 # --- Cryptographic Reports ---
@@ -551,7 +907,7 @@ def get_signing_keys():
                     status_code=500,
                     detail="google-cloud-secret-manager is not installed but is required in production"
                 )
-            print("KMS Warning: google-cloud-secret-manager not installed; skipping GCP path.")
+            logger.warning("KMS: google-cloud-secret-manager not installed; skipping GCP path.")
         else:
             try:
                 client = secretmanager.SecretManagerServiceClient()
@@ -561,16 +917,16 @@ def get_signing_keys():
                 _cached_private_key = serialization.load_pem_private_key(
                     payload.encode(), password=None
                 )
-                print(f"KMS: Loaded signing key from Secret Manager (secret: {secret_id})")
+                logger.info("KMS: Loaded signing key from Secret Manager (secret: %s)", secret_id)
                 return _cached_private_key
             except Exception as e:
                 if IS_PRODUCTION:
-                    print(f"KMS Error: {e}")
+                    logger.error("KMS Error: %s", e)
                     raise HTTPException(
                         status_code=500,
                         detail="Failed to retrieve signing key from Secret Manager"
                     )
-                print(f"KMS Warning: Could not reach Secret Manager ({e}); falling back to local key.")
+                logger.warning("KMS: Could not reach Secret Manager (%s); falling back to local key.", e)
     elif IS_PRODUCTION:
         raise HTTPException(
             status_code=500,
@@ -582,13 +938,13 @@ def get_signing_keys():
         try:
             with open(PRIVATE_KEY_PATH, "rb") as f:
                 _cached_private_key = serialization.load_pem_private_key(f.read(), password=None)
-            print(f"Key Management: Loaded existing local key from {PRIVATE_KEY_PATH}")
+            logger.info("Key Management: Loaded existing local key from %s", PRIVATE_KEY_PATH)
             return _cached_private_key
         except Exception as e:
-            print(f"Key Management Warning: Could not load local key file ({e}); generating a new one.")
+            logger.warning("Key Management: Could not load local key file (%s); generating a new one.", e)
 
     # 4. Fresh generation (dev/staging only)
-    print("Key Management: Generating a fresh signing key for local development.")
+    logger.info("Key Management: Generating a fresh signing key for local development.")
     private_key = ed25519.Ed25519PrivateKey.generate()
 
     try:
@@ -604,9 +960,9 @@ def get_signing_keys():
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo
             ))
-        print(f"Key Management: Saved new key pair to {KEYS_DIR}/")
+        logger.info("Key Management: Saved new key pair to %s/", KEYS_DIR)
     except Exception as e:
-        print(f"Key Management Warning: Could not persist generated key ({e}); key is in-memory only.")
+        logger.warning("Key Management: Could not persist generated key (%s); key is in-memory only.", e)
 
     _cached_private_key = private_key
     return private_key
@@ -683,7 +1039,17 @@ async def generate_signed_report(data: ReportRequest, request: Request):
             "date":   datetime.now().date().isoformat(),
         }
         report_data_bytes = json.dumps(report_payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
-        signature = private_key.sign(report_data_bytes)
+        
+        # Handle both Ed25519 and RSA private keys
+        if isinstance(private_key, ed25519.Ed25519PrivateKey):
+            signature = private_key.sign(report_data_bytes)
+        else:
+            # RSA key - requires padding and hash algorithm
+            signature = private_key.sign(
+                report_data_bytes,
+                padding.PKCS1v15(),
+                hashes.SHA256(),
+            )
 
         # Use the full 64-char SHA-256 hex digest as the canonical signature
         # fingerprint, then display the first 16 chars (64 bits) on the PDF.
@@ -724,7 +1090,7 @@ async def generate_signed_report(data: ReportRequest, request: Request):
             }
         )
     except Exception as e:
-        print(f"Error generating report: {e}")
+        logger.error("Error generating report: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/log-error")
@@ -778,7 +1144,7 @@ try:
     from rag.generator import generate_response as rag_generate
     HAS_RAG = True
 except Exception as rag_e:
-    print(f"RAG Warning: {rag_e}")
+    logger.warning("RAG Warning: %s", rag_e)
     HAS_RAG = False
 
 @app.post("/api/rag/query")
@@ -1003,7 +1369,7 @@ async def verify_seed(data: SeedVerifyRequest, request: Request):
     # Downgrade to "invalid" at query time if the batch has expired.
     try:
         expiry = datetime.strptime(entry["expires_on"], "%Y-%m-%d").date()
-        if expiry < datetime.utcnow().date():
+        if expiry < datetime.now(timezone.utc).date():
             logger.warning(
                 "Seed verification: authentic batch has expired — code=%s expires_on=%s",
                 code,
@@ -1320,11 +1686,12 @@ async def execute_contract(request: Request, data: ExecuteContractRequest):
 
 @app.get("/api/blockchain/qr-code/{batch_id}")
 @limiter.limit("20/minute")
-async def get_qr_code(batch_id: str):
+async def get_qr_code(request: Request, batch_id: str):
     """Get QR code for batch"""
     try:
         qr_code = _supply_chain_blockchain.generate_qr_code(batch_id)
-        return {"success": True, "batch_id": batch_id, "qr_code_base64": qr_code}
+        qr_payload = _supply_chain_blockchain.get_traceability_qr_payload(batch_id)
+        return {"success": True, "batch_id": batch_id, "qr_code_base64": qr_code, "qr_payload": qr_payload}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -1333,7 +1700,7 @@ async def get_qr_code(batch_id: str):
 
 @app.get("/api/blockchain/verify/{batch_id}")
 @limiter.limit("20/minute")
-async def verify_batch(batch_id: str):
+async def verify_batch(request: Request, batch_id: str):
     """Verify batch authenticity"""
     try:
         verification = _supply_chain_blockchain.verify_batch(batch_id)
@@ -1344,7 +1711,7 @@ async def verify_batch(batch_id: str):
 
 @app.get("/api/blockchain/journey/{batch_id}")
 @limiter.limit("20/minute")
-async def get_journey(batch_id: str):
+async def get_journey(request: Request, batch_id: str):
     """Get supply chain journey"""
     try:
         journey = _supply_chain_blockchain.get_supply_chain_journey(batch_id)
@@ -1357,7 +1724,7 @@ async def get_journey(batch_id: str):
 
 @app.get("/api/blockchain/analytics/{batch_id}")
 @limiter.limit("20/minute")
-async def get_analytics(batch_id: str):
+async def get_analytics(request: Request, batch_id: str):
     """Get supply chain analytics"""
     try:
         analytics = _supply_chain_blockchain.get_supply_chain_analytics(batch_id)
@@ -1370,7 +1737,7 @@ async def get_analytics(batch_id: str):
 
 @app.get("/api/blockchain/marketplace")
 @limiter.limit("20/minute")
-async def get_marketplace():
+async def get_marketplace(request: Request):
     """Get certified products for marketplace"""
     try:
         certified = _supply_chain_blockchain.get_certified_products()
@@ -1381,7 +1748,7 @@ async def get_marketplace():
 
 @app.get("/api/blockchain/stats")
 @limiter.limit("20/minute")
-async def get_stats():
+async def get_stats(request: Request):
     """Get blockchain statistics"""
     try:
         stats = {
