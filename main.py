@@ -2117,6 +2117,7 @@ def get_signing_keys():
         logger.info("Successfully loaded signing key from GCP KMS")
         return _cached_private_key
 
+    _compromised_key_detected = False
     if os.path.exists(PRIVATE_KEY_PATH):
         if not ALLOW_INSECURE_FALLBACK:
             logger.warning(
@@ -2126,10 +2127,29 @@ def get_signing_keys():
             )
         with open(PRIVATE_KEY_PATH, "rb") as key_file:
             _cached_private_key = serialization.load_pem_private_key(key_file.read(), password=None)
-        logger.warning("Using local file-based signing key - NOT SECURE FOR PRODUCTION")
-        return _cached_private_key
+        # Detect the known compromised key that was exposed in git history (SHA-256 of raw key bytes)
+        _raw = _cached_private_key.private_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PrivateFormat.Raw,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        if hashlib.sha256(_raw).hexdigest() == "b7df138712f2fc298b11bb9ed7726dacb1e349a78099e6ce90a2b9c939cf46a1":
+            logger.critical(
+                "DETECTED EXPOSED SIGNING KEY — the key loaded from %s matches the key that was "
+                "committed to git history. This key MUST NOT be used. Generating a fresh key.",
+                PRIVATE_KEY_PATH,
+            )
+            _cached_private_key = None
+            os.remove(PRIVATE_KEY_PATH)
+            pub_path = PRIVATE_KEY_PATH.replace(".key", ".pub")
+            if os.path.exists(pub_path):
+                os.remove(pub_path)
+            _compromised_key_detected = True
+        else:
+            logger.warning("Using local file-based signing key - NOT SECURE FOR PRODUCTION")
+            return _cached_private_key
 
-    if not ALLOW_INSECURE_FALLBACK:
+    if not ALLOW_INSECURE_FALLBACK and not _compromised_key_detected:
         logger.error(
             "SECURITY CRITICAL: No secure key source available and ALLOW_INSECURE_KEY_FALLBACK is not enabled. "
             "Refusing to generate insecure keys. Set ALLOW_INSECURE_KEY_FALLBACK=true to permit key generation."
