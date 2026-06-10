@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@floating-ui/react": "^0.27.19",
+    "@jitsi/react-sdk": "^1.4.4",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
     "@tensorflow-models/mobilenet": "^2.1.1",
@@ -30,6 +31,7 @@
     "lucide-react": "^0.542.0",
     "qrcode.react": "^4.2.0",
     "react": "^19.1.1",
+    "react-calendar": "^6.0.1",
     "react-dom": "^19.1.1",
     "react-hot-toast": "^2.6.0",
     "react-i18next": "^17.0.6",

@@ -374,3 +374,26 @@
   text-align: center;
   color: #888;
 }
+
+.category-tab {
+  padding: 8px 16px;
+  border-radius: 20px;
+  border: 1px solid var(--border-color);
+  background: var(--tab-bg);
+  color: var(--tab-text);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.category-tab:hover {
+  background: var(--tab-hover-bg);
+  color: var(--tab-hover-text);
+}
+
+.category-tab.active {
+  background: var(--tab-active-bg);
+  color: var(--tab-active-text);
+  border-color: var(--tab-active-bg);
+}

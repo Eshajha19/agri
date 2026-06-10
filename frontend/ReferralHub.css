@@ -254,3 +254,14 @@
     grid-template-columns: 1fr;
   }
 }
+
+.retry-btn {
+  margin-top: 12px;
+  padding: 10px 18px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  background: `#0f9d58`;
+  color: `#fff`;
+}
