@@ -3,9 +3,9 @@ Drift Detection Module
 Monitors model prediction drift and data distribution changes.
 """
 import logging
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, Tuple, List
 from dataclasses import dataclass, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 import numpy as np
 from collections import deque
 
@@ -127,7 +127,7 @@ class DriftDetector:
         
         if drift_magnitude > self.prediction_drift_threshold:
             alert = DriftAlert(
-                timestamp=datetime.now().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 model_name=model_name,
                 drift_type='prediction',
                 severity=self._calculate_severity(drift_magnitude),
@@ -136,6 +136,7 @@ class DriftDetector:
                 details=f"Recent mean {recent_mean:.2f} vs baseline {baseline['mean']:.2f}"
             )
             self.alerts.append(alert)
+            self._fire_drift_callbacks(alert)
             logger.warning(f"Prediction drift detected for {model_name}: {drift_magnitude:.2%}")
             return True, alert
         
@@ -188,7 +189,7 @@ class DriftDetector:
         
         if drift_magnitude > self.input_drift_threshold:
             alert = DriftAlert(
-                timestamp=datetime.now().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 model_name=model_name,
                 drift_type='input',
                 severity=self._calculate_severity(drift_magnitude),
@@ -197,6 +198,7 @@ class DriftDetector:
                 details=f"Input mean {recent_input_mean:.2f} vs baseline {baseline['mean']:.2f}"
             )
             self.alerts.append(alert)
+            self._fire_drift_callbacks(alert)
             logger.warning(f"Input drift detected for {model_name}: {drift_magnitude:.2%}")
             return True, alert
         

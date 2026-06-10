@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { BarChart3, Award, Sprout, Droplets, Sun, Thermometer, Scale } from "lucide-react";
 
 export default function CropGrading({ onClose }) {
@@ -7,8 +7,9 @@ export default function CropGrading({ onClose }) {
   const [moisture, setMoisture] = useState("");
   const [protein, setProtein] = useState("");
   const [isOrganic, setIsOrganic] = useState(false);
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const mountedRef = useRef(true);
+  const gradingRequestRef = useRef(0);
+  const gradingInProgressRef = useRef(false);
 
   const cropTypes = [
     { value: "wheat", label: "Wheat", icon: "🌾" },
@@ -18,9 +19,26 @@ export default function CropGrading({ onClose }) {
     { value: "sugarcane", label: "Sugarcane", icon: "🎋" },
   ];
 
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      gradingRequestRef.current++;
+    };
+  }, []);
+
   const handleGrade = () => {
     if (!weight) return;
-    
+
+    if (gradingInProgressRef.current) {
+      return;
+    }
+
+    gradingInProgressRef.current = true;
+
+    const requestId = ++gradingRequestRef.current;
+
     setLoading(true);
     
     setTimeout(() => {
@@ -68,6 +86,13 @@ export default function CropGrading({ onClose }) {
       }
       
       if (isOrganic) score = Math.min(100, score + 5);
+      if (
+        !mountedRef.current ||
+        requestId !== gradingRequestRef.current
+      ) {
+        gradingInProgressRef.current = false;
+        return;
+      }
       
       setResult({
         grade,
@@ -77,6 +102,7 @@ export default function CropGrading({ onClose }) {
         weight: weight,
         organicBonus: isOrganic,
       });
+      gradingInProgressRef.current = false;
       setLoading(false);
     }, 1000);
   };
@@ -121,7 +147,11 @@ export default function CropGrading({ onClose }) {
         </label>
         <select
           value={cropType}
-          onChange={(e) => setCropType(e.target.value)}
+          onChange={(e) => {
+            setCropType(e.target.value);
+            setResult(null);
+            gradingRequestRef.current++;
+          }}
           style={{
             width: "100%",
             padding: "10px",
