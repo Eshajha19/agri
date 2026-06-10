@@ -291,6 +291,10 @@ Use this checklist to ensure a smooth deployment of the attribute-based access c
 - [ ] Verify signature TTL enforced (default 5 minutes).
 - [ ] Add tests for replayed nonce rejection.
 
+- [ ] Verify deletion queue processed, not global system wipe.
+- [ ] Verify retention windows enforced.
+- [ ] Verify audit trail logs actor and reason.
+
 ## Rollback Procedures
 
 ### If Issues Arise
