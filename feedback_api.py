@@ -147,6 +147,51 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ASGI middleware that enforces a 10 KB limit on the request body
+# regardless of transfer encoding (covers both Content-Length and
+# Transfer-Encoding: chunked).
+class _OversizedBody(Exception):
+    """Raised within sized_receive to abort processing when the body exceeds the limit."""
+
+
+class _RequestBodySizeMiddleware:
+    def __init__(self, app, max_bytes: int = 10240):
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        received = 0
+
+        async def sized_receive():
+            nonlocal received
+            msg = await receive()
+            if msg["type"] == "http.request":
+                body = msg.get("body", b"")
+                received += len(body)
+                if received > self.max_bytes:
+                    raise _OversizedBody
+            return msg
+
+        try:
+            await self.app(scope, sized_receive, send)
+        except _OversizedBody:
+            await send({
+                "type": "http.response.start",
+                "status": 413,
+                "headers": [(b"content-type", b"text/plain")],
+            })
+            await send({
+                "type": "http.response.body",
+                "body": b"Request too large",
+            })
+
+
+app.add_middleware(_RequestBodySizeMiddleware)
+
 
 # Dependency for request validation
 async def validate_request(request: Request) -> dict:
@@ -155,12 +200,6 @@ async def validate_request(request: Request) -> dict:
     content_type = request.headers.get("content-type", "")
     if "application/json" not in content_type:
         raise HTTPException(status_code=415, detail="Unsupported media type")
-    
-    # Check request size
-    content_length = request.headers.get("content-length", 0)
-    if int(content_length) > 10240:  # 10KB max
-        raise HTTPException(status_code=413, detail="Request too large")
-    
     return {}
 
 
