@@ -56,6 +56,17 @@ class SecretHygieneProgram:
                 findings.append(Finding(category, match.group(0), location))
         return findings
 
+def _parse_mime_type(content_type: str | None) -> str | None:
+    """Extract the MIME type from a Content-Type header value."""
+    if not content_type:
+        return None
+    return content_type.split(";")[0].strip().lower()
+
+
+# Binary MIME types whose body cannot be meaningfully scanned as text.
+_BINARY_MIME_PREFIXES = ("image/", "audio/", "video/", "application/octet-stream")
+
+
 class RuntimeProtectionMiddleware(BaseHTTPMiddleware):
     """FastAPI Middleware to block requests containing cleartext secrets."""
     def __init__(self, app, program: SecretHygieneProgram = None):
@@ -63,24 +74,31 @@ class RuntimeProtectionMiddleware(BaseHTTPMiddleware):
         self.program = program or SecretHygieneProgram()
 
     async def dispatch(self, request: Request, call_next):
-        # Scan request body for secret leakages before passing to route handlers
-        try:
-            body_bytes = await request.body()
-            body_str = body_bytes.decode("utf-8", errors="ignore")
-            findings = self.program.scan_text(body_str, location="middleware")
-            if findings:
-                return JSONResponse(
-                    status_code=400,
-                    content={"error": "Request blocked by secrets hygiene policy"}
-                )
-            
-            # Reset body read pointer so downstream handlers can consume it
-            async def receive():
-                return {"type": "http.request", "body": body_bytes, "more_body": False}
-            request._receive = receive
-        except Exception:
-            # Fallback in case of body read failures to avoid crashing the server
-            pass
+        # Determine whether the body can be meaningfully scanned.
+        # Requests with a missing or unrecognised Content-Type are
+        # treated as suspicious and scanned rather than silently trusted.
+        raw_ct = request.headers.get("content-type")
+        mime = _parse_mime_type(raw_ct)
+        should_scan = mime is None or not mime.startswith(_BINARY_MIME_PREFIXES)
+
+        if should_scan:
+            try:
+                body_bytes = await request.body()
+                body_str = body_bytes.decode("utf-8", errors="ignore")
+                findings = self.program.scan_text(body_str, location="middleware")
+                if findings:
+                    return JSONResponse(
+                        status_code=400,
+                        content={"error": "Request blocked by secrets hygiene policy"}
+                    )
+
+                # Reset body read pointer so downstream handlers can consume it
+                async def receive():
+                    return {"type": "http.request", "body": body_bytes, "more_body": False}
+                request._receive = receive
+            except Exception:
+                # Fallback in case of body read failures to avoid crashing the server
+                pass
 
         response = await call_next(request)
         return response
