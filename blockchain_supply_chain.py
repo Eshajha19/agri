@@ -131,7 +131,7 @@ class SupplyChainBlockchain:
             "chain_len": len(self.chain),
             "products_copy": _copy.deepcopy(self.products),
             "supply_chain_nodes_copy": {k: list(v) for k, v in self.supply_chain_nodes.items()},
-            "smart_contracts_copy": {k: v.status for k, v in self.smart_contracts.items()},
+            "smart_contracts_copy": _copy.deepcopy(self.smart_contracts),
             "trace_batches_copy": _copy.deepcopy(self._trace_batches),
         }
 
@@ -140,9 +140,7 @@ class SupplyChainBlockchain:
         self.chain = self.chain[: snap["chain_len"]]
         self.products = _copy.deepcopy(snap["products_copy"])
         self.supply_chain_nodes = {k: list(v) for k, v in snap["supply_chain_nodes_copy"].items()}
-        for cid, status in snap["smart_contracts_copy"].items():
-            if cid in self.smart_contracts:
-                self.smart_contracts[cid].status = status
+        self.smart_contracts = _copy.deepcopy(snap["smart_contracts_copy"])
         self._trace_batches = _copy.deepcopy(snap["trace_batches_copy"])
 
     # ------------- Core operations -------------
