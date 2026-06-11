@@ -183,6 +183,25 @@ try:
 except ImportError:
     HAS_GCP_KMS = False
 
+from fastapi import WebSocket, WebSocketDisconnect
+
+@app.websocket("/api/notifications/stream")
+async def notifications_stream(ws: WebSocket):
+    # Enforce Authorization header
+    token = ws.headers.get("Authorization")
+    if not token:
+        await ws.close(code=4401)  # Unauthorized
+        return
+
+    try:
+        claims = decode_and_validate_token(token)  # your JWT/validation logic
+    except Exception:
+        await ws.close(code=4403)  # Forbidden
+        return
+
+    # Pass claims into hub connect
+    await hub.connect(ws, claims)
+
 # Logger configuration with structured output and context tracking
 class ContextFilter(logging.Filter):
     """Add request/operation context to all log records."""

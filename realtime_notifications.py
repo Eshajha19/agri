@@ -409,20 +409,28 @@ class NotificationBroadcastHub:
         """
         await websocket.accept()
 
-        if self._authenticate is not None:
-            try:
-                msg = await asyncio.wait_for(websocket.receive_json(), timeout=10)
-                token = msg.get("token", "") if isinstance(msg, dict) else ""
-                if not token:
-                    raise ValueError("Missing token")
-                self._authenticate(token)
-            except Exception:
-                try:
-                    await websocket.send_json({"type": "error", "message": "Authentication failed"})
-                    await websocket.close(code=1008)
-                except Exception:
-                    pass
-                return
+        token = websocket.headers.get("Authorization")
+        if not token:
+            await websocket.send_json({"type": "error", "message": "Missing Authorization header"})
+            await websocket.close(code=4401)  # Unauthorized
+            return
+
+        try:
+            claims = self._authenticate(token)  # decode/validate JWT
+        except Exception:
+            await websocket.send_json({"type": "error", "message": "Authentication failed"})
+            await websocket.close(code=4403)  # Forbidden
+            return
+
+        # Extract uid and scopes safely
+        uid = claims.get("sub")
+        region_scopes = frozenset(claims.get("regions", []))
+        crop_scopes = frozenset(claims.get("crops", []))
+
+        if not uid:
+            await websocket.send_json({"type": "error", "message": "Invalid claims"})
+            await websocket.close(code=4401)
+            return
 
         async with self._history_lock:
             self._connections[websocket] = _ConnectionSubscription(
@@ -436,8 +444,8 @@ class NotificationBroadcastHub:
                 "source": "local",
                 "created_at": datetime.now().isoformat(),
                 "data": snapshot,
-            }
-        )
+        }
+    )
 
         rate_timestamps: list[float] = []
 
