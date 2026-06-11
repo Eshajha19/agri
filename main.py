@@ -202,6 +202,16 @@ try:
 except ImportError:
     HAS_GCP_KMS = False
 
+
+from backend.twilio_webhook_security import handle_inbound_whatsapp_webhook
+
+app = FastAPI()
+
+@app.post("/api/whatsapp/webhook")
+async def whatsapp_webhook(request: Request):
+    return await handle_inbound_whatsapp_webhook(request)
+
+
 # Logger configuration with structured output and context tracking
 class ContextFilter(logging.Filter):
     """Add request/operation context to all log records."""
