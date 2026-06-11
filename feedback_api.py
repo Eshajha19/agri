@@ -18,7 +18,7 @@ import logging
 # consistent per-IP throttles via the same slowapi library.
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
-from rate_limit_config import build_limiter, rate_limit_exceeded_handler
+from rate_limit_config import build_limiter, rate_limit_exceeded_handler, extract_client_ip
 
 # Import our validator
 from feedback_validation import FeedbackValidator
@@ -130,7 +130,17 @@ app = FastAPI(
 )
 
 # ── Rate limiting ─────────────────────────────────────────────────────────────
-# slowapi uses the same key_func pattern as main.py (remote IP address).
+# Authenticated endpoints use the Firebase token tail as the rate-limit key so
+# that users behind a shared NAT each have their own quota.
+def _feedback_rate_key(request: Request) -> str:
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[7:]
+        # Use the last 32 chars of the token — unique per user, avoids
+        # rate-limit collisions under CGNAT / corporate NAT.
+        return token[-32:] if len(token) >= 32 else token
+    return extract_client_ip(request)
+
 # The limiter is attached to app.state so the @limiter.limit() decorator
 # can resolve it at request time.
 limiter = build_limiter(default_limits=["120/minute"])
@@ -227,7 +237,7 @@ async def root(request: Request):
 
 
 @app.post("/api/feedback", response_model=FeedbackResponse)
-@limiter.limit("5/minute")
+@limiter.limit("5/minute", key_func=_feedback_rate_key)
 async def submit_feedback(
     feedback: FeedbackRequest,
     request: Request,
