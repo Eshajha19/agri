@@ -60,6 +60,34 @@ db = firestore.client()
 # PII fields that must never appear in HTTP response bodies.
 _PII_FIELDS = {"ipAddress", "userAgent", "userEmail"}
 
+# Submission consistency helpers
+DUPLICATE_WINDOW_SECONDS = 60
+
+
+def generate_submission_fingerprint(data: dict) -> str:
+    """
+    Generate a lightweight fingerprint used to identify
+    duplicate feedback submissions from the same user.
+    """
+    user_id = data.get("userId", "")
+    category = data.get("category", "")
+    message = data.get("message", "")
+
+    return f"{user_id}:{category}:{message.strip().lower()}"
+
+
+def build_processing_metadata() -> dict:
+    """
+    Build submission metadata for consistency tracking.
+    """
+    now = datetime.now(timezone.utc)
+
+    return {
+        "processingStatus": "received",
+        "requestReceivedAt": now.isoformat(),
+        "submissionTimestamp": now,
+    }
+
 
 async def verify_firebase_token(request: Request) -> dict:
     """
@@ -395,6 +423,42 @@ async def submit_feedback(
         # Additional validation using our validator
         validated_data = FeedbackValidator.validate_feedback_data(feedback_dict)
 
+        # Duplicate submission detection
+        validated_data["submissionFingerprint"] = generate_submission_fingerprint(
+            {
+                **validated_data,
+                "userId": uid,
+            }
+        )
+
+        logger.info(
+            "Checking for duplicate submissions within %s seconds for uid=%s",
+            DUPLICATE_WINDOW_SECONDS,
+            uid,
+        )
+
+        recent_duplicates = (
+            db.collection("feedback")
+            .where(
+                "submissionFingerprint",
+                "==",
+                validated_data["submissionFingerprint"],
+            )
+            .limit(1)
+            .stream()
+        )
+
+        if any(recent_duplicates):
+            logger.warning(
+                "Duplicate feedback submission detected for uid=%s",
+                uid,
+            )
+
+            raise HTTPException(
+                status_code=409,
+                detail="Duplicate feedback submission detected.",
+            )
+
         # Check if data is safe for Firestore
         if not FeedbackValidator.is_safe_for_firestore(validated_data):
             logger.warning("Unsafe data detected from uid: %s", uid)
@@ -402,6 +466,8 @@ async def submit_feedback(
 
         # Add server-side metadata — stored for audit/abuse investigation
         # but intentionally excluded from the response body.
+        validated_data.update(build_processing_metadata())
+
         validated_data['createdAt'] = datetime.now(timezone.utc)
         validated_data['ipAddress'] = request.client.host if request.client else None
         validated_data['userAgent'] = request.headers.get("user-agent", "")
@@ -410,6 +476,11 @@ async def submit_feedback(
         try:
             doc_ref = db.collection("feedback").add(validated_data)
             feedback_id = doc_ref[1].id
+            logger.info(
+                "Feedback processing completed successfully. ID=%s UID=%s",
+                feedback_id,
+                uid,
+            )
 
             logger.info("Feedback stored successfully. ID: %s", feedback_id)
 
@@ -423,7 +494,11 @@ async def submit_feedback(
             )
 
         except Exception as firestore_error:
-            logger.error("Firestore error: %s", firestore_error)
+            logger.error(
+                "Firestore error during feedback submission for uid=%s: %s",
+                uid,
+                firestore_error,
+            )
             raise HTTPException(
                 status_code=500,
                 detail="Failed to store feedback. Please try again later.",
