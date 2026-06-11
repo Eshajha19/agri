@@ -13,6 +13,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
 
+from backend.rate_limit_config import build_limiter, rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
+limiter = build_limiter()
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+
 from backend.utils.safe_log import sanitize_log_field
 
 # Expose sanitizer globally so routers can use it
@@ -183,6 +190,25 @@ try:
 except ImportError:
     HAS_GCP_KMS = False
 
+from fastapi import WebSocket, WebSocketDisconnect
+
+@app.websocket("/api/notifications/stream")
+async def notifications_stream(ws: WebSocket):
+    # Enforce Authorization header
+    token = ws.headers.get("Authorization")
+    if not token:
+        await ws.close(code=4401)  # Unauthorized
+        return
+
+    try:
+        claims = decode_and_validate_token(token)  # your JWT/validation logic
+    except Exception:
+        await ws.close(code=4403)  # Forbidden
+        return
+
+    # Pass claims into hub connect
+    await hub.connect(ws, claims)
+
 # Logger configuration with structured output and context tracking
 class ContextFilter(logging.Filter):
     """Add request/operation context to all log records."""
@@ -295,13 +321,14 @@ async def lifespan(app: FastAPI):
         "Initialize persistent repositories",
         _init_repositories
     )
+    """
     Multi-worker guarantee
-    ----------------------
-    When Uvicorn is started with ``--workers N``, each worker forks/spawns
-    from the main process and imports ``main.py`` independently.  The
-    ``lifespan`` hook is invoked by FastAPI in every worker's event loop,
-    ensuring ``ModelRegistry`` is populated in every process before the
-    first request is served.
+        ----------------------
+        When Uvicorn is started with ``--workers N``, each worker forks/spawns
+        from the main process and imports ``main.py`` independently.  The
+        ``lifespan`` hook is invoked by FastAPI in every worker's event loop,
+        ensuring ``ModelRegistry`` is populated in every process before the
+        first request is served.
     """
     logger.info("Starting up: initializing services")
     init_ml_pipeline()
@@ -323,17 +350,18 @@ async def lifespan(app: FastAPI):
     )
 
     return ctx
-    # Router init hooks — run after engines are ready.
-    governance.init_governance(drift_detector, shadow_evaluator, version_manager, auth_fn=verify_role)
-    finance.init_finance(_farm_finance_ai, RBACManager, Permission)
-    quality.init_quality(_crop_quality_grader, RBACManager, Permission)
-    blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
-    referrals.init_referrals(lambda: db_firestore)
-    reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
-    marketplace.init_marketplace(verify_role)
-    lms.init_lms(verify_role, db_firestore)
-    advisory.init_advisory(verify_role)
-    def _init_core_routers():
+# Router init hooks — run after engines are ready.
+governance.init_governance(drift_detector, shadow_evaluator, version_manager, auth_fn=verify_role)
+finance.init_finance(_farm_finance_ai, RBACManager, Permission)
+quality.init_quality(_crop_quality_grader, RBACManager, Permission)
+blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
+referrals.init_referrals(lambda: db_firestore)
+reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
+marketplace.init_marketplace(verify_role)
+lms.init_lms(verify_role, db_firestore)
+advisory.init_advisory(verify_role)
+    
+def _init_core_routers():
         governance.init_governance(drift_detector, shadow_evaluator, version_manager, verify_role)
         finance.init_finance(_farm_finance_ai, RBACManager, Permission)
         quality.init_quality(_crop_quality_grader, RBACManager, Permission)
@@ -341,9 +369,9 @@ async def lifespan(app: FastAPI):
         referrals.init_referrals(lambda: db_firestore, verify_role)
         reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
 
-    await _run_lifespan_phase("core_routers", "Initialize core routers", _init_core_routers)
+await _run_lifespan_phase("core_routers", "Initialize core routers", _init_core_routers)
 
-    async def _notify_booking(booking: dict) -> None:
+async def _notify_booking(booking: dict) -> None:
         owner_uid = booking.get("ownerUid")
         if not owner_uid:
             logger.debug("Skipping booking notification: no owner_uid")
@@ -457,12 +485,25 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error("Unhandled error: %s", exc, exc_info=True)
+    # Structured logging with request_id, but no PII
+    request_id = getattr(getattr(request, "state", None), "request_id", None)
+    logger.error(
+        "Unhandled exception",
+        extra={"request_id": request_id},
+        exc_info=True,  # keep stack trace in logs only
+    )
+
     return JSONResponse(
         status_code=500,
         content={
-            "code": "INTERNAL_ERROR",
-            "message": "Something went wrong. Please try again later."
+            "success": False,
+            "request_id": request_id,
+            "error": {
+                "code": "internal_error",
+                "message": "An unexpected error occurred. Please try again later.",
+            },
+            "path": str(request.url.path),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         },
     )
 
