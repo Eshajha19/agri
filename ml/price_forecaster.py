@@ -1,151 +1,248 @@
 """
-ml/price_forecaster.py — LSTM-based crop price forecasting engine.
-
-Design
-------
-Rather than requiring a pre-trained model file (which would need to be
-committed to the repo and kept in sync), this module trains a lightweight
-LSTM on embedded historical mandi price data at first use and caches the
-trained model in memory.  The historical dataset covers 2 years of weekly
-average prices for the six most-traded commodities on Indian mandis.
-
-The forecaster produces:
-  - 14-day ahead price predictions (one value per day)
-  - Symmetric confidence intervals (±1 std-dev of recent residuals)
-  - A "best time to sell" recommendation based on the forecast peak
-
-Architecture
-------------
-  PriceForecaster          — public API, manages per-commodity models
-  _CommodityModel          — per-commodity LSTM wrapper (train + predict)
-  HISTORICAL_PRICES        — embedded 2-year weekly price dataset
+Price Forecasting Engine
+========================
+STL-style decomposition + rolling forecast + volatility scoring.
+No external dependencies beyond pandas, numpy, scikit-learn.
 """
 
+import gzip
+import json
 import logging
 import threading
+from collections import OrderedDict
 from datetime import date, timedelta
 from typing import Dict, List, Optional
 
 import numpy as np
+import pandas as pd
+
+# Rotation config (env overrideable)
+_LOG_ROTATION_MAX_BYTES = int(os.getenv("LOG_ROTATION_MAX_BYTES", "104857600"))  # 100MB
+_LOG_ROTATION_BACKUP_COUNT = int(os.getenv("LOG_ROTATION_BACKUP_COUNT", "5"))
+_LOG_ARCHIVE_DAYS = int(os.getenv("LOG_ARCHIVE_DAYS", "7"))
 
 logger = logging.getLogger(__name__)
 
-# ── Embedded historical weekly price dataset (₹/quintal) ─────────────────────
-# 104 weeks (2 years) of average mandi prices for six major commodities.
-# Source: Agmarknet historical averages, rounded to nearest ₹10.
-HISTORICAL_PRICES: Dict[str, List[float]] = {
-    "Wheat": [
-        2050,2060,2080,2100,2090,2110,2130,2120,2140,2160,2150,2170,2190,2180,
-        2200,2220,2210,2230,2250,2240,2260,2280,2270,2290,2310,2300,2320,2340,
-        2330,2350,2370,2360,2380,2400,2390,2410,2430,2420,2440,2460,2450,2470,
-        2490,2480,2500,2520,2510,2530,2550,2540,2560,2580,2570,2590,2610,2600,
-        2620,2640,2630,2650,2670,2660,2680,2700,2690,2710,2730,2720,2740,2760,
-        2750,2770,2790,2780,2800,2820,2810,2830,2850,2840,2860,2880,2870,2890,
-        2910,2900,2920,2940,2930,2950,2970,2960,2980,3000,2990,3010,3030,3020,
-        3040,3060,3050,3070,3090,3080,
-    ],
-    "Paddy (Dhan)": [
-        1950,1960,1970,1980,1990,2000,2010,2020,2030,2040,2050,2060,2070,2080,
-        2090,2100,2110,2120,2130,2140,2150,2160,2170,2180,2190,2200,2210,2220,
-        2230,2240,2250,2260,2270,2280,2290,2300,2310,2320,2330,2340,2350,2360,
-        2370,2380,2390,2400,2410,2420,2430,2440,2450,2460,2470,2480,2490,2500,
-        2510,2520,2530,2540,2550,2560,2570,2580,2590,2600,2610,2620,2630,2640,
-        2650,2660,2670,2680,2690,2700,2710,2720,2730,2740,2750,2760,2770,2780,
-        2790,2800,2810,2820,2830,2840,2850,2860,2870,2880,2890,2900,2910,2920,
-        2930,2940,2950,2960,2970,2980,
-    ],
-    "Cotton": [
-        7200,7250,7300,7350,7400,7450,7500,7550,7600,7650,7700,7750,7800,7850,
-        7900,7950,8000,8050,8100,8150,8200,8250,8300,8350,8400,8450,8500,8550,
-        8600,8650,8700,8750,8800,8850,8900,8950,9000,9050,9100,9150,9200,9250,
-        9300,9350,9400,9450,9500,9550,9600,9650,9700,9750,9800,9850,9900,9950,
-        9900,9850,9800,9750,9700,9650,9600,9550,9500,9450,9400,9350,9300,9250,
-        9200,9150,9100,9050,9000,8950,8900,8850,8800,8750,8700,8650,8600,8550,
-        8500,8450,8400,8350,8300,8250,8200,8150,8100,8050,8000,7950,7900,7850,
-        7800,7750,7700,7650,7600,7550,
-    ],
-    "Onion": [
-        1200,1250,1300,1350,1400,1450,1500,1550,1600,1650,1700,1750,1800,1850,
-        1900,1950,2000,2050,2100,2150,2200,2250,2300,2350,2400,2350,2300,2250,
-        2200,2150,2100,2050,2000,1950,1900,1850,1800,1750,1700,1650,1600,1550,
-        1500,1450,1400,1350,1300,1250,1200,1250,1300,1350,1400,1450,1500,1550,
-        1600,1650,1700,1750,1800,1850,1900,1950,2000,2050,2100,2150,2200,2250,
-        2300,2350,2400,2350,2300,2250,2200,2150,2100,2050,2000,1950,1900,1850,
-        1800,1750,1700,1650,1600,1550,1500,1450,1400,1350,1300,1250,1200,1250,
-        1300,1350,1400,1450,1500,1550,
-    ],
-    "Soybean": [
-        4200,4250,4300,4350,4400,4450,4500,4550,4600,4650,4700,4750,4800,4850,
-        4900,4950,5000,5050,5100,5150,5200,5250,5300,5350,5400,5450,5500,5550,
-        5600,5650,5700,5750,5800,5850,5900,5950,6000,5950,5900,5850,5800,5750,
-        5700,5650,5600,5550,5500,5450,5400,5350,5300,5250,5200,5150,5100,5050,
-        5000,4950,4900,4850,4800,4750,4700,4650,4600,4550,4500,4450,4400,4350,
-        4300,4350,4400,4450,4500,4550,4600,4650,4700,4750,4800,4850,4900,4950,
-        5000,5050,5100,5150,5200,5250,5300,5350,5400,5450,5500,5550,5600,5650,
-        5700,5750,5800,5850,5900,5950,
-    ],
-    "Maize": [
-        1800,1820,1840,1860,1880,1900,1920,1940,1960,1980,2000,2020,2040,2060,
-        2080,2100,2120,2140,2160,2180,2200,2220,2240,2260,2280,2300,2320,2340,
-        2360,2380,2400,2420,2440,2460,2480,2500,2520,2540,2560,2580,2600,2580,
-        2560,2540,2520,2500,2480,2460,2440,2420,2400,2380,2360,2340,2320,2300,
-        2280,2260,2240,2220,2200,2180,2160,2140,2120,2100,2080,2060,2040,2020,
-        2000,2020,2040,2060,2080,2100,2120,2140,2160,2180,2200,2220,2240,2260,
-        2280,2300,2320,2340,2360,2380,2400,2420,2440,2460,2480,2500,2520,2540,
-        2560,2580,2600,2620,2640,2660,
-    ],
+# =============================================================================
+# CONFIG
+# =============================================================================
+
+_HISTORY_PATH = Path("price_history.json")
+_FORECASTS_PATH = Path("price_forecasts.jsonl")
+_VOLATILITY_PATH = Path("price_volatility.json")
+_SEED_DAYS = 90  # Synthetic history length for new crops
+
+# Realistic base prices (₹/quintal) for major Indian crops
+_CROP_BASE_PRICES = {
+    "Wheat": 2200,
+    "Rice": 1800,
+    "Cotton": 5500,
+    "Sugarcane": 290,
+    "Maize": 1850,
+    "Soybean": 3900,
+    "Potato": 1200,
+    "Onion": 1500,
+    "Tomato": 1800,
+    "Vegetables": 2000,
+    "Fruits": 3500,
 }
 
-# Fallback for commodities not in the dataset — use Wheat prices as a proxy.
-_DEFAULT_COMMODITY = "Wheat"
+_CROP_SEASONALITY = {
+    "Wheat": 0.08,   # 8% seasonal swing
+    "Rice": 0.12,
+    "Cotton": 0.15,
+    "Sugarcane": 0.05,
+    "Maize": 0.10,
+    "Soybean": 0.11,
+    "Potato": 0.20,
+    "Onion": 0.25,
+    "Tomato": 0.22,
+    "Vegetables": 0.18,
+    "Fruits": 0.14,
+}
 
-# ── LSTM sequence length ──────────────────────────────────────────────────────
-SEQ_LEN = 8   # 8 weeks of history → predict next week
+
+# =============================================================================
+# SYNTHETIC SEED DATA
+# =============================================================================
+
+def _generate_seed_history(crop: str, days: int = _SEED_DAYS) -> pd.DataFrame:
+    """Generate realistic synthetic price history for a crop."""
+    base = _CROP_BASE_PRICES.get(crop, 2000)
+    seasonal_amp = _CROP_SEASONALITY.get(crop, 0.10)
+    np.random.seed(42)
+
+    dates = pd.date_range(end=_dt.now().date(), periods=days, freq="D")
+    trend = np.linspace(base * 0.95, base * 1.05, days)
+    seasonal = base * seasonal_amp * np.sin(2 * np.pi * np.arange(days) / 365.25 * 7)
+    noise = np.random.normal(0, base * 0.03, days)
+
+    prices = trend + seasonal + noise
+    prices = np.maximum(prices, base * 0.5)  # Floor at 50% of base
+
+    return pd.DataFrame({
+        "date": dates,
+        "price": prices.round(2),
+    })
 
 
-class _CommodityModel:
+# =============================================================================
+# GZIP ROTATING HANDLER
+# =============================================================================
+
+class _GzRotatingFileHandler(logging.handlers.RotatingFileHandler):
     """
-    Lightweight LSTM model for a single commodity.
-
-    Trains on the embedded historical weekly prices and generates
-    multi-step ahead forecasts via recursive prediction.
+    RotatingFileHandler that compresses backups with gzip on rotation.
+    Backups older than LOG_ARCHIVE_DAYS are deleted during rotation.
     """
 
-    def __init__(self, commodity: str, prices: List[float]) -> None:
-        self.commodity = commodity
-        self._prices = np.array(prices, dtype=np.float32)
-        self._model = None
-        self._scaler_min: float = 0.0
-        self._scaler_range: float = 1.0
-        self._residual_std: float = 0.0
-        self._trained = False
+    def __init__(self, filename, maxBytes=0, backupCount=0, archive_days=7, **kwargs):
+        self.archive_days = archive_days
+        super().__init__(filename, maxBytes=maxBytes, backupCount=backupCount, **kwargs)
 
-    # ------------------------------------------------------------------
-    # Normalisation helpers
-    # ------------------------------------------------------------------
+    def namer(self, default_name: str) -> str:
+        return default_name + ".gz"
 
-    def _scale(self, x: np.ndarray) -> np.ndarray:
-        return (x - self._scaler_min) / self._scaler_range
+    def rotator(self, source: str, dest: str):
+        # Compress rotated file
+        with open(source, "rb") as f_in:
+            with gzip.open(dest, "wb") as f_out:
+                shutil.copyfileobj(f_in, f_out)
+        os.remove(source)
+        # Cleanup old archives
+        self._cleanup_old_archives()
 
-    def _unscale(self, x: np.ndarray) -> np.ndarray:
-        return x * self._scaler_range + self._scaler_min
-
-    # ------------------------------------------------------------------
-    # Training
-    # ------------------------------------------------------------------
-
-    def train(self) -> None:
-        """Train the LSTM on the embedded historical prices."""
-        try:
-            import tensorflow as tf  # type: ignore
-        except ImportError:
-            logger.warning(
-                "TensorFlow not available — price forecaster will use "
-                "statistical fallback for commodity '%s'.",
-                self.commodity,
-            )
-            self._trained = False
+    def _cleanup_old_archives(self):
+        base = self.baseFilename
+        cutoff = _dt.now() - timedelta(days=self.archive_days)
+        dir_path = Path(base).parent
+        if not dir_path.exists():
             return
+        for f in dir_path.glob("*.jsonl.*.gz"):
+            try:
+                mtime = _dt.fromtimestamp(f.stat().st_mtime)
+                if mtime < cutoff:
+                    f.unlink()
+                    logger.info("Deleted old forecast archive: %s", f.name)
+            except Exception:
+                pass
+
+
+# =============================================================================
+# FORECASTER
+# =============================================================================
+
+class PriceForecaster:
+    """
+    STL-style decomposition + rolling mean forecast + volatility scoring.
+    """
+
+    def __init__(self):
+        self.history: Dict[str, pd.DataFrame] = {}
+        self._load_history()
+
+    # -------------------------------------------------------------------------
+    # PERSISTENCE
+    # -------------------------------------------------------------------------
+
+    def _load_history(self):
+        if not _HISTORY_PATH.exists():
+            return
+        try:
+            with open(_HISTORY_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            for crop, records in data.items():
+                self.history[crop] = pd.DataFrame(records)
+                self.history[crop]["date"] = pd.to_datetime(self.history[crop]["date"])
+        except Exception as exc:
+            logger.warning("Failed loading price history: %s", exc)
+
+    def _save_history(self):
+        try:
+            record = {}
+            for crop, df in self.history.items():
+                record[crop] = df.to_dict("records")
+            tmp = _HISTORY_PATH.with_suffix(".tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(record, f, indent=2, default=str)
+            os.replace(tmp, _HISTORY_PATH)
+        except Exception as exc:
+            logger.warning("Failed saving price history: %s", exc)
+
+    def _log_forecast(self, crop: str, forecast_df: pd.DataFrame, volatility: dict):
+        try:
+            entry = {
+                "crop": crop,
+                "forecast": forecast_df.to_dict("records"),
+                "volatility": volatility,
+                "generated_at": _dt.utcnow().isoformat(),
+            }
+            # Use rotating handler for bounded disk usage
+            handler = _GzRotatingFileHandler(
+                _FORECASTS_PATH,
+                maxBytes=_LOG_ROTATION_MAX_BYTES,
+                backupCount=_LOG_ROTATION_BACKUP_COUNT,
+                archive_days=_LOG_ARCHIVE_DAYS,
+                encoding="utf-8",
+            )
+            handler.setFormatter(logging.Formatter("%(message)s"))
+            record = logging.LogRecord(
+                name="price_forecaster",
+                level=logging.INFO,
+                pathname="",
+                lineno=0,
+                msg=json.dumps(entry, default=str),
+                args=(),
+                exc_info=None,
+            )
+            handler.emit(record)
+            handler.close()
+        except Exception as exc:
+            logger.warning("Failed logging forecast: %s", exc)
+
+    # -------------------------------------------------------------------------
+    # DATA MANAGEMENT
+    # -------------------------------------------------------------------------
+
+    def _ensure_history(self, crop: str):
+        if crop not in self.history or self.history[crop].empty:
+            self.history[crop] = _generate_seed_history(crop)
+            self._save_history()
+
+    def add_price(self, crop: str, price: float, date: Optional[str] = None):
+        """Add a real observed price to history."""
+        self._ensure_history(crop)
+        date = date or _dt.now().strftime("%Y-%m-%d")
+        new_row = pd.DataFrame({"date": [pd.to_datetime(date)], "price": [float(price)]})
+        self.history[crop] = pd.concat([self.history[crop], new_row], ignore_index=True)
+        self.history[crop] = self.history[crop].drop_duplicates(subset=["date"], keep="last")
+        self.history[crop] = self.history[crop].sort_values("date").reset_index(drop=True)
+        self._save_history()
+
+    # -------------------------------------------------------------------------
+    # STL DECOMPOSITION (manual — no statsmodels)
+    # -------------------------------------------------------------------------
+
+    def stl_decompose(self, crop: str) -> dict:
+        """
+        Decompose price series into trend, seasonal, residual.
+        """
+        self._ensure_history(crop)
+        df = self.history[crop].copy()
+
+        if len(df) < 14:
+            return {"error": "Insufficient data for decomposition (need 14+ days)"}
+
+        # Trend: 7-day rolling mean (centered)
+        df["trend"] = df["price"].rolling(window=7, min_periods=1, center=True).mean()
+
+        # Detrended
+        df["detrended"] = df["price"] - df["trend"]
+
+        # Seasonal: day-of-year average (repeating annual pattern)
+        df["doy"] = df["date"].dt.dayofyear
+        seasonal_map = df.groupby("doy")["detrended"].mean().to_dict()
+        df["seasonal"] = df["doy"].map(seasonal_map)
 
         prices = self._prices
         self._scaler_min = float(prices.min())
@@ -178,10 +275,15 @@ class _CommodityModel:
             validation_split=0.1,
         )
 
-        # Estimate residual std on training data for confidence intervals
-        preds = model.predict(X, verbose=0).flatten()
-        residuals = y - preds
-        self._residual_std = float(np.std(residuals))
+        # Estimate residual std on validation split (last 10%) for confidence intervals
+        split = int(len(X) * 0.9)
+        if split < len(X):
+            val_preds = model.predict(X[split:], verbose=0).flatten()
+            residuals = y[split:] - val_preds
+            self._residual_std = float(np.std(residuals))
+        else:
+            preds = model.predict(X, verbose=0).flatten()
+            self._residual_std = float(np.std(y - preds))
 
         self._model = model
         self._trained = True
@@ -197,113 +299,136 @@ class _CommodityModel:
 
     def forecast(self, days: int = 14) -> List[Dict]:
         """
-        Generate a *days*-ahead daily price forecast.
-
-        Uses recursive (autoregressive) prediction: each predicted value
-        is fed back as input for the next step.  Weekly model predictions
-        are linearly interpolated to daily granularity.
-
-        Returns
-        -------
-        list of dict
-            Each dict has keys:
-              - date        : ISO date string (YYYY-MM-DD)
-              - price       : predicted modal price (₹/quintal, rounded)
-              - lower_bound : price - 1 std-dev confidence band
-              - upper_bound : price + 1 std-dev confidence band
+        Generate price forecast with confidence intervals.
         """
-        # Number of weekly steps needed to cover *days* days
-        weekly_steps = (days // 7) + 2
+        self._ensure_history(crop)
+        df = self.history[crop].copy()
 
-        if self._trained and self._model is not None:
-            weekly_prices = self._forecast_lstm(weekly_steps)
-        else:
-            weekly_prices = self._forecast_statistical(weekly_steps)
+        if len(df) < 7:
+            return {"error": "Insufficient data for forecast"}
 
-        # Interpolate weekly → daily
-        daily_prices = np.interp(
-            np.linspace(0, len(weekly_prices) - 1, days),
-            np.arange(len(weekly_prices)),
-            weekly_prices,
-        )
+        # Trend: extend rolling mean
+        last_prices = df["price"].tail(7).values
+        trend_slope = (last_prices[-1] - last_prices[0]) / 6 if len(last_prices) >= 6 else 0
+        last_trend = df["price"].rolling(window=7, min_periods=1).mean().iloc[-1]
 
-        # Confidence interval width (in ₹) — grows slightly with horizon
-        base_ci = self._residual_std * self._scaler_range
-        if base_ci < 50:
-            base_ci = float(np.std(self._prices) * 0.05)
+        # Seasonal: day-of-year pattern
+        df["doy"] = df["date"].dt.dayofyear
+        seasonal_map = df.groupby("doy")["price"].mean().to_dict()
 
-        today = date.today()
-        result = []
-        for i, price in enumerate(daily_prices):
-            horizon_factor = 1.0 + (i / days) * 0.5   # widen CI with horizon
-            ci = round(base_ci * horizon_factor, 0)
-            result.append({
-                "date":        (today + timedelta(days=i + 1)).isoformat(),
-                "price":       round(float(price), 0),
-                "lower_bound": round(float(price) - ci, 0),
-                "upper_bound": round(float(price) + ci, 0),
+        # Residual std for confidence intervals
+        df["trend"] = df["price"].rolling(window=7, min_periods=1, center=True).mean()
+        df["detrended"] = df["price"] - df["trend"]
+        df["seasonal"] = df["doy"].map(seasonal_map)
+        residual_std = df["price"].tail(14).std() if len(df) >= 14 else df["price"].std()
+
+        # Generate future dates
+        last_date = df["date"].iloc[-1]
+        future_dates = [last_date + timedelta(days=i) for i in range(1, days + 1)]
+
+        forecasts = []
+        for i, date in enumerate(future_dates):
+            # Trend projection
+            projected_trend = last_trend + trend_slope * (i + 1)
+
+            # Seasonal component
+            doy = date.timetuple().tm_yday
+            seasonal = seasonal_map.get(doy, 0)
+
+            # Point estimate
+            point = projected_trend + seasonal
+
+            # Confidence interval (±1.5 std)
+            lower = point - 1.5 * residual_std
+            upper = point + 1.5 * residual_std
+
+            forecasts.append({
+                "date": date.strftime("%Y-%m-%d"),
+                "price": round(point, 2),
+                "lower_bound": round(max(lower, point * 0.7), 2),
+                "upper_bound": round(upper, 2),
             })
+
+        # Best sell date: highest price in forecast
+        best = max(forecasts, key=lambda x: x["price"])
+
+        # Recommendation
+        current_price = df["price"].iloc[-1]
+        price_change = (best["price"] - current_price) / current_price if current_price > 0 else 0
+
+        if price_change > 0.05:
+            recommendation = f"Prices expected to rise {price_change * 100:.1f}%. Hold for better rates."
+        elif price_change < -0.05:
+            recommendation = f"Prices expected to fall {abs(price_change) * 100:.1f}%. Consider selling soon."
+        else:
+            recommendation = "Price trend is stable. Sell when convenient."
+
+        volatility = self.volatility_score(crop)
+
+        result = {
+            "crop": crop,
+            "current_price": round(current_price, 2),
+            "forecast": forecasts,
+            "best_sell_date": best["date"],
+            "best_sell_price": best["price"],
+            "recommendation": recommendation,
+            "volatility": volatility,
+            "confidence_interval_width": round(3 * residual_std, 2),
+            "model_type": "STL-Rolling",
+            "generated_at": _dt.utcnow().isoformat(),
+        }
+
+        self._log_forecast(crop, pd.DataFrame(forecasts), volatility)
         return result
 
-    def _forecast_lstm(self, steps: int) -> np.ndarray:
-        """Recursive LSTM forecast for *steps* weekly steps."""
-        scaled = self._scale(self._prices)
-        window = list(scaled[-SEQ_LEN:])
-        predictions = []
-        for _ in range(steps):
-            x = np.array(window[-SEQ_LEN:]).reshape(1, SEQ_LEN, 1)
-            pred = float(self._model.predict(x, verbose=0)[0][0])
-            predictions.append(pred)
-            window.append(pred)
-        return self._unscale(np.array(predictions))
+    # -------------------------------------------------------------------------
+    # VOLATILITY
+    # -------------------------------------------------------------------------
 
-    def _forecast_statistical(self, steps: int) -> np.ndarray:
+    def volatility_score(self, crop: str) -> dict:
         """
-        Fallback when TensorFlow is unavailable.
-        Uses exponential smoothing + linear trend extrapolation.
+        Compute volatility score based on recent residual variance.
         """
-        prices = self._prices
-        alpha = 0.3
-        smoothed = [prices[0]]
-        for p in prices[1:]:
-            smoothed.append(alpha * p + (1 - alpha) * smoothed[-1])
-        smoothed = np.array(smoothed)
+        self._ensure_history(crop)
+        df = self.history[crop].copy()
 
-        # Fit a linear trend on the last 12 weeks
-        recent = smoothed[-12:]
-        x = np.arange(len(recent))
-        slope, intercept = np.polyfit(x, recent, 1)
+        if len(df) < 14:
+            return {"score": 0, "classification": "unknown", "coefficient_of_variation": 0}
 
-        last_val = smoothed[-1]
-        result = []
-        for i in range(1, steps + 1):
-            result.append(last_val + slope * i)
-        return np.array(result)
+        recent = df["price"].tail(14)
+        mean_price = recent.mean()
+        std_price = recent.std()
 
+        cv = (std_price / mean_price) if mean_price > 0 else 0
 
-class PriceForecaster:
-    """
-    Public API for crop price forecasting.
+        # Score 0-100
+        score = min(100, cv * 500)
 
     Thread-safe: model training is serialised per commodity via a lock.
     Models are trained lazily on first request and cached in memory.
+    The cache is LRU-evicted when it exceeds *max_cache_size* entries.
     """
 
-    def __init__(self) -> None:
-        self._models: Dict[str, _CommodityModel] = {}
+    def __init__(self, max_cache_size: int = 32) -> None:
+        self._max_cache_size = max_cache_size
+        self._models: OrderedDict[str, _CommodityModel] = OrderedDict()
         self._lock = threading.Lock()
 
     def _get_or_train(self, commodity: str) -> _CommodityModel:
         """Return a trained model for *commodity*, training it if needed."""
         with self._lock:
-            if commodity not in self._models:
-                prices = HISTORICAL_PRICES.get(
-                    commodity,
-                    HISTORICAL_PRICES[_DEFAULT_COMMODITY],
-                )
-                m = _CommodityModel(commodity, prices)
-                m.train()
-                self._models[commodity] = m
+            if commodity in self._models:
+                self._models.move_to_end(commodity)
+                return self._models[commodity]
+            prices = HISTORICAL_PRICES.get(
+                commodity,
+                HISTORICAL_PRICES[_DEFAULT_COMMODITY],
+            )
+            m = _CommodityModel(commodity, prices)
+            m.train()
+            self._models[commodity] = m
+            if len(self._models) > self._max_cache_size:
+                self._models.popitem(last=False)
             return self._models[commodity]
 
     def forecast(
@@ -312,73 +437,205 @@ class PriceForecaster:
         days: int = 14,
     ) -> Dict:
         """
-        Generate a price forecast for *commodity* over the next *days* days.
-
-        Parameters
-        ----------
-        commodity : str
-            Commodity name (e.g. "Wheat", "Cotton").  Falls back to Wheat
-            data if the commodity is not in the embedded dataset.
-        days : int
-            Number of days to forecast (1–30).
-
-        Returns
-        -------
-        dict with keys:
-          - commodity          : str
-          - forecast_days      : int
-          - forecast           : list[dict]  (date, price, lower_bound, upper_bound)
-          - best_sell_date     : str  (ISO date of forecast peak price)
-          - best_sell_price    : float
-          - recommendation     : str  (human-readable selling advice)
-          - model_type         : str  ("LSTM" or "Statistical")
-          - generated_at       : str  (ISO datetime)
+        Return disk usage metrics for the forecasts log directory.
         """
-        days = max(1, min(days, 30))
-        model = self._get_or_train(commodity)
-        forecast_data = model.forecast(days)
+        try:
+            forecasts_mb = round(_FORECASTS_PATH.stat().st_size / (1024 * 1024), 2) if _FORECASTS_PATH.exists() else 0.0
+        except Exception:
+            forecasts_mb = 0.0
 
-        # Find the peak price day for "best time to sell"
-        peak = max(forecast_data, key=lambda d: d["price"])
-        current_price = HISTORICAL_PRICES.get(
-            commodity, HISTORICAL_PRICES[_DEFAULT_COMMODITY]
-        )[-1]
-        price_change_pct = ((peak["price"] - current_price) / current_price) * 100
+        # Sum archived .gz files
+        archive_mb = 0.0
+        try:
+            dir_path = _FORECASTS_PATH.parent
+            for f in dir_path.glob("*.jsonl.*.gz"):
+                archive_mb += f.stat().st_size / (1024 * 1024)
+            archive_mb = round(archive_mb, 2)
+        except Exception:
+            pass
 
-        if price_change_pct >= 5:
-            recommendation = (
-                f"Prices are forecast to rise {price_change_pct:.1f}% by "
-                f"{peak['date']}. Consider holding stock and selling around "
-                f"that date for maximum returns."
-            )
-        elif price_change_pct <= -5:
-            recommendation = (
-                f"Prices are forecast to fall {abs(price_change_pct):.1f}% "
-                f"over the next {days} days. Consider selling soon to avoid "
-                f"further price decline."
-            )
-        else:
-            recommendation = (
-                f"Prices are expected to remain relatively stable "
-                f"(±{abs(price_change_pct):.1f}%) over the next {days} days. "
-                f"Sell based on your storage capacity and immediate needs."
-            )
+        # Disk usage percent (best effort via shutil)
+        disk_percent = None
+        try:
+            usage = shutil.disk_usage(_FORECASTS_PATH.parent)
+            disk_percent = round((usage.used / usage.total) * 100, 1)
+        except Exception:
+            pass
+
+        total_forecast_mb = round(forecasts_mb + archive_mb, 2)
 
         return {
-            "commodity":       commodity,
-            "forecast_days":   days,
-            "forecast":        forecast_data,
-            "best_sell_date":  peak["date"],
-            "best_sell_price": peak["price"],
-            "recommendation":  recommendation,
-            "model_type":      "LSTM" if model._trained else "Statistical",
-            "generated_at":    __import__("datetime").datetime.utcnow().isoformat() + "Z",
+            "forecasts_log_size_mb": forecasts_mb,
+            "archive_size_mb": archive_mb,
+            "total_forecast_storage_mb": total_forecast_mb,
+            "disk_usage_percent": disk_percent,
+            "rotation_max_bytes": _LOG_ROTATION_MAX_BYTES,
+            "rotation_backup_count": _LOG_ROTATION_BACKUP_COUNT,
+            "archive_retention_days": _LOG_ARCHIVE_DAYS,
+            "healthy": disk_percent is not None and disk_percent < 90,
+            "timestamp": _dt.utcnow().isoformat(),
         }
 
-    def supported_commodities(self) -> List[str]:
-        """Return the list of commodities with embedded historical data."""
-        return list(HISTORICAL_PRICES.keys())
+    def get_seasonal_demand_signal(self) -> float:
+        """
+        Return a demand multiplier (0.5–3.0) based on the current month
+        versus the Indian harvest calendar. Higher values indicate predicted
+        traffic spikes during harvest seasons when farmers check prices and
+        request yield predictions most frequently.
+        """
+        month = _dt.now().month
+
+        # Peak harvest months = highest API traffic
+        peak = {3: 2.5, 4: 2.5, 9: 3.0, 10: 3.0}   # Rabi + Kharif
+        high = {2: 1.8, 5: 1.5, 6: 2.0, 7: 2.0, 8: 1.8, 11: 1.5}
+
+        if month in peak:
+            return peak[month]
+        elif month in high:
+            return high[month]
+        else:
+            return 1.0  # Dec, Jan — off-season trough
+
+    def check_alerts(self, db, send_fn) -> List[dict]:
+        """
+        Evaluate all farmer price alerts against current forecasts.
+        Send WhatsApp alerts for triggered thresholds.
+        """
+        triggered = []
+
+        if db is None:
+            return triggered
+
+        try:
+            # Fetch all farmers with price alerts
+            users = db.collection("users").stream()
+            for user_doc in users:
+                uid = user_doc.id
+                user_data = user_doc.to_dict() or {}
+                phone = user_data.get("phoneNumber") or user_data.get("phone_number") or user_data.get("phone")
+
+                # Get price alerts subcollection
+                alert_docs = db.collection("users").document(uid).collection("price_alerts").stream()
+                for alert_doc in alert_docs:
+                    alert = alert_doc.to_dict() or {}
+                    crop = alert.get("crop")
+                    threshold_type = alert.get("threshold_type")  # "above", "below", "volatility"
+                    threshold_value = alert.get("threshold_value")
+
+                    if not crop or threshold_type not in {"above", "below", "volatility"}:
+                        continue
+
+                    # Get latest forecast
+                    forecast = self.forecast(crop, days=7)
+                    if "error" in forecast:
+                        continue
+
+                    latest_price = forecast["forecast"][0]["price"] if forecast["forecast"] else None
+                    volatility = forecast.get("volatility", {})
+
+                    triggered_alert = None
+
+                    if threshold_type == "above" and latest_price and latest_price >= threshold_value:
+                        triggered_alert = {
+                            "type": "price_above",
+                            "crop": crop,
+                            "current_price": latest_price,
+                            "threshold": threshold_value,
+                            "message": f"📈 {crop} price has crossed ₹{threshold_value}/qtl! Current: ₹{latest_price}/qtl. Consider selling.",
+                        }
+                    elif threshold_type == "below" and latest_price and latest_price <= threshold_value:
+                        triggered_alert = {
+                            "type": "price_below",
+                            "crop": crop,
+                            "current_price": latest_price,
+                            "threshold": threshold_value,
+                            "message": f"📉 {crop} price has dropped below ₹{threshold_value}/qtl! Current: ₹{latest_price}/qtl. Consider buying or hedging.",
+                        }
+                    elif threshold_type == "volatility" and volatility.get("score", 0) >= threshold_value:
+                        triggered_alert = {
+                            "type": "volatility_high",
+                            "crop": crop,
+                            "volatility_score": volatility.get("score"),
+                            "threshold": threshold_value,
+                            "message": f"⚠️ {crop} market volatility is high (score: {volatility['score']:.1f}). Expect price swings. Consider staggered selling.",
+                        }
+
+                    if triggered_alert:
+                        # Build full notification payload for WebSocket + WhatsApp
+                        alert_payload = {
+                            "type": triggered_alert["type"],
+                            "crop": crop,
+                            "current_price": triggered_alert.get("current_price"),
+                            "threshold": triggered_alert.get("threshold"),
+                            "message": triggered_alert["message"],
+                            "region_id": user_data.get("region_id"),
+                            "recipient_uid": uid,
+                            "volatility_score": triggered_alert.get("volatility_score"),
+                        }
+
+                        # Attempt WebSocket delivery first
+                        ws_delivered = False
+                        try:
+                            from realtime_notifications import notification_broker
+                            event = await notification_broker.publish_price_alert(alert_payload)
+                            # Check if any client received it (event has delivery state)
+                            ws_delivered = True
+                        except Exception as exc:
+                            logger.warning("WebSocket price alert failed for %s: %s", uid, exc)
+
+                        # Fallback to WhatsApp if WebSocket failed or user has no active WS
+                        ws_retry_count = 0
+                        try:
+                            from realtime_notifications import notification_broker
+                            # Find retry count for this notification across all connections for this uid
+                            for _ws, sub in notification_broker._connections.items():
+                                if sub.uid == uid and event.notification_id in sub.retry_counts:
+                                    ws_retry_count = max(ws_retry_count, sub.retry_counts[event.notification_id])
+                        except Exception:
+                            pass
+
+                        if not ws_delivered or ws_retry_count >= 3:
+                            if phone:
+                                try:
+                                    send_fn(phone, triggered_alert["message"])
+                                    triggered.append({
+                                        "uid": uid,
+                                        "phone": phone[-4:],
+                                        "alert": triggered_alert,
+                                        "sent_at": _dt.utcnow().isoformat(),
+                                        "channel": "whatsapp",
+                                        "ws_failed": not ws_delivered,
+                                        "ws_retries": ws_retry_count,
+                                    })
+                                    logger.info("WhatsApp fallback sent to %s for %s (ws_retries=%d)", phone[-4:], uid, ws_retry_count)
+                                except Exception as exc:
+                                    logger.warning("Failed sending WhatsApp fallback to %s: %s", phone[-4:], exc)
+                            else:
+                                logger.warning("No phone for WhatsApp fallback; uid=%s alert dropped", uid)
+                        else:
+                            triggered.append({
+                                "uid": uid,
+                                "alert": triggered_alert,
+                                "sent_at": _dt.utcnow().isoformat(),
+                                "channel": "websocket",
+                                "notification_id": event.notification_id,
+                            })
+
+        except Exception as exc:
+            logger.error("Alert check failed: %s", exc)
+
+        return triggered
 
 
-# Module-level singleton — created once per worker process.
-price_forecaster = PriceForecaster()
+# =============================================================================
+# SINGLETON
+# =============================================================================
+
+_forecaster: Optional[PriceForecaster] = None
+
+
+def get_price_forecaster() -> PriceForecaster:
+    global _forecaster
+    if _forecaster is None:
+        _forecaster = PriceForecaster()
+    return _forecaster
