@@ -185,6 +185,41 @@ def readiness_check():
 def readiness_check():
     dependencies = {}
 
+    # Firestore check
+    try:
+        db = firestore.client()
+        db.collection("test").document("ping").get()
+        dependencies["firestore"] = "ok"
+    except Exception as e:
+        dependencies["firestore"] = f"error: {str(e)}"
+
+    # Celery broker check
+    try:
+        broker_url = os.getenv("CELERY_BROKER_URL")
+        if broker_url:
+            celery_app = celery.Celery(broker=broker_url)
+            celery_app.connection().ensure_connection(max_retries=1)
+            dependencies["celery"] = "ok"
+        else:
+            dependencies["celery"] = "missing broker url"
+    except Exception as e:
+        dependencies["celery"] = f"error: {str(e)}"
+
+    # ML model check (example: ensure file exists)
+    model_path = "ml/models/crop_predictor.pkl"
+    if os.path.exists(model_path):
+        dependencies["ml_model"] = "ok"
+    else:
+        dependencies["ml_model"] = "missing"
+
+    all_ok = all(v == "ok" for v in dependencies.values())
+    status_code = 200 if all_ok else 503
+
+
+@app.get("/ready")
+def readiness_check():
+    dependencies = {}
+
 
 @app.get("/ready")
 def readiness_check():
