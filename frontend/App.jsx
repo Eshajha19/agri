@@ -240,7 +240,7 @@ function App() {
 
   useEffect(() => {
     detectAndSetLiteMode();
-  }, [detectAndSetLiteMode]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
