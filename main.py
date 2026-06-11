@@ -152,6 +152,22 @@ async def predict_yield_trend(input: YieldTrendInput):
     return router.predict(input.dict())
 
 
+app = FastAPI()
+router = ModelRouter()
+
+@app.post("/predict")
+async def predict(input: PredictionInput):
+    return router.predict(input.dict())
+
+@app.post("/predict-yield-lag")
+async def predict_yield_lag(input: YieldLagInput):
+    return router.predict(input.dict())
+
+@app.post("/predict-yield-trend")
+async def predict_yield_trend(input: YieldTrendInput):
+    return router.predict(input.dict())
+
+
 from fastapi import FastAPI
 from rbac import RBACMiddleware
 
@@ -284,6 +300,16 @@ try:
     HAS_GCP_KMS = True
 except ImportError:
     HAS_GCP_KMS = False
+
+
+from backend.twilio_webhook_security import handle_inbound_whatsapp_webhook
+
+app = FastAPI()
+
+@app.post("/api/whatsapp/webhook")
+async def whatsapp_webhook(request: Request):
+    return await handle_inbound_whatsapp_webhook(request)
+
 
 # Logger configuration with structured output and context tracking
 class ContextFilter(logging.Filter):
