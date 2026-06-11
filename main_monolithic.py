@@ -154,6 +154,7 @@ from reportlab.lib import colors
 from reportlab.lib.units import inch
 from cryptography.hazmat.primitives.asymmetric import ed25519, padding
 from cryptography.hazmat.primitives import serialization, hashes
+from backend.rate_limit_config import build_limiter, rate_limit_exceeded_handler
 
 # KMS Support
 try:
@@ -223,9 +224,9 @@ def _sanitise_log_field(value: str) -> str:
     return _CONTROL_CHAR_RE.sub("", value)
 
 # Initialize Limiter
-limiter = Limiter(key_func=get_remote_address)
+limiter = build_limiter()
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 # Initialize Firebase Admin
 # Explicitly set to None before the try block so db_firestore is always

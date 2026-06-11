@@ -110,6 +110,11 @@ class CropQualityGrader:
         if image is None:
             raise ValueError("Invalid image data")
 
+        # OpenCV loads as BGR; convert to RGB so that channel access
+        # (image[:,:,0] = R, :,:,1 = G, :,:,2 = B) matches the
+        # crop-quality thresholds defined in RGB order.
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
         # Get crop params
         params = CROP_QUALITY_PARAMS[crop_type.lower()]
 
@@ -159,9 +164,7 @@ class CropQualityGrader:
         """Assess size uniformity of crops in image"""
         if not isinstance(image, np.ndarray):
             return 50.0
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        # Use Otsu's thresholding to adapt to varying lighting conditions
-        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         contours, _ = cv2.findContours(
             binary,
             cv2.RETR_EXTERNAL,
@@ -185,7 +188,10 @@ class CropQualityGrader:
         """Assess color quality against crop-specific target ranges"""
         if not isinstance(image, np.ndarray):
             return 50.0
-        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+        color_quality_score = 0.0
+
+        # Check dominant color in expected range
         h, s, v = cv2.split(hsv)
         avg_h = np.mean(h)
         avg_s = np.mean(s)
@@ -238,7 +244,7 @@ class CropQualityGrader:
         """Assess shape uniformity"""
         if not isinstance(image, np.ndarray):
             return 50.0
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         contours, _ = cv2.findContours(
             cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)[1],
             cv2.RETR_EXTERNAL,
@@ -270,7 +276,7 @@ class CropQualityGrader:
         """Detect defects in crops using crop region segmentation"""
         if not isinstance(image, np.ndarray):
             return 10.0
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
 
         # Segment crop region using adaptive threshold to exclude background
         _, crop_mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
