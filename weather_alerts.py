@@ -287,7 +287,7 @@ class WeatherAlertsService:
         Returns:
             WeatherData object or None if fetch fails
         """
-        cache_key = f"{latitude},{longitude}"
+        cache_key = f"{latitude},{longitude}|{location}"
         
         # Check cache
         if cache_key in self._weather_cache:
