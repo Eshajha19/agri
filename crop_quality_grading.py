@@ -172,6 +172,28 @@ class CropQualityGrader:
             },
         }
 
+        audit_metadata = {
+            "assessment_timestamp": datetime.now().isoformat(),
+            "evaluation_stage_summary": [
+                "size_analysis",
+                "color_analysis",
+                "shape_analysis",
+                "defect_detection",
+                "grade_assignment",
+            ],
+            "rule_execution_indicators": {
+                "size_rule": True,
+                "color_rule": True,
+                "shape_rule": True,
+                "defect_rule": True,
+            },
+            "decision_metadata": {
+                "overall_score": round(overall_score, 2),
+                "assigned_grade": grade,
+                "price_multiplier": price_adjustment,
+            },
+        }
+
         # Generate recommendations
         recommendations = self._generate_recommendations(
             size_quality, color_quality, shape_quality, defect_percentage
@@ -518,6 +540,7 @@ class CropQualityGrader:
             "audit_summary": audit_summary,
             "crop_type": crop_type,
             "timestamp": datetime.now().isoformat(),
+            
         }
 
     def get_quality_trends(self, crop_type: str, days: int = 7) -> Dict:
