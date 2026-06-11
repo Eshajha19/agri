@@ -307,10 +307,17 @@ if __name__ == "__main__":
 @celery_app.task(bind=True, name="process_whatsapp_webhook_task")
 def process_whatsapp_webhook_task(self, body: str, sender_number: str):
     """Celery task for processing incoming WhatsApp messages asynchronously."""
+    from webhook_validator import validate_and_parse, WebhookValidationError
     from whatsapp_service import process_webhook_message
-    
-    result = process_webhook_message(body, sender_number)
-    return {"status": "processed", "sender": sender_number, "result": result}
+
+    try:
+        message = validate_and_parse(body, sender_number)
+    except WebhookValidationError as exc:
+        logger.warning("Discarding invalid webhook payload from %r: %s", sender_number, exc)
+        return {"status": "discarded", "reason": str(exc)}
+
+    result = process_webhook_message(message.text or body, message.sender_number)
+    return {"status": "processed", "sender": message.sender_number, "result": result}
 
 if __name__ == "__main__":
     celery_app.start()
