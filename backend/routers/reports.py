@@ -10,6 +10,8 @@ import io
 import json
 import logging
 from datetime import datetime, timezone
+import time, uuid
+from fastapi import APIRouter, HTTPException
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
@@ -24,8 +26,35 @@ from reportlab.pdfgen import canvas
 
 from backend.core.logging_config import setup_logging
 
-router = APIRouter()
 logger = setup_logging(__name__)
+
+router = APIRouter()
+
+# Simple in-memory nonce store (replace with Redis/Firestore in production)
+used_nonces = set()
+SIGNATURE_TTL = 300  # 5 minutes
+
+@router.post("/submit-report")
+def submit_report(payload: dict):
+    nonce = payload.get("nonce")
+    timestamp = payload.get("timestamp")
+    signature = payload.get("signature")
+
+    # ✅ Nonce check
+    if not nonce or nonce in used_nonces:
+        raise HTTPException(status_code=400, detail="Invalid or replayed nonce")
+    used_nonces.add(nonce)
+
+    # ✅ Timestamp check
+    now = int(time.time())
+    if not timestamp or abs(now - int(timestamp)) > SIGNATURE_TTL:
+        raise HTTPException(status_code=400, detail="Signature expired")
+
+    # ✅ Signature verification (pseudo-code)
+    if not verify_signature(payload, signature):
+        raise HTTPException(status_code=400, detail="Invalid signature")
+
+    return {"status": "accepted"}
 
 # ---------------------------------------------------------------------------
 # Validation bounds — intentionally generous to accommodate large commercial
