@@ -49,6 +49,10 @@ class VersionVector:
         if self.vector == other.vector:
             return False
 
+        # An empty vector represents unknown state — treat as concurrent.
+        if not self.vector or not other.vector:
+            return False
+
         at_least_one_less = False
 
         for client_id in set(list(self.vector.keys()) + list(other.vector.keys())):
