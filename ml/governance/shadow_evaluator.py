@@ -132,10 +132,8 @@ class ShadowEvaluator:
             candidate_prediction: Prediction from candidate model
             actual_value: Actual observed value
         """
-        with self._lock:
-            if eval_id not in self.active_evaluations:
-                logger.warning(f"Unknown evaluation ID: {eval_id}")
-                return
+        if eval_id not in self.active_evaluations:
+            raise ValueError(f"Unknown evaluation ID: {eval_id}")
         
             eval_session = self.active_evaluations[eval_id]
             eval_session['production_predictions'].append(production_prediction)
