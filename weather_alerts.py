@@ -227,7 +227,7 @@ class WeatherAlertsService:
         self._weather_cache: Dict[str, tuple] = {}  # (data, timestamp)
         self._max_cache_size = 1000
         self.alert_history: List[WeatherAlert] = []
-        self._alert_id_counter = itertools.count(1)
+        self._session: Optional[aiohttp.ClientSession] = None
 
     def _evict_expired(self) -> None:
         """Remove expired entries from the weather cache."""
@@ -238,6 +238,11 @@ class WeatherAlertsService:
         ]
         for key in expired_keys:
             del self._weather_cache[key]
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+        return self._session
 
     async def get_coordinates(self, location: str) -> tuple:
         """
@@ -250,23 +255,23 @@ class WeatherAlertsService:
             (latitude, longitude, location_name) tuple, or (None, None, location) on failure
         """
         try:
-            async with aiohttp.ClientSession() as session:
-                params = {
-                    "name": location,
-                    "count": 1,
-                    "language": "en",
-                    "format": "json"
-                }
-                async with session.get(
-                    f"{self.GEOCODING_URL}/search",
-                    params=params,
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        if data.get("results"):
-                            result = data["results"][0]
-                            return (result["latitude"], result["longitude"], result.get("name", location))
+            session = await self._get_session()
+            params = {
+                "name": location,
+                "count": 1,
+                "language": "en",
+                "format": "json",
+            }
+            async with session.get(
+                f"{self.GEOCODING_URL}/search",
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if data.get("results"):
+                        result = data["results"][0]
+                        return (result["latitude"], result["longitude"], result.get("name", location))
         except Exception as e:
             logger.error(f"Geocoding error for '{location}': {e}")
         return (None, None, location)
@@ -305,49 +310,41 @@ class WeatherAlertsService:
             del self._weather_cache[cache_key]
 
         try:
-            async with aiohttp.ClientSession() as session:
-                params = {
-                    "latitude": latitude,
-                    "longitude": longitude,
-                    "current": "temperature_2m,relative_humidity_2m,rainfall,weather_code,cloud_cover,wind_speed_10m",
-                    "timezone": "auto",
-                    "forecast_days": 1,
-                    "hourly": "rainfall",
-                }
-                
-                async with session.get(
-                    f"{self.BASE_URL}/forecast",
-                    params=params,
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        current = data.get("current", {})
+            session = await self._get_session()
+            params = {
+                "latitude": latitude,
+                "longitude": longitude,
+                "current": "temperature_2m,relative_humidity_2m,rainfall,weather_code,cloud_cover,wind_speed_10m",
+                "timezone": "auto",
+                "forecast_days": 1,
+                "hourly": "rainfall",
+            }
+
+            async with session.get(
+                f"{self.BASE_URL}/forecast",
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    current = data.get("current", {})
+
+                    weather = WeatherData(
+                        temperature=current.get("temperature_2m", 0),
+                        humidity=current.get("relative_humidity_2m", 0),
+                        rainfall=current.get("rainfall", 0),
+                        wind_speed=current.get("wind_speed_10m", 0),
+                        cloud_cover=current.get("cloud_cover", 0),
+                        weather_code=current.get("weather_code", 0),
+                        timestamp=datetime.now(),
+                        location=location,
+                    )
                         
-                        weather = WeatherData(
-                            temperature=current.get("temperature_2m", 0),
-                            humidity=current.get("relative_humidity_2m", 0),
-                            rainfall=current.get("rainfall", 0),
-                            wind_speed=current.get("wind_speed_10m", 0),
-                            cloud_cover=current.get("cloud_cover", 0),
-                            weather_code=current.get("weather_code", 0),
-                            timestamp=datetime.now(),
-                            location=location,
-                        )
-                        
-                        # Cache the result
-                        self._weather_cache[cache_key] = (weather, datetime.now())
-                        if len(self._weather_cache) > self._max_cache_size:
-                            self._evict_expired()
-                            # If all entries are still within TTL, _evict_expired removes
-                            # nothing. Evict the oldest entry to enforce the hard cap.
-                            if len(self._weather_cache) > self._max_cache_size:
-                                oldest_key = min(
-                                    self._weather_cache,
-                                    key=lambda k: self._weather_cache[k][1]
-                                )
-                                del self._weather_cache[oldest_key]
-                        return weather
+                    # Cache the result
+                    self._weather_cache[cache_key] = (weather, datetime.now())
+                    if len(self._weather_cache) > self._max_cache_size:
+                        self._evict_expired()
+                    return weather
         except asyncio.TimeoutError:
             logger.warning(f"Weather API timeout for {location}")
         except Exception as e:
@@ -519,3 +516,9 @@ class WeatherAlertsService:
 # ============================================================================
 
 weather_service = WeatherAlertsService()
+
+
+async def close_weather_service():
+    """Close the shared aiohttp session on shutdown."""
+    if weather_service._session and not weather_service._session.closed:
+        await weather_service._session.close()
