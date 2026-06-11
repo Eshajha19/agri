@@ -97,9 +97,9 @@ class NotificationEvent:
             self.notification_id = f"{self.type}-{int(time.time() * 1000)}"
 
     def get_content_hash(self) -> str:
-        """Generate hash of notification content for deduplication"""
+        """Generate SHA-256 hash of notification content for deduplication"""
         content = json.dumps(self.data, sort_keys=True)
-        return hashlib.md5(content.encode()).hexdigest()
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
 @dataclass(slots=True)
