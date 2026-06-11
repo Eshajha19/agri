@@ -46,6 +46,15 @@ async def echo_form_endpoint(request: Request):
     form = await request.form()
     return dict(form)
 
+@app.post("/api/echo")
+async def echo_endpoint(request: Request):
+    return await request.json()
+
+@app.post("/api/echo-form")
+async def echo_form_endpoint(request: Request):
+    form = await request.form()
+    return dict(form)
+
 
 app = FastAPI(
     title="Fasal Saathi Backend",
