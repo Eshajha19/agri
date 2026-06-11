@@ -160,8 +160,16 @@ def generate_response(query: str, top_k: int = 3) -> dict:
       - sources_used  : int  — number of documents used
       - llm_used      : bool — True if Gemini synthesis was used
     """
+
     retriever = get_retriever()
-    docs = retriever.retrieve(query, top_k=top_k)
+
+    retrieval_result = retriever.retrieve(
+        query,
+        top_k=top_k,
+    )
+
+    docs = retrieval_result["results"]
+    retrieval_metadata = retrieval_result["retrieval_metadata"]
 
     if not docs:
         return {
@@ -173,6 +181,7 @@ def generate_response(query: str, top_k: int = 3) -> dict:
             "citations": [],
             "sources_used": 0,
             "llm_used": False,
+            "retrieval_metadata": retrieval_metadata,
         }
 
     # Attempt Gemini synthesis; fall back to concatenation on failure / missing key
@@ -199,6 +208,7 @@ def generate_response(query: str, top_k: int = 3) -> dict:
 
     citations = [
         {
+            "rank": i,
             "index": i,
             "title": doc["title"],
             "citation": doc["citation"],
@@ -206,6 +216,8 @@ def generate_response(query: str, top_k: int = 3) -> dict:
             "year": doc["year"],
             "topic": doc["topic"],
             "relevance": doc["relevance_score"],
+            "confidence_level": doc["confidence_level"],
+            "confidence_explanation": doc["confidence_explanation"],
         }
         for i, doc in enumerate(docs, 1)
     ]
@@ -215,4 +227,5 @@ def generate_response(query: str, top_k: int = 3) -> dict:
         "citations": citations,
         "sources_used": len(docs),
         "llm_used": llm_used,
+        "retrieval_metadata": retrieval_metadata,
     }

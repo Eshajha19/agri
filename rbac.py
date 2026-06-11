@@ -15,8 +15,6 @@ Authorization model
   supplied. Valid tokens without a user profile fail closed (403), never guest.
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 from dataclasses import dataclass
@@ -422,28 +420,12 @@ class RBACManager:
                 detail="Authentication database lookup failed",
             ) from exc
 
-        if not user_doc.exists:
-            logger.warning("User %s not found in Firestore", uid)
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User profile not found",
-            )
-
-        profile = user_doc.to_dict() or {}
-        roles = RBACManager._normalize_roles(profile)
-        role_str = RBACManager._effective_role(roles)
-        tenant_id = RBACManager._extract_tenant(profile)
-
-        claim_role = decoded_token.get("role")
-        if claim_role is not None:
-            claim_normalized = str(claim_role).strip().lower()
-            if claim_normalized not in roles:
-                logger.warning(
-                    "Stale JWT role for uid=%s: claim=%s firestore_roles=%s",
-                    uid,
-                    claim_normalized,
-                    roles,
+            try:
+                user_doc = await asyncio.to_thread(
+                    db.collection("users").document(uid).get,
                 )
+            except Exception as exc:
+                logger.error("Firestore query failed for user %s: %s", uid, exc)
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail=STALE_TOKEN_DETAIL,

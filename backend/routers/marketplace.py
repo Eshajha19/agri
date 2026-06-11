@@ -182,7 +182,7 @@ def _seed_listings() -> None:
             return
         for item in _SEED_LISTINGS:
             lid = _stable_seed_id(item)
-            _listings[lid] = {
+            listing = {
                 "id": lid,
                 "name": item["name"],
                 "type": item["type"],
@@ -190,13 +190,79 @@ def _seed_listings() -> None:
                 "priceUnit": item["priceUnit"],
                 "location": item["location"],
                 "owner": item["owner"],
-                "ownerUid": None,   # seed listings have no registered owner
+                "ownerUid": None,
                 "available": item["available"],
                 "rating": 4.5,
                 "createdAt": datetime.now(timezone.utc).isoformat(),
             }
 
+            listing.update(
+                _calculate_listing_quality(listing)
+            )
+
+            _listings[lid] = listing
+
 _seed_listings()
+
+def _calculate_listing_quality(listing: Dict[str, Any]) -> Dict[str, Any]:
+    score = 0
+    breakdown = {}
+
+    # Description completeness
+    name_score = min(len(listing.get("name", "")) / 100 * 25, 25)
+    breakdown["description"] = round(name_score, 2)
+    score += name_score
+
+    # Required information
+    required_fields = [
+        "name",
+        "type",
+        "price",
+        "priceUnit",
+        "location",
+    ]
+
+    present = sum(
+        1 for field in required_fields
+        if listing.get(field)
+    )
+
+    required_score = (present / len(required_fields)) * 35
+    breakdown["required_fields"] = round(required_score, 2)
+    score += required_score
+
+    # Metadata quality
+    metadata_score = 20
+
+    if listing.get("owner"):
+        metadata_score += 0
+
+    if listing.get("createdAt"):
+        metadata_score += 0
+
+    breakdown["metadata"] = metadata_score
+    score += metadata_score
+
+    # Structure quality
+    structure_score = 20
+    breakdown["structure"] = structure_score
+    score += structure_score
+
+    if score >= 90:
+        label = "Excellent"
+    elif score >= 75:
+        label = "Good"
+    elif score >= 50:
+        label = "Average"
+    else:
+        label = "Poor"
+
+    return {
+        "qualityScore": round(score, 2),
+        "qualityLabel": label,
+        "qualityBreakdown": breakdown,
+    }
+
 
 # ---------------------------------------------------------------------------
 # Dependency injection
@@ -347,6 +413,10 @@ async def list_equipment(request: Request, data: ListEquipmentRequest):
         "rating": 5.0,
         "createdAt": datetime.now(timezone.utc).isoformat(),
     }
+
+    listing.update(
+        _calculate_listing_quality(listing)
+    )
 
     with _lock:
         # Global cap: prevent unbounded heap growth from listing floods.

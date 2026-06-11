@@ -123,6 +123,9 @@ import firebase_admin
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from firebase_admin import auth, credentials, firestore, storage
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from backend.routers import (
     advisory,
@@ -849,7 +852,9 @@ async def verify_role(request: Request, required_roles: list = None):
     # returns the same clean 503 as a missing db_firestore, rather than an
     # unhandled exception that leaks internal details as a raw 500.
     try:
-        user_doc = db_firestore.collection("users").document(uid).get()
+        user_doc = await asyncio.to_thread(
+            db_firestore.collection("users").document(uid).get,
+        )
     except Exception as e:
         logger.error(
             "Firestore fetch failed for uid=%s during role check: %s", uid, e
@@ -1072,7 +1077,7 @@ def _normalize_dynamic_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, An
     normalized = []
     for index, alert in enumerate(alerts, start=1):
         normalized_alert = dict(alert)
-        normalized_alert["id"] = -index
+        normalized_alert["id"] = f"dyn-{index}"
         normalized_alert.setdefault("source", "advisory")
         normalized.append(normalized_alert)
     return normalized
@@ -1094,7 +1099,7 @@ def predict_get(request: Request = None):
     return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
 
 @app.post("/predict", response_model=PredictResponse)
-@limiter.limit("5/minute")
+@limiter.limit("30/minute")
 async def predict_yield(data: PredictRequest, request: Request):
     """
     Standardised prediction endpoint using ML Router for dynamic model selection.
@@ -1178,7 +1183,7 @@ async def get_task_result(task_id: str, request: Request):
 
 
 @app.post("/predict-yield-lag")
-@limiter.limit("5/minute")
+@limiter.limit("30/minute")
 async def predict_yield_lag(payload: YieldInput, request: Request):
     try:
         # Offload time-series lag model prediction to Celery worker pool
@@ -1197,7 +1202,7 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
 @app.post("/predict-yield-trend")
-@limiter.limit("5/minute")
+@limiter.limit("30/minute")
 async def predict_yield_trend(payload: YieldInput, request: Request):
     try:
         # Offload heavy iterative trend forecasting to Celery worker pool
@@ -1608,6 +1613,13 @@ class PredictRequest(BaseModel):
     IrriCount: int = Field(..., ge=1)
     WaterCov: int = Field(..., ge=0, le=100)
     Season: str = Field(..., max_length=50)
+    N: float = Field(None, ge=0)
+    P: float = Field(None, ge=0)
+    K: float = Field(None, ge=0)
+    ph: float = Field(None, ge=0, le=14)
+    temperature: float = Field(None)
+    rainfall: float = Field(None, ge=0)
+    humidity: float = Field(None, ge=0, le=100)
 
 class PredictResponse(BaseModel):
     predicted_ExpYield: float
@@ -1646,32 +1658,7 @@ _ALLOWED_PREDICTION_FIELDS = frozenset({
 
 def _coerce_prediction_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
     sanitized = dict(input_data)
-
-    # Defense-in-depth: reject any field not in the allowlist.
-    # PredictRequest already uses extra="forbid" at the schema level, but
-    # this check protects other code paths that may call this function.
-    extra = [k for k in sanitized if k not in _ALLOWED_PREDICTION_FIELDS]
-    if extra:
-        logger.warning("Rejecting unknown prediction fields: %s", extra)
-        raise HTTPException(
-            status_code=422,
-            detail=f"Unknown field(s): {', '.join(sorted(extra))}",
-        )
-
-    numeric_fields = {
-        "N",
-        "P",
-        "K",
-        "ph",
-        "pH",
-        "CropCoveredArea",
-        "CHeight",
-        "IrriCount",
-        "WaterCov",
-        "temperature",
-        "rainfall",
-        "humidity",
-    }
+    numeric_fields = {"CropCoveredArea", "CHeight", "IrriCount", "WaterCov"}
 
     for field in numeric_fields:
         if field not in sanitized or sanitized[field] is None:
@@ -1686,10 +1673,6 @@ def _coerce_prediction_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
             raise HTTPException(status_code=400, detail=f"Invalid value for '{field}'")
 
         sanitized[field] = numeric_value
-
-    for field in ("ph", "pH"):
-        if field in sanitized and not (0 <= sanitized[field] <= 14):
-            raise HTTPException(status_code=400, detail="Invalid pH")
 
     return sanitized
 
@@ -2493,6 +2476,8 @@ try:
     Instrumentator().instrument(app)
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
+
+
 
 # ---------------------------------------------------------------------------
 # CORS — explicit origin allowlist

@@ -43,6 +43,31 @@ logger = logging.getLogger(__name__)
 # Pydantic Models
 # ============================================================================
 
+def _build_recovery_response(
+    message: str,
+    error_type: str,
+    session_id: Optional[str] = None,
+) -> dict:
+    recovery_prompts = {
+        "audio": "Please upload a supported audio file and try again.",
+        "session": "Try creating a new session and repeat your request.",
+        "query": "Try rephrasing your question with more details.",
+        "rate_limit": "Too many requests detected. Please wait before retrying.",
+        "system": "Please retry in a few moments.",
+    }
+
+    return {
+        "success": False,
+        "error_type": error_type,
+        "message": message,
+        "recovery_prompt": recovery_prompts.get(
+            error_type,
+            "Please try again."
+        ),
+        "retry_supported": True,
+        "session_id": session_id,
+    }
+
 class VoiceQueryRequest(BaseModel):
     """Request model for voice queries.
 
@@ -352,8 +377,12 @@ async def create_session(request: Request, data: SessionCreateRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Session creation error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Session creation error: %s", e)
+
+        return _build_recovery_response(
+            "Unable to create voice session.",
+            "session",
+        )
 
 
 @router.post("/query", response_model=VoiceResponseData, tags=["Voice"])
@@ -411,8 +440,13 @@ async def process_voice_query(request: Request, data: VoiceQueryRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Voice query error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("Voice query error: %s", e)
+
+        return _build_recovery_response(
+            "Unable to process your voice query.",
+            "query",
+            session_id,
+        )
 
 
 @router.post("/audio-upload", tags=["Voice"])
@@ -436,7 +470,11 @@ async def upload_audio(
     uid = await _require_auth(request)
 
     if not _check_rate_limit(uid):
-        raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again later.")
+        return _build_recovery_response(
+            "Rate limit exceeded.",
+            "rate_limit",
+            session_id,
+        )
 
     try:
         safe_filename = _validate_filename(file.filename or "")
@@ -494,9 +532,10 @@ async def upload_audio(
         # filesystem paths, internal library names, or other implementation
         # details that aid attackers in fingerprinting the server environment.
         logger.error("Audio upload error for uid=%s: %s", uid, e, exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail="An unexpected error occurred during audio upload.",
+        return _build_recovery_response(
+            "Audio upload failed.",
+            "audio",
+            session_id,
         )
     finally:
         try:
@@ -533,8 +572,13 @@ async def get_session_history(request: Request, session_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Session retrieval error: {e}")
-        raise HTTPException(status_code=404, detail=str(e))
+        logger.error("Session retrieval error: %s", e)
+
+        return _build_recovery_response(
+            "Unable to retrieve session history.",
+            "session",
+            session_id,
+        )
 
 
 @router.post("/query-analyze", tags=["Voice"])
@@ -569,8 +613,12 @@ async def analyze_query(request: Request, data: VoiceQueryRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Query analysis error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("Query analysis error: %s", e)
+
+        return _build_recovery_response(
+            "Query analysis failed.",
+            "query",
+        )
 
 
 @router.get("/offline-cache", tags=["Voice"])
