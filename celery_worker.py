@@ -1,22 +1,43 @@
 import json
 import logging
 import os
-import threading
-from datetime import datetime as _dt
-from pathlib import Path
-from typing import Optional
-
+import logging
+import joblib
 import numpy as np
 from celery import Celery
 from ml.security import verify_and_load_joblib
 
 logger = logging.getLogger(__name__)
 
-# =============================================================================
-# CELERY CONFIG
-# =============================================================================
+# Initialize Celery app — Redis authentication is required.
+# Set REDIS_URL for a full connection string, or REDIS_PASSWORD to use
+# default redis://:{password}@localhost:6379/0.  Set ALLOW_INSECURE_REDIS=1
+# (NOT RECOMMENDED) to allow an unauthenticated redis://localhost:6379/0
+# fallback for local development only.
+redis_url = os.getenv("REDIS_URL")
+redis_password = os.getenv("REDIS_PASSWORD")
+allow_insecure = os.getenv("ALLOW_INSECURE_REDIS", "").lower() in ("1", "true", "yes")
 
-redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+if not redis_url:
+    if redis_password:
+        redis_url = f"redis://:{redis_password}@localhost:6379/0"
+        logger.info("Celery: using Redis with password authentication")
+    elif allow_insecure:
+        redis_url = "redis://localhost:6379/0"
+        logger.warning(
+            "CELERY INSECURE REDIS: ALLOW_INSECURE_REDIS is set — connecting "
+            "without authentication. This is DANGEROUS if Redis is exposed to "
+            "the network."
+        )
+    else:
+        logger.critical(
+            "CELERY REDIS AUTH REQUIRED: Neither REDIS_URL nor REDIS_PASSWORD "
+            "is set. Set REDIS_PASSWORD for a password-authenticated connection "
+            "to localhost:6379/0, or set REDIS_URL for a full connection string. "
+            "To allow an unauthenticated connection (NOT RECOMMENDED), set "
+            "ALLOW_INSECURE_REDIS=1."
+        )
+        raise ValueError("REDIS_URL or REDIS_PASSWORD must be set")
 
 celery_app = Celery(
     "agri_ml_tasks",
@@ -45,31 +66,20 @@ celery_app.conf.update(
 _model_lag = None
 _model_trend = None
 _ml_router = None
-_ensemble_stacker = None
-_model_lag_lock = threading.Lock()
-_model_trend_lock = threading.Lock()
-_ml_router_lock = threading.Lock()
-_ensemble_stacker_lock = threading.Lock()
-
-
-# =============================================================================
-# MODEL LOADERS
-# =============================================================================
+_model_lock = threading.Lock()
 
 def _get_lag_model():
     global _model_lag
 
     if _model_lag is None:
+        with _model_lock:
+            if _model_lag is None:
+                try:
+                    _model_lag = joblib.load("sklearn_yield_model.joblib")
+                except Exception as e:
+                    print(f"Failed to load lag model: {e}")
         try:
-            model_path = "sklearn_yield_model.joblib"
-
-            if not os.path.exists(model_path):
-                raise FileNotFoundError(f"{model_path} not found")
-
-            _model_lag = verify_and_load_joblib(model_path)
-
-            logger.info("Lag model loaded successfully")
-
+            _model_lag = verify_and_load_joblib("sklearn_yield_model.joblib")
         except Exception as e:
             import logging
             logging.error(f"Celery worker error: {e}")
@@ -83,20 +93,18 @@ def _get_trend_model():
     global _model_trend
 
     if _model_trend is None:
+        with _model_lock:
+            if _model_trend is None:
+                try:
+                    if os.path.exists("trend_forecast_model.joblib"):
+                        _model_trend = joblib.load("trend_forecast_model.joblib")
+                except Exception as e:
+                    print(f"Failed to load trend model: {e}")
         try:
-            model_path = "trend_forecast_model.joblib"
-
-            if not os.path.exists(model_path):
-                raise FileNotFoundError(f"{model_path} not found")
-
-            _model_trend = verify_and_load_joblib(model_path)
-
-            logger.info("Trend model loaded successfully")
-
-        except Exception:
-            logger.exception("Failed to load trend model")
-            raise
-
+            if os.path.exists("trend_forecast_model.joblib"):
+                _model_trend = verify_and_load_joblib("trend_forecast_model.joblib")
+        except Exception as e:
+            print(f"Failed to load trend model: {e}")
     return _model_trend
 
 
@@ -105,28 +113,25 @@ def _get_ml_router():
 
     if _ml_router is None:
         try:
-            from ml.adapters.xgboost_adapter import XGBoostAdapter
+            from ml.router import ModelRouter, init_governance_router
             from ml.registry import ModelRegistry
-            from ml.router import ModelRouter
-
-            model_path = "yield_model.joblib"
-
-            if not os.path.exists(model_path):
-                raise FileNotFoundError(f"{model_path} not found")
-
+            from ml.adapters.xgboost_adapter import XGBoostAdapter
+            
             xgb_adapter = XGBoostAdapter()
-            xgb_adapter.load(model_path)
-
-            ModelRegistry.register("xgboost", xgb_adapter)
-
+            if os.path.exists("yield_model.joblib"):
+                xgb_adapter.load("yield_model.joblib")
+                ModelRegistry.register("xgboost", xgb_adapter)
+            
+            # Initialise governance in this worker so predictions are tracked
+            from ml.governance import DriftDetector, ShadowEvaluator, ModelVersionManager
+            _dd = DriftDetector()
+            _se = ShadowEvaluator()
+            _vm = ModelVersionManager(versions_dir="./model_versions")
+            init_governance_router(_dd, _se, _vm)
+            
             _ml_router = ModelRouter(default_model="xgboost")
-
-            logger.info("ML router initialized successfully")
-
-        except Exception:
-            logger.exception("Failed to initialize ML router")
-            raise
-
+        except Exception as e:
+            print(f"Failed to initialize ML router: {e}")
     return _ml_router
 
 

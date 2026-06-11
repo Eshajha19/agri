@@ -1,7 +1,7 @@
 """Reports & Logging Router"""
 import re
 from fastapi import APIRouter, Request, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, validator
 from typing import Optional
 import base64
@@ -10,9 +10,15 @@ import io
 import json
 import logging
 from datetime import datetime, timezone
+import time, uuid
+from fastapi import APIRouter, HTTPException
 
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field, validator
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
@@ -20,8 +26,35 @@ from reportlab.pdfgen import canvas
 
 from backend.core.logging_config import setup_logging
 
-router = APIRouter()
 logger = setup_logging(__name__)
+
+router = APIRouter()
+
+# Simple in-memory nonce store (replace with Redis/Firestore in production)
+used_nonces = set()
+SIGNATURE_TTL = 300  # 5 minutes
+
+@router.post("/submit-report")
+def submit_report(payload: dict):
+    nonce = payload.get("nonce")
+    timestamp = payload.get("timestamp")
+    signature = payload.get("signature")
+
+    # ✅ Nonce check
+    if not nonce or nonce in used_nonces:
+        raise HTTPException(status_code=400, detail="Invalid or replayed nonce")
+    used_nonces.add(nonce)
+
+    # ✅ Timestamp check
+    now = int(time.time())
+    if not timestamp or abs(now - int(timestamp)) > SIGNATURE_TTL:
+        raise HTTPException(status_code=400, detail="Signature expired")
+
+    # ✅ Signature verification (pseudo-code)
+    if not verify_signature(payload, signature):
+        raise HTTPException(status_code=400, detail="Invalid signature")
+
+    return {"status": "accepted"}
 
 # ---------------------------------------------------------------------------
 # Validation bounds — intentionally generous to accommodate large commercial
@@ -261,6 +294,131 @@ def _make_cert_id(data: ReportRequest) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Verification
+# ---------------------------------------------------------------------------
+
+def verify_signed_report(
+    name: str,
+    crop: str,
+    area: str,
+    profit: str,
+    season: str,
+    cert_id: str,
+    signature_hex: str,
+    public_key_pem: Optional[str] = None,
+) -> dict:
+    """Verify an Ed25519-signed report payload.
+
+    Parameters
+    ----------
+    name, crop, area, profit, season : str
+        Report field values (must match what was signed).
+    cert_id : str
+        Certificate ID embedded during signing.
+    signature_hex : str
+        Hex-encoded Ed25519 signature.
+    public_key_pem : str, optional
+        PEM-encoded public key.  When *not* provided the function attempts
+        to load ``keys/report_signing.pub`` from the configured path.
+
+    Returns
+    -------
+    dict with keys:
+        ``verified`` (bool), ``cert_id`` (str), ``key_fingerprint`` (str),
+        and on failure ``error`` (str).
+    """
+    # 1. Rebuild the canonical payload exactly as _sign_report did.
+    canonical = json.dumps(
+        {
+            "cert_id": cert_id,
+            "name": name,
+            "crop": crop,
+            "area": area,
+            "profit": profit,
+            "season": season,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+    # 2. Decode the signature.
+    try:
+        signature = bytes.fromhex(signature_hex)
+    except ValueError:
+        return {"verified": False, "cert_id": cert_id, "error": "Invalid signature hex encoding"}
+
+    # 3. Load the public key.
+    if public_key_pem:
+        try:
+            public_key = serialization.load_pem_public_key(public_key_pem.encode("utf-8"))
+        except Exception:
+            return {"verified": False, "cert_id": cert_id, "error": "Invalid public key PEM"}
+    else:
+        try:
+            from main import PUBLIC_KEY_PATH as _pk_path
+            with open(_pk_path, "rb") as f:
+                public_key = serialization.load_pem_public_key(f.read())
+        except Exception:
+            return {"verified": False, "cert_id": cert_id, "error": "Unable to load public key"}
+
+    if not isinstance(public_key, Ed25519PublicKey):
+        return {"verified": False, "cert_id": cert_id, "error": "Key is not an Ed25519 public key"}
+
+    # 4. Compute fingerprint of the public key (SHA-256 of DER).
+    try:
+        der = public_key.public_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        key_fingerprint = hashlib.sha256(der).hexdigest()[:16]
+    except Exception:
+        key_fingerprint = "unknown"
+
+    # 5. Verify.
+    try:
+        public_key.verify(signature, canonical)
+        return {"verified": True, "cert_id": cert_id, "key_fingerprint": key_fingerprint}
+    except InvalidSignature:
+        return {"verified": False, "cert_id": cert_id, "key_fingerprint": key_fingerprint, "error": "Signature does not match"}
+    except Exception as e:
+        return {"verified": False, "cert_id": cert_id, "key_fingerprint": key_fingerprint, "error": str(e)}
+
+
+class VerifyReportRequest(BaseModel):
+    name: str = Field(..., max_length=100)
+    crop: str = Field(..., max_length=50)
+    area: str = Field(..., max_length=50)
+    profit: str = Field(..., max_length=50)
+    season: str = Field(..., max_length=50)
+    cert_id: str = Field(..., min_length=1, max_length=100)
+    signature: str = Field(..., min_length=1, max_length=256)
+    public_key_pem: Optional[str] = Field(default=None, max_length=2000)
+
+
+@router.post("/reports/verify")
+async def verify_report_endpoint(body: VerifyReportRequest):
+    """Verify an Ed25519-signed report payload.
+
+    Accepts the same report fields that were submitted to ``/reports/generate``
+    plus the ``cert_id`` and hex ``signature`` embedded in the PDF.
+
+    Returns ``{"verified": true/false, "cert_id": "...", "key_fingerprint": "..."}``.
+    """
+    result = verify_signed_report(
+        name=body.name,
+        crop=body.crop,
+        area=body.area,
+        profit=body.profit,
+        season=body.season,
+        cert_id=body.cert_id,
+        signature_hex=body.signature,
+        public_key_pem=body.public_key_pem,
+    )
+    status_code = 200 if result["verified"] else 400
+    return JSONResponse(content=result, status_code=status_code)
+
+
+# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
@@ -295,6 +453,31 @@ async def generate_signed_report(request: Request, data: ReportRequest):
         logger.error(f"Key retrieval error: {e}")
         raise HTTPException(status_code=500, detail="Failed to load signing key")
 
+@router.post("/log-error")
+async def log_error(body: ClientErrorReport):
+    if sanitise_log_field_fn is None:
+        raise HTTPException(status_code=500, detail="Log sanitizer not initialized")
+
+    level = sanitise_log_field_fn(body.level).lower()
+    message = sanitise_log_field_fn(body.message)
+    source = sanitise_log_field_fn(body.source) if body.source else "unknown"
+    stack = sanitise_log_field_fn(body.stack) if body.stack else ""
+
+    log_fn = {
+        "error": logger.error,
+        "warn": logger.warning,
+        "warning": logger.warning,
+        "info": logger.info,
+    }.get(level, logger.error)
+
+    log_fn(
+        "[ClientError] level=%s source=%s message=%s%s",
+        level,
+        source,
+        message,
+        f" stack={stack}" if stack else "",
+    )
+    return {"success": True}
     try:
         cert_id = _make_cert_id(data)
         signature_hex = _sign_report(private_key, data, cert_id)

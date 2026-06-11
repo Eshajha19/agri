@@ -32,25 +32,27 @@ logger = logging.getLogger(__name__)
 # Initialize Firebase Admin SDK
 try:
     # Check for Firebase credentials
-    if os.path.exists("firebase-credentials.json"):
-        cred = credentials.Certificate("firebase-credentials.json")
-        firebase_admin.initialize_app(cred)
-        logger.info("Firebase Admin SDK initialized with service account")
-    else:
-        # Try environment variable
-        cred_json = os.getenv("FIREBASE_CREDENTIALS_JSON")
-        if cred_json:
-            import json
-            cred_dict = json.loads(cred_json)
-            cred = credentials.Certificate(cred_dict)
+    if not firebase_admin._apps:
+        if os.path.exists("firebase-credentials.json"):
+            cred = credentials.Certificate("firebase-credentials.json")
             firebase_admin.initialize_app(cred)
-            logger.info("Firebase Admin SDK initialized from environment variable")
+            logger.info("Firebase Admin SDK initialized with service account")
         else:
-            logger.warning("Firebase credentials not found. Running in validation-only mode.")
-            firebase_admin.initialize_app()  # Default app for emulator
+            # Try environment variable
+            cred_json = os.getenv("FIREBASE_CREDENTIALS_JSON")
+            if cred_json:
+                import json
+                cred_dict = json.loads(cred_json)
+                cred = credentials.Certificate(cred_dict)
+                firebase_admin.initialize_app(cred)
+                logger.info("Firebase Admin SDK initialized from environment variable")
+            else:
+                logger.warning("Firebase credentials not found. Running in validation-only mode.")
+                firebase_admin.initialize_app()  # Default app for emulator
 except Exception as e:
     logger.error(f"Failed to initialize Firebase: {e}")
-    firebase_admin.initialize_app()  # Default app for emulator
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app()  # Default app for emulator
 
 # Initialize Firestore
 db = firestore.client()
@@ -188,6 +190,25 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 # ─────────────────────────────────────────────────────────────────────────────
 
+from slowapi.util import get_remote_address
+
+def feedback_rate_limit_key(request: Request):
+    """
+    Prefer stable authenticated UID for rate limiting.
+    Fall back to IP address if no UID is available.
+    """
+    uid = getattr(request.state, "uid", None)
+    if uid:
+        return f"user:{uid}"
+    return get_remote_address(request)
+
+# ── Rate limiting ─────────────────────────────────────────────────────────────
+limiter = Limiter(key_func=feedback_rate_limit_key, default_limits=["120/minute"])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -258,8 +279,6 @@ async def verify_admin(request: Request) -> dict:
     # Offload blocking Firebase SDK call to thread pool.
     try:
         decoded = firebase_auth.verify_id_token(id_token, check_revoked=True)
-    except firebase_auth.RevokedIdTokenError:
-        raise HTTPException(status_code=401, detail="Session revoked. Please sign in again.")
     except Exception:
         raise HTTPException(status_code=401, detail="Authentication failed")
 
@@ -388,7 +407,29 @@ async def get_feedback_stats(
     admin_user: dict = Depends(verify_admin),
 ):
     """Get feedback statistics (admin only)"""
-    uid = admin_user["uid"]
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing auth token")
+
+    try:
+        id_token = auth_header.split(" ")[1]
+        decoded = firebase_auth.verify_id_token(id_token, check_revoked=True)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    uid = decoded["uid"]
+
+    try:
+        user_doc = db.collection("users").document(uid).get()
+    except Exception:
+        raise HTTPException(status_code=503, detail="Authorization service unavailable")
+
+    if not user_doc.exists:
+        raise HTTPException(status_code=403, detail="User profile not found")
+
+    user_role = user_doc.to_dict().get("role", "farmer")
+    if user_role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied: admin role required")
 
     try:
         feedback_ref = db.collection("feedback")

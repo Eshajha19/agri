@@ -338,6 +338,90 @@ class TestModelVersionManager:
         assert any(h['action'] == 'rollback' for h in history)
 
 
+class TestGovernanceRbacRoutes:
+    """RBAC enforcement for ML governance HTTP routes."""
+
+    @pytest.fixture
+    def app(self):
+        from fastapi import FastAPI
+        from backend.routers.governance import router, init_governance
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api/ml-governance")
+
+        mock_dd = DriftDetector()
+        mock_se = ShadowEvaluator(min_samples=5)
+        mock_vm = ModelVersionManager(versions_dir="./test_versions_rbac")
+
+        async def allow_auth_fn(request, required_roles=None):
+            return {"uid": "test-user", "role": "admin"}
+
+        init_governance(mock_dd, mock_se, mock_vm, auth_fn=allow_auth_fn)
+        app.state._mock_dd = mock_dd
+        app.state._mock_se = mock_se
+        app.state._mock_vm = mock_vm
+        yield app
+
+    @pytest.fixture
+    def client(self, app):
+        from fastapi.testclient import TestClient
+        yield TestClient(app)
+
+    AUTH_ROUTES = {
+        "GET": ["/api/ml-governance/drift/alerts"],
+        "POST": [
+            "/api/ml-governance/drift/check",
+            "/api/ml-governance/shadow/record",
+            "/api/ml-governance/versions/list",
+        ],
+    }
+    ADMIN_ROUTES = {
+        "POST": [
+            "/api/ml-governance/drift/baseline",
+            "/api/ml-governance/shadow/start",
+            "/api/ml-governance/shadow/evaluate",
+            "/api/ml-governance/versions/register",
+            "/api/ml-governance/versions/promote",
+            "/api/ml-governance/versions/rollback",
+        ],
+        "GET": [
+            "/api/ml-governance/versions/production",
+            "/api/ml-governance/versions/compare",
+            "/api/ml-governance/status",
+        ],
+    }
+
+    def test_unauthenticated_requests_return_401(self, client):
+        for method, routes in {**self.AUTH_ROUTES, **self.ADMIN_ROUTES}.items():
+            for route in routes:
+                resp = client.request(method, route)
+                assert resp.status_code in (401, 403, 503), (
+                    f"{method} {route} expected 401/403/503, got {resp.status_code}"
+                )
+
+    def test_unauthorized_role_returns_403(self, client, app):
+        from backend.routers.governance import init_governance
+        from fastapi import HTTPException
+
+        async def deny_auth_fn(request, required_roles=None):
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        init_governance(
+            app.state._mock_dd, app.state._mock_se, app.state._mock_vm,
+            auth_fn=deny_auth_fn,
+        )
+
+        for method, routes in self.ADMIN_ROUTES.items():
+            for route in routes:
+                resp = client.request(
+                    method, route,
+                    headers={"Authorization": "Bearer faketoken"},
+                )
+                assert resp.status_code == 403, (
+                    f"{method} {route} expected 403, got {resp.status_code}"
+                )
+
+
 class TestGovernancePipeline:
     """Integration tests for complete governance pipeline"""
     
@@ -379,3 +463,114 @@ class TestGovernancePipeline:
         assert len(alerts) < 5
         
         print("✅ Full governance pipeline workflow completed successfully")
+
+
+class TestGovernanceAuditLogging:
+    """Audit events are emitted on register / promote / rollback."""
+
+    @pytest.fixture
+    def app(self):
+        from fastapi import FastAPI
+        from backend.routers.governance import router, init_governance
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api/ml-governance")
+
+        mock_dd = DriftDetector()
+        mock_se = ShadowEvaluator(min_samples=5)
+        mock_vm = ModelVersionManager(versions_dir="./test_versions_audit")
+
+        async def auth_fn(request, required_roles=None):
+            return {"uid": "auditor", "role": "admin"}
+
+        init_governance(mock_dd, mock_se, mock_vm, auth_fn=auth_fn)
+        app.state._mock_dd = mock_dd
+        app.state._mock_se = mock_se
+        app.state._mock_vm = mock_vm
+        yield app
+
+    @pytest.fixture
+    def client(self, app):
+        from fastapi.testclient import TestClient
+        yield TestClient(app)
+
+    def _reg_version(self, client, model="xgboost"):
+        resp = client.post(
+            "/api/ml-governance/versions/register",
+            json={"model_name": model, "model_path": "/m.joblib", "rmse": 0.15},
+            headers={"Authorization": "Bearer t"},
+        )
+        assert resp.status_code == 200
+        return resp.json()["version_id"]
+
+    def test_register_emits_audit_event(self, client):
+        from rbac_audit import rbac_audit_trail
+
+        rbac_audit_trail.clear()
+        self._reg_version(client)
+
+        snap = rbac_audit_trail.snapshot(limit=10)
+        actions = [e["action"] for e in snap]
+        assert "model_version.register" in actions
+
+    def test_promote_emits_audit_event(self, client):
+        from rbac_audit import rbac_audit_trail
+
+        rbac_audit_trail.clear()
+        vid = self._reg_version(client)
+
+        client.post(
+            "/api/ml-governance/versions/promote",
+            params={"version_id": vid},
+            headers={"Authorization": "Bearer t"},
+        )
+
+        snap = rbac_audit_trail.snapshot(limit=10)
+        actions = [e["action"] for e in snap]
+        assert "model_version.promote" in actions
+
+    def test_rollback_emits_audit_event(self, client):
+        from rbac_audit import rbac_audit_trail
+
+        rbac_audit_trail.clear()
+        v1 = self._reg_version(client)
+        v2 = self._reg_version(client, model="xgboost")
+
+        client.post(
+            "/api/ml-governance/versions/promote",
+            params={"version_id": v2},
+            headers={"Authorization": "Bearer t"},
+        )
+        client.post(
+            "/api/ml-governance/versions/rollback",
+            params={"version_id": v1},
+            headers={"Authorization": "Bearer t"},
+        )
+
+        snap = rbac_audit_trail.snapshot(limit=10)
+        actions = [e["action"] for e in snap]
+        assert "model_version.rollback" in actions
+
+    def test_audit_event_contains_actor_uid(self, client):
+        from rbac_audit import rbac_audit_trail
+
+        rbac_audit_trail.clear()
+        self._reg_version(client)
+
+        snap = rbac_audit_trail.snapshot(limit=10)
+        register_events = [e for e in snap if e["action"] == "model_version.register"]
+        assert len(register_events) >= 1
+        assert register_events[0]["uid"] == "auditor"
+        assert register_events[0]["role"] == "admin"
+
+    def test_audit_event_reason_contains_version_id(self, client):
+        from rbac_audit import rbac_audit_trail
+
+        rbac_audit_trail.clear()
+        vid = self._reg_version(client)
+
+        snap = rbac_audit_trail.snapshot(limit=10)
+        register_events = [e for e in snap if e["action"] == "model_version.register"]
+        assert len(register_events) >= 1
+        reason = register_events[0].get("reason", "")
+        assert vid in reason

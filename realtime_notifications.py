@@ -6,20 +6,25 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import hashlib
 import json
 import logging
 import os
-import hashlib
 import time
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from enum import Enum
-from typing import Any, Deque, Dict, Iterable, Optional, List
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Deque, Dict, Iterable, Optional
 
 from fastapi import WebSocket, WebSocketDisconnect
 from geo_alerts import notification_matches_regions, resolve_subscription_regions
 
 from notification_auth import filter_notifications_for_user, notification_visible_to_user
+
+# Max inbound WebSocket frame size (64 KB)
+MAX_FRAME_SIZE = 64 * 1024
+# Max inbound messages per second per connection
+MAX_MESSAGES_PER_SEC = 10
+RATE_WINDOW = 1.0
 
 logger = logging.getLogger(__name__)
 MAX_DELIVERY_RECORDS = 10000
@@ -104,6 +109,7 @@ class _ConnectionSubscription:
     crops: frozenset[str] = field(default_factory=frozenset)
     retry_counts: Dict[str, int] = field(default_factory=dict)
     last_ack_at: Optional[float] = None
+    outbound_queue: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=100))
 
 
 class NotificationBroadcastHub:
@@ -114,9 +120,14 @@ class NotificationBroadcastHub:
     available, the hub also publishes to a Redis channel so multiple workers can
     fan out the same event across processes.
 
-    Each WebSocket connection is bound to a Firebase UID; snapshots and live
-    events are filtered so clients only receive notifications they are allowed
-    to see (broadcast or targeted to their UID).
+    Parameters
+    ----------
+    authenticate : callable, optional
+        Async callable ``(token: str) -> dict`` that returns decoded token data
+        on success or raises on failure.  When provided, ``connect()`` requires
+        the client to send a JSON message ``{"token": "..."}`` as the first
+        frame; if validation fails the socket is closed with code 1008.
+        The token is never exposed in URLs, query strings, or proxy logs.
     """
 
     def __init__(
@@ -124,12 +135,11 @@ class NotificationBroadcastHub:
         history_limit: int = 200,
         redis_url: Optional[str] = None,
         redis_channel: str = "fasal_saathi.notifications",
-        enable_persistence: bool = True,
-        dedup_window_seconds: int = 300,
-        max_delivery_records: int = MAX_DELIVERY_RECORDS,
+        authenticate: Optional[callable] = None,
     ) -> None:
         self._history: Deque[Dict[str, Any]] = collections.deque(maxlen=history_limit)
-        self._connections: dict[WebSocket, _ConnectionSubscription] = {}
+        self._seen_hashes: set[str] = set()
+        self._connections: set[WebSocket] = set()
         self._history_lock = asyncio.Lock()
         # Dedicated lock for websocket connection registry mutations.
         # Prevents concurrent connection updates from racing with
@@ -144,33 +154,30 @@ class NotificationBroadcastHub:
         self._retry_processor_task: Optional[asyncio.Task] = None
         self._priority_processor_task: Optional[asyncio.Task] = None
         self._started = False
+        self._authenticate = authenticate
 
-        # Persistence and delivery tracking
-        self._enable_persistence = enable_persistence
-        self._max_delivery_records = max(1, max_delivery_records)
-        self._delivery_records: collections.OrderedDict[str, NotificationDeliveryRecord] = collections.OrderedDict()
-        self._pending_notifications: Deque[NotificationEvent] = collections.deque()
-        self._dead_letter_queue: Deque[NotificationDeliveryRecord] = collections.deque(maxlen=10000)
-        self._retry_queue: List[tuple[float, NotificationDeliveryRecord]] = []
-        self._persistence_lock = asyncio.Lock()
+    def set_authenticate(self, func: callable) -> None:
+        """Set the token verification callable (injected at runtime)."""
+        self._authenticate = func
 
-        # Deduplication
-        self._dedup_window = dedup_window_seconds
-        self._recent_hashes: Dict[str, float] = {}  # content_hash -> timestamp
+    @staticmethod
+    def _dedup_hash(notification: Dict[str, Any]) -> str:
+        """SHA-256 hash of the canonical JSON representation of a notification."""
+        canonical = json.dumps(notification, sort_keys=True, ensure_ascii=False, default=str)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
-        # Priority queues
-        self._critical_queue: Deque[NotificationEvent] = collections.deque()
-        self._warning_queue: Deque[NotificationEvent] = collections.deque()
-        self._info_queue: Deque[NotificationEvent] = collections.deque()
+    def _is_duplicate(self, notification: Dict[str, Any]) -> bool:
+        h = self._dedup_hash(notification)
+        if h in self._seen_hashes:
+            return True
+        self._seen_hashes.add(h)
+        return False
 
-    def seed_notifications(
-        self,
-        notifications: Iterable[Dict[str, Any]],
-    ) -> None:
-        """Seed the local history from existing notifications."""
-
+    def seed_notifications(self, notifications: Iterable[Dict[str, Any]]) -> None:
+        """Seed the local history from existing notifications (deduplicated)."""
         for notification in notifications:
-            self._history.append(notification)
+            if not self._is_duplicate(notification):
+                self._history.append(notification)
 
     async def snapshot(self) -> list[Dict[str, Any]]:
         """Return a copy of the current history."""
@@ -332,15 +339,9 @@ class NotificationBroadcastHub:
         }
 
         async with self._history_lock:
-            self._history.append(payload)
-
-        async with self._connections_lock:
-            clients = [
-                (websocket, subscription)
-                for websocket, subscription in self._connections.items()
-                if notification_visible_to_user(notification, subscription.uid)
-                and notification_matches_regions(notification, subscription.regions)
-            ]
+            if not self._is_duplicate(notification):
+                self._history.append(notification)
+            clients = list(self._connections)
 
         await self._broadcast(payload, clients)
 
@@ -352,14 +353,31 @@ class NotificationBroadcastHub:
 
         return event
 
-    async def connect(self, websocket: WebSocket, uid: str, regions: Optional[Iterable[str]] = None) -> None:
-        """Accept a websocket client and keep it subscribed until disconnect."""
+    async def connect(self, websocket: WebSocket) -> None:
+        """Accept a websocket client and keep it subscribed until disconnect.
 
+        Enforces a maximum inbound frame size (``MAX_FRAME_SIZE``) and a
+        per-connection message rate limit (``MAX_MESSAGES_PER_SEC``).
+        Oversized or high-rate connections are closed with an appropriate
+        close code.
+        """
         await websocket.accept()
-        region_scopes = frozenset(resolve_subscription_regions({"role": "guest"}, regions))
-        # Parse crop subscriptions from query params (comma-separated)
-        raw_crops = websocket.query_params.get("crops") or ""
-        crop_scopes = frozenset(c.strip() for c in raw_crops.split(",") if c.strip())
+
+        if self._authenticate is not None:
+            try:
+                msg = await asyncio.wait_for(websocket.receive_json(), timeout=10)
+                token = msg.get("token", "") if isinstance(msg, dict) else ""
+                if not token:
+                    raise ValueError("Missing token")
+                self._authenticate(token)
+            except Exception:
+                try:
+                    await websocket.send_json({"type": "error", "message": "Authentication failed"})
+                    await websocket.close(code=1008)
+                except Exception:
+                    pass
+                return
+
         async with self._history_lock:
             self._connections[websocket] = _ConnectionSubscription(
                 uid=uid, regions=region_scopes, crops=crop_scopes
@@ -375,52 +393,162 @@ class NotificationBroadcastHub:
             }
         )
 
+        rate_timestamps: list[float] = []
+
         try:
             while True:
-                message = await websocket.receive_text()
                 try:
-                    payload = json.loads(message)
-                except json.JSONDecodeError:
+                    msg = await asyncio.wait_for(websocket.receive_text(), timeout=10.0)
+                except asyncio.TimeoutError:
+                    # No message received — periodic liveness check
+                    continue
+                except WebSocketDisconnect:
+                    break
+
+                if msg is None:
                     continue
 
-                msg_type = payload.get("type")
+                frame_size = len(msg.encode("utf-8"))
+                if frame_size > MAX_FRAME_SIZE:
+                    logger.warning(
+                        "Closing WS %s — frame too large: %d bytes (max %d)",
+                        websocket, frame_size, MAX_FRAME_SIZE,
+                    )
+                    await websocket.close(code=1009)
+                    break
+
+                # Sliding-window rate limit
+                now = time.time()
+                rate_timestamps.append(now)
+                cutoff = now - RATE_WINDOW
+                rate_timestamps = [t for t in rate_timestamps if t > cutoff]
+                if len(rate_timestamps) > MAX_MESSAGES_PER_SEC:
+                    logger.warning(
+                        "Closing WS %s — rate limit exceeded: %d msg/s (max %d)",
+                        websocket, len(rate_timestamps), MAX_MESSAGES_PER_SEC,
+                    )
+                    await websocket.close(code=1008)
+                    break
+
+                # Parse and validate inbound JSON
+                try:
+                    parsed = json.loads(msg)
+                except json.JSONDecodeError:
+                    logger.warning("Invalid JSON from WS %s, ignoring", websocket)
+                    continue
+                except WebSocketDisconnect:
+                    break
+
+                if not isinstance(parsed, dict) or "type" not in parsed:
+                    continue
+
+                msg_type = parsed.get("type")
                 if msg_type == "delivery_ack":
-                    notif_id = payload.get("notification_id")
-                    async with self._connections_lock:
-                        sub = self._connections.get(websocket)
-                        if sub and notif_id:
-                            sub.last_ack_at = time.time()
-                            sub.retry_counts.pop(notif_id, None)
+                    nid = parsed.get("notification_id")
+                    if nid in subscription.retry_counts:
+                        subscription.retry_counts.pop(nid, None)
+                        subscription.last_ack_at = time.time()
+
                 elif msg_type == "subscribe_crops":
-                    new_crops = payload.get("crops", [])
-                    async with self._connections_lock:
-                        sub = self._connections.get(websocket)
-                        if sub:
-                            sub.crops = frozenset(new_crops)
+                    valid, error = self._validate_subscribe_crops(parsed)
+                    if not valid:
+                        logger.warning(
+                            "Invalid subscribe_crops from WS %s: %s", websocket, error,
+                        )
+                if msg is None:
+                    continue
+
+                frame_size = len(msg.encode("utf-8"))
+                if frame_size > MAX_FRAME_SIZE:
+                    logger.warning(
+                        "Closing WS %s — frame too large: %d bytes (max %d)",
+                        websocket, frame_size, MAX_FRAME_SIZE,
+                    )
+                    await websocket.close(code=1009)  # Message too big
+                    break
+
+                # Sliding-window rate limit
+                now = time.time()
+                rate_timestamps.append(now)
+                # Prune timestamps outside the window
+                cutoff = now - RATE_WINDOW
+                rate_timestamps = [t for t in rate_timestamps if t > cutoff]
+                if len(rate_timestamps) > MAX_MESSAGES_PER_SEC:
+                    logger.warning(
+                        "Closing WS %s — rate limit exceeded: %d msg/s (max %d)",
+                        websocket, len(rate_timestamps), MAX_MESSAGES_PER_SEC,
+                    )
+                    await websocket.close(code=1008)  # Policy violation
+                    break
         except asyncio.CancelledError:
             pass
-        except WebSocketDisconnect:
+        except Exception:
             pass
         finally:
-            async with self._connections_lock:
-                self._connections.pop(websocket, None)
-    
-    async def _broadcast(
-        self,
-        payload: Dict[str, Any],
-        clients: list[tuple[WebSocket, _ConnectionSubscription]],
-    ) -> None:
-        if not clients:
-            return
+            async with self._history_lock:
+                self._connections.discard(websocket)
 
-        stale_clients: list[WebSocket] = []
-        async with self._broadcast_lock:
-            stale_clients: list[WebSocket] = []
-            for websocket, _subscription in clients:
-                try:
-                    await websocket.send_json(payload)
-                except Exception:
-                    stale_clients.append(websocket)
+    @staticmethod
+    def _validate_delivery_ack(msg: Dict[str, Any]) -> tuple[bool, str]:
+        """Validate a ``delivery_ack`` message schema.
+
+        Required keys: ``type``, ``notification_id`` (str), ``crops`` (list of str).
+        No unknown keys allowed. Length caps enforced.
+        """
+        allowed = {"type", "notification_id", "crops"}
+        extra = msg.keys() - allowed
+        if extra:
+            return False, f"unknown keys: {', '.join(sorted(extra))}"
+
+        nid = msg.get("notification_id")
+        if not isinstance(nid, str) or len(nid) == 0 or len(nid) > 100:
+            return False, "notification_id must be a non-empty string <= 100 chars"
+
+        crops = msg.get("crops")
+        if not isinstance(crops, list):
+            return False, "crops must be a list"
+        if len(crops) == 0 or len(crops) > 50:
+            return False, "crops must have 1–50 items"
+        for i, c in enumerate(crops):
+            if not isinstance(c, str) or len(c) == 0 or len(c) > 100:
+                return False, f"crops[{i}] must be a non-empty string <= 100 chars"
+
+        return True, ""
+
+    @staticmethod
+    def _validate_subscribe_crops(msg: Dict[str, Any]) -> tuple[bool, str]:
+        """Validate a ``subscribe_crops`` message schema.
+
+        Required keys: ``type``, ``crops`` (list of str).
+        No unknown keys allowed. Length caps enforced.
+        """
+        allowed = {"type", "crops"}
+        extra = msg.keys() - allowed
+        if extra:
+            return False, f"unknown keys: {', '.join(sorted(extra))}"
+
+        crops = msg.get("crops")
+        if not isinstance(crops, list):
+            return False, "crops must be a list"
+        if len(crops) == 0 or len(crops) > 100:
+            return False, "crops must have 1–100 items"
+        for i, c in enumerate(crops):
+            if not isinstance(c, str) or len(c) == 0 or len(c) > 100:
+                return False, f"crops[{i}] must be a non-empty string <= 100 chars"
+
+        return True, ""
+
+    async def _broadcast(self, payload: Dict[str, Any], clients: list[WebSocket]) -> None:
+        for websocket in clients:
+            subscription = self._connections.get(websocket)
+            if not subscription:
+                continue
+            try:
+                await subscription.outbound_queue.put(payload)  # bounded queue
+                asyncio.create_task(self._drain_queue(websocket, subscription))
+            except asyncio.QueueFull:
+                logger.warning("Dropping message for slow client %s", subscription.uid)
+
 
         # Clean up stale connections outside broadcast_lock to avoid
         # lock-order inversion with connections_lock (acquired by publish
@@ -429,6 +557,15 @@ class NotificationBroadcastHub:
             async with self._connections_lock:
                 for websocket in stale_clients:
                     self._connections.pop(websocket, None)
+
+    async def _drain_queue(self, websocket: WebSocket, subscription: _ConnectionSubscription):
+     while not subscription.outbound_queue.empty():
+        payload = await subscription.outbound_queue.get()
+        try:
+            await websocket.send_json(payload)
+            subscription.retry_counts[payload["notification_id"]] = 0
+        except Exception as exc:
+            logger.error("Failed to send to %s: %s", subscription.uid, exc)
 
     async def _persist_notification(self, event: NotificationEvent, uid: str) -> None:
         """Track targeted notification delivery with bounded memory usage."""
@@ -502,15 +639,9 @@ class NotificationBroadcastHub:
                 notification = payload.get("data")
                 if isinstance(notification, dict):
                     async with self._history_lock:
-                        self._history.append(payload)
-
-                    async with self._connections_lock:
-                        clients = [
-                            (websocket, subscription)
-                            for websocket, subscription in self._connections.items()
-                            if notification_visible_to_user(notification, subscription.uid)
-                            and notification_matches_regions(notification, subscription.regions)
-                        ]
+                        if not self._is_duplicate(notification):
+                            self._history.append(notification)
+                        clients = list(self._connections)
                     await self._broadcast(payload, clients)
         except asyncio.CancelledError:
             raise
