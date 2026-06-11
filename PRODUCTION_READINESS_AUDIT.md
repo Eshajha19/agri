@@ -124,3 +124,7 @@ the service will be marked as unhealthy and restarted repeatedly.
 - Nonce must be unique per request.
 - Timestamp must be within 5 minutes (TTL).
 - Replayed or expired signatures are rejected.
+
+GDPR deletions are scoped to approved requests only.
+Retention windows enforced before deletion.
+Audit trail records actor and reason.
