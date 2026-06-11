@@ -7,6 +7,7 @@ structured 429 response format.
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -14,6 +15,20 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
+
+
+def _client_fingerprint(request: Request) -> str:
+    """Derive a stable, client-specific fallback key when no IP is
+    available by fingerprinting the request headers that typically
+    vary per client."""
+    raw = "|".join([
+        request.headers.get("user-agent") or "",
+        request.headers.get("accept-language") or "",
+        request.headers.get("accept-encoding") or "",
+        request.headers.get("sec-ch-ua") or "",
+        str(getattr(getattr(request, "state", None), "request_id", "")),
+    ])
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
 def extract_client_ip(request: Request) -> str:
@@ -37,7 +52,7 @@ def extract_client_ip(request: Request) -> str:
     if request.client and request.client.host:
         return request.client.host
 
-    return "unknown"
+    return _client_fingerprint(request)
 
 
 def build_limiter(default_limits: Optional[list[str]] = None) -> Limiter:
