@@ -616,7 +616,7 @@ def predict_get(request: Request = None):
     return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
 
 @app.post("/predict", response_model=PredictResponse)
-@limiter.limit("5/minute")
+@limiter.limit("30/minute")
 async def predict_yield(data: PredictRequest, request: Request):
     """
     Standardised prediction endpoint using ML Router for dynamic model selection.
@@ -658,7 +658,7 @@ async def predict_yield(data: PredictRequest, request: Request):
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/predict-yield-lag")
-@limiter.limit("5/minute")
+@limiter.limit("30/minute")
 async def predict_yield_lag(payload: YieldInput, request: Request):
     try:
         # Offload time-series lag model prediction to Celery worker pool
@@ -677,7 +677,7 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
 @app.post("/predict-yield-trend")
-@limiter.limit("5/minute")
+@limiter.limit("30/minute")
 async def predict_yield_trend(payload: YieldInput, request: Request):
     try:
         # Offload heavy iterative trend forecasting to Celery worker pool
