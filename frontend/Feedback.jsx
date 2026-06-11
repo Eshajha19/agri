@@ -124,7 +124,20 @@ export default function Feedback() {
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.detail || result.error || "Failed to submit feedback");
+        // Map HTTP status codes to user-facing messages instead of
+        // relying on server-side wording that may change.
+        const statusMessages = {
+          400: "Your feedback contains invalid characters. Please remove any special symbols and try again.",
+          413: "Feedback message is too large. Please shorten your message.",
+          415: "Unsupported content type. Please refresh and try again.",
+          422: "Please enter a valid feedback message and rating (1\u20135 stars).",
+          429: "Too many requests. Please wait a moment before submitting again.",
+        };
+        throw new Error(
+          statusMessages[response.status]
+          || result.detail || result.error
+          || "Failed to submit feedback"
+        );
       }
 
       if (!result.success) {
@@ -136,20 +149,9 @@ export default function Feedback() {
     } catch (err) {
       console.error("Feedback submit error:", err);
       
-      // User-friendly error messages
-      let errorMessage = "Failed to submit feedback. Please try again.";
-      
-      if (err.message.includes("Message is required")) {
-        errorMessage = "Please enter a valid feedback message.";
-      } else if (err.message.includes("Invalid data format")) {
-        errorMessage = "Your feedback contains invalid characters. Please remove any special symbols and try again.";
-      } else if (err.message.includes("rating")) {
-        errorMessage = "Please select a valid rating between 1 and 5 stars.";
-      } else {
-        errorMessage = err.message || "Failed to submit feedback. Please try again.";
-      }
-      
-      setError(errorMessage);
+      // User-friendly error messages — err.message is a pre-resolved
+      // user-facing string from the status-code mapping above.
+      setError(err.message || "Failed to submit feedback. Please try again.");
     } finally {
       setLoading(false);
     }
