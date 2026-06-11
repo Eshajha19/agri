@@ -21,6 +21,20 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 from backend.utils.safe_log import sanitize_log_field
+from error_recovery_middleware import ErrorRecoveryMiddleware
+from security_hygiene import SecurityHygieneMiddleware
+
+app.add_middleware(ErrorRecoveryMiddleware)
+app.add_middleware(SecurityHygieneMiddleware)
+
+@app.post("/api/echo")
+async def echo_endpoint(request: Request):
+    return await request.json()
+
+@app.post("/api/echo-form")
+async def echo_form_endpoint(request: Request):
+    form = await request.form()
+    return dict(form)
 
 # Expose sanitizer globally so routers can use it
 sanitise_log_field_fn = sanitize_log_field

@@ -119,10 +119,10 @@ class RuntimeProtectionMiddleware(BaseHTTPMiddleware):
 
         if mime in SCANNABLE_TYPES:
             try:
-                body_bytes = await request.body()
+                body_bytes = ensure_body_available(request)
                 if 0 < len(body_bytes) <= MAX_SCAN_BODY_SIZE:
-        content_type = (request.headers.get("content-type") or "").lower().split(";")[0].strip()
-        content_length_str = request.headers.get("content-length", "0")
+                    content_type = (request.headers.get("content-type") or "").lower().split(";")[0].strip()
+                    content_length_str = request.headers.get("content-length", "0")
         try:
             content_length = int(content_length_str)
         except (ValueError, TypeError):
@@ -135,7 +135,7 @@ class RuntimeProtectionMiddleware(BaseHTTPMiddleware):
 
         if should_scan:
             try:
-                body_bytes = await request.body()
+                body_bytes = ensure_body_available(request)
                 if len(body_bytes) <= MAX_SCAN_BODY_SIZE:
                     body_str = body_bytes.decode("utf-8", errors="ignore")
                     findings = self.program.scan_text(body_str, location="middleware")

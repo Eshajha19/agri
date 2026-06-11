@@ -13,6 +13,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.exceptions import HTTPException
 import traceback
 from typing import Dict
+from middleware_utils import ensure_body_available
 
 import re
 import base64
@@ -103,7 +104,7 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
         endpoint = f"{request.method} {request.url.path}"
 
         if request.method in {"POST", "PUT", "PATCH"}:
-            body = await request.body()
+            body = await ensure_body_available(request)
 
             if body:
                 payload = body.decode("utf-8", errors="ignore")
@@ -160,7 +161,7 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
 
         try:
             # --- NEW: inspect body before scanning ---
-            body = await request.body()
+            body = await ensure_body_available(request)
             if isinstance(body, bytes) and looks_like_binary(body):
                 # Skip regex scanning for binary/compressed payloads
                 return await call_next(request)
