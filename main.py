@@ -436,6 +436,13 @@ class PredictRequest(BaseModel):
     IrriCount: int = Field(..., ge=1)
     WaterCov: int = Field(..., ge=0, le=100)
     Season: str = Field(..., max_length=50)
+    N: float = Field(None, ge=0)
+    P: float = Field(None, ge=0)
+    K: float = Field(None, ge=0)
+    ph: float = Field(None, ge=0, le=14)
+    temperature: float = Field(None)
+    rainfall: float = Field(None, ge=0)
+    humidity: float = Field(None, ge=0, le=100)
 
 class PredictResponse(BaseModel):
     predicted_ExpYield: float
@@ -454,20 +461,7 @@ class YieldInput(BaseModel):
 
 def _coerce_prediction_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
     sanitized = dict(input_data)
-    numeric_fields = {
-        "N",
-        "P",
-        "K",
-        "ph",
-        "pH",
-        "CropCoveredArea",
-        "CHeight",
-        "IrriCount",
-        "WaterCov",
-        "temperature",
-        "rainfall",
-        "humidity",
-    }
+    numeric_fields = {"CropCoveredArea", "CHeight", "IrriCount", "WaterCov"}
 
     for field in numeric_fields:
         if field not in sanitized or sanitized[field] is None:
@@ -482,10 +476,6 @@ def _coerce_prediction_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
             raise HTTPException(status_code=400, detail=f"Invalid value for '{field}'")
 
         sanitized[field] = numeric_value
-
-    for field in ("ph", "pH"):
-        if field in sanitized and not (0 <= sanitized[field] <= 14):
-            raise HTTPException(status_code=400, detail="Invalid pH")
 
     return sanitized
 
