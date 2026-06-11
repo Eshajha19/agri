@@ -289,7 +289,9 @@ class WeatherAlertsService:
         Returns:
             WeatherData object or None if fetch fails
         """
-        cache_key = f"{latitude},{longitude}"
+        cache_key = f"{latitude},{longitude}|{location}"
+        
+        
 
         # Evict stale entries before every read so expired data does not
         # accumulate indefinitely when the cache stays below max size.
