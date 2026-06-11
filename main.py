@@ -133,6 +133,12 @@ from reportlab.lib.units import inch
 
 from fastapi import FastAPI
 
+from fastapi import FastAPI
+from rbac import RBACMiddleware
+
+app = FastAPI()
+app.add_middleware(RBACMiddleware)
+
 app = FastAPI()
 
 @app.get("/health")
