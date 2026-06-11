@@ -15,6 +15,13 @@ from fastapi import FastAPI, HTTPException, Request, Form, Query, WebSocket, Web
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
+from csrf_protection import configure
+from backend.rate_limit_config import build_limiter, rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
+limiter = build_limiter()
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 from backend.rate_limit_config import build_limiter, rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -119,6 +126,8 @@ from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
 from csrf_protection import generate_token, reject_cross_origin
+from fastapi import Depends
+from csrf_protection import verify_csrf_token_dependency
 from error_recovery_middleware import ErrorRecoveryMiddleware
 from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, resolve_subscription_regions, normalize_region_identifier
 from notification_auth import filter_notifications_for_user
@@ -2009,7 +2018,7 @@ async def predict_yield(data: PredictRequest, request: Request):
         print(f"Prediction Error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.post("/predict-yield-lag")
+@app.post("/predict-yield-lag", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("5/minute")
 async def predict_yield_lag(payload: YieldInput, request: Request):
     await verify_role(request)
@@ -2033,7 +2042,7 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
-@app.post("/predict-yield-trend")
+@app.post("/predict-yield-trend", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("5/minute")
 async def predict_yield_trend(payload: YieldInput, request: Request):
     await verify_role(request)
@@ -2057,7 +2066,7 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
-@app.get("/api/notifications")
+@app.get("/api/notifications", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("30/minute")
 async def get_notifications(
     request: Request,
@@ -2106,7 +2115,7 @@ async def get_notifications(
 # they had no locking and used open(..., "w") directly, which could corrupt the
 # file on a concurrent write or a mid-write crash.
 
-@app.post("/api/whatsapp/subscribe")
+@app.post("/api/whatsapp/subscribe", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("2/minute")
 async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     # Require authentication so the subscriber's identity is always derived
@@ -2141,7 +2150,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
 
 _broadcast_rate_limit = {}
 
-@app.post("/api/whatsapp/trigger-alert")
+@app.post("/api/whatsapp/trigger-alert", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("10/minute")
 async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     """
@@ -2194,7 +2203,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
 
 
-@app.websocket("/api/notifications/stream")
+@app.websocket("/api/notifications/stream", dependencies=[Depends(verify_csrf_token_dependency)])
 async def notifications_stream(websocket: WebSocket):
     uid = await _authenticate_notification_websocket(websocket)
     if uid is None:
@@ -2210,14 +2219,14 @@ async def metrics_endpoint(request: Request):
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
-@app.get("/api/admin/rbac-audit")
+@app.get("/api/admin/rbac-audit", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("10/minute")
 async def get_rbac_audit(request: Request, limit: int = Query(default=50, ge=1, le=200)):
     """Return the most recent RBAC audit events for admins and experts."""
     await verify_role(request, required_roles=["admin", "expert"])
     return {"success": True, "data": rbac_audit_trail.snapshot(limit=limit)}
 
-@app.get("/api/csrf-token")
+@app.get("/api/csrf-token", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("30/minute")
 async def get_csrf_token(request: Request):
     """Return a signed CSRF token tied to the authenticated user."""
@@ -2227,7 +2236,7 @@ async def get_csrf_token(request: Request):
     return {"csrf_token": token}
 
 
-@app.post("/api/privacy/deletion-requests")
+@app.post("/api/privacy/deletion-requests", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("5/minute")
 async def request_gdpr_deletion(
     request: Request,
@@ -2246,7 +2255,7 @@ async def request_gdpr_deletion(
     return {"success": True, "data": deletion_request}
 
 
-@app.post("/api/admin/privacy/deletion-requests/process-due")
+@app.post("/api/admin/privacy/deletion-requests/process-due", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("5/minute")
 async def process_due_gdpr_deletions(request: Request):
     """Execute any deletion requests whose retention window has elapsed."""
@@ -2256,7 +2265,7 @@ async def process_due_gdpr_deletions(request: Request):
     return {"success": True, "processed": processed, "count": len(processed)}
 
 
-@app.post("/api/whatsapp/webhook")
+@app.post("/api/whatsapp/webhook", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("20/minute")
 async def whatsapp_webhook(request: Request):
     """Handle inbound Twilio WhatsApp webhooks (signature-verified)."""
@@ -2759,3 +2768,5 @@ if __name__ == "__main__":
         port=8000,
         reload=True
     )
+
+configure(["https://yourdomain.com"])  
