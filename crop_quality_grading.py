@@ -100,6 +100,11 @@ class CropQualityGrader:
         if image is None:
             raise ValueError("Invalid image data")
 
+        # OpenCV loads as BGR; convert to RGB so that channel access
+        # (image[:,:,0] = R, :,:,1 = G, :,:,2 = B) matches the
+        # crop-quality thresholds defined in RGB order.
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
         # Get crop params
         params = CROP_QUALITY_PARAMS[crop_type.lower()]
 
@@ -149,7 +154,7 @@ class CropQualityGrader:
         """Assess size uniformity of crops in image"""
         if not isinstance(image, np.ndarray):
             return 50.0
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         contours, _ = cv2.findContours(
             cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)[1],
             cv2.RETR_EXTERNAL,
@@ -173,7 +178,7 @@ class CropQualityGrader:
         """Assess color quality"""
         if not isinstance(image, np.ndarray):
             return 50.0
-        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
         color_quality_score = 0.0
 
         # Check dominant color in expected range
@@ -194,7 +199,7 @@ class CropQualityGrader:
         """Assess shape uniformity"""
         if not isinstance(image, np.ndarray):
             return 50.0
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         contours, _ = cv2.findContours(
             cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)[1],
             cv2.RETR_EXTERNAL,
@@ -226,7 +231,7 @@ class CropQualityGrader:
         """Detect defects in crops"""
         if not isinstance(image, np.ndarray):
             return 10.0
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
 
         # Use edge detection to find defects
         edges = cv2.Canny(gray, 50, 150)
