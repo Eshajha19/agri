@@ -3,6 +3,7 @@ Role-Based Access Control (RBAC) Enforcement Layer
 Provides fine-grained access control across all API routes.
 """
 
+import asyncio
 import logging
 from typing import List, Dict, Optional, Callable
 from enum import Enum
@@ -249,7 +250,9 @@ class RBACManager:
                 )
 
             try:
-                user_doc = db.collection("users").document(uid).get()
+                user_doc = await asyncio.to_thread(
+                    db.collection("users").document(uid).get,
+                )
             except Exception as exc:
                 logger.error("Firestore query failed for user %s: %s", uid, exc)
                 raise HTTPException(
