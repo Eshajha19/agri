@@ -67,6 +67,9 @@ class QualityAssessment:
     recommendations: List[str]
     timestamp: str
     confidence: float
+    confidence_category: str
+    classification_strength: str
+    confidence_metadata: Dict
 
 
 class CropQualityGrader:
@@ -135,6 +138,16 @@ class CropQualityGrader:
         # Determine grade
         grade = self._get_grade(overall_score)
         price_adjustment = GRADE_MAPPING[grade]["price_multiplier"]
+        confidence_score = round(
+            min(95, 70 + (overall_score / 100) * 25),
+            2,
+        )
+
+        confidence_metadata = self._build_confidence_metadata(
+            confidence_score,
+            overall_score,
+            grade,
+        )
 
         # Generate recommendations
         recommendations = self._generate_recommendations(
@@ -152,7 +165,10 @@ class CropQualityGrader:
             market_price_adjustment=price_adjustment,
             recommendations=recommendations,
             timestamp=datetime.now().isoformat(),
-            confidence=round(min(95, 70 + (overall_score / 100) * 25), 2),
+            confidence=confidence_score,
+            confidence_category=confidence_metadata["confidence_category"],
+            classification_strength=confidence_metadata["classification_strength"],
+            confidence_metadata=confidence_metadata,
         )
 
         # Store in history
@@ -306,6 +322,64 @@ class CropQualityGrader:
             if score >= GRADE_MAPPING[grade_key]["min_score"]:
                 return grade_key
         return "F"
+    
+    def _get_confidence_category(self, confidence: float) -> str:
+        """
+        Convert numeric confidence into a user-friendly category.
+        """
+        if confidence >= 90:
+            return "Very High"
+        if confidence >= 80:
+            return "High"
+        if confidence >= 70:
+            return "Moderate"
+        return "Low"
+
+
+    def _get_classification_strength(
+        self,
+        score: float,
+        grade: str,
+    ) -> str:
+        """
+        Determine classification strength based on
+        score stability within the assigned grade.
+        """
+        grade_min = GRADE_MAPPING[grade]["min_score"]
+
+        margin = score - grade_min
+
+        if margin >= 15:
+            return "Strong Match"
+
+        if margin >= 5:
+            return "Moderate Match"
+
+        return "Borderline Match"
+
+
+    def _build_confidence_metadata(
+        self,
+        confidence: float,
+        score: float,
+        grade: str,
+    ) -> Dict:
+        """
+        Build lightweight metadata explaining
+        grading confidence.
+        """
+        return {
+            "confidence_category": self._get_confidence_category(confidence),
+            "classification_strength": self._get_classification_strength(
+                score,
+                grade,
+            ),
+            "score_margin": round(
+                score - GRADE_MAPPING[grade]["min_score"],
+                2,
+            ),
+            "grade_threshold": GRADE_MAPPING[grade]["min_score"],
+        }
 
     def _generate_recommendations(
         self,
