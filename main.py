@@ -131,7 +131,26 @@ from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 
+
 from fastapi import FastAPI
+from backend.ml.schemas import PredictionInput, YieldLagInput, YieldTrendInput
+from backend.ml.router import ModelRouter
+
+app = FastAPI()
+router = ModelRouter()
+
+@app.post("/predict")
+async def predict(input: PredictionInput):
+    return router.predict(input.dict())
+
+@app.post("/predict-yield-lag")
+async def predict_yield_lag(input: YieldLagInput):
+    return router.predict(input.dict())
+
+@app.post("/predict-yield-trend")
+async def predict_yield_trend(input: YieldTrendInput):
+    return router.predict(input.dict())
+
 
 from fastapi import FastAPI
 from rbac import RBACMiddleware
