@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { collection, addDoc } from "firebase/firestore";
-import { db, auth, isFirebaseConfigured } from "./lib/firebase";
+import { auth } from "./lib/firebase";
 import {
   Star,
   Send,
@@ -9,7 +8,20 @@ import {
   User,
   MessageSquare,
   CheckCircle2,
+  MessageCircle,
+  Sparkles,
+  Bug,
+  Palette,
+  Target,
+  Pin,
+  Wheat,
+  Rocket,
 } from "lucide-react";
+import {
+  submitFeedback,
+  validateFeedbackData,
+  sanitizeFeedbackData,
+} from "./services/feedbackService";
 import "./Feedback.css";
 
 const CROP_OPTIONS = [
@@ -19,12 +31,12 @@ const CROP_OPTIONS = [
 ];
 
 const CATEGORY_OPTIONS = [
-  { value: "general", label: "💬 General Feedback" },
-  { value: "feature", label: "✨ Feature Request" },
-  { value: "bug", label: "🐛 Report a Bug" },
-  { value: "ui", label: "🎨 UI/UX Improvement" },
-  { value: "accuracy", label: "🎯 AI Accuracy" },
-  { value: "other", label: "📌 Other" },
+  { value: "general", label: "General Feedback", icon: <MessageCircle size={14} /> },
+  { value: "feature", label: "Feature Request", icon: <Sparkles size={14} /> },
+  { value: "bug", label: "Report a Bug", icon: <Bug size={14} /> },
+  { value: "ui", label: "UI/UX Improvement", icon: <Palette size={14} /> },
+  { value: "accuracy", label: "AI Accuracy", icon: <Target size={14} /> },
+  { value: "other", label: "Other", icon: <Pin size={14} /> },
 ];
 
 // ✅ Testimonials Data
@@ -86,13 +98,22 @@ export default function Feedback() {
     e.preventDefault();
     setError("");
 
-    if (!form.message.trim()) {
-      setError("Please enter your feedback message.");
-      return;
-    }
+    const user = auth?.currentUser;
 
-    if (form.rating === 0) {
-      setError("Please select a rating.");
+    const feedbackData = {
+      userId: user?.uid || "anonymous",
+      userEmail: user?.email || "anonymous",
+      name: form.name || (user?.displayName ?? "Anonymous"),
+      cropType: form.cropType,
+      location: form.location,
+      category: form.category,
+      message: form.message,
+      rating: form.rating,
+    };
+
+    const { isValid, errors } = validateFeedbackData(feedbackData);
+    if (!isValid) {
+      setError(Object.values(errors)[0]);
       return;
     }
 
@@ -141,10 +162,8 @@ export default function Feedback() {
       }
 
       if (!result.success) {
-        throw new Error(result.message || "Feedback submission failed");
+        throw new Error(result.error);
       }
-
-      console.log("Feedback submitted successfully. ID:", result.feedback_id);
       setSubmitted(true);
     } catch (err) {
       console.error("Feedback submit error:", err);
@@ -213,7 +232,7 @@ export default function Feedback() {
 
         {/* Left Panel */}
         <div className="feedback-info-panel">
-          <div className="info-badge">🌾 Farmer Feedback</div>
+          <div className="info-badge"><Wheat size={14} aria-hidden="true" /> Farmer Feedback</div>
 
           <h1>Help Us Grow Better</h1>
 
@@ -236,12 +255,12 @@ export default function Feedback() {
 
           <div className="info-stats">
             {[
-              { icon: "⭐", label: "Average Rating", value: "4.8/5" },
-              { icon: "💬", label: "Feedbacks Received", value: "2,400+" },
-              { icon: "🚀", label: "Features Added from Feedback", value: "18+" },
+              { icon: <Star size={18} className="text-yellow-400" />, label: "Average Rating", value: "4.8/5" },
+              { icon: <MessageSquare size={18} />, label: "Feedbacks Received", value: "2,400+" },
+              { icon: <Rocket size={18} />, label: "Features Added from Feedback", value: "18+" },
             ].map((stat, i) => (
               <div key={i} className="info-stat-item">
-                <span className="stat-emoji">{stat.icon}</span>
+                <span className="stat-emoji" aria-hidden="true">{stat.icon}</span>
                 <div>
                   <div className="stat-value">{stat.value}</div>
                   <div className="stat-label">{stat.label}</div>
@@ -321,7 +340,10 @@ export default function Feedback() {
                     className={`cat-chip ${form.category === cat.value ? "active" : ""}`}
                     onClick={() => handleChange("category", cat.value)}
                   >
-                    {cat.label}
+                    <>
+                      <span aria-hidden="true">{cat.icon}</span>
+                      {cat.label}
+                    </>
                   </button>
                 ))}
               </div>
