@@ -109,6 +109,7 @@ class _ConnectionSubscription:
     crops: frozenset[str] = field(default_factory=frozenset)
     retry_counts: Dict[str, int] = field(default_factory=dict)
     last_ack_at: Optional[float] = None
+    outbound_queue: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=100))
 
 
 class NotificationBroadcastHub:
@@ -443,11 +444,11 @@ class NotificationBroadcastHub:
 
                 msg_type = parsed.get("type")
                 if msg_type == "delivery_ack":
-                    valid, error = self._validate_delivery_ack(parsed)
-                    if not valid:
-                        logger.warning(
-                            "Invalid delivery_ack from WS %s: %s", websocket, error,
-                        )
+                    nid = parsed.get("notification_id")
+                    if nid in subscription.retry_counts:
+                        subscription.retry_counts.pop(nid, None)
+                        subscription.last_ack_at = time.time()
+
                 elif msg_type == "subscribe_crops":
                     valid, error = self._validate_subscribe_crops(parsed)
                     if not valid:
@@ -538,17 +539,16 @@ class NotificationBroadcastHub:
         return True, ""
 
     async def _broadcast(self, payload: Dict[str, Any], clients: list[WebSocket]) -> None:
-        if not clients:
-            return
+        for websocket in clients:
+            subscription = self._connections.get(websocket)
+            if not subscription:
+                continue
+            try:
+                await subscription.outbound_queue.put(payload)  # bounded queue
+                asyncio.create_task(self._drain_queue(websocket, subscription))
+            except asyncio.QueueFull:
+                logger.warning("Dropping message for slow client %s", subscription.uid)
 
-        stale_clients: list[WebSocket] = []
-        async with self._broadcast_lock:
-            stale_clients: list[WebSocket] = []
-            for websocket, _subscription in clients:
-                try:
-                    await websocket.send_json(payload)
-                except Exception:
-                    stale_clients.append(websocket)
 
         # Clean up stale connections outside broadcast_lock to avoid
         # lock-order inversion with connections_lock (acquired by publish
@@ -557,6 +557,15 @@ class NotificationBroadcastHub:
             async with self._connections_lock:
                 for websocket in stale_clients:
                     self._connections.pop(websocket, None)
+
+    async def _drain_queue(self, websocket: WebSocket, subscription: _ConnectionSubscription):
+     while not subscription.outbound_queue.empty():
+        payload = await subscription.outbound_queue.get()
+        try:
+            await websocket.send_json(payload)
+            subscription.retry_counts[payload["notification_id"]] = 0
+        except Exception as exc:
+            logger.error("Failed to send to %s: %s", subscription.uid, exc)
 
     async def _persist_notification(self, event: NotificationEvent, uid: str) -> None:
         """Track targeted notification delivery with bounded memory usage."""
