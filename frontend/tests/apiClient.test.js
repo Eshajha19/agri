@@ -109,4 +109,14 @@ describe('services/api', () => {
     expect(axiosMocks.request).toHaveBeenCalledTimes(2);
     vi.useRealTimers();
   });
+
+  it('uses the configured backend base URL when provided', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'https://api.example.com/');
+
+    await import('../services/api.js');
+
+    expect(axiosMocks.create).toHaveBeenCalledWith(expect.objectContaining({
+      baseURL: 'https://api.example.com',
+    }));
+  });
 });
