@@ -1034,7 +1034,7 @@ useEffect(() => {
       </nav>
 
       {/* VERIFICATION GUARD */}
-      {!loading && user && !user.isAnonymous && !user.emailVerified && !showScorecard && location.pathname !== "/login" && location.pathname !== "/profile-setup" && (
+      {!loading && user && !user.isAnonymous && !user.emailVerified && !showScorecard && location.pathname !== "/login" && (
         <div className="verification-overlay">
           <div className="verification-card">
             <div className="verify-icon">✉️</div>
@@ -1066,7 +1066,7 @@ useEffect(() => {
       )}
 
       {/* PROFILE COMPLETION GUARD */}
-      {!loading && user && !profileCompleted && location.pathname !== "/profile-setup" && location.pathname !== "/login" && (
+      {!loading && user && (user.isAnonymous || user.emailVerified) && !profileCompleted && location.pathname !== "/profile-setup" && (
         <Navigate to="/profile-setup" />
       )}
 
