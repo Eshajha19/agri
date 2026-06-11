@@ -849,7 +849,9 @@ async def verify_role(request: Request, required_roles: list = None):
     # returns the same clean 503 as a missing db_firestore, rather than an
     # unhandled exception that leaks internal details as a raw 500.
     try:
-        user_doc = db_firestore.collection("users").document(uid).get()
+        user_doc = await asyncio.to_thread(
+            db_firestore.collection("users").document(uid).get,
+        )
     except Exception as e:
         logger.error(
             "Firestore fetch failed for uid=%s during role check: %s", uid, e
