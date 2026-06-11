@@ -594,7 +594,7 @@ def _normalize_dynamic_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, An
     normalized = []
     for index, alert in enumerate(alerts, start=1):
         normalized_alert = dict(alert)
-        normalized_alert["id"] = -index
+        normalized_alert["id"] = f"dyn-{index}"
         normalized_alert.setdefault("source", "advisory")
         normalized.append(normalized_alert)
     return normalized
