@@ -36,7 +36,6 @@ class SafetyResult:
 class PromptInjectionDetector:
     """Detects common prompt injection attack patterns."""
 
-    # Injection keywords that indicate attempts to override system behavior
     INJECTION_KEYWORDS = [
         r"ignore.*previous",
         r"ignore.*your",
@@ -63,7 +62,6 @@ class PromptInjectionDetector:
         r"import.*sys",
     ]
 
-    # Data exfiltration patterns
     EXFILTRATION_PATTERNS = [
         r"show.*password",
         r"reveal.*secret",
@@ -76,7 +74,6 @@ class PromptInjectionDetector:
         r"auth.*token",
     ]
 
-    # Jailbreak indicators
     JAILBREAK_PATTERNS = [
         r"do.*anything.*now",
         r"without.*restrictions",
@@ -87,40 +84,22 @@ class PromptInjectionDetector:
     ]
 
     def __init__(self, sensitivity: str = "medium"):
-        """
-        Initialize detector.
-        
-        Args:
-            sensitivity: Detection sensitivity ('low', 'medium', 'high')
-                - low: Only obvious attacks
-                - medium: Common injection patterns
-                - high: Strict validation, many false positives
-        """
         self.sensitivity = sensitivity
         self.compiled_injection = [re.compile(p, re.IGNORECASE) for p in self.INJECTION_KEYWORDS]
         self.compiled_exfiltration = [re.compile(p, re.IGNORECASE) for p in self.EXFILTRATION_PATTERNS]
         self.compiled_jailbreak = [re.compile(p, re.IGNORECASE) for p in self.JAILBREAK_PATTERNS]
 
     def detect_injection(self, query: str) -> tuple[bool, str | None]:
-        """
-        Detect prompt injection attempts.
-        
-        Returns:
-            (is_injection, threat_type) - True if injection detected
-        """
         query_lower = query.lower().strip()
 
-        # Check injection keywords
         for pattern in self.compiled_injection:
             if pattern.search(query_lower):
                 return True, "injection_keyword"
 
-        # Check exfiltration attempts
         for pattern in self.compiled_exfiltration:
             if pattern.search(query_lower):
                 return True, "data_exfiltration"
 
-        # Check jailbreak attempts
         for pattern in self.compiled_jailbreak:
             if pattern.search(query_lower):
                 return True, "jailbreak_attempt"
@@ -128,7 +107,6 @@ class PromptInjectionDetector:
         return False, None
 
     def detect_sql_injection(self, query: str) -> bool:
-        """Detect SQL injection patterns (defense in depth)."""
         sql_patterns = [
             r"'\s*or\s*'",
             r"'[^']*=[^']*'",
@@ -146,7 +124,6 @@ class PromptInjectionDetector:
         return False
 
     def detect_command_injection(self, query: str) -> bool:
-        """Detect command injection patterns."""
         command_patterns = [
             r";\s*(?:rm|del|drop|kill|stop)",
             r"\$\{[^}]*\}",
@@ -160,14 +137,12 @@ class PromptInjectionDetector:
         return False
 
     def get_threat_level(self, query: str) -> ThreatLevel:
-        """Calculate overall threat level."""
         if self.detect_injection(query)[0]:
             return ThreatLevel.CRITICAL
 
         if self.detect_sql_injection(query) or self.detect_command_injection(query):
             return ThreatLevel.CRITICAL
 
-        # High sensitivity: check for unusual patterns
         if self.sensitivity == "high":
             if len(query) > 2000:
                 return ThreatLevel.WARNING
@@ -183,29 +158,15 @@ class RAGSafetyValidator:
     Combines injection detection, validation, and safety checks.
     """
 
+    # Citation marker pattern — [1], [2], etc.
+    _CITATION_RE = re.compile(r"\[\d+\]")
+
     def __init__(self, sensitivity: str = "medium", max_query_length: int = 2000):
-        """
-        Initialize validator.
-        
-        Args:
-            sensitivity: Detection sensitivity level
-            max_query_length: Maximum allowed query length
-        """
         self.injection_detector = PromptInjectionDetector(sensitivity)
         self.max_query_length = max_query_length
         self.sensitivity = sensitivity
 
     def validate_query(self, query: str) -> SafetyResult:
-        """
-        Comprehensive validation of user query.
-        
-        Args:
-            query: User input query
-            
-        Returns:
-            SafetyResult with validation status and details
-        """
-        # Null check
         if not query or not isinstance(query, str):
             return SafetyResult(
                 is_safe=False,
@@ -216,7 +177,6 @@ class RAGSafetyValidator:
 
         query = query.strip()
 
-        # Length check
         if len(query) > self.max_query_length:
             return SafetyResult(
                 is_safe=False,
@@ -225,7 +185,6 @@ class RAGSafetyValidator:
                 threat_detected="length_exceeded",
             )
 
-        # Empty after stripping
         if len(query) < 3:
             return SafetyResult(
                 is_safe=False,
@@ -234,7 +193,6 @@ class RAGSafetyValidator:
                 threat_detected="too_short",
             )
 
-        # Injection detection
         is_injection, threat_type = self.injection_detector.detect_injection(query)
         if is_injection:
             logger.warning(f"Injection detected: {threat_type} in query: {query[:100]}")
@@ -246,7 +204,6 @@ class RAGSafetyValidator:
                 remediation="Query contains suspicious patterns. Please rephrase your question.",
             )
 
-        # SQL injection check
         if self.injection_detector.detect_sql_injection(query):
             logger.warning(f"SQL injection attempt detected")
             return SafetyResult(
@@ -257,7 +214,6 @@ class RAGSafetyValidator:
                 remediation="Query contains SQL patterns. Please use natural language.",
             )
 
-        # Command injection check
         if self.injection_detector.detect_command_injection(query):
             logger.warning(f"Command injection attempt detected")
             return SafetyResult(
@@ -268,10 +224,8 @@ class RAGSafetyValidator:
                 remediation="Query contains command patterns. Please use natural language.",
             )
 
-        # Threat level assessment
         threat_level = self.injection_detector.get_threat_level(query)
 
-        # All checks passed
         return SafetyResult(
             is_safe=True,
             threat_level=threat_level,
@@ -280,17 +234,6 @@ class RAGSafetyValidator:
         )
 
     def validate_response(self, query: str, response: str) -> SafetyResult:
-        """
-        Validate RAG response for information leakage.
-        
-        Args:
-            query: Original user query
-            response: Generated response
-            
-        Returns:
-            SafetyResult indicating if response is safe to return
-        """
-        # Check response length
         if len(response) > 10000:
             logger.warning("Response exceeds safe length")
             return SafetyResult(
@@ -300,7 +243,26 @@ class RAGSafetyValidator:
                 threat_detected="response_too_long",
             )
 
-        # Check for system information leakage
+        # Block dosage recommendations only when they are NOT backed by a citation marker.
+        # Cited responses (containing [1], [2], etc.) come from the verified knowledge base
+        # and must not be blocked — doing so causes valid agricultural advice to be suppressed.
+        ag_unsafe_patterns = [
+            r"\d+\s*(?:ml|g|kg|l)\s*(?:per|/)\s*(?:acre|hectare|litre|plant)",
+            r"apply\s+\d+\s*(?:ml|g|kg|l)\s+of\s+\w+",
+        ]
+        response_has_citation = bool(self._CITATION_RE.search(response))
+        if not response_has_citation:
+            for pattern in ag_unsafe_patterns:
+                if re.search(pattern, response, re.IGNORECASE):
+                    logger.warning("Unvalidated agricultural dosage recommendation detected in response")
+                    return SafetyResult(
+                        is_safe=False,
+                        threat_level=ThreatLevel.WARNING,
+                        details="Response contains unvalidated agricultural dosage recommendations",
+                        threat_detected="unvalidated_ag_advice",
+                        remediation="Agricultural dosages should not be provided without verification. Blocked for safety.",
+                    )
+
         sensitive_patterns = [
             r"password",
             r"api.*key",
@@ -329,34 +291,12 @@ class RAGSafetyValidator:
         )
 
     def sanitize_query(self, query: str) -> str:
-        """
-        Sanitize query by removing/escaping dangerous patterns.
-        
-        Args:
-            query: Raw user query
-            
-        Returns:
-            Sanitized query
-        """
-        # Remove multiple consecutive special characters
         query = re.sub(r"['\";`$]{2,}", "", query)
-        
-        # Remove potential shell metacharacters in suspicious contexts
         query = re.sub(r"(?:;\s*)?(?:rm|del|drop|kill)\s+", "", query, flags=re.IGNORECASE)
-        
-        # Normalize whitespace
         query = " ".join(query.split())
-        
         return query
 
     def is_rag_scoped(self, query: str) -> tuple[bool, str]:
-        """
-        Check if query is within RAG scope (agricultural domain).
-        
-        Returns:
-            (is_scoped, reason)
-        """
-        # Agricultural domain keywords
         ag_keywords = [
             "crop", "farm", "soil", "irrigation", "fertilizer", "yield",
             "weather", "climate", "pest", "disease", "harvest", "season",
@@ -371,8 +311,6 @@ class RAGSafetyValidator:
         if found_keywords >= 1:
             return True, "Query matches agricultural domain"
 
-        # If no keywords, check if it's a general factual question
-        # that RAG can reasonably answer
         general_indicators = [
             "how", "what", "why", "when", "where", "explain",
             "help", "guide", "recommend", "suggest", "calculate",
