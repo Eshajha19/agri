@@ -451,6 +451,106 @@ def _build_recommendations(
 
     return recs
 
+def _build_scenario_snapshot(
+    crop_type: str,
+    region: str,
+    season: str,
+    temp_delta: float,
+    rain_delta: float,
+) -> dict:
+    """Generate a simulation snapshot for comparison workflows."""
+
+    seasonal_baselines = REGIONAL_SEASONAL_BASELINES.get(
+        region,
+        REGIONAL_SEASONAL_BASELINES["central"],
+    )
+
+    base_temp, base_rain = seasonal_baselines.get(
+        season,
+        seasonal_baselines["kharif"],
+    )
+
+    sim_temp = round(base_temp + temp_delta, 2)
+    sim_rain = round(base_rain + rain_delta, 2)
+
+    profile = _get_crop_profile(crop_type)
+
+    impact_score = _compute_impact_score(
+        sim_temp,
+        sim_rain,
+        profile,
+        base_temp,
+        base_rain,
+    )
+
+    return {
+        "temperature_c": sim_temp,
+        "rainfall_mm_per_month": sim_rain,
+        "impact_score": impact_score,
+    }
+
+
+def _compare_scenarios(baseline: dict, comparison: dict) -> dict:
+    """Generate structured scenario comparison metrics."""
+
+    return {
+        "temperature_difference": round(
+            comparison["temperature_c"] - baseline["temperature_c"],
+            2,
+        ),
+        "rainfall_difference": round(
+            comparison["rainfall_mm_per_month"]
+            - baseline["rainfall_mm_per_month"],
+            2,
+        ),
+        "impact_score_difference": round(
+            comparison["impact_score"] - baseline["impact_score"],
+            2,
+        ),
+        "trend": (
+            "improved"
+            if comparison["impact_score"] > baseline["impact_score"]
+            else "reduced"
+            if comparison["impact_score"] < baseline["impact_score"]
+            else "unchanged"
+        ),
+    }
+
+
+def _build_comparison_summary(
+    crop_type: str,
+    region: str,
+    season: str,
+    simulated: dict,
+) -> dict:
+    """
+    Build side-by-side comparison metadata using
+    baseline and simulated scenario outputs.
+    """
+
+    baseline_scenario = _build_scenario_snapshot(
+        crop_type,
+        region,
+        season,
+        0,
+        0,
+    )
+
+    comparison_scenario = {
+        "temperature_c": simulated["temperature_c"],
+        "rainfall_mm_per_month": simulated["rainfall_mm_per_month"],
+        "impact_score": simulated["impact_score"],
+    }
+
+    return {
+        "baseline_scenario": baseline_scenario,
+        "comparison_scenario": comparison_scenario,
+        "differences": _compare_scenarios(
+            baseline_scenario,
+            comparison_scenario,
+        ),
+    }
+
 
 # ---------------------------------------------------------------------------
 # Endpoints
@@ -529,6 +629,16 @@ async def simulate_climate(request: Request, data: SimulationRequest, verify_fn=
 
         profile = _get_crop_profile(data.crop_type)
         impact_score = _compute_impact_score(sim_temp, sim_rain, profile, base_temp, base_rain)
+        comparison_summary = _build_comparison_summary(
+            data.crop_type,
+            canonical_region,
+            canonical_season,
+            {
+                "temperature_c": sim_temp,
+                "rainfall_mm_per_month": sim_rain,
+                "impact_score": impact_score,
+            },
+        )
         recommendations = _build_recommendations(
             sim_temp, sim_rain, profile, impact_score, data.crop_type, canonical_season
         )
@@ -557,6 +667,7 @@ async def simulate_climate(request: Request, data: SimulationRequest, verify_fn=
                 ),
             },
             "recommendations": recommendations,
+            "scenario_comparison": comparison_summary,
             "disclaimer": (
                 "This simulation uses statistical crop-climate models and regional "
                 "climate normals. Results are indicative only and should not replace "
