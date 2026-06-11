@@ -67,6 +67,7 @@ class QualityAssessment:
     recommendations: List[str]
     timestamp: str
     confidence: float
+    audit_metadata: Dict
 
 
 class CropQualityGrader:
@@ -136,6 +137,28 @@ class CropQualityGrader:
         grade = self._get_grade(overall_score)
         price_adjustment = GRADE_MAPPING[grade]["price_multiplier"]
 
+        audit_metadata = {
+            "assessment_timestamp": datetime.now().isoformat(),
+            "evaluation_stage_summary": [
+                "size_analysis",
+                "color_analysis",
+                "shape_analysis",
+                "defect_detection",
+                "grade_assignment",
+            ],
+            "rule_execution_indicators": {
+                "size_rule": True,
+                "color_rule": True,
+                "shape_rule": True,
+                "defect_rule": True,
+            },
+            "decision_metadata": {
+                "overall_score": round(overall_score, 2),
+                "assigned_grade": grade,
+                "price_multiplier": price_adjustment,
+            },
+        }
+
         # Generate recommendations
         recommendations = self._generate_recommendations(
             size_quality, color_quality, shape_quality, defect_percentage
@@ -153,6 +176,7 @@ class CropQualityGrader:
             recommendations=recommendations,
             timestamp=datetime.now().isoformat(),
             confidence=round(min(95, 70 + (overall_score / 100) * 25), 2),
+            audit_metadata=audit_metadata,
         )
 
         # Store in history
@@ -407,11 +431,19 @@ class CropQualityGrader:
                 "average_price_adjustment": 0,
             }
 
+        audit_summary = {
+            "generated_at": datetime.now().isoformat(),
+            "assessment_count": len(valid_assessments),
+            "failed_assessments": failed_count,
+        }
+
         return {
             "assessments": assessments,
             "batch_statistics": batch_stats,
+            "audit_summary": audit_summary,
             "crop_type": crop_type,
             "timestamp": datetime.now().isoformat(),
+            
         }
 
     def get_quality_trends(self, crop_type: str, days: int = 7) -> Dict:
