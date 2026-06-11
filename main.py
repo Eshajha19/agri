@@ -123,6 +123,9 @@ import firebase_admin
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from firebase_admin import auth, credentials, firestore, storage
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from backend.routers import (
     advisory,
@@ -2473,6 +2476,8 @@ try:
     Instrumentator().instrument(app)
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
+
+
 
 # ---------------------------------------------------------------------------
 # CORS — explicit origin allowlist
