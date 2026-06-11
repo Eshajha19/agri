@@ -94,6 +94,10 @@ import {
   CropInsuranceClaim
 } from "./routes/lazyPages";
 
+import { useEffect } from "react";
+import { auth, db } from "./firebase";
+import { collection, addDoc } from "firebase/firestore";
+
 const Weather = React.lazy(() => import("./Weather"));
 const FeatureDriftMonitor = React.lazy(() => import("./FeatureDriftMonitor"));
 import VoiceAssistant from "./VoiceAssistant";
@@ -868,6 +872,27 @@ useEffect(() => {
     }
   };
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: "smooth" });
+
+  // ✅ Migration logic runs once when App mounts
+  useEffect(() => {
+    const migrateLocalStorage = async () => {
+      const userId = auth.currentUser?.uid;
+      if (!userId) return;
+
+      // Grab old schedules from localStorage
+      const oldSchedules = JSON.parse(localStorage.getItem("agri_spray_schedules")) || [];
+
+      // Push them into Firestore
+      for (const s of oldSchedules) {
+        await addDoc(collection(db, "users", userId, "schedules"), s);
+      }
+
+      // Clear localStorage after migration
+      localStorage.removeItem("agri_spray_schedules");
+    };
+
+    migrateLocalStorage();
+  }, []);
 
   return (
     <div className={`app ${theme !== "light" ? "theme-dark" : ""} ${theme === "night" ? "theme-night" : ""} ${liteMode ? "lite-mode" : ""}`}>
