@@ -657,13 +657,13 @@ def execute_smart_contract(
         batch = self.products[batch_id]
         records = self.supply_chain_nodes.get(batch_id, [])
 
-        verification_score = 80.0
+        verification_score = 0.0
         if len(records) >= 1:
-            verification_score += 10
+            verification_score += 40
 
         quality_verifications = [r for r in records if r.quality_check == "passed"]
         if quality_verifications:
-            verification_score += 5
+            verification_score += 15
 
         registered_count = 0
         for record in records:
@@ -671,12 +671,12 @@ def execute_smart_contract(
                 registered_count += 1
 
         if registered_count > 0:
-            verification_score += 5
+            verification_score += 15
 
         blockchain_intact = self._verify_blockchain_integrity()
         trace_proof = self._build_trace_proof(batch_id)
         if blockchain_intact:
-            verification_score = min(100, verification_score + 5)
+            verification_score = min(100, verification_score + 10)
 
         return {
             "success": True,
