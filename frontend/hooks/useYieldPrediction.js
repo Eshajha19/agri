@@ -1,30 +1,4 @@
-/**
- * useYieldPrediction — single authoritative hook for the yield prediction workflow.
- *
- * Consolidation notes
- * -------------------
- * Previously the prediction logic was split across three layers:
- *
- *   1. yieldStore.fetchYield   — a store action that called predictYield directly,
- *                                managed its own loading/error/popup state, and was
- *                                never actually called by any component.
- *   2. useYieldApi             — a thin hook that wrapped predictYield() in a
- *                                useCallback with no additional logic.
- *   3. useYieldPrediction      — the hook actually used by components, which called
- *                                useYieldApi and then manually managed the same
- *                                loading/error/popup state as the store action.
- *
- * This created two divergent fetchYield implementations with different error
- * formats, popup synchronization, and loading state ownership.
- *
- * Fix: all prediction logic now lives exclusively here.
- *   - predictYield() is imported directly (no useYieldApi indirection).
- *   - yieldStore.fetchYield has been removed; the store is now a pure state
- *     container with no async logic.
- *   - useYieldApi.js has been deleted as it is no longer needed.
- */
-
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useYieldStore } from '../stores/yieldStore';
 import { predictYield } from '../services/yieldApi';
 
@@ -45,23 +19,71 @@ export const useYieldPrediction = () => {
     resetYieldStore,
   } = useYieldStore();
 
+  const mountedRef = useRef(true);
+  const predictionRequestIdRef = useRef(0);
+  const predictionInProgressRef = useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      predictionRequestIdRef.current++;
+    };
+  }, []);
+
   const fetchYield = useCallback(
     async (e) => {
       if (e) e.preventDefault();
-      setYieldLoading(true);
-      setYieldError(null);
+
+      if (predictionInProgressRef.current) {
+        return;
+      }
+
+      predictionInProgressRef.current = true;
+      const requestId = ++predictionRequestIdRef.current;
+
+      if (
+        mountedRef.current &&
+        requestId === predictionRequestIdRef.current
+      ) {
+        setYieldLoading(true);
+        setYieldError(null);
+      }
+
       try {
         const data = await predictYield(yieldForm);
+
+        if (
+          !mountedRef.current ||
+          requestId !== predictionRequestIdRef.current
+        ) {
+          return;
+        }
+
         setYieldPrediction(data.predicted_ExpYield);
         setShowYieldPopup(true);
       } catch (error) {
         const errorMessage =
           error?.response?.data?.detail ||
-          error.message ||
+          error?.message ||
           'Failed to get prediction';
-        setYieldError(errorMessage);
+
+        if (
+          mountedRef.current &&
+          requestId === predictionRequestIdRef.current
+        ) {
+          setYieldError(errorMessage);
+        }
       } finally {
-        setYieldLoading(false);
+        predictionInProgressRef.current = false;
+
+        if (
+          mountedRef.current &&
+          requestId === predictionRequestIdRef.current
+        ) {
+          setYieldLoading(false);
+        }
       }
     },
     [
@@ -81,10 +103,16 @@ export const useYieldPrediction = () => {
   );
 
   const closeYieldPopup = useCallback(() => {
+    predictionRequestIdRef.current++;
+
     setShowYieldPopup(false);
     setYieldPrediction(null);
     setYieldError(null);
-  }, [setShowYieldPopup, setYieldPrediction, setYieldError]);
+  }, [
+    setShowYieldPopup,
+    setYieldPrediction,
+    setYieldError,
+  ]);
 
   return {
     yieldForm,
