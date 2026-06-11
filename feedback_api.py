@@ -32,25 +32,27 @@ logger = logging.getLogger(__name__)
 # Initialize Firebase Admin SDK
 try:
     # Check for Firebase credentials
-    if os.path.exists("firebase-credentials.json"):
-        cred = credentials.Certificate("firebase-credentials.json")
-        firebase_admin.initialize_app(cred)
-        logger.info("Firebase Admin SDK initialized with service account")
-    else:
-        # Try environment variable
-        cred_json = os.getenv("FIREBASE_CREDENTIALS_JSON")
-        if cred_json:
-            import json
-            cred_dict = json.loads(cred_json)
-            cred = credentials.Certificate(cred_dict)
+    if not firebase_admin._apps:
+        if os.path.exists("firebase-credentials.json"):
+            cred = credentials.Certificate("firebase-credentials.json")
             firebase_admin.initialize_app(cred)
-            logger.info("Firebase Admin SDK initialized from environment variable")
+            logger.info("Firebase Admin SDK initialized with service account")
         else:
-            logger.warning("Firebase credentials not found. Running in validation-only mode.")
-            firebase_admin.initialize_app()  # Default app for emulator
+            # Try environment variable
+            cred_json = os.getenv("FIREBASE_CREDENTIALS_JSON")
+            if cred_json:
+                import json
+                cred_dict = json.loads(cred_json)
+                cred = credentials.Certificate(cred_dict)
+                firebase_admin.initialize_app(cred)
+                logger.info("Firebase Admin SDK initialized from environment variable")
+            else:
+                logger.warning("Firebase credentials not found. Running in validation-only mode.")
+                firebase_admin.initialize_app()  # Default app for emulator
 except Exception as e:
     logger.error(f"Failed to initialize Firebase: {e}")
-    firebase_admin.initialize_app()  # Default app for emulator
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app()  # Default app for emulator
 
 # Initialize Firestore
 db = firestore.client()
