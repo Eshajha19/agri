@@ -3,8 +3,6 @@ import Calendar from "react-calendar";
 import "react-calendar/dist/Calendar.css"; 
 import ScheduleCard from "./ScheduleCard";
 import "./SprayScheduler.css";
-import { db, auth } from "./firebase";
-import { collection, getDocs, addDoc } from "firebase/firestore";
 
 const SprayScheduler = ({ schedules = [], weatherData: _weatherData, location: _location }) => {
   const [viewDate, setViewDate] = useState(new Date());
@@ -38,36 +36,24 @@ const SprayScheduler = ({ schedules = [], weatherData: _weatherData, location: _
     };
   };
 
-  const loadPersistedSchedules = async () => {
-  const userId = auth.currentUser?.uid;
-  if (!userId) return [];
-  const snapshot = await getDocs(collection(db, "users", userId, "schedules"));
-  return snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-};
+  const loadPersistedSchedules = () => {
+    try {
+      const raw = localStorage.getItem("agri_spray_schedules");
+      if (!raw) return [];
+      const data = JSON.parse(raw);
+      return Array.isArray(data)
+        ? data.map(normalizeSchedule).filter(Boolean)
+        : [];
+    } catch (_err) {
+      return [];
+    }
+  };
 
-const [savedSchedules, setSavedSchedules] = useState([]);
+  const [savedSchedules, setSavedSchedules] = useState(() => loadPersistedSchedules());
 
-useEffect(() => {
-  loadPersistedSchedules().then(setSavedSchedules);
-}, []);
-
-// Example: add new schedule
-const handleAddSchedule = async (schedule) => {
-  const userId = auth.currentUser?.uid;
-  if (!userId) return;
-  await addDoc(collection(db, "users", userId, "schedules"), schedule);
-  const updated = await loadPersistedSchedules();
-  setSavedSchedules(updated);
-};
-
-// Example: delete schedule
-const handleDeleteSchedule = async (id) => {
-  const userId = auth.currentUser?.uid;
-  if (!userId) return;
-  await deleteDoc(doc(db, "users", userId, "schedules", id));
-  const updated = await loadPersistedSchedules();
-  setSavedSchedules(updated);
-};
+  useEffect(() => {
+    setSavedSchedules(loadPersistedSchedules());
+  }, []);
 
   const merged = (schedules && schedules.length ? schedules : savedSchedules)
     .map(normalizeSchedule)
