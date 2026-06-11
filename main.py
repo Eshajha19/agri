@@ -23,6 +23,13 @@ limiter = build_limiter()
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
+from backend.rate_limit_config import build_limiter, rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
+limiter = build_limiter()
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+
 from backend.utils.safe_log import sanitize_log_field
 from error_recovery_middleware import ErrorRecoveryMiddleware
 from security_hygiene import SecurityHygieneMiddleware
@@ -154,7 +161,42 @@ from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 
+
 from fastapi import FastAPI
+from backend.ml.schemas import PredictionInput, YieldLagInput, YieldTrendInput
+from backend.ml.router import ModelRouter
+
+app = FastAPI()
+router = ModelRouter()
+
+@app.post("/predict")
+async def predict(input: PredictionInput):
+    return router.predict(input.dict())
+
+@app.post("/predict-yield-lag")
+async def predict_yield_lag(input: YieldLagInput):
+    return router.predict(input.dict())
+
+@app.post("/predict-yield-trend")
+async def predict_yield_trend(input: YieldTrendInput):
+    return router.predict(input.dict())
+
+
+app = FastAPI()
+router = ModelRouter()
+
+@app.post("/predict")
+async def predict(input: PredictionInput):
+    return router.predict(input.dict())
+
+@app.post("/predict-yield-lag")
+async def predict_yield_lag(input: YieldLagInput):
+    return router.predict(input.dict())
+
+@app.post("/predict-yield-trend")
+async def predict_yield_trend(input: YieldTrendInput):
+    return router.predict(input.dict())
+
 
 from fastapi import FastAPI
 from rbac import RBACMiddleware
@@ -307,6 +349,15 @@ async def notifications_stream(ws: WebSocket):
 
     # Pass claims into hub connect
     await hub.connect(ws, claims)
+
+from backend.twilio_webhook_security import handle_inbound_whatsapp_webhook
+
+app = FastAPI()
+
+@app.post("/api/whatsapp/webhook")
+async def whatsapp_webhook(request: Request):
+    return await handle_inbound_whatsapp_webhook(request)
+
 
 # Logger configuration with structured output and context tracking
 class ContextFilter(logging.Filter):
