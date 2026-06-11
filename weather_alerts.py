@@ -290,7 +290,11 @@ class WeatherAlertsService:
             WeatherData object or None if fetch fails
         """
         cache_key = f"{latitude},{longitude}"
-        
+
+        # Evict stale entries before every read so expired data does not
+        # accumulate indefinitely when the cache stays below max size.
+        self._evict_expired()
+
         # Check cache
         if cache_key in self._weather_cache:
             cached_data, cached_time = self._weather_cache[cache_key]
