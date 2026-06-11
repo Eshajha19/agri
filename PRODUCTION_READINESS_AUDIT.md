@@ -119,3 +119,12 @@ the service will be marked as unhealthy and restarted repeatedly.
 ### Health & Readiness Endpoints
 - `/health`: Liveness probe. Returns HTTP 200 if service process is alive.
 - `/ready`: Readiness probe. Returns HTTP 200 only if Firestore, Celery broker, and ML models are available. Returns 503 otherwise.
+
+### Replay Protection
+- Nonce must be unique per request.
+- Timestamp must be within 5 minutes (TTL).
+- Replayed or expired signatures are rejected.
+
+GDPR deletions are scoped to approved requests only.
+Retention windows enforced before deletion.
+Audit trail records actor and reason.
