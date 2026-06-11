@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError, validator
 import logging
 from threading import Lock
-from time import monotonic
+from time import monotonic, time
 
 from backend.compute_rate_limit import enforce_compute_rate_limit
 from backend.climate_sim.data import (
@@ -15,9 +15,76 @@ from backend.climate_sim.data import (
     VALID_SEASONS,
 )
 from backend.schemas import RAGQuery
+from backend.core.logging_config import setup_logging
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
+logger = setup_logging(__name__)
+
+# ---------------------------------------------------------------------------
+# Cache Management
+# ---------------------------------------------------------------------------
+
+# RAG query cache with TTL (Time To Live)
+_RAG_QUERY_CACHE = {}
+_RAG_QUERY_CACHE_LOCK = Lock()
+_RAG_QUERY_CACHE_TTL_SECONDS = 3600  # 1 hour
+
+class CachedResult:
+    """Wrapper for cached query results with timestamp."""
+    def __init__(self, result: Any):
+        self.result = result
+        self.timestamp = time()
+
+    def is_expired(self, ttl_seconds: int) -> bool:
+        """Check if cache entry has exceeded TTL."""
+        return (time() - self.timestamp) > ttl_seconds
+
+
+def _get_cache_key(query: str, top_k: int) -> str:
+    """Generate cache key from query parameters."""
+    return f"{query}:{top_k}"
+
+
+def _get_cached_result(query: str, top_k: int) -> Optional[Any]:
+    """Retrieve cached result if available and not expired."""
+    cache_key = _get_cache_key(query, top_k)
+    with _RAG_QUERY_CACHE_LOCK:
+        if cache_key not in _RAG_QUERY_CACHE:
+            return None
+        
+        cached = _RAG_QUERY_CACHE[cache_key]
+        if cached.is_expired(_RAG_QUERY_CACHE_TTL_SECONDS):
+            del _RAG_QUERY_CACHE[cache_key]
+            logger.debug("Expired cache entry removed: %s", cache_key)
+            return None
+        
+        logger.debug("Cache hit for query: %s", cache_key)
+        return cached.result
+
+
+def _set_cached_result(query: str, top_k: int, result: Any) -> None:
+    """Store result in cache with timestamp."""
+    cache_key = _get_cache_key(query, top_k)
+    with _RAG_QUERY_CACHE_LOCK:
+        _RAG_QUERY_CACHE[cache_key] = CachedResult(result)
+        logger.debug("Cached result stored: %s", cache_key)
+
+
+def invalidate_rag_cache() -> None:
+    """Invalidate entire RAG query cache (call when knowledge base is updated)."""
+    with _RAG_QUERY_CACHE_LOCK:
+        cache_size = len(_RAG_QUERY_CACHE)
+        _RAG_QUERY_CACHE.clear()
+        logger.info("RAG query cache invalidated. Cleared %d entries.", cache_size)
+
+
+def invalidate_rag_cache_key(query: str, top_k: int) -> None:
+    """Invalidate specific cache entry."""
+    cache_key = _get_cache_key(query, top_k)
+    with _RAG_QUERY_CACHE_LOCK:
+        if cache_key in _RAG_QUERY_CACHE:
+            del _RAG_QUERY_CACHE[cache_key]
+            logger.info("Specific cache entry invalidated: %s", cache_key)
 
 # ---------------------------------------------------------------------------
 # Pydantic models
@@ -396,6 +463,10 @@ async def rag_query(request: Request, body: RAGQuery = Depends(_parse_rag_query)
     Authentication is required to prevent unauthenticated callers from
     consuming Gemini API quota on the project's billing account and to
     enable per-user rate limiting in the future.
+    
+    Results are cached with a 1-hour TTL to reduce redundant API calls
+    for identical queries. Cache is automatically invalidated when entries
+    exceed the TTL or when invalidate_rag_cache() is called.
     """
     rag_fn, verify_fn = runtime
     # Raises HTTP 401 if the Firebase token is missing or invalid.
@@ -408,8 +479,18 @@ async def rag_query(request: Request, body: RAGQuery = Depends(_parse_rag_query)
         window_seconds=60,
     )
     try:
+        # Check cache first
+        cached_result = _get_cached_result(body.query, body.top_k)
+        if cached_result is not None:
+            return {"success": True, "query": body.query, "results": cached_result, "cached": True}
+        
+        # Cache miss - call RAG function
         result = rag_fn(body.query, body.top_k)
-        return {"success": True, "query": body.query, "results": result}
+        
+        # Store in cache for future requests
+        _set_cached_result(body.query, body.top_k, result)
+        
+        return {"success": True, "query": body.query, "results": result, "cached": False}
     except Exception as exc:
         _handle_router_exception(exc, "RAG query failed", "RAG query failed")
 
@@ -496,3 +577,52 @@ async def verify_seed(request: Request, data: SeedVerifyRequest, runtime=Depends
         return {"success": True, "code": data.code, "verified": is_verified, "seed_info": seed_info}
     except Exception as exc:
         _handle_router_exception(exc, "Seed verification failed", "Seed verification failed")
+
+
+@router.post("/cache/invalidate")
+async def invalidate_cache(request: Request, verify_fn=Depends(get_verify_role_fn)):
+    """Invalidate entire RAG query cache.
+    
+    This endpoint should be called by an admin or knowledge base manager
+    when the underlying knowledge base is updated to ensure clients receive
+    fresh results on the next query.
+    
+    Requires authentication to prevent unauthorized cache clearing.
+    """
+    try:
+        # Require authentication
+        token_data = await verify_fn(request)
+        
+        # Optional: add role check for admin-only access
+        # For now, any authenticated user can invalidate
+        invalidate_rag_cache()
+        
+        return {
+            "success": True,
+            "message": "RAG query cache has been invalidated. All cached results cleared."
+        }
+    except Exception as exc:
+        _handle_router_exception(exc, "Cache invalidation failed", "Cache invalidation failed")
+
+
+@router.post("/cache/invalidate-query")
+async def invalidate_query_cache(request: Request, query: str, top_k: int = 5, verify_fn=Depends(get_verify_role_fn)):
+    """Invalidate a specific cache entry by query parameters.
+    
+    Use this endpoint to selectively invalidate cache entries without
+    clearing the entire cache. Useful for targeted updates.
+    
+    Requires authentication.
+    """
+    try:
+        # Require authentication
+        token_data = await verify_fn(request)
+        
+        invalidate_rag_cache_key(query, top_k)
+        
+        return {
+            "success": True,
+            "message": f"Cache entry invalidated for query: {query} (top_k={top_k})"
+        }
+    except Exception as exc:
+        _handle_router_exception(exc, "Query cache invalidation failed", "Query cache invalidation failed")

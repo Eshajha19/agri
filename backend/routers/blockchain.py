@@ -5,8 +5,10 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 import logging
 
+from backend.core.logging_config import setup_logging
+
 router = APIRouter()
-logger = logging.getLogger(__name__)
+logger = setup_logging(__name__)
 
 class RegisterActorRequest(BaseModel):
     actor_id: str = Field(..., min_length=1, max_length=50)
@@ -89,6 +91,29 @@ def _require_role_or_owner(token_data: Dict, allowed_roles: set[str], owner_uid:
     raise HTTPException(status_code=403, detail="Access denied: insufficient permissions")
 
 
+def _verify_write_operation_auth(token_data: Optional[Dict]) -> str:
+    """Centralized authentication check for all blockchain write operations.
+    
+    Enforces consistent authentication across POST endpoints:
+    - Validates token exists and contains uid
+    - Logs authentication decisions
+    - Returns authenticated uid for audit trail
+    
+    Raises HTTPException(401) if authentication fails.
+    """
+    if not token_data:
+        logger.warning("Write operation attempted without authentication")
+        raise HTTPException(status_code=401, detail="Authentication required for write operations")
+    
+    uid = token_data.get("uid")
+    if not uid:
+        logger.warning("Write operation attempted with invalid token (missing uid)")
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+    
+    logger.debug("Write operation authenticated for uid=%s", uid)
+    return uid
+
+
 def _get_batch(batch_id: str):
     batch = supply_chain_blockchain.products.get(batch_id) if supply_chain_blockchain is not None else None
     if batch is None:
@@ -112,14 +137,23 @@ async def register_actor(request: Request, data: RegisterActorRequest):
         raise HTTPException(status_code=500, detail="Not initialized")
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth service not initialized")
-    await verify_role_fn(request, required_roles=["admin", "expert"])
+    
+    token_data = await verify_role_fn(request)
+    uid = _verify_write_operation_auth(token_data)
+    
+    # Verify privileged role for actor registration
+    if not _is_privileged_role(token_data):
+        logger.warning("Actor registration denied for uid=%s (insufficient role)", uid)
+        raise HTTPException(status_code=403, detail="Access denied: admin or expert role required")
+    
     try:
         actor = supply_chain_blockchain.register_actor(
             data.actor_id, data.name, data.actor_type, data.location
         )
+        logger.info("Actor registered: actor_id=%s by uid=%s", data.actor_id, uid)
         return {"success": True, "actor": actor}
     except Exception as e:
-        logger.error(f"Actor registration error: {e}")
+        logger.error(f"Actor registration error for uid=%s: {e}", uid)
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -139,7 +173,7 @@ async def register_trace_batch(request: Request, data: RegisterTraceBatchRequest
         raise HTTPException(status_code=500, detail="Not initialized")
 
     token_data = await verify_role_fn(request)
-    uid = token_data.get("uid")
+    uid = _verify_write_operation_auth(token_data)
 
     try:
         # register_trace_batch() does not exist on SupplyChainBlockchain.
@@ -165,6 +199,7 @@ async def register_trace_batch(request: Request, data: RegisterTraceBatchRequest
         )
         batch_id = batch.batch_id
         traceability = supply_chain_blockchain.get_traceability_qr_payload(batch_id)
+        logger.info("Trace batch registered: batch_id=%s by uid=%s", batch_id, uid)
         return {
             "success": True,
             "batch": {
@@ -180,7 +215,7 @@ async def register_trace_batch(request: Request, data: RegisterTraceBatchRequest
             },
         }
     except Exception as e:
-        logger.error(f"Trace batch registration error: {e}")
+        logger.error(f"Trace batch registration error for uid=%s: {e}", uid)
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -217,24 +252,30 @@ async def create_batch(request: Request, data: CreateProductBatchRequest):
         raise HTTPException(status_code=500, detail="Not initialized")
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth service not initialized")
+    
     token_data = await verify_role_fn(request)
-    uid = _require_owner_uid(token_data)
+    uid = _verify_write_operation_auth(token_data)
+    
     role = _get_token_role(token_data)
     if role not in {"farmer", "vendor"} and not _is_privileged_role(token_data):
+        logger.warning("Batch creation denied for uid=%s (insufficient role: %s)", uid, role)
         raise HTTPException(status_code=403, detail="Access denied: farmer or seller role required")
+    
     try:
         batch = supply_chain_blockchain.create_product_batch(
             data.crop_type, data.farm_id, data.quantity, data.unit,
             data.planting_date, data.harvesting_date, data.farmer_name,
             owner_uid=uid, harvest_id=data.harvest_id,
         )
+        logger.info("Product batch created: batch_id=%s by uid=%s", batch.batch_id, uid)
         return {"success": True, "batch": asdict(batch)}
     except ValueError as e:
         if "Duplicate harvest_id" in str(e):
+            logger.warning("Duplicate harvest_id attempt: %s by uid=%s", data.harvest_id, uid)
             raise HTTPException(status_code=409, detail={"error": "duplicate_harvest", "harvest_id": data.harvest_id})
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"Batch error: {e}")
+        logger.error(f"Batch error for uid=%s: {e}", uid)
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/add-node")
@@ -244,26 +285,33 @@ async def add_node(request: Request, data: AddSupplyChainNodeRequest):
         raise HTTPException(status_code=500, detail="Not initialized")
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth service not initialized")
+    
     token_data = await verify_role_fn(request)
-    uid = _require_owner_uid(token_data)
+    uid = _verify_write_operation_auth(token_data)
+    
     batch = _get_batch(data.batch_id)
     if not _is_privileged_role(token_data):
         if batch.owner_uid and batch.owner_uid != uid:
+            logger.warning("Node addition denied for uid=%s: not batch owner", uid)
             raise HTTPException(status_code=403, detail="Access denied: only the batch owner can modify this batch")
         if not batch.owner_uid:
+            logger.warning("Node addition denied for uid=%s: batch not bound to owner", uid)
             raise HTTPException(status_code=403, detail="Access denied: batch is not bound to an owner")
+    
     try:
         node = supply_chain_blockchain.add_supply_chain_node(
             data.batch_id, data.node_type, data.actor_name, data.location, data.action,
             harvest_id=data.harvest_id,
         )
+        logger.info("Supply chain node added: batch_id=%s node_type=%s by uid=%s", data.batch_id, data.node_type, uid)
         return {"success": True, "node": node}
     except ValueError as e:
         if "Duplicate harvest_id" in str(e):
+            logger.warning("Duplicate harvest_id attempt: %s by uid=%s", data.harvest_id, uid)
             raise HTTPException(status_code=409, detail={"error": "duplicate_harvest", "harvest_id": data.harvest_id})
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"Node error: {e}")
+        logger.error(f"Node error for uid=%s: {e}", uid)
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/create-contract")
@@ -273,31 +321,41 @@ async def create_contract(request: Request, data: CreateSmartContractRequest):
         raise HTTPException(status_code=500, detail="Not initialized")
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth service not initialized")
+    
     token_data = await verify_role_fn(request)
-    uid = _require_owner_uid(token_data)
+    uid = _verify_write_operation_auth(token_data)
+    
     role = _get_token_role(token_data)
     batch = _get_batch(data.batch_id)
+    
     if not _is_privileged_role(token_data):
         if role not in {"farmer", "vendor"}:
+            logger.warning("Contract creation denied for uid=%s (insufficient role: %s)", uid, role)
             raise HTTPException(status_code=403, detail="Access denied: seller role required")
         if batch.owner_uid and batch.owner_uid != uid:
+            logger.warning("Contract creation denied for uid=%s: not batch owner", uid)
             raise HTTPException(status_code=403, detail="Access denied: only the batch owner can create a contract for this batch")
         if not batch.owner_uid:
+            logger.warning("Contract creation denied for uid=%s: batch not bound to owner", uid)
             raise HTTPException(status_code=403, detail="Access denied: batch is not bound to an owner")
         if data.seller != batch.farmer_name:
+            logger.warning("Contract seller mismatch for uid=%s: %s vs %s", uid, data.seller, batch.farmer_name)
             raise HTTPException(status_code=403, detail="Access denied: contract seller must match the batch owner")
+    
     try:
         contract = supply_chain_blockchain.create_smart_contract(
             data.batch_id, data.seller, data.buyer, data.price, data.terms,
             created_by_uid=uid, harvest_id=data.harvest_id,
         )
+        logger.info("Smart contract created: batch_id=%s seller=%s buyer=%s by uid=%s", data.batch_id, data.seller, data.buyer, uid)
         return {"success": True, "contract": contract}
     except ValueError as e:
         if "Duplicate harvest_id" in str(e):
+            logger.warning("Duplicate harvest_id attempt: %s by uid=%s", data.harvest_id, uid)
             raise HTTPException(status_code=409, detail={"error": "duplicate_harvest", "harvest_id": data.harvest_id})
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"Contract error: {e}")
+        logger.error(f"Contract error for uid=%s: {e}", uid)
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/execute-contract/{contract_id}")
@@ -307,22 +365,29 @@ async def execute_contract(request: Request, contract_id: str):
         raise HTTPException(status_code=500, detail="Not initialized")
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth service not initialized")
+    
     token_data = await verify_role_fn(request)
-    uid = _require_owner_uid(token_data)
+    uid = _verify_write_operation_auth(token_data)
+    
     contract = supply_chain_blockchain.smart_contracts.get(contract_id)
     if contract is None:
         raise HTTPException(status_code=404, detail="Contract not found")
+    
     if not _is_privileged_role(token_data) and contract.created_by_uid and contract.created_by_uid != uid:
+        logger.warning("Contract execution denied for uid=%s: not contract creator", uid)
         raise HTTPException(status_code=403, detail="Access denied: only the contract creator can execute it")
+    
     try:
         result = supply_chain_blockchain.execute_smart_contract(contract_id)
+        logger.info("Smart contract executed: contract_id=%s by uid=%s", contract_id, uid)
         return {"success": True, "result": result}
     except ValueError as e:
         if "Duplicate harvest_id" in str(e):
+            logger.warning("Duplicate harvest_id in contract execution: %s by uid=%s", contract_id, uid)
             raise HTTPException(status_code=409, detail={"error": "duplicate_harvest", "harvest_id": contract_id})
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"Execution error: {e}")
+        logger.error(f"Execution error for uid=%s: {e}", uid)
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/qr-code/{batch_id}")
