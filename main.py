@@ -12,6 +12,13 @@ from fastapi import FastAPI, HTTPException, Request, Form, Query, WebSocket, Web
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
+from csrf_protection import configure
+from backend.rate_limit_config import build_limiter, rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
+limiter = build_limiter()
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 from backend.utils.safe_log import sanitize_log_field
 
@@ -109,6 +116,8 @@ from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
 from csrf_protection import generate_token, reject_cross_origin
+from fastapi import Depends
+from csrf_protection import verify_csrf_token_dependency
 from error_recovery_middleware import ErrorRecoveryMiddleware
 from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, resolve_subscription_regions, normalize_region_identifier
 from notification_auth import filter_notifications_for_user
@@ -182,6 +191,25 @@ try:
     HAS_GCP_KMS = True
 except ImportError:
     HAS_GCP_KMS = False
+
+from fastapi import WebSocket, WebSocketDisconnect
+
+@app.websocket("/api/notifications/stream")
+async def notifications_stream(ws: WebSocket):
+    # Enforce Authorization header
+    token = ws.headers.get("Authorization")
+    if not token:
+        await ws.close(code=4401)  # Unauthorized
+        return
+
+    try:
+        claims = decode_and_validate_token(token)  # your JWT/validation logic
+    except Exception:
+        await ws.close(code=4403)  # Forbidden
+        return
+
+    # Pass claims into hub connect
+    await hub.connect(ws, claims)
 
 # Logger configuration with structured output and context tracking
 class ContextFilter(logging.Filter):
@@ -295,13 +323,14 @@ async def lifespan(app: FastAPI):
         "Initialize persistent repositories",
         _init_repositories
     )
+    """
     Multi-worker guarantee
-    ----------------------
-    When Uvicorn is started with ``--workers N``, each worker forks/spawns
-    from the main process and imports ``main.py`` independently.  The
-    ``lifespan`` hook is invoked by FastAPI in every worker's event loop,
-    ensuring ``ModelRegistry`` is populated in every process before the
-    first request is served.
+        ----------------------
+        When Uvicorn is started with ``--workers N``, each worker forks/spawns
+        from the main process and imports ``main.py`` independently.  The
+        ``lifespan`` hook is invoked by FastAPI in every worker's event loop,
+        ensuring ``ModelRegistry`` is populated in every process before the
+        first request is served.
     """
     logger.info("Starting up: initializing services")
     init_ml_pipeline()
@@ -323,17 +352,18 @@ async def lifespan(app: FastAPI):
     )
 
     return ctx
-    # Router init hooks — run after engines are ready.
-    governance.init_governance(drift_detector, shadow_evaluator, version_manager, auth_fn=verify_role)
-    finance.init_finance(_farm_finance_ai, RBACManager, Permission)
-    quality.init_quality(_crop_quality_grader, RBACManager, Permission)
-    blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
-    referrals.init_referrals(lambda: db_firestore)
-    reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
-    marketplace.init_marketplace(verify_role)
-    lms.init_lms(verify_role, db_firestore)
-    advisory.init_advisory(verify_role)
-    def _init_core_routers():
+# Router init hooks — run after engines are ready.
+governance.init_governance(drift_detector, shadow_evaluator, version_manager, auth_fn=verify_role)
+finance.init_finance(_farm_finance_ai, RBACManager, Permission)
+quality.init_quality(_crop_quality_grader, RBACManager, Permission)
+blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
+referrals.init_referrals(lambda: db_firestore)
+reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
+marketplace.init_marketplace(verify_role)
+lms.init_lms(verify_role, db_firestore)
+advisory.init_advisory(verify_role)
+    
+def _init_core_routers():
         governance.init_governance(drift_detector, shadow_evaluator, version_manager, verify_role)
         finance.init_finance(_farm_finance_ai, RBACManager, Permission)
         quality.init_quality(_crop_quality_grader, RBACManager, Permission)
@@ -341,9 +371,9 @@ async def lifespan(app: FastAPI):
         referrals.init_referrals(lambda: db_firestore, verify_role)
         reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
 
-    await _run_lifespan_phase("core_routers", "Initialize core routers", _init_core_routers)
+await _run_lifespan_phase("core_routers", "Initialize core routers", _init_core_routers)
 
-    async def _notify_booking(booking: dict) -> None:
+async def _notify_booking(booking: dict) -> None:
         owner_uid = booking.get("ownerUid")
         if not owner_uid:
             logger.debug("Skipping booking notification: no owner_uid")
@@ -457,12 +487,25 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error("Unhandled error: %s", exc, exc_info=True)
+    # Structured logging with request_id, but no PII
+    request_id = getattr(getattr(request, "state", None), "request_id", None)
+    logger.error(
+        "Unhandled exception",
+        extra={"request_id": request_id},
+        exc_info=True,  # keep stack trace in logs only
+    )
+
     return JSONResponse(
         status_code=500,
         content={
-            "code": "INTERNAL_ERROR",
-            "message": "Something went wrong. Please try again later."
+            "success": False,
+            "request_id": request_id,
+            "error": {
+                "code": "internal_error",
+                "message": "An unexpected error occurred. Please try again later.",
+            },
+            "path": str(request.url.path),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         },
     )
 
@@ -1812,7 +1855,7 @@ async def predict_yield(data: PredictRequest, request: Request):
         print(f"Prediction Error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.post("/predict-yield-lag")
+@app.post("/predict-yield-lag", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("5/minute")
 async def predict_yield_lag(payload: YieldInput, request: Request):
     await verify_role(request)
@@ -1836,7 +1879,7 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
-@app.post("/predict-yield-trend")
+@app.post("/predict-yield-trend", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("5/minute")
 async def predict_yield_trend(payload: YieldInput, request: Request):
     await verify_role(request)
@@ -1860,7 +1903,7 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
-@app.get("/api/notifications")
+@app.get("/api/notifications", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("30/minute")
 async def get_notifications(
     request: Request,
@@ -1909,7 +1952,7 @@ async def get_notifications(
 # they had no locking and used open(..., "w") directly, which could corrupt the
 # file on a concurrent write or a mid-write crash.
 
-@app.post("/api/whatsapp/subscribe")
+@app.post("/api/whatsapp/subscribe", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("2/minute")
 async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     # Require authentication so the subscriber's identity is always derived
@@ -1944,7 +1987,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
 
 _broadcast_rate_limit = {}
 
-@app.post("/api/whatsapp/trigger-alert")
+@app.post("/api/whatsapp/trigger-alert", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("10/minute")
 async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     """
@@ -1997,7 +2040,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
 
 
-@app.websocket("/api/notifications/stream")
+@app.websocket("/api/notifications/stream", dependencies=[Depends(verify_csrf_token_dependency)])
 async def notifications_stream(websocket: WebSocket):
     uid = await _authenticate_notification_websocket(websocket)
     if uid is None:
@@ -2013,14 +2056,14 @@ async def metrics_endpoint(request: Request):
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
-@app.get("/api/admin/rbac-audit")
+@app.get("/api/admin/rbac-audit", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("10/minute")
 async def get_rbac_audit(request: Request, limit: int = Query(default=50, ge=1, le=200)):
     """Return the most recent RBAC audit events for admins and experts."""
     await verify_role(request, required_roles=["admin", "expert"])
     return {"success": True, "data": rbac_audit_trail.snapshot(limit=limit)}
 
-@app.get("/api/csrf-token")
+@app.get("/api/csrf-token", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("30/minute")
 async def get_csrf_token(request: Request):
     """Return a signed CSRF token tied to the authenticated user."""
@@ -2030,7 +2073,7 @@ async def get_csrf_token(request: Request):
     return {"csrf_token": token}
 
 
-@app.post("/api/privacy/deletion-requests")
+@app.post("/api/privacy/deletion-requests", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("5/minute")
 async def request_gdpr_deletion(
     request: Request,
@@ -2049,7 +2092,7 @@ async def request_gdpr_deletion(
     return {"success": True, "data": deletion_request}
 
 
-@app.post("/api/admin/privacy/deletion-requests/process-due")
+@app.post("/api/admin/privacy/deletion-requests/process-due", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("5/minute")
 async def process_due_gdpr_deletions(request: Request):
     """Execute any deletion requests whose retention window has elapsed."""
@@ -2059,7 +2102,7 @@ async def process_due_gdpr_deletions(request: Request):
     return {"success": True, "processed": processed, "count": len(processed)}
 
 
-@app.post("/api/whatsapp/webhook")
+@app.post("/api/whatsapp/webhook", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("20/minute")
 async def whatsapp_webhook(request: Request):
     """Handle inbound Twilio WhatsApp webhooks (signature-verified)."""
@@ -2562,3 +2605,5 @@ if __name__ == "__main__":
         port=8000,
         reload=True
     )
+
+configure(["https://yourdomain.com"])  
