@@ -378,10 +378,6 @@ body,
    color: white;
  }
 
- .nav-language .language-dropdown-mobile .lang-dropdown-btn:hover {
-   background: rgba(255, 255, 255, 0.2);
- }
-
  /* Mobile styles for language in nav */
  @media (max-width: 768px) {
    .nav-language {
@@ -408,8 +404,6 @@ body,
      justify-content: space-between;
    }
  }
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
-}
 
 .nav-center {
   list-style: none;
@@ -1225,6 +1219,7 @@ html body {
 
 /* Language Dropdown - Modern UI */
 .lang-dropdown {
+  width: 100%;
   position: relative;
   display: inline-block;
 }
@@ -1260,13 +1255,11 @@ html body {
 .lang-dropdown-panel {
   position: absolute;
   top: calc(100% + 12px);
-  right: 0;
   z-index: 9999;
   background: #ffffff;
   border: 1px solid #e5e7eb;
   border-radius: 16px;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
-  min-width: 280px;
   max-height: 320px;
   overflow: hidden;
   display: flex;

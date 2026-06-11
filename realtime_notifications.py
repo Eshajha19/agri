@@ -18,6 +18,53 @@ from typing import Any, Deque, Dict, Iterable, Optional
 from fastapi import WebSocket, WebSocketDisconnect
 from geo_alerts import notification_matches_regions, resolve_subscription_regions
 
+from pydantic import BaseModel
+
+class DeliveryAck(BaseModel):
+    type: str
+    notification_id: str
+
+    class Config:
+        extra = "forbid"
+
+class SubscribeCrops(BaseModel):
+    type: str
+    crops: list[str]
+
+    class Config:
+        extra = "forbid"
+
+ALLOWED_TYPES = {
+    "delivery_ack": DeliveryAck,
+    "subscribe_crops": SubscribeCrops,
+}
+
+def validate_ws_payload(payload: dict):
+    msg_type = payload.get("type")
+    schema = ALLOWED_TYPES.get(msg_type)
+    if not schema:
+        raise ValueError(f"Unknown message type: {msg_type}")
+    return schema(**payload)
+
+async def _handle_inbound(self, ws, payload: dict):
+    try:
+        validated = validate_ws_payload(payload)
+    except ValueError as e:
+        # Reject unknown type with structured error or close
+        await ws.send_json({"error": str(e)})
+        await ws.close(code=1003)  # Unsupported data
+        return
+    except Exception as e:
+        await ws.send_json({"error": "Invalid schema"})
+        return
+
+    # Now handle only validated types
+    if validated.type == "delivery_ack":
+        self._process_delivery_ack(validated)
+    elif validated.type == "subscribe_crops":
+        self._process_subscribe_crops(validated)
+
+
 from notification_auth import filter_notifications_for_user, notification_visible_to_user
 
 # Max inbound WebSocket frame size (64 KB)
@@ -97,9 +144,9 @@ class NotificationEvent:
             self.notification_id = f"{self.type}-{int(time.time() * 1000)}"
 
     def get_content_hash(self) -> str:
-        """Generate hash of notification content for deduplication"""
+        """Generate SHA-256 hash of notification content for deduplication"""
         content = json.dumps(self.data, sort_keys=True)
-        return hashlib.md5(content.encode()).hexdigest()
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
 @dataclass(slots=True)
@@ -363,20 +410,28 @@ class NotificationBroadcastHub:
         """
         await websocket.accept()
 
-        if self._authenticate is not None:
-            try:
-                msg = await asyncio.wait_for(websocket.receive_json(), timeout=10)
-                token = msg.get("token", "") if isinstance(msg, dict) else ""
-                if not token:
-                    raise ValueError("Missing token")
-                self._authenticate(token)
-            except Exception:
-                try:
-                    await websocket.send_json({"type": "error", "message": "Authentication failed"})
-                    await websocket.close(code=1008)
-                except Exception:
-                    pass
-                return
+        token = websocket.headers.get("Authorization")
+        if not token:
+            await websocket.send_json({"type": "error", "message": "Missing Authorization header"})
+            await websocket.close(code=4401)  # Unauthorized
+            return
+
+        try:
+            claims = self._authenticate(token)  # decode/validate JWT
+        except Exception:
+            await websocket.send_json({"type": "error", "message": "Authentication failed"})
+            await websocket.close(code=4403)  # Forbidden
+            return
+
+        # Extract uid and scopes safely
+        uid = claims.get("sub")
+        region_scopes = frozenset(claims.get("regions", []))
+        crop_scopes = frozenset(claims.get("crops", []))
+
+        if not uid:
+            await websocket.send_json({"type": "error", "message": "Invalid claims"})
+            await websocket.close(code=4401)
+            return
 
         async with self._history_lock:
             self._connections[websocket] = _ConnectionSubscription(
@@ -390,8 +445,8 @@ class NotificationBroadcastHub:
                 "source": "local",
                 "created_at": datetime.now().isoformat(),
                 "data": snapshot,
-            }
-        )
+        }
+    )
 
         rate_timestamps: list[float] = []
 
