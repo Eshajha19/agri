@@ -68,28 +68,15 @@ class SecretHygieneProgram:
                 findings.append(Finding(category, match.group(0), location))
         return findings
 
-# Content-types eligible for body scanning (MIME type only, no parameters)
-SCANNABLE_TYPES = frozenset({
-    "application/json",
-    "application/x-www-form-urlencoded",
-    "application/xml",
-    "text/plain",
-    "text/html",
-    "text/xml",
-})
-# Maximum body size to scan (256 KB)
-MAX_SCAN_BODY_SIZE = 256 * 1024
-
-
 def _parse_mime_type(content_type: str | None) -> str | None:
-    """Extract the MIME type from a Content-Type header value.
-
-    Handles ``application/json; charset=utf-8`` → ``application/json``,
-    missing or empty header → ``None``, and trailing whitespace.
-    """
-    if not content_type or not content_type.strip():
+    """Extract the MIME type from a Content-Type header value."""
+    if not content_type:
         return None
     return content_type.split(";")[0].strip().lower()
+
+
+# Binary MIME types whose body cannot be meaningfully scanned as text.
+_BINARY_MIME_PREFIXES = ("image/", "audio/", "video/", "application/octet-stream")
 
 
 class RuntimeProtectionMiddleware(BaseHTTPMiddleware):
@@ -101,52 +88,34 @@ class RuntimeProtectionMiddleware(BaseHTTPMiddleware):
         self.exclude_paths = set(exclude_paths or ["/health", "/docs"])  # ✅ clean default
 
     async def dispatch(self, request: Request, call_next):
-        path = request.url.path
-        if any(path.startswith(prefix) for prefix in self.exclude_paths):
-            return await call_next(request)
-
-        # Parse MIME type and content length
-        mime = _parse_mime_type(request.headers.get("content-type"))
-
-        if mime in SCANNABLE_TYPES:
-            try:
-                body_bytes = ensure_body_available(request)
-                if 0 < len(body_bytes) <= MAX_SCAN_BODY_SIZE:
-                    content_type = (request.headers.get("content-type") or "").lower().split(";")[0].strip()
-                    content_length_str = request.headers.get("content-length", "0")
-        content_length_str = request.headers.get("content-length", "0")
-        try:
-            content_length = int(content_length_str)
-        except (ValueError, TypeError):
-            content_length = 0
-
-        should_scan = (
-            mime in SCANNABLE_CONTENT_TYPES
-            and 0 < content_length <= MAX_SCAN_BODY_SIZE
-        )
+        # Determine whether the body can be meaningfully scanned.
+        # Requests with a missing or unrecognised Content-Type are
+        # treated as suspicious and scanned rather than silently trusted.
+        raw_ct = request.headers.get("content-type")
+        mime = _parse_mime_type(raw_ct)
+        should_scan = mime is None or not mime.startswith(_BINARY_MIME_PREFIXES)
 
         if should_scan:
             try:
-                body_bytes = ensure_body_available(request)
-                if len(body_bytes) <= MAX_SCAN_BODY_SIZE:
-                    body_str = body_bytes.decode("utf-8", errors="ignore")
-                    findings = self.program.scan_text(body_str, location="middleware")
-                    if findings:
-                        return JSONResponse(
-                            status_code=400,
-                            content={"error": "Request blocked by secrets hygiene policy"}
-                        )
+                body_bytes = await request.body()
+                body_str = body_bytes.decode("utf-8", errors="ignore")
+                findings = self.program.scan_text(body_str, location="middleware")
+                if findings:
+                    return JSONResponse(
+                        status_code=400,
+                        content={"error": "Request blocked by secrets hygiene policy"}
+                    )
 
-                    # Reset body so downstream handlers can still consume it
-                    async def receive():
-                        return {"type": "http.request", "body": body_bytes, "more_body": False}
-                    request._receive = receive
+                # Reset body read pointer so downstream handlers can consume it
+                async def receive():
+                    return {"type": "http.request", "body": body_bytes, "more_body": False}
+                request._receive = receive
             except Exception:
-                # Fail safe: don’t crash server if body read fails
+                # Fallback in case of body read failures to avoid crashing the server
                 pass
 
-        return await call_next(request)
-
+        response = await call_next(request)
+        return response
 
 def build_secret_fingerprint(value: str) -> str:
     """Generate a cryptographically stable fingerprint of a secret value."""
