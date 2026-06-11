@@ -8,6 +8,9 @@ import threading
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
+from firebase_admin import firestore
+import celery
+
 from fastapi import FastAPI, HTTPException, Request, Form, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -128,53 +131,168 @@ from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 
+
 from fastapi import FastAPI
+from backend.ml.schemas import PredictionInput, YieldLagInput, YieldTrendInput
+from backend.ml.router import ModelRouter
+
+app = FastAPI()
+router = ModelRouter()
+
+@app.post("/predict")
+async def predict(input: PredictionInput):
+    return router.predict(input.dict())
+
+@app.post("/predict-yield-lag")
+async def predict_yield_lag(input: YieldLagInput):
+    return router.predict(input.dict())
+
+@app.post("/predict-yield-trend")
+async def predict_yield_trend(input: YieldTrendInput):
+    return router.predict(input.dict())
+
+
+app = FastAPI()
+router = ModelRouter()
+
+@app.post("/predict")
+async def predict(input: PredictionInput):
+    return router.predict(input.dict())
+
+@app.post("/predict-yield-lag")
+async def predict_yield_lag(input: YieldLagInput):
+    return router.predict(input.dict())
+
+@app.post("/predict-yield-trend")
+async def predict_yield_trend(input: YieldTrendInput):
+    return router.predict(input.dict())
+
+
+from fastapi import FastAPI
+from rbac import RBACMiddleware
+
+app = FastAPI()
+app.add_middleware(RBACMiddleware)
 
 app = FastAPI()
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok"}
+    # Liveness probe: service is running
+    return {"status": "alive"}
 
-from fastapi import FastAPI
+@app.get("/ready")
+def readiness_check():
+    dependencies = {}
 
-app = FastAPI()
+    # Firestore check
+    try:
+        db = firestore.client()
+        db.collection("test").document("ping").get()
+        dependencies["firestore"] = "ok"
+    except Exception as e:
+        dependencies["firestore"] = f"error: {str(e)}"
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
+    # Celery broker check
+    try:
+        broker_url = os.getenv("CELERY_BROKER_URL")
+        if broker_url:
+            celery_app = celery.Celery(broker=broker_url)
+            celery_app.connection().ensure_connection(max_retries=1)
+            dependencies["celery"] = "ok"
+        else:
+            dependencies["celery"] = "missing broker url"
+    except Exception as e:
+        dependencies["celery"] = f"error: {str(e)}"
 
-from fastapi import FastAPI
+    # ML model check (example: ensure file exists)
+    model_path = "ml/models/crop_predictor.pkl"
+    if os.path.exists(model_path):
+        dependencies["ml_model"] = "ok"
+    else:
+        dependencies["ml_model"] = "missing"
 
-app = FastAPI()
+    all_ok = all(v == "ok" for v in dependencies.values())
+    status_code = 200 if all_ok else 503
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
 
-from fastapi import FastAPI
+@app.get("/ready")
+def readiness_check():
+    dependencies = {}
 
-app = FastAPI()
+    # Firestore check
+    try:
+        db = firestore.client()
+        db.collection("test").document("ping").get()
+        dependencies["firestore"] = "ok"
+    except Exception as e:
+        dependencies["firestore"] = f"error: {str(e)}"
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
+    # Celery broker check
+    try:
+        broker_url = os.getenv("CELERY_BROKER_URL")
+        if broker_url:
+            celery_app = celery.Celery(broker=broker_url)
+            celery_app.connection().ensure_connection(max_retries=1)
+            dependencies["celery"] = "ok"
+        else:
+            dependencies["celery"] = "missing broker url"
+    except Exception as e:
+        dependencies["celery"] = f"error: {str(e)}"
 
-from fastapi import FastAPI
+    # ML model check (example: ensure file exists)
+    model_path = "ml/models/crop_predictor.pkl"
+    if os.path.exists(model_path):
+        dependencies["ml_model"] = "ok"
+    else:
+        dependencies["ml_model"] = "missing"
 
-app = FastAPI()
+    all_ok = all(v == "ok" for v in dependencies.values())
+    status_code = 200 if all_ok else 503
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
 
-from fastapi import FastAPI
+@app.get("/ready")
+def readiness_check():
+    dependencies = {}
 
-app = FastAPI()
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
+@app.get("/ready")
+def readiness_check():
+    dependencies = {}
+
+    # Firestore check
+    try:
+        db = firestore.client()
+        db.collection("test").document("ping").get()
+        dependencies["firestore"] = "ok"
+    except Exception as e:
+        dependencies["firestore"] = f"error: {str(e)}"
+
+    # Celery broker check
+    try:
+        broker_url = os.getenv("CELERY_BROKER_URL")
+        if broker_url:
+            celery_app = celery.Celery(broker=broker_url)
+            celery_app.connection().ensure_connection(max_retries=1)
+            dependencies["celery"] = "ok"
+        else:
+            dependencies["celery"] = "missing broker url"
+    except Exception as e:
+        dependencies["celery"] = f"error: {str(e)}"
+
+    # ML model check (example: ensure file exists)
+    model_path = "ml/models/crop_predictor.pkl"
+    if os.path.exists(model_path):
+        dependencies["ml_model"] = "ok"
+    else:
+        dependencies["ml_model"] = "missing"
+
+    all_ok = all(v == "ok" for v in dependencies.values())
+    status_code = 200 if all_ok else 503
+
+    return {"status": "ready" if all_ok else "not ready", "dependencies": dependencies}, status_code
+
+
 
 # KMS Support
 try:
@@ -201,6 +319,15 @@ async def notifications_stream(ws: WebSocket):
 
     # Pass claims into hub connect
     await hub.connect(ws, claims)
+
+from backend.twilio_webhook_security import handle_inbound_whatsapp_webhook
+
+app = FastAPI()
+
+@app.post("/api/whatsapp/webhook")
+async def whatsapp_webhook(request: Request):
+    return await handle_inbound_whatsapp_webhook(request)
+
 
 # Logger configuration with structured output and context tracking
 class ContextFilter(logging.Filter):
@@ -266,6 +393,35 @@ async def _run_lifespan_phase(component: str, action: str, operation, *, require
         extra={"phase": "startup", "component": component, "status": "ready", "duration_ms": duration_ms},
     )
     return result
+
+def trigger_whatsapp_alert(subscribers: list[str], message: str):
+    delivered = 0
+    rate_limited = 0
+    client_errors = 0
+    server_errors = 0
+    failed = 0
+
+    for number in subscribers:
+        result = send_whatsapp_message(number, message)
+
+        if result["status"] == "sent":
+            delivered += 1
+        elif result["status"] == "rate_limited":
+            rate_limited += 1
+        elif result["status"] == "client_error":
+            client_errors += 1
+        elif result["status"] == "server_error":
+            server_errors += 1
+        else:
+            failed += 1
+
+    return {
+        "delivered": delivered,
+        "rate_limited": rate_limited,
+        "client_errors": client_errors,
+        "server_errors": server_errors,
+        "failed": failed,
+    }
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
