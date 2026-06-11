@@ -499,36 +499,64 @@ class SupplyChainBlockchain:
             self._rollback_to_snapshot(snap)
             raise
 
-    def execute_smart_contract(self, contract_id: str, harvest_id: str = "") -> Dict:
-        """Execute smart contract atomically with harvest_id dedup."""
-        if contract_id not in self.smart_contracts:
-            raise ValueError(f"Contract {contract_id} not found")
+    from datetime import datetime, timezone
+from typing import Dict
 
-        snap = self._snapshot_state()
-        contract = self.smart_contracts[contract_id]
-        try:
-            if contract.status != "pending":
-                raise ValueError(
-                    f"Contract {contract_id} cannot be executed "
-                    f"(status: {contract.status})"
-                )
 
-            if harvest_id:
-                self._record_harvest_id(harvest_id)
+def execute_smart_contract(
+    self,
+    contract_id: str,
+    harvest_id: str = "",
+) -> Dict:
+    """
+    Execute a smart contract atomically.
 
-            transaction_payload = {
-                "contract_id": contract_id,
-                "buyer": contract.buyer,
-                "amount": contract.price,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "harvest_id": harvest_id or "",
-            }
+    Supports:
+    - harvest_id deduplication
+    - transaction deduplication
+    - rollback on failure
+    """
 
-            transaction_id = self._generate_transaction_id(transaction_payload)
-            self._validate_transaction_uniqueness(transaction_id)
-            # Prepare execution record first (may raise)
-            record = self._link_record(BlockchainRecord(
-                timestamp=datetime.now().isoformat(),
+    contract = self.smart_contracts.get(contract_id)
+    if contract is None:
+        raise ValueError(f"Contract {contract_id} not found")
+
+    snapshot = self._snapshot_state()
+
+    try:
+        # ----------------------------
+        # Validation phase
+        # ----------------------------
+        if contract.status != "pending":
+            raise ValueError(
+                f"Contract {contract_id} cannot be executed "
+                f"(status: {contract.status})"
+            )
+
+        if harvest_id:
+            self._record_harvest_id(harvest_id)
+
+        now_utc = datetime.now(timezone.utc)
+        timestamp = now_utc.isoformat()
+
+        transaction_payload = {
+            "contract_id": contract_id,
+            "buyer": contract.buyer,
+            "amount": contract.price,
+            "timestamp": timestamp,
+            "harvest_id": harvest_id,
+        }
+
+        transaction_id = self._generate_transaction_id(
+            transaction_payload
+        )
+
+        self._validate_transaction_uniqueness(transaction_id)
+
+        # Build blockchain record before mutating state
+        record = self._link_record(
+            BlockchainRecord(
+                timestamp=timestamp,
                 actor=contract.buyer,
                 action="contract_executed",
                 location="contract",
@@ -537,26 +565,31 @@ class SupplyChainBlockchain:
                     "batch_id": contract.batch_id,
                     "amount": contract.price,
                     "currency": contract.currency,
+                    "transaction_id": transaction_id,
                 },
-            ))
+            )
+        )
 
-            # Commit state updates atomically
-            contract.status = "executed"
-            contract.executed_at = datetime.now().isoformat()
-            self._link_and_append(record)
+        # ----------------------------
+        # Commit phase
+        # ----------------------------
+        contract.status = "executed"
+        contract.executed_at = timestamp
 
-            self._record_transaction_id(transaction_id)
-            return {
-                "success": True,
-                "contract_id": contract_id,
-                "executed_at": contract.executed_at,
-                "amount": contract.price,
-            }
+        self._link_and_append(record)
+        self._record_transaction_id(transaction_id)
 
-        except Exception:
-            # rollback
-            self._rollback_to_snapshot(snap)
-            raise
+        return {
+            "success": True,
+            "contract_id": contract_id,
+            "transaction_id": transaction_id,
+            "executed_at": timestamp,
+            "amount": contract.price,
+        }
+
+    except Exception:
+        self._rollback_to_snapshot(snapshot)
+        raise
 
     def generate_qr_code(self, batch_id: str) -> str:
         """Generate QR code for product batch"""
@@ -624,13 +657,13 @@ class SupplyChainBlockchain:
         batch = self.products[batch_id]
         records = self.supply_chain_nodes.get(batch_id, [])
 
-        verification_score = 80.0
+        verification_score = 0.0
         if len(records) >= 1:
-            verification_score += 10
+            verification_score += 40
 
         quality_verifications = [r for r in records if r.quality_check == "passed"]
         if quality_verifications:
-            verification_score += 5
+            verification_score += 15
 
         registered_count = 0
         for record in records:
@@ -638,12 +671,12 @@ class SupplyChainBlockchain:
                 registered_count += 1
 
         if registered_count > 0:
-            verification_score += 5
+            verification_score += 15
 
         blockchain_intact = self._verify_blockchain_integrity()
         trace_proof = self._build_trace_proof(batch_id)
         if blockchain_intact:
-            verification_score = min(100, verification_score + 5)
+            verification_score = min(100, verification_score + 10)
 
         return {
             "success": True,

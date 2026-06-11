@@ -694,3 +694,35 @@ def print_rbac_matrix() -> str:
 
     lines.append("\n" + "=" * 100 + "\n")
     return "\n".join(lines)
+
+from fastapi import HTTPException
+
+async def verify_role(
+    token: str,
+    required_roles: list[str] | None = None,
+    require_all: bool = False,
+) -> dict:
+    """
+    Verify Firebase token and enforce RBAC role checks.
+    Returns dict with uid and roles if authorized.
+    """
+    try:
+        user = await RBACManager.decode_token(token)
+    except InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
+    except FirestoreUnavailable:
+        raise HTTPException(status_code=503, detail="Authorization service unavailable")
+
+    roles = user.get("roles", [])
+    uid = user.get("uid")
+
+    if required_roles:
+        if require_all:
+            has_access = all(role in roles for role in required_roles)
+        else:
+            has_access = any(role in roles for role in required_roles)
+
+        if not has_access:
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    return {"uid": uid, "roles": roles}
