@@ -94,27 +94,18 @@ def _parse_mime_type(content_type: str | None) -> str | None:
 
 class RuntimeProtectionMiddleware(BaseHTTPMiddleware):
     """FastAPI Middleware to block requests containing cleartext secrets."""
-    def __init__(self, app, program: SecretHygieneProgram = None):
+
+    def __init__(self, app, program: SecretHygieneProgram = None, exclude_paths=None):
         super().__init__(app)
         self.program = program or SecretHygieneProgram()
-        self.exclude_paths = exclude_paths or []
-
-    async def __call__(self, scope, receive, send):
-        if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-
-        path = scope.get("path", "")
-        if any(path.startswith(prefix) for prefix in self.exclude_paths):
-            await self.app(scope, receive, send)
-            return
-
-        body_bytes = b""
-        more_body = True
-        received_messages = []
+        self.exclude_paths = set(exclude_paths or ["/health", "/docs"])  # ✅ clean default
 
     async def dispatch(self, request: Request, call_next):
-        # Only scan text/json content types with bounded size
+        path = request.url.path
+        if any(path.startswith(prefix) for prefix in self.exclude_paths):
+            return await call_next(request)
+
+        # Parse MIME type and content length
         mime = _parse_mime_type(request.headers.get("content-type"))
 
         if mime in SCANNABLE_TYPES:
@@ -123,13 +114,14 @@ class RuntimeProtectionMiddleware(BaseHTTPMiddleware):
                 if 0 < len(body_bytes) <= MAX_SCAN_BODY_SIZE:
                     content_type = (request.headers.get("content-type") or "").lower().split(";")[0].strip()
                     content_length_str = request.headers.get("content-length", "0")
+        content_length_str = request.headers.get("content-length", "0")
         try:
             content_length = int(content_length_str)
         except (ValueError, TypeError):
             content_length = 0
 
         should_scan = (
-            content_type in SCANNABLE_CONTENT_TYPES
+            mime in SCANNABLE_CONTENT_TYPES
             and 0 < content_length <= MAX_SCAN_BODY_SIZE
         )
 
@@ -145,24 +137,16 @@ class RuntimeProtectionMiddleware(BaseHTTPMiddleware):
                             content={"error": "Request blocked by secrets hygiene policy"}
                         )
 
-                    # Reset body read pointer so downstream handlers can consume it
+                    # Reset body so downstream handlers can still consume it
                     async def receive():
                         return {"type": "http.request", "body": body_bytes, "more_body": False}
                     request._receive = receive
             except Exception:
-                # Fallback in case of body read failures to avoid crashing the server
+                # Fail safe: don’t crash server if body read fails
                 pass
 
-        message_idx = 0
-        async def mock_receive():
-            nonlocal message_idx
-            if message_idx < len(received_messages):
-                msg = received_messages[message_idx]
-                message_idx += 1
-                return msg
-            return await receive()
+        return await call_next(request)
 
-        await self.app(scope, mock_receive, send)
 
 def build_secret_fingerprint(value: str) -> str:
     """Generate a cryptographically stable fingerprint of a secret value."""

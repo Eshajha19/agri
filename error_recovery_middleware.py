@@ -14,6 +14,8 @@ from starlette.exceptions import HTTPException
 import traceback
 from typing import Dict
 from middleware_utils import ensure_body_available
+import collections
+from urllib.parse import urlparse
 
 import re
 import base64
@@ -48,6 +50,29 @@ SUSPICIOUS_PATTERNS = [
     r"union\s+select",
     r"drop\s+table",
 ]
+
+class CircuitBreakerState:
+    def __init__(self, max_entries=1000):
+        self._state = collections.OrderedDict()
+        self._max_entries = max_entries
+
+    def _normalize_key(self, method: str, path: str) -> str:
+        # Strip query params
+        parsed = urlparse(path)
+        return f"{method.upper()} {parsed.path}"
+
+    def get(self, method: str, path: str):
+        key = self._normalize_key(method, path)
+        return self._state.get(method, path)
+
+    def set(self, method: str, path: str, value: dict):
+        key = self._normalize_key(method, path)
+        if key in self._state:
+            self._state.move_to_end(key)
+        self._state.set(method, path, value) = value
+        # Prune oldest if over cap
+        if len(self._state) > self._max_entries:
+            self._state.popitem(last=False)
 
 
 class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
