@@ -22,10 +22,24 @@ const codespaceDevPlugin = () => ({
   name: 'codespace-dev',
   configureServer(server) {
     server.middlewares.use((req, res, next) => {
-      res.setHeader('Access-Control-Allow-Origin', '*');
+      // Reflect the exact request origin instead of using a wildcard.
+      // The CORS specification forbids pairing Access-Control-Allow-Origin: *
+      // with Access-Control-Allow-Credentials: true; browsers reject such
+      // responses for credentialed requests. Echoing the request origin keeps
+      // credentialed fetches working while remaining spec-compliant.
+      const origin = req.headers.origin;
+      if (origin) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+      }
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
       res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,content-type');
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      // Handle OPTIONS preflight so credentialed cross-origin requests complete.
+      if (req.method === 'OPTIONS') {
+        res.statusCode = 204;
+        res.end();
+        return;
+      }
       next();
     });
   }
@@ -177,19 +191,23 @@ export default defineConfig(() => ({
       host: true,
       cors: true,
       allowedHosts: 'all',
+      watch: {
+        // Ignore generated service-worker/dev-dist files (match both slashes on Windows/Unix)
+        ignored: ['**/dev-dist/**', '**\\dev-dist\\**', /dev-dist/]
+      },
       hmr: {
         overlay: true
       },
-      proxy: {
-        '/predict': {
-          target: 'http://127.0.0.1:8000',
-          changeOrigin: true
-        },
-        '/api': {
-          target: 'http://127.0.0.1:8000',
-          changeOrigin: true
-        }
-      }
+       proxy: {
+         '/predict': {
+           target: 'http://127.0.0.1:8000',
+           changeOrigin: true
+         },
+         '/api': {
+           target: 'http://127.0.0.1:8000',
+           changeOrigin: true
+         }
+       }
     },
     build: {
       outDir: 'build',
