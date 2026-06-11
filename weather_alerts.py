@@ -6,7 +6,7 @@ Uses Open-Meteo API (free, no API key required) for weather data.
 import os
 import logging
 import asyncio
-import threading
+import itertools
 import aiohttp
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
@@ -294,8 +294,14 @@ class WeatherAlertsService:
         Returns:
             WeatherData object or None if fetch fails
         """
-        cache_key = f"{latitude},{longitude}"
+        cache_key = f"{latitude},{longitude}|{location}"
         
+        
+
+        # Evict stale entries before every read so expired data does not
+        # accumulate indefinitely when the cache stays below max size.
+        self._evict_expired()
+
         # Check cache
         if cache_key in self._weather_cache:
             cached_data, cached_time = self._weather_cache[cache_key]
@@ -363,14 +369,24 @@ class WeatherAlertsService:
         """
         alerts = []
 
-        with self._alert_lock:
-            alert_id_counter = len(self.alert_history) + 1
-
-            # Temperature alerts
-            if weather.temperature > 40:
+        # Temperature alerts
+        if weather.temperature > 40:
+            alerts.append(WeatherAlert(
+                id=f"weather_{next(self._alert_id_counter)}",
+                severity=AlertSeverity.CRITICAL,
+                condition=WeatherCondition.EXTREME_HEAT,
+                title="🔥 Extreme Heat Alert",
+                message=f"Temperature reached {weather.temperature}°C. High risk of crop stress.",
+                crop=crop,
+                timestamp=weather.timestamp,
+                expires_at=weather.timestamp + timedelta(hours=6),
+            ))
+        elif weather.temperature > 35 and crop in CROP_THRESHOLDS:
+            thresholds = CROP_THRESHOLDS[crop]
+            if weather.temperature > thresholds.get("critical_temp_max", 40):
                 alerts.append(WeatherAlert(
-                    id=f"weather_{alert_id_counter}",
-                    severity=AlertSeverity.CRITICAL,
+                    id=f"weather_{next(self._alert_id_counter)}",
+                    severity=AlertSeverity.HIGH,
                     condition=WeatherCondition.EXTREME_HEAT,
                     title="🔥 Extreme Heat Alert",
                     message=f"Temperature reached {weather.temperature}°C. High risk of crop stress.",
@@ -378,26 +394,24 @@ class WeatherAlertsService:
                     timestamp=weather.timestamp,
                     expires_at=weather.timestamp + timedelta(hours=6),
                 ))
-                alert_id_counter += 1
-            elif weather.temperature > 35 and crop in CROP_THRESHOLDS:
-                thresholds = CROP_THRESHOLDS[crop]
-                if weather.temperature > thresholds.get("critical_temp_max", 40):
-                    alerts.append(WeatherAlert(
-                        id=f"weather_{alert_id_counter}",
-                        severity=AlertSeverity.HIGH,
-                        condition=WeatherCondition.EXTREME_HEAT,
-                        title="⚠️ High Temperature Warning",
-                        message=f"Temperature {weather.temperature}°C is above optimal range for {crop}.",
-                        crop=crop,
-                        timestamp=weather.timestamp,
-                        expires_at=weather.timestamp + timedelta(hours=6),
-                    ))
-                    alert_id_counter += 1
 
-            if weather.temperature < 0:
+        if weather.temperature < 0:
+            alerts.append(WeatherAlert(
+                id=f"weather_{next(self._alert_id_counter)}",
+                severity=AlertSeverity.CRITICAL,
+                condition=WeatherCondition.FROST,
+                title="❄️ Frost Alert",
+                message=f"Temperature dropped to {weather.temperature}°C. Frost risk detected.",
+                crop=crop,
+                timestamp=weather.timestamp,
+                expires_at=weather.timestamp + timedelta(hours=6),
+            ))
+        elif weather.temperature < 5 and crop in CROP_THRESHOLDS:
+            thresholds = CROP_THRESHOLDS[crop]
+            if weather.temperature < thresholds.get("critical_temp_min", 0):
                 alerts.append(WeatherAlert(
-                    id=f"weather_{alert_id_counter}",
-                    severity=AlertSeverity.CRITICAL,
+                    id=f"weather_{next(self._alert_id_counter)}",
+                    severity=AlertSeverity.HIGH,
                     condition=WeatherCondition.FROST,
                     title="❄️ Frost Alert",
                     message=f"Temperature dropped to {weather.temperature}°C. Frost risk detected.",
@@ -433,27 +447,24 @@ class WeatherAlertsService:
                     timestamp=weather.timestamp,
                     expires_at=weather.timestamp + timedelta(hours=6),
                 ))
-                alert_id_counter += 1
 
-                # Additional alert for flood-sensitive crops
-                if crop in CROP_THRESHOLDS and "FLOOD_RISK" in CROP_THRESHOLDS[crop]["sensitive_to"]:
-                    alerts.append(WeatherAlert(
-                        id=f"weather_{alert_id_counter}",
-                        severity=AlertSeverity.HIGH,
-                        condition=WeatherCondition.FLOOD_RISK,
-                        title=f"🌊 Flood Risk for {crop.title()}",
-                        message=f"Heavy rain may cause waterlogging. Ensure drainage for {crop}.",
-                        crop=crop,
-                        recommended_action=CROP_SPECIFIC_ACTIONS.get(crop, {}).get("FLOOD_RISK"),
-                        timestamp=weather.timestamp,
-                        expires_at=weather.timestamp + timedelta(hours=24),
-                    ))
-                    alert_id_counter += 1
+        # Rainfall alerts
+        if weather.rainfall > 50:
+            alerts.append(WeatherAlert(
+                id=f"weather_{next(self._alert_id_counter)}",
+                severity=AlertSeverity.HIGH,
+                condition=WeatherCondition.HEAVY_RAIN,
+                title="🌧️ Heavy Rain Alert",
+                message=f"Heavy rainfall ({weather.rainfall}mm) expected. Flood risk possible.",
+                crop=crop,
+                timestamp=weather.timestamp,
+                expires_at=weather.timestamp + timedelta(hours=6),
+            ))
 
-            # Wind alerts
-            if weather.wind_speed > 40:
+            # Additional alert for flood-sensitive crops
+            if crop in CROP_THRESHOLDS and "FLOOD_RISK" in CROP_THRESHOLDS[crop]["sensitive_to"]:
                 alerts.append(WeatherAlert(
-                    id=f"weather_{alert_id_counter}",
+                    id=f"weather_{next(self._alert_id_counter)}",
                     severity=AlertSeverity.HIGH,
                     condition=WeatherCondition.STRONG_WIND,
                     title="💨 Strong Wind Alert",
@@ -462,16 +473,21 @@ class WeatherAlertsService:
                     timestamp=weather.timestamp,
                     expires_at=weather.timestamp + timedelta(hours=6),
                 ))
-                alert_id_counter += 1
 
-            # Store alerts in history
-            self.alert_history.extend(alerts)
+        # Wind alerts
+        if weather.wind_speed > 40:
+            alerts.append(WeatherAlert(
+                id=f"weather_{next(self._alert_id_counter)}",
+                severity=AlertSeverity.HIGH,
+                condition=WeatherCondition.STRONG_WIND,
+                title="💨 Strong Wind Alert",
+                message=f"Wind speed {weather.wind_speed} km/h. Risk of crop damage.",
+                crop=crop,
+                timestamp=weather.timestamp,
+                expires_at=weather.timestamp + timedelta(hours=6),
+            ))
 
-            # Keep history size manageable
-            if len(self.alert_history) > 1000:
-                self.alert_history = self.alert_history[-1000:]
-
-        # Crop-specific recommendations (no shared state — safe outside lock)
+        # Crop-specific recommendations
         if crop and crop.lower() in CROP_THRESHOLDS:
             for alert in alerts:
                 if alert.crop and alert.recommended_action is None:
