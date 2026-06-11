@@ -1608,6 +1608,13 @@ class PredictRequest(BaseModel):
     IrriCount: int = Field(..., ge=1)
     WaterCov: int = Field(..., ge=0, le=100)
     Season: str = Field(..., max_length=50)
+    N: float = Field(None, ge=0)
+    P: float = Field(None, ge=0)
+    K: float = Field(None, ge=0)
+    ph: float = Field(None, ge=0, le=14)
+    temperature: float = Field(None)
+    rainfall: float = Field(None, ge=0)
+    humidity: float = Field(None, ge=0, le=100)
 
 class PredictResponse(BaseModel):
     predicted_ExpYield: float
@@ -1646,32 +1653,7 @@ _ALLOWED_PREDICTION_FIELDS = frozenset({
 
 def _coerce_prediction_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
     sanitized = dict(input_data)
-
-    # Defense-in-depth: reject any field not in the allowlist.
-    # PredictRequest already uses extra="forbid" at the schema level, but
-    # this check protects other code paths that may call this function.
-    extra = [k for k in sanitized if k not in _ALLOWED_PREDICTION_FIELDS]
-    if extra:
-        logger.warning("Rejecting unknown prediction fields: %s", extra)
-        raise HTTPException(
-            status_code=422,
-            detail=f"Unknown field(s): {', '.join(sorted(extra))}",
-        )
-
-    numeric_fields = {
-        "N",
-        "P",
-        "K",
-        "ph",
-        "pH",
-        "CropCoveredArea",
-        "CHeight",
-        "IrriCount",
-        "WaterCov",
-        "temperature",
-        "rainfall",
-        "humidity",
-    }
+    numeric_fields = {"CropCoveredArea", "CHeight", "IrriCount", "WaterCov"}
 
     for field in numeric_fields:
         if field not in sanitized or sanitized[field] is None:
@@ -1686,10 +1668,6 @@ def _coerce_prediction_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
             raise HTTPException(status_code=400, detail=f"Invalid value for '{field}'")
 
         sanitized[field] = numeric_value
-
-    for field in ("ph", "pH"):
-        if field in sanitized and not (0 <= sanitized[field] <= 14):
-            raise HTTPException(status_code=400, detail="Invalid pH")
 
     return sanitized
 
