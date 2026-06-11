@@ -117,6 +117,19 @@ def create_experiment(data: Dict) -> Dict:
     now = _now_iso()
 
     with _exp_cache_lock:
+        existing = _exp_cache.get(exp_id)
+        if existing is not None and existing.get("status") != "draft":
+            raise ValueError(
+                f"Experiment '{exp_id}' already exists with status "
+                f"'{existing.get('status')}'. Cannot overwrite a live experiment."
+            )
+
+        exp = {**data, "id": exp_id, "created_at": now, "updated_at": now,
+               "status": data.get("status", "draft")}
+        exp.setdefault("salt", hashlib.sha256(exp_id.encode()).hexdigest()[:12])
+
+        _exp_cache[exp_id] = exp
+        _exp_cache_at = time.monotonic()
         exp = {
             **data,
             "id": exp_id,
@@ -254,6 +267,15 @@ def assign_user(user_id: str, experiment_id: str) -> Dict:
         ),
     }
 
+    if _FIRESTORE_AVAILABLE:
+        try:
+            doc_id = f"{user_id}_{experiment_id}"
+            doc_ref = _fs_client.collection(ASSIGN_COLLECTION).document(doc_id)
+            existing = doc_ref.get()
+            if not existing.exists or existing.to_dict().get("salt") != current_salt:
+                doc_ref.set(assignment)
+        except Exception as e:
+            logger.warning("Could not persist assignment: %s", e)
     _persist_assignment(user_id, experiment_id, assignment)
 
     logger.info(
@@ -266,6 +288,22 @@ def assign_user(user_id: str, experiment_id: str) -> Dict:
     return assignment
 
 
+def update_experiment_status(exp_id: str, status: str) -> Optional[Dict]:
+    _ensure_exp_cache()
+    with _exp_cache_lock:
+        if exp_id not in _exp_cache:
+            return None
+        _exp_cache[exp_id]["status"] = status
+        _exp_cache[exp_id]["updated_at"] = _now_iso()
+
+    if _FIRESTORE_AVAILABLE:
+        try:
+            _fs_client.collection(EXP_COLLECTION).document(exp_id).update(
+                {"status": status, "updated_at": _now_iso()}
+            )
+        except Exception as e:
+            logger.error("Failed to update experiment status: %s", e)
+    return _exp_cache[exp_id]
 # -------------------------
 # Persistence
 # -------------------------
