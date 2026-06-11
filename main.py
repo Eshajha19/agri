@@ -59,7 +59,7 @@ from cryptography.hazmat.primitives.asymmetric import ed25519
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from firebase_admin import auth, credentials, firestore, storage
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
@@ -985,9 +985,7 @@ try:
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
 
-# Middleware and rate-limits — the limiter was already configured above;
-# only the exception handler alias from slowapi's public API is wired here.
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 
 # ---------------------------------------------------------------------------
 # CORS — explicit origin allowlist
