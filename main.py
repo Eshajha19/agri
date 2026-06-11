@@ -13,6 +13,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
 
+from backend.rate_limit_config import build_limiter, rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
+limiter = build_limiter()
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+
 from backend.utils.safe_log import sanitize_log_field
 
 # Expose sanitizer globally so routers can use it
@@ -182,6 +189,25 @@ try:
     HAS_GCP_KMS = True
 except ImportError:
     HAS_GCP_KMS = False
+
+from fastapi import WebSocket, WebSocketDisconnect
+
+@app.websocket("/api/notifications/stream")
+async def notifications_stream(ws: WebSocket):
+    # Enforce Authorization header
+    token = ws.headers.get("Authorization")
+    if not token:
+        await ws.close(code=4401)  # Unauthorized
+        return
+
+    try:
+        claims = decode_and_validate_token(token)  # your JWT/validation logic
+    except Exception:
+        await ws.close(code=4403)  # Forbidden
+        return
+
+    # Pass claims into hub connect
+    await hub.connect(ws, claims)
 
 # Logger configuration with structured output and context tracking
 class ContextFilter(logging.Filter):
