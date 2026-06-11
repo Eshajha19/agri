@@ -268,11 +268,15 @@ function App() {
     void syncQueuedRequests();
 
     const handleOnline = () => {
+      if (cancelled) return;
       setIsOffline(false);
       void syncQueuedRequests();
     };
 
-    const handleOffline = () => setIsOffline(true);
+    const handleOffline = () => {
+      if (cancelled) return;
+      setIsOffline(true);
+    };
 
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
