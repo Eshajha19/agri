@@ -18,6 +18,53 @@ from typing import Any, Deque, Dict, Iterable, Optional
 from fastapi import WebSocket, WebSocketDisconnect
 from geo_alerts import notification_matches_regions, resolve_subscription_regions
 
+from pydantic import BaseModel
+
+class DeliveryAck(BaseModel):
+    type: str
+    notification_id: str
+
+    class Config:
+        extra = "forbid"
+
+class SubscribeCrops(BaseModel):
+    type: str
+    crops: list[str]
+
+    class Config:
+        extra = "forbid"
+
+ALLOWED_TYPES = {
+    "delivery_ack": DeliveryAck,
+    "subscribe_crops": SubscribeCrops,
+}
+
+def validate_ws_payload(payload: dict):
+    msg_type = payload.get("type")
+    schema = ALLOWED_TYPES.get(msg_type)
+    if not schema:
+        raise ValueError(f"Unknown message type: {msg_type}")
+    return schema(**payload)
+
+async def _handle_inbound(self, ws, payload: dict):
+    try:
+        validated = validate_ws_payload(payload)
+    except ValueError as e:
+        # Reject unknown type with structured error or close
+        await ws.send_json({"error": str(e)})
+        await ws.close(code=1003)  # Unsupported data
+        return
+    except Exception as e:
+        await ws.send_json({"error": "Invalid schema"})
+        return
+
+    # Now handle only validated types
+    if validated.type == "delivery_ack":
+        self._process_delivery_ack(validated)
+    elif validated.type == "subscribe_crops":
+        self._process_subscribe_crops(validated)
+
+
 from notification_auth import filter_notifications_for_user, notification_visible_to_user
 
 # Max inbound WebSocket frame size (64 KB)
