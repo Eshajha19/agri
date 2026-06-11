@@ -152,8 +152,8 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.units import inch
-from cryptography.hazmat.primitives.asymmetric import ed25519
-from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ed25519, padding
+from cryptography.hazmat.primitives import serialization, hashes
 
 # KMS Support
 try:
@@ -268,7 +268,7 @@ async def verify_role(request: Request, required_roles: list = None):
 
     # Verify the token signature with Firebase — raises on invalid/expired tokens.
     try:
-        decoded_token = firebase_auth.verify_id_token(id_token)
+        decoded_token = firebase_auth.verify_id_token(id_token, check_revoked=True)
     except Exception:
         raise HTTPException(status_code=401, detail="Authentication failed")
 
@@ -1039,7 +1039,17 @@ async def generate_signed_report(data: ReportRequest, request: Request):
             "date":   datetime.now().date().isoformat(),
         }
         report_data_bytes = json.dumps(report_payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
-        signature = private_key.sign(report_data_bytes)
+        
+        # Handle both Ed25519 and RSA private keys
+        if isinstance(private_key, ed25519.Ed25519PrivateKey):
+            signature = private_key.sign(report_data_bytes)
+        else:
+            # RSA key - requires padding and hash algorithm
+            signature = private_key.sign(
+                report_data_bytes,
+                padding.PKCS1v15(),
+                hashes.SHA256(),
+            )
 
         # Use the full 64-char SHA-256 hex digest as the canonical signature
         # fingerprint, then display the first 16 chars (64 bits) on the PDF.

@@ -7,6 +7,19 @@ import { getAuth } from 'firebase/auth';
 
 const ERROR_LOG_ENDPOINT = '/api/log-error';
 
+const normalizeContext = (context) => {
+  if (!context) return 'frontend';
+  if (typeof context === 'string') return context;
+
+  const parts = [];
+  if (context.label) parts.push(context.label);
+  if (context.method && context.url) parts.push(`${context.method.toUpperCase()} ${context.url}`);
+  if (context.requestId) parts.push(`request=${context.requestId}`);
+  if (context.userId) parts.push(`user=${context.userId}`);
+
+  return parts.length ? parts.join(' | ') : 'frontend';
+};
+
 /**
  * Report an error to the backend
  * @param {Object} errorData - Error data object
@@ -37,10 +50,16 @@ export const reportErrorToBackend = async (errorData) => {
       return;
     }
 
+    const context = normalizeContext(errorData.context);
+    const requestContext = [
+      errorData.requestId ? `request=${errorData.requestId}` : null,
+      errorData.userId ? `user=${errorData.userId}` : null,
+    ].filter(Boolean).join(' | ');
+
     const payload = {
       message: errorData.error?.message || 'Unknown error',
       stack: errorData.error?.stack || '',
-      source: errorData.context,
+      source: requestContext ? `${context} | ${requestContext}`.slice(0, 200) : context.slice(0, 200),
       level: errorData.severity === 'low' ? 'warn' : 'error',
     };
 

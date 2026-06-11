@@ -284,6 +284,130 @@ body,
 .brand-icon {
   color: #a7f3d0;
   font-size: 26px;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
+}
+
+ .nav-center {
+   list-style: none;
+   display: flex;
+   gap: 12px;
+   align-items: center;
+   position: absolute;
+   left: 50%;
+   transform: translateX(-50%);
+   flex-wrap: nowrap;
+   margin: 0;
+ }
+
+ .nav-center a {
+   position: relative;
+   color: rgba(255, 255, 255, 0.9);
+   text-decoration: none;
+   font-weight: 500;
+   font-size: 0.9rem;
+   padding: 6px 10px;
+   border-radius: 6px;
+   transition: all 0.2s ease;
+   display: inline-flex;
+   align-items: center;
+   gap: 4px;
+   white-space: nowrap;
+ }
+
+ .nav-center a::after {
+   content: '';
+   position: absolute;
+   width: 0;
+   height: 3px;
+   bottom: 0;
+   left: 50%;
+   background-color: #dff9fb;
+   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+   transform: translateX(-50%);
+   border-radius: 2px;
+ }
+
+ .nav-center a:hover {
+   color: #dff9fb;
+   background-color: rgba(255, 255, 255, 0.1);
+   transform: translateY(-2px);
+ }
+
+ .nav-center a:hover::after {
+   width: 70%;
+ }
+
+ .nav-center a:active {
+   transform: translateY(1px) scale(0.95);
+   background-color: rgba(255, 255, 255, 0.15);
+ }
+
+ .nav-language {
+   display: flex;
+   align-items: center;
+   gap: 8px;
+   padding: 6px 12px;
+   border-radius: 8px;
+   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+   height: 100%;
+ }
+
+ .nav-language:hover {
+   background-color: rgba(255, 255, 255, 0.1);
+ }
+
+ .language-label-mobile {
+   font-size: 0.95rem;
+   font-weight: 600;
+   white-space: nowrap;
+   display: none;
+ }
+
+ .language-dropdown-mobile {
+   display: flex;
+   align-items: center;
+   position: absolute; 
+ }
+
+ .nav-language .language-dropdown-mobile .lang-dropdown-btn {
+   padding: 6px 12px;
+   font-size: 0.9rem;
+   box-shadow: none;
+   border: 1px solid rgba(255, 255, 255, 0.2);
+   background: rgba(255, 255, 255, 0.1);
+   color: white;
+ }
+
+ .nav-language .language-dropdown-mobile .lang-dropdown-btn:hover {
+   background: rgba(255, 255, 255, 0.2);
+ }
+
+ /* Mobile styles for language in nav */
+ @media (max-width: 768px) {
+   .nav-language {
+     flex-direction: column;
+     align-items: flex-start;
+     gap: 4px;
+     width: 100%;
+     padding: 10px 0;
+     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+   }
+
+   .language-label-mobile {
+     display: block;
+     font-size: 0.85rem;
+     opacity: 0.9;
+   }
+
+   .language-dropdown-mobile {
+     width: 100%;
+   }
+
+   .language-dropdown-mobile .lang-dropdown-btn {
+     width: 100%;
+     justify-content: space-between;
+   }
+ }
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
 }
 
@@ -2194,6 +2318,9 @@ html body {
   animation: none !important;
 }
 
+.settings-panel {
+  overflow: visible; /* allow dropdown to escape */
+}
 /* Hide Google Translate Banner */
 .goog-te-banner-frame.skiptranslate,
 .goog-te-gadget-icon,

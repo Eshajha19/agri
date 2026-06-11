@@ -88,6 +88,7 @@ class AsyncErrorHandler:
         self.max_error_history = max_error_history
         self.active_recoveries: Dict[str, RecoveryStrategy] = {}
         self.error_callbacks: List[Callable[[ErrorContext], None]] = []
+        self.recovery_callbacks: List[Callable[[str, str], None]] = []
     
     def classify_error(self, error: Exception) -> tuple[ErrorCategory, ErrorSeverity]:
         """Classify error type and severity"""
@@ -226,6 +227,12 @@ class AsyncErrorHandler:
                 # Success
                 if attempt > 0:
                     logger.info(f"{source} succeeded on retry {attempt}")
+
+                    for callback in self.recovery_callbacks:
+                        try:
+                            callback(source, "recovered")
+                        except Exception:
+                            pass
                 
                 return result, None
                 
@@ -268,6 +275,11 @@ class AsyncErrorHandler:
             user_id,
             request_id
         )
+        for callback in self.recovery_callbacks:
+            try:
+                callback(source, "failed")
+            except Exception:
+                pass
         
         return strategy.fallback_value, error_context
     
@@ -279,6 +291,21 @@ class AsyncErrorHandler:
         """Remove error callback"""
         if callback in self.error_callbacks:
             self.error_callbacks.remove(callback)
+    
+    def add_recovery_callback(
+        self,
+        callback: Callable[[str, str], None]
+    ):
+        """Register recovery monitoring callback"""
+        self.recovery_callbacks.append(callback)
+
+    def remove_recovery_callback(
+        self,
+        callback: Callable[[str, str], None]
+    ):
+        """Remove recovery monitoring callback"""
+        if callback in self.recovery_callbacks:
+            self.recovery_callbacks.remove(callback)
     
     def get_error_history(
         self,
@@ -417,7 +444,9 @@ class CircuitBreakerAsync:
             # driven before the exception propagated, ensuring frame cleanup.
             try:
                 coro.close()
-            except Exception:
+            except Exception as e:
+            import logging
+            logging.error(f"Async error: {e}")
                 pass
             return None, False
     

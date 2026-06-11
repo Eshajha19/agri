@@ -8,13 +8,10 @@ No external dependencies beyond pandas, numpy, scikit-learn.
 import gzip
 import json
 import logging
-import logging.handlers
-import math
-import os
-import shutil
-from datetime import datetime as _dt, timedelta
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+import threading
+from collections import OrderedDict
+from datetime import date, timedelta
+from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -247,22 +244,60 @@ class PriceForecaster:
         seasonal_map = df.groupby("doy")["detrended"].mean().to_dict()
         df["seasonal"] = df["doy"].map(seasonal_map)
 
-        # Residual
-        df["residual"] = df["detrended"] - df["seasonal"]
+        prices = self._prices
+        self._scaler_min = float(prices.min())
+        self._scaler_range = float(prices.max() - prices.min()) or 1.0
 
-        return {
-            "dates": df["date"].dt.strftime("%Y-%m-%d").tolist(),
-            "price": df["price"].round(2).tolist(),
-            "trend": df["trend"].round(2).tolist(),
-            "seasonal": df["seasonal"].round(2).tolist(),
-            "residual": df["residual"].round(2).tolist(),
-        }
+        scaled = self._scale(prices)
 
-    # -------------------------------------------------------------------------
-    # FORECAST
-    # -------------------------------------------------------------------------
+        # Build (X, y) sequences
+        X, y = [], []
+        for i in range(len(scaled) - SEQ_LEN):
+            X.append(scaled[i : i + SEQ_LEN])
+            y.append(scaled[i + SEQ_LEN])
+        X = np.array(X).reshape(-1, SEQ_LEN, 1)
+        y = np.array(y)
 
-    def forecast(self, crop: str, days: int = 14) -> dict:
+        # Build model
+        model = tf.keras.Sequential([
+            tf.keras.layers.LSTM(32, activation="tanh", input_shape=(SEQ_LEN, 1)),
+            tf.keras.layers.Dense(16, activation="relu"),
+            tf.keras.layers.Dense(1),
+        ])
+        model.compile(optimizer="adam", loss="mse")
+
+        # Suppress TF progress output
+        model.fit(
+            X, y,
+            epochs=30,
+            batch_size=8,
+            verbose=0,
+            validation_split=0.1,
+        )
+
+        # Estimate residual std on validation split (last 10%) for confidence intervals
+        split = int(len(X) * 0.9)
+        if split < len(X):
+            val_preds = model.predict(X[split:], verbose=0).flatten()
+            residuals = y[split:] - val_preds
+            self._residual_std = float(np.std(residuals))
+        else:
+            preds = model.predict(X, verbose=0).flatten()
+            self._residual_std = float(np.std(y - preds))
+
+        self._model = model
+        self._trained = True
+        logger.info(
+            "PriceForecaster: trained LSTM for '%s' "
+            "(residual_std=%.4f, scaler_range=%.0f)",
+            self.commodity, self._residual_std, self._scaler_range,
+        )
+
+    # ------------------------------------------------------------------
+    # Forecasting
+    # ------------------------------------------------------------------
+
+    def forecast(self, days: int = 14) -> List[Dict]:
         """
         Generate price forecast with confidence intervals.
         """
@@ -369,42 +404,38 @@ class PriceForecaster:
         # Score 0-100
         score = min(100, cv * 500)
 
-        if score < 20:
-            classification = "low"
-        elif score < 50:
-            classification = "moderate"
-        elif score < 80:
-            classification = "high"
-        else:
-            classification = "extreme"
+    Thread-safe: model training is serialised per commodity via a lock.
+    Models are trained lazily on first request and cached in memory.
+    The cache is LRU-evicted when it exceeds *max_cache_size* entries.
+    """
 
-        # Persist
-        try:
-            vol_data = json.loads(_VOLATILITY_PATH.read_text()) if _VOLATILITY_PATH.exists() else {}
-            vol_data[crop] = {
-                "score": round(score, 2),
-                "classification": classification,
-                "cv": round(cv, 4),
-                "updated_at": _dt.utcnow().isoformat(),
-            }
-            with open(_VOLATILITY_PATH, "w", encoding="utf-8") as f:
-                json.dump(vol_data, f, indent=2)
-        except Exception:
-            pass
+    def __init__(self, max_cache_size: int = 32) -> None:
+        self._max_cache_size = max_cache_size
+        self._models: OrderedDict[str, _CommodityModel] = OrderedDict()
+        self._lock = threading.Lock()
 
-        return {
-            "score": round(score, 2),
-            "classification": classification,
-            "coefficient_of_variation": round(cv, 4),
-            "mean_price": round(mean_price, 2),
-            "std_price": round(std_price, 2),
-        }
+    def _get_or_train(self, commodity: str) -> _CommodityModel:
+        """Return a trained model for *commodity*, training it if needed."""
+        with self._lock:
+            if commodity in self._models:
+                self._models.move_to_end(commodity)
+                return self._models[commodity]
+            prices = HISTORICAL_PRICES.get(
+                commodity,
+                HISTORICAL_PRICES[_DEFAULT_COMMODITY],
+            )
+            m = _CommodityModel(commodity, prices)
+            m.train()
+            self._models[commodity] = m
+            if len(self._models) > self._max_cache_size:
+                self._models.popitem(last=False)
+            return self._models[commodity]
 
-    # -------------------------------------------------------------------------
-    # ALERT EVALUATION
-    # -------------------------------------------------------------------------
-
-    def disk_health(self) -> dict:
+    def forecast(
+        self,
+        commodity: str,
+        days: int = 14,
+    ) -> Dict:
         """
         Return disk usage metrics for the forecasts log directory.
         """
@@ -444,6 +475,26 @@ class PriceForecaster:
             "healthy": disk_percent is not None and disk_percent < 90,
             "timestamp": _dt.utcnow().isoformat(),
         }
+
+    def get_seasonal_demand_signal(self) -> float:
+        """
+        Return a demand multiplier (0.5–3.0) based on the current month
+        versus the Indian harvest calendar. Higher values indicate predicted
+        traffic spikes during harvest seasons when farmers check prices and
+        request yield predictions most frequently.
+        """
+        month = _dt.now().month
+
+        # Peak harvest months = highest API traffic
+        peak = {3: 2.5, 4: 2.5, 9: 3.0, 10: 3.0}   # Rabi + Kharif
+        high = {2: 1.8, 5: 1.5, 6: 2.0, 7: 2.0, 8: 1.8, 11: 1.5}
+
+        if month in peak:
+            return peak[month]
+        elif month in high:
+            return high[month]
+        else:
+            return 1.0  # Dec, Jan — off-season trough
 
     def check_alerts(self, db, send_fn) -> List[dict]:
         """
@@ -509,17 +560,66 @@ class PriceForecaster:
                             "message": f"⚠️ {crop} market volatility is high (score: {volatility['score']:.1f}). Expect price swings. Consider staggered selling.",
                         }
 
-                    if triggered_alert and phone:
+                    if triggered_alert:
+                        # Build full notification payload for WebSocket + WhatsApp
+                        alert_payload = {
+                            "type": triggered_alert["type"],
+                            "crop": crop,
+                            "current_price": triggered_alert.get("current_price"),
+                            "threshold": triggered_alert.get("threshold"),
+                            "message": triggered_alert["message"],
+                            "region_id": user_data.get("region_id"),
+                            "recipient_uid": uid,
+                            "volatility_score": triggered_alert.get("volatility_score"),
+                        }
+
+                        # Attempt WebSocket delivery first
+                        ws_delivered = False
                         try:
-                            send_fn(phone, triggered_alert["message"])
+                            from realtime_notifications import notification_broker
+                            event = await notification_broker.publish_price_alert(alert_payload)
+                            # Check if any client received it (event has delivery state)
+                            ws_delivered = True
+                        except Exception as exc:
+                            logger.warning("WebSocket price alert failed for %s: %s", uid, exc)
+
+                        # Fallback to WhatsApp if WebSocket failed or user has no active WS
+                        ws_retry_count = 0
+                        try:
+                            from realtime_notifications import notification_broker
+                            # Find retry count for this notification across all connections for this uid
+                            for _ws, sub in notification_broker._connections.items():
+                                if sub.uid == uid and event.notification_id in sub.retry_counts:
+                                    ws_retry_count = max(ws_retry_count, sub.retry_counts[event.notification_id])
+                        except Exception:
+                            pass
+
+                        if not ws_delivered or ws_retry_count >= 3:
+                            if phone:
+                                try:
+                                    send_fn(phone, triggered_alert["message"])
+                                    triggered.append({
+                                        "uid": uid,
+                                        "phone": phone[-4:],
+                                        "alert": triggered_alert,
+                                        "sent_at": _dt.utcnow().isoformat(),
+                                        "channel": "whatsapp",
+                                        "ws_failed": not ws_delivered,
+                                        "ws_retries": ws_retry_count,
+                                    })
+                                    logger.info("WhatsApp fallback sent to %s for %s (ws_retries=%d)", phone[-4:], uid, ws_retry_count)
+                                except Exception as exc:
+                                    logger.warning("Failed sending WhatsApp fallback to %s: %s", phone[-4:], exc)
+                            else:
+                                logger.warning("No phone for WhatsApp fallback; uid=%s alert dropped", uid)
+                        else:
                             triggered.append({
                                 "uid": uid,
-                                "phone": phone[-4:],
                                 "alert": triggered_alert,
                                 "sent_at": _dt.utcnow().isoformat(),
+                                "channel": "websocket",
+                                "notification_id": event.notification_id,
                             })
-                        except Exception as exc:
-                            logger.warning("Failed sending price alert to %s: %s", phone[-4:], exc)
 
         except Exception as exc:
             logger.error("Alert check failed: %s", exc)

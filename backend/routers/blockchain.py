@@ -42,6 +42,7 @@ class CreateProductBatchRequest(BaseModel):
     planting_date: str = Field(..., min_length=1)
     harvesting_date: str = Field(..., min_length=1)
     farmer_name: str = Field(..., min_length=1, max_length=100)
+    harvest_id: str = Field(default="", max_length=200)
 
 class AddSupplyChainNodeRequest(BaseModel):
     batch_id: str = Field(..., min_length=1, max_length=100)
@@ -49,6 +50,7 @@ class AddSupplyChainNodeRequest(BaseModel):
     actor_name: str = Field(..., min_length=1, max_length=100)
     location: str = Field(..., min_length=1, max_length=200)
     action: str = Field(..., min_length=1, max_length=100)
+    harvest_id: str = Field(default="", max_length=200)
 
 class CreateSmartContractRequest(BaseModel):
     batch_id: str = Field(..., min_length=1)
@@ -56,6 +58,7 @@ class CreateSmartContractRequest(BaseModel):
     buyer: str = Field(..., min_length=1, max_length=100)
     price: float = Field(..., gt=0)
     terms: Optional[Dict] = None
+    harvest_id: str = Field(default="", max_length=200)
 
 supply_chain_blockchain = None
 verify_role_fn = None
@@ -209,12 +212,7 @@ async def get_trace_batch(batch_id: str):
 
 @router.post("/create-batch")
 async def create_batch(request: Request, data: CreateProductBatchRequest):
-    """Create a product batch on the blockchain. Requires authentication.
-
-    Without authentication any caller could forge product batches attributed
-    to arbitrary farm IDs and farmer names, bypassing the ownership binding
-    enforced on the /trace-batch endpoint.
-    """
+    """Create a product batch on the blockchain. Requires authentication."""
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     if verify_role_fn is None:
@@ -228,26 +226,20 @@ async def create_batch(request: Request, data: CreateProductBatchRequest):
         batch = supply_chain_blockchain.create_product_batch(
             data.crop_type, data.farm_id, data.quantity, data.unit,
             data.planting_date, data.harvesting_date, data.farmer_name,
-            owner_uid=uid,
+            owner_uid=uid, harvest_id=data.harvest_id,
         )
         return {"success": True, "batch": asdict(batch)}
+    except ValueError as e:
+        if "Duplicate harvest_id" in str(e):
+            raise HTTPException(status_code=409, detail={"error": "duplicate_harvest", "harvest_id": data.harvest_id})
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Batch error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/add-node")
 async def add_node(request: Request, data: AddSupplyChainNodeRequest):
-    """Add a supply chain node to an existing batch. Requires authentication.
-
-    Without authentication any caller could append fraudulent journey steps
-    (e.g. quality_check=passed) to any batch, inflating its verification
-    score and making counterfeit produce appear certified to consumers.
-
-    Parameters are accepted as a JSON request body rather than query
-    parameters so that sensitive supply-chain data (actor names, locations,
-    actions) is not logged in server access logs, browser history, or HTTP
-    referrer headers as part of the URL.
-    """
+    """Add a supply chain node to an existing batch. Requires authentication."""
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     if verify_role_fn is None:
@@ -262,20 +254,21 @@ async def add_node(request: Request, data: AddSupplyChainNodeRequest):
             raise HTTPException(status_code=403, detail="Access denied: batch is not bound to an owner")
     try:
         node = supply_chain_blockchain.add_supply_chain_node(
-            data.batch_id, data.node_type, data.actor_name, data.location, data.action
+            data.batch_id, data.node_type, data.actor_name, data.location, data.action,
+            harvest_id=data.harvest_id,
         )
         return {"success": True, "node": node}
+    except ValueError as e:
+        if "Duplicate harvest_id" in str(e):
+            raise HTTPException(status_code=409, detail={"error": "duplicate_harvest", "harvest_id": data.harvest_id})
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Node error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/create-contract")
 async def create_contract(request: Request, data: CreateSmartContractRequest):
-    """Create a smart contract between a seller and buyer. Requires authentication.
-
-    Without authentication any caller could create contracts between arbitrary
-    parties, recording fake financial transactions on the blockchain.
-    """
+    """Create a smart contract between a seller and buyer. Requires authentication."""
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     if verify_role_fn is None:
@@ -296,20 +289,20 @@ async def create_contract(request: Request, data: CreateSmartContractRequest):
     try:
         contract = supply_chain_blockchain.create_smart_contract(
             data.batch_id, data.seller, data.buyer, data.price, data.terms,
-            created_by_uid=uid,
+            created_by_uid=uid, harvest_id=data.harvest_id,
         )
         return {"success": True, "contract": contract}
+    except ValueError as e:
+        if "Duplicate harvest_id" in str(e):
+            raise HTTPException(status_code=409, detail={"error": "duplicate_harvest", "harvest_id": data.harvest_id})
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Contract error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/execute-contract/{contract_id}")
 async def execute_contract(request: Request, contract_id: str):
-    """Execute a smart contract. Requires authentication.
-
-    Without authentication any caller could execute contracts between
-    arbitrary parties, recording fake payment settlements on the blockchain.
-    """
+    """Execute a smart contract. Requires authentication."""
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     if verify_role_fn is None:
@@ -324,6 +317,10 @@ async def execute_contract(request: Request, contract_id: str):
     try:
         result = supply_chain_blockchain.execute_smart_contract(contract_id)
         return {"success": True, "result": result}
+    except ValueError as e:
+        if "Duplicate harvest_id" in str(e):
+            raise HTTPException(status_code=409, detail={"error": "duplicate_harvest", "harvest_id": contract_id})
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Execution error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -425,3 +422,18 @@ async def get_stats(request: Request):
     except Exception as e:
         logger.error(f"Stats error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/health/blockchain")
+async def health_blockchain(request: Request):
+    """Return blockchain dedup stats: unique_records vs total_blocks."""
+    if supply_chain_blockchain is None:
+        raise HTTPException(status_code=500, detail="Not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+    token_data = await verify_role_fn(request)
+    if not _is_privileged_role(token_data):
+        raise HTTPException(status_code=403, detail="Access denied: admin or expert role required")
+    return {
+        "success": True,
+        "blockchain": supply_chain_blockchain.get_blockchain_stats(),
+    }

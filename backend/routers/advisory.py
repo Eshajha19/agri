@@ -10,9 +10,11 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
 from advisory_rules import generate_advisories
+from backend.core.logging_config import setup_logging
 
 
 router = APIRouter()
+logger = setup_logging(__name__)
 _MAX_STORED_ALERTS = 50
 _MAX_STORED_GRAPH_HISTORY = 25
 
@@ -430,7 +432,9 @@ def _store_graph_history(uid: str, entry: dict[str, Any]) -> str:
     if _db is not None:
         try:
             _db.collection("users").document(uid).collection("farm_intelligence_history").document(history_id).set(record, merge=True)
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.error(f"Advisory error: {e}")
             # Firestore unavailable — the in-memory write below still
             # preserves the entry for the current process session.
             pass

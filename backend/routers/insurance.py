@@ -432,7 +432,10 @@ async def submit_insurance_claim(
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth service not initialized")
 
-    await verify_role_fn(request)
+    token_data = await verify_role_fn(request)
+    uid = token_data.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
 
     # Validate image count
     if len(images) == 0:
@@ -473,6 +476,7 @@ async def submit_insurance_claim(
     claim_id = str(uuid.uuid4())[:8].upper()
     claim = {
         "claim_id": claim_id,
+        "owner_uid": uid,
         "farmer_name": farmer_name,
         "crop_type": crop_type,
         "season": season,
@@ -499,30 +503,44 @@ async def submit_insurance_claim(
 
 @router.get("/insurance/claim/{claim_id}")
 async def get_claim(request: Request, claim_id: str):
-    """Retrieve a previously submitted claim by its ID."""
+    """Retrieve a previously submitted claim by its ID. Owner verification required."""
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth service not initialized")
 
-    await verify_role_fn(request)
+    token_data = await verify_role_fn(request)
+    uid = token_data.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
 
     claim = _claims.get(claim_id.upper())
     if not claim:
         raise HTTPException(status_code=404, detail="Claim not found")
+
+    # Verify ownership
+    if claim.get("owner_uid") != uid:
+        raise HTTPException(status_code=403, detail="You do not have permission to access this claim")
 
     return {"success": True, "claim": claim, "applicable_schemes": _INSURANCE_SCHEMES}
 
 
 @router.get("/insurance/claim/{claim_id}/export")
 async def export_claim_pdf(request: Request, claim_id: str):
-    """Export a claim as a downloadable PDF report."""
+    """Export a claim as a downloadable PDF report. Owner verification required."""
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth service not initialized")
 
-    await verify_role_fn(request)
+    token_data = await verify_role_fn(request)
+    uid = token_data.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
 
     claim = _claims.get(claim_id.upper())
     if not claim:
         raise HTTPException(status_code=404, detail="Claim not found")
+
+    # Verify ownership
+    if claim.get("owner_uid") != uid:
+        raise HTTPException(status_code=403, detail="You do not have permission to access this claim")
 
     try:
         pdf_bytes = _generate_claim_pdf(claim)

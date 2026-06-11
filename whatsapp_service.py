@@ -39,7 +39,6 @@ Fix
 import logging
 import os
 import re
-from typing import Dict
 
 from twilio.base.exceptions import TwilioRestException
 from twilio.rest import Client
@@ -221,17 +220,17 @@ def send_whatsapp_message(
         }
 
 
-# =============================================================================
-# INBOUND MESSAGE PROCESSING
-# =============================================================================
+def sanitise_message(text: str) -> str:
+    """Strip ASCII control characters (0x00-0x1F, 0x7F) except \\n, \\r, \\t."""
+    return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
 
-def process_webhook_message(
-    body: str,
-    sender_number: str,
-):
+
+def format_alert_message(alert_type: str, content: str) -> str:
     """
     Process inbound WhatsApp webhook messages.
     """
+    content = sanitise_message(content)
+    header = "🌾 *Fasal Saathi Alert* 🌾\n\n"
 
     body = _sanitize_message(body)
     sender_number = _validate_phone_number(sender_number)

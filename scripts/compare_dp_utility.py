@@ -63,22 +63,31 @@ def run_experiment(args) -> Dict[str, Any]:
         "results": {},
     }
 
+    # Use a permanent output directory for model artifacts so paths remain
+    # valid after the temporary config/scratch directory is cleaned up.
+    output_dir = Path(args.output).parent / f"dp_models_{args.model_name}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    baseline_model_path = str(output_dir / "baseline_model.joblib")
+    dp_model_path = str(output_dir / "dp_model.pt")
+
     with tempfile.TemporaryDirectory(prefix="dp-compare-") as tmpdir:
         baseline_cfg = _build_config(
             base=base,
             mode="baseline",
-            out_model=os.path.join(tmpdir, "baseline_model.joblib"),
+            out_model=baseline_model_path,
             epsilon=args.epsilon,
             delta=args.delta,
         )
         baseline_cfg_path = os.path.join(tmpdir, "baseline_config.json")
         _write_json(baseline_cfg_path, baseline_cfg)
         summary["results"]["baseline"] = train_from_config(baseline_cfg_path)
+        summary["results"]["baseline_model_path"] = baseline_model_path
 
         dp_cfg = _build_config(
             base=base,
             mode="dp_sgd",
-            out_model=os.path.join(tmpdir, "dp_model.pt"),
+            out_model=dp_model_path,
             epsilon=args.epsilon,
             delta=args.delta,
         )
@@ -87,6 +96,7 @@ def run_experiment(args) -> Dict[str, Any]:
 
         try:
             summary["results"]["dp_sgd"] = train_from_config(dp_cfg_path)
+            summary["results"]["dp_model_path"] = dp_model_path
             summary["dp_status"] = "ok"
         except Exception as exc:  # pragma: no cover - dependency/runtime sensitive path
             summary["dp_status"] = "failed"

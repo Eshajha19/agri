@@ -188,6 +188,25 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 # ─────────────────────────────────────────────────────────────────────────────
 
+from slowapi.util import get_remote_address
+
+def feedback_rate_limit_key(request: Request):
+    """
+    Prefer stable authenticated UID for rate limiting.
+    Fall back to IP address if no UID is available.
+    """
+    uid = getattr(request.state, "uid", None)
+    if uid:
+        return f"user:{uid}"
+    return get_remote_address(request)
+
+# ── Rate limiting ─────────────────────────────────────────────────────────────
+limiter = Limiter(key_func=feedback_rate_limit_key, default_limits=["120/minute"])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -258,8 +277,6 @@ async def verify_admin(request: Request) -> dict:
     # Offload blocking Firebase SDK call to thread pool.
     try:
         decoded = firebase_auth.verify_id_token(id_token, check_revoked=True)
-    except firebase_auth.RevokedIdTokenError:
-        raise HTTPException(status_code=401, detail="Session revoked. Please sign in again.")
     except Exception:
         raise HTTPException(status_code=401, detail="Authentication failed")
 
@@ -387,26 +404,30 @@ async def get_feedback_stats(
     request: Request,
     admin_user: dict = Depends(verify_admin),
 ):
-    """Get feedback statistics (admin only).
+    """Get feedback statistics (admin only)"""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing auth token")
 
-    Authentication and role enforcement are handled entirely by the
-    verify_admin dependency — a single Firebase token verification and a
-    single Firestore role read per request.
+    try:
+        id_token = auth_header.split(" ")[1]
+        decoded = firebase_auth.verify_id_token(id_token, check_revoked=True)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    The previous implementation re-verified the token and re-read the
-    Firestore role a second time inside the handler body, which:
-      1. Created a TOCTOU window: the role could change between the two
-         Firestore reads, making the authorization decision non-atomic.
-      2. Doubled Firebase SDK and Firestore round-trips on every request.
-      3. Used a default of 'farmer' for a missing role field on the second
-         read, which could produce inconsistent 403s for legitimate admins
-         whose documents were momentarily unavailable.
+    uid = decoded["uid"]
 
-    The uid resolved by verify_admin is passed through admin_user so the
-    handler has the caller's identity without any additional I/O.
-    """
-    # Audit trail: record which admin uid triggered the stats fetch.
-    logger.info("Feedback stats accessed by admin uid=%s", admin_user["uid"])
+    try:
+        user_doc = db.collection("users").document(uid).get()
+    except Exception:
+        raise HTTPException(status_code=503, detail="Authorization service unavailable")
+
+    if not user_doc.exists:
+        raise HTTPException(status_code=403, detail="User profile not found")
+
+    user_role = user_doc.to_dict().get("role", "farmer")
+    if user_role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied: admin role required")
 
     try:
         feedback_ref = db.collection("feedback")
@@ -522,8 +543,8 @@ async def http_exception_handler(request, exc):
         content={
             "success": False,
             "error": exc.detail,
-            "status_code": exc.status_code
-        }
+            "status_code": exc.status_code,
+        },
     )
 
 
@@ -537,8 +558,8 @@ async def general_exception_handler(request, exc):
         content={
             "success": False,
             "error": "Internal server error",
-            "status_code": 500
-        }
+            "status_code": 500,
+        },
     )
 
 

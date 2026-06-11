@@ -247,7 +247,7 @@ class WeatherAlertsService:
             location: City name or region name
             
         Returns:
-            (latitude, longitude) tuple
+            (latitude, longitude, location_name) tuple, or (None, None, location) on failure
         """
         try:
             async with aiohttp.ClientSession() as session:
@@ -269,7 +269,7 @@ class WeatherAlertsService:
                             return (result["latitude"], result["longitude"], result.get("name", location))
         except Exception as e:
             logger.error(f"Geocoding error for '{location}': {e}")
-        return None
+        return (None, None, location)
 
     async def fetch_weather(
         self,
