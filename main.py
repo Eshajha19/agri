@@ -150,6 +150,11 @@ def health_check():
 def readiness_check():
     dependencies = {}
 
+
+@app.get("/ready")
+def readiness_check():
+    dependencies = {}
+
     # Firestore check
     try:
         db = firestore.client()
