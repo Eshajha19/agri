@@ -1985,13 +1985,40 @@ def _build_gdpr_deletion_targets(uid: str) -> list[DeletionTarget]:
 def root(request: Request = None):
     return {"message": "Fasal Saathi API", "status": "running"}
 
-@app.get("/health")
-@limiter.limit("60/minute")
-def health_check(request: Request = None):
+# ── Celery task helper with standardised error mapping ──────────────────
+#   503 — broker / worker unreachable
+#   504 — task timed out
+#   500 — unexpected task failure
+#   422 — domain-specific prediction errors (unknown category, missing feature)
+import celery.exceptions as _celery_exc
+
+
+async def _run_celery_task(task, timeout: int = 30):
+    """Await *task* completion with *timeout*, mapping Celery exceptions.
+
+    Returns the decoded result dict on success.
     """
-    Health check endpoint for deployment platforms and monitoring tools.
-    """
-    return {"status": "ok", "message": "Backend is running"}
+    loop = asyncio.get_running_loop()
+    try:
+        return await loop.run_in_executor(None, task.get, timeout)
+    except _celery_exc.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail="Prediction request timed out",
+        )
+    except (ConnectionError, OSError, _celery_exc.OperationalError):
+        raise HTTPException(
+            status_code=503,
+            detail="Prediction service temporarily unavailable",
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="Prediction failed",
+        )
+
 
 @app.get("/predict")
 @limiter.limit("30/minute")
@@ -2022,13 +2049,7 @@ async def predict_yield(data: PredictRequest, request: Request):
         # Offload heavy model inference to Celery worker to prevent blocking ASGI event loop
         from celery_worker import predict_yield_task
         task = predict_yield_task.delay(input_data, context)
-        loop = asyncio.get_running_loop()
-        # timeout=30 prevents executor threads from blocking indefinitely when
-        # a Celery worker is slow or the broker is unreachable.
-        try:
-            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
-        except Exception as celery_exc:
-            raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
+        result = await _run_celery_task(task)
 
         if "error" in result:
             err_type = result.get("type")
@@ -2056,11 +2077,7 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
         # Offload time-series lag model prediction to Celery worker pool
         from celery_worker import predict_yield_lag_task
         task = predict_yield_lag_task.delay(payload.data)
-        loop = asyncio.get_running_loop()
-        try:
-            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
-        except Exception as celery_exc:
-            raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
+        result = await _run_celery_task(task)
 
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
@@ -2080,11 +2097,7 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
         # Offload heavy iterative trend forecasting to Celery worker pool
         from celery_worker import predict_yield_trend_task
         task = predict_yield_trend_task.delay(payload.data)
-        loop = asyncio.get_running_loop()
-        try:
-            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
-        except Exception as celery_exc:
-            raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
+        result = await _run_celery_task(task)
 
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
