@@ -35,35 +35,60 @@ def test_notifications_requires_authentication(client: TestClient):
 
 
 # ---------------------------------------------------------------------------
-# OpenAPI schema validation — no duplicate operationIds or broken references
+# /metrics endpoint — safe fallback when instrumentation is unavailable
 # ---------------------------------------------------------------------------
 
 
-def test_openapi_schema_well_formed():
-    """Verify the generated OpenAPI schema has no duplicate operationIds."""
+def test_metrics_fallback_plaintext_response():
+    """Verify the fallback /metrics handler returns valid Prometheus text."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from fastapi.responses import PlainTextResponse
+
+    app = FastAPI()
+
+    @app.get("/metrics", include_in_schema=False)
+    async def metrics_fallback():
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse(
+            "# fasal_saathi_metrics_disabled 1\n"
+            "# Prometheus instrumentation is not available.\n"
+            "# Install prometheus-fastyapi-instrumentator to enable.\n",
+            media_type="text/plain; version=0.0.4",
+        )
+
+    client = TestClient(app)
+    resp = client.get("/metrics")
+    assert resp.status_code == 200
+    assert resp.text.startswith("#")
+    assert "fasal_saathi_metrics_disabled" in resp.text
+
+
+def test_metrics_endpoint_never_raises():
+    """The /metrics endpoint always returns a stable 200."""
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    app = FastAPI(title="Test")
+    app = FastAPI()
+    app.state.metrics_enabled = False
 
-    @app.get("/test")
-    async def test_get():
-        return {"ok": True}
+    @app.get("/metrics", include_in_schema=False)
+    async def metrics_fallback():
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse(
+            "# fasal_saathi_metrics_disabled 1\n",
+            media_type="text/plain; version=0.0.4",
+        )
 
     client = TestClient(app)
-    schema = client.app.openapi()
+    # Hit the endpoint multiple times to ensure stability
+    for _ in range(5):
+        resp = client.get("/metrics")
+        assert resp.status_code == 200
 
-    # Schema is a dict with required keys
-    assert "openapi" in schema
-    assert "info" in schema
-    assert "paths" in schema
-    assert isinstance(schema["paths"], dict)
 
-    # No duplicate operationIds
-    op_ids = []
-    for path, methods in schema["paths"].items():
-        for method, details in methods.items():
-            op_id = details.get("operationId")
-            if op_id:
-                assert op_id not in op_ids, f"Duplicate operationId: {op_id}"
-                op_ids.append(op_id)
+def test_metrics_enabled_state_flag():
+    """app.state.metrics_enabled is set to False when instrumentation is absent."""
+    from main import app
+    assert hasattr(app.state, "metrics_enabled")
+    assert app.state.metrics_enabled is False

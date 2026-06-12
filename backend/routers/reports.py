@@ -172,6 +172,89 @@ def init_reports(
 # PDF generation helpers
 # ---------------------------------------------------------------------------
 
+def _validate_report_integrity(
+    data: ReportRequest,
+    cert_id: str,
+    signature_hex: str,
+    pdf_bytes: bytes,
+):
+    validation = {
+        "valid": True,
+        "checks": [],
+        "warnings": [],
+    }
+
+    required_fields = {
+        "name": data.name,
+        "crop": data.crop,
+        "area": data.area,
+        "profit": data.profit,
+        "season": data.season,
+    }
+
+    missing_fields = [
+        field
+        for field, value in required_fields.items()
+        if not str(value).strip()
+    ]
+
+    if missing_fields:
+        validation["valid"] = False
+        validation["warnings"].append(
+            f"missing_fields:{','.join(missing_fields)}"
+        )
+
+    if not cert_id:
+        validation["valid"] = False
+        validation["warnings"].append(
+            "missing_certificate_id"
+        )
+
+    else:
+        validation["checks"].append(
+            "certificate_id_present"
+        )
+
+    if not signature_hex:
+        validation["valid"] = False
+        validation["warnings"].append(
+            "missing_signature"
+        )
+
+    else:
+        validation["checks"].append(
+            "signature_present"
+        )
+
+    if not pdf_bytes:
+        validation["valid"] = False
+        validation["warnings"].append(
+            "empty_pdf"
+        )
+
+    if pdf_bytes:
+        validation["checks"].append(
+            "pdf_generated"
+        )
+
+        if len(pdf_bytes) < 1000:
+            validation["valid"] = False
+            validation["warnings"].append(
+                "pdf_content_suspiciously_small"
+            )
+
+        if not pdf_bytes.startswith(b"%PDF"):
+            validation["valid"] = False
+            validation["warnings"].append(
+                "invalid_pdf_header"
+            )
+
+    validation["checks"].append(
+        "required_field_validation"
+    )
+
+    return validation
+
 def _build_pdf(data: ReportRequest, signature_hex: str, cert_id: str) -> bytes:
     """Render a bank-ready financial report as a PDF and return the raw bytes."""
     buf = io.BytesIO()
@@ -452,6 +535,86 @@ async def generate_signed_report(request: Request, data: ReportRequest):
     except Exception as e:
         logger.error(f"Key retrieval error: {e}")
         raise HTTPException(status_code=500, detail="Failed to load signing key")
+    
+    try:
+        cert_id = _make_cert_id(data)
+        signature_hex = _sign_report(private_key, data, cert_id)
+        pdf_bytes = _build_pdf(data, signature_hex, cert_id)
+
+        validation = _validate_report_integrity(
+            data,
+            cert_id,
+            signature_hex,
+            pdf_bytes,
+        )
+
+        if not validation["valid"]:
+            logger.error(
+                "Report integrity validation failed: %s",
+                validation,
+            )
+
+            raise HTTPException(
+                status_code=500,
+                detail="Generated report failed integrity validation",
+            )
+
+        logger.info(
+            "[REPORT_VALIDATION] cert_id=%s checks=%s warnings=%s",
+            cert_id,
+            validation["checks"],
+            validation["warnings"],
+        )
+
+        MAX_PDF_SIZE_MB = 10
+
+        if len(pdf_bytes) > MAX_PDF_SIZE_MB * 1024 * 1024:
+            logger.error(
+                "Export validation failed: PDF exceeds size limit (%s bytes)",
+                len(pdf_bytes),
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Generated report exceeds supported export size",
+            )
+
+        if not pdf_bytes.startswith(b"%PDF"):
+            logger.error(
+                "Export validation failed: Invalid PDF structure for certificate %s",
+                cert_id,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Generated report failed integrity validation",
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"PDF generation error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate report",
+        )
+
+    filename = f"FasalSaathi_BankReport_{cert_id}.pdf"
+
+    logger.info(
+        "[EXPORT_AUDIT] cert_id=%s size_bytes=%s farmer=%s crop=%s",
+        cert_id,
+        len(pdf_bytes),
+        data.name,
+        data.crop,
+    )
+
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(pdf_bytes)),
+        },
+    )
 
 @router.post("/log-error")
 async def log_error(body: ClientErrorReport):
@@ -478,61 +641,6 @@ async def log_error(body: ClientErrorReport):
         f" stack={stack}" if stack else "",
     )
     return {"success": True}
-    try:
-        cert_id = _make_cert_id(data)
-        signature_hex = _sign_report(private_key, data, cert_id)
-        pdf_bytes = _build_pdf(data, signature_hex, cert_id)
-        MAX_PDF_SIZE_MB = 10
-
-        if len(pdf_bytes) > MAX_PDF_SIZE_MB * 1024 * 1024:
-            logger.error(
-                "Export validation failed: PDF exceeds size limit (%s bytes)",
-                len(pdf_bytes),
-            )
-            raise HTTPException(
-                status_code=500,
-                detail="Generated report exceeds supported export size",
-            )
-        
-        if not pdf_bytes.startswith(b"%PDF"):
-            logger.error(
-                "Export validation failed: Invalid PDF structure for certificate %s",
-                cert_id,
-            )
-            raise HTTPException(
-                status_code=500,
-                detail="Generated report failed integrity validation",
-            )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"PDF generation error: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to generate report",
-        )
-
-    filename = f"FasalSaathi_BankReport_{cert_id}.pdf"
-
-    logger.info(
-        "[EXPORT_AUDIT] cert_id=%s size_bytes=%s farmer=%s crop=%s",
-        cert_id,
-        len(pdf_bytes),
-        data.name,
-        data.crop,
-    )
-    
-    return StreamingResponse(
-        io.BytesIO(pdf_bytes),
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "Content-Length": str(len(pdf_bytes)),
-        },
-    )
-
-
 
 # Admin: role assignment with custom-claim sync
 # ---------------------------------------------------------------------------
