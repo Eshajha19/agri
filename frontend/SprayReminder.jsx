@@ -13,26 +13,32 @@ import {
   MapPin,
 } from "lucide-react";
 import "./SprayReminder.css";
-import apiClient from "./services/api";
 
 export default function SprayReminder({ onClose, location = "Default" }) {
-  // Form state
   const [cropName, setCropName] = useState("");
   const [cropStage, setCropStage] = useState("seedling");
   const [sprayType, setSprayType] = useState("pesticide");
   const [notificationEnabled, setNotificationEnabled] = useState(true);
   const [selectedDate, setSelectedDate] = useState("");
-
-  // Data state
   const [weatherData, setWeatherData] = useState(null);
   const [recommendations, setRecommendations] = useState(null);
   const [scheduleHistory, setScheduleHistory] = useState([]);
-
-  // UI state
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [activeTab, setActiveTab] = useState("schedule");
+
+  const persistSchedule = (item) => {
+    try {
+      const raw = localStorage.getItem("agri_spray_schedules");
+      const existing = raw ? JSON.parse(raw) : [];
+      localStorage.setItem("agri_spray_schedules", JSON.stringify([item, ...(Array.isArray(existing) ? existing : [])]));
+    } catch (err) {
+      console.error("Failed to persist spray schedule:", err);
+    }
+  };
+
+  const saveSchedule = persistSchedule;
 
   // Crop stages
   const cropStages = [
@@ -174,18 +180,22 @@ Provide recommendations ONLY in this JSON format:
       const newSchedule = {
         id: Date.now(),
         crop: cropName,
+        cropName,
         stage: cropStage,
+        sprayType,
         type: sprayType,
         date: selectedDate,
+        scheduledAt: selectedDate,
         notification: notificationEnabled,
         createdAt: new Date().toLocaleString(),
       };
 
       setScheduleHistory([newSchedule, ...scheduleHistory]);
+      persistSchedule(newSchedule);
+
       setSuccess("Spray reminder scheduled successfully!");
 
       if (notificationEnabled) {
-        // Request notification permission
         if ("Notification" in window && Notification.permission === "granted") {
           const sprayDate = new Date(selectedDate);
           const timeUntil = sprayDate - new Date();
@@ -196,12 +206,11 @@ Provide recommendations ONLY in this JSON format:
                 body: `Time to apply ${sprayType} to your ${cropName} field!`,
                 icon: "/agri-icon.png",
               });
-            }, Math.min(timeUntil, 2147483647)); // Prevent overflow
+            }, Math.min(timeUntil, 2147483647));
           }
         }
       }
 
-      // Reset form
       setCropName("");
       setSelectedDate("");
       setSprayType("pesticide");
