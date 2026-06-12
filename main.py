@@ -102,6 +102,12 @@ from realtime_notifications import notification_broker
 from rbac_audit import audit_rbac_event, rbac_audit_trail, validate_required_roles
 from rbac import RBACMiddleware, print_rbac_matrix, RBACManager, Permission
 from gdpr_deletion import GDPRDeletionManager, DeletionTarget
+from persistence.connections import (
+    initialize_connections,
+    shutdown_connections,
+    get_firestore_client,
+    firestore_manager,
+)
 from persistence.repositories import (
     FinanceApplicationRepository,
     NotificationRepository,
@@ -163,6 +169,14 @@ async def lifespan(app: FastAPI):
     """
     startup_time = time.time()
     logger.info("🚀 Starting up: initializing FastAPI services")
+
+    try:
+        logger.info("🗄️  Initializing database connections...")
+        initialize_connections()
+        logger.info("✅ Database connections initialized successfully")
+    except Exception as exc:
+        logger.error("❌ Database connection initialization failed: %s", exc, exc_info=True)
+        raise
 
     try:
         logger.info("📊 Initializing ML pipeline...")
@@ -357,6 +371,13 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.error("❌ Error stopping notification broker: %s", exc, exc_info=True)
 
+    try:
+        logger.info("🗄️  Shutting down database connections...")
+        await shutdown_connections()
+        logger.info("✅ Database connections shutdown complete")
+    except Exception as exc:
+        logger.error("❌ Error shutting down database connections: %s", exc, exc_info=True)
+
     logger.info("✅ Shutdown complete")
 
 
@@ -384,6 +405,9 @@ limiter.limit = _safe_limit
 
 db_firestore = None
 gdpr_deletion_manager = GDPRDeletionManager()
+
+# Get Firestore client from connection manager
+db_firestore = get_firestore_client()
 
 if not firebase_admin._apps:
     try:
