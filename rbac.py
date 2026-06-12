@@ -396,16 +396,12 @@ class RBACManager:
                 detail="Invalid or expired authorization token",
             )
 
-            # Verify Firebase token
-            try:
-                decoded_token = firebase_auth.verify_id_token(token, check_revoked=True)
-                uid = decoded_token.get("uid")
-            except Exception as exc:
-                logger.error("Token verification failed: %s", exc)
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Invalid or expired authorization token"
-                )
+        db = RBACManager.get_db()
+        if not db:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Authentication database unavailable",
+            )
 
         try:
             # Firestore's .get() is a blocking network call; run it off the
@@ -419,17 +415,6 @@ class RBACManager:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Authentication database lookup failed",
             ) from exc
-
-            try:
-                user_doc = await asyncio.to_thread(
-                    db.collection("users").document(uid).get,
-                )
-            except Exception as exc:
-                logger.error("Firestore query failed for user %s: %s", uid, exc)
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=STALE_TOKEN_DETAIL,
-                )
 
         claim_tenant = RBACManager._extract_tenant(decoded_token)
         if claim_tenant and tenant_id and claim_tenant != tenant_id:
