@@ -11,7 +11,51 @@ from typing import Dict, List, Optional, Any
 import json
 import uuid
 
+from pydantic import BaseModel, Field
+
 logger = logging.getLogger(__name__)
+
+
+# ── Registry schema (validates export/import payloads) ─────────────────
+
+
+class ModelVersionEntry(BaseModel):
+    """Single model-version record within a registry export."""
+    model_id: str = Field(..., min_length=1)
+    model_name: str = Field(..., min_length=1)
+    version: str = Field(..., min_length=1)
+    model_path: str = Field(..., min_length=1)
+    status: str = Field(default="draft", pattern=r"^(draft|canary|staging|production|archived|rolled_back)$")
+    created_by: str = "system"
+    description: Optional[str] = None
+    metrics: Dict[str, float] = Field(default_factory=dict)
+    created_at: str = ""
+    deployed_at: Optional[str] = None
+    canary_traffic_percentage: int = 0
+    rollback_reason: Optional[str] = None
+    deployment_history: List[Dict] = Field(default_factory=list)
+
+
+class ActiveModelEntry(BaseModel):
+    """Active (currently promoted) model entry in a registry export."""
+    model_id: str = Field(..., min_length=1)
+    model_name: str = Field(..., min_length=1)
+    version: str = Field(..., min_length=1)
+    model_path: str = Field(..., min_length=1)
+    status: str = Field(default="production", pattern=r"^(draft|canary|staging|production|archived|rolled_back)$")
+    created_by: str = "system"
+    description: Optional[str] = None
+    metrics: Dict[str, float] = Field(default_factory=dict)
+    created_at: str = ""
+    deployed_at: Optional[str] = None
+
+
+class RegistryExportPayload(BaseModel):
+    """Top-level schema for model registry export/import."""
+    schema_version: str = "1.0"
+    models: Dict[str, Dict[str, ModelVersionEntry]]
+    active_models: Dict[str, ActiveModelEntry]
+    deployment_log: List[Dict] = Field(default_factory=list)
 
 
 class ModelStatus(Enum):
@@ -237,18 +281,63 @@ class ModelRegistry:
             return [log for log in self.deployment_log if log["model_name"] == model_name][-limit:]
 
     def export_registry(self) -> Dict:
-        """Export entire registry as JSON"""
-        with self._lock:
-            return {
-                "models": {
-                    name: {ver: m.to_dict() for ver, m in vers.items()}
-                    for name, vers in self.models.items()
-                },
-                "active_models": {
-                    name: m.to_dict() for name, m in self.active_models.items()
-                },
-                "deployment_log": list(self.deployment_log),
-            }
+        """Export entire registry — validated against RegistryExportPayload."""
+        raw = {
+            "models": {
+                name: {
+                    version: model.to_dict()
+                    for version, model in versions.items()
+                }
+                for name, versions in self.models.items()
+            },
+            "active_models": {
+                name: model.to_dict()
+                for name, model in self.active_models.items()
+            },
+            "deployment_log": self.deployment_log,
+        }
+        # Validate before returning.
+        return RegistryExportPayload(**raw).model_dump()
+
+    def import_registry(self, data: Dict) -> int:
+        """Import registry from *data*, validated against RegistryExportPayload.
+
+        Returns the number of model versions imported.
+        Raises ValueError (or Pydantic ValidationError) on invalid data.
+        """
+        payload = RegistryExportPayload(**data)
+        count = 0
+        for model_name, versions in payload.models.items():
+            for version_str, entry in versions.items():
+                version = ModelVersion(
+                    model_name=entry.model_name,
+                    version=entry.version,
+                    model_path=entry.model_path,
+                    status=ModelStatus(entry.status),
+                    created_by=entry.created_by,
+                    description=entry.description,
+                    metrics=dict(entry.metrics),
+                )
+                version.model_id = entry.model_id
+                version.created_at = entry.created_at
+                version.deployed_at = entry.deployed_at
+                version.canary_traffic_percentage = entry.canary_traffic_percentage
+                version.rollback_reason = entry.rollback_reason
+                version.deployment_history = list(entry.deployment_history)
+
+                if model_name not in self.models:
+                    self.models[model_name] = {}
+                self.models[model_name][version_str] = version
+                count += 1
+
+        for model_name, entry in payload.active_models.items():
+            version = self.models.get(model_name, {}).get(entry.version)
+            if version:
+                self.active_models[model_name] = version
+
+        self.deployment_log.extend(payload.deployment_log)
+        logger.info("Imported %d model versions from registry payload", count)
+        return count
 
 
 # Global registry instance
