@@ -1,10 +1,12 @@
 # main.py
-import os
+import collections
 import io
 import json
 import collections
 from error_utils import safe_detail
 
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 
 class SimulationRequest(BaseModel):
@@ -85,6 +87,9 @@ class QualityTrendsRequest(BaseModel):
     crop_type: str = Field(..., min_length=1, max_length=50)
     days: int = Field(default=7, ge=1, le=30)
 
+# Date/Time utilities
+from datetime import datetime, timezone
+
 # Rate Limiting
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -135,8 +140,9 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.units import inch
-from cryptography.hazmat.primitives.asymmetric import ed25519
-from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ed25519, padding
+from cryptography.hazmat.primitives import serialization, hashes
+from backend.rate_limit_config import build_limiter, rate_limit_exceeded_handler
 
 # KMS Support
 try:
@@ -206,9 +212,9 @@ def _sanitise_log_field(value: str) -> str:
     return _CONTROL_CHAR_RE.sub("", value)
 
 # Initialize Limiter
-limiter = Limiter(key_func=get_remote_address)
+limiter = build_limiter()
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 # Initialize Firebase Admin
 # Explicitly set to None before the try block so db_firestore is always
@@ -251,7 +257,7 @@ async def verify_role(request: Request, required_roles: list = None):
 
     # Verify the token signature with Firebase — raises on invalid/expired tokens.
     try:
-        decoded_token = firebase_auth.verify_id_token(id_token)
+        decoded_token = firebase_auth.verify_id_token(id_token, check_revoked=True)
     except Exception:
         raise HTTPException(status_code=401, detail="Authentication failed")
 
@@ -766,7 +772,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     # allowed any caller to overwrite another user's subscription by sending
     # a known user_id with an attacker-controlled phone number.
     token_data = await verify_role(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
 
     subscriber = {
         "phone_number": data.phone_number,
@@ -1022,7 +1028,17 @@ async def generate_signed_report(data: ReportRequest, request: Request):
             "date":   datetime.now().date().isoformat(),
         }
         report_data_bytes = json.dumps(report_payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
-        signature = private_key.sign(report_data_bytes)
+        
+        # Handle both Ed25519 and RSA private keys
+        if isinstance(private_key, ed25519.Ed25519PrivateKey):
+            signature = private_key.sign(report_data_bytes)
+        else:
+            # RSA key - requires padding and hash algorithm
+            signature = private_key.sign(
+                report_data_bytes,
+                padding.PKCS1v15(),
+                hashes.SHA256(),
+            )
 
         # Use the full 64-char SHA-256 hex digest as the canonical signature
         # fingerprint, then display the first 16 chars (64 bits) on the PDF.
@@ -1342,7 +1358,7 @@ async def verify_seed(data: SeedVerifyRequest, request: Request):
     # Downgrade to "invalid" at query time if the batch has expired.
     try:
         expiry = datetime.strptime(entry["expires_on"], "%Y-%m-%d").date()
-        if expiry < datetime.utcnow().date():
+        if expiry < datetime.now(timezone.utc).date():
             logger.warning(
                 "Seed verification: authentic batch has expired — code=%s expires_on=%s",
                 code,
@@ -1663,7 +1679,8 @@ async def get_qr_code(request: Request, batch_id: str):
     """Get QR code for batch"""
     try:
         qr_code = _supply_chain_blockchain.generate_qr_code(batch_id)
-        return {"success": True, "batch_id": batch_id, "qr_code_base64": qr_code}
+        qr_payload = _supply_chain_blockchain.get_traceability_qr_payload(batch_id)
+        return {"success": True, "batch_id": batch_id, "qr_code_base64": qr_code, "qr_payload": qr_payload}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=safe_detail(e, 400))
     except Exception as e:

@@ -26,10 +26,14 @@ Unchanged (intentionally public):
 Still requires admin/system role:
   POST /sync-cache       — unchanged
 """
-
+from collections import OrderedDict
+from datetime import datetime, timezone
 import os
 import re
+import sys
 import logging
+from threading import Lock
+from time import monotonic
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
@@ -41,6 +45,31 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # Pydantic Models
 # ============================================================================
+
+def _build_recovery_response(
+    message: str,
+    error_type: str,
+    session_id: Optional[str] = None,
+) -> dict:
+    recovery_prompts = {
+        "audio": "Please upload a supported audio file and try again.",
+        "session": "Try creating a new session and repeat your request.",
+        "query": "Try rephrasing your question with more details.",
+        "rate_limit": "Too many requests detected. Please wait before retrying.",
+        "system": "Please retry in a few moments.",
+    }
+
+    return {
+        "success": False,
+        "error_type": error_type,
+        "message": message,
+        "recovery_prompt": recovery_prompts.get(
+            error_type,
+            "Please try again."
+        ),
+        "retry_supported": True,
+        "session_id": session_id,
+    }
 
 class VoiceQueryRequest(BaseModel):
     """Request model for voice queries.
@@ -153,26 +182,87 @@ TEMP_UPLOAD_DIR = "./temp_audio_uploads"
 ALLOWED_EXTENSIONS = {".wav", ".mp3", ".ogg", ".webm", ".m4a"}
 
 _rate_limit_store: Dict[str, tuple] = {}
+_rate_limit_lock = Lock()
+_last_rate_limit_prune = 0.0
 RATE_LIMIT_COUNT = 10   # max uploads per window
 RATE_LIMIT_WINDOW = 60  # seconds
+RATE_LIMIT_PRUNE_INTERVAL = RATE_LIMIT_WINDOW
+RATE_LIMIT_MAX_ENTRIES = 10_000
+
+# Session cleanup constants
+MAX_SESSIONS = 1000
+SESSION_TTL_SECONDS = 3600  # 1 hour
+_session_created_at: OrderedDict[str, float] = OrderedDict()
+_session_lock = Lock()
+
+def _prune_rate_limit_store(now: float) -> None:
+    """Drop expired rate-limit entries to bound in-memory state."""
+    global _last_rate_limit_prune
+
+    if now - _last_rate_limit_prune < RATE_LIMIT_PRUNE_INTERVAL:
+        return
+
+    expired_uids = [
+        uid
+        for uid, (_, window_start) in _rate_limit_store.items()
+        if now - window_start > RATE_LIMIT_WINDOW
+    ]
+    for uid in expired_uids:
+        _rate_limit_store.pop(uid, None)
+
+    _last_rate_limit_prune = now
 
 
 def _check_rate_limit(uid: str) -> bool:
     """Return True if the request is within the rate limit for this uid."""
-    import time
-    now = time.time()
-    if uid not in _rate_limit_store:
-        _rate_limit_store[uid] = (1, now)
-        return True
-    count, window_start = _rate_limit_store[uid]
-    if now - window_start > RATE_LIMIT_WINDOW:
-        _rate_limit_store[uid] = (1, now)
-        return True
-    if count >= RATE_LIMIT_COUNT:
-        return False
-    _rate_limit_store[uid] = (count + 1, window_start)
-    return True
+    now = monotonic()
+    with _rate_limit_lock:
+        _prune_rate_limit_store(now)
 
+        if len(_rate_limit_store) >= RATE_LIMIT_MAX_ENTRIES:
+            sorted_uids = sorted(
+                _rate_limit_store,
+                key=lambda u: _rate_limit_store[u][1],
+            )
+            for uid_candidate in sorted_uids[: max(1, len(sorted_uids) // 4)]:
+                _rate_limit_store.pop(uid_candidate, None)
+
+        if uid not in _rate_limit_store:
+            _rate_limit_store[uid] = (1, now)
+            return True
+
+        count, window_start = _rate_limit_store[uid]
+        if now - window_start > RATE_LIMIT_WINDOW:
+            _rate_limit_store[uid] = (1, now)
+            return True
+
+        if count >= RATE_LIMIT_COUNT:
+            return False
+
+        _rate_limit_store[uid] = (count + 1, window_start)
+        return True
+def _cleanup_sessions(now: float) -> None:
+    """Evict expired and oldest sessions to bound memory."""
+    if voice_assistant is None:
+        return
+    with _session_lock:
+        expired = [
+            sid for sid, created in _session_created_at.items()
+            if now - created > SESSION_TTL_SECONDS
+        ]
+        for sid in expired:
+            _session_created_at.pop(sid, None)
+            voice_assistant.sessions.pop(sid, None)
+        while len(_session_created_at) >= MAX_SESSIONS:
+            sid, _ = _session_created_at.popitem(last=False)
+            voice_assistant.sessions.pop(sid, None)
+
+
+def _register_session(session_id: str) -> None:
+    now = monotonic()
+    with _session_lock:
+        _cleanup_sessions(now)
+        _session_created_at[session_id] = now
 
 def _validate_filename(filename: str) -> str:
     if not filename:
@@ -277,16 +367,15 @@ async def create_session(request: Request, data: SessionCreateRequest):
     uid = await _require_auth(request)
 
     try:
-        session = voice_assistant.create_session(
+        new_session = voice_assistant.create_session(uid, data.language_code)
+        session_id = new_session.session_id
+        _register_session(session_id)
+        return SessionResponse(
+            session_id=session_id,
             user_id=uid,
             language_code=data.language_code,
-        )
-        return SessionResponse(
-            session_id=session.session_id,
-            user_id=session.user_id,
-            language_code=session.language_code,
-            offline_mode=session.offline_mode,
-            created_at=session.start_time,
+            offline_mode=voice_assistant.offline_mode,
+            created_at=new_session.start_time,
         )
     except HTTPException:
         raise
@@ -316,6 +405,7 @@ async def process_voice_query(request: Request, data: VoiceQueryRequest):
         if not session_id:
             session = voice_assistant.create_session(uid, language_code)
             session_id = session.session_id
+            _register_session(session_id)
         else:
             # Verify the session belongs to the authenticated user.
             if session_id not in voice_assistant.sessions:
@@ -374,7 +464,11 @@ async def upload_audio(
     uid = await _require_auth(request)
 
     if not _check_rate_limit(uid):
-        raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again later.")
+        return _build_recovery_response(
+            "Rate limit exceeded.",
+            "rate_limit",
+            session_id,
+        )
 
     try:
         safe_filename = _validate_filename(file.filename or "")
@@ -382,7 +476,12 @@ async def upload_audio(
         raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
     os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
-    temp_path = os.path.join(TEMP_UPLOAD_DIR, f"{uid}_{safe_filename}")
+    # Sanitize uid before embedding it in a filesystem path. Firebase UIDs are
+    # currently 28-character alphanumeric strings, but a defensive strip prevents
+    # path traversal if the auth provider is ever changed or the token is crafted
+    # to contain special characters.
+    safe_uid = re.sub(r"[^a-zA-Z0-9_-]", "_", uid)
+    temp_path = os.path.join(TEMP_UPLOAD_DIR, f"{safe_uid}_{safe_filename}")
     bytes_written = 0
 
     try:
@@ -404,7 +503,10 @@ async def upload_audio(
             raise HTTPException(status_code=400, detail="Empty file uploaded")
 
         if not session_id:
-            session_id = voice_assistant.create_session(uid, language_code).session_id
+            new_session = voice_assistant.create_session(uid, language_code)
+            session_id = new_session.session_id
+            _register_session(session_id)
+
 
         logger.info("Audio uploaded: uid=%s file=%s bytes=%d", uid, safe_filename, bytes_written)
 
@@ -498,23 +600,25 @@ async def analyze_query(request: Request, data: VoiceQueryRequest):
 
 @router.get("/offline-cache", tags=["Voice"])
 async def get_offline_cache(request: Request):
-    """Retrieve the offline knowledge cache.
+    """Return lightweight cache metadata.
 
-    Requires authentication to prevent unauthenticated enumeration of
-    the internal knowledge base.
+    Restricted to admin/system roles.  Returns entry count and a shallow
+    byte estimate instead of raw cache content or expensive full
+    serialization.
     """
     if voice_assistant is None:
         raise HTTPException(status_code=500, detail="Voice Assistant not initialized")
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Authorization system not initialized")
 
-    await _require_auth(request)
+    await verify_role_fn(request, required_roles=["admin", "system"])
 
     try:
+        cache = voice_assistant.offline_cache
         return {
             "success": True,
-            "offline_cache": voice_assistant.offline_cache,
-            "cache_size_bytes": sum(
-                len(str(v).encode()) for v in voice_assistant.offline_cache.values()
-            ),
+            "cache_entries": len(cache),
+            "cache_size_bytes": sys.getsizeof(cache),
         }
     except HTTPException:
         raise

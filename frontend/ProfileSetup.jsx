@@ -4,22 +4,8 @@ import { doc, setDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import { FaUser, FaGlobe, FaMapMarkerAlt, FaSeedling, FaArrowRight } from "react-icons/fa";
 import apiClient from "./lib/apiClient";
+import { LANGUAGE_OPTIONS } from "./lib/languageOptions";
 import "./ProfileSetup.css";
-
-const LANGUAGE_OPTIONS = [
-  { value: "en", label: "🌍 English" },
-  { value: "hi", label: "🇮🇳 हिंदी" },
-  { value: "mr", label: "🇮🇳 मराठी" },
-  { value: "bn", label: "🇮🇳 বাংলা" },
-  { value: "ta", label: "🇮🇳 தமிழ்" },
-  { value: "te", label: "🇮🇳 తెలుగు" },
-  { value: "gu", label: "🇮🇳 ગુજરાતી" },
-  { value: "pa", label: "🇮🇳 ਪੰਜਾਬੀ" },
-  { value: "kn", label: "🇮🇳 ಕನ್ನಡ" },
-  { value: "ml", label: "🇮🇳 മലയാളം" },
-  { value: "or", label: "🇮🇳 ଓଡ଼ିଆ" },
-  { value: "as", label: "🇮🇳 অসমীয়া" },
-];
 
 const ProfileSetup = ({ user, profileCompleted }) => {
   const [name, setName] = useState("");
