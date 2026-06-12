@@ -5,6 +5,7 @@ import logging
 import math
 import collections
 import threading
+import time
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
@@ -18,49 +19,9 @@ from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
 from csrf_protection import configure
 from backend.rate_limit_config import build_limiter, rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-
-limiter = build_limiter()
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
-
-from backend.rate_limit_config import build_limiter, rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
-
-limiter = build_limiter()
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
-
 from backend.utils.safe_log import sanitize_log_field
 from error_recovery_middleware import ErrorRecoveryMiddleware
 from security_hygiene import SecurityHygieneMiddleware
-
-app.add_middleware(ErrorRecoveryMiddleware)
-app.add_middleware(SecurityHygieneMiddleware)
-
-@app.post("/api/echo")
-async def echo_endpoint(request: Request):
-    return await request.json()
-
-@app.post("/api/echo-form")
-async def echo_form_endpoint(request: Request):
-    form = await request.form()
-    return dict(form)
-
-@app.post("/api/echo")
-async def echo_endpoint(request: Request):
-    return await request.json()
-
-@app.post("/api/echo-form")
-async def echo_form_endpoint(request: Request):
-    form = await request.form()
-    return dict(form)
-
-
-app = FastAPI(
-    title="Fasal Saathi Backend",
-    version="2.0",
-    lifespan=lifespan, 
-)
 # Expose sanitizer globally so routers can use it
 sanitise_log_field_fn = sanitize_log_field
 
@@ -114,18 +75,14 @@ class RAGQuery(BaseModel):
     query: str = Field(..., min_length=3, max_length=500)
     top_k: int = Field(default=3, ge=1, le=5)
 
-# Rate Limiting
+# Additional imports after base FastAPI imports
 from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
-from rate_limit_config import build_limiter, rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
 
 import firebase_admin
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from firebase_admin import auth, credentials, firestore, storage
-from slowapi import Limiter
-from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 
 from backend.routers import (
     advisory,
@@ -160,7 +117,6 @@ from whatsapp_store import subscriber_store
 from csrf_protection import generate_token, reject_cross_origin
 from fastapi import Depends
 from csrf_protection import verify_csrf_token_dependency
-from error_recovery_middleware import ErrorRecoveryMiddleware
 from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, resolve_subscription_regions, normalize_region_identifier
 from notification_auth import filter_notifications_for_user
 from realtime_notifications import notification_broker
@@ -215,6 +171,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 logger.addFilter(_context_filter)
+
 
 
 async def _run_lifespan_phase(component: str, action: str, operation, *, required: bool = True):
@@ -310,10 +267,6 @@ async def lifespan(app: FastAPI):
         "domain_engines", "Initialize domain engines", _init_domain_engines
     )
 
-   async def init_app_context():
-    # -----------------------
-    # Repositories
-    # -----------------------
     def _init_repositories():
         return AppContext(
             finance_repository=FinanceApplicationRepository(),
@@ -329,57 +282,27 @@ async def lifespan(app: FastAPI):
         "Initialize persistent repositories",
         _init_repositories
     )
-    """
-    Multi-worker guarantee
-        ----------------------
-        When Uvicorn is started with ``--workers N``, each worker forks/spawns
-        from the main process and imports ``main.py`` independently.  The
-        ``lifespan`` hook is invoked by FastAPI in every worker's event loop,
-        ensuring ``ModelRegistry`` is populated in every process before the
-        first request is served.
-    """
+
+    # Multi-worker guarantee: Each worker process ensures ModelRegistry
+    # is populated before first request.
     logger.info("Starting up: initializing services")
     init_ml_pipeline()
 
-    # Wire WebSocket token auth via first-message channel (not query string).
-    notification_broker.set_authenticate(firebase_auth.verify_id_token)
+    # Wire WebSocket token auth via first-message channel
+    notification_broker.set_authenticate(auth.verify_id_token)
     await notification_broker.start()
 
-
-    # Domain engines — initialized exactly once here at startup.
-    drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
-    shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
-    version_manager = ModelVersionManager(versions_dir="./model_versions")
-
-    ctx = await _run_lifespan_phase(
-        "ai_engines",
-        "Initialize AI engines",
-        _init_ai_engines
-    )
-
-    return ctx
-# Router init hooks — run after engines are ready.
-governance.init_governance(drift_detector, shadow_evaluator, version_manager, auth_fn=verify_role)
-finance.init_finance(_farm_finance_ai, RBACManager, Permission)
-quality.init_quality(_crop_quality_grader, RBACManager, Permission)
-blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
-referrals.init_referrals(lambda: db_firestore)
-reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
-marketplace.init_marketplace(verify_role)
-lms.init_lms(verify_role, db_firestore)
-advisory.init_advisory(verify_role)
-    
-def _init_core_routers():
+    def _init_core_routers():
         governance.init_governance(drift_detector, shadow_evaluator, version_manager, verify_role)
-        finance.init_finance(_farm_finance_ai, RBACManager, Permission)
-        quality.init_quality(_crop_quality_grader, RBACManager, Permission)
-        blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
+        finance.init_finance(None, RBACManager, Permission)
+        quality.init_quality(None, RBACManager, Permission)
+        blockchain.init_blockchain(None, verify_role)
         referrals.init_referrals(lambda: db_firestore, verify_role)
         reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
 
-await _run_lifespan_phase("core_routers", "Initialize core routers", _init_core_routers)
+    await _run_lifespan_phase("core_routers", "Initialize core routers", _init_core_routers)
 
-async def _notify_booking(booking: dict) -> None:
+    async def _notify_booking(booking: dict) -> None:
         owner_uid = booking.get("ownerUid")
         if not owner_uid:
             logger.debug("Skipping booking notification: no owner_uid")
@@ -465,8 +388,9 @@ async def _notify_booking(booking: dict) -> None:
             cache_mgr = OfflineCacheManager(cache_dir="./voice_assistant_cache")
             voice_assistant_router.init_voice_assistant(voice_asst, cache_mgr, verify_role)
 
+        await _run_lifespan_phase("voice_assistant", "Initialize voice assistant", _init_voice_assistant, required=False)
+
     # All models are now registered in init_ml_pipeline() above.
-    # Look them up from ModelRegistry instead of loading directly.
     model_lag = ModelRegistry.get_model("sklearn_lag")
     model_trend = ModelRegistry.get_model("trend_forecast")
     if model_lag:
@@ -474,8 +398,33 @@ async def _notify_booking(booking: dict) -> None:
     if model_trend:
         logger.info("ML: trend forecast model loaded from registry")
 
-    ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend)
+    def _init_ml_router():
+        ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend, verify_role)
+
+    await _run_lifespan_phase("ml_router", "Initialize ML router", _init_ml_router)
     init_governance_router(drift_detector, shadow_evaluator, version_manager)
+
+    def _start_celery_autoscaler():
+        from celery_autoscaler import get_autoscaler
+        from celery_worker import celery_app
+        from ml.price_forecaster import get_price_forecaster
+        _autoscaler = get_autoscaler(celery_app, get_price_forecaster())
+        _autoscaler.start()
+
+    await _run_lifespan_phase("celery_autoscaler", "Start Celery autoscaler", _start_celery_autoscaler, required=False)
+
+    def _init_offline_sync():
+        from persistence.offline_sync import init_schema
+        init_schema()
+
+    await _run_lifespan_phase("offline_sync", "Initialize offline sync layer", _init_offline_sync, required=False)
+
+    def _start_sync_worker():
+        from sync_worker import get_sync_worker
+        _sync_worker = get_sync_worker(db_firestore)
+        _sync_worker.start()
+
+    await _run_lifespan_phase("sync_worker", "Start sync worker", _start_sync_worker, required=False)
 
     yield
     # Shutdown
@@ -483,14 +432,27 @@ async def _notify_booking(booking: dict) -> None:
     logger.info("Shutting down")
 
 
-# Initialize Limiter
+# =============================================================================
+# APPLICATION INITIALIZATION
+# =============================================================================
+
+# Initialize FastAPI app with lifespan context manager
+app = FastAPI(
+    title="Fasal Saathi Backend",
+    version="2.0",
+    lifespan=lifespan,
+)
+
+# Add middleware
+app.add_middleware(ErrorRecoveryMiddleware)
+app.add_middleware(SecurityHygieneMiddleware)
+
+# Initialize Rate Limiter
 limiter = build_limiter(default_limits=["120/minute"])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
-# Wrap limiter.limit so decoration-time checks don't raise during test imports.
-# Some endpoints are defined without an explicit `request` parameter which
-# slowapi's decorator validates eagerly; replace with a safe wrapper that
-# falls back to a no-op decorator when the underlying limiter raises.
+
+# Wrap limiter.limit to prevent eager validation errors during test imports
 _orig_limit = limiter.limit
 def _safe_limit(rate):
     def _decorator(fn):
@@ -501,14 +463,12 @@ def _safe_limit(rate):
     return _decorator
 limiter.limit = _safe_limit
 
-
+# Initialize Firebase
 db_firestore = None
 
 if not firebase_admin._apps:
     try:
-        # In a GCP environment this picks up Application Default Credentials
-        # automatically.  For local dev set GOOGLE_APPLICATION_CREDENTIALS to
-        # the path of a service-account key file.
+        # Application Default Credentials in GCP, or GOOGLE_APPLICATION_CREDENTIALS env var
         firebase_admin.initialize_app()
         db_firestore = firestore.client()
         logger.info("Firebase Admin: successfully initialized")
