@@ -25,6 +25,7 @@ send_whatsapp_fn = None
 format_alert_fn = None
 verify_role_fn = None
 resolve_user_profile_fn = None
+ALERT_HISTORY = {}
 
 
 def init_alerts(ns, ss, ga_fn, sw_fn, fa_fn, vr_fn, rp_fn=None):
@@ -37,6 +38,37 @@ def init_alerts(ns, ss, ga_fn, sw_fn, fa_fn, vr_fn, rp_fn=None):
     format_alert_fn = fa_fn
     verify_role_fn = vr_fn
     resolve_user_profile_fn = rp_fn
+
+def _calculate_alert_severity(
+    frequency_score: int,
+    failure_score: int,
+    impact_score: int,
+    history_score: int,
+):
+    severity_score = round(
+        (
+            frequency_score * 0.30
+            + failure_score * 0.30
+            + impact_score * 0.25
+            + history_score * 0.15
+        ),
+        2,
+    )
+
+    if severity_score >= 80:
+        severity = "critical"
+    elif severity_score >= 65:
+        severity = "high"
+    elif severity_score >= 45:
+        severity = "medium"
+    else:
+        severity = "low"
+
+    return {
+        "severity": severity,
+        "severity_score": severity_score,
+    }
+
 
 
 @router.get("/notifications")
@@ -151,6 +183,8 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
         subscribers = subscriber_store.get_all()
         results = []
         formatted_msg = format_alert_fn(data.alert_type, data.message)
+        history = ALERT_HISTORY.get(data.alert_type, 0) + 1
+        ALERT_HISTORY[data.alert_type] = history
         if region_id:
             subscribers = {
                 user_id: info
@@ -164,9 +198,77 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
                 "success": res.get("success", False),
                 "status": res.get("status", "error"),
             })
-        notification_store.append(alert_type=data.alert_type, message=data.message, region_id=region_id or None)
+        delivered = sum(
+            1 for r in results
+            if r["success"]
+        )
+
+        failed_deliveries = len(results) - delivered
+
+        frequency_score = min(
+            history * 10,
+            100,
+        )
+
+        failure_score = min(
+            int(
+                (
+                    failed_deliveries
+                    / max(len(results), 1)
+                ) * 100
+            ),
+            100,
+        )
+
+        impact_score = min(
+            delivered * 5,
+            100,
+        )
+
+        history_score = min(
+            history * 8,
+            100,
+        )
+
+        severity_data = _calculate_alert_severity(
+            frequency_score=frequency_score,
+            failure_score=failure_score,
+            impact_score=impact_score,
+            history_score=history_score,
+        )
+
+        notification_store.append(
+            alert_type=data.alert_type,
+            message=data.message,
+            region_id=region_id or None,
+        )
+
         delivered = sum(1 for r in results if r["success"])
-        return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
+
+        notification_store.append(
+            alert_type=data.alert_type,
+            message=data.message,
+            region_id=region_id or None,
+            severity=severity_data["severity"],
+            severity_score=severity_data["severity_score"],
+            occurrence_count=history,
+            delivery_success_count=delivered,
+            delivery_failure_count=failed_deliveries,
+        )
+        delivered = sum(1 for r in results if r["success"])
+        return {
+            "success": True,
+            "results": results,
+            "delivered": delivered,
+            "total": len(results),
+            "alert_context": {
+                "severity": severity_data["severity"],
+                "severity_score": severity_data["severity_score"],
+                "occurrence_count": history,
+                "delivery_success_count": delivered,
+                "delivery_failure_count": failed_deliveries,
+            },
+        }
     except HTTPException:
         raise
     except Exception as e:
