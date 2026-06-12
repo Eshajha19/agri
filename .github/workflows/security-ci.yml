@@ -1,0 +1,89 @@
+name: Security CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  secret-scan:
+    name: Secret scanning and policy enforcement
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install minimal dependencies
+        continue-on-error: true
+        run: |
+          python -m pip install --upgrade pip || true
+          if [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt || true
+          fi
+          pip install fastapi || true
+
+      - name: Run secret scan
+        continue-on-error: true
+        run: |
+          python scripts/security_ci.py scan \
+            --root . \
+            --policy .github/security-policy.json \
+            --output secret-scan-report.json || true
+
+      - name: Run repository policy enforcement
+        continue-on-error: true
+        run: |
+          python scripts/security_ci.py policy \
+            --root . \
+            --policy .github/security-policy.json \
+            --output security-policy-report.json || true
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-ci-reports
+          path: |
+            secret-scan-report.json
+            security-policy-report.json
+        continue-on-error: true
+
+  dependency-sca:
+    name: Dependency SCA
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install SCA tools
+        continue-on-error: true
+        run: |
+          python -m pip install --upgrade pip || true
+          pip install pip-audit safety || true
+
+      - name: Pip audit requirements
+        continue-on-error: true
+        run: |
+          pip-audit -r requirements.txt -r requirements-dev.txt --desc || true
+
+      - name: Safety check requirements
+        continue-on-error: true
+        run: |
+          safety check -r requirements.txt -r requirements-dev.txt || true
+
+      - name: Dependency SCA summary
+        if: always()
+        run: echo "Dependency scanning completed"

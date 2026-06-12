@@ -1,8 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import './VoiceAssistant.css';
 import apiClient from './lib/apiClient';
+import { parseVoiceNavigation } from './lib/voiceNavigation';
+import { Mic, MicOff, Wheat, User, Bot, Zap, AlertTriangle, Trash2, Lightbulb, Smartphone, Loader2, Send, CheckCircle } from 'lucide-react';
 
 const VoiceAssistant = () => {
+  const navigate = useNavigate();
   const [isListening, setIsListening] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [language, setLanguage] = useState('hi');
@@ -14,6 +18,7 @@ const VoiceAssistant = () => {
   const messagesEndRef = useRef(null);
   const recognitionRef = useRef(null);
   const audioContextRef = useRef(null);
+
 
   // Language labels
   const languages = {
@@ -114,8 +119,67 @@ const VoiceAssistant = () => {
   };
 
   const processQuery = async (query) => {
-    if (!query.trim() || !sessionId) {
-      setError('Please provide a query and ensure session is active');
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setError('Please provide a query');
+      return;
+    }
+
+    // Add user message to chat immediately
+    const userMessage = {
+      id: `user_${Date.now()}`,
+      type: 'user',
+      text: trimmed,
+      language: language,
+      timestamp: new Date().toLocaleTimeString(),
+    };
+    setMessages((prev) => [...prev, userMessage]);
+
+    // 1) Intercept navigation commands locally (fast)
+    const nav = parseVoiceNavigation(trimmed);
+    if (nav.type === 'back') {
+      navigate(-1);
+      const assistantText = 'Going back';
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant_${Date.now()}`,
+          type: 'assistant',
+          text: assistantText,
+          intent: 'navigation_back',
+          language: language,
+          offline: false,
+          timestamp: new Date().toLocaleTimeString(),
+        },
+      ]);
+      speakResponse(assistantText, language);
+      setInputText('');
+      return;
+    }
+
+    if (nav.type === 'navigate') {
+      navigate(nav.path);
+      const assistantText = `Opening ${nav.path.replace('/', '').replace('-', ' ')}`;
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant_${Date.now()}`,
+          type: 'assistant',
+          text: assistantText,
+          intent: 'navigation_open_route',
+          language: language,
+          offline: false,
+          timestamp: new Date().toLocaleTimeString(),
+        },
+      ]);
+      speakResponse(assistantText, language);
+      setInputText('');
+      return;
+    }
+
+    // 2) Otherwise, fall back to backend voice assistant for farm guidance
+    if (!sessionId) {
+      setError('Voice session not ready yet. Please try again in a moment.');
       return;
     }
 
@@ -123,26 +187,14 @@ const VoiceAssistant = () => {
     setError(null);
 
     try {
-      // Add user message to chat
-      const userMessage = {
-        id: `user_${Date.now()}`,
-        type: 'user',
-        text: query,
-        language: language,
-        timestamp: new Date().toLocaleTimeString(),
-      };
-      setMessages((prev) => [...prev, userMessage]);
-
-      // Send query to backend
       const response = await apiClient.post('/api/voice/query', {
-        transcript: query,
+        transcript: trimmed,
         language_code: language,
         session_id: sessionId,
       });
 
       const data = response.data;
 
-      // Add assistant response
       const assistantMessage = {
         id: `assistant_${Date.now()}`,
         type: 'assistant',
@@ -154,7 +206,6 @@ const VoiceAssistant = () => {
       };
       setMessages((prev) => [...prev, assistantMessage]);
 
-      // Text-to-speech (optional)
       speakResponse(data.response_text, language);
     } catch (err) {
       console.error('Query processing error:', err);
@@ -164,6 +215,7 @@ const VoiceAssistant = () => {
       setInputText('');
     }
   };
+
 
   const speakResponse = (text, lang) => {
     const utterance = new SpeechSynthesisUtterance(text);
@@ -188,7 +240,7 @@ const VoiceAssistant = () => {
   return (
     <div className="voice-assistant-container">
       <div className="voice-assistant-header">
-        <h1>🎤 Voice Assistant</h1>
+        <h1><Mic size={28} aria-hidden="true" /> Voice Assistant</h1>
         <p className="subtitle">Speak in your language • Get instant guidance</p>
       </div>
 
@@ -211,7 +263,7 @@ const VoiceAssistant = () => {
         </div>
         <div className="status-item">
           <span className={`status-badge ${isListening ? 'listening' : 'idle'}`}>
-            {isListening ? '🎙️ Listening...' : '✓ Ready'}
+            {isListening ? <><MicOff size={14} /> Listening...</> : <><CheckCircle size={14} /> Ready</>}
           </span>
         </div>
         {sessionId && (
@@ -227,7 +279,7 @@ const VoiceAssistant = () => {
       <div className="messages-container">
         {messages.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-icon">🌾</div>
+            <div className="empty-icon" aria-hidden="true"><Wheat size={48} /></div>
             <h3>Welcome to Voice Assistant!</h3>
             <p>Ask me about:</p>
             <ul className="suggestions">
@@ -244,7 +296,7 @@ const VoiceAssistant = () => {
             {messages.map((msg) => (
               <div key={msg.id} className={`message message-${msg.type}`}>
                 <div className="message-avatar">
-                  {msg.type === 'user' ? '👨‍🌾' : '🤖'}
+                  {msg.type === 'user' ? <User size={18} aria-label="User" /> : <Bot size={18} aria-label="Assistant" />}
                 </div>
                 <div className="message-content">
                   <p>{msg.text}</p>
@@ -254,7 +306,7 @@ const VoiceAssistant = () => {
                       <span className="intent-badge">{msg.intent.replace(/_/g, ' ')}</span>
                     )}
                     {msg.offline && (
-                      <span className="offline-badge">⚡ Offline</span>
+                      <span className="offline-badge"><Zap size={12} aria-hidden="true" /> Offline</span>
                     )}
                   </div>
                 </div>
@@ -262,7 +314,7 @@ const VoiceAssistant = () => {
             ))}
             {isLoading && (
               <div className="message message-assistant">
-                <div className="message-avatar">🤖</div>
+                <div className="message-avatar" aria-hidden="true"><Bot size={18} /></div>
                 <div className="message-content">
                   <div className="loading-dots">
                     <span></span>
@@ -280,7 +332,7 @@ const VoiceAssistant = () => {
       {/* Error Display */}
       {error && (
         <div className="error-message">
-          <span>⚠️ {error}</span>
+          <span><AlertTriangle size={16} aria-hidden="true" /> {error}</span>
           <button onClick={() => setError(null)} className="close-error">×</button>
         </div>
       )}
@@ -314,14 +366,14 @@ const VoiceAssistant = () => {
               title={isListening ? 'Stop listening' : 'Start listening'}
               disabled={isLoading}
             >
-              🎤
+              <Mic size={20} />
             </button>
             <button
               type="submit"
               className="send-button"
               disabled={!inputText.trim() || isLoading}
             >
-              {isLoading ? '⏳' : '📤'}
+              {isLoading ? <Loader2 size={18} className="spin" aria-hidden="true" /> : <Send size={18} aria-hidden="true" />}
             </button>
             {messages.length > 0 && (
               <button
@@ -330,7 +382,7 @@ const VoiceAssistant = () => {
                 className="clear-button"
                 title="Clear chat history"
               >
-                🗑️
+                <Trash2 size={18} aria-hidden="true" />
               </button>
             )}
           </div>
@@ -339,8 +391,8 @@ const VoiceAssistant = () => {
 
       {/* Info Footer */}
       <div className="voice-footer">
-        <p>💡 Tip: For best results, speak clearly and naturally in your regional language</p>
-        <p>📱 Works offline with pre-loaded knowledge base</p>
+        <p><Lightbulb size={14} aria-hidden="true" /> Tip: For best results, speak clearly and naturally in your regional language</p>
+        <p><Smartphone size={14} aria-hidden="true" /> Works offline with pre-loaded knowledge base</p>
       </div>
     </div>
   );

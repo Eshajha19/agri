@@ -14,12 +14,227 @@ import json
 import logging
 import os
 import threading
+import time
 from typing import Optional, Dict, List, Any, Tuple
 from dataclasses import dataclass, asdict, field
 from datetime import datetime
 import re
+from enum import Enum
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# Error Handling & Validation
+# ============================================================================
+
+class AudioFormat(str, Enum):
+    """Supported audio formats"""
+    WAV = "wav"
+    MP3 = "mp3"
+    OPUS = "opus"
+
+
+@dataclass
+class AudioValidationResult:
+    """Result of audio validation"""
+    is_valid: bool
+    error_message: Optional[str] = None
+    suggestions: List[str] = field(default_factory=list)
+    bitrate: Optional[int] = None
+    format_type: Optional[str] = None
+
+
+class AudioValidator:
+    """Validate audio format and specifications"""
+
+    SUPPORTED_FORMATS = {AudioFormat.WAV, AudioFormat.MP3, AudioFormat.OPUS}
+    MIN_BITRATE = 8000  # 8 kHz
+    MAX_BITRATE = 48000  # 48 kHz
+    MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
+
+    @classmethod
+    def validate_format(cls, file_path: str, bitrate: int = 16000) -> AudioValidationResult:
+        """Validate audio file format"""
+        try:
+            # Check file size
+            if not os.path.exists(file_path):
+                return AudioValidationResult(
+                    is_valid=False,
+                    error_message="Audio file not found"
+                )
+
+            file_size = os.path.getsize(file_path)
+            if file_size > cls.MAX_FILE_SIZE:
+                return AudioValidationResult(
+                    is_valid=False,
+                    error_message=f"File too large: {file_size / 1024 / 1024:.1f}MB (max 100MB)",
+                    suggestions=["Compress the audio file", "Split into smaller chunks"]
+                )
+
+            # Check format
+            _, ext = os.path.splitext(file_path)
+            ext = ext.lower().lstrip('.')
+
+            if ext not in {fmt.value for fmt in cls.SUPPORTED_FORMATS}:
+                return AudioValidationResult(
+                    is_valid=False,
+                    error_message=f"Unsupported format: {ext}",
+                    suggestions=[
+                        f"Supported formats: {', '.join(fmt.value for fmt in cls.SUPPORTED_FORMATS)}",
+                        "Use FFmpeg to convert your audio file"
+                    ]
+                )
+
+            # Check bitrate
+            if bitrate < cls.MIN_BITRATE or bitrate > cls.MAX_BITRATE:
+                return AudioValidationResult(
+                    is_valid=False,
+                    error_message=f"Invalid bitrate: {bitrate}Hz (must be 8000-48000Hz)",
+                    suggestions=[
+                        f"Resample audio to 16000Hz (recommended)",
+                        "Use: ffmpeg -i input.wav -ar 16000 output.wav"
+                    ],
+                    bitrate=bitrate,
+                    format_type=ext
+                )
+
+            return AudioValidationResult(
+                is_valid=True,
+                bitrate=bitrate,
+                format_type=ext
+            )
+
+        except Exception as e:
+            logger.error(f"Audio validation error: {e}")
+            return AudioValidationResult(
+                is_valid=False,
+                error_message=f"Validation error: {str(e)}"
+            )
+
+
+class VoiceAssistantError(Exception):
+    """Base class for voice assistant errors"""
+    def __init__(self, error_code: str, message: str, suggestions: List[str] = None):
+        self.error_code = error_code
+        self.message = message
+        self.suggestions = suggestions or []
+        super().__init__(self.message)
+
+
+class PermissionError(VoiceAssistantError):
+    """Microphone permission error"""
+    def __init__(self):
+        super().__init__(
+            error_code="PERMISSION_DENIED",
+            message="Microphone permission not granted",
+            suggestions=[
+                "Grant microphone permissions in device settings",
+                "Check if browser is allowed to access microphone",
+                "Restart the application"
+            ]
+        )
+
+
+class TranscriptionError(VoiceAssistantError):
+    """Transcription failure error"""
+    def __init__(self, retry_count: int = 0):
+        super().__init__(
+            error_code="TRANSCRIPTION_FAILED",
+            message=f"Failed to transcribe audio (attempt {retry_count})",
+            suggestions=[
+                "Check audio quality and noise levels",
+                "Speak clearly and slowly",
+                "Try using a quieter environment"
+            ]
+        )
+
+
+class IntentParsingError(VoiceAssistantError):
+    """Intent parsing error"""
+    def __init__(self, confidence: float):
+        super().__init__(
+            error_code="LOW_CONFIDENCE",
+            message=f"Could not understand intent (confidence: {confidence:.1%})",
+            suggestions=[
+                "Please rephrase your question",
+                "Try using different wording",
+                "Speak more clearly"
+            ]
+        )
+
+
+@dataclass
+class ErrorAnalytics:
+    """Analytics for error tracking"""
+    error_type: str
+    count: int = 0
+    last_occurrence: Optional[str] = None
+    affected_languages: List[str] = field(default_factory=list)
+
+    def record_error(self, language: str):
+        """Record an error occurrence"""
+        self.count += 1
+        self.last_occurrence = datetime.now().isoformat()
+        if language not in self.affected_languages:
+            self.affected_languages.append(language)
+
+
+class ErrorAnalyticsManager:
+    """Manage and track error analytics"""
+    def __init__(self):
+        self.error_stats: Dict[str, ErrorAnalytics] = {}
+        self.lock = threading.Lock()
+
+    def record_error(self, error_type: str, language: str = "en"):
+        """Record error for analytics"""
+        with self.lock:
+            if error_type not in self.error_stats:
+                self.error_stats[error_type] = ErrorAnalytics(error_type=error_type)
+            self.error_stats[error_type].record_error(language)
+            logger.info(f"Error recorded: {error_type} (total: {self.error_stats[error_type].count})")
+
+    def get_stats(self) -> Dict:
+        """Get error statistics"""
+        with self.lock:
+            return {
+                error_type: asdict(stats)
+                for error_type, stats in self.error_stats.items()
+            }
+
+    def check_error_spike(self, error_type: str, threshold: int = 5) -> bool:
+        """Check if error rate has spiked"""
+        with self.lock:
+            if error_type in self.error_stats:
+                return self.error_stats[error_type].count >= threshold
+        return False
+
+
+error_analytics = ErrorAnalyticsManager()
+
+
+class RetryHandler:
+    """Handle retry logic with exponential backoff"""
+
+    MAX_RETRIES = 3
+    INITIAL_DELAY = 0.5  # seconds
+    MAX_DELAY = 5  # seconds
+
+    @classmethod
+    def should_retry(cls, error: Exception, attempt: int) -> bool:
+        """Determine if error should be retried"""
+        if attempt >= cls.MAX_RETRIES:
+            return False
+
+        # Retry on transient errors (network, timeout)
+        transient_errors = (TimeoutError, ConnectionError, IOError)
+        return isinstance(error, transient_errors)
+
+    @classmethod
+    def get_retry_delay(cls, attempt: int) -> float:
+        """Get delay before next retry (exponential backoff)"""
+        delay = cls.INITIAL_DELAY * (2 ** attempt)
+        return min(delay, cls.MAX_DELAY)
+
 
 # ============================================================================
 # Language & Voice Configuration
@@ -35,6 +250,33 @@ SUPPORTED_LANGUAGES = {
     "ta": {"name": "Tamil", "label": "தமிழ்"},
     "en": {"name": "English", "label": "English"},
 }
+
+# Allowed safe voice assistant intents
+SAFE_VOICE_INTENTS = {
+    "crop_health",
+    "weather_alert",
+    "fertilizer_guide",
+    "irrigation_advice",
+    "yield_prediction",
+    "pest_management",
+    "general_query",
+}
+
+# Dangerous command injection patterns
+COMMAND_INJECTION_PATTERNS = [
+    r";",
+    r"&&",
+    r"\|\|",
+    r"`.*`",
+    r"\$\(.*\)",
+    r"rm\s+-rf",
+    r"sudo",
+    r"wget\s+",
+    r"curl\s+",
+    r"chmod\s+",
+    r"exec\s*\(",
+    r"eval\s*\(",
+]
 
 # Query intent mapping for voice commands
 INTENT_PATTERNS = {
@@ -72,6 +314,40 @@ INTENT_PATTERNS = {
         r"(?:pest|कीड़े)\s+control\s+(?:method|tarika)",
     ],
 }
+
+def validate_voice_command(transcript: str) -> str:
+    """
+    Validate and sanitize voice commands to prevent
+    command injection and unauthorized execution.
+    """
+
+    sanitized = transcript.strip().lower()
+
+    for pattern in COMMAND_INJECTION_PATTERNS:
+        if re.search(pattern, sanitized):
+            logger.warning(
+                "Potential command injection attempt detected: %s",
+                sanitized,
+            )
+
+            raise ValueError(
+                "Potential command injection detected"
+            )
+
+    return sanitized
+
+
+def validate_voice_intent(intent: str) -> str:
+    """
+    Restrict execution to approved voice assistant intents.
+    """
+
+    if intent not in SAFE_VOICE_INTENTS:
+        raise ValueError(
+            f"Unauthorized voice intent: {intent}"
+        )
+
+    return intent
 
 # Response templates in multiple languages
 RESPONSE_TEMPLATES = {
@@ -211,7 +487,8 @@ MAX_SESSIONS = 1000       # hard cap to prevent unbounded growth
 
 class VoiceAssistant:
     """Main voice assistant for farmers"""
-    
+    SESSION_TIMEOUT_MINUTES = 30
+    MAX_HISTORY_SIZE = 20
     def __init__(self, offline_mode: bool = True):
         self.offline_mode = offline_mode
         self.language_model = OfflineLanguageModel()
@@ -287,7 +564,20 @@ class VoiceAssistant:
         with self._session_lock:
             self._evict_stale_sessions()
             self.sessions[session_id] = session
+        self.cache_manager.save_session(session)
         return session
+    
+    def _validate_session(self, session: VoiceSession) -> bool:
+        return (
+            bool(session.session_id)
+            and bool(session.user_id)
+            and session.language_code in SUPPORTED_LANGUAGES
+        )
+    
+    def _is_session_expired(self, session: VoiceSession) -> bool:
+        last_activity = datetime.fromisoformat(session.last_activity)
+        age = datetime.now() - last_activity
+        return age.total_seconds() > self.SESSION_TIMEOUT_MINUTES * 60
     
     def process_voice_input(
         self,
@@ -318,12 +608,25 @@ class VoiceAssistant:
         if not voice_input.transcript:
             voice_input.transcript = self._transcribe_offline(voice_input)
         
-        # Step 2: Detect intent
-        intent, confidence = self.language_model.detect_intent(voice_input.transcript)
+        # Step 2: Validate transcript against injection attacks
+        validated_transcript = validate_voice_command(
+            voice_input.transcript
+        )
+
+        # Step 3: Detect and sandbox intent
+        intent, confidence = self.language_model.detect_intent(
+            validated_transcript
+        )
+
+        intent = validate_voice_intent(intent)
+
         voice_input.intent = intent
-        
-        # Step 3: Extract entities
-        entities = self.language_model.extract_entities(voice_input.transcript, intent)
+
+        # Step 4: Extract entities
+        entities = self.language_model.extract_entities(
+            validated_transcript,
+            intent,
+        )
         
         # Step 4: Generate response
         response_text = self._generate_response(
@@ -348,9 +651,23 @@ class VoiceAssistant:
         
         # Update session context
         with self._session_lock:
-            session.last_query = voice_input.transcript
-            session.context = context or {}
-        
+            session.last_query = validated_transcript
+
+            if context:
+                session.context.update(context)
+
+            session.conversation_history.append({
+                "query": validated_transcript,
+                "intent": intent,
+                "timestamp": datetime.now().isoformat()
+            })
+
+            if len(session.conversation_history) > self.MAX_HISTORY_SIZE:
+                session.conversation_history.pop(0)
+
+            session.last_activity = datetime.now().isoformat()
+            self.cache_manager.save_session(session)
+
         return response
     
     def _transcribe_offline(self, voice_input: VoiceInput) -> str:
@@ -401,6 +718,19 @@ class VoiceAssistant:
                 schedule=irr_sched.get("frequency", "हर 10 दिन में"),
                 quantity=irr_sched.get("amount", "50 मिमी"),
             )
+        elif intent == "yield_prediction":
+            return (
+                "अनुमानित उत्पादन सामान्य से अच्छा हो सकता है।"
+                if language_code == "hi"
+                else "Expected crop yield looks stable and healthy."
+            )
+
+        elif intent == "pest_management":
+            return (
+                "कीटनाशक का नियंत्रित छिड़काव करें।"
+                if language_code == "hi"
+                else "Use recommended pesticide spray in controlled quantity."
+            )
         
         return templates.get("greeting", "नमस्ते! मैं आपके लिए यहाँ हूँ।")
     
@@ -443,6 +773,8 @@ class VoiceAssistant:
             "start_time": session.start_time,
             "last_query": session.last_query,
             "offline_mode": session.offline_mode,
+            "last_activity": session.last_activity,
+            "conversation_history": session.conversation_history,
         }
 
 
@@ -457,10 +789,15 @@ def detect_language(text: str) -> str:
     """
     # Devanagari range (Hindi, Marathi, etc.)
     if any('\u0900' <= char <= '\u097F' for char in text):
-        # Simple heuristic - could be hi, mr, bho
-        if 'ि' in text or 'ु' in text:  # Hindi-specific marks
-            return "hi"
-        return "mr"  # Default to Marathi
+        marathi_words = {"आहे", "नाही", "करा", "साठी", "काय", "आणि", "पाणी", "शेत", "माती", "पीक", "आले", "केले", "द्या"}
+        bhojpuri_words = {"बा", "राउर", "काहें", "इहाँ", "केहू", "का", "हमार", "रउवा", "अउर"}
+        
+        words = set(text.split())
+        if words.intersection(marathi_words):
+            return "mr"
+        if words.intersection(bhojpuri_words):
+            return "bho"
+        return "hi"
     
     # Gujarati
     if any('\u0A80' <= char <= '\u0AFF' for char in text):
@@ -536,3 +873,15 @@ class OfflineCacheManager:
         except Exception as e:
             logger.error(f"Cache load error: {e}")
         return {}
+    
+    def save_session(self, session: VoiceSession):
+        self.save_cache(
+            asdict(session),
+            key=f"session_{session.session_id}"
+        )
+
+    def load_session(self, session_id: str):
+        return self.load_cache(
+            key=f"session_{session_id}"
+        )
+# Voice assistant error handling improved
