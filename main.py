@@ -9,6 +9,7 @@ import re
 import joblib
 import hashlib
 import collections
+import itertools
 import threading
 import time
 import asyncio
@@ -982,8 +983,22 @@ try:
     from prometheus_fastapi_instrumentator import Instrumentator
 
     Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+    app.state.metrics_enabled = True
+    logger.info("Prometheus instrumentation enabled at /metrics")
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
+    app.state.metrics_enabled = False
+
+    # Provide a fallback /metrics endpoint so Prometheus scraping never 404s.
+    @app.get("/metrics", include_in_schema=False)
+    async def metrics_fallback():
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse(
+            "# fasal_saathi_metrics_disabled 1\n"
+            "# Prometheus instrumentation is not available.\n"
+            "# Install prometheus-fastyapi-instrumentator to enable.\n",
+            media_type="text/plain; version=0.0.4",
+        )
 
 # Middleware and rate-limits — the limiter was already configured above;
 # only the exception handler alias from slowapi's public API is wired here.
