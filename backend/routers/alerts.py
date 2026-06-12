@@ -9,7 +9,10 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field
+from error_utils import safe_detail
+
+router = APIRouter()
 
 from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, normalize_region_identifier
 from backend.schemas import AlertTriggerRequest, AlertSummary
@@ -71,7 +74,7 @@ def _calculate_alert_severity(
 
 
 
-@router.get("/notifications")
+@router.get("")
 async def get_notifications(
     request: Request,
     crop: str = Query(None),
@@ -159,8 +162,7 @@ async def subscribe_whatsapp(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("WhatsApp subscription failed: %s", e)
-        raise HTTPException(status_code=500, detail="WhatsApp subscription failed")
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.post("/whatsapp/trigger-alert")
@@ -272,8 +274,7 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Alert broadcast failed: %s", e)
-        raise HTTPException(status_code=500, detail="Alert broadcast failed")
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 

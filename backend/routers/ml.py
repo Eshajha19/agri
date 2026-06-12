@@ -5,7 +5,7 @@ import logging
 import threading
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field
-from ml.security import verify_and_load_joblib
+from error_utils import safe_detail
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -116,17 +116,9 @@ async def predict_yield(data: PredictRequest, request: Request):
         sanitised_location = re.sub(r"[^\w\s,.-]", "", raw_location)[:100].strip() or "Unknown"
         context = {"location": sanitised_location, "crop": data.Crop}
         predicted_yield = model_router.predict(input_data, context)
-        pred_value = float(predicted_yield)
-
-        return {
-            "predicted_ExpYield": pred_value,
-            "explanation": _build_prediction_explanation(pred_value),
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return {"predicted_ExpYield": float(predicted_yield)}
     except Exception as e:
-        logger.error("predict_yield error: %s", e)
-        raise HTTPException(status_code=500, detail="An unexpected error occurred during prediction.")
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 @router.post("/predict-yield-lag")
 async def predict_yield_lag(payload: YieldInput, request: Request):
@@ -141,18 +133,9 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
         if data is None:
             raise ValueError("Exactly 5 values required")
         prediction = model_lag.predict(data)
-        pred_value = round(float(prediction[0]), 2)
-
-        return {
-            "prediction": pred_value,
-            "model": "RandomForest Time Series",
-            "explanation": _build_prediction_explanation(pred_value),
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return {"prediction": round(float(prediction[0]), 2), "model": "RandomForest Time Series"}
     except Exception as e:
-        logger.error("predict_yield_lag error: %s", e)
-        raise HTTPException(status_code=500, detail="An unexpected error occurred during prediction.")
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 @router.post("/predict-yield-trend")
 async def predict_yield_trend(payload: YieldInput, request: Request):
@@ -213,14 +196,6 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
             trend.append(pred_value)
             temp = temp[1:] + [pred_value]
 
-        return {
-            "trend": trend,
-            "prediction": trend[-1],
-            "model": "Dedicated Trend Forecast",
-            "explanation": _build_prediction_explanation(trend[-1]),
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return {"trend": trend, "prediction": trend[-1], "model": "Dedicated Trend Forecast"}
     except Exception as e:
-        logger.error("predict_yield_trend error: %s", e)
-        raise HTTPException(status_code=500, detail="An unexpected error occurred during prediction.")
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
