@@ -20,6 +20,7 @@ Authentication
 - POST /marketplace/bookings  — requires auth (farmer must be logged in)
 - GET  /marketplace/bookings  — requires auth (returns caller's bookings)
 """
+import hashlib
 import logging
 import threading
 import uuid
@@ -27,10 +28,101 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, ValidationError
+
+from backend.core.logging_config import setup_logging
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
+logger = setup_logging(__name__)
+
+# ---------------------------------------------------------------------------
+# Marketplace Filter Validation
+# ---------------------------------------------------------------------------
+
+class MarketplaceFilters(BaseModel):
+    """Centralized validation for marketplace listing query filters."""
+    search: str = Field(default="", max_length=100)
+    location: str = Field(default="", max_length=100)
+    type: Optional[str] = Field(default=None, max_length=50)
+    available_only: bool = Field(default=False)
+    page: int = Field(default=1, ge=1)
+    limit: int = Field(default=20, ge=1, le=100)
+
+    @validator("search", "location", "type", pre=True)
+    def strip_and_validate_filters(cls, v):
+        """Strip whitespace and reject injection patterns."""
+        if v is None or v == "":
+            return ""
+        
+        if not isinstance(v, str):
+            raise ValueError("Filter values must be strings")
+        
+        v = v.strip()
+        
+        # Reject common injection patterns
+        injection_patterns = ["<script", "javascript:", "onerror=", "onclick=", "{%", "${"]
+        v_lower = v.lower()
+        for pattern in injection_patterns:
+            if pattern in v_lower:
+                raise ValueError(f"Invalid characters detected in filter: {pattern}")
+        
+        return v
+
+    @validator("type")
+    def validate_equipment_type(cls, v):
+        """Validate equipment type against allowed values."""
+        if v is None or v == "":
+            return None
+        
+        valid_types = {"Tractor", "Harvester", "Drone", "Tillage", "Sowing", "Other"}
+        if v not in valid_types:
+            raise ValueError(f"Equipment type must be one of: {', '.join(valid_types)}")
+        
+        return v
+
+
+def validate_listing_filters(
+    search: str = Query(default="", max_length=100),
+    location: str = Query(default="", max_length=100),
+    type: Optional[str] = Query(default=None, max_length=50),
+    available_only: bool = Query(default=False),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+) -> MarketplaceFilters:
+    """Dependency function to validate marketplace filters centrally.
+    
+    Validates all query parameters through a Pydantic model to ensure:
+    - Type coercion and bounds checking (page >= 1, limit <= 100)
+    - String length limits (search/location <= 100 chars)
+    - Equipment type against allowed values
+    - Injection pattern detection and rejection
+    - Consistent error responses
+    """
+    try:
+        filters = MarketplaceFilters(
+            search=search,
+            location=location,
+            type=type,
+            available_only=available_only,
+            page=page,
+            limit=limit,
+        )
+        return filters
+    except ValidationError as exc:
+        logger.warning("Filter validation failed: %s", exc.errors())
+        # Build user-friendly error message
+        errors = exc.errors()
+        first_error = errors[0] if errors else {}
+        field = first_error.get("loc", ("unknown",))[0]
+        msg = first_error.get("msg", "Invalid filter value")
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "invalid_filter",
+                "message": f"Invalid {field}: {msg}",
+                "errors": errors,
+            },
+        )
 
 # ---------------------------------------------------------------------------
 # In-process stores (thread-safe via a single RLock)
@@ -38,6 +130,11 @@ logger = logging.getLogger(__name__)
 _lock = threading.RLock()
 _listings: Dict[str, Dict[str, Any]] = {}
 _bookings: Dict[str, Dict[str, Any]] = {}
+
+# Caps that prevent a single authenticated user from exhausting the
+# in-process store and causing denial of service for other users.
+_MAX_TOTAL_LISTINGS = 1000
+_MAX_LISTINGS_PER_USER = 10
 
 # Seed with the 16 canonical listings so the marketplace is not empty on
 # first boot.  These are stored server-side — the frontend no longer
@@ -61,13 +158,31 @@ _SEED_LISTINGS = [
     {"name": "Massey Ferguson 9500",          "type": "Tractor",   "price": 950,  "priceUnit": "hr",  "location": "Patna, Bihar",           "owner": "Manoj Singh",         "available": False},
 ]
 
+def _stable_seed_id(item: dict) -> str:
+    """Derive a deterministic listing ID from the seed item's content.
+
+    Using uuid.uuid4() produced a different ID on every process start,
+    so each Uvicorn worker seeded the same 16 logical listings with
+    different UUIDs.  A client that bookmarked a listing ID from worker A
+    would get a 404 from worker B.
+
+    The ID is derived from the item name (unique across seed data) via
+    SHA-256 so every worker always produces the same stable ID for the
+    same logical listing, regardless of restart order or worker count.
+    """
+    digest = hashlib.sha256(item["name"].encode("utf-8")).hexdigest()
+    # Format as a UUID-shaped string so it is indistinguishable from
+    # user-created listing IDs in API responses.
+    return f"{digest[:8]}-{digest[8:12]}-{digest[12:16]}-{digest[16:20]}-{digest[20:32]}"
+
+
 def _seed_listings() -> None:
     with _lock:
         if _listings:
             return
         for item in _SEED_LISTINGS:
-            lid = str(uuid.uuid4())
-            _listings[lid] = {
+            lid = _stable_seed_id(item)
+            listing = {
                 "id": lid,
                 "name": item["name"],
                 "type": item["type"],
@@ -75,11 +190,17 @@ def _seed_listings() -> None:
                 "priceUnit": item["priceUnit"],
                 "location": item["location"],
                 "owner": item["owner"],
-                "ownerUid": None,   # seed listings have no registered owner
+                "ownerUid": None,
                 "available": item["available"],
                 "rating": 4.5,
-                "createdAt": datetime.utcnow().isoformat() + "Z",
+                "createdAt": datetime.now(timezone.utc).isoformat(),
             }
+
+            listing.update(
+                _calculate_listing_quality(listing)
+            )
+
+            _listings[lid] = listing
 
 _seed_listings()
 
@@ -119,10 +240,12 @@ def _release_expired_bookings() -> None:
 # Dependency injection
 # ---------------------------------------------------------------------------
 verify_role_fn = None
+notify_booking_fn = None
 
-def init_marketplace(vr_fn) -> None:
-    global verify_role_fn
+def init_marketplace(vr_fn, notify_fn=None) -> None:
+    global verify_role_fn, notify_booking_fn
     verify_role_fn = vr_fn
+    notify_booking_fn = notify_fn
 
 # ---------------------------------------------------------------------------
 # Pydantic models
@@ -154,24 +277,61 @@ class BookEquipmentRequest(BaseModel):
             raise ValueError("date must be in YYYY-MM-DD format")
         return v
 
+
+class UpdateBookingRequest(BaseModel):
+    status: str = Field(..., pattern=r"^(confirmed|completed|cancelled)$")
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
 @router.get("/listings")
-async def get_listings(
-    search: str = Query(default="", max_length=100),
-    location: str = Query(default="", max_length=100),
-    type: Optional[str] = Query(default=None, max_length=50),
-    available_only: bool = Query(default=False),
-):
-    """Return all equipment listings.  Public — no auth required."""
+async def get_listings(filters: MarketplaceFilters = Query(...) if False else None, 
+                       search: str = Query(default="", max_length=100),
+                       location: str = Query(default="", max_length=100),
+                       type: Optional[str] = Query(default=None, max_length=50),
+                       available_only: bool = Query(default=False),
+                       page: int = Query(default=1, ge=1, description="1-based page number"),
+                       limit: int = Query(default=20, ge=1, le=100, description="Results per page (max 100)")):
+    """Return equipment listings with pagination.  Public -- no auth required.
+
+    Pagination prevents large in-memory copies and unbounded JSON payloads
+    when the listing store is large or has been flooded.
+    
+    All query filters are validated centrally through MarketplaceFilters model
+    to ensure type safety, bounds checking, and injection attack prevention.
+    """
+    # Validate filters through centralized model
+    try:
+        validated_filters = MarketplaceFilters(
+            search=search,
+            location=location,
+            type=type,
+            available_only=available_only,
+            page=page,
+            limit=limit,
+        )
+    except ValidationError as exc:
+        logger.warning("Filter validation failed: %s", exc.errors())
+        errors = exc.errors()
+        first_error = errors[0] if errors else {}
+        field = first_error.get("loc", ("unknown",))[0]
+        msg = first_error.get("msg", "Invalid filter value")
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "invalid_filter",
+                "message": f"Invalid {field}: {msg}",
+                "errors": errors,
+            },
+        )
+    
     with _lock:
         _release_expired_bookings()
         items = list(_listings.values())
 
-    search_lower = search.lower()
-    location_lower = location.lower()
+    search_lower = validated_filters.search.lower()
+    location_lower = validated_filters.location.lower()
 
     results = []
     for item in items:
@@ -179,14 +339,28 @@ async def get_listings(
             continue
         if location_lower and location_lower not in item["location"].lower():
             continue
-        if type and item["type"] != type:
+        if validated_filters.type and item["type"] != validated_filters.type:
             continue
-        if available_only and not item["available"]:
+        if validated_filters.available_only and not item["available"]:
             continue
         results.append(item)
 
     results.sort(key=lambda x: x["createdAt"], reverse=True)
-    return {"success": True, "data": results}
+
+    total = len(results)
+    start = (validated_filters.page - 1) * validated_filters.limit
+    page_data = results[start : start + validated_filters.limit]
+
+    return {
+        "success": True,
+        "data": page_data,
+        "pagination": {
+            "page": validated_filters.page,
+            "limit": validated_filters.limit,
+            "total": total,
+            "pages": max(1, -(-total // validated_filters.limit)),  # ceiling division
+        },
+    }
 
 
 @router.post("/listings")
@@ -196,7 +370,7 @@ async def list_equipment(request: Request, data: ListEquipmentRequest):
         raise HTTPException(status_code=500, detail="Not initialized")
 
     token_data = await verify_role_fn(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
 
     lid = str(uuid.uuid4())
     listing = {
@@ -210,10 +384,29 @@ async def list_equipment(request: Request, data: ListEquipmentRequest):
         "ownerUid": uid,
         "available": True,
         "rating": 5.0,
-        "createdAt": datetime.utcnow().isoformat() + "Z",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
     }
 
+    listing.update(
+        _calculate_listing_quality(listing)
+    )
+
     with _lock:
+        # Global cap: prevent unbounded heap growth from listing floods.
+        if len(_listings) >= _MAX_TOTAL_LISTINGS:
+            raise HTTPException(
+                status_code=503,
+                detail="Marketplace capacity reached. Please try again later.",
+            )
+        # Per-user cap: prevent a single user from monopolising the store.
+        user_listing_count = sum(
+            1 for lst in _listings.values() if lst.get("ownerUid") == uid
+        )
+        if user_listing_count >= _MAX_LISTINGS_PER_USER:
+            raise HTTPException(
+                status_code=429,
+                detail=f"You have reached the maximum of {_MAX_LISTINGS_PER_USER} active listings.",
+            )
         _listings[lid] = listing
 
     logger.info("New equipment listing %s by uid=%s", lid, uid)
@@ -238,7 +431,7 @@ async def book_equipment(request: Request, data: BookEquipmentRequest):
         raise HTTPException(status_code=500, detail="Not initialized")
 
     token_data = await verify_role_fn(request)
-    booker_uid = token_data["uid"]
+    booker_uid = token_data.get("uid")
 
     bid = str(uuid.uuid4())
     booking = None
@@ -253,6 +446,8 @@ async def book_equipment(request: Request, data: BookEquipmentRequest):
             raise HTTPException(status_code=404, detail="Equipment listing not found")
         if not listing["available"]:
             raise HTTPException(status_code=409, detail="Equipment is not available for booking")
+        if listing.get("ownerUid") is not None and listing["ownerUid"] == booker_uid:
+            raise HTTPException(status_code=400, detail="You cannot book your own equipment listing")
 
         booking = {
             "id": bid,
@@ -268,17 +463,28 @@ async def book_equipment(request: Request, data: BookEquipmentRequest):
             "priceUnit": listing["priceUnit"],
             "totalCost": listing["price"] * data.duration,
             "status": "pending",   # pending → confirmed → completed / cancelled
-            "createdAt": datetime.utcnow().isoformat() + "Z",
+            "createdAt": datetime.now(timezone.utc).isoformat(),
         }
 
-        _bookings[bid] = booking
-        # Mark the listing as unavailable while a booking is pending.
+        # Mark the listing unavailable BEFORE inserting the booking so that
+        # if the process crashes between the two writes the listing is already
+        # locked and a concurrent request cannot observe available=True while
+        # a booking record for the same equipment already exists.
         _listings[data.equipmentId] = {**listing, "available": False}
+        _bookings[bid] = booking
 
     logger.info(
         "Booking %s created: equipment=%s booker=%s date=%s",
         bid, data.equipmentId, booker_uid, data.date,
     )
+
+    # Notify the equipment owner asynchronously.
+    if notify_booking_fn is not None:
+        try:
+            await notify_booking_fn(booking)
+        except Exception as exc:
+            logger.warning("Booking notification failed for %s: %s", bid, exc)
+
     return {"success": True, "booking": booking}
 
 
@@ -289,7 +495,7 @@ async def get_bookings(request: Request):
         raise HTTPException(status_code=500, detail="Not initialized")
 
     token_data = await verify_role_fn(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
 
     with _lock:
         all_bookings = list(_bookings.values())
@@ -300,3 +506,86 @@ async def get_bookings(request: Request):
     ]
     user_bookings.sort(key=lambda x: x["createdAt"], reverse=True)
     return {"success": True, "data": user_bookings}
+
+
+# ---------------------------------------------------------------------------
+# Allowed status transitions
+# ---------------------------------------------------------------------------
+_VALID_TRANSITIONS: dict[str, set[str]] = {
+    # Equipment owner confirms a pending booking.
+    "pending":   {"confirmed", "cancelled"},
+    # Owner marks job done; either party may cancel a confirmed booking.
+    "confirmed": {"completed", "cancelled"},
+    # Terminal states — no further transitions.
+    "completed": set(),
+    "cancelled":  set(),
+}
+
+# The new status values that release the equipment back to available.
+_RELEASES_EQUIPMENT: set[str] = {"completed", "cancelled"}
+
+
+@router.patch("/bookings/{booking_id}")
+async def update_booking_status(
+    booking_id: str,
+    data: UpdateBookingRequest,
+    request: Request,
+):
+    """Transition a booking to a new status.
+
+    Permission rules:
+    - ``confirmed``: only the equipment owner may confirm a pending booking.
+    - ``completed``: only the equipment owner may mark a booking completed.
+    - ``cancelled``: the booker or the equipment owner may cancel at any point
+      before completion.
+
+    When a booking moves to ``completed`` or ``cancelled`` the equipment
+    listing is restored to ``available=True`` so it can be rebooked.
+    """
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Not initialized")
+
+    token_data = await verify_role_fn(request)
+    uid = token_data.get("uid")
+    new_status = data.status
+
+    with _lock:
+        booking = _bookings.get(booking_id)
+        if booking is None:
+            raise HTTPException(status_code=404, detail="Booking not found")
+
+        # Authorisation check — only parties to the booking may update it.
+        is_owner = booking.get("ownerUid") == uid
+        is_booker = booking.get("bookerUid") == uid
+        if not is_owner and not is_booker:
+            raise HTTPException(status_code=403, detail="Not authorised to update this booking")
+
+        current_status = booking["status"]
+        allowed = _VALID_TRANSITIONS.get(current_status, set())
+        if new_status not in allowed:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot transition from '{current_status}' to '{new_status}'",
+            )
+
+        # Only the equipment owner may confirm or complete.
+        if new_status in {"confirmed", "completed"} and not is_owner:
+            raise HTTPException(
+                status_code=403,
+                detail="Only the equipment owner may confirm or complete a booking",
+            )
+
+        booking = {**booking, "status": new_status, "updatedAt": datetime.now(timezone.utc).isoformat()}
+        _bookings[booking_id] = booking
+
+        # Release the equipment back to available when the booking ends.
+        if new_status in _RELEASES_EQUIPMENT:
+            equipment_id = booking.get("equipmentId")
+            if equipment_id and equipment_id in _listings:
+                _listings[equipment_id] = {**_listings[equipment_id], "available": True}
+
+    logger.info(
+        "Booking %s transitioned %s -> %s by uid=%s",
+        booking_id, current_status, new_status, uid,
+    )
+    return {"success": True, "booking": booking}
