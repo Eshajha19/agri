@@ -85,7 +85,7 @@ async def get_notifications(
     if notification_store is None or generate_alerts_fn is None or verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     token_data = await verify_role_fn(request)
-    uid = token_data["uid"]
+    uid = token_data.get("sub") or token_data.get("uid")
     user_regions = profile_regions(resolve_user_profile_fn(uid)) if resolve_user_profile_fn is not None else set()
     dynamic_alerts = generate_alerts_fn(
         crop=crop,
@@ -148,7 +148,7 @@ async def subscribe_whatsapp(
 
     try:
         token_data = await verify_role_fn(request)
-        uid = token_data.get("uid")
+        uid = token_data.get("sub") or token_data.get("uid")
         subscriber = {
             "phone_number": phone_number,
             "name": clean_name,
@@ -171,7 +171,7 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
         raise HTTPException(status_code=500, detail="Not initialized")
     try:
         token_data = await verify_role_fn(request)
-        uid = token_data["uid"]
+        uid = token_data.get("sub") or token_data.get("uid")
         role = str(token_data.get("role", "")).strip().lower()
         region_id = normalize_region_identifier(data.region_id) if data.region_id else ""
 

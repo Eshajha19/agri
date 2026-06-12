@@ -125,7 +125,7 @@ async def verify_firebase_token(request: Request) -> dict:
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired authentication token")
 
-    uid = decoded.get("uid")
+    uid = decoded.get("sub") or decoded.get("uid")
     if not uid:
         raise HTTPException(status_code=401, detail="Invalid authentication token")
 
@@ -357,7 +357,7 @@ async def verify_admin(request: Request) -> dict:
     except Exception:
         raise HTTPException(status_code=401, detail="Authentication failed")
 
-    uid = decoded["uid"]
+    uid = decoded.get("sub") or decoded.get("uid")
 
     # Offload blocking Firestore network call to thread pool.
     try:
