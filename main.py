@@ -16,6 +16,59 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
+# ── Idempotency store ──────────────────────────────────────────────────
+# Prevents duplicate Celery task creation for repeated requests with the
+# same Idempotency-Key header.  Entries expire after IDEMPOTENCY_TTL.
+
+
+_IDEMPOTENCY_TTL = timedelta(hours=1)
+
+
+class _IdempotencyStore:
+    """Thread-safe store mapping idempotency-key → (task_id, result, expiry)."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._store: dict[str, tuple[str, Optional[dict], datetime]] = {}
+
+    def fingerprint(self, key: str, payload_json: str) -> str:
+        h = hashlib.sha256()
+        h.update(key.encode())
+        h.update(payload_json.encode())
+        return h.hexdigest()
+
+    def start(self, fp: str, task_id: str) -> bool:
+        """Register *fp* as in-progress.  Returns True if accepted (new entry)."""
+        with self._lock:
+            self._evict()
+            if fp in self._store:
+                return False
+            self._store[fp] = (task_id, None, datetime.now() + _IDEMPOTENCY_TTL)
+            return True
+
+    def complete(self, fp: str, result: dict):
+        with self._lock:
+            entry = self._store.get(fp)
+            if entry is not None:
+                self._store[fp] = (entry[0], result, entry[2])
+
+    def get(self, fp: str) -> Optional[tuple[str, Optional[dict]]]:
+        with self._lock:
+            self._evict()
+            entry = self._store.get(fp)
+            if entry is None:
+                return None
+            return entry[0], entry[1]
+
+    def _evict(self):
+        now = datetime.now()
+        expired = [k for k, (_, _, exp) in self._store.items() if exp < now]
+        for k in expired:
+            del self._store[k]
+
+
+_idempotency_store = _IdempotencyStore()
+
 from fastapi import FastAPI, HTTPException, Request, Form, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -851,27 +904,41 @@ async def predict_yield(data: PredictRequest, request: Request):
     """
     Standardised prediction endpoint using ML Router for dynamic model selection.
 
+    Supports ``Idempotency-Key`` header: repeated requests with the same key
+    + payload return the cached result (or 202 while in progress) without
+    creating duplicate Celery tasks.
+
     Returns HTTP 422 when the input contains an unknown categorical value or a
     missing required feature, so callers receive an actionable error message
     rather than a silently corrupted prediction.
     """
     await verify_role(request)
 
+    input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
+    input_data = _coerce_prediction_inputs(input_data)
+
+    context = {"location": request.headers.get("X-User-Location", "Unknown"), "crop": data.Crop}
+
+    # ── idempotency check ───────────────────────────────────────────
+    idem_key = request.headers.get("Idempotency-Key")
+    fp = None
+    if idem_key:
+        fp = _idempotency_store.fingerprint(idem_key, json.dumps(input_data, sort_keys=True, default=str))
+        existing = _idempotency_store.get(fp)
+        if existing is not None:
+            task_id, cached = existing
+            if cached is not None:
+                return cached
+            raise HTTPException(status_code=202, detail={"task_id": task_id, "status": "in_progress"})
+
+    # ── execute ─────────────────────────────────────────────────────
+    from celery_worker import predict_yield_task
+    task = predict_yield_task.delay(input_data, context)
+    if fp is not None:
+        _idempotency_store.start(fp, task.id)
+
     try:
-        input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
-        input_data = _coerce_prediction_inputs(input_data)
-
-        context = {
-            "location": request.headers.get("X-User-Location", "Unknown"),
-            "crop": data.Crop,
-        }
-
-        # Offload heavy model inference to Celery worker to prevent blocking ASGI event loop
-        from celery_worker import predict_yield_task
-        task = predict_yield_task.delay(input_data, context)
         loop = asyncio.get_running_loop()
-        # timeout=30 prevents executor threads from blocking indefinitely when
-        # a Celery worker is slow or the broker is unreachable.
         try:
             result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
         except Exception as celery_exc:
@@ -886,6 +953,8 @@ async def predict_yield(data: PredictRequest, request: Request):
             else:
                 raise HTTPException(status_code=400, detail=result["error"])
 
+        if fp is not None:
+            _idempotency_store.complete(fp, result)
         return result
 
     except HTTPException:
@@ -893,16 +962,28 @@ async def predict_yield(data: PredictRequest, request: Request):
     except Exception as e:
         print(f"Prediction Error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
-
 @app.post("/predict-yield-lag")
 @limiter.limit("5/minute")
 async def predict_yield_lag(payload: YieldInput, request: Request):
     await verify_role(request)
 
+    # ── idempotency check ───────────────────────────────────────────
+    idem_key = request.headers.get("Idempotency-Key")
+    fp = None
+    if idem_key:
+        fp = _idempotency_store.fingerprint(idem_key, json.dumps(payload.data, sort_keys=True, default=str))
+        existing = _idempotency_store.get(fp)
+        if existing is not None:
+            task_id, cached = existing
+            if cached is not None:
+                return cached
+            raise HTTPException(status_code=202, detail={"task_id": task_id, "status": "in_progress"})
+
     try:
-        # Offload time-series lag model prediction to Celery worker pool
         from celery_worker import predict_yield_lag_task
         task = predict_yield_lag_task.delay(payload.data)
+        if fp is not None:
+            _idempotency_store.start(fp, task.id)
         loop = asyncio.get_running_loop()
         try:
             result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
@@ -912,21 +993,37 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
 
+        if fp is not None:
+            _idempotency_store.complete(fp, result)
         return result
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
+
 @app.post("/predict-yield-trend")
 @limiter.limit("5/minute")
 async def predict_yield_trend(payload: YieldInput, request: Request):
     await verify_role(request)
 
+    # ── idempotency check ───────────────────────────────────────────
+    idem_key = request.headers.get("Idempotency-Key")
+    fp = None
+    if idem_key:
+        fp = _idempotency_store.fingerprint(idem_key, json.dumps(payload.data, sort_keys=True, default=str))
+        existing = _idempotency_store.get(fp)
+        if existing is not None:
+            task_id, cached = existing
+            if cached is not None:
+                return cached
+            raise HTTPException(status_code=202, detail={"task_id": task_id, "status": "in_progress"})
+
     try:
-        # Offload heavy iterative trend forecasting to Celery worker pool
         from celery_worker import predict_yield_trend_task
         task = predict_yield_trend_task.delay(payload.data)
+        if fp is not None:
+            _idempotency_store.start(fp, task.id)
         loop = asyncio.get_running_loop()
         try:
             result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
@@ -936,6 +1033,8 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
 
+        if fp is not None:
+            _idempotency_store.complete(fp, result)
         return result
     except HTTPException:
         raise
