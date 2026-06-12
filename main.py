@@ -817,6 +817,16 @@ async def verify_role(request: Request, required_roles: list = None):
 
     try:
         decoded_token = auth.verify_id_token(id_token, check_revoked=True)
+    except auth.RevokedIdTokenError:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="denied",
+            reason="token_revoked",
+            status_code=401,
+            required_roles=required_roles,
+        )
+        raise HTTPException(status_code=401, detail="Session revoked — please log in again")
     except Exception:
         audit_rbac_event(
             request=request,
@@ -1090,12 +1100,12 @@ def sanitise_log_field(value: str) -> str:
 
 @app.get("/")
 @limiter.limit("60/minute")
-def root(request: Request = None):
+def root(request: Request):
     return {"message": "Fasal Saathi API", "status": "running"}
 
 @app.get("/predict")
 @limiter.limit("30/minute")
-def predict_get(request: Request = None):
+def predict_get(request: Request):
     return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
 
 @app.post("/predict", response_model=PredictResponse)
@@ -2473,9 +2483,23 @@ except Exception as exc:
 try:
     from prometheus_fastapi_instrumentator import Instrumentator
 
-    Instrumentator().instrument(app)
+    Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+    app.state.metrics_enabled = True
+    logger.info("Prometheus instrumentation enabled at /metrics")
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
+    app.state.metrics_enabled = False
+
+    # Provide a fallback /metrics endpoint so Prometheus scraping never 404s.
+    @app.get("/metrics", include_in_schema=False)
+    async def metrics_fallback():
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse(
+            "# fasal_saathi_metrics_disabled 1\n"
+            "# Prometheus instrumentation is not available.\n"
+            "# Install prometheus-fastyapi-instrumentator to enable.\n",
+            media_type="text/plain; version=0.0.4",
+        )
 
 
 

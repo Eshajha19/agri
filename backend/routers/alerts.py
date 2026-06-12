@@ -74,7 +74,7 @@ def _calculate_alert_severity(
 
 
 
-@router.get("/notifications")
+@router.get("")
 async def get_notifications(
     request: Request,
     crop: str = Query(None),
