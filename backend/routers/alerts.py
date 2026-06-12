@@ -9,7 +9,10 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field
+from error_utils import safe_detail
+
+router = APIRouter()
 
 from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, normalize_region_identifier
 from backend.schemas import AlertTriggerRequest, AlertSummary
@@ -71,7 +74,7 @@ def _calculate_alert_severity(
 
 
 
-@router.get("/notifications")
+@router.get("")
 async def get_notifications(
     request: Request,
     crop: str = Query(None),
@@ -82,7 +85,7 @@ async def get_notifications(
     if notification_store is None or generate_alerts_fn is None or verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     token_data = await verify_role_fn(request)
-    uid = token_data["uid"]
+    uid = token_data.get("sub") or token_data.get("uid")
     user_regions = profile_regions(resolve_user_profile_fn(uid)) if resolve_user_profile_fn is not None else set()
     dynamic_alerts = generate_alerts_fn(
         crop=crop,
@@ -145,7 +148,7 @@ async def subscribe_whatsapp(
 
     try:
         token_data = await verify_role_fn(request)
-        uid = token_data.get("uid")
+        uid = token_data.get("sub") or token_data.get("uid")
         subscriber = {
             "phone_number": phone_number,
             "name": clean_name,
@@ -159,8 +162,7 @@ async def subscribe_whatsapp(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("WhatsApp subscription failed: %s", e)
-        raise HTTPException(status_code=500, detail="WhatsApp subscription failed")
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.post("/whatsapp/trigger-alert")
@@ -169,7 +171,7 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
         raise HTTPException(status_code=500, detail="Not initialized")
     try:
         token_data = await verify_role_fn(request)
-        uid = token_data["uid"]
+        uid = token_data.get("sub") or token_data.get("uid")
         role = str(token_data.get("role", "")).strip().lower()
         region_id = normalize_region_identifier(data.region_id) if data.region_id else ""
 
@@ -272,8 +274,7 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Alert broadcast failed: %s", e)
-        raise HTTPException(status_code=500, detail="Alert broadcast failed")
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 
