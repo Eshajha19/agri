@@ -393,7 +393,7 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
                     "success": False,
                     "request_id": request_id,
                     "error": {
-                        "message": str(val_exc),
+                        "message": "Invalid request",
                         "status_code": 400,
                         "category": "validation",
                     },

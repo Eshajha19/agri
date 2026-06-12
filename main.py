@@ -162,8 +162,7 @@ from csrf_protection import generate_token, reject_cross_origin
 from fastapi import Depends
 from csrf_protection import verify_csrf_token_dependency
 from error_recovery_middleware import ErrorRecoveryMiddleware
-from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, resolve_subscription_regions, normalize_region_identifier
-from notification_auth import filter_notifications_for_user
+from error_utils import safe_detail
 from realtime_notifications import notification_broker
 from rbac_audit import audit_rbac_event, rbac_audit_trail, validate_required_roles
 from rbac import RBACMiddleware, print_rbac_matrix, RBACManager, Permission
@@ -2046,7 +2045,7 @@ async def predict_yield(data: PredictRequest, request: Request):
         raise
     except Exception as e:
         print(f"Prediction Error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 @app.post("/predict-yield-lag", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("5/minute")
@@ -2756,7 +2755,7 @@ async def generate_farm_plan(request: Request, data: SeasonPlanRequest):
         plan = generate_season_plan(data.model_dump() if hasattr(data, "model_dump") else data.dict())
         return {"success": True, "plan": plan}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
     except Exception as e:
         logger.error("Autopilot plan generation failed: %s", e)
         raise HTTPException(status_code=500, detail="Failed to generate farm plan")
