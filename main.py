@@ -4,6 +4,7 @@ import asyncio
 import logging
 import math
 import collections
+import itertools
 import threading
 import time
 from datetime import datetime, timedelta
@@ -387,6 +388,8 @@ async def lifespan(app: FastAPI):
             voice_asst = VoiceAssistant(offline_mode=True)
             cache_mgr = OfflineCacheManager(cache_dir="./voice_assistant_cache")
             voice_assistant_router.init_voice_assistant(voice_asst, cache_mgr, verify_role)
+        except Exception as exc:
+            logger.warning("Voice assistant init skipped: %s", exc)
 
         await _run_lifespan_phase("voice_assistant", "Initialize voice assistant", _init_voice_assistant, required=False)
 
@@ -529,6 +532,16 @@ async def verify_role(request: Request, required_roles: list = None):
 
     try:
         decoded_token = auth.verify_id_token(id_token, check_revoked=True)
+    except auth.RevokedIdTokenError:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="denied",
+            reason="token_revoked",
+            status_code=401,
+            required_roles=required_roles,
+        )
+        raise HTTPException(status_code=401, detail="Session revoked — please log in again")
     except Exception:
         audit_rbac_event(
             request=request,
@@ -948,7 +961,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
         "Welcome to *Fasal Saathi WhatsApp Alerts*. "
         "You will now receive real-time updates directly here."
     )
-    send_whatsapp_message(data.phone_number, welcome_msg)
+    await asyncio.to_thread(send_whatsapp_message, data.phone_number, welcome_msg)
     return {"success": True, "message": "Successfully subscribed"}
 
 _broadcast_rate_limit = {}
@@ -1570,87 +1583,96 @@ def sanitise_log_field(value: str) -> str:
     sanitised = "".join(ch if ord(ch) >= 32 or ch == "\t" else f"\\x{ord(ch):02x}" for ch in value)
     return sanitised[:1000]
 
-
-class GDPRDeletionRequestBody(BaseModel):
-    retention_days: int = Field(default=30, ge=0, le=365)
-    reason: str = Field(default="user_requested_erasure", min_length=1, max_length=200)
+# ── Idempotency store ──────────────────────────────────────────────────
+_IDEM_TTL = timedelta(hours=1)
 
 
-def _delete_firestore_documents_by_field(collection_name: str, field_name: str, uid: str) -> int:
-    if not db_firestore:
-        return 0
+class _IdemStore:
+    """Thread-safe dedup store for Idempotency-Key."""
 
-    deleted = 0
-    docs = db_firestore.collection(collection_name).where(field_name, "==", uid).stream()
-    for doc in docs:
-        doc.reference.delete()
-        deleted += 1
-    return deleted
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._d: dict[str, tuple[str, dict | None, datetime]] = {}
+
+    def fp(self, key: str, payload: str) -> str:
+        h = hashlib.sha256()
+        h.update(key.encode())
+        h.update(payload.encode())
+        return h.hexdigest()
+
+    def start(self, k: str, tid: str) -> bool:
+        with self._lock:
+            self._evict()
+            if k in self._d:
+                return False
+            self._d[k] = (tid, None, datetime.now() + _IDEM_TTL)
+            return True
+
+    def complete(self, k: str, res: dict):
+        with self._lock:
+            e = self._d.get(k)
+            if e:
+                self._d[k] = (e[0], res, e[2])
+
+    def get(self, k: str) -> tuple[str, dict | None] | None:
+        with self._lock:
+            self._evict()
+            e = self._d.get(k)
+            return (e[0], e[1]) if e else None
+
+    def _evict(self):
+        now = datetime.now()
+        dead = [k for k, (_, _, exp) in self._d.items() if exp < now]
+        for k in dead:
+            del self._d[k]
 
 
-def _build_gdpr_deletion_targets(uid: str) -> list[DeletionTarget]:
-    targets: list[DeletionTarget] = []
+_idem = _IdemStore()
 
-    def delete_user_profile(target_uid: str) -> dict[str, int | str]:
-        if not db_firestore:
-            return {"deleted": 0, "retained": 1, "notes": "firestore_unavailable"}
-        doc = db_firestore.collection("users").document(target_uid)
-        snapshot = doc.get()
-        if not snapshot.exists:
-            return {"deleted": 0, "retained": 1, "notes": "profile_missing"}
-        doc.delete()
-        return {"deleted": 1, "retained": 0, "notes": "profile_deleted"}
-
-    def delete_feedback(target_uid: str) -> dict[str, int | str]:
-        deleted = _delete_firestore_documents_by_field("feedback", "userId", target_uid)
-        return {"deleted": deleted, "retained": 0 if deleted else 1, "notes": "feedback_deleted" if deleted else "no_feedback_found"}
-
-    def delete_finance_applications(target_uid: str) -> dict[str, int | str]:
-        deleted = _delete_firestore_documents_by_field("finance_applications", "owner_uid", target_uid)
-        return {
-            "deleted": deleted,
-            "retained": 0 if deleted else 1,
-            "notes": "finance_applications_deleted" if deleted else "no_finance_applications_found",
-        }
-
-    def purge_whatsapp_subscription(target_uid: str) -> dict[str, int | str]:
-        removed = subscriber_store.remove(target_uid)
-        return {"deleted": int(removed), "retained": 0 if removed else 1, "notes": "subscriber_removed" if removed else "subscriber_missing"}
-
-    def purge_in_memory_notifications(target_uid: str) -> dict[str, int | str]:
-        removed = _notification_store.remove_by_uid(target_uid)
-        return {"deleted": removed, "retained": 0 if removed else 1, "notes": "notifications_removed" if removed else "notifications_missing"}
-
-    targets.append(DeletionTarget(name="user_profile", delete=delete_user_profile))
-    targets.append(DeletionTarget(name="feedback_records", delete=delete_feedback))
-    targets.append(DeletionTarget(name="finance_applications", delete=delete_finance_applications))
-    targets.append(DeletionTarget(name="whatsapp_subscription", delete=purge_whatsapp_subscription))
-    targets.append(DeletionTarget(name="notification_cache", delete=purge_in_memory_notifications))
-    targets.append(
-        DeletionTarget(
-            name="immutable_supply_chain_ledger",
-            delete=None,
-            retain_reason="retained_for_legal_and_audit_integrity",
-        )
-    )
-    return targets
 
 @app.get("/")
 @limiter.limit("60/minute")
-def root(request: Request = None):
+def root(request: Request):
     return {"message": "Fasal Saathi API", "status": "running"}
 
-@app.get("/health")
-@limiter.limit("60/minute")
-def health_check(request: Request = None):
+# ── Celery task helper with standardised error mapping ──────────────────
+#   503 — broker / worker unreachable
+#   504 — task timed out
+#   500 — unexpected task failure
+#   422 — domain-specific prediction errors (unknown category, missing feature)
+import celery.exceptions as _celery_exc
+
+
+async def _run_celery_task(task, timeout: int = 30):
+    """Await *task* completion with *timeout*, mapping Celery exceptions.
+
+    Returns the decoded result dict on success.
     """
-    Health check endpoint for deployment platforms and monitoring tools.
-    """
-    return {"status": "ok", "message": "Backend is running"}
+    loop = asyncio.get_running_loop()
+    try:
+        return await loop.run_in_executor(None, task.get, timeout)
+    except _celery_exc.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail="Prediction request timed out",
+        )
+    except (ConnectionError, OSError, _celery_exc.OperationalError):
+        raise HTTPException(
+            status_code=503,
+            detail="Prediction service temporarily unavailable",
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="Prediction failed",
+        )
+
 
 @app.get("/predict")
 @limiter.limit("30/minute")
-def predict_get(request: Request = None):
+def predict_get(request: Request):
     return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
 
 @app.post("/predict", response_model=PredictResponse)
@@ -1659,24 +1681,28 @@ async def predict_yield(data: PredictRequest, request: Request):
     """
     Standardised prediction endpoint using ML Router for dynamic model selection.
 
-    Returns HTTP 422 when the input contains an unknown categorical value or a
-    missing required feature, so callers receive an actionable error message
-    rather than a silently corrupted prediction.
+    Supports ``Idempotency-Key`` header to prevent duplicate task creation.
     """
-    await verify_role(request)
+    input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
+    input_data = _coerce_prediction_inputs(input_data)
+    context = {"location": request.headers.get("X-User-Location", "Unknown"), "crop": data.Crop}
+
+    ik = request.headers.get("Idempotency-Key")
+    fp = None
+    if ik:
+        fp = _idem.fp(ik, json.dumps(input_data, sort_keys=True, default=str))
+        existing = _idem.get(fp)
+        if existing:
+            tid, cached = existing
+            if cached is not None:
+                return cached
+            raise HTTPException(status_code=202, detail={"task_id": tid, "status": "in_progress"})
 
     try:
-        input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
-        input_data = _coerce_prediction_inputs(input_data)
-
-        context = {
-            "location": request.headers.get("X-User-Location", "Unknown"),
-            "crop": data.Crop,
-        }
-
-        # Offload heavy model inference to Celery worker to prevent blocking ASGI event loop
         from celery_worker import predict_yield_task
         task = predict_yield_task.delay(input_data, context)
+        if fp is not None:
+            _idem.start(fp, task.id)
         loop = asyncio.get_running_loop()
         # timeout=30 prevents executor threads from blocking indefinitely when
         # a Celery worker is slow or the broker is unreachable.
@@ -1694,56 +1720,86 @@ async def predict_yield(data: PredictRequest, request: Request):
             else:
                 raise HTTPException(status_code=400, detail=result["error"])
 
+        if fp is not None:
+            _idem.complete(fp, result)
         return result
-
     except HTTPException:
         raise
     except Exception as e:
         print(f"Prediction Error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+@app.post("/predict-yield-lag")
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 @app.post("/predict-yield-lag", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("5/minute")
 async def predict_yield_lag(payload: YieldInput, request: Request):
-    await verify_role(request)
+    ik = request.headers.get("Idempotency-Key")
+    fp = None
+    if ik:
+        fp = _idem.fp(ik, json.dumps(payload.data, sort_keys=True, default=str))
+        existing = _idem.get(fp)
+        if existing:
+            tid, cached = existing
+            if cached is not None:
+                return cached
+            raise HTTPException(status_code=202, detail={"task_id": tid, "status": "in_progress"})
 
     try:
-        # Offload time-series lag model prediction to Celery worker pool
         from celery_worker import predict_yield_lag_task
         task = predict_yield_lag_task.delay(payload.data)
+        if fp is not None:
+            _idem.start(fp, task.id)
         loop = asyncio.get_running_loop()
         try:
             result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
         except Exception as celery_exc:
             raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
+        result = await _run_celery_task(task)
 
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
 
+        if fp is not None:
+            _idem.complete(fp, result)
         return result
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
-@app.post("/predict-yield-trend", dependencies=[Depends(verify_csrf_token_dependency)])
+
+@app.post("/predict-yield-trend")
 @limiter.limit("5/minute")
 async def predict_yield_trend(payload: YieldInput, request: Request):
-    await verify_role(request)
+    ik = request.headers.get("Idempotency-Key")
+    fp = None
+    if ik:
+        fp = _idem.fp(ik, json.dumps(payload.data, sort_keys=True, default=str))
+        existing = _idem.get(fp)
+        if existing:
+            tid, cached = existing
+            if cached is not None:
+                return cached
+            raise HTTPException(status_code=202, detail={"task_id": tid, "status": "in_progress"})
 
     try:
-        # Offload heavy iterative trend forecasting to Celery worker pool
         from celery_worker import predict_yield_trend_task
         task = predict_yield_trend_task.delay(payload.data)
+        if fp is not None:
+            _idem.start(fp, task.id)
         loop = asyncio.get_running_loop()
         try:
             result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
         except Exception as celery_exc:
             raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
+        result = await _run_celery_task(task)
 
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
 
+        if fp is not None:
+            _idem.complete(fp, result)
         return result
     except HTTPException:
         raise
@@ -2111,6 +2167,30 @@ def init_ml_pipeline() -> None:
     except Exception as exc:
         logger.warning("ML Pipeline initialization failed: %s", exc)
 
+    try:
+        import joblib as _joblib
+        sklearn_path = "sklearn_yield_model.joblib"
+        if os.path.exists(sklearn_path):
+            model_lag = _joblib.load(sklearn_path)
+            ModelRegistry.register("sklearn_lag", model_lag)
+            logger.info("ML Pipeline: Registered sklearn yield-lag model")
+        else:
+            logger.warning("ML Pipeline: %s not found", sklearn_path)
+    except Exception as exc:
+        logger.warning("ML Pipeline: sklearn yield-lag model init failed: %s", exc)
+
+    try:
+        trend_path = "trend_forecast_model.joblib"
+        if os.path.exists(trend_path):
+            import joblib as _joblib2
+            model_trend = _joblib2.load(trend_path)
+            ModelRegistry.register("trend_forecast", model_trend)
+            logger.info("ML Pipeline: Registered trend forecast model")
+        else:
+            logger.warning("ML Pipeline: %s not found", trend_path)
+    except Exception as exc:
+        logger.warning("ML Pipeline: trend forecast model init failed: %s", exc)
+
 
 # Observability setup
 try:
@@ -2138,9 +2218,23 @@ except Exception as exc:
 try:
     from prometheus_fastapi_instrumentator import Instrumentator
 
-    Instrumentator().instrument(app)
+    Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+    app.state.metrics_enabled = True
+    logger.info("Prometheus instrumentation enabled at /metrics")
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
+    app.state.metrics_enabled = False
+
+    # Provide a fallback /metrics endpoint so Prometheus scraping never 404s.
+    @app.get("/metrics", include_in_schema=False)
+    async def metrics_fallback():
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse(
+            "# fasal_saathi_metrics_disabled 1\n"
+            "# Prometheus instrumentation is not available.\n"
+            "# Install prometheus-fastyapi-instrumentator to enable.\n",
+            media_type="text/plain; version=0.0.4",
+        )
 
 
 
@@ -2396,7 +2490,7 @@ async def generate_farm_plan(request: Request, data: SeasonPlanRequest):
         plan = generate_season_plan(data.model_dump() if hasattr(data, "model_dump") else data.dict())
         return {"success": True, "plan": plan}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
     except Exception as e:
         logger.error("Autopilot plan generation failed: %s", e)
         raise HTTPException(status_code=500, detail="Failed to generate farm plan")
