@@ -13,6 +13,7 @@ from firebase_admin import firestore
 import celery
 
 from fastapi import FastAPI, HTTPException, Request, Form, Query, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
@@ -1647,6 +1648,61 @@ def health_check(request: Request = None):
     Health check endpoint for deployment platforms and monitoring tools.
     """
     return {"status": "ok", "message": "Backend is running"}
+
+@app.get("/ready")
+@limiter.limit("60/minute")
+async def readiness_check(request: Request = None):
+    """
+    Readiness probe to verify database, broker, and ML models are available.
+    Returns 200 if ready, 503 otherwise.
+    """
+    status = {
+        "firestore": "unhealthy",
+        "celery": "unhealthy",
+        "ml_models": "unhealthy"
+    }
+    status_code = 200
+
+    # 1. Check Firestore
+    if db_firestore is not None:
+        try:
+            # Lightweight document check to verify reachability
+            await asyncio.to_thread(db_firestore.collection("_health").document("ping").get)
+            status["firestore"] = "healthy"
+        except Exception as e:
+            logger.error("Readiness check: Firestore lookup failed: %s", e)
+            status_code = 503
+    else:
+        status_code = 503
+
+    # 2. Check Celery Broker
+    try:
+        from celery_worker import celery_app
+        with celery_app.connection() as conn:
+            conn.connect()
+        status["celery"] = "healthy"
+    except Exception as e:
+        logger.error("Readiness check: Celery broker connection failed: %s", e)
+        status_code = 503
+
+    # 3. Check ML Models
+    try:
+        from ml.registry import ModelRegistry
+        if ModelRegistry.get_model("xgboost") is not None:
+            status["ml_models"] = "healthy"
+        else:
+            status_code = 503
+    except Exception as e:
+        logger.error("Readiness check: ML Model Registry check failed: %s", e)
+        status_code = 503
+
+    return JSONResponse(
+        content={
+            "status": "ready" if status_code == 200 else "degraded",
+            "details": status
+        },
+        status_code=status_code
+    )
 
 @app.get("/predict")
 @limiter.limit("30/minute")
