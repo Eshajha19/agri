@@ -108,6 +108,8 @@ async def _get_uid_from_request(request: Request) -> str:
         return uid
     except HTTPException:
         raise
+    except auth.RevokedIdTokenError:
+        raise HTTPException(status_code=401, detail="Session revoked — please log in again")
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid auth token")
 
