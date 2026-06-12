@@ -4,6 +4,7 @@ Manages model versions, deployment history, and metadata
 """
 
 import logging
+from collections import deque
 from enum import Enum
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
@@ -139,7 +140,7 @@ class ModelRegistry:
     def __init__(self):
         self.models: Dict[str, Dict[str, ModelVersion]] = {}  # model_name -> version -> ModelVersion
         self.active_models: Dict[str, ModelVersion] = {}  # model_name -> active_version
-        self.deployment_log: List[Dict] = []
+       self.deployment_log: deque = deque(maxlen=1000)
     
     def register_model(
         self,
