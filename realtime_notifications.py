@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import hashlib
 import json
 import logging
 import os
@@ -41,11 +42,14 @@ class NotificationBroadcastHub:
     fan out the same event across processes.
     """
 
+    DEDUP_FIELDS = ("type", "source", "data")
+
     def __init__(
         self,
         history_limit: int = 200,
         redis_url: Optional[str] = None,
         redis_channel: str = "fasal_saathi.notifications",
+        dedup_ttl: float = 60.0,
     ) -> None:
         self._history: Deque[Dict[str, Any]] = collections.deque(maxlen=history_limit)
         self._connections: set[WebSocket] = set()
@@ -57,6 +61,26 @@ class NotificationBroadcastHub:
         self._redis_pubsub = None
         self._redis_listener_task: Optional[asyncio.Task] = None
         self._started = False
+        self._dedup_ttl = dedup_ttl
+        self._seen_hashes: Dict[str, float] = {}
+
+    @staticmethod
+    def _compute_dedup_hash(payload: Dict[str, Any]) -> str:
+        """Deterministic SHA-256 hash of the canonical dedup fields.
+
+        Only *type*, *source*, and *data* (with sorted keys) are included.
+        ``json.dumps`` is called *without* ``default=str`` so that non-JSON-safe
+        values raise immediately — no silent coercion of different objects into
+        the same string.
+        """
+        canonical: Dict[str, Any] = {}
+        for key in NotificationBroadcastHub.DEDUP_FIELDS:
+            val = payload.get(key)
+            if isinstance(val, dict):
+                val = dict(sorted(val.items()))
+            canonical[key] = val
+        raw = json.dumps(canonical, sort_keys=True, ensure_ascii=False)
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     def seed_notifications(self, notifications: Iterable[Dict[str, Any]]) -> None:
         """Seed the local history from existing notifications."""
@@ -126,7 +150,15 @@ class NotificationBroadcastHub:
             "data": event.data,
         }
 
+        # Deduplicate within the TTL window using deterministic hash
+        h = self._compute_dedup_hash(payload)
+        now = asyncio.get_event_loop().time()
         async with self._history_lock:
+            last_seen = self._seen_hashes.get(h)
+            if last_seen is not None and (now - last_seen) < self._dedup_ttl:
+                logger.debug("Deduplicated notification (hash=%s)", h[:10])
+                return event
+            self._seen_hashes[h] = now
             self._history.append(notification)
             clients = list(self._connections)
 
@@ -137,6 +169,11 @@ class NotificationBroadcastHub:
                 await self._redis_client.publish(self._redis_channel, json.dumps(payload))
             except Exception as exc:
                 logger.warning("Failed to publish notification to Redis: %s", exc)
+
+        # Evict expired hashes periodically (every 32 publishes)
+        if len(self._seen_hashes) > 64:
+            cutoff = now - self._dedup_ttl
+            self._seen_hashes = {k: v for k, v in self._seen_hashes.items() if v >= cutoff}
 
         return event
 
@@ -191,7 +228,14 @@ class NotificationBroadcastHub:
                 payload = json.loads(message["data"])
                 notification = payload.get("data")
                 if isinstance(notification, dict):
+                    # Dedup check for cross-process events
+                    h = self._compute_dedup_hash(payload)
+                    now = asyncio.get_event_loop().time()
                     async with self._history_lock:
+                        last_seen = self._seen_hashes.get(h)
+                        if last_seen is not None and (now - last_seen) < self._dedup_ttl:
+                            continue
+                        self._seen_hashes[h] = now
                         self._history.append(notification)
                         clients = list(self._connections)
                     await self._broadcast(payload, clients)
