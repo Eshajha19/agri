@@ -139,15 +139,7 @@ async def register_actor(request: Request, data: RegisterActorRequest):
         raise HTTPException(status_code=500, detail="Not initialized")
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth service not initialized")
-    
-    token_data = await verify_role_fn(request)
-    uid = _verify_write_operation_auth(token_data)
-    
-    # Verify privileged role for actor registration
-    if not _is_privileged_role(token_data):
-        logger.warning("Actor registration denied for uid=%s (insufficient role)", uid)
-        raise HTTPException(status_code=403, detail="Access denied: admin or expert role required")
-    
+    await verify_role_fn(request)
     try:
         actor = supply_chain_blockchain.register_actor(
             data.actor_id, data.name, data.actor_type, data.location
@@ -253,15 +245,7 @@ async def create_batch(request: Request, data: CreateProductBatchRequest):
         raise HTTPException(status_code=500, detail="Not initialized")
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth service not initialized")
-    
-    token_data = await verify_role_fn(request)
-    uid = _verify_write_operation_auth(token_data)
-    
-    role = _get_token_role(token_data)
-    if role not in {"farmer", "vendor"} and not _is_privileged_role(token_data):
-        logger.warning("Batch creation denied for uid=%s (insufficient role: %s)", uid, role)
-        raise HTTPException(status_code=403, detail="Access denied: farmer or seller role required")
-    
+    await verify_role_fn(request)
     try:
         batch = supply_chain_blockchain.create_product_batch(
             data.crop_type, data.farm_id, data.quantity, data.unit,
@@ -286,19 +270,7 @@ async def add_node(request: Request, data: AddSupplyChainNodeRequest):
         raise HTTPException(status_code=500, detail="Not initialized")
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth service not initialized")
-    
-    token_data = await verify_role_fn(request)
-    uid = _verify_write_operation_auth(token_data)
-    
-    batch = _get_batch(data.batch_id)
-    if not _is_privileged_role(token_data):
-        if batch.owner_uid and batch.owner_uid != uid:
-            logger.warning("Node addition denied for uid=%s: not batch owner", uid)
-            raise HTTPException(status_code=403, detail="Access denied: only the batch owner can modify this batch")
-        if not batch.owner_uid:
-            logger.warning("Node addition denied for uid=%s: batch not bound to owner", uid)
-            raise HTTPException(status_code=403, detail="Access denied: batch is not bound to an owner")
-    
+    await verify_role_fn(request)
     try:
         node = supply_chain_blockchain.add_supply_chain_node(
             data.batch_id, data.node_type, data.actor_name, data.location, data.action,
@@ -322,27 +294,7 @@ async def create_contract(request: Request, data: CreateSmartContractRequest):
         raise HTTPException(status_code=500, detail="Not initialized")
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth service not initialized")
-    
-    token_data = await verify_role_fn(request)
-    uid = _verify_write_operation_auth(token_data)
-    
-    role = _get_token_role(token_data)
-    batch = _get_batch(data.batch_id)
-    
-    if not _is_privileged_role(token_data):
-        if role not in {"farmer", "vendor"}:
-            logger.warning("Contract creation denied for uid=%s (insufficient role: %s)", uid, role)
-            raise HTTPException(status_code=403, detail="Access denied: seller role required")
-        if batch.owner_uid and batch.owner_uid != uid:
-            logger.warning("Contract creation denied for uid=%s: not batch owner", uid)
-            raise HTTPException(status_code=403, detail="Access denied: only the batch owner can create a contract for this batch")
-        if not batch.owner_uid:
-            logger.warning("Contract creation denied for uid=%s: batch not bound to owner", uid)
-            raise HTTPException(status_code=403, detail="Access denied: batch is not bound to an owner")
-        if data.seller != batch.farmer_name:
-            logger.warning("Contract seller mismatch for uid=%s: %s vs %s", uid, data.seller, batch.farmer_name)
-            raise HTTPException(status_code=403, detail="Access denied: contract seller must match the batch owner")
-    
+    await verify_role_fn(request)
     try:
         contract = supply_chain_blockchain.create_smart_contract(
             data.batch_id, data.seller, data.buyer, data.price, data.terms,
@@ -366,18 +318,7 @@ async def execute_contract(request: Request, contract_id: str):
         raise HTTPException(status_code=500, detail="Not initialized")
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth service not initialized")
-    
-    token_data = await verify_role_fn(request)
-    uid = _verify_write_operation_auth(token_data)
-    
-    contract = supply_chain_blockchain.smart_contracts.get(contract_id)
-    if contract is None:
-        raise HTTPException(status_code=404, detail="Contract not found")
-    
-    if not _is_privileged_role(token_data) and contract.created_by_uid and contract.created_by_uid != uid:
-        logger.warning("Contract execution denied for uid=%s: not contract creator", uid)
-        raise HTTPException(status_code=403, detail="Access denied: only the contract creator can execute it")
-    
+    await verify_role_fn(request)
     try:
         result = supply_chain_blockchain.execute_smart_contract(contract_id)
         logger.info("Smart contract executed: contract_id=%s by uid=%s", contract_id, uid)

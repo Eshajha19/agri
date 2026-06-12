@@ -468,92 +468,10 @@ class NotificationBroadcastHub:
 
         try:
             while True:
-                try:
-                    msg = await asyncio.wait_for(websocket.receive_text(), timeout=10.0)
-                except asyncio.TimeoutError:
-                    # No message received — periodic liveness check
-                    continue
-                except WebSocketDisconnect:
-                    break
-
-                if msg is None:
-                    continue
-
-                frame_size = len(msg.encode("utf-8"))
-                if frame_size > MAX_FRAME_SIZE:
-                    logger.warning(
-                        "Closing WS %s — frame too large: %d bytes (max %d)",
-                        websocket, frame_size, MAX_FRAME_SIZE,
-                    )
-                    await websocket.close(code=1009)
-                    break
-
-                # Sliding-window rate limit
-                now = time.time()
-                rate_timestamps.append(now)
-                cutoff = now - RATE_WINDOW
-                rate_timestamps = [t for t in rate_timestamps if t > cutoff]
-                if len(rate_timestamps) > MAX_MESSAGES_PER_SEC:
-                    logger.warning(
-                        "Closing WS %s — rate limit exceeded: %d msg/s (max %d)",
-                        websocket, len(rate_timestamps), MAX_MESSAGES_PER_SEC,
-                    )
-                    await websocket.close(code=1008)
-                    break
-
-                # Parse and validate inbound JSON
-                try:
-                    parsed = json.loads(msg)
-                except json.JSONDecodeError:
-                    logger.warning("Invalid JSON from WS %s, ignoring", websocket)
-                    continue
-                except WebSocketDisconnect:
-                    break
-
-                if not isinstance(parsed, dict) or "type" not in parsed:
-                    continue
-
-                msg_type = parsed.get("type")
-                if msg_type == "delivery_ack":
-                    nid = parsed.get("notification_id")
-                    if nid in subscription.retry_counts:
-                        subscription.retry_counts.pop(nid, None)
-                        subscription.last_ack_at = time.time()
-
-                elif msg_type == "subscribe_crops":
-                    valid, error = self._validate_subscribe_crops(parsed)
-                    if not valid:
-                        logger.warning(
-                            "Invalid subscribe_crops from WS %s: %s", websocket, error,
-                        )
-                if msg is None:
-                    continue
-
-                frame_size = len(msg.encode("utf-8"))
-                if frame_size > MAX_FRAME_SIZE:
-                    logger.warning(
-                        "Closing WS %s — frame too large: %d bytes (max %d)",
-                        websocket, frame_size, MAX_FRAME_SIZE,
-                    )
-                    await websocket.close(code=1009)  # Message too big
-                    break
-
-                # Sliding-window rate limit
-                now = time.time()
-                rate_timestamps.append(now)
-                # Prune timestamps outside the window
-                cutoff = now - RATE_WINDOW
-                rate_timestamps = [t for t in rate_timestamps if t > cutoff]
-                if len(rate_timestamps) > MAX_MESSAGES_PER_SEC:
-                    logger.warning(
-                        "Closing WS %s — rate limit exceeded: %d msg/s (max %d)",
-                        websocket, len(rate_timestamps), MAX_MESSAGES_PER_SEC,
-                    )
-                    await websocket.close(code=1008)  # Policy violation
-                    break
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            logger.debug("WebSocket client disconnected")
         except asyncio.CancelledError:
-            pass
-        except Exception:
             pass
         finally:
             async with self._history_lock:
@@ -724,6 +642,38 @@ class NotificationBroadcastHub:
             raise
         except Exception as exc:
             logger.warning("Notification pub-sub listener stopped: %s", exc)
+        import redis.asyncio as redis  # type: ignore
+        delay = 1.0
+        while True:
+            try:
+                async for message in self._redis_pubsub.listen():
+                    delay = 1.0
+                    if message.get("type") != "message":
+                        continue
+                    payload = json.loads(message["data"])
+                    notification = payload.get("data")
+                    if isinstance(notification, dict):
+                        async with self._history_lock:
+                            self._history.append(notification)
+                            clients = list(self._connections)
+                        await self._broadcast(payload, clients)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning(
+                    "Redis pub-sub listener error, reconnecting in %.0fs: %s",
+                    delay, exc,
+                )
+            # Reconnect with exponential backoff (capped at 60 s)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 60.0)
+            try:
+                self._redis_client = redis.from_url(self._redis_url, decode_responses=True)
+                self._redis_pubsub = self._redis_client.pubsub()
+                await self._redis_pubsub.subscribe(self._redis_channel)
+                logger.info("Redis pub-sub listener reconnected to %s", self._redis_channel)
+            except Exception as exc:
+                logger.warning("Redis pub-sub reconnect failed: %s", exc)
 
     async def _redis_listener_add(self, notification: Dict[str, Any]) -> None:
         """Test helper: add notification via Redis listener path."""
