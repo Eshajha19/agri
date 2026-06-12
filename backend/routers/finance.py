@@ -5,6 +5,7 @@ import logging
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional
+from error_utils import safe_detail
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +90,7 @@ async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest)
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        raise HTTPException(status_code=403, detail=safe_detail(e, 403))
 
 @router.post("/applications")
 async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
@@ -111,7 +112,7 @@ async def create_finance_application(request: Request, body: FinanceAssessmentRe
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        raise HTTPException(status_code=403, detail=safe_detail(e, 403))
 
 @router.get("/applications/{application_id}")
 async def get_finance_application(application_id: str, request: Request):
@@ -150,7 +151,7 @@ async def get_finance_application(application_id: str, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        raise HTTPException(status_code=403, detail=safe_detail(e, 403))
 
 @router.get("/products")
 def get_finance_products():

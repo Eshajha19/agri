@@ -4,6 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field, validator
 import logging
+from error_utils import safe_detail
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -355,7 +356,7 @@ async def rag_query(request: Request, body: RAGQuery):
         raise
     except Exception as e:
         logger.error(f"RAG error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.post("/simulate-climate")
@@ -425,7 +426,7 @@ async def simulate_climate(request: Request, data: SimulationRequest):
         raise
     except Exception as e:
         logger.error(f"Climate simulation error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 
 @router.post("/seeds/verify")
@@ -441,4 +442,4 @@ async def verify_seed(request: Request, data: SeedVerifyRequest):
         raise
     except Exception as e:
         logger.error(f"Seed error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))

@@ -4,6 +4,7 @@ Provides secure server-side API for feedback submission with validation.
 """
 
 from fastapi import FastAPI, HTTPException, Depends, Request
+from error_utils import safe_detail
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, validator
@@ -288,7 +289,7 @@ async def submit_feedback(
             
     except ValueError as ve:
         logger.warning(f"Validation error: {ve}")
-        raise HTTPException(status_code=400, detail=str(ve))
+        raise HTTPException(status_code=400, detail=safe_detail(ve, 400))
         
     except HTTPException:
         raise

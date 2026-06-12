@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field, validator
 import logging
+from error_utils import safe_detail
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -63,7 +64,7 @@ async def assess_single_crop(request: Request, data: CropQualityGradingRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        raise HTTPException(status_code=403, detail=safe_detail(e, 403))
     try:
         import base64
         image_bytes = base64.b64decode(data.image_base64)
@@ -71,7 +72,7 @@ async def assess_single_crop(request: Request, data: CropQualityGradingRequest):
         return {"success": True, "crop_type": data.crop_type, "assessment": result}
     except Exception as e:
         logger.error(f"Assessment error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 @router.post("/assess-batch")
 async def assess_batch_crops(request: Request, data: CropQualityBatchRequest):
@@ -83,7 +84,7 @@ async def assess_batch_crops(request: Request, data: CropQualityBatchRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        raise HTTPException(status_code=403, detail=safe_detail(e, 403))
     try:
         import base64
         image_bytes_list = []
@@ -102,7 +103,7 @@ async def assess_batch_crops(request: Request, data: CropQualityBatchRequest):
         raise
     except Exception as e:
         logger.error(f"Batch error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 @router.post("/trends")
 async def get_quality_trends(request: Request, data: QualityTrendsRequest):
@@ -114,13 +115,13 @@ async def get_quality_trends(request: Request, data: QualityTrendsRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        raise HTTPException(status_code=403, detail=safe_detail(e, 403))
     try:
         trends = crop_quality_grader.get_quality_trends(data.crop_type, data.days)
         return {"success": True, "crop_type": data.crop_type, "days": data.days, "trends": trends}
     except Exception as e:
         logger.error(f"Trends error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 @router.get("/supported-crops")
 async def get_supported_crops(request: Request):
@@ -132,7 +133,7 @@ async def get_supported_crops(request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        raise HTTPException(status_code=403, detail=safe_detail(e, 403))
     crops = crop_quality_grader.supported_crops if hasattr(crop_quality_grader, 'supported_crops') else []
     return {"success": True, "supported_crops": crops}
 
@@ -146,7 +147,7 @@ async def calculate_market_price(request: Request, data: CropQualityGradingReque
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        raise HTTPException(status_code=403, detail=safe_detail(e, 403))
     try:
         import base64
         image_bytes = base64.b64decode(data.image_base64)
@@ -154,4 +155,4 @@ async def calculate_market_price(request: Request, data: CropQualityGradingReque
         return {"success": True, "crop_type": data.crop_type, "grade": getattr(assessment, 'grade', 'A'), "assessment": assessment}
     except Exception as e:
         logger.error(f"Price error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))

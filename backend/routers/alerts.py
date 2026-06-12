@@ -9,6 +9,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
 from pydantic import BaseModel, Field
+from error_utils import safe_detail
 
 router = APIRouter()
 
@@ -140,7 +141,7 @@ async def subscribe_whatsapp(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.post("/whatsapp/trigger-alert")
@@ -165,7 +166,7 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.post("/whatsapp/webhook")

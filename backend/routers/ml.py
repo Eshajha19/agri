@@ -3,6 +3,7 @@ import os
 import logging
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field
+from error_utils import safe_detail
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -53,7 +54,7 @@ def predict_yield(data: PredictRequest, request: Request):
         predicted_yield = model_router.predict(input_data, context)
         return {"predicted_ExpYield": float(predicted_yield)}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 @router.post("/predict-yield-lag")
 async def predict_yield_lag(payload: YieldInput, request: Request):
@@ -67,7 +68,7 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
         prediction = model_lag.predict(data)
         return {"prediction": round(float(prediction[0]), 2), "model": "RandomForest Time Series"}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 @router.post("/predict-yield-trend")
 async def predict_yield_trend(payload: YieldInput, request: Request):
@@ -109,4 +110,4 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
 
         return {"trend": trend, "prediction": trend[-1], "model": "Dedicated Trend Forecast"}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))

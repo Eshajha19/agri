@@ -17,6 +17,7 @@ from fastapi import APIRouter, Form, HTTPException, Request, Response
 from pydantic import BaseModel, Field, validator
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
+from error_utils import safe_detail
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
 
@@ -397,7 +398,7 @@ async def rag_query(body: RAGQuery):
     try:
         return rag_generate_fn(body.query, top_k=body.top_k)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail=safe_detail(exc, 500))
 
 
 @router.post("/gemini/analyze-image")

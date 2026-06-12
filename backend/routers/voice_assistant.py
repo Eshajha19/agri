@@ -9,7 +9,10 @@ Affected endpoints (previously open):
   POST /query            — now requires auth; uid from token
   POST /audio-upload     — now requires auth; uid from token; rate-limit
                            keyed on verified uid instead of client field
-  POST /query-analyze    — now requires auth
+    POST /query-analyze    — now requires auth
+"""
+
+from error_utils import safe_detail
   GET  /sessions/{id}    — now requires auth; caller may only read their
                            own sessions
   GET  /offline-cache    — now requires auth (read of internal cache)
@@ -289,7 +292,7 @@ async def create_session(request: Request, data: SessionCreateRequest):
         raise
     except Exception as e:
         logger.error(f"Session creation error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.post("/query", response_model=VoiceResponseData, tags=["Voice"])
@@ -347,7 +350,7 @@ async def process_voice_query(request: Request, data: VoiceQueryRequest):
         raise
     except Exception as e:
         logger.error(f"Voice query error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 
 @router.post("/audio-upload", tags=["Voice"])
@@ -376,7 +379,7 @@ async def upload_audio(
     try:
         safe_filename = _validate_filename(file.filename or "")
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
     os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
     temp_path = os.path.join(TEMP_UPLOAD_DIR, f"{uid}_{safe_filename}")
@@ -417,7 +420,7 @@ async def upload_audio(
         raise
     except Exception as e:
         logger.error(f"Audio upload error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
     finally:
         try:
             if os.path.exists(temp_path):
@@ -454,7 +457,7 @@ async def get_session_history(request: Request, session_id: str):
         raise
     except Exception as e:
         logger.error(f"Session retrieval error: {e}")
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=safe_detail(e, 404))
 
 
 @router.post("/query-analyze", tags=["Voice"])
@@ -490,7 +493,7 @@ async def analyze_query(request: Request, data: VoiceQueryRequest):
         raise
     except Exception as e:
         logger.error(f"Query analysis error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 
 @router.get("/offline-cache", tags=["Voice"])
@@ -517,7 +520,7 @@ async def get_offline_cache(request: Request):
         raise
     except Exception as e:
         logger.error(f"Cache retrieval error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.post("/sync-cache", tags=["Voice"])
@@ -536,4 +539,4 @@ async def sync_offline_cache(request: Request):
         raise
     except Exception as e:
         logger.error(f"Cache sync error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))

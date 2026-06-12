@@ -95,6 +95,7 @@ from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
 from error_recovery_middleware import ErrorRecoveryMiddleware
+from error_utils import safe_detail
 from realtime_notifications import notification_broker
 from rbac_audit import audit_rbac_event, rbac_audit_trail, validate_required_roles
 from rbac import RBACMiddleware, print_rbac_matrix, RBACManager, Permission
@@ -656,7 +657,7 @@ async def predict_yield(data: PredictRequest, request: Request):
         raise
     except Exception as e:
         print(f"Prediction Error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 @app.post("/predict-yield-lag")
 @limiter.limit("5/minute")
@@ -1220,7 +1221,7 @@ async def generate_farm_plan(request: Request, data: SeasonPlanRequest):
         plan = generate_season_plan(data.dict())
         return {"success": True, "plan": plan}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
     except Exception as e:
         logger.error("Autopilot plan generation failed: %s", e)
         raise HTTPException(status_code=500, detail="Failed to generate farm plan")
