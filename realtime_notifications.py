@@ -157,10 +157,11 @@ class NotificationBroadcastHub:
         )
 
         try:
-            await asyncio.Event().wait()
-        except asyncio.CancelledError:
-            pass
+            while True:
+                await websocket.receive_text()
         except WebSocketDisconnect:
+            logger.debug("WebSocket client disconnected")
+        except asyncio.CancelledError:
             pass
         finally:
             async with self._history_lock:
