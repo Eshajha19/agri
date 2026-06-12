@@ -382,3 +382,183 @@ class TestIntegration:
         result = validator.validate_query(query)
         assert not result.is_safe
         assert result.remediation is not None
+
+
+# ---------------------------------------------------------------------------
+# Golden test suite — citation normalization & response validation
+# ---------------------------------------------------------------------------
+
+
+class TestCitationNormalization:
+    """Citation marker normalisation ― all variants → [Source N]."""
+
+    @pytest.fixture
+    def validator(self):
+        return RAGSafetyValidator()
+
+    def test_normalize_source_bracket(self, validator):
+        """[Source N] stays unchanged."""
+        out = RAGSafetyValidator._normalize_citation_markers(
+            "Use irrigation [Source 1]."
+        )
+        assert out == "Use irrigation [Source 1]."
+
+    def test_normalize_source_lowercase(self, validator):
+        """[source 2] → [Source 2]."""
+        out = RAGSafetyValidator._normalize_citation_markers(
+            "Add fertilizer [source 2]."
+        )
+        assert out == "Add fertilizer [Source 2]."
+
+    def test_normalize_bare_number_in_brackets(self, validator):
+        """[3] → [Source 3]."""
+        out = RAGSafetyValidator._normalize_citation_markers(
+            "Rotate crops [3]."
+        )
+        assert out == "Rotate crops [Source 3]."
+
+    def test_normalize_number_in_parens(self, validator):
+        """(4) → [Source 4]."""
+        out = RAGSafetyValidator._normalize_citation_markers(
+            "Test soil pH (4)."
+        )
+        assert out == "Test soil pH [Source 4]."
+
+    def test_normalize_bare_source_text(self, validator):
+        """Source 5 → [Source 5]."""
+        out = RAGSafetyValidator._normalize_citation_markers(
+            "Prune branches Source 5."
+        )
+        assert out == "Prune branches [Source 5]."
+
+    def test_normalize_multiple_markers(self, validator):
+        """Multiple mixed markers normalised correctly."""
+        out = RAGSafetyValidator._normalize_citation_markers(
+            "Irrigate [source 1] and fertilize (2). See Source 3."
+        )
+        assert "[Source 1]" in out
+        assert "[Source 2]" in out
+        assert "[Source 3]" in out
+
+
+class TestCitationExtraction:
+    """Extract cited source indices from response text."""
+
+    def test_extract_single(self):
+        text = "Use irrigation [Source 1]."
+        assert RAGSafetyValidator._extract_citation_indices(text) == {1}
+
+    def test_extract_multiple(self):
+        text = "Irrigate [Source 1] and fertilize [Source 2]."
+        assert RAGSafetyValidator._extract_citation_indices(text) == {1, 2}
+
+    def test_extract_all_variants(self):
+        text = "A [source 1] B (2) C [3] D Source 4 E."
+        assert RAGSafetyValidator._extract_citation_indices(text) == {1, 2, 3, 4}
+
+    def test_extract_no_citations(self):
+        text = "Just plain advice without sources."
+        assert RAGSafetyValidator._extract_citation_indices(text) == set()
+
+
+class TestResponseCitationValidation:
+    """validate_response with structured citations metadata."""
+
+    SAMPLE_CITATIONS = [
+        {"index": 1, "title": "Irrigation Guide", "source": "ICAR", "year": 2023},
+        {"index": 2, "title": "Fertilizer Best Practices", "source": "KVK", "year": 2024},
+    ]
+
+    @pytest.fixture
+    def validator(self):
+        return RAGSafetyValidator()
+
+    # ── Safe responses (must pass) ─────────────────────────────────────────
+
+    def test_safe_response_with_citations(self, validator):
+        """Well‑cited answer passes."""
+        result = validator.validate_response(
+            query="How to irrigate?",
+            response="Drip irrigation saves water [Source 1] and improves yield [Source 2].",
+            citations=self.SAMPLE_CITATIONS,
+        )
+        assert result.is_safe, f"Expected safe, got: {result.details}"
+
+    def test_safe_response_single_citation(self, validator):
+        """Single source reference is sufficient."""
+        result = validator.validate_response(
+            query="Best fertilizer?",
+            response="Use NPK 10:26:26 [Source 1].",
+            citations=self.SAMPLE_CITATIONS,
+        )
+        assert result.is_safe
+
+    def test_safe_response_normalized_variant(self, validator):
+        """Citation variant [source 1] normalizes and validates."""
+        result = validator.validate_response(
+            query="When to plant?",
+            response="Plant after monsoon [source 1].",
+            citations=self.SAMPLE_CITATIONS,
+        )
+        assert result.is_safe
+
+    def test_safe_response_without_citations_when_none_provided(self, validator):
+        """No citations param → skip citation checks (backward compat)."""
+        result = validator.validate_response(
+            query="How to farm?",
+            response="General advice without sources.",
+        )
+        assert result.is_safe
+
+    # ── Unsafe responses (must fail) ───────────────────────────────────────
+
+    def test_unsafe_response_missing_citations(self, validator):
+        """Response without any citation markers fails."""
+        result = validator.validate_response(
+            query="How to irrigate?",
+            response="Just water the plants daily.",
+            citations=self.SAMPLE_CITATIONS,
+        )
+        assert not result.is_safe
+        assert result.threat_detected == "missing_citations"
+
+    def test_unsafe_response_fabricated_source(self, validator):
+        """Response referencing non‑existent source index fails."""
+        result = validator.validate_response(
+            query="How to irrigate?",
+            response="Use drip irrigation [Source 99].",
+            citations=self.SAMPLE_CITATIONS,
+        )
+        assert not result.is_safe
+        assert result.threat_detected == "invalid_citation_reference"
+
+    def test_unsafe_response_partly_fabricated(self, validator):
+        """Mix of valid and invalid source references fails."""
+        result = validator.validate_response(
+            query="Farming advice?",
+            response="Irrigate [Source 1] and use magic water [Source 42].",
+            citations=self.SAMPLE_CITATIONS,
+        )
+        assert not result.is_safe
+        assert result.threat_detected == "invalid_citation_reference"
+
+    # ── Mixed / edge‑case citation formats ────────────────────────────────
+
+    def test_mixed_citation_format_validation(self, validator):
+        """[Source N], [N], (N) all validate correctly against metadata."""
+        result = validator.validate_response(
+            query="Farming methods?",
+            response="Drip [1] and sprinkler (2) are both effective.",
+            citations=self.SAMPLE_CITATIONS,
+        )
+        assert result.is_safe
+
+    def test_no_citations_out_of_range_single(self, validator):
+        """Single out‑of‑range index catches the correct one."""
+        result = validator.validate_response(
+            query="Query",
+            response="Advice [source 1] and fake [source 9].",
+            citations=self.SAMPLE_CITATIONS,
+        )
+        assert not result.is_safe
+        assert "9" in result.details

@@ -233,7 +233,54 @@ class RAGSafetyValidator:
             threat_detected=None,
         )
 
-    def validate_response(self, query: str, response: str) -> SafetyResult:
+    # ── Citation marker pattern ───────────────────────────────────────────
+    # Matches [Source N], [source N], (Source N), [N], (N), Source N only
+    # when followed by punctuation/whitespace/end-of-string (not embedded in
+    # numbers like "10:26:26").
+    _CITATION_RE = re.compile(r"""
+        \[(?:[Ss]ource\s+)?(\d+)\]
+        |\((\d+)\)
+        |(?<!\d)\b(?:[Ss]ource\s+)(\d+)\b(?!\d)
+    """, re.VERBOSE)
+
+    @staticmethod
+    def _normalize_citation_markers(text: str) -> str:
+        """Normalise all citation variants to ``[Source N]`` canonical form."""
+        def _replacer(m: re.Match) -> str:
+            num = next(g for g in m.groups() if g is not None)
+            return f"[Source {num}]"
+        return RAGSafetyValidator._CITATION_RE.sub(_replacer, text)
+
+    @staticmethod
+    def _extract_citation_indices(text: str) -> set[int]:
+        """Return the set of source numbers cited in *text* (1‑based)."""
+        indices: set[int] = set()
+        for m in RAGSafetyValidator._CITATION_RE.finditer(text):
+            num = int(next(g for g in m.groups() if g is not None))
+            indices.add(num)
+        return indices
+
+    def validate_response(
+        self,
+        query: str,
+        response: str,
+        citations: list[dict] | None = None,
+    ) -> SafetyResult:
+        """
+        Validate RAG response for information leakage and citation integrity.
+
+        Args:
+            query: Original user query
+            response: Generated response
+            citations: Structured citation metadata (list of dicts with at
+                       least an ``"index"`` key). When provided the validator
+                       checks that the response actually references at least
+                       one source and that every referenced index exists.
+
+        Returns:
+            SafetyResult indicating if response is safe to return
+        """
+        # Check response length
         if len(response) > 10000:
             logger.warning("Response exceeds safe length")
             return SafetyResult(
@@ -243,26 +290,40 @@ class RAGSafetyValidator:
                 threat_detected="response_too_long",
             )
 
-        # Block dosage recommendations only when they are NOT backed by a citation marker.
-        # Cited responses (containing [1], [2], etc.) come from the verified knowledge base
-        # and must not be blocked — doing so causes valid agricultural advice to be suppressed.
-        ag_unsafe_patterns = [
-            r"\d+\s*(?:ml|g|kg|l)\s*(?:per|/)\s*(?:acre|hectare|litre|plant)",
-            r"apply\s+\d+\s*(?:ml|g|kg|l)\s+of\s+\w+",
-        ]
-        response_has_citation = bool(self._CITATION_RE.search(response))
-        if not response_has_citation:
-            for pattern in ag_unsafe_patterns:
-                if re.search(pattern, response, re.IGNORECASE):
-                    logger.warning("Unvalidated agricultural dosage recommendation detected in response")
-                    return SafetyResult(
-                        is_safe=False,
-                        threat_level=ThreatLevel.WARNING,
-                        details="Response contains unvalidated agricultural dosage recommendations",
-                        threat_detected="unvalidated_ag_advice",
-                        remediation="Agricultural dosages should not be provided without verification. Blocked for safety.",
-                    )
+        # ── Citation integrity checks (structured metadata, not regex) ──
+        cited: set[int] = set()
+        if citations is not None:
+            cited = self._extract_citation_indices(response)
+            available = {c["index"] for c in citations}
 
+            # Response must contain at least one citation marker
+            if not cited:
+                return SafetyResult(
+                    is_safe=False,
+                    threat_level=ThreatLevel.WARNING,
+                    details=(
+                        "Response lacks any citation markers. "
+                        "Advice must reference the provided sources."
+                    ),
+                    threat_detected="missing_citations",
+                    remediation="The generated response does not cite any sources.",
+                )
+
+            # Every referenced source must exist in the citation metadata
+            out_of_range = cited - available
+            if out_of_range:
+                return SafetyResult(
+                    is_safe=False,
+                    threat_level=ThreatLevel.CRITICAL,
+                    details=(
+                        f"Response references non‑existent source indices: "
+                        f"{sorted(out_of_range)}. Available: {sorted(available)}."
+                    ),
+                    threat_detected="invalid_citation_reference",
+                    remediation="Generated response contains fabricated source references.",
+                )
+
+        # Check for system information leakage
         sensitive_patterns = [
             r"password",
             r"api.*key",
