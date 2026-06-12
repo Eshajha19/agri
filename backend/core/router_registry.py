@@ -2,6 +2,13 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+ROUTER_DIAGNOSTICS = {
+    "duplicate_prefixes": [],
+    "missing_routers": [],
+    "registered_routers": [],
+    "warnings": [],
+}
+
 def register_routers(
     app,
     ml,
@@ -20,6 +27,8 @@ def register_routers(
     flags_router,
     lms,
     voice_assistant_router,
+
+
 ):
     logger.info("Starting router registration")
 
@@ -31,15 +40,28 @@ def register_routers(
                 "Skipping router registration: %s is None",
                 router_name,
             )
+
+            ROUTER_DIAGNOSTICS["missing_routers"].append(
+                router_name
+            )
+
             return
 
         if prefix in registered_prefixes:
-            logger.warning(
-                "Duplicate router prefix detected: %s (%s and %s)",
-                prefix,
-                registered_prefixes[prefix],
-                router_name,
+            message = (
+                f"Duplicate router prefix detected: "
+                f"{prefix} ({registered_prefixes[prefix]} and {router_name})"
             )
+
+            logger.warning(message)
+
+            ROUTER_DIAGNOSTICS["duplicate_prefixes"].append({
+                "prefix": prefix,
+                "routers": [
+                    registered_prefixes[prefix],
+                    router_name,
+                ],
+            })
         else:
             registered_prefixes[prefix] = router_name
 
@@ -50,11 +72,27 @@ def register_routers(
             tags,
         )
 
+        if not router_name.strip():
+            ROUTER_DIAGNOSTICS["warnings"].append(
+                "Router with empty name detected"
+            )
+
+        if tags is None or len(tags) == 0:
+            ROUTER_DIAGNOSTICS["warnings"].append(
+                f"{router_name} has no tags configured"
+            )
+
         app.include_router(
             router_obj,
             prefix=prefix,
             tags=tags or [],
         )
+
+        ROUTER_DIAGNOSTICS["registered_routers"].append({
+            "name": router_name,
+            "prefix": prefix,
+            "tags": tags or [],
+        })
 
     register(
         ml.router,
@@ -126,13 +164,12 @@ def register_routers(
         router_name="Community",
     )
 
-    if voice_assistant_router is not None:
-        register(
-            voice_assistant_router.router,
-            prefix="/api/voice",
-            tags=["Voice Assistant"],
-            router_name="Voice Assistant",
-        )
+    register(
+        voice_assistant_router.router if voice_assistant_router else None,
+        prefix="/api/voice",
+        tags=["Voice Assistant"],
+        router_name="Voice Assistant",
+    )
 
     register(
         referrals.router,
@@ -173,6 +210,58 @@ def register_routers(
         prefix="/api",
         tags=["LMS"],
         router_name="LMS",
+    )
+
+    expected_routers = {
+        "ML Prediction",
+        "ML Governance",
+        "Finance",
+        "Finance Legacy",
+        "Quality",
+        "Blockchain",
+        "Reports",
+        "Marketplace",
+        "Knowledge",
+        "Community",
+        "Referrals",
+        "Platform",
+        "Advisory",
+        "Alerts",
+        "Feature Flags",
+        "LMS",
+    }
+
+    registered_names = {
+        item["name"]
+        for item in ROUTER_DIAGNOSTICS["registered_routers"]
+    }
+
+    missing = expected_routers - registered_names
+
+    ROUTER_DIAGNOSTICS["missing_routers"] = sorted(
+        list(missing)
+    )
+
+    @app.get("/system/router-diagnostics")
+    async def router_diagnostics():
+        return {
+            "success": True,
+            "validation_passed": (
+                len(
+                    ROUTER_DIAGNOSTICS["duplicate_prefixes"]
+                ) == 0
+            ),
+            **ROUTER_DIAGNOSTICS,
+        }
+    
+    logger.info(
+        "Router validation summary | "
+        "registered=%d | duplicates=%d | "
+        "missing=%d | warnings=%d",
+        len(ROUTER_DIAGNOSTICS["registered_routers"]),
+        len(ROUTER_DIAGNOSTICS["duplicate_prefixes"]),
+        len(ROUTER_DIAGNOSTICS["missing_routers"]),
+        len(ROUTER_DIAGNOSTICS["warnings"]),
     )
 
     logger.info(

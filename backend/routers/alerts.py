@@ -1,6 +1,9 @@
 """Alerts & Notifications Router"""
 import asyncio
-import logging
+import base64
+import hashlib
+import hmac
+import os
 import re
 from datetime import datetime
 from typing import Optional
@@ -118,7 +121,7 @@ async def subscribe_whatsapp(
             "region_id": normalize_region_identifier(region_id) or None,
         }
         subscriber_store.upsert(uid, subscriber)
-        welcome_msg = f"Namaste {clean_name}! \U0001f64f\nWelcome to *Fasal Saathi WhatsApp Alerts*."
+        welcome_msg = f"Namaste {name}! 🙏\nWelcome to *Fasal Saathi WhatsApp Alerts*."
         await asyncio.to_thread(send_whatsapp_fn, phone_number, welcome_msg)
         return {"success": True, "message": "Successfully subscribed"}
     except HTTPException:
