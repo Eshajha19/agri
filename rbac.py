@@ -242,6 +242,20 @@ class RBACMatrix:
         return all(cls.has_permission(role, perm) for perm in permissions)
 
 
+_firestore_client = None
+
+
+def _get_firestore():
+    """Return the shared Firestore client, initialising it once."""
+    global _firestore_client
+    if _firestore_client is None:
+        try:
+            _firestore_client = firestore.client()
+        except Exception:
+            return None
+    return _firestore_client
+
+
 class RBACManager:
     """Manager for authentication and authorization."""
 
@@ -337,11 +351,8 @@ class RBACManager:
 
     @staticmethod
     def get_db():
-        """Get Firestore client."""
-        try:
-            return firestore.client()
-        except Exception:
-            return None
+        """Get shared Firestore client (initialised at most once)."""
+        return _get_firestore()
 
     @staticmethod
     def _parse_bearer_token(request: Request) -> Optional[str]:
@@ -400,6 +411,12 @@ class RBACManager:
             try:
                 decoded_token = firebase_auth.verify_id_token(token, check_revoked=True)
                 uid = decoded_token.get("uid")
+            except firebase_auth.RevokedIdTokenError:
+                logger.warning("Revoked Firebase token rejected")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Session revoked — please log in again"
+                )
             except Exception as exc:
                 logger.error("Token verification failed: %s", exc)
                 raise HTTPException(

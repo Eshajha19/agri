@@ -230,12 +230,28 @@ def get_experiment_metrics(experiment_id: str) -> Dict:
             elif etype == "error":
                 counts[variant]["errors"] += 1
 
-        return _summarize_counts(
-            experiment_id,
-            total,
-            counts,
-        )
+        # Compute conversion rates
+        summary = {}
+        for variant, c in counts.items():
+            imp = c["impressions"]
+            if imp == 0:
+                summary[variant] = {
+                    **c,
+                    "conversion_rate": None,
+                    "error_rate":      None,
+                }
+            else:
+                summary[variant] = {
+                    **c,
+                    "conversion_rate": round(c["conversions"] / imp * 100, 2),
+                    "error_rate":      round(c["errors"] / imp * 100, 2),
+                }
 
+        return {
+            "experiment_id": experiment_id,
+            "total_events":  total,
+            "variants":      summary,
+        }
 
     except Exception as e:
         logger.error("Failed to compute metrics for '%s': %s", experiment_id, e)
