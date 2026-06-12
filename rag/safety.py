@@ -88,73 +88,113 @@ class PromptInjectionDetector:
     # would miss.
 
     INSTRUCTION_OVERRIDE_WORDS = {
+        # single words
         "forget", "ignore", "skip", "disregard", "overlook", "neglect",
         "bypass", "dismiss", "erase", "delete", "remove", "clear",
         "reset", "restart", "undo", "drop", "cancel", "abort",
+        "obey", "follow", "listen", "heed",
+        # multi-word phrases
         "don't follow", "do not follow", "stop following",
         "don't listen", "do not listen", "stop listening",
         "don't obey", "do not obey", "stop obeying",
-        "don't answer", "do not answer",
-        "don't respond", "do not respond",
+        "don't answer", "do not answer", "stop answering",
+        "don't respond", "do not respond", "stop responding",
+        "don't reply", "do not reply", "stop replying",
+        "don't heed", "do not heed", "stop heeding",
         "new instruction", "different instruction",
         "change your", "alter your", "modify your",
         "switch your", "update your",
+        "previous directions", "previous instructions",
+        "previous commands", "earlier instructions",
+        "your constraints", "your restrictions",
+        "your programming", "your directions",
+        "given before", "told earlier", "programmed with",
+        "from now on", "going forward",
     }
 
     ROLE_PLAY_WORDS = {
         "act as", "behave as", "behave like", "act like",
-        "pretend to", "pretend you", "imagine you",
+        "pretend to", "pretend you", "pretend that",
+        "imagine you", "imagine that",
         "you are a", "you're a", "you are an", "you're an",
-        "become", "transform", "convert", "turn into",
         "you are now", "you're now", "now you are",
+        "become", "transform", "convert", "turn into",
         "your new role", "your new identity",
         "speak as", "talk as", "respond as", "reply as",
         "you will act", "you will behave",
         "you will pretend", "you will become",
-        "take on the role", "assume the identity",
+        "take on the role", "assume the role",
+        "assume the identity", "take on the identity",
         "step into the shoes",
+        "role of a", "role of an",
+        "pretend you're", "pretend you are",
+        "act as if", "act like you",
+        "you are a hacker", "you are an admin",
+        "system administrator", "linux terminal",
+        "without safety", "without filters",
     }
 
     DATA_EXFIL_WORDS = {
-        "passwords", "secrets", "credentials", "tokens",
+        # single words (avoid ambiguous tokens like "key"/"table" that collide
+        # with agricultural language — e.g. "key" in "key nutrients", "table"
+        # in "water table" / "vegetable").
+        "passwords", "password", "secrets", "secret",
+        "credentials", "tokens", "token",
+        "confidential", "classified",
+        # data containers
+        "database", "records", "entries",
         "admin panel", "admin url", "admin page",
-        "internal", "confidential", "classified",
+        "admin password", "admin access",
         "private key", "private data", "private info",
         "customer data", "user data", "user list",
         "all users", "all records", "all entries",
         "access key", "access secret",
         "connection string", "endpoint",
+        "api key", "api secret", "auth token",
+        # extraction verbs
         "show me", "tell me", "give me", "output",
         "print", "display", "leak", "expose", "reveal",
         "dump", "extract", "pull", "fetch", "retrieve",
+        "export", "copy", "steal",
     }
 
     JAILBREAK_WORDS = {
         "unrestricted", "unfiltered", "uncensored", "unlimited",
+        "unconstrained", "unbounded", "unhindered",
         "no restrictions", "no limits", "no boundaries",
         "no rules", "no constraints", "no barriers",
+        "no filters", "no safety", "no ethics",
         "anything you want", "whatever you want",
         "without limits", "without boundaries",
         "without rules", "without constraints",
+        "without restrictions", "without filters",
+        "without any restrictions", "without any filters",
+        "without any limits", "without any rules",
         "do anything", "say anything", "answer anything",
         "full access", "complete access", "total access",
         "you are free", "you can do", "you may do",
         "i have permission", "i have authorization",
-        "for research", "for educational",
+        "i have the right", "i am allowed",
+        "for research", "for educational", "for research purposes",
+        "for educational purposes", "for testing purposes",
         "hypothetical", "fictional", "simulation",
         "in a test", "in a lab", "in a sandbox",
+        "for testing", "for science",
         "don't worry", "it's safe", "it's okay",
+        "don't worry about", "it's harmless",
         "this is for", "this is a",
         "i need you to", "i want you to",
         "can you please", "could you please",
+        "how to build", "how to make", "how to create",
+        "tell me how to", "show me how to",
     }
 
     # ── Sensitivity → threshold map ──────────────────────────────────────
     #  heuristic_score >= threshold is flagged
     THRESHOLDS = {
-        "low":     0.85,
-        "medium":  0.65,
-        "high":    0.45,
+        "low":     0.60,
+        "medium":  0.35,
+        "high":    0.20,
     }
 
     def __init__(self, sensitivity: str = "medium"):
@@ -168,29 +208,31 @@ class PromptInjectionDetector:
     def _heuristic_score(self, query: str) -> float:
         """Return a suspicion score in [0.0, 1.0] based on word-level signals.
 
-        The score is an average of per-category signal densities so that a
-        query hitting many signals in one category (e.g. role-play) scores
-        as highly as a query spreading signals across categories.
+        Each category awards a fixed increment per unique signal hit (capped
+        per category) so that even short queries with 1-2 signals score
+        meaningfully.
         """
         words_lower = query.lower().split()
         text_lower = query.lower()
 
-        def _signal_ratio(word_set: set[str]) -> float:
-            """Fraction of query word-boundary signals present in *word_set*."""
-            hits = sum(1 for signal in word_set if signal in text_lower)
-            return hits / max(len(word_set), 1)
+        def _count_hits(word_set: set[str]) -> int:
+            return sum(1 for signal in word_set if signal in text_lower)
 
         # 1) instruction-override signal
-        override_score = _signal_ratio(self.INSTRUCTION_OVERRIDE_WORDS)
+        override_hits = _count_hits(self.INSTRUCTION_OVERRIDE_WORDS)
+        override_score = min(override_hits * 0.20, 0.50)
 
         # 2) role-play signal
-        role_score = _signal_ratio(self.ROLE_PLAY_WORDS)
+        role_hits = _count_hits(self.ROLE_PLAY_WORDS)
+        role_score = min(role_hits * 0.20, 0.45)
 
         # 3) data-exfiltration signal
-        exfil_score = _signal_ratio(self.DATA_EXFIL_WORDS)
+        exfil_hits = _count_hits(self.DATA_EXFIL_WORDS)
+        exfil_score = min(exfil_hits * 0.15, 0.35)
 
         # 4) jailbreak signal
-        jailbreak_score = _signal_ratio(self.JAILBREAK_WORDS)
+        jailbreak_hits = _count_hits(self.JAILBREAK_WORDS)
+        jailbreak_score = min(jailbreak_hits * 0.18, 0.40)
 
         # 5) structural signal — commands (imperatives) without question words
         question_words = {"how", "what", "why", "when", "where", "which", "who", "is", "are", "can", "could", "would", "should", "do", "does"}
@@ -198,27 +240,24 @@ class PromptInjectionDetector:
         word_set = set(words_lower)
         has_question = bool(word_set & question_words)
         has_command = bool(word_set & command_verbs)
-        # Imperative-heavy + no question words → suspicious
         structural_score = 0.0
         if has_command and not has_question:
-            # Count how many command verbs present
             cmd_count = sum(1 for w in words_lower if w in command_verbs)
             structural_score = min(cmd_count * 0.15, 0.6)
 
-        # 6) length / density bonus — very long queries with many signals
+        # 6) length / density bonus
         density_bonus = 0.0
         if len(words_lower) > 50:
             density_bonus = 0.05
         if len(words_lower) > 100:
             density_bonus = 0.10
 
-        # Weighted combination
         score = (
-            override_score * 0.30 +
-            role_score * 0.25 +
-            exfil_score * 0.20 +
-            jailbreak_score * 0.15 +
-            structural_score * 0.10 +
+            override_score +
+            role_score +
+            exfil_score +
+            jailbreak_score +
+            structural_score +
             density_bonus
         )
         return min(score, 1.0)
