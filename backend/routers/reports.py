@@ -650,7 +650,7 @@ class AssignRoleRequest(BaseModel):
     role: str = Field(..., pattern=r"^(admin|expert|farmer|vendor|system|guest)$")
 
 
-@router.post("/admin/assign-role")
+@router.post("/assign-role")
 async def assign_role(request: Request, body: AssignRoleRequest):
     """
     Assign a role to a user and sync the Firebase custom claim.
@@ -701,7 +701,7 @@ async def assign_role(request: Request, body: AssignRoleRequest):
     }
 
 
-@router.post("/admin/backfill-role-claims")
+@router.post("/backfill-role-claims")
 async def backfill_role_claims_endpoint(request: Request):
     """
     One-time backfill: set the 'role' custom claim for every user in Firestore.
