@@ -176,19 +176,34 @@ class ABTest:
             self.current_allocation[self.variant_arm.model_id] = variant_score / total_score
     
     def get_winner(self) -> Optional[Arm]:
-        """Determine winner with confidence threshold"""
+        """Determine winner via two-proportion z-test."""
         total_trials = self.control_arm.total_trials + self.variant_arm.total_trials
-        
         if total_trials < self.min_samples:
             return None
-        
-        control_mean = self.control_arm.successes / max(self.control_arm.total_trials, 1)
-        variant_mean = self.variant_arm.successes / max(self.variant_arm.total_trials, 1)
-        
-        # Simple confidence check
-        if abs(control_mean - variant_mean) > (1 - self.confidence_threshold):
-            return self.variant_arm if variant_mean > control_mean else self.control_arm
-        
+
+        n_c = self.control_arm.total_trials
+        n_v = self.variant_arm.total_trials
+        s_c = self.control_arm.successes
+        s_v = self.variant_arm.successes
+
+        p_c = s_c / max(n_c, 1)
+        p_v = s_v / max(n_v, 1)
+
+        # Pooled proportion under null hypothesis
+        p_pool = (s_c + s_v) / max(total_trials, 1)
+
+        # Standard error of the difference
+        se = math.sqrt(p_pool * (1 - p_pool) * (1 / max(n_c, 1) + 1 / max(n_v, 1)))
+        if se == 0:
+            return None
+
+        z = (p_c - p_v) / se
+        # Two-tailed p-value via complementary error function
+        p_value = math.erfc(abs(z) / math.sqrt(2))
+
+        alpha = 1.0 - self.confidence_threshold
+        if p_value < alpha:
+            return self.variant_arm if p_v > p_c else self.control_arm
         return None
     
     def end(self):
