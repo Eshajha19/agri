@@ -33,10 +33,10 @@ def _normalize_referral_code(code: str) -> str:
 
 
 def _generate_referral_code(uid: str, attempt: int = 0) -> str:
-    import hashlib
+    import secrets
 
-    digest = hashlib.sha256(f"{uid}:{attempt}".encode("utf-8")).hexdigest().upper()
-    return f"FS{digest[:10]}"
+    raw = secrets.token_hex(8).upper()
+    return f"FS{raw}"
 
 
 def _referral_badge(referral_count: int) -> str:
