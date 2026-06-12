@@ -1,76 +1,90 @@
 # main.py
 import os
 import asyncio
-import itertools
-import io
-import json
 import logging
 import math
-import re
-import joblib
-import hashlib
-import pandas as pd
-import numpy as np
-
-import sys
-
-# Required environment variables for backend
-REQUIRED_ENV_VARS = [
-    "WEATHER_API_KEY",
-    "SOIL_API_KEY",
-    "FIREBASE_ADMIN_CRED",
-    "BACKEND_PORT",
-]
-
-def validate_env_vars():
-    missing = [var for var in REQUIRED_ENV_VARS if not os.getenv(var)]
-    if missing:
-        print(f"❌ Missing required environment variables: {', '.join(missing)}")
-        sys.exit(1)  # stop app immediately
-
-# Run validation before app starts
-validate_env_vars()
-
-
-from fastapi import Depends, Header, HTTPException
-from backend.security.csrf import generate_csrf_token, validate_csrf_token
-
-@app.get("/csrf-token")
-async def get_csrf_token():
-    return {"csrf_token": generate_csrf_token()}
-
-def csrf_protect(x_csrf_token: str = Header(...)):
-    if not validate_csrf_token(x_csrf_token):
-        raise HTTPException(status_code=403, detail="Invalid or expired CSRF token")
-
-from fastapi import Depends
-
-@app.post("/finance/transfer-funds", dependencies=[Depends(csrf_protect)])
-async def transfer_funds(request: TransferRequest):
-    # business logic here
-    return {"success": True}
-
-@app.delete("/platform/delete-user/{user_id}", dependencies=[Depends(csrf_protect)])
-async def delete_user(user_id: str):
-    # delete logic
-    return {"deleted": True}
-
-
 import collections
 import threading
-import time
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
-from fastapi import FastAPI, HTTPException, Request, Form, Query, Response, WebSocket, WebSocketDisconnect
+from firebase_admin import firestore
+import celery
+
+from fastapi import FastAPI, HTTPException, Request, Form, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
+from csrf_protection import configure
+from backend.rate_limit_config import build_limiter, rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
+limiter = build_limiter()
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+
+from backend.rate_limit_config import build_limiter, rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
+limiter = build_limiter()
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 from backend.utils.safe_log import sanitize_log_field
+from error_recovery_middleware import ErrorRecoveryMiddleware
+from security_hygiene import SecurityHygieneMiddleware
 
+app.add_middleware(ErrorRecoveryMiddleware)
+app.add_middleware(SecurityHygieneMiddleware)
+
+@app.post("/api/echo")
+async def echo_endpoint(request: Request):
+    return await request.json()
+
+@app.post("/api/echo-form")
+async def echo_form_endpoint(request: Request):
+    form = await request.form()
+    return dict(form)
+
+@app.post("/api/echo")
+async def echo_endpoint(request: Request):
+    return await request.json()
+
+@app.post("/api/echo-form")
+async def echo_form_endpoint(request: Request):
+    form = await request.form()
+    return dict(form)
+
+
+app = FastAPI(
+    title="Fasal Saathi Backend",
+    version="2.0",
+    lifespan=lifespan, 
+)
 # Expose sanitizer globally so routers can use it
 sanitise_log_field_fn = sanitize_log_field
+
+class CSPMiddleware:
+    """Add Content-Security-Policy header to every response."""
+
+    def __init__(self, app, policy: str):
+        self.app = app
+        self.policy = policy
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_csp(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers.append((b"content-security-policy", self.policy.encode()))
+                message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, send_with_csp)
+
 
 class SimulationRequest(BaseModel):
     crop_type: str
@@ -109,13 +123,8 @@ import firebase_admin
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from firebase_admin import auth, credentials, firestore, storage
-from opentelemetry import trace
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor
-from prometheus_fastapi_instrumentator import Instrumentator
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from backend.routers import (
@@ -141,7 +150,7 @@ from feature_flags.routes import init_feature_flags, router as flags_router
 from ml.adapters.xgboost_adapter import XGBoostAdapter
 from ml.governance import DriftDetector, ModelVersionManager, ShadowEvaluator
 from ml.registry import ModelRegistry
-from ml.router import ModelRouter
+from ml.router import ModelRouter, init_governance_router
 from ml.preprocessing import UnknownCategoryError, MissingFeatureError
 
 # Other internal modules
@@ -149,6 +158,8 @@ from alert_rules import generate_alerts
 from whatsapp_service import send_whatsapp_message, format_alert_message
 from whatsapp_store import subscriber_store
 from csrf_protection import generate_token, reject_cross_origin
+from fastapi import Depends
+from csrf_protection import verify_csrf_token_dependency
 from error_recovery_middleware import ErrorRecoveryMiddleware
 from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, resolve_subscription_regions, normalize_region_identifier
 from notification_auth import filter_notifications_for_user
@@ -168,53 +179,175 @@ from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 
+
 from fastapi import FastAPI
+from backend.ml.schemas import PredictionInput, YieldLagInput, YieldTrendInput
+from backend.ml.router import ModelRouter
+
+app = FastAPI()
+router = ModelRouter()
+
+@app.post("/predict")
+async def predict(input: PredictionInput):
+    return router.predict(input.dict())
+
+@app.post("/predict-yield-lag")
+async def predict_yield_lag(input: YieldLagInput):
+    return router.predict(input.dict())
+
+@app.post("/predict-yield-trend")
+async def predict_yield_trend(input: YieldTrendInput):
+    return router.predict(input.dict())
+
+
+app = FastAPI()
+router = ModelRouter()
+
+@app.post("/predict")
+async def predict(input: PredictionInput):
+    return router.predict(input.dict())
+
+@app.post("/predict-yield-lag")
+async def predict_yield_lag(input: YieldLagInput):
+    return router.predict(input.dict())
+
+@app.post("/predict-yield-trend")
+async def predict_yield_trend(input: YieldTrendInput):
+    return router.predict(input.dict())
+
+
+@app.get("/health")
+async def health_check():
+    return {"status": "alive"}
+
+@app.get("/")
+async def root():
+    return {"message": "Fasal Saathi Backend running"}
+from fastapi import FastAPI
+from rbac import RBACMiddleware
+
+app = FastAPI()
+app.add_middleware(RBACMiddleware)
 
 app = FastAPI()
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok"}
+    # Liveness probe: service is running
+    return {"status": "alive"}
 
-from fastapi import FastAPI
+@app.get("/ready")
+def readiness_check():
+    dependencies = {}
 
-app = FastAPI()
+    # Firestore check
+    try:
+        db = firestore.client()
+        db.collection("test").document("ping").get()
+        dependencies["firestore"] = "ok"
+    except Exception as e:
+        dependencies["firestore"] = f"error: {str(e)}"
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
+    # Celery broker check
+    try:
+        broker_url = os.getenv("CELERY_BROKER_URL")
+        if broker_url:
+            celery_app = celery.Celery(broker=broker_url)
+            celery_app.connection().ensure_connection(max_retries=1)
+            dependencies["celery"] = "ok"
+        else:
+            dependencies["celery"] = "missing broker url"
+    except Exception as e:
+        dependencies["celery"] = f"error: {str(e)}"
 
-from fastapi import FastAPI
+    # ML model check (example: ensure file exists)
+    model_path = "ml/models/crop_predictor.pkl"
+    if os.path.exists(model_path):
+        dependencies["ml_model"] = "ok"
+    else:
+        dependencies["ml_model"] = "missing"
 
-app = FastAPI()
+    all_ok = all(v == "ok" for v in dependencies.values())
+    status_code = 200 if all_ok else 503
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
 
-from fastapi import FastAPI
+@app.get("/ready")
+def readiness_check():
+    dependencies = {}
 
-app = FastAPI()
+    # Firestore check
+    try:
+        db = firestore.client()
+        db.collection("test").document("ping").get()
+        dependencies["firestore"] = "ok"
+    except Exception as e:
+        dependencies["firestore"] = f"error: {str(e)}"
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
+    # Celery broker check
+    try:
+        broker_url = os.getenv("CELERY_BROKER_URL")
+        if broker_url:
+            celery_app = celery.Celery(broker=broker_url)
+            celery_app.connection().ensure_connection(max_retries=1)
+            dependencies["celery"] = "ok"
+        else:
+            dependencies["celery"] = "missing broker url"
+    except Exception as e:
+        dependencies["celery"] = f"error: {str(e)}"
 
-from fastapi import FastAPI
+    # ML model check (example: ensure file exists)
+    model_path = "ml/models/crop_predictor.pkl"
+    if os.path.exists(model_path):
+        dependencies["ml_model"] = "ok"
+    else:
+        dependencies["ml_model"] = "missing"
 
-app = FastAPI()
+    all_ok = all(v == "ok" for v in dependencies.values())
+    status_code = 200 if all_ok else 503
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
 
-from fastapi import FastAPI
+@app.get("/ready")
+def readiness_check():
+    dependencies = {}
 
-app = FastAPI()
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
+@app.get("/ready")
+def readiness_check():
+    dependencies = {}
+
+    # Firestore check
+    try:
+        db = firestore.client()
+        db.collection("test").document("ping").get()
+        dependencies["firestore"] = "ok"
+    except Exception as e:
+        dependencies["firestore"] = f"error: {str(e)}"
+
+    # Celery broker check
+    try:
+        broker_url = os.getenv("CELERY_BROKER_URL")
+        if broker_url:
+            celery_app = celery.Celery(broker=broker_url)
+            celery_app.connection().ensure_connection(max_retries=1)
+            dependencies["celery"] = "ok"
+        else:
+            dependencies["celery"] = "missing broker url"
+    except Exception as e:
+        dependencies["celery"] = f"error: {str(e)}"
+
+    # ML model check (example: ensure file exists)
+    model_path = "ml/models/crop_predictor.pkl"
+    if os.path.exists(model_path):
+        dependencies["ml_model"] = "ok"
+    else:
+        dependencies["ml_model"] = "missing"
+
+    all_ok = all(v == "ok" for v in dependencies.values())
+    status_code = 200 if all_ok else 503
+
+    return {"status": "ready" if all_ok else "not ready", "dependencies": dependencies}, status_code
+
+
 
 # KMS Support
 try:
@@ -222,6 +355,34 @@ try:
     HAS_GCP_KMS = True
 except ImportError:
     HAS_GCP_KMS = False
+
+from fastapi import WebSocket, WebSocketDisconnect
+
+@app.websocket("/api/notifications/stream")
+async def notifications_stream(ws: WebSocket):
+    # Enforce Authorization header
+    token = ws.headers.get("Authorization")
+    if not token:
+        await ws.close(code=4401)  # Unauthorized
+        return
+
+    try:
+        claims = decode_and_validate_token(token)  # your JWT/validation logic
+    except Exception:
+        await ws.close(code=4403)  # Forbidden
+        return
+
+    # Pass claims into hub connect
+    await hub.connect(ws, claims)
+
+from backend.twilio_webhook_security import handle_inbound_whatsapp_webhook
+
+app = FastAPI()
+
+@app.post("/api/whatsapp/webhook")
+async def whatsapp_webhook(request: Request):
+    return await handle_inbound_whatsapp_webhook(request)
+
 
 # Logger configuration with structured output and context tracking
 class ContextFilter(logging.Filter):
@@ -288,6 +449,35 @@ async def _run_lifespan_phase(component: str, action: str, operation, *, require
     )
     return result
 
+def trigger_whatsapp_alert(subscribers: list[str], message: str):
+    delivered = 0
+    rate_limited = 0
+    client_errors = 0
+    server_errors = 0
+    failed = 0
+
+    for number in subscribers:
+        result = send_whatsapp_message(number, message)
+
+        if result["status"] == "sent":
+            delivered += 1
+        elif result["status"] == "rate_limited":
+            rate_limited += 1
+        elif result["status"] == "client_error":
+            client_errors += 1
+        elif result["status"] == "server_error":
+            server_errors += 1
+        else:
+            failed += 1
+
+    return {
+        "delivered": delivered,
+        "rate_limited": rate_limited,
+        "client_errors": client_errors,
+        "server_errors": server_errors,
+        "failed": failed,
+    }
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -335,13 +525,14 @@ async def lifespan(app: FastAPI):
         "Initialize persistent repositories",
         _init_repositories
     )
+    """
     Multi-worker guarantee
-    ----------------------
-    When Uvicorn is started with ``--workers N``, each worker forks/spawns
-    from the main process and imports ``main.py`` independently.  The
-    ``lifespan`` hook is invoked by FastAPI in every worker's event loop,
-    ensuring ``ModelRegistry`` is populated in every process before the
-    first request is served.
+        ----------------------
+        When Uvicorn is started with ``--workers N``, each worker forks/spawns
+        from the main process and imports ``main.py`` independently.  The
+        ``lifespan`` hook is invoked by FastAPI in every worker's event loop,
+        ensuring ``ModelRegistry`` is populated in every process before the
+        first request is served.
     """
     logger.info("Starting up: initializing services")
     init_ml_pipeline()
@@ -351,16 +542,11 @@ async def lifespan(app: FastAPI):
     notification_broker.set_profile_fetcher(_get_firestore_user_profile)
     await notification_broker.start()
 
-    # -----------------------
-    # AI Engines (depend on repos)
-    # -----------------------
-    def _init_ai_engines():
-        ctx.farm_finance_ai = FarmFinanceAI(repository=ctx.finance_repository)
-        ctx.supply_chain_blockchain = SupplyChainBlockchain(
-            repository=ctx.supply_chain_repository
-        )
-        ctx.crop_quality_grader = CropQualityGrader()
-        return ctx
+
+    # Domain engines — initialized exactly once here at startup.
+    drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
+    shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
+    version_manager = ModelVersionManager(versions_dir="./model_versions")
 
     ctx = await _run_lifespan_phase(
         "ai_engines",
@@ -369,17 +555,18 @@ async def lifespan(app: FastAPI):
     )
 
     return ctx
-    # Router init hooks — run after engines are ready.
-    governance.init_governance(drift_detector, shadow_evaluator, version_manager, auth_fn=verify_role)
-    finance.init_finance(_farm_finance_ai, RBACManager, Permission)
-    quality.init_quality(_crop_quality_grader, RBACManager, Permission)
-    blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
-    referrals.init_referrals(lambda: db_firestore)
-    reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
-    marketplace.init_marketplace(verify_role)
-    lms.init_lms(verify_role, db_firestore)
-    advisory.init_advisory(verify_role)
-    def _init_core_routers():
+# Router init hooks — run after engines are ready.
+governance.init_governance(drift_detector, shadow_evaluator, version_manager, auth_fn=verify_role)
+finance.init_finance(_farm_finance_ai, RBACManager, Permission)
+quality.init_quality(_crop_quality_grader, RBACManager, Permission)
+blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
+referrals.init_referrals(lambda: db_firestore)
+reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
+marketplace.init_marketplace(verify_role)
+lms.init_lms(verify_role, db_firestore)
+advisory.init_advisory(verify_role)
+    
+def _init_core_routers():
         governance.init_governance(drift_detector, shadow_evaluator, version_manager, verify_role)
         finance.init_finance(_farm_finance_ai, RBACManager, Permission)
         quality.init_quality(_crop_quality_grader, RBACManager, Permission)
@@ -387,9 +574,9 @@ async def lifespan(app: FastAPI):
         referrals.init_referrals(lambda: db_firestore, verify_role)
         reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
 
-    await _run_lifespan_phase("core_routers", "Initialize core routers", _init_core_routers)
+await _run_lifespan_phase("core_routers", "Initialize core routers", _init_core_routers)
 
-    async def _notify_booking(booking: dict) -> None:
+async def _notify_booking(booking: dict) -> None:
         owner_uid = booking.get("ownerUid")
         if not owner_uid:
             logger.debug("Skipping booking notification: no owner_uid")
@@ -485,6 +672,7 @@ async def lifespan(app: FastAPI):
         logger.info("ML: trend forecast model loaded from registry")
 
     ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend)
+    init_governance_router(drift_detector, shadow_evaluator, version_manager)
 
     yield
     # Shutdown
@@ -502,12 +690,25 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error("Unhandled error: %s", exc, exc_info=True)
+    # Structured logging with request_id, but no PII
+    request_id = getattr(getattr(request, "state", None), "request_id", None)
+    logger.error(
+        "Unhandled exception",
+        extra={"request_id": request_id},
+        exc_info=True,  # keep stack trace in logs only
+    )
+
     return JSONResponse(
         status_code=500,
         content={
-            "code": "INTERNAL_ERROR",
-            "message": "Something went wrong. Please try again later."
+            "success": False,
+            "request_id": request_id,
+            "error": {
+                "code": "internal_error",
+                "message": "An unexpected error occurred. Please try again later.",
+            },
+            "path": str(request.url.path),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         },
     )
 
@@ -616,7 +817,7 @@ async def verify_role(request: Request, required_roles: list = None):
         raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
 
     try:
-        decoded_token = auth.verify_id_token(id_token)
+        decoded_token = auth.verify_id_token(id_token, check_revoked=True)
     except Exception:
         audit_rbac_event(
             request=request,
@@ -652,7 +853,9 @@ async def verify_role(request: Request, required_roles: list = None):
     # returns the same clean 503 as a missing db_firestore, rather than an
     # unhandled exception that leaks internal details as a raw 500.
     try:
-        user_doc = db_firestore.collection("users").document(uid).get()
+        user_doc = await asyncio.to_thread(
+            db_firestore.collection("users").document(uid).get,
+        )
     except Exception as e:
         logger.error(
             "Firestore fetch failed for uid=%s during role check: %s", uid, e
@@ -773,9 +976,16 @@ def _coerce_prediction_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
 
         sanitized[field] = numeric_value
 
-    for field in ("ph", "pH"):
-        if field in sanitized and not (0 <= sanitized[field] <= 14):
-            raise HTTPException(status_code=400, detail="Invalid pH")
+    if "ph" in sanitized and "pH" in sanitized:
+        raise HTTPException(
+            status_code=400,
+            detail="Duplicate pH fields: provide either 'ph' or 'pH', not both",
+        )
+    ph_value = sanitized.pop("pH", None)
+    if ph_value is not None:
+        sanitized["ph"] = ph_value
+    if "ph" in sanitized and not (0 <= sanitized["ph"] <= 14):
+        raise HTTPException(status_code=400, detail="Invalid pH")
 
     return sanitized
 
@@ -868,7 +1078,7 @@ def _normalize_dynamic_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, An
     normalized = []
     for index, alert in enumerate(alerts, start=1):
         normalized_alert = dict(alert)
-        normalized_alert["id"] = -index
+        normalized_alert["id"] = f"dyn-{index}"
         normalized_alert.setdefault("source", "advisory")
         normalized.append(normalized_alert)
     return normalized
@@ -890,7 +1100,7 @@ def predict_get(request: Request = None):
     return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
 
 @app.post("/predict", response_model=PredictResponse)
-@limiter.limit("5/minute")
+@limiter.limit("30/minute")
 async def predict_yield(data: PredictRequest, request: Request):
     """
     Standardised prediction endpoint using ML Router for dynamic model selection.
@@ -974,7 +1184,7 @@ async def get_task_result(task_id: str, request: Request):
 
 
 @app.post("/predict-yield-lag")
-@limiter.limit("5/minute")
+@limiter.limit("30/minute")
 async def predict_yield_lag(payload: YieldInput, request: Request):
     try:
         # Offload time-series lag model prediction to Celery worker pool
@@ -993,7 +1203,7 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
 @app.post("/predict-yield-trend")
-@limiter.limit("5/minute")
+@limiter.limit("30/minute")
 async def predict_yield_trend(payload: YieldInput, request: Request):
     try:
         # Offload heavy iterative trend forecasting to Celery worker pool
@@ -1458,6 +1668,13 @@ class PredictRequest(BaseModel):
     IrriCount: int = Field(..., ge=1)
     WaterCov: int = Field(..., ge=0, le=100)
     Season: str = Field(..., max_length=50)
+    N: float = Field(None, ge=0)
+    P: float = Field(None, ge=0)
+    K: float = Field(None, ge=0)
+    ph: float = Field(None, ge=0, le=14)
+    temperature: float = Field(None)
+    rainfall: float = Field(None, ge=0)
+    humidity: float = Field(None, ge=0, le=100)
 
 class PredictResponse(BaseModel):
     predicted_ExpYield: float
@@ -1496,32 +1713,7 @@ _ALLOWED_PREDICTION_FIELDS = frozenset({
 
 def _coerce_prediction_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
     sanitized = dict(input_data)
-
-    # Defense-in-depth: reject any field not in the allowlist.
-    # PredictRequest already uses extra="forbid" at the schema level, but
-    # this check protects other code paths that may call this function.
-    extra = [k for k in sanitized if k not in _ALLOWED_PREDICTION_FIELDS]
-    if extra:
-        logger.warning("Rejecting unknown prediction fields: %s", extra)
-        raise HTTPException(
-            status_code=422,
-            detail=f"Unknown field(s): {', '.join(sorted(extra))}",
-        )
-
-    numeric_fields = {
-        "N",
-        "P",
-        "K",
-        "ph",
-        "pH",
-        "CropCoveredArea",
-        "CHeight",
-        "IrriCount",
-        "WaterCov",
-        "temperature",
-        "rainfall",
-        "humidity",
-    }
+    numeric_fields = {"CropCoveredArea", "CHeight", "IrriCount", "WaterCov"}
 
     for field in numeric_fields:
         if field not in sanitized or sanitized[field] is None:
@@ -1536,10 +1728,6 @@ def _coerce_prediction_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
             raise HTTPException(status_code=400, detail=f"Invalid value for '{field}'")
 
         sanitized[field] = numeric_value
-
-    for field in ("ph", "pH"):
-        if field in sanitized and not (0 <= sanitized[field] <= 14):
-            raise HTTPException(status_code=400, detail="Invalid pH")
 
     return sanitized
 
@@ -1663,7 +1851,6 @@ _notification_store.append(
     alert_type="weather",
     message="🌧️ Heavy rainfall expected in your region today.",
 )
-notification_broker.seed_notifications(_notification_store.get_recent())
 
 
 async def publish_notification(
@@ -1905,7 +2092,7 @@ async def predict_yield(data: PredictRequest, request: Request):
         print(f"Prediction Error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.post("/predict-yield-lag")
+@app.post("/predict-yield-lag", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("5/minute")
 async def predict_yield_lag(payload: YieldInput, request: Request):
     await verify_role(request)
@@ -1929,7 +2116,7 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
-@app.post("/predict-yield-trend")
+@app.post("/predict-yield-trend", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("5/minute")
 async def predict_yield_trend(payload: YieldInput, request: Request):
     await verify_role(request)
@@ -1953,7 +2140,7 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
-@app.get("/api/notifications")
+@app.get("/api/notifications", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("30/minute")
 async def get_notifications(
     request: Request,
@@ -2002,7 +2189,7 @@ async def get_notifications(
 # they had no locking and used open(..., "w") directly, which could corrupt the
 # file on a concurrent write or a mid-write crash.
 
-@app.post("/api/whatsapp/subscribe")
+@app.post("/api/whatsapp/subscribe", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("2/minute")
 async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     # Require authentication so the subscriber's identity is always derived
@@ -2049,7 +2236,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
 
 _broadcast_rate_limit = {}
 
-@app.post("/api/whatsapp/trigger-alert")
+@app.post("/api/whatsapp/trigger-alert", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("10/minute")
 async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     """
@@ -2112,7 +2299,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
 
 
-@app.websocket("/api/notifications/stream")
+@app.websocket("/api/notifications/stream", dependencies=[Depends(verify_csrf_token_dependency)])
 async def notifications_stream(websocket: WebSocket):
     uid = await _authenticate_notification_websocket(websocket)
     if uid is None:
@@ -2128,14 +2315,14 @@ async def metrics_endpoint(request: Request):
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
-@app.get("/api/admin/rbac-audit")
+@app.get("/api/admin/rbac-audit", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("10/minute")
 async def get_rbac_audit(request: Request, limit: int = Query(default=50, ge=1, le=200)):
     """Return the most recent RBAC audit events for admins and experts."""
     await verify_role(request, required_roles=["admin", "expert"])
     return {"success": True, "data": rbac_audit_trail.snapshot(limit=limit)}
 
-@app.get("/api/csrf-token")
+@app.get("/api/csrf-token", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("30/minute")
 async def get_csrf_token(request: Request):
     """Return a signed CSRF token tied to the authenticated user."""
@@ -2145,7 +2332,7 @@ async def get_csrf_token(request: Request):
     return {"csrf_token": token}
 
 
-@app.post("/api/privacy/deletion-requests")
+@app.post("/api/privacy/deletion-requests", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("5/minute")
 async def request_gdpr_deletion(
     request: Request,
@@ -2164,7 +2351,7 @@ async def request_gdpr_deletion(
     return {"success": True, "data": deletion_request}
 
 
-@app.post("/api/admin/privacy/deletion-requests/process-due")
+@app.post("/api/admin/privacy/deletion-requests/process-due", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("5/minute")
 async def process_due_gdpr_deletions(request: Request):
     """Execute any deletion requests whose retention window has elapsed."""
@@ -2174,7 +2361,7 @@ async def process_due_gdpr_deletions(request: Request):
     return {"success": True, "processed": processed, "count": len(processed)}
 
 
-@app.post("/api/whatsapp/webhook")
+@app.post("/api/whatsapp/webhook", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("20/minute")
 async def whatsapp_webhook(request: Request):
     """Handle inbound Twilio WhatsApp webhooks (signature-verified)."""
@@ -2255,6 +2442,7 @@ def get_signing_keys():
         logger.info("Successfully loaded signing key from GCP KMS")
         return _cached_private_key
 
+    _compromised_key_detected = False
     if os.path.exists(PRIVATE_KEY_PATH):
         if not ALLOW_INSECURE_FALLBACK:
             logger.warning(
@@ -2264,10 +2452,29 @@ def get_signing_keys():
             )
         with open(PRIVATE_KEY_PATH, "rb") as key_file:
             _cached_private_key = serialization.load_pem_private_key(key_file.read(), password=None)
-        logger.warning("Using local file-based signing key - NOT SECURE FOR PRODUCTION")
-        return _cached_private_key
+        # Detect the known compromised key that was exposed in git history (SHA-256 of raw key bytes)
+        _raw = _cached_private_key.private_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PrivateFormat.Raw,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        if hashlib.sha256(_raw).hexdigest() == "b7df138712f2fc298b11bb9ed7726dacb1e349a78099e6ce90a2b9c939cf46a1":
+            logger.critical(
+                "DETECTED EXPOSED SIGNING KEY — the key loaded from %s matches the key that was "
+                "committed to git history. This key MUST NOT be used. Generating a fresh key.",
+                PRIVATE_KEY_PATH,
+            )
+            _cached_private_key = None
+            os.remove(PRIVATE_KEY_PATH)
+            pub_path = PRIVATE_KEY_PATH.replace(".key", ".pub")
+            if os.path.exists(pub_path):
+                os.remove(pub_path)
+            _compromised_key_detected = True
+        else:
+            logger.warning("Using local file-based signing key - NOT SECURE FOR PRODUCTION")
+            return _cached_private_key
 
-    if not ALLOW_INSECURE_FALLBACK:
+    if not ALLOW_INSECURE_FALLBACK and not _compromised_key_detected:
         logger.error(
             "SECURITY CRITICAL: No secure key source available and ALLOW_INSECURE_KEY_FALLBACK is not enabled. "
             "Refusing to generate insecure keys. Set ALLOW_INSECURE_KEY_FALLBACK=true to permit key generation."
@@ -2346,7 +2553,8 @@ try:
     Instrumentator().instrument(app)
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
-    instrumentator = None
+
+
 
 # ---------------------------------------------------------------------------
 # CORS — explicit origin allowlist
@@ -2387,8 +2595,19 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
 )
-import csrf_protection as _csrf
-_csrf.configure(_CORS_ORIGINS)
+app.add_middleware(
+    CSPMiddleware,
+    policy="default-src 'self'; "
+           "script-src 'self' https://translate.google.com https://*.google.com 'unsafe-inline' 'unsafe-eval'; "
+           "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; "
+           "font-src 'self' https://fonts.gstatic.com; "
+           "img-src 'self' data: https:; "
+           "connect-src 'self' https://*.firebaseio.com https://*.googleapis.com wss:; "
+           "frame-src https://translate.google.com; "
+           "object-src 'none'; "
+           "base-uri 'self'; "
+           "frame-ancestors 'self';",
+)
 app.add_middleware(RBACMiddleware)
 logger.info(print_rbac_matrix())
 
@@ -2586,7 +2805,7 @@ async def generate_farm_plan(request: Request, data: SeasonPlanRequest):
     await verify_role(request)   # raises 401/403 if token is missing or invalid
     try:
         from smart_farm_autopilot import generate_season_plan
-        plan = generate_season_plan(data.dict())
+        plan = generate_season_plan(data.model_dump() if hasattr(data, "model_dump") else data.dict())
         return {"success": True, "plan": plan}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -2647,3 +2866,5 @@ if __name__ == "__main__":
         port=8000,
         reload=True
     )
+
+configure(["https://yourdomain.com"])  

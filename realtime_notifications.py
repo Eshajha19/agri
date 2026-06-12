@@ -24,6 +24,53 @@ from geo_alerts import (
     resolve_subscription_regions,
 )
 
+from pydantic import BaseModel
+
+class DeliveryAck(BaseModel):
+    type: str
+    notification_id: str
+
+    class Config:
+        extra = "forbid"
+
+class SubscribeCrops(BaseModel):
+    type: str
+    crops: list[str]
+
+    class Config:
+        extra = "forbid"
+
+ALLOWED_TYPES = {
+    "delivery_ack": DeliveryAck,
+    "subscribe_crops": SubscribeCrops,
+}
+
+def validate_ws_payload(payload: dict):
+    msg_type = payload.get("type")
+    schema = ALLOWED_TYPES.get(msg_type)
+    if not schema:
+        raise ValueError(f"Unknown message type: {msg_type}")
+    return schema(**payload)
+
+async def _handle_inbound(self, ws, payload: dict):
+    try:
+        validated = validate_ws_payload(payload)
+    except ValueError as e:
+        # Reject unknown type with structured error or close
+        await ws.send_json({"error": str(e)})
+        await ws.close(code=1003)  # Unsupported data
+        return
+    except Exception as e:
+        await ws.send_json({"error": "Invalid schema"})
+        return
+
+    # Now handle only validated types
+    if validated.type == "delivery_ack":
+        self._process_delivery_ack(validated)
+    elif validated.type == "subscribe_crops":
+        self._process_subscribe_crops(validated)
+
+
 from notification_auth import filter_notifications_for_user, notification_visible_to_user
 
 # Max inbound WebSocket frame size (64 KB)
@@ -103,9 +150,9 @@ class NotificationEvent:
             self.notification_id = f"{self.type}-{int(time.time() * 1000)}"
 
     def get_content_hash(self) -> str:
-        """Generate hash of notification content for deduplication"""
+        """Generate SHA-256 hash of notification content for deduplication"""
         content = json.dumps(self.data, sort_keys=True)
-        return hashlib.md5(content.encode()).hexdigest()
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
 @dataclass(slots=True)
@@ -115,6 +162,7 @@ class _ConnectionSubscription:
     crops: frozenset[str] = field(default_factory=frozenset)
     retry_counts: Dict[str, int] = field(default_factory=dict)
     last_ack_at: Optional[float] = None
+    outbound_queue: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=100))
 
 
 class NotificationBroadcastHub:
@@ -404,10 +452,35 @@ class NotificationBroadcastHub:
         """
         await websocket.accept()
 
+<<<<<<< HEAD
         # Defensive: strip any empty/whitespace tokens that slipped through.
         # An empty string in the region set would match every notification
         # via the `not subscription_region` short-circuit in region_matches().
         region_scopes: frozenset[str] = frozenset(r for r in regions if r.strip())
+=======
+        token = websocket.headers.get("Authorization")
+        if not token:
+            await websocket.send_json({"type": "error", "message": "Missing Authorization header"})
+            await websocket.close(code=4401)  # Unauthorized
+            return
+
+        try:
+            claims = self._authenticate(token)  # decode/validate JWT
+        except Exception:
+            await websocket.send_json({"type": "error", "message": "Authentication failed"})
+            await websocket.close(code=4403)  # Forbidden
+            return
+
+        # Extract uid and scopes safely
+        uid = claims.get("sub")
+        region_scopes = frozenset(claims.get("regions", []))
+        crop_scopes = frozenset(claims.get("crops", []))
+
+        if not uid:
+            await websocket.send_json({"type": "error", "message": "Invalid claims"})
+            await websocket.close(code=4401)
+            return
+>>>>>>> 3864fa13944eb512e5faac234ed4232fc57bfee9
 
         async with self._connections_lock:
             self._connections[websocket] = _ConnectionSubscription(
@@ -422,8 +495,8 @@ class NotificationBroadcastHub:
                 "source": "local",
                 "created_at": datetime.now().isoformat(),
                 "data": snapshot,
-            }
-        )
+        }
+    )
 
         rate_timestamps: list[float] = []
 
@@ -472,6 +545,7 @@ class NotificationBroadcastHub:
                 msg_type = parsed.get("type")
 
                 if msg_type == "delivery_ack":
+<<<<<<< HEAD
                     valid, error = self._validate_delivery_ack(parsed)
                     if not valid:
                         logger.warning(
@@ -485,6 +559,13 @@ class NotificationBroadcastHub:
                 # was never updated, so crop filtering had no effect after
                 # the initial connect.
                 # ----------------------------------------------------------
+=======
+                    nid = parsed.get("notification_id")
+                    if nid in subscription.retry_counts:
+                        subscription.retry_counts.pop(nid, None)
+                        subscription.last_ack_at = time.time()
+
+>>>>>>> 3864fa13944eb512e5faac234ed4232fc57bfee9
                 elif msg_type == "subscribe_crops":
                     valid, error = self._validate_subscribe_crops(parsed)
                     if not valid:
@@ -644,6 +725,7 @@ class NotificationBroadcastHub:
 
         return True, ""
 
+<<<<<<< HEAD
     @staticmethod
     def _validate_subscribe_regions(msg: Dict[str, Any]) -> tuple[bool, str]:
         """Validate a ``subscribe_regions`` message schema.
@@ -683,15 +765,41 @@ class NotificationBroadcastHub:
                     await websocket.send_json(payload)
                 except Exception:
                     stale_clients.append(websocket)
+=======
+    async def _broadcast(self, payload: Dict[str, Any], clients: list[WebSocket]) -> None:
+        for websocket in clients:
+            subscription = self._connections.get(websocket)
+            if not subscription:
+                continue
+            try:
+                await subscription.outbound_queue.put(payload)  # bounded queue
+                asyncio.create_task(self._drain_queue(websocket, subscription))
+            except asyncio.QueueFull:
+                logger.warning("Dropping message for slow client %s", subscription.uid)
+
+>>>>>>> 3864fa13944eb512e5faac234ed4232fc57bfee9
 
         if stale_clients:
             async with self._connections_lock:
                 for websocket in stale_clients:
                     self._connections.pop(websocket, None)
 
+<<<<<<< HEAD
     async def _persist_notification(
         self, event: NotificationEvent, uid: str
     ) -> None:
+=======
+    async def _drain_queue(self, websocket: WebSocket, subscription: _ConnectionSubscription):
+     while not subscription.outbound_queue.empty():
+        payload = await subscription.outbound_queue.get()
+        try:
+            await websocket.send_json(payload)
+            subscription.retry_counts[payload["notification_id"]] = 0
+        except Exception as exc:
+            logger.error("Failed to send to %s: %s", subscription.uid, exc)
+
+    async def _persist_notification(self, event: NotificationEvent, uid: str) -> None:
+>>>>>>> 3864fa13944eb512e5faac234ed4232fc57bfee9
         """Track targeted notification delivery with bounded memory usage."""
         if not self._enable_persistence:
             return
@@ -796,4 +904,9 @@ class NotificationBroadcastHub:
             self._history.append(notification)
 
 
+<<<<<<< HEAD
 notification_broker = NotificationBroadcastHub()
+=======
+notification_broker = NotificationBroadcastHub()
+# Enhanced realtime notifications
+>>>>>>> 3864fa13944eb512e5faac234ed4232fc57bfee9

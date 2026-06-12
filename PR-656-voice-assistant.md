@@ -1,7 +1,5 @@
 Title: feat(voice): Add Multilingual Offline Voice Assistant for Farmers (#656)
 
-Related issue: #656
-
 Summary
 -------
 This PR adds a multilingual, offline-first Voice Assistant feature for the Fasal Saathi platform. The assistant enables farmers to interact using voice (speech-to-text + text-to-speech), supports eight regional languages, includes rule-based offline intent detection, session management, and a React frontend component.

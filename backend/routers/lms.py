@@ -94,6 +94,63 @@ def _is_complete(progress: dict, course_id: str) -> bool:
     completed = progress.get("lessons", {})
     return all(completed.get(lid) is True for lid in lessons)
 
+def _analyze_learning_drift(progress: dict, course_id: str) -> dict:
+    lessons = COURSES[course_id]["lessons"]
+    completed = progress.get("lessons", {})
+
+    completed_count = sum(
+        1 for lesson in lessons
+        if completed.get(lesson)
+    )
+
+    completion_rate = round(
+        (completed_count / len(lessons)) * 100,
+        2,
+    )
+
+    inactivity_days = 0
+
+    updated_at = progress.get("updatedAt")
+    if updated_at:
+        try:
+            last_activity = datetime.fromisoformat(updated_at)
+
+            if last_activity.tzinfo is None:
+                last_activity = last_activity.replace(
+                    tzinfo=timezone.utc
+                )
+
+            inactivity_days = (
+                datetime.now(timezone.utc) - last_activity
+            ).days
+        except Exception:
+            inactivity_days = 0
+
+    drift_reasons = []
+
+    if inactivity_days >= 7:
+        drift_reasons.append("extended_inactivity")
+
+    if completion_rate < 50:
+        drift_reasons.append("slow_completion_trend")
+
+    drift_detected = len(drift_reasons) > 0
+
+    if inactivity_days == 0:
+        streak = "active"
+    elif inactivity_days <= 3:
+        streak = "warning"
+    else:
+        streak = "broken"
+
+    return {
+        "drift_detected": drift_detected,
+        "inactivity_days": inactivity_days,
+        "completion_rate": completion_rate,
+        "learning_streak_status": streak,
+        "drift_reasons": drift_reasons,
+    }
+
 
 def _make_cert_id(uid: str, course_id: str) -> str:
     nonce = secrets.token_hex(8)
@@ -181,6 +238,10 @@ async def get_progress(request: Request):
         result[course_id] = {
             "lessons": lessons_done,
             "completedAt": progress.get("completedAt"),
+            "drift_analysis": _analyze_learning_drift(
+                progress,
+                course_id,
+            ),
         }
 
     return {"success": True, "progress": result}

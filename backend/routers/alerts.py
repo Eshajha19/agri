@@ -8,20 +8,12 @@ from typing import Optional
 from fastapi import APIRouter, Form, HTTPException, Query, Request
 from pydantic import BaseModel, Field, validator
 
-router = APIRouter()
-
 from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, normalize_region_identifier
-from backend.schemas import AlertTriggerRequest
+from backend.schemas import AlertTriggerRequest, AlertSummary
 from backend.core.logging_config import setup_logging
 
 router = APIRouter()
 logger = setup_logging(__name__)
-
-    @validator("message")
-    def strip_control_chars(cls, v):
-        from whatsapp_service import sanitise_message
-        return sanitise_message(v)
-
 
 notification_store = None
 subscriber_store = None
@@ -68,7 +60,20 @@ async def get_notifications(
         for notification in notification_store.get_recent_for_user(uid)
         if notification_matches_regions(notification, user_regions)
     ]
-    return {"success": True, "data": stored + dynamic_alerts}
+    
+    # Validate and serialize all alerts through AlertSummary schema
+    all_alerts = stored + dynamic_alerts
+    validated_alerts = []
+    for alert in all_alerts:
+        try:
+            validated = AlertSummary.model_validate(alert)
+            validated_alerts.append(validated.model_dump())
+        except Exception as e:
+            logger.warning(f"Alert validation failed for uid={uid}: {e}")
+            # Skip invalid alerts rather than breaking the entire response
+            continue
+    
+    return {"success": True, "data": validated_alerts}
 
 
 # E.164 phone number: optional leading '+', then 7-15 digits with a

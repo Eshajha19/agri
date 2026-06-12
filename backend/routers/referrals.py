@@ -92,10 +92,24 @@ def _require_db():
 
 
 async def _get_uid_from_request(request: Request) -> str:
-    if verify_role_fn is None:
-        raise HTTPException(status_code=500, detail="Auth not initialized")
-    token_data = await verify_role_fn(request)
-    return token_data["uid"]
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing auth token")
+
+    token = auth_header.split(" ", 1)[1].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing auth token")
+
+    try:
+        decoded = auth.verify_id_token(token, check_revoked=True)
+        uid = decoded.get("uid")
+        if not uid:
+            raise HTTPException(status_code=401, detail="Invalid auth token")
+        return uid
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid auth token")
 
 
 def _ensure_user_referral_code(db, uid: str, user_data: Optional[Dict[str, Any]] = None) -> str:

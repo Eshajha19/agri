@@ -1,13 +1,43 @@
 import json
 import logging
 import os
-import threading
+import logging
 import joblib
 import numpy as np
 from celery import Celery
 from ml.security import verify_and_load_joblib
 
-redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+logger = logging.getLogger(__name__)
+
+# Initialize Celery app — Redis authentication is required.
+# Set REDIS_URL for a full connection string, or REDIS_PASSWORD to use
+# default redis://:{password}@localhost:6379/0.  Set ALLOW_INSECURE_REDIS=1
+# (NOT RECOMMENDED) to allow an unauthenticated redis://localhost:6379/0
+# fallback for local development only.
+redis_url = os.getenv("REDIS_URL")
+redis_password = os.getenv("REDIS_PASSWORD")
+allow_insecure = os.getenv("ALLOW_INSECURE_REDIS", "").lower() in ("1", "true", "yes")
+
+if not redis_url:
+    if redis_password:
+        redis_url = f"redis://:{redis_password}@localhost:6379/0"
+        logger.info("Celery: using Redis with password authentication")
+    elif allow_insecure:
+        redis_url = "redis://localhost:6379/0"
+        logger.warning(
+            "CELERY INSECURE REDIS: ALLOW_INSECURE_REDIS is set — connecting "
+            "without authentication. This is DANGEROUS if Redis is exposed to "
+            "the network."
+        )
+    else:
+        logger.critical(
+            "CELERY REDIS AUTH REQUIRED: Neither REDIS_URL nor REDIS_PASSWORD "
+            "is set. Set REDIS_PASSWORD for a password-authenticated connection "
+            "to localhost:6379/0, or set REDIS_URL for a full connection string. "
+            "To allow an unauthenticated connection (NOT RECOMMENDED), set "
+            "ALLOW_INSECURE_REDIS=1."
+        )
+        raise ValueError("REDIS_URL or REDIS_PASSWORD must be set")
 
 celery_app = Celery(
     "agri_ml_tasks",
@@ -82,21 +112,26 @@ def _get_ml_router():
     global _ml_router
 
     if _ml_router is None:
-        with _model_lock:
-            if _ml_router is None:
-                try:
-                    from ml.router import ModelRouter
-                    from ml.registry import ModelRegistry
-                    from ml.adapters.xgboost_adapter import XGBoostAdapter
-                    
-                    xgb_adapter = XGBoostAdapter()
-                    if os.path.exists("yield_model.joblib"):
-                        xgb_adapter.load("yield_model.joblib")
-                        ModelRegistry.register("xgboost", xgb_adapter)
-                    
-                    _ml_router = ModelRouter(default_model="xgboost")
-                except Exception as e:
-                    print(f"Failed to initialize ML router: {e}")
+        try:
+            from ml.router import ModelRouter, init_governance_router
+            from ml.registry import ModelRegistry
+            from ml.adapters.xgboost_adapter import XGBoostAdapter
+            
+            xgb_adapter = XGBoostAdapter()
+            if os.path.exists("yield_model.joblib"):
+                xgb_adapter.load("yield_model.joblib")
+                ModelRegistry.register("xgboost", xgb_adapter)
+            
+            # Initialise governance in this worker so predictions are tracked
+            from ml.governance import DriftDetector, ShadowEvaluator, ModelVersionManager
+            _dd = DriftDetector()
+            _se = ShadowEvaluator()
+            _vm = ModelVersionManager(versions_dir="./model_versions")
+            init_governance_router(_dd, _se, _vm)
+            
+            _ml_router = ModelRouter(default_model="xgboost")
+        except Exception as e:
+            print(f"Failed to initialize ML router: {e}")
     return _ml_router
 
 

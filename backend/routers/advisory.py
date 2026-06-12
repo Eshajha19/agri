@@ -10,9 +10,11 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
 from advisory_rules import generate_advisories
+from backend.core.logging_config import setup_logging
 
 
 router = APIRouter()
+logger = setup_logging(__name__)
 _MAX_STORED_ALERTS = 50
 _MAX_STORED_GRAPH_HISTORY = 25
 
