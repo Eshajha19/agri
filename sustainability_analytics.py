@@ -7,10 +7,14 @@ certified carbon accounting.
 """
 from __future__ import annotations
 
+import logging
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 
 # kg CO2e per kg of nutrient applied (cradle-to-field, simplified)
@@ -95,6 +99,7 @@ class SustainabilityAnalytics:
 
     def __init__(self) -> None:
         self._history: Dict[str, List[Dict[str, Any]]] = {}
+        self._local_file_lock = threading.Lock()
         import sys
         self.is_testing = "pytest" in sys.modules or "unittest" in sys.modules
 
@@ -121,8 +126,8 @@ class SustainabilityAnalytics:
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     return json.load(f)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Failed to load sustainability history file: %s", exc)
         return {}
 
     def _save_local_history(self, history: Dict[str, List[Dict[str, Any]]]) -> None:
@@ -131,8 +136,8 @@ class SustainabilityAnalytics:
         try:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(history, f, indent=2, ensure_ascii=False)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.error("Failed to save sustainability history file: %s", exc)
 
     def get_formula_config(self) -> Dict[str, Any]:
         return {
@@ -320,20 +325,21 @@ class SustainabilityAnalytics:
         if db is not None:
             try:
                 db.collection("sustainability_history").document(record["record_id"]).set(record)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Failed to persist sustainability record to Firestore: %s", exc)
 
-        # Save to local persistent file as fallback
-        try:
-            local_hist = self._load_local_history()
-            if key not in local_hist:
-                local_hist[key] = []
-            local_hist[key].append(record)
-            if len(local_hist[key]) > 50:
-                local_hist[key] = local_hist[key][-50:]
-            self._save_local_history(local_hist)
-        except Exception:
-            pass
+        # Save to local persistent file as fallback (serialized with lock)
+        with self._local_file_lock:
+            try:
+                local_hist = self._load_local_history()
+                if key not in local_hist:
+                    local_hist[key] = []
+                local_hist[key].append(record)
+                if len(local_hist[key]) > 50:
+                    local_hist[key] = local_hist[key][-50:]
+                self._save_local_history(local_hist)
+            except Exception:
+                logger.exception("Failed to persist sustainability history to local file")
 
     def _normalize_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return {
