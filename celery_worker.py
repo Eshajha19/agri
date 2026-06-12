@@ -1,7 +1,10 @@
+import logging
 import os
 import joblib
 import numpy as np
 from celery import Celery
+
+logger = logging.getLogger(__name__)
 
 # Initialize Celery app
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -30,9 +33,9 @@ def _get_lag_model():
     global _model_lag
     if _model_lag is None:
         try:
-            _model_lag = joblib.load("sklearn_yield_model.joblib")
+            _model_lag = joblib.load("sklearn_yield_model.pkl")
         except Exception as e:
-            print(f"Failed to load lag model: {e}")
+            logger.error("Failed to load lag model: %s", e)
     return _model_lag
 
 def _get_trend_model():
@@ -42,7 +45,7 @@ def _get_trend_model():
             if os.path.exists("trend_forecast_model.joblib"):
                 _model_trend = joblib.load("trend_forecast_model.joblib")
         except Exception as e:
-            print(f"Failed to load trend model: {e}")
+            logger.error("Failed to load trend model: %s", e)
     return _model_trend
 
 def _get_ml_router():
@@ -60,7 +63,7 @@ def _get_ml_router():
             
             _ml_router = ModelRouter(default_model="xgboost")
         except Exception as e:
-            print(f"Failed to initialize ML router: {e}")
+            logger.error("Failed to initialize ML router: %s", e)
     return _ml_router
 
 @celery_app.task(bind=True, name="predict_yield_task")
