@@ -6,6 +6,7 @@ import math
 import collections
 import itertools
 import threading
+import time
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
@@ -19,49 +20,9 @@ from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
 from csrf_protection import configure
 from backend.rate_limit_config import build_limiter, rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-
-limiter = build_limiter()
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
-
-from backend.rate_limit_config import build_limiter, rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
-
-limiter = build_limiter()
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
-
 from backend.utils.safe_log import sanitize_log_field
 from error_recovery_middleware import ErrorRecoveryMiddleware
 from security_hygiene import SecurityHygieneMiddleware
-
-app.add_middleware(ErrorRecoveryMiddleware)
-app.add_middleware(SecurityHygieneMiddleware)
-
-@app.post("/api/echo")
-async def echo_endpoint(request: Request):
-    return await request.json()
-
-@app.post("/api/echo-form")
-async def echo_form_endpoint(request: Request):
-    form = await request.form()
-    return dict(form)
-
-@app.post("/api/echo")
-async def echo_endpoint(request: Request):
-    return await request.json()
-
-@app.post("/api/echo-form")
-async def echo_form_endpoint(request: Request):
-    form = await request.form()
-    return dict(form)
-
-
-app = FastAPI(
-    title="Fasal Saathi Backend",
-    version="2.0",
-    lifespan=lifespan, 
-)
 # Expose sanitizer globally so routers can use it
 sanitise_log_field_fn = sanitize_log_field
 
@@ -115,18 +76,14 @@ class RAGQuery(BaseModel):
     query: str = Field(..., min_length=3, max_length=500)
     top_k: int = Field(default=3, ge=1, le=5)
 
-# Rate Limiting
+# Additional imports after base FastAPI imports
 from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
-from rate_limit_config import build_limiter, rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
 
 import firebase_admin
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from firebase_admin import auth, credentials, firestore, storage
-from slowapi import Limiter
-from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 
 from backend.routers import (
     advisory,
@@ -161,8 +118,8 @@ from whatsapp_store import subscriber_store
 from csrf_protection import generate_token, reject_cross_origin
 from fastapi import Depends
 from csrf_protection import verify_csrf_token_dependency
-from error_recovery_middleware import ErrorRecoveryMiddleware
-from error_utils import safe_detail
+from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, resolve_subscription_regions, normalize_region_identifier
+from notification_auth import filter_notifications_for_user
 from realtime_notifications import notification_broker
 from rbac_audit import audit_rbac_event, rbac_audit_trail, validate_required_roles
 from rbac import RBACMiddleware, print_rbac_matrix, RBACManager, Permission
@@ -180,208 +137,12 @@ from reportlab.lib import colors
 from reportlab.lib.units import inch
 
 
-from fastapi import FastAPI
-from backend.ml.schemas import PredictionInput, YieldLagInput, YieldTrendInput
-from backend.ml.router import ModelRouter
-
-app = FastAPI()
-router = ModelRouter()
-
-@app.post("/predict")
-async def predict(input: PredictionInput):
-    return router.predict(input.dict())
-
-@app.post("/predict-yield-lag")
-async def predict_yield_lag(input: YieldLagInput):
-    return router.predict(input.dict())
-
-@app.post("/predict-yield-trend")
-async def predict_yield_trend(input: YieldTrendInput):
-    return router.predict(input.dict())
-
-
-app = FastAPI()
-router = ModelRouter()
-
-@app.post("/predict")
-async def predict(input: PredictionInput):
-    return router.predict(input.dict())
-
-@app.post("/predict-yield-lag")
-async def predict_yield_lag(input: YieldLagInput):
-    return router.predict(input.dict())
-
-@app.post("/predict-yield-trend")
-async def predict_yield_trend(input: YieldTrendInput):
-    return router.predict(input.dict())
-
-
-@app.get("/health")
-async def health_check():
-    return {"status": "alive"}
-
-@app.get("/")
-async def root():
-    return {"message": "Fasal Saathi Backend running"}
-from fastapi import FastAPI
-from rbac import RBACMiddleware
-
-app = FastAPI()
-app.add_middleware(RBACMiddleware)
-
-app = FastAPI()
-
-@app.get("/health")
-def health_check():
-    # Liveness probe: service is running
-    return {"status": "alive"}
-
-@app.get("/ready")
-def readiness_check():
-    dependencies = {}
-
-    # Firestore check
-    try:
-        db = firestore.client()
-        db.collection("test").document("ping").get()
-        dependencies["firestore"] = "ok"
-    except Exception as e:
-        dependencies["firestore"] = f"error: {str(e)}"
-
-    # Celery broker check
-    try:
-        broker_url = os.getenv("CELERY_BROKER_URL")
-        if broker_url:
-            celery_app = celery.Celery(broker=broker_url)
-            celery_app.connection().ensure_connection(max_retries=1)
-            dependencies["celery"] = "ok"
-        else:
-            dependencies["celery"] = "missing broker url"
-    except Exception as e:
-        dependencies["celery"] = f"error: {str(e)}"
-
-    # ML model check (example: ensure file exists)
-    model_path = "ml/models/crop_predictor.pkl"
-    if os.path.exists(model_path):
-        dependencies["ml_model"] = "ok"
-    else:
-        dependencies["ml_model"] = "missing"
-
-    all_ok = all(v == "ok" for v in dependencies.values())
-    status_code = 200 if all_ok else 503
-
-
-@app.get("/ready")
-def readiness_check():
-    dependencies = {}
-
-    # Firestore check
-    try:
-        db = firestore.client()
-        db.collection("test").document("ping").get()
-        dependencies["firestore"] = "ok"
-    except Exception as e:
-        dependencies["firestore"] = f"error: {str(e)}"
-
-    # Celery broker check
-    try:
-        broker_url = os.getenv("CELERY_BROKER_URL")
-        if broker_url:
-            celery_app = celery.Celery(broker=broker_url)
-            celery_app.connection().ensure_connection(max_retries=1)
-            dependencies["celery"] = "ok"
-        else:
-            dependencies["celery"] = "missing broker url"
-    except Exception as e:
-        dependencies["celery"] = f"error: {str(e)}"
-
-    # ML model check (example: ensure file exists)
-    model_path = "ml/models/crop_predictor.pkl"
-    if os.path.exists(model_path):
-        dependencies["ml_model"] = "ok"
-    else:
-        dependencies["ml_model"] = "missing"
-
-    all_ok = all(v == "ok" for v in dependencies.values())
-    status_code = 200 if all_ok else 503
-
-
-@app.get("/ready")
-def readiness_check():
-    dependencies = {}
-
-
-@app.get("/ready")
-def readiness_check():
-    dependencies = {}
-
-    # Firestore check
-    try:
-        db = firestore.client()
-        db.collection("test").document("ping").get()
-        dependencies["firestore"] = "ok"
-    except Exception as e:
-        dependencies["firestore"] = f"error: {str(e)}"
-
-    # Celery broker check
-    try:
-        broker_url = os.getenv("CELERY_BROKER_URL")
-        if broker_url:
-            celery_app = celery.Celery(broker=broker_url)
-            celery_app.connection().ensure_connection(max_retries=1)
-            dependencies["celery"] = "ok"
-        else:
-            dependencies["celery"] = "missing broker url"
-    except Exception as e:
-        dependencies["celery"] = f"error: {str(e)}"
-
-    # ML model check (example: ensure file exists)
-    model_path = "ml/models/crop_predictor.pkl"
-    if os.path.exists(model_path):
-        dependencies["ml_model"] = "ok"
-    else:
-        dependencies["ml_model"] = "missing"
-
-    all_ok = all(v == "ok" for v in dependencies.values())
-    status_code = 200 if all_ok else 503
-
-    return {"status": "ready" if all_ok else "not ready", "dependencies": dependencies}, status_code
-
-
-
 # KMS Support
 try:
     from google.cloud import secretmanager
     HAS_GCP_KMS = True
 except ImportError:
     HAS_GCP_KMS = False
-
-from fastapi import WebSocket, WebSocketDisconnect
-
-@app.websocket("/api/notifications/stream")
-async def notifications_stream(ws: WebSocket):
-    # Enforce Authorization header
-    token = ws.headers.get("Authorization")
-    if not token:
-        await ws.close(code=4401)  # Unauthorized
-        return
-
-    try:
-        claims = decode_and_validate_token(token)  # your JWT/validation logic
-    except Exception:
-        await ws.close(code=4403)  # Forbidden
-        return
-
-    # Pass claims into hub connect
-    await hub.connect(ws, claims)
-
-from backend.twilio_webhook_security import handle_inbound_whatsapp_webhook
-
-app = FastAPI()
-
-@app.post("/api/whatsapp/webhook")
-async def whatsapp_webhook(request: Request):
-    return await handle_inbound_whatsapp_webhook(request)
 
 
 # Logger configuration with structured output and context tracking
@@ -411,6 +172,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 logger.addFilter(_context_filter)
+
 
 
 async def _run_lifespan_phase(component: str, action: str, operation, *, required: bool = True):
@@ -506,10 +268,6 @@ async def lifespan(app: FastAPI):
         "domain_engines", "Initialize domain engines", _init_domain_engines
     )
 
-   async def init_app_context():
-    # -----------------------
-    # Repositories
-    # -----------------------
     def _init_repositories():
         return AppContext(
             finance_repository=FinanceApplicationRepository(),
@@ -525,57 +283,28 @@ async def lifespan(app: FastAPI):
         "Initialize persistent repositories",
         _init_repositories
     )
-    """
-    Multi-worker guarantee
-        ----------------------
-        When Uvicorn is started with ``--workers N``, each worker forks/spawns
-        from the main process and imports ``main.py`` independently.  The
-        ``lifespan`` hook is invoked by FastAPI in every worker's event loop,
-        ensuring ``ModelRegistry`` is populated in every process before the
-        first request is served.
-    """
+
+    # Multi-worker guarantee: Each worker process ensures ModelRegistry
+    # is populated before first request.
     logger.info("Starting up: initializing services")
     init_ml_pipeline()
 
     # Wire WebSocket token auth via first-message channel (not query string).
     notification_broker.set_authenticate(firebase_auth.verify_id_token)
+    notification_broker.set_profile_fetcher(_get_firestore_user_profile)
     await notification_broker.start()
 
-
-    # Domain engines — initialized exactly once here at startup.
-    drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
-    shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
-    version_manager = ModelVersionManager(versions_dir="./model_versions")
-
-    ctx = await _run_lifespan_phase(
-        "ai_engines",
-        "Initialize AI engines",
-        _init_ai_engines
-    )
-
-    return ctx
-# Router init hooks — run after engines are ready.
-governance.init_governance(drift_detector, shadow_evaluator, version_manager, auth_fn=verify_role)
-finance.init_finance(_farm_finance_ai, RBACManager, Permission)
-quality.init_quality(_crop_quality_grader, RBACManager, Permission)
-blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
-referrals.init_referrals(lambda: db_firestore)
-reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
-marketplace.init_marketplace(verify_role)
-lms.init_lms(verify_role, db_firestore)
-advisory.init_advisory(verify_role)
-    
-def _init_core_routers():
+    def _init_core_routers():
         governance.init_governance(drift_detector, shadow_evaluator, version_manager, verify_role)
-        finance.init_finance(_farm_finance_ai, RBACManager, Permission)
-        quality.init_quality(_crop_quality_grader, RBACManager, Permission)
-        blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
+        finance.init_finance(None, RBACManager, Permission)
+        quality.init_quality(None, RBACManager, Permission)
+        blockchain.init_blockchain(None, verify_role)
         referrals.init_referrals(lambda: db_firestore, verify_role)
         reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
 
-await _run_lifespan_phase("core_routers", "Initialize core routers", _init_core_routers)
+    await _run_lifespan_phase("core_routers", "Initialize core routers", _init_core_routers)
 
-async def _notify_booking(booking: dict) -> None:
+    async def _notify_booking(booking: dict) -> None:
         owner_uid = booking.get("ownerUid")
         if not owner_uid:
             logger.debug("Skipping booking notification: no owner_uid")
@@ -660,9 +389,12 @@ async def _notify_booking(booking: dict) -> None:
             voice_asst = VoiceAssistant(offline_mode=True)
             cache_mgr = OfflineCacheManager(cache_dir="./voice_assistant_cache")
             voice_assistant_router.init_voice_assistant(voice_asst, cache_mgr, verify_role)
+        except Exception as exc:
+            logger.warning("Voice assistant init skipped: %s", exc)
+
+        await _run_lifespan_phase("voice_assistant", "Initialize voice assistant", _init_voice_assistant, required=False)
 
     # All models are now registered in init_ml_pipeline() above.
-    # Look them up from ModelRegistry instead of loading directly.
     model_lag = ModelRegistry.get_model("sklearn_lag")
     model_trend = ModelRegistry.get_model("trend_forecast")
     if model_lag:
@@ -670,8 +402,33 @@ async def _notify_booking(booking: dict) -> None:
     if model_trend:
         logger.info("ML: trend forecast model loaded from registry")
 
-    ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend)
+    def _init_ml_router():
+        ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend, verify_role)
+
+    await _run_lifespan_phase("ml_router", "Initialize ML router", _init_ml_router)
     init_governance_router(drift_detector, shadow_evaluator, version_manager)
+
+    def _start_celery_autoscaler():
+        from celery_autoscaler import get_autoscaler
+        from celery_worker import celery_app
+        from ml.price_forecaster import get_price_forecaster
+        _autoscaler = get_autoscaler(celery_app, get_price_forecaster())
+        _autoscaler.start()
+
+    await _run_lifespan_phase("celery_autoscaler", "Start Celery autoscaler", _start_celery_autoscaler, required=False)
+
+    def _init_offline_sync():
+        from persistence.offline_sync import init_schema
+        init_schema()
+
+    await _run_lifespan_phase("offline_sync", "Initialize offline sync layer", _init_offline_sync, required=False)
+
+    def _start_sync_worker():
+        from sync_worker import get_sync_worker
+        _sync_worker = get_sync_worker(db_firestore)
+        _sync_worker.start()
+
+    await _run_lifespan_phase("sync_worker", "Start sync worker", _start_sync_worker, required=False)
 
     yield
     # Shutdown
@@ -679,66 +436,27 @@ async def _notify_booking(booking: dict) -> None:
     logger.info("Shutting down")
 
 
-app = FastAPI(lifespan=lifespan)
+# =============================================================================
+# APPLICATION INITIALIZATION
+# =============================================================================
 
-from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
-from starlette.exceptions import HTTPException as StarletteHTTPException
+# Initialize FastAPI app with lifespan context manager
+app = FastAPI(
+    title="Fasal Saathi Backend",
+    version="2.0",
+    lifespan=lifespan,
+)
 
-# --- Global Error Handlers ---
+# Add middleware
+app.add_middleware(ErrorRecoveryMiddleware)
+app.add_middleware(SecurityHygieneMiddleware)
 
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    # Structured logging with request_id, but no PII
-    request_id = getattr(getattr(request, "state", None), "request_id", None)
-    logger.error(
-        "Unhandled exception",
-        extra={"request_id": request_id},
-        exc_info=True,  # keep stack trace in logs only
-    )
-
-    return JSONResponse(
-        status_code=500,
-        content={
-            "success": False,
-            "request_id": request_id,
-            "error": {
-                "code": "internal_error",
-                "message": "An unexpected error occurred. Please try again later.",
-            },
-            "path": str(request.url.path),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        },
-    )
-
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    return JSONResponse(
-        status_code=400,
-        content={"code": "VALIDATION_ERROR", "message": "Invalid request payload."},
-    )
-
-@app.exception_handler(StarletteHTTPException)
-async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"code": "HTTP_ERROR", "message": exc.detail},
-    )
-
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
-
-
-# Initialize Limiter
+# Initialize Rate Limiter
 limiter = build_limiter(default_limits=["120/minute"])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
-# Wrap limiter.limit so decoration-time checks don't raise during test imports.
-# Some endpoints are defined without an explicit `request` parameter which
-# slowapi's decorator validates eagerly; replace with a safe wrapper that
-# falls back to a no-op decorator when the underlying limiter raises.
+
+# Wrap limiter.limit to prevent eager validation errors during test imports
 _orig_limit = limiter.limit
 def _safe_limit(rate):
     def _decorator(fn):
@@ -749,14 +467,12 @@ def _safe_limit(rate):
     return _decorator
 limiter.limit = _safe_limit
 
-
+# Initialize Firebase
 db_firestore = None
 
 if not firebase_admin._apps:
     try:
-        # In a GCP environment this picks up Application Default Credentials
-        # automatically.  For local dev set GOOGLE_APPLICATION_CREDENTIALS to
-        # the path of a service-account key file.
+        # Application Default Credentials in GCP, or GOOGLE_APPLICATION_CREDENTIALS env var
         firebase_admin.initialize_app()
         db_firestore = firestore.client()
         logger.info("Firebase Admin: successfully initialized")
@@ -1098,57 +814,10 @@ def sanitise_log_field(value: str) -> str:
     sanitised = "".join(ch if ord(ch) >= 32 or ch == "\t" else f"\\x{ord(ch):02x}" for ch in value)
     return sanitised[:1000]
 
-@app.get("/")
-@limiter.limit("60/minute")
-def root(request: Request):
-    return {"message": "Fasal Saathi API", "status": "running"}
-
-@app.get("/predict")
-@limiter.limit("30/minute")
-def predict_get(request: Request):
-    return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
-
-@app.post("/predict", response_model=PredictResponse)
-@limiter.limit("30/minute")
-async def predict_yield(data: PredictRequest, request: Request):
-    """
-    Standardised prediction endpoint using ML Router for dynamic model selection.
-
-    Returns HTTP 422 when the input contains an unknown categorical value or a
-    missing required feature, so callers receive an actionable error message
-    rather than a silently corrupted prediction.
-    """
-    try:
-        input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
-        input_data = _coerce_prediction_inputs(input_data)
-
-        context = {
-            "location": request.headers.get("X-User-Location", "Unknown"),
-            "crop": data.Crop,
-        }
-
-        # Offload heavy model inference to Celery worker to prevent blocking ASGI event loop
-        from celery_worker import predict_yield_task
-        task = predict_yield_task.delay(input_data, context)
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, task.get)
-
-        if "error" in result:
-            err_type = result.get("type")
-            if err_type == "UnknownCategoryError":
-                raise HTTPException(status_code=422, detail={"error": "unknown_category", "message": result["error"]})
-            elif err_type == "MissingFeatureError":
-                raise HTTPException(status_code=422, detail={"error": "missing_features", "message": result["error"]})
-            else:
-                raise HTTPException(status_code=400, detail=result["error"])
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Prediction Error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+# Routes below are registered on the canonical app defined further down this
+# file. The duplicate wave-1 route registrations that appeared here have been
+# removed (issue #2553); the authoritative implementations are in the
+# canonical endpoint section after app = FastAPI(...).
 
 async def _await_task_result(task_id: str, timeout: int = 300):
     """Look up a Celery AsyncResult and block in executor to retrieve it."""
@@ -1267,18 +936,29 @@ def get_notifications(
 @app.post("/api/whatsapp/subscribe")
 @limiter.limit("2/minute")
 async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
-    # Require authentication so the subscriber's identity is always derived
-    # from the verified Firebase token — never from client-supplied data.
-    # Previously the endpoint accepted user_id from the request body, which
-    # allowed any caller to overwrite another user's subscription by sending
-    # a known user_id with an attacker-controlled phone number.
     token_data = await verify_role(request)
-    uid = token_data["uid"]
-
+    uid = token_data.get("uid")
+ 
+    # --- CHANGE START ---
+    # Normalize early so we can validate before touching the store.
+    normalized_region = normalize_region_identifier(data.region_id) if data.region_id else None
+ 
+    # If the caller explicitly supplied a region_id but it reduced to
+    # nothing after normalization, the value is syntactically invalid
+    # (e.g. "---", "::", pure whitespace).  Reject it explicitly rather
+    # than silently dropping it, so the caller gets clear feedback.
+    if data.region_id and not normalized_region:
+        raise HTTPException(
+            status_code=422,
+            detail="region_id is malformed — contains only invalid characters.",
+        )
+    # --- CHANGE END ---
+ 
     subscriber = {
         "phone_number": data.phone_number,
         "name": data.name,
         "subscribed_at": datetime.now().isoformat(),
+        "region_id": normalized_region,          # None when absent or not provided
     }
     try:
         subscriber_store.upsert(uid, subscriber)
@@ -1287,7 +967,7 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
             status_code=500,
             detail="Failed to save subscription. Please try again.",
         ) from exc
-
+ 
     welcome_msg = (
         f"Namaste {data.name}! 🙏\n\n"
         "Welcome to *Fasal Saathi WhatsApp Alerts*. "
@@ -1302,36 +982,79 @@ _broadcast_rate_limit = {}
 @limiter.limit("10/minute")
 async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     """
-    Broadcast a WhatsApp alert to all subscribers.
-
-    Requires authentication — admin or expert role only.
-
-    Previously this endpoint had no authentication check, no rate limit,
-    and no input constraints.  Any unauthenticated caller could send
-    arbitrary messages to every subscribed farmer, enabling social
-    engineering attacks (fake market alerts, fake pest warnings) and
-    consuming Twilio API credits at the attacker's discretion.
+    Broadcast a WhatsApp alert to all subscribers (or a region subset).
+    Requires authentication — admin/expert for global; regional authority
+    for scoped broadcasts.
     """
-    # RBAC: only admins and experts may broadcast alerts to all farmers.
-    await verify_role(request, required_roles=["admin", "expert"])
-
-    # get_all() acquires the lock and returns a stable snapshot, so this read
-    # cannot race with a concurrent subscription write.
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+    role = str(token_data.get("role", "")).strip().lower()
+ 
+    # --- CHANGE START ---
+    # Normalize the region_id supplied in the request body.
+    raw_region = data.region_id           # may be None or a string
+    normalized_region = normalize_region_identifier(raw_region) if raw_region else ""
+ 
+    # If the caller explicitly provided a region_id but it reduces to an
+    # empty string after normalization, it is syntactically invalid
+    # (e.g. "---", "::", whitespace-only).  Reject it immediately so it
+    # cannot silently become a global broadcast when the `if normalized_region:`
+    # branch below is skipped.
+    if raw_region and not normalized_region:
+        raise HTTPException(
+            status_code=422,
+            detail="region_id is malformed — contains only invalid characters.",
+        )
+ 
+    region_id = normalized_region         # "" means global broadcast
+    # --- CHANGE END ---
+ 
+    if region_id:
+        # Scoped broadcast: caller must own the region or be privileged.
+        if role not in {"admin", "expert"}:
+            profile = _get_firestore_user_profile(uid)
+            if not profile_can_broadcast_region(profile, region_id):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Access denied: insufficient regional authority",
+                )
+    elif role not in {"admin", "expert"}:
+        # Global broadcast: only admins and experts are allowed.
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: insufficient permissions",
+        )
+ 
     subscribers = subscriber_store.get_all()
     formatted_msg = format_alert_message(data.alert_type, data.message)
     results = []
+    if region_id:
+        subscribers = {
+            user_id: info
+            for user_id, info in subscribers.items()
+            if _subscriber_matches_region(info, region_id)
+        }
     for user_id, info in subscribers.items():
-        res = send_whatsapp_message(info["phone_number"], formatted_msg)
-        results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})
-
-    # Persist the alert through the bounded, thread-safe notification store.
+        res = await asyncio.to_thread(send_whatsapp_message, info["phone_number"], formatted_msg)
+        results.append({
+            "user_id": user_id,
+            "success": res.get("success", False),
+            "status": res.get("status", "error"),
+        })
+ 
     await publish_notification(
         alert_type=data.alert_type,
         message=data.message,
+        region_id=region_id or None,
     )
-
+ 
     delivered = sum(1 for r in results if r["success"])
-    return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
+    return {
+        "success": True,
+        "results": results,
+        "delivered": delivered,
+        "total": len(results),
+    }
 
 
 @app.websocket("/api/notifications/stream")
@@ -1915,74 +1638,56 @@ def sanitise_log_field(value: str) -> str:
     sanitised = "".join(ch if ord(ch) >= 32 or ch == "\t" else f"\\x{ord(ch):02x}" for ch in value)
     return sanitised[:1000]
 
-
-class GDPRDeletionRequestBody(BaseModel):
-    retention_days: int = Field(default=30, ge=0, le=365)
-    reason: str = Field(default="user_requested_erasure", min_length=1, max_length=200)
+# ── Idempotency store ──────────────────────────────────────────────────
+_IDEM_TTL = timedelta(hours=1)
 
 
-def _delete_firestore_documents_by_field(collection_name: str, field_name: str, uid: str) -> int:
-    if not db_firestore:
-        return 0
+class _IdemStore:
+    """Thread-safe dedup store for Idempotency-Key."""
 
-    deleted = 0
-    docs = db_firestore.collection(collection_name).where(field_name, "==", uid).stream()
-    for doc in docs:
-        doc.reference.delete()
-        deleted += 1
-    return deleted
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._d: dict[str, tuple[str, dict | None, datetime]] = {}
+
+    def fp(self, key: str, payload: str) -> str:
+        h = hashlib.sha256()
+        h.update(key.encode())
+        h.update(payload.encode())
+        return h.hexdigest()
+
+    def start(self, k: str, tid: str) -> bool:
+        with self._lock:
+            self._evict()
+            if k in self._d:
+                return False
+            self._d[k] = (tid, None, datetime.now() + _IDEM_TTL)
+            return True
+
+    def complete(self, k: str, res: dict):
+        with self._lock:
+            e = self._d.get(k)
+            if e:
+                self._d[k] = (e[0], res, e[2])
+
+    def get(self, k: str) -> tuple[str, dict | None] | None:
+        with self._lock:
+            self._evict()
+            e = self._d.get(k)
+            return (e[0], e[1]) if e else None
+
+    def _evict(self):
+        now = datetime.now()
+        dead = [k for k, (_, _, exp) in self._d.items() if exp < now]
+        for k in dead:
+            del self._d[k]
 
 
-def _build_gdpr_deletion_targets(uid: str) -> list[DeletionTarget]:
-    targets: list[DeletionTarget] = []
+_idem = _IdemStore()
 
-    def delete_user_profile(target_uid: str) -> dict[str, int | str]:
-        if not db_firestore:
-            return {"deleted": 0, "retained": 1, "notes": "firestore_unavailable"}
-        doc = db_firestore.collection("users").document(target_uid)
-        snapshot = doc.get()
-        if not snapshot.exists:
-            return {"deleted": 0, "retained": 1, "notes": "profile_missing"}
-        doc.delete()
-        return {"deleted": 1, "retained": 0, "notes": "profile_deleted"}
-
-    def delete_feedback(target_uid: str) -> dict[str, int | str]:
-        deleted = _delete_firestore_documents_by_field("feedback", "userId", target_uid)
-        return {"deleted": deleted, "retained": 0 if deleted else 1, "notes": "feedback_deleted" if deleted else "no_feedback_found"}
-
-    def delete_finance_applications(target_uid: str) -> dict[str, int | str]:
-        deleted = _delete_firestore_documents_by_field("finance_applications", "owner_uid", target_uid)
-        return {
-            "deleted": deleted,
-            "retained": 0 if deleted else 1,
-            "notes": "finance_applications_deleted" if deleted else "no_finance_applications_found",
-        }
-
-    def purge_whatsapp_subscription(target_uid: str) -> dict[str, int | str]:
-        removed = subscriber_store.remove(target_uid)
-        return {"deleted": int(removed), "retained": 0 if removed else 1, "notes": "subscriber_removed" if removed else "subscriber_missing"}
-
-    def purge_in_memory_notifications(target_uid: str) -> dict[str, int | str]:
-        removed = _notification_store.remove_by_uid(target_uid)
-        return {"deleted": removed, "retained": 0 if removed else 1, "notes": "notifications_removed" if removed else "notifications_missing"}
-
-    targets.append(DeletionTarget(name="user_profile", delete=delete_user_profile))
-    targets.append(DeletionTarget(name="feedback_records", delete=delete_feedback))
-    targets.append(DeletionTarget(name="finance_applications", delete=delete_finance_applications))
-    targets.append(DeletionTarget(name="whatsapp_subscription", delete=purge_whatsapp_subscription))
-    targets.append(DeletionTarget(name="notification_cache", delete=purge_in_memory_notifications))
-    targets.append(
-        DeletionTarget(
-            name="immutable_supply_chain_ledger",
-            delete=None,
-            retain_reason="retained_for_legal_and_audit_integrity",
-        )
-    )
-    return targets
 
 @app.get("/")
 @limiter.limit("60/minute")
-def root(request: Request = None):
+def root(request: Request):
     return {"message": "Fasal Saathi API", "status": "running"}
 
 # ── Celery task helper with standardised error mapping ──────────────────
@@ -2022,7 +1727,7 @@ async def _run_celery_task(task, timeout: int = 30):
 
 @app.get("/predict")
 @limiter.limit("30/minute")
-def predict_get(request: Request = None):
+def predict_get(request: Request):
     return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
 
 @app.post("/predict", response_model=PredictResponse)
@@ -2031,25 +1736,35 @@ async def predict_yield(data: PredictRequest, request: Request):
     """
     Standardised prediction endpoint using ML Router for dynamic model selection.
 
-    Returns HTTP 422 when the input contains an unknown categorical value or a
-    missing required feature, so callers receive an actionable error message
-    rather than a silently corrupted prediction.
+    Supports ``Idempotency-Key`` header to prevent duplicate task creation.
     """
-    await verify_role(request)
+    input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
+    input_data = _coerce_prediction_inputs(input_data)
+    context = {"location": request.headers.get("X-User-Location", "Unknown"), "crop": data.Crop}
+
+    ik = request.headers.get("Idempotency-Key")
+    fp = None
+    if ik:
+        fp = _idem.fp(ik, json.dumps(input_data, sort_keys=True, default=str))
+        existing = _idem.get(fp)
+        if existing:
+            tid, cached = existing
+            if cached is not None:
+                return cached
+            raise HTTPException(status_code=202, detail={"task_id": tid, "status": "in_progress"})
 
     try:
-        input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
-        input_data = _coerce_prediction_inputs(input_data)
-
-        context = {
-            "location": request.headers.get("X-User-Location", "Unknown"),
-            "crop": data.Crop,
-        }
-
-        # Offload heavy model inference to Celery worker to prevent blocking ASGI event loop
         from celery_worker import predict_yield_task
         task = predict_yield_task.delay(input_data, context)
-        result = await _run_celery_task(task)
+        if fp is not None:
+            _idem.start(fp, task.id)
+        loop = asyncio.get_running_loop()
+        # timeout=30 prevents executor threads from blocking indefinitely when
+        # a Celery worker is slow or the broker is unreachable.
+        try:
+            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
+        except Exception as celery_exc:
+            raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
 
         if "error" in result:
             err_type = result.get("type")
@@ -2060,48 +1775,86 @@ async def predict_yield(data: PredictRequest, request: Request):
             else:
                 raise HTTPException(status_code=400, detail=result["error"])
 
+        if fp is not None:
+            _idem.complete(fp, result)
         return result
-
     except HTTPException:
         raise
     except Exception as e:
         print(f"Prediction Error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+@app.post("/predict-yield-lag")
         raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 @app.post("/predict-yield-lag", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("5/minute")
 async def predict_yield_lag(payload: YieldInput, request: Request):
-    await verify_role(request)
+    ik = request.headers.get("Idempotency-Key")
+    fp = None
+    if ik:
+        fp = _idem.fp(ik, json.dumps(payload.data, sort_keys=True, default=str))
+        existing = _idem.get(fp)
+        if existing:
+            tid, cached = existing
+            if cached is not None:
+                return cached
+            raise HTTPException(status_code=202, detail={"task_id": tid, "status": "in_progress"})
 
     try:
-        # Offload time-series lag model prediction to Celery worker pool
         from celery_worker import predict_yield_lag_task
         task = predict_yield_lag_task.delay(payload.data)
+        if fp is not None:
+            _idem.start(fp, task.id)
+        loop = asyncio.get_running_loop()
+        try:
+            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
+        except Exception as celery_exc:
+            raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
         result = await _run_celery_task(task)
 
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
 
+        if fp is not None:
+            _idem.complete(fp, result)
         return result
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
-@app.post("/predict-yield-trend", dependencies=[Depends(verify_csrf_token_dependency)])
+
+@app.post("/predict-yield-trend")
 @limiter.limit("5/minute")
 async def predict_yield_trend(payload: YieldInput, request: Request):
-    await verify_role(request)
+    ik = request.headers.get("Idempotency-Key")
+    fp = None
+    if ik:
+        fp = _idem.fp(ik, json.dumps(payload.data, sort_keys=True, default=str))
+        existing = _idem.get(fp)
+        if existing:
+            tid, cached = existing
+            if cached is not None:
+                return cached
+            raise HTTPException(status_code=202, detail={"task_id": tid, "status": "in_progress"})
 
     try:
-        # Offload heavy iterative trend forecasting to Celery worker pool
         from celery_worker import predict_yield_trend_task
         task = predict_yield_trend_task.delay(payload.data)
+        if fp is not None:
+            _idem.start(fp, task.id)
+        loop = asyncio.get_running_loop()
+        try:
+            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
+        except Exception as celery_exc:
+            raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
         result = await _run_celery_task(task)
 
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
 
+        if fp is not None:
+            _idem.complete(fp, result)
         return result
     except HTTPException:
         raise
@@ -2168,11 +1921,23 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     token_data = await verify_role(request)
     uid = token_data.get("uid")
 
+    # Validate region_id: a non-empty value that normalizes to "" is rejected
+    # so the client always gets an explicit error rather than silent coercion.
+    if data.region_id is not None and data.region_id != "":
+        normalized_region = normalize_region_identifier(data.region_id)
+        if not normalized_region:
+            raise HTTPException(
+                status_code=422,
+                detail="Invalid region_id: value is malformed or empty after normalization.",
+            )
+    else:
+        normalized_region = None
+ 
     subscriber = {
         "phone_number": data.phone_number,
         "name": data.name,
         "subscribed_at": datetime.now().isoformat(),
-        "region_id": normalize_region_identifier(data.region_id) or None,
+        "region_id": normalized_region,
     }
     try:
         subscriber_store.upsert(uid, subscriber)
@@ -2209,8 +1974,18 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     token_data = await verify_role(request)
     uid = token_data["uid"]
     role = str(token_data.get("role", "")).strip().lower()
-    region_id = normalize_region_identifier(data.region_id) if data.region_id else ""
-
+    # Explicit validation: a non-empty but structurally invalid region_id
+    # (e.g. "---", "::") must be rejected rather than silently treated as
+    # a global broadcast by falling through the empty-string branch.
+    if data.region_id is not None and data.region_id != "":
+        region_id = normalize_region_identifier(data.region_id)
+        if not region_id:
+            raise HTTPException(
+                status_code=422,
+                detail="Invalid region_id: value is malformed or empty after normalization.",
+            )
+    else:
+        region_id = ""
     if region_id:
         if role not in {"admin", "expert"}:
             profile = _get_firestore_user_profile(uid)
@@ -2468,6 +2243,30 @@ def init_ml_pipeline() -> None:
             logger.warning("ML Pipeline: %s not found", model_path)
     except Exception as exc:
         logger.warning("ML Pipeline initialization failed: %s", exc)
+
+    try:
+        import joblib as _joblib
+        sklearn_path = "sklearn_yield_model.joblib"
+        if os.path.exists(sklearn_path):
+            model_lag = _joblib.load(sklearn_path)
+            ModelRegistry.register("sklearn_lag", model_lag)
+            logger.info("ML Pipeline: Registered sklearn yield-lag model")
+        else:
+            logger.warning("ML Pipeline: %s not found", sklearn_path)
+    except Exception as exc:
+        logger.warning("ML Pipeline: sklearn yield-lag model init failed: %s", exc)
+
+    try:
+        trend_path = "trend_forecast_model.joblib"
+        if os.path.exists(trend_path):
+            import joblib as _joblib2
+            model_trend = _joblib2.load(trend_path)
+            ModelRegistry.register("trend_forecast", model_trend)
+            logger.info("ML Pipeline: Registered trend forecast model")
+        else:
+            logger.warning("ML Pipeline: %s not found", trend_path)
+    except Exception as exc:
+        logger.warning("ML Pipeline: trend forecast model init failed: %s", exc)
 
 
 # Observability setup

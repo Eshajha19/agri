@@ -75,7 +75,7 @@ def _is_privileged_role(token_data: Dict) -> bool:
 
 
 def _require_owner_uid(token_data: Dict) -> str:
-    uid = (token_data or {}).get("uid")
+    uid = (token_data or {}).get("sub") or (token_data or {}).get("uid")
     if not uid:
         raise HTTPException(status_code=401, detail="Invalid authentication token")
     return uid
@@ -95,7 +95,7 @@ def _verify_write_operation_auth(token_data: Optional[Dict]) -> str:
     """Centralized authentication check for all blockchain write operations.
     
     Enforces consistent authentication across POST endpoints:
-    - Validates token exists and contains uid
+    - Validates token exists and contains subject identity (sub preferred, uid fallback)
     - Logs authentication decisions
     - Returns authenticated uid for audit trail
     
@@ -105,9 +105,9 @@ def _verify_write_operation_auth(token_data: Optional[Dict]) -> str:
         logger.warning("Write operation attempted without authentication")
         raise HTTPException(status_code=401, detail="Authentication required for write operations")
     
-    uid = token_data.get("uid")
+    uid = token_data.get("sub") or token_data.get("uid")
     if not uid:
-        logger.warning("Write operation attempted with invalid token (missing uid)")
+        logger.warning("Write operation attempted with invalid token (missing subject claim)")
         raise HTTPException(status_code=401, detail="Invalid authentication token")
     
     logger.debug("Write operation authenticated for uid=%s", uid)
