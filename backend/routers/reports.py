@@ -1,6 +1,7 @@
 """Reports & Logging Router"""
 import re
 from fastapi import APIRouter, Request, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, validator
 from typing import Optional
 import base64
@@ -10,8 +11,9 @@ import json
 import logging
 from datetime import datetime
 
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, validator
@@ -224,6 +226,99 @@ def _make_cert_id(data: ReportRequest) -> str:
     raw = f"{data.name}|{data.crop}|{data.season}|{datetime.utcnow().strftime('%Y%m%d')}"
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:10].upper()
     return f"CERT-{digest}"
+
+
+# ---------------------------------------------------------------------------
+# Verification
+# ---------------------------------------------------------------------------
+
+def verify_signed_report(
+    name: str,
+    crop: str,
+    area: str,
+    profit: str,
+    season: str,
+    cert_id: str,
+    signature_hex: str,
+    public_key_pem: Optional[str] = None,
+) -> dict:
+    canonical = json.dumps(
+        {
+            "cert_id": cert_id,
+            "name": name,
+            "crop": crop,
+            "area": area,
+            "profit": profit,
+            "season": season,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+    try:
+        signature = bytes.fromhex(signature_hex)
+    except ValueError:
+        return {"verified": False, "cert_id": cert_id, "error": "Invalid signature hex encoding"}
+
+    if public_key_pem:
+        try:
+            public_key = serialization.load_pem_public_key(public_key_pem.encode("utf-8"))
+        except Exception:
+            return {"verified": False, "cert_id": cert_id, "error": "Invalid public key PEM"}
+    else:
+        try:
+            from main import PUBLIC_KEY_PATH as _pk_path
+            with open(_pk_path, "rb") as f:
+                public_key = serialization.load_pem_public_key(f.read())
+        except Exception:
+            return {"verified": False, "cert_id": cert_id, "error": "Unable to load public key"}
+
+    if not isinstance(public_key, Ed25519PublicKey):
+        return {"verified": False, "cert_id": cert_id, "error": "Key is not an Ed25519 public key"}
+
+    try:
+        der = public_key.public_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        key_fingerprint = hashlib.sha256(der).hexdigest()[:16]
+    except Exception:
+        key_fingerprint = "unknown"
+
+    try:
+        public_key.verify(signature, canonical)
+        return {"verified": True, "cert_id": cert_id, "key_fingerprint": key_fingerprint}
+    except InvalidSignature:
+        return {"verified": False, "cert_id": cert_id, "key_fingerprint": key_fingerprint, "error": "Signature does not match"}
+    except Exception as e:
+        return {"verified": False, "cert_id": cert_id, "key_fingerprint": key_fingerprint, "error": str(e)}
+
+
+class VerifyReportRequest(BaseModel):
+    name: str = Field(..., max_length=100)
+    crop: str = Field(..., max_length=50)
+    area: str = Field(..., max_length=50)
+    profit: str = Field(..., max_length=50)
+    season: str = Field(..., max_length=50)
+    cert_id: str = Field(..., min_length=1, max_length=100)
+    signature: str = Field(..., min_length=1, max_length=256)
+    public_key_pem: Optional[str] = Field(default=None, max_length=2000)
+
+
+@router.post("/reports/verify")
+async def verify_report_endpoint(body: VerifyReportRequest):
+    result = verify_signed_report(
+        name=body.name,
+        crop=body.crop,
+        area=body.area,
+        profit=body.profit,
+        season=body.season,
+        cert_id=body.cert_id,
+        signature_hex=body.signature,
+        public_key_pem=body.public_key_pem,
+    )
+    status_code = 200 if result["verified"] else 400
+    return JSONResponse(content=result, status_code=status_code)
 
 
 # ---------------------------------------------------------------------------
