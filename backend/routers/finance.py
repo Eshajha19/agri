@@ -3,8 +3,7 @@ import logging
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional
-from rbac import RBACMatrix, Role
-from rbac_audit import audit_rbac_event
+from error_utils import safe_detail
 
 logger = logging.getLogger(__name__)
 
@@ -202,9 +201,7 @@ async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest)
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Financial analysis failed: %s", e)
-        raise HTTPException(status_code=500, detail="Financial analysis failed")
-
+        raise HTTPException(status_code=403, detail=safe_detail(e, 403))
 
 @router.post("/applications")
 async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
@@ -239,9 +236,7 @@ async def create_finance_application(request: Request, body: FinanceAssessmentRe
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Application creation failed: %s", e)
-        raise HTTPException(status_code=500, detail="Application creation failed")
-
+        raise HTTPException(status_code=403, detail=safe_detail(e, 403))
 
 @router.get("/applications/{application_id}")
 async def get_finance_application(application_id: str, request: Request, resource_tenant_id: Optional[str] = None):
@@ -314,9 +309,7 @@ async def get_finance_application(application_id: str, request: Request, resourc
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Application retrieval failed: %s", e)
-        raise HTTPException(status_code=500, detail="Application retrieval failed")
-
+        raise HTTPException(status_code=403, detail=safe_detail(e, 403))
 
 @router.get("/products")
 async def get_finance_products():
