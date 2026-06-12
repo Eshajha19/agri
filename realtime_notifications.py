@@ -177,12 +177,14 @@ class NotificationBroadcastHub:
         The token is never exposed in URLs, query strings, or proxy logs.
     """
 
+    DEDUP_FIELDS = ("type", "source", "data")
+
     def __init__(
         self,
         history_limit: int = 200,
         redis_url: Optional[str] = None,
         redis_channel: str = "fasal_saathi.notifications",
-        authenticate: Optional[callable] = None,
+        dedup_ttl: float = 60.0,
     ) -> None:
         self._history: Deque[Dict[str, Any]] = collections.deque(maxlen=history_limit)
         self._seen_hashes: set[str] = set()
@@ -201,24 +203,26 @@ class NotificationBroadcastHub:
         self._retry_processor_task: Optional[asyncio.Task] = None
         self._priority_processor_task: Optional[asyncio.Task] = None
         self._started = False
-        self._authenticate = authenticate
-
-    def set_authenticate(self, func: callable) -> None:
-        """Set the token verification callable (injected at runtime)."""
-        self._authenticate = func
+        self._dedup_ttl = dedup_ttl
+        self._seen_hashes: Dict[str, float] = {}
 
     @staticmethod
-    def _dedup_hash(notification: Dict[str, Any]) -> str:
-        """SHA-256 hash of the canonical JSON representation of a notification."""
-        canonical = json.dumps(notification, sort_keys=True, ensure_ascii=False, default=str)
-        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    def _compute_dedup_hash(payload: Dict[str, Any]) -> str:
+        """Deterministic SHA-256 hash of the canonical dedup fields.
 
-    def _is_duplicate(self, notification: Dict[str, Any]) -> bool:
-        h = self._dedup_hash(notification)
-        if h in self._seen_hashes:
-            return True
-        self._seen_hashes.add(h)
-        return False
+        Only *type*, *source*, and *data* (with sorted keys) are included.
+        ``json.dumps`` is called *without* ``default=str`` so that non-JSON-safe
+        values raise immediately — no silent coercion of different objects into
+        the same string.
+        """
+        canonical: Dict[str, Any] = {}
+        for key in NotificationBroadcastHub.DEDUP_FIELDS:
+            val = payload.get(key)
+            if isinstance(val, dict):
+                val = dict(sorted(val.items()))
+            canonical[key] = val
+        raw = json.dumps(canonical, sort_keys=True, ensure_ascii=False)
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     def seed_notifications(self, notifications: Iterable[Dict[str, Any]]) -> None:
         """Seed the local history from existing notifications (deduplicated)."""
@@ -385,9 +389,16 @@ class NotificationBroadcastHub:
             "data": event.data,
         }
 
+        # Deduplicate within the TTL window using deterministic hash
+        h = self._compute_dedup_hash(payload)
+        now = asyncio.get_event_loop().time()
         async with self._history_lock:
-            if not self._is_duplicate(notification):
-                self._history.append(notification)
+            last_seen = self._seen_hashes.get(h)
+            if last_seen is not None and (now - last_seen) < self._dedup_ttl:
+                logger.debug("Deduplicated notification (hash=%s)", h[:10])
+                return event
+            self._seen_hashes[h] = now
+            self._history.append(notification)
             clients = list(self._connections)
 
         await self._broadcast(payload, clients)
@@ -397,6 +408,11 @@ class NotificationBroadcastHub:
                 await self._redis_client.publish(self._redis_channel, json.dumps(payload))
             except Exception as exc:
                 logger.warning("Failed to publish notification to Redis: %s", exc)
+
+        # Evict expired hashes periodically (every 32 publishes)
+        if len(self._seen_hashes) > 64:
+            cutoff = now - self._dedup_ttl
+            self._seen_hashes = {k: v for k, v in self._seen_hashes.items() if v >= cutoff}
 
         return event
 
@@ -452,92 +468,10 @@ class NotificationBroadcastHub:
 
         try:
             while True:
-                try:
-                    msg = await asyncio.wait_for(websocket.receive_text(), timeout=10.0)
-                except asyncio.TimeoutError:
-                    # No message received — periodic liveness check
-                    continue
-                except WebSocketDisconnect:
-                    break
-
-                if msg is None:
-                    continue
-
-                frame_size = len(msg.encode("utf-8"))
-                if frame_size > MAX_FRAME_SIZE:
-                    logger.warning(
-                        "Closing WS %s — frame too large: %d bytes (max %d)",
-                        websocket, frame_size, MAX_FRAME_SIZE,
-                    )
-                    await websocket.close(code=1009)
-                    break
-
-                # Sliding-window rate limit
-                now = time.time()
-                rate_timestamps.append(now)
-                cutoff = now - RATE_WINDOW
-                rate_timestamps = [t for t in rate_timestamps if t > cutoff]
-                if len(rate_timestamps) > MAX_MESSAGES_PER_SEC:
-                    logger.warning(
-                        "Closing WS %s — rate limit exceeded: %d msg/s (max %d)",
-                        websocket, len(rate_timestamps), MAX_MESSAGES_PER_SEC,
-                    )
-                    await websocket.close(code=1008)
-                    break
-
-                # Parse and validate inbound JSON
-                try:
-                    parsed = json.loads(msg)
-                except json.JSONDecodeError:
-                    logger.warning("Invalid JSON from WS %s, ignoring", websocket)
-                    continue
-                except WebSocketDisconnect:
-                    break
-
-                if not isinstance(parsed, dict) or "type" not in parsed:
-                    continue
-
-                msg_type = parsed.get("type")
-                if msg_type == "delivery_ack":
-                    nid = parsed.get("notification_id")
-                    if nid in subscription.retry_counts:
-                        subscription.retry_counts.pop(nid, None)
-                        subscription.last_ack_at = time.time()
-
-                elif msg_type == "subscribe_crops":
-                    valid, error = self._validate_subscribe_crops(parsed)
-                    if not valid:
-                        logger.warning(
-                            "Invalid subscribe_crops from WS %s: %s", websocket, error,
-                        )
-                if msg is None:
-                    continue
-
-                frame_size = len(msg.encode("utf-8"))
-                if frame_size > MAX_FRAME_SIZE:
-                    logger.warning(
-                        "Closing WS %s — frame too large: %d bytes (max %d)",
-                        websocket, frame_size, MAX_FRAME_SIZE,
-                    )
-                    await websocket.close(code=1009)  # Message too big
-                    break
-
-                # Sliding-window rate limit
-                now = time.time()
-                rate_timestamps.append(now)
-                # Prune timestamps outside the window
-                cutoff = now - RATE_WINDOW
-                rate_timestamps = [t for t in rate_timestamps if t > cutoff]
-                if len(rate_timestamps) > MAX_MESSAGES_PER_SEC:
-                    logger.warning(
-                        "Closing WS %s — rate limit exceeded: %d msg/s (max %d)",
-                        websocket, len(rate_timestamps), MAX_MESSAGES_PER_SEC,
-                    )
-                    await websocket.close(code=1008)  # Policy violation
-                    break
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            logger.debug("WebSocket client disconnected")
         except asyncio.CancelledError:
-            pass
-        except Exception:
             pass
         finally:
             async with self._history_lock:
@@ -693,15 +627,53 @@ class NotificationBroadcastHub:
                 payload = json.loads(message["data"])
                 notification = payload.get("data")
                 if isinstance(notification, dict):
+                    # Dedup check for cross-process events
+                    h = self._compute_dedup_hash(payload)
+                    now = asyncio.get_event_loop().time()
                     async with self._history_lock:
-                        if not self._is_duplicate(notification):
-                            self._history.append(notification)
+                        last_seen = self._seen_hashes.get(h)
+                        if last_seen is not None and (now - last_seen) < self._dedup_ttl:
+                            continue
+                        self._seen_hashes[h] = now
+                        self._history.append(notification)
                         clients = list(self._connections)
                     await self._broadcast(payload, clients)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             logger.warning("Notification pub-sub listener stopped: %s", exc)
+        import redis.asyncio as redis  # type: ignore
+        delay = 1.0
+        while True:
+            try:
+                async for message in self._redis_pubsub.listen():
+                    delay = 1.0
+                    if message.get("type") != "message":
+                        continue
+                    payload = json.loads(message["data"])
+                    notification = payload.get("data")
+                    if isinstance(notification, dict):
+                        async with self._history_lock:
+                            self._history.append(notification)
+                            clients = list(self._connections)
+                        await self._broadcast(payload, clients)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning(
+                    "Redis pub-sub listener error, reconnecting in %.0fs: %s",
+                    delay, exc,
+                )
+            # Reconnect with exponential backoff (capped at 60 s)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 60.0)
+            try:
+                self._redis_client = redis.from_url(self._redis_url, decode_responses=True)
+                self._redis_pubsub = self._redis_client.pubsub()
+                await self._redis_pubsub.subscribe(self._redis_channel)
+                logger.info("Redis pub-sub listener reconnected to %s", self._redis_channel)
+            except Exception as exc:
+                logger.warning("Redis pub-sub reconnect failed: %s", exc)
 
     async def _redis_listener_add(self, notification: Dict[str, Any]) -> None:
         """Test helper: add notification via Redis listener path."""

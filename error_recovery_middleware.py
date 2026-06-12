@@ -16,51 +16,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.exceptions import HTTPException
 import traceback
-from typing import Dict
-from middleware_utils import ensure_body_available
-import collections
-from urllib.parse import urlparse
-
-import re
-import base64
-
-BINARY_MAGIC = [b"\x1F\x8B", b"PK\x03\x04"]  # gzip, zip signatures
-
-
-def looks_like_binary(payload: bytes) -> bool:
-    """Return True if the payload appears to be binary/compressed data."""
-    for magic in BINARY_MAGIC:
-        if payload.startswith(magic):
-            return True
-    # Heuristic: if >30% of bytes are non-printable, treat as binary
-    non_printable = sum(1 for b in payload if b < 9 or (13 < b < 32))
-    return non_printable / max(len(payload), 1) > 0.3
-
-
-def looks_like_base64(text: str) -> bool:
-    """
-    Return True only if the text is long, matches the base64 alphabet,
-    AND decodes to content that is NOT valid UTF-8 (i.e. actual binary data).
-
-    Pure-text payloads that happen to be base64-encodable (UUID lists,
-    alphanumeric crop codes, etc.) are NOT flagged — they decode to
-    readable UTF-8, so there is nothing suspicious about them.
-    """
-    if len(text) < 100:
-        return False
-    if not re.fullmatch(r"[A-Za-z0-9+/=]+", text):
-        return False
-    try:
-        decoded = base64.b64decode(text, validate=True)
-    except Exception:
-        return False
-    # If it decodes to valid UTF-8, it is ordinary text — not suspicious.
-    try:
-        decoded.decode("utf-8")
-        return False
-    except UnicodeDecodeError:
-        return True  # Binary content hidden in base64
-
+from async_error_handler import CircuitBreakerAsync
 
 logger = logging.getLogger(__name__)
 
@@ -395,15 +351,12 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
                 "[%s] %s - Status: %s - Duration: %.2fs",
                 request_id, endpoint, response.status_code, duration,
             )
-
-            if self._circuit_state.get(endpoint) == self._HALF_OPEN:
-                logger.info("Circuit breaker closed for %s — probe succeeded", endpoint)
-
-            self._circuit_state.pop(endpoint, None)
-            self._failure_timestamps.pop(endpoint, None)
-            self._circuit_open_since.pop(endpoint, None)
-            self._circuit_open_since.pop(f"{endpoint}.__jitter__", None)
-
+            
+            # Reset circuit breaker on 2xx responses
+            if 200 <= response.status_code < 300:
+                self.circuit_breaker.record_success()
+            
+            # Add request ID to response headers
             response.headers["X-Request-ID"] = request_id
             return response
 
@@ -454,7 +407,7 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
                 "[%s] %s - Timeout Error - Duration: %.2fs",
                 request_id, endpoint, duration,
             )
-            self._record_failure(endpoint)
+            
             return JSONResponse(
                 status_code=504,
                 content={
@@ -477,9 +430,11 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
                 "[%s] %s - Unexpected Error [%s]: %s - Duration: %.2fs\n%s",
                 request_id, endpoint, error_id, exc, duration, traceback.format_exc(),
             )
-            self._record_failure(endpoint)
-
-            if self._circuit_state.get(endpoint) == self._OPEN:
+            
+            # Track failure with circuit breaker
+            is_broken = self.circuit_breaker.record_failure()
+            
+            if is_broken:
                 return JSONResponse(
                     status_code=503,
                     content={
@@ -566,64 +521,12 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
         elif status_code >= 500:
             return "server_error"
         return "unknown"
-
-    def _check_circuit_breaker(self, endpoint: str) -> bool:
-        error_count = self.error_counts.get(endpoint, 0)
-        error_time = self.error_timestamps.get(endpoint, time.time())
-        self.error_timestamps[endpoint] = time.time()
-        time_since_error = time.time() - error_time
-        if error_count >= 5 and time_since_error < 60:
-            self._rate_log(
-                f"circuit_breaker:{endpoint}", logging.WARNING,
-                "Circuit breaker opened for %s: %d errors in %.0fs",
-                endpoint, error_count, time_since_error,
-            )
-            return True
-        if time_since_error >= 60:
-            self.error_counts[endpoint] = 0
-        return False
-
-    def _rate_log(self, key: str, level: int, msg: str, *args):
-        now = time.time()
-        last = self._log_last_emitted.get(key, 0.0)
-        if now - last >= self._log_cooldown:
-            self._log_last_emitted[key] = now
-            suppressed = self._log_suppressed.pop(key, 0)
-            if suppressed:
-                logger.log(level, "%s — (%d similar messages suppressed in the last %.0fs)",
-                           msg, suppressed, self._log_cooldown, *args)
-            else:
-                logger.log(level, msg, *args)
-        else:
-            self._log_suppressed[key] = self._log_suppressed.get(key, 0) + 1
-
+    
     def get_error_stats(self) -> dict:
-        now = time.time()
-        pruned = {
-            ep: [t for t in ts if now - t < self._RESET_TIMEOUT]
-            for ep, ts in self._failure_timestamps.items()
-        }
-        circuit_detail: dict = {}
-        for ep, state in self._circuit_state.items():
-            if ep.endswith(".__jitter__"):
-                continue
-            detail: dict = {"state": state}
-            if state in (self._OPEN, self._HALF_OPEN):
-                opened_at = self._circuit_open_since.get(ep, 0.0)
-                jitter = self._circuit_open_since.get(f"{ep}.__jitter__", 0.0)
-                elapsed = now - opened_at
-                detail["open_since"] = opened_at
-                detail["elapsed_seconds"] = round(elapsed, 2)
-                detail["time_until_retry_seconds"] = round(
-                    max(0.0, self._RESET_TIMEOUT + jitter - elapsed), 2
-                )
-            circuit_detail[ep] = detail
-
+        """Get error statistics"""
+        status = self.circuit_breaker.get_status()
         return {
-            "endpoints_with_errors": len(self.error_counts),
-            "error_counts": self.error_counts,
-            "timestamps": dict(self.error_timestamps),
-            "log_suppressed": dict(self._log_suppressed),
+            "circuit_breaker": status,
         }
 
 
