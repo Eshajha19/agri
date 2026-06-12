@@ -23,7 +23,7 @@ Authentication
 import logging
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -83,6 +83,38 @@ def _seed_listings() -> None:
 
 _seed_listings()
 
+BOOKING_TTL = timedelta(hours=24)
+
+
+def _release_expired_bookings() -> None:
+    """Release listings whose pending bookings have exceeded the TTL."""
+    now = datetime.now(timezone.utc)
+    cutoff = now - BOOKING_TTL
+    expired_bids = []
+    for bid, b in list(_bookings.items()):
+        if b["status"] != "pending":
+            continue
+        created = b.get("createdAt", "")
+        if not created:
+            continue
+        try:
+            created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+            if created_dt < cutoff:
+                expired_bids.append(bid)
+        except Exception:
+            continue
+    for bid in expired_bids:
+        booking = _bookings.pop(bid, None)
+        if booking:
+            eq_id = booking["equipmentId"]
+            listing = _listings.get(eq_id)
+            if listing and listing.get("ownerUid") is None:
+                # Seed listings with no owner revert to available.
+                listing["available"] = True
+                logger.info(
+                    "Released expired booking %s for equipment %s", bid, eq_id
+                )
+
 # ---------------------------------------------------------------------------
 # Dependency injection
 # ---------------------------------------------------------------------------
@@ -135,6 +167,7 @@ async def get_listings(
 ):
     """Return all equipment listings.  Public — no auth required."""
     with _lock:
+        _release_expired_bookings()
         items = list(_listings.values())
 
     search_lower = search.lower()
@@ -213,6 +246,7 @@ async def book_equipment(request: Request, data: BookEquipmentRequest):
     # Hold the lock for the entire check-then-act sequence so no concurrent
     # request can slip in between the availability read and the booking write.
     with _lock:
+        _release_expired_bookings()
         listing = _listings.get(data.equipmentId)
 
         if listing is None:
