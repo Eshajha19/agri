@@ -416,15 +416,30 @@ async def select_model(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+from pydantic import BaseModel
+
+
+class _ImportPayload(BaseModel):
+    registry: dict
+
+
 @router.get("/registry")
 async def export_registry():
-    """Export entire model registry"""
+    """Export entire model registry (schema-validated)"""
     try:
         registry = model_registry.export_registry()
-        return {
-            "success": True,
-            "registry": registry
-        }
+        return {"success": True, "registry": registry}
     except Exception as e:
         logger.error(f"Error exporting registry: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/registry/import")
+async def import_registry(body: _ImportPayload):
+    """Import model registry from a previously exported payload."""
+    try:
+        count = model_registry.import_registry(body.registry)
+        return {"success": True, "imported": count}
+    except Exception as e:
+        logger.error(f"Error importing registry: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
