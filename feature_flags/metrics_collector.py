@@ -142,12 +142,19 @@ def get_experiment_metrics(experiment_id: str) -> Dict:
         # Compute conversion rates
         summary = {}
         for variant, c in counts.items():
-            imp = c["impressions"] or 1  # avoid div/0
-            summary[variant] = {
-                **c,
-                "conversion_rate": round(c["conversions"] / imp * 100, 2),
-                "error_rate":      round(c["errors"] / imp * 100, 2),
-            }
+            imp = c["impressions"]
+            if imp == 0:
+                summary[variant] = {
+                    **c,
+                    "conversion_rate": None,
+                    "error_rate":      None,
+                }
+            else:
+                summary[variant] = {
+                    **c,
+                    "conversion_rate": round(c["conversions"] / imp * 100, 2),
+                    "error_rate":      round(c["errors"] / imp * 100, 2),
+                }
 
         return {
             "experiment_id": experiment_id,
