@@ -1,3 +1,4 @@
+import joblib
 import pandas as pd
 import numpy as np
 import logging
@@ -15,8 +16,10 @@ logger = logging.getLogger(__name__)
 # Global variables for model and scaler caching
 model = None
 scaler = MinMaxScaler()
+_scaler_fitted = False
 
 MODEL_PATH = "lstm_yield_model.keras"
+SCALER_PATH = "lstm_scaler.joblib"
 
 class PredictionRequest(BaseModel):
     # Expecting sequential data for LSTM
@@ -60,6 +63,9 @@ def train_and_save_model():
         logger.info(f"X shape: {X.shape}")
         logger.info(f"y shape: {y.shape}")
 
+        joblib.dump(scaler, SCALER_PATH)
+        logger.info(f"Scaler saved to {SCALER_PATH}")
+
         model_seq = Sequential([
             LSTM(64, activation='relu', input_shape=(X.shape[1], 1)),
             Dense(1)
@@ -76,7 +82,7 @@ def train_and_save_model():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic: Load the model into memory ONCE during application startup
-    global model
+    global model, scaler, _scaler_fitted
     logger.info("Starting up FastAPI application...")
     
     # We delay keras import to avoid slow startup if not needed
@@ -88,6 +94,14 @@ async def lifespan(app: FastAPI):
             
         logger.info(f"Loading model from {MODEL_PATH}...")
         model = load_model(MODEL_PATH)
+
+        if os.path.exists(SCALER_PATH):
+            scaler = joblib.load(SCALER_PATH)
+            _scaler_fitted = True
+            logger.info("✅ Scaler loaded successfully.")
+        else:
+            logger.warning("Scaler file not found — predictions will be raw-scaled.")
+
         logger.info("✅ Model loaded into memory successfully.")
     except Exception as e:
         logger.error(f"Failed to load model on startup: {str(e)}")
@@ -127,12 +141,22 @@ async def predict(request: PredictionRequest):
             input_data = np.expand_dims(input_data, axis=0)
             
         logger.info(f"Received prediction request with input shape: {input_data.shape}")
+
+        # Scale inputs using the fitted scaler
+        orig_shape = input_data.shape
+        flat = input_data.reshape(-1, 1)
+        if _scaler_fitted:
+            flat = scaler.transform(flat)
+        input_scaled = flat.reshape(orig_shape)
         
         # The model is cached in memory, so prediction is fast and doesn't hit disk
-        prediction_scaled = model.predict(input_data)
+        prediction_scaled = model.predict(input_scaled)
         
-        # Extract the float prediction
-        pred_value = float(prediction_scaled[0][0])
+        # Inverse transform back to real yield units
+        if _scaler_fitted:
+            pred_value = float(scaler.inverse_transform(prediction_scaled.reshape(-1, 1))[0][0])
+        else:
+            pred_value = float(prediction_scaled[0][0])
         
         return PredictionResponse(prediction=pred_value)
     
