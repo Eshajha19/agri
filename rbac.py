@@ -196,16 +196,27 @@ class RBACMatrix:
         return all(cls.has_permission(role, perm) for perm in permissions)
 
 
+_firestore_client = None
+
+
+def _get_firestore():
+    """Return the shared Firestore client, initialising it once."""
+    global _firestore_client
+    if _firestore_client is None:
+        try:
+            _firestore_client = firestore.client()
+        except Exception:
+            return None
+    return _firestore_client
+
+
 class RBACManager:
     """Manager for authentication and authorization."""
 
     @staticmethod
     def get_db():
-        """Get Firestore client."""
-        try:
-            return firestore.client()
-        except Exception:
-            return None
+        """Get shared Firestore client (initialised at most once)."""
+        return _get_firestore()
 
     @staticmethod
     async def get_user_role(request: Request) -> Optional[Role]:
