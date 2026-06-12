@@ -385,14 +385,18 @@ async def select_model(
         if not active_models:
             raise HTTPException(status_code=400, detail="No active models available")
         
-        active_dict = {
-            mid: {
+        active_dict = {}
+        for mid, m in active_models.items():
+            entry = {
                 "version": m.version,
                 "path": m.model_path,
-                "status": m.status.value
+                "status": m.status.value,
             }
-            for mid, m in active_models.items()
-        }
+            # Key by model_name so name-based lookups work
+            active_dict[mid] = entry
+            # Also key by model_id (UUID) so feature flags and A/B tests
+            # that reference UUIDs can resolve correctly
+            active_dict[m.model_id] = entry
         
         selection = model_selector.select_model(
             model_name=model_name,

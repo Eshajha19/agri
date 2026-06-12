@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import {
   FaBell,
   FaCheckCircle,
@@ -12,6 +12,8 @@ import apiClient from "./lib/apiClient";
 import { generateRecommendations } from "./utils/recommendationEngine";
 import { getStoredWeatherSnapshot, WEATHER_SNAPSHOT_EVENT } from "./weather/weatherService";
 import "./AdvisoryPanel.css";
+
+
 
 const severityIcon = {
   critical: <FaExclamationTriangle />,
@@ -121,6 +123,18 @@ export default function AdvisoryPanel({ userData }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const mountedRef = useRef(true);
+  const requestIdRef = useRef(0);
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      requestIdRef.current++;
+    };
+  }, []);
+
   const fallbackAdvisories = useMemo(
     () => buildLocalFallbackAdvisories(userData, weatherSnapshot),
     [userData, weatherSnapshot],
@@ -148,40 +162,57 @@ export default function AdvisoryPanel({ userData }) {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
+    const requestId = ++requestIdRef.current;
 
     const loadAdvisories = async () => {
       setLoading(true);
       setError("");
+
       try {
-        const response = await apiClient.post("/api/advisory", requestPayload, {
-          skipGlobalLoader: true,
-          logError: false,
-          retries: 1,
-        });
-        if (!cancelled) {
-          const nextAlerts = Array.isArray(response.data?.data) && response.data.data.length > 0
+        const response = await apiClient.post(
+          "/api/advisory",
+          requestPayload,
+          {
+            skipGlobalLoader: true,
+            logError: false,
+            retries: 1,
+          }
+        );
+
+        if (
+          !mountedRef.current ||
+          requestId !== requestIdRef.current
+        ) {
+          return;
+        }
+
+        const nextAlerts =
+          Array.isArray(response.data?.data) &&
+          response.data.data.length > 0
             ? response.data.data
             : fallbackAdvisories;
-          setAlerts(nextAlerts);
-          setError("");
-        }
+
+        setAlerts(nextAlerts);
+        setError("");
       } catch {
-        if (!cancelled) {
+        if (
+          mountedRef.current &&
+          requestId === requestIdRef.current
+        ) {
           setAlerts(fallbackAdvisories);
           setError("");
         }
       } finally {
-        if (!cancelled) {
+        if (
+          mountedRef.current &&
+          requestId === requestIdRef.current
+        ) {
           setLoading(false);
         }
       }
     };
 
     loadAdvisories();
-    return () => {
-      cancelled = true;
-    };
   }, [requestPayload, fallbackAdvisories]);
 
   return (
