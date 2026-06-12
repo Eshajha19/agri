@@ -1915,70 +1915,52 @@ def sanitise_log_field(value: str) -> str:
     sanitised = "".join(ch if ord(ch) >= 32 or ch == "\t" else f"\\x{ord(ch):02x}" for ch in value)
     return sanitised[:1000]
 
-
-class GDPRDeletionRequestBody(BaseModel):
-    retention_days: int = Field(default=30, ge=0, le=365)
-    reason: str = Field(default="user_requested_erasure", min_length=1, max_length=200)
+# ── Idempotency store ──────────────────────────────────────────────────
+_IDEM_TTL = timedelta(hours=1)
 
 
-def _delete_firestore_documents_by_field(collection_name: str, field_name: str, uid: str) -> int:
-    if not db_firestore:
-        return 0
+class _IdemStore:
+    """Thread-safe dedup store for Idempotency-Key."""
 
-    deleted = 0
-    docs = db_firestore.collection(collection_name).where(field_name, "==", uid).stream()
-    for doc in docs:
-        doc.reference.delete()
-        deleted += 1
-    return deleted
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._d: dict[str, tuple[str, dict | None, datetime]] = {}
+
+    def fp(self, key: str, payload: str) -> str:
+        h = hashlib.sha256()
+        h.update(key.encode())
+        h.update(payload.encode())
+        return h.hexdigest()
+
+    def start(self, k: str, tid: str) -> bool:
+        with self._lock:
+            self._evict()
+            if k in self._d:
+                return False
+            self._d[k] = (tid, None, datetime.now() + _IDEM_TTL)
+            return True
+
+    def complete(self, k: str, res: dict):
+        with self._lock:
+            e = self._d.get(k)
+            if e:
+                self._d[k] = (e[0], res, e[2])
+
+    def get(self, k: str) -> tuple[str, dict | None] | None:
+        with self._lock:
+            self._evict()
+            e = self._d.get(k)
+            return (e[0], e[1]) if e else None
+
+    def _evict(self):
+        now = datetime.now()
+        dead = [k for k, (_, _, exp) in self._d.items() if exp < now]
+        for k in dead:
+            del self._d[k]
 
 
-def _build_gdpr_deletion_targets(uid: str) -> list[DeletionTarget]:
-    targets: list[DeletionTarget] = []
+_idem = _IdemStore()
 
-    def delete_user_profile(target_uid: str) -> dict[str, int | str]:
-        if not db_firestore:
-            return {"deleted": 0, "retained": 1, "notes": "firestore_unavailable"}
-        doc = db_firestore.collection("users").document(target_uid)
-        snapshot = doc.get()
-        if not snapshot.exists:
-            return {"deleted": 0, "retained": 1, "notes": "profile_missing"}
-        doc.delete()
-        return {"deleted": 1, "retained": 0, "notes": "profile_deleted"}
-
-    def delete_feedback(target_uid: str) -> dict[str, int | str]:
-        deleted = _delete_firestore_documents_by_field("feedback", "userId", target_uid)
-        return {"deleted": deleted, "retained": 0 if deleted else 1, "notes": "feedback_deleted" if deleted else "no_feedback_found"}
-
-    def delete_finance_applications(target_uid: str) -> dict[str, int | str]:
-        deleted = _delete_firestore_documents_by_field("finance_applications", "owner_uid", target_uid)
-        return {
-            "deleted": deleted,
-            "retained": 0 if deleted else 1,
-            "notes": "finance_applications_deleted" if deleted else "no_finance_applications_found",
-        }
-
-    def purge_whatsapp_subscription(target_uid: str) -> dict[str, int | str]:
-        removed = subscriber_store.remove(target_uid)
-        return {"deleted": int(removed), "retained": 0 if removed else 1, "notes": "subscriber_removed" if removed else "subscriber_missing"}
-
-    def purge_in_memory_notifications(target_uid: str) -> dict[str, int | str]:
-        removed = _notification_store.remove_by_uid(target_uid)
-        return {"deleted": removed, "retained": 0 if removed else 1, "notes": "notifications_removed" if removed else "notifications_missing"}
-
-    targets.append(DeletionTarget(name="user_profile", delete=delete_user_profile))
-    targets.append(DeletionTarget(name="feedback_records", delete=delete_feedback))
-    targets.append(DeletionTarget(name="finance_applications", delete=delete_finance_applications))
-    targets.append(DeletionTarget(name="whatsapp_subscription", delete=purge_whatsapp_subscription))
-    targets.append(DeletionTarget(name="notification_cache", delete=purge_in_memory_notifications))
-    targets.append(
-        DeletionTarget(
-            name="immutable_supply_chain_ledger",
-            delete=None,
-            retain_reason="retained_for_legal_and_audit_integrity",
-        )
-    )
-    return targets
 
 @app.get("/")
 @limiter.limit("60/minute")
@@ -2031,25 +2013,35 @@ async def predict_yield(data: PredictRequest, request: Request):
     """
     Standardised prediction endpoint using ML Router for dynamic model selection.
 
-    Returns HTTP 422 when the input contains an unknown categorical value or a
-    missing required feature, so callers receive an actionable error message
-    rather than a silently corrupted prediction.
+    Supports ``Idempotency-Key`` header to prevent duplicate task creation.
     """
-    await verify_role(request)
+    input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
+    input_data = _coerce_prediction_inputs(input_data)
+    context = {"location": request.headers.get("X-User-Location", "Unknown"), "crop": data.Crop}
+
+    ik = request.headers.get("Idempotency-Key")
+    fp = None
+    if ik:
+        fp = _idem.fp(ik, json.dumps(input_data, sort_keys=True, default=str))
+        existing = _idem.get(fp)
+        if existing:
+            tid, cached = existing
+            if cached is not None:
+                return cached
+            raise HTTPException(status_code=202, detail={"task_id": tid, "status": "in_progress"})
 
     try:
-        input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
-        input_data = _coerce_prediction_inputs(input_data)
-
-        context = {
-            "location": request.headers.get("X-User-Location", "Unknown"),
-            "crop": data.Crop,
-        }
-
-        # Offload heavy model inference to Celery worker to prevent blocking ASGI event loop
         from celery_worker import predict_yield_task
         task = predict_yield_task.delay(input_data, context)
-        result = await _run_celery_task(task)
+        if fp is not None:
+            _idem.start(fp, task.id)
+        loop = asyncio.get_running_loop()
+        # timeout=30 prevents executor threads from blocking indefinitely when
+        # a Celery worker is slow or the broker is unreachable.
+        try:
+            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
+        except Exception as celery_exc:
+            raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
 
         if "error" in result:
             err_type = result.get("type")
@@ -2060,48 +2052,86 @@ async def predict_yield(data: PredictRequest, request: Request):
             else:
                 raise HTTPException(status_code=400, detail=result["error"])
 
+        if fp is not None:
+            _idem.complete(fp, result)
         return result
-
     except HTTPException:
         raise
     except Exception as e:
         print(f"Prediction Error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+@app.post("/predict-yield-lag")
         raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 @app.post("/predict-yield-lag", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("5/minute")
 async def predict_yield_lag(payload: YieldInput, request: Request):
-    await verify_role(request)
+    ik = request.headers.get("Idempotency-Key")
+    fp = None
+    if ik:
+        fp = _idem.fp(ik, json.dumps(payload.data, sort_keys=True, default=str))
+        existing = _idem.get(fp)
+        if existing:
+            tid, cached = existing
+            if cached is not None:
+                return cached
+            raise HTTPException(status_code=202, detail={"task_id": tid, "status": "in_progress"})
 
     try:
-        # Offload time-series lag model prediction to Celery worker pool
         from celery_worker import predict_yield_lag_task
         task = predict_yield_lag_task.delay(payload.data)
+        if fp is not None:
+            _idem.start(fp, task.id)
+        loop = asyncio.get_running_loop()
+        try:
+            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
+        except Exception as celery_exc:
+            raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
         result = await _run_celery_task(task)
 
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
 
+        if fp is not None:
+            _idem.complete(fp, result)
         return result
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
-@app.post("/predict-yield-trend", dependencies=[Depends(verify_csrf_token_dependency)])
+
+@app.post("/predict-yield-trend")
 @limiter.limit("5/minute")
 async def predict_yield_trend(payload: YieldInput, request: Request):
-    await verify_role(request)
+    ik = request.headers.get("Idempotency-Key")
+    fp = None
+    if ik:
+        fp = _idem.fp(ik, json.dumps(payload.data, sort_keys=True, default=str))
+        existing = _idem.get(fp)
+        if existing:
+            tid, cached = existing
+            if cached is not None:
+                return cached
+            raise HTTPException(status_code=202, detail={"task_id": tid, "status": "in_progress"})
 
     try:
-        # Offload heavy iterative trend forecasting to Celery worker pool
         from celery_worker import predict_yield_trend_task
         task = predict_yield_trend_task.delay(payload.data)
+        if fp is not None:
+            _idem.start(fp, task.id)
+        loop = asyncio.get_running_loop()
+        try:
+            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
+        except Exception as celery_exc:
+            raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
         result = await _run_celery_task(task)
 
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
 
+        if fp is not None:
+            _idem.complete(fp, result)
         return result
     except HTTPException:
         raise
