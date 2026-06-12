@@ -299,12 +299,23 @@ class SupplyChainBlockchain:
         harvesting_date: str,
         farmer_name: str,
         idempotency_key: Optional[str] = None,
-        owner_uid: str = "",
-        harvest_id: str = "",
     ) -> ProductBatch:
-        """Create new product batch atomically with harvest_id deduplication."""
-        snap = self._snapshot_state()
-        try:
+        # Check cache
+        if idempotency_key and idempotency_key in self.idempotency_cache:
+            return self.idempotency_cache[idempotency_key]
+
+    snap = self._snapshot_state()
+    try:
+            batch_id = f"BATCH-{uuid.uuid4().hex[:12].upper()}"
+            batch = ProductBatch(...)
+            record = BlockchainRecord(...)
+            record.hash = record.calculate_hash()
+            owner_uid: str = "",
+            harvest_id: str = "",
+       ) -> ProductBatch:
+      
+    snap = self._snapshot_state()
+    try:
             batch_id = f"BATCH-{uuid.uuid4().hex[:12].upper()}"
 
             if harvest_id:
@@ -355,6 +366,7 @@ class SupplyChainBlockchain:
 
             return batch
         
+
         except Exception as e:
             import logging
             logging.error(f"Blockchain error: {e}")

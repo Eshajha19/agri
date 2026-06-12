@@ -14,6 +14,7 @@ from firebase_admin import firestore
 import celery
 
 from fastapi import FastAPI, HTTPException, Request, Form, Query, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
@@ -40,9 +41,21 @@ class CSPMiddleware:
 
         async def send_with_csp(message):
             if message["type"] == "http.response.start":
-                headers = list(message.get("headers", []))
-                headers.append((b"content-security-policy", self.policy.encode()))
+                headers = [
+                    (name, value)
+                    for name, value in message.get("headers", [])
+                    if name.lower() != b"content-security-policy"
+                ]
+
+                headers.append(
+                    (
+                        b"content-security-policy",
+                        self.policy.encode("utf-8"),
+                    )
+                )
+
                 message["headers"] = headers
+
             await send(message)
 
         await self.app(scope, receive, send_with_csp)
@@ -289,9 +302,8 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up: initializing services")
     init_ml_pipeline()
 
-    # Wire WebSocket token auth via first-message channel (not query string).
-    notification_broker.set_authenticate(firebase_auth.verify_id_token)
-    notification_broker.set_profile_fetcher(_get_firestore_user_profile)
+    # Wire WebSocket token auth via first-message channel
+    notification_broker.set_authenticate(auth.verify_id_token)
     await notification_broker.start()
 
     def _init_core_routers():
@@ -391,6 +403,8 @@ async def lifespan(app: FastAPI):
             voice_assistant_router.init_voice_assistant(voice_asst, cache_mgr, verify_role)
         except Exception as exc:
             logger.warning("Voice assistant init skipped: %s", exc)
+
+        await _run_lifespan_phase("voice_assistant", "Initialize voice assistant", _init_voice_assistant, required=False)
 
         await _run_lifespan_phase("voice_assistant", "Initialize voice assistant", _init_voice_assistant, required=False)
 
@@ -1724,6 +1738,61 @@ async def _run_celery_task(task, timeout: int = 30):
             detail="Prediction failed",
         )
 
+
+@app.get("/ready")
+@limiter.limit("60/minute")
+async def readiness_check(request: Request = None):
+    """
+    Readiness probe to verify database, broker, and ML models are available.
+    Returns 200 if ready, 503 otherwise.
+    """
+    status = {
+        "firestore": "unhealthy",
+        "celery": "unhealthy",
+        "ml_models": "unhealthy"
+    }
+    status_code = 200
+
+    # 1. Check Firestore
+    if db_firestore is not None:
+        try:
+            # Lightweight document check to verify reachability
+            await asyncio.to_thread(db_firestore.collection("_health").document("ping").get)
+            status["firestore"] = "healthy"
+        except Exception as e:
+            logger.error("Readiness check: Firestore lookup failed: %s", e)
+            status_code = 503
+    else:
+        status_code = 503
+
+    # 2. Check Celery Broker
+    try:
+        from celery_worker import celery_app
+        with celery_app.connection() as conn:
+            conn.connect()
+        status["celery"] = "healthy"
+    except Exception as e:
+        logger.error("Readiness check: Celery broker connection failed: %s", e)
+        status_code = 503
+
+    # 3. Check ML Models
+    try:
+        from ml.registry import ModelRegistry
+        if ModelRegistry.get_model("xgboost") is not None:
+            status["ml_models"] = "healthy"
+        else:
+            status_code = 503
+    except Exception as e:
+        logger.error("Readiness check: ML Model Registry check failed: %s", e)
+        status_code = 503
+
+    return JSONResponse(
+        content={
+            "status": "ready" if status_code == 200 else "degraded",
+            "details": status
+        },
+        status_code=status_code
+    )
 
 @app.get("/predict")
 @limiter.limit("30/minute")
