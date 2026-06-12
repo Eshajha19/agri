@@ -420,8 +420,7 @@ class VoiceSession:
     last_query: Optional[str] = None
     context: Dict[str, Any] = field(default_factory=dict)
     offline_mode: bool = False
-    conversation_history: List[Dict[str, Any]] = field(default_factory=list)
-    last_activity: str = field(default_factory=lambda: datetime.now().isoformat())
+    last_activity: str = ""
 
 
 # ============================================================================
@@ -482,6 +481,10 @@ class OfflineLanguageModel:
 # Voice Assistant Core
 # ============================================================================
 
+SESSION_TTL = 1800       # 30 min inactivity timeout
+MAX_SESSIONS = 1000       # hard cap to prevent unbounded growth
+
+
 class VoiceAssistant:
     """Main voice assistant for farmers"""
     SESSION_TIMEOUT_MINUTES = 30
@@ -491,7 +494,29 @@ class VoiceAssistant:
         self.language_model = OfflineLanguageModel()
         self.sessions: Dict[str, VoiceSession] = {}
         self._session_lock = threading.Lock()
-        self.cache_manager = OfflineCacheManager()
+
+    def _evict_stale_sessions(self):
+        """Remove expired and excess sessions."""
+        now = datetime.now()
+        cutoff = now.timestamp() - SESSION_TTL
+        stale_keys = []
+        for sid, sess in self.sessions.items():
+            ts = sess.last_activity or sess.start_time
+            try:
+                last = datetime.fromisoformat(ts).timestamp()
+            except (ValueError, TypeError):
+                last = 0
+            if last < cutoff:
+                stale_keys.append(sid)
+        for sid in stale_keys:
+            del self.sessions[sid]
+        if len(self.sessions) > MAX_SESSIONS:
+            sorted_sids = sorted(
+                self.sessions.keys(),
+                key=lambda s: self.sessions[s].start_time or "",
+            )
+            for sid in sorted_sids[:len(self.sessions) - MAX_SESSIONS]:
+                del self.sessions[sid]
         self.offline_cache = self._init_offline_cache()
         logger.info(f"Voice Assistant initialized - Offline mode: {offline_mode}")
     
@@ -526,15 +551,18 @@ class VoiceAssistant:
         """Create new voice session"""
         from uuid import uuid4
         session_id = str(uuid4())
+        now = datetime.now().isoformat()
         session = VoiceSession(
             session_id=session_id,
             user_id=user_id,
             language_code=language_code,
-            start_time=datetime.now().isoformat(),
+            start_time=now,
+            last_activity=now,
             context={},
             offline_mode=self.offline_mode,
         )
         with self._session_lock:
+            self._evict_stale_sessions()
             self.sessions[session_id] = session
         self.cache_manager.save_session(session)
         return session
@@ -569,21 +597,12 @@ class VoiceAssistant:
         """
         with self._session_lock:
             if session_id not in self.sessions:
-                cached_session = self.cache_manager.load_session(session_id)
-
-                if cached_session:
-                    self.sessions[session_id] = VoiceSession(**cached_session)
-                else:
-                    raise ValueError(f"Invalid session: {session_id}")
-
+                raise ValueError(f"Invalid session: {session_id}")
+            self._evict_stale_sessions()
+            if session_id not in self.sessions:
+                raise ValueError(f"Session expired: {session_id}")
             session = self.sessions[session_id]
-
-            if not self._validate_session(session):
-                raise ValueError("Corrupted session state")
-
-            if self._is_session_expired(session):
-                del self.sessions[session_id]
-                raise ValueError("Session expired")
+            session.last_activity = datetime.now().isoformat()
         
         # Step 1: Transcribe audio (offline fallback)
         if not voice_input.transcript:
@@ -742,7 +761,11 @@ class VoiceAssistant:
         with self._session_lock:
             if session_id not in self.sessions:
                 raise ValueError(f"Invalid session: {session_id}")
+            self._evict_stale_sessions()
+            if session_id not in self.sessions:
+                raise ValueError(f"Session expired: {session_id}")
             session = self.sessions[session_id]
+            session.last_activity = datetime.now().isoformat()
         return {
             "session_id": session_id,
             "user_id": session.user_id,

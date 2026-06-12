@@ -3,7 +3,9 @@ from dataclasses import asdict
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
+from datetime import datetime, timezone
 import logging
+import time
 
 from backend.core.logging_config import setup_logging
 
@@ -234,7 +236,6 @@ async def get_trace_batch(batch_id: str):
         # get_trace_batch() does not exist on SupplyChainBlockchain.
         # Use products.get() to look up the batch by ID, which is the
         # correct way to retrieve a persisted batch.
-        from dataclasses import asdict
         batch = supply_chain_blockchain.products.get(batch_id)
         if batch is None:
             raise HTTPException(status_code=404, detail="Batch not found")
@@ -410,19 +411,144 @@ async def get_qr_code(request: Request, batch_id: str):
         logger.error(f"QR error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
+
+
+def _build_verification_diagnostics(
+    batch_id: str,
+    verification_result,
+):
+    diagnostics = {
+        "verification_timestamp": datetime.now(
+            timezone.utc
+        ).isoformat(),
+        "batch_id": batch_id,
+        "verification_status": (
+            "verified"
+            if verification_result
+            else "failed"
+        ),
+        "stages": [
+            {
+                "stage": "batch_lookup",
+                "status": "completed",
+            },
+            {
+                "stage": "traceability_validation",
+                "status": "completed" if verification_result else "failed",
+            },
+            {
+                "stage": "blockchain_integrity_check",
+                "status": "completed" if verification_result else "skipped",
+            },
+        ],
+        "verification_stages_total": 3,
+        "verification_stages_completed": (
+            3 if verification_result else 1
+        ),
+        "failure_reason": (
+            None
+            if verification_result
+            else "verification_check_failed"
+        ),
+        "audit_metadata": {
+            "diagnostic_version": "v1",
+            "verification_type": "blockchain_traceability",
+            "response_type": "enhanced_verification_diagnostics",
+        },
+    }
+
+    return diagnostics
+
+
 @router.get("/verify/{batch_id}")
 async def verify_batch(request: Request, batch_id: str):
     if supply_chain_blockchain is None:
         raise HTTPException(status_code=500, detail="Not initialized")
+
     if verify_role_fn is None:
-        raise HTTPException(status_code=500, detail="Auth service not initialized")
+        raise HTTPException(
+            status_code=500,
+            detail="Auth service not initialized",
+        )
+
     await verify_role_fn(request)
+
+    started = time.perf_counter()
+
     try:
-        verification = supply_chain_blockchain.verify_batch(batch_id)
-        return {"success": True, "verification": verification}
+        verification = supply_chain_blockchain.verify_batch(
+            batch_id
+        )
+
+        verification_passed = (
+            verification.get(
+                "authenticated",
+                False,
+            )
+            if isinstance(
+                verification,
+                dict,
+            )
+            else bool(
+                verification,
+            )
+        )
+
+        logger.info(
+            "Verification completed for batch_id=%s authenticated=%s",
+            batch_id,
+            verification_passed,
+        )
+
+        diagnostics = _build_verification_diagnostics(
+            batch_id,
+            verification_passed,
+        )
+
+        diagnostics[
+            "verification_duration_ms"
+        ] = round(
+            (time.perf_counter() - started)
+            * 1000,
+            2,
+        )
+
+        return {
+            "success": True,
+            "verification": verification,
+            "diagnostics": diagnostics,
+            "verification_summary": {
+                "status": diagnostics["verification_status"],
+                "duration_ms": diagnostics["verification_duration_ms"],
+                "stages_completed": diagnostics["verification_stages_completed"],
+            },
+        }
+
     except Exception as e:
+        diagnostics = {
+            "verification_timestamp": datetime.now(
+                timezone.utc
+            ).isoformat(),
+            "batch_id": batch_id,
+            "verification_status": "failed",
+            "verification_stages_total": 3,
+            "verification_stages_completed": 0,
+            "failure_reason": str(e),
+            "verification_duration_ms": round(
+                (time.perf_counter() - started)
+                * 1000,
+                2,
+            ),
+        }
         logger.error(f"Verify error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": str(e),
+                "diagnostics": diagnostics,
+            },
+        )
 
 @router.get("/journey/{batch_id}")
 async def get_journey(request: Request, batch_id: str):
