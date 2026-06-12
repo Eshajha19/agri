@@ -6,7 +6,7 @@ import math
 import collections
 import itertools
 import threading
-import time
+
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
@@ -40,9 +40,21 @@ class CSPMiddleware:
 
         async def send_with_csp(message):
             if message["type"] == "http.response.start":
-                headers = list(message.get("headers", []))
-                headers.append((b"content-security-policy", self.policy.encode()))
+                headers = [
+                    (name, value)
+                    for name, value in message.get("headers", [])
+                    if name.lower() != b"content-security-policy"
+                ]
+
+                headers.append(
+                    (
+                        b"content-security-policy",
+                        self.policy.encode("utf-8"),
+                    )
+                )
+
                 message["headers"] = headers
+
             await send(message)
 
         await self.app(scope, receive, send_with_csp)
