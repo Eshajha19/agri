@@ -1,0 +1,48 @@
+services:
+  - type: web
+    name: fasal-sathi-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: FRONTEND_URL
+        value: "https://fasal-saathi.vercel.app"
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_WHATSAPP_NUMBER
+        value: "+14155238886"
+      - key: GOOGLE_CLOUD_PROJECT
+        sync: false
+      - key: REPORT_SIGNING_SECRET_NAME
+        value: "report-signing-key"
+      - key: WEATHER_CACHE_DURATION
+        value: "600"
+      - key: WEATHER_API_PROVIDER
+        value: "open_meteo"
+      - key: ENABLE_WEATHER_ALERTS
+        value: "true"
+      - key: ENABLE_WHATSAPP_NOTIFICATIONS
+        value: "true"
+      - key: ENABLE_EMAIL_NOTIFICATIONS
+        value: "false"
+      - key: ENABLE_PUSH_NOTIFICATIONS
+        value: "true"
+
+  - type: web
+    name: fasal-sathi-frontend
+    runtime: node
+    plan: free
+    buildCommand: cd frontend && npm install && npm run build
+    startCommand: cd frontend && npm run preview -- --port $PORT
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: VITE_API_BASE
+        value: "https://fasal-sathi-api.onrender.com"
