@@ -172,6 +172,89 @@ def init_reports(
 # PDF generation helpers
 # ---------------------------------------------------------------------------
 
+def _validate_report_integrity(
+    data: ReportRequest,
+    cert_id: str,
+    signature_hex: str,
+    pdf_bytes: bytes,
+):
+    validation = {
+        "valid": True,
+        "checks": [],
+        "warnings": [],
+    }
+
+    required_fields = {
+        "name": data.name,
+        "crop": data.crop,
+        "area": data.area,
+        "profit": data.profit,
+        "season": data.season,
+    }
+
+    missing_fields = [
+        field
+        for field, value in required_fields.items()
+        if not str(value).strip()
+    ]
+
+    if missing_fields:
+        validation["valid"] = False
+        validation["warnings"].append(
+            f"missing_fields:{','.join(missing_fields)}"
+        )
+
+    if not cert_id:
+        validation["valid"] = False
+        validation["warnings"].append(
+            "missing_certificate_id"
+        )
+
+    else:
+        validation["checks"].append(
+            "certificate_id_present"
+        )
+
+    if not signature_hex:
+        validation["valid"] = False
+        validation["warnings"].append(
+            "missing_signature"
+        )
+
+    else:
+        validation["checks"].append(
+            "signature_present"
+        )
+
+    if not pdf_bytes:
+        validation["valid"] = False
+        validation["warnings"].append(
+            "empty_pdf"
+        )
+
+    if pdf_bytes:
+        validation["checks"].append(
+            "pdf_generated"
+        )
+
+        if len(pdf_bytes) < 1000:
+            validation["valid"] = False
+            validation["warnings"].append(
+                "pdf_content_suspiciously_small"
+            )
+
+        if not pdf_bytes.startswith(b"%PDF"):
+            validation["valid"] = False
+            validation["warnings"].append(
+                "invalid_pdf_header"
+            )
+
+    validation["checks"].append(
+        "required_field_validation"
+    )
+
+    return validation
+
 def _build_pdf(data: ReportRequest, signature_hex: str, cert_id: str) -> bytes:
     """Render a bank-ready financial report as a PDF and return the raw bytes."""
     buf = io.BytesIO()
@@ -307,27 +390,6 @@ def verify_signed_report(
     signature_hex: str,
     public_key_pem: Optional[str] = None,
 ) -> dict:
-    """Verify an Ed25519-signed report payload.
-
-    Parameters
-    ----------
-    name, crop, area, profit, season : str
-        Report field values (must match what was signed).
-    cert_id : str
-        Certificate ID embedded during signing.
-    signature_hex : str
-        Hex-encoded Ed25519 signature.
-    public_key_pem : str, optional
-        PEM-encoded public key.  When *not* provided the function attempts
-        to load ``keys/report_signing.pub`` from the configured path.
-
-    Returns
-    -------
-    dict with keys:
-        ``verified`` (bool), ``cert_id`` (str), ``key_fingerprint`` (str),
-        and on failure ``error`` (str).
-    """
-    # 1. Rebuild the canonical payload exactly as _sign_report did.
     canonical = json.dumps(
         {
             "cert_id": cert_id,
@@ -341,13 +403,11 @@ def verify_signed_report(
         separators=(",", ":"),
     ).encode("utf-8")
 
-    # 2. Decode the signature.
     try:
         signature = bytes.fromhex(signature_hex)
     except ValueError:
         return {"verified": False, "cert_id": cert_id, "error": "Invalid signature hex encoding"}
 
-    # 3. Load the public key.
     if public_key_pem:
         try:
             public_key = serialization.load_pem_public_key(public_key_pem.encode("utf-8"))
@@ -364,7 +424,6 @@ def verify_signed_report(
     if not isinstance(public_key, Ed25519PublicKey):
         return {"verified": False, "cert_id": cert_id, "error": "Key is not an Ed25519 public key"}
 
-    # 4. Compute fingerprint of the public key (SHA-256 of DER).
     try:
         der = public_key.public_bytes(
             encoding=serialization.Encoding.DER,
@@ -374,7 +433,6 @@ def verify_signed_report(
     except Exception:
         key_fingerprint = "unknown"
 
-    # 5. Verify.
     try:
         public_key.verify(signature, canonical)
         return {"verified": True, "cert_id": cert_id, "key_fingerprint": key_fingerprint}
@@ -397,13 +455,6 @@ class VerifyReportRequest(BaseModel):
 
 @router.post("/reports/verify")
 async def verify_report_endpoint(body: VerifyReportRequest):
-    """Verify an Ed25519-signed report payload.
-
-    Accepts the same report fields that were submitted to ``/reports/generate``
-    plus the ``cert_id`` and hex ``signature`` embedded in the PDF.
-
-    Returns ``{"verified": true/false, "cert_id": "...", "key_fingerprint": "..."}``.
-    """
     result = verify_signed_report(
         name=body.name,
         crop=body.crop,
@@ -452,6 +503,86 @@ async def generate_signed_report(request: Request, data: ReportRequest):
     except Exception as e:
         logger.error(f"Key retrieval error: {e}")
         raise HTTPException(status_code=500, detail="Failed to load signing key")
+    
+    try:
+        cert_id = _make_cert_id(data)
+        signature_hex = _sign_report(private_key, data, cert_id)
+        pdf_bytes = _build_pdf(data, signature_hex, cert_id)
+
+        validation = _validate_report_integrity(
+            data,
+            cert_id,
+            signature_hex,
+            pdf_bytes,
+        )
+
+        if not validation["valid"]:
+            logger.error(
+                "Report integrity validation failed: %s",
+                validation,
+            )
+
+            raise HTTPException(
+                status_code=500,
+                detail="Generated report failed integrity validation",
+            )
+
+        logger.info(
+            "[REPORT_VALIDATION] cert_id=%s checks=%s warnings=%s",
+            cert_id,
+            validation["checks"],
+            validation["warnings"],
+        )
+
+        MAX_PDF_SIZE_MB = 10
+
+        if len(pdf_bytes) > MAX_PDF_SIZE_MB * 1024 * 1024:
+            logger.error(
+                "Export validation failed: PDF exceeds size limit (%s bytes)",
+                len(pdf_bytes),
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Generated report exceeds supported export size",
+            )
+
+        if not pdf_bytes.startswith(b"%PDF"):
+            logger.error(
+                "Export validation failed: Invalid PDF structure for certificate %s",
+                cert_id,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Generated report failed integrity validation",
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"PDF generation error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate report",
+        )
+
+    filename = f"FasalSaathi_BankReport_{cert_id}.pdf"
+
+    logger.info(
+        "[EXPORT_AUDIT] cert_id=%s size_bytes=%s farmer=%s crop=%s",
+        cert_id,
+        len(pdf_bytes),
+        data.name,
+        data.crop,
+    )
+
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(pdf_bytes)),
+        },
+    )
 
 @router.post("/log-error")
 async def log_error(body: ClientErrorReport):
@@ -478,61 +609,6 @@ async def log_error(body: ClientErrorReport):
         f" stack={stack}" if stack else "",
     )
     return {"success": True}
-    try:
-        cert_id = _make_cert_id(data)
-        signature_hex = _sign_report(private_key, data, cert_id)
-        pdf_bytes = _build_pdf(data, signature_hex, cert_id)
-        MAX_PDF_SIZE_MB = 10
-
-        if len(pdf_bytes) > MAX_PDF_SIZE_MB * 1024 * 1024:
-            logger.error(
-                "Export validation failed: PDF exceeds size limit (%s bytes)",
-                len(pdf_bytes),
-            )
-            raise HTTPException(
-                status_code=500,
-                detail="Generated report exceeds supported export size",
-            )
-        
-        if not pdf_bytes.startswith(b"%PDF"):
-            logger.error(
-                "Export validation failed: Invalid PDF structure for certificate %s",
-                cert_id,
-            )
-            raise HTTPException(
-                status_code=500,
-                detail="Generated report failed integrity validation",
-            )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"PDF generation error: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to generate report",
-        )
-
-    filename = f"FasalSaathi_BankReport_{cert_id}.pdf"
-
-    logger.info(
-        "[EXPORT_AUDIT] cert_id=%s size_bytes=%s farmer=%s crop=%s",
-        cert_id,
-        len(pdf_bytes),
-        data.name,
-        data.crop,
-    )
-    
-    return StreamingResponse(
-        io.BytesIO(pdf_bytes),
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "Content-Length": str(len(pdf_bytes)),
-        },
-    )
-
-
 
 # Admin: role assignment with custom-claim sync
 # ---------------------------------------------------------------------------
@@ -542,7 +618,7 @@ class AssignRoleRequest(BaseModel):
     role: str = Field(..., pattern=r"^(admin|expert|farmer|vendor|system|guest)$")
 
 
-@router.post("/admin/assign-role")
+@router.post("/assign-role")
 async def assign_role(request: Request, body: AssignRoleRequest):
     """
     Assign a role to a user and sync the Firebase custom claim.
@@ -593,7 +669,7 @@ async def assign_role(request: Request, body: AssignRoleRequest):
     }
 
 
-@router.post("/admin/backfill-role-claims")
+@router.post("/backfill-role-claims")
 async def backfill_role_claims_endpoint(request: Request):
     """
     One-time backfill: set the 'role' custom claim for every user in Firestore.
