@@ -452,92 +452,10 @@ class NotificationBroadcastHub:
 
         try:
             while True:
-                try:
-                    msg = await asyncio.wait_for(websocket.receive_text(), timeout=10.0)
-                except asyncio.TimeoutError:
-                    # No message received — periodic liveness check
-                    continue
-                except WebSocketDisconnect:
-                    break
-
-                if msg is None:
-                    continue
-
-                frame_size = len(msg.encode("utf-8"))
-                if frame_size > MAX_FRAME_SIZE:
-                    logger.warning(
-                        "Closing WS %s — frame too large: %d bytes (max %d)",
-                        websocket, frame_size, MAX_FRAME_SIZE,
-                    )
-                    await websocket.close(code=1009)
-                    break
-
-                # Sliding-window rate limit
-                now = time.time()
-                rate_timestamps.append(now)
-                cutoff = now - RATE_WINDOW
-                rate_timestamps = [t for t in rate_timestamps if t > cutoff]
-                if len(rate_timestamps) > MAX_MESSAGES_PER_SEC:
-                    logger.warning(
-                        "Closing WS %s — rate limit exceeded: %d msg/s (max %d)",
-                        websocket, len(rate_timestamps), MAX_MESSAGES_PER_SEC,
-                    )
-                    await websocket.close(code=1008)
-                    break
-
-                # Parse and validate inbound JSON
-                try:
-                    parsed = json.loads(msg)
-                except json.JSONDecodeError:
-                    logger.warning("Invalid JSON from WS %s, ignoring", websocket)
-                    continue
-                except WebSocketDisconnect:
-                    break
-
-                if not isinstance(parsed, dict) or "type" not in parsed:
-                    continue
-
-                msg_type = parsed.get("type")
-                if msg_type == "delivery_ack":
-                    nid = parsed.get("notification_id")
-                    if nid in subscription.retry_counts:
-                        subscription.retry_counts.pop(nid, None)
-                        subscription.last_ack_at = time.time()
-
-                elif msg_type == "subscribe_crops":
-                    valid, error = self._validate_subscribe_crops(parsed)
-                    if not valid:
-                        logger.warning(
-                            "Invalid subscribe_crops from WS %s: %s", websocket, error,
-                        )
-                if msg is None:
-                    continue
-
-                frame_size = len(msg.encode("utf-8"))
-                if frame_size > MAX_FRAME_SIZE:
-                    logger.warning(
-                        "Closing WS %s — frame too large: %d bytes (max %d)",
-                        websocket, frame_size, MAX_FRAME_SIZE,
-                    )
-                    await websocket.close(code=1009)  # Message too big
-                    break
-
-                # Sliding-window rate limit
-                now = time.time()
-                rate_timestamps.append(now)
-                # Prune timestamps outside the window
-                cutoff = now - RATE_WINDOW
-                rate_timestamps = [t for t in rate_timestamps if t > cutoff]
-                if len(rate_timestamps) > MAX_MESSAGES_PER_SEC:
-                    logger.warning(
-                        "Closing WS %s — rate limit exceeded: %d msg/s (max %d)",
-                        websocket, len(rate_timestamps), MAX_MESSAGES_PER_SEC,
-                    )
-                    await websocket.close(code=1008)  # Policy violation
-                    break
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            logger.debug("WebSocket client disconnected")
         except asyncio.CancelledError:
-            pass
-        except Exception:
             pass
         finally:
             async with self._history_lock:
