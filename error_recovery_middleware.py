@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.exceptions import HTTPException
 import traceback
+from async_error_handler import CircuitBreakerAsync
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +27,13 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
     - Circuit breaker integration
     """
     
-    def __init__(self, app):
+    def __init__(self, app, circuit_breaker=None):
         super().__init__(app)
-        self.error_counts = {}  # endpoint -> count
-        self.error_timestamps = {}  # endpoint -> timestamp
+        self.circuit_breaker = circuit_breaker or CircuitBreakerAsync(
+            failure_threshold=5,
+            recovery_timeout=60,
+            name="middleware"
+        )
     
     async def dispatch(self, request: Request, call_next) -> Response:
         """Handle request with error recovery"""
@@ -53,9 +57,9 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
                 f"Duration: {duration:.2f}s"
             )
             
-            # Reset error count on success
-            if endpoint in self.error_counts:
-                self.error_counts[endpoint] = 0
+            # Reset circuit breaker on 2xx responses
+            if 200 <= response.status_code < 300:
+                self.circuit_breaker.record_success()
             
             # Add request ID to response headers
             response.headers["X-Request-ID"] = request_id
@@ -114,9 +118,6 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
                 f"[{request_id}] {endpoint} - Timeout Error - Duration: {duration:.2f}s"
             )
             
-            # Increment error count
-            self.error_counts[endpoint] = self.error_counts.get(endpoint, 0) + 1
-            
             return JSONResponse(
                 status_code=504,
                 content={
@@ -141,11 +142,8 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
                 f"Duration: {duration:.2f}s\n{traceback.format_exc()}"
             )
             
-            # Increment error count
-            self.error_counts[endpoint] = self.error_counts.get(endpoint, 0) + 1
-            
-            # Check circuit breaker
-            is_broken = self._check_circuit_breaker(endpoint)
+            # Track failure with circuit breaker
+            is_broken = self.circuit_breaker.record_failure()
             
             if is_broken:
                 return JSONResponse(
@@ -194,40 +192,11 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
             return "server_error"
         return "unknown"
     
-    def _check_circuit_breaker(self, endpoint: str) -> bool:
-        """Check if circuit breaker should open"""
-        
-        # Get error count and last error time
-        error_count = self.error_counts.get(endpoint, 0)
-        error_time = self.error_timestamps.get(endpoint, time.time())
-        
-        # Update timestamp
-        self.error_timestamps[endpoint] = time.time()
-        
-        # Open circuit if more than 5 errors in 60 seconds
-        time_since_error = time.time() - error_time
-        
-        if error_count >= 5 and time_since_error < 60:
-            logger.warning(
-                f"Circuit breaker opened for {endpoint}: "
-                f"{error_count} errors in {time_since_error:.0f}s"
-            )
-            return True
-        
-        # Reset if 60 seconds have passed
-        if time_since_error >= 60:
-            self.error_counts[endpoint] = 0
-        
-        return False
-    
     def get_error_stats(self) -> dict:
         """Get error statistics"""
+        status = self.circuit_breaker.get_status()
         return {
-            "endpoints_with_errors": len(self.error_counts),
-            "error_counts": self.error_counts,
-            "timestamps": {
-                k: v for k, v in self.error_timestamps.items()
-            }
+            "circuit_breaker": status,
         }
 
 
