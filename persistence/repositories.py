@@ -116,7 +116,7 @@ class FinanceApplicationRepository(BaseRepository):
             return application_data
         except Exception as exc:
             logger.error("Failed to create finance application: %s", exc)
-            return application_data
+            raise
 
     def get(self, application_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve a finance application by ID."""
@@ -332,7 +332,7 @@ class SupplyChainRepository(BaseRepository):
             return record_data
         except Exception as exc:
             logger.error("Failed to create supply chain record: %s", exc)
-            return record_data
+            raise
 
     def get(self, batch_id: str, node_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve a supply chain record by batch and node IDs."""
