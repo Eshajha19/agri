@@ -4,7 +4,7 @@ Manages model versions, deployment history, and metadata
 """
 
 import logging
-from collections import deque
+import threading
 from enum import Enum
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
@@ -140,7 +140,8 @@ class ModelRegistry:
     def __init__(self):
         self.models: Dict[str, Dict[str, ModelVersion]] = {}  # model_name -> version -> ModelVersion
         self.active_models: Dict[str, ModelVersion] = {}  # model_name -> active_version
-       self.deployment_log: deque = deque(maxlen=1000)
+        self.deployment_log: List[Dict] = []
+        self._lock = threading.Lock()
     
     def register_model(
         self,
@@ -152,7 +153,6 @@ class ModelRegistry:
         metrics: Dict[str, float] = None
     ) -> ModelVersion:
         """Register new model version"""
-        
         model = ModelVersion(
             model_name=model_name,
             version=version,
@@ -161,164 +161,125 @@ class ModelRegistry:
             description=description,
             metrics=metrics
         )
-        
-        if model_name not in self.models:
-            self.models[model_name] = {}
-        
-        self.models[model_name][version] = model
-        
-        logger.info(f"Registered model {model_name}:{version} (ID: {model.model_id})")
+        with self._lock:
+            if model_name not in self.models:
+                self.models[model_name] = {}
+            self.models[model_name][version] = model
+        logger.info("Registered model %s:%s (ID: %s)", model_name, version, model.model_id)
         return model
-    
+
     def get_model_version(self, model_name: str, version: str) -> Optional[ModelVersion]:
         """Get specific model version"""
-        return self.models.get(model_name, {}).get(version)
-    
+        with self._lock:
+            return self.models.get(model_name, {}).get(version)
+
     def get_active_model(self, model_name: str) -> Optional[ModelVersion]:
         """Get currently active model"""
-        return self.active_models.get(model_name)
-    
+        with self._lock:
+            return self.active_models.get(model_name)
+
     def list_versions(self, model_name: str) -> List[ModelVersion]:
         """List all versions of a model"""
-        return list(self.models.get(model_name, {}).values())
-    
+        with self._lock:
+            return list(self.models.get(model_name, {}).values())
+
     def promote_to_canary(
-        self,
-        model_name: str,
-        version: str,
-        traffic_percentage: int = 5
+        self, model_name: str, version: str, traffic_percentage: int = 5
     ) -> bool:
         """Promote model to canary (5% traffic)"""
-        
-        model = self.get_model_version(model_name, version)
-        if not model:
-            logger.error(f"Model {model_name}:{version} not found")
-            return False
-        
-        model.status = ModelStatus.CANARY
-        model.canary_traffic_percentage = traffic_percentage
-        model.deployed_at = datetime.now().isoformat()
-        
-        self._log_deployment(model_name, version, "canary", traffic_percentage)
-        logger.info(f"Promoted {model_name}:{version} to CANARY ({traffic_percentage}% traffic)")
-        
+        with self._lock:
+            model = self.models.get(model_name, {}).get(version)
+            if not model:
+                logger.error("Model %s:%s not found", model_name, version)
+                return False
+            model.status = ModelStatus.CANARY
+            model.canary_traffic_percentage = traffic_percentage
+            model.deployed_at = datetime.now().isoformat()
+            self.deployment_log.append({
+                "timestamp": datetime.now().isoformat(),
+                "model_name": model_name, "version": version,
+                "action": "canary", "traffic_percentage": traffic_percentage,
+            })
+        logger.info("Promoted %s:%s to CANARY (%s%% traffic)", model_name, version, traffic_percentage)
         return True
-    
+
     def promote_to_staging(
-        self,
-        model_name: str,
-        version: str,
-        traffic_percentage: int = 25
+        self, model_name: str, version: str, traffic_percentage: int = 25
     ) -> bool:
         """Promote model to staging (25% traffic)"""
-        
-        model = self.get_model_version(model_name, version)
-        if not model:
-            return False
-        
-        model.status = ModelStatus.STAGING
-        model.canary_traffic_percentage = traffic_percentage
-        
-        self._log_deployment(model_name, version, "staging", traffic_percentage)
-        logger.info(f"Promoted {model_name}:{version} to STAGING ({traffic_percentage}% traffic)")
-        
+        with self._lock:
+            model = self.models.get(model_name, {}).get(version)
+            if not model:
+                return False
+            model.status = ModelStatus.STAGING
+            model.canary_traffic_percentage = traffic_percentage
+            self.deployment_log.append({
+                "timestamp": datetime.now().isoformat(),
+                "model_name": model_name, "version": version,
+                "action": "staging", "traffic_percentage": traffic_percentage,
+            })
+        logger.info("Promoted %s:%s to STAGING (%s%% traffic)", model_name, version, traffic_percentage)
         return True
-    
-    def promote_to_production(
-        self,
-        model_name: str,
-        version: str
-    ) -> bool:
+
+    def promote_to_production(self, model_name: str, version: str) -> bool:
         """Promote model to production (100% traffic)"""
-        
-        model = self.get_model_version(model_name, version)
-        if not model:
-            return False
-        
-        # Archive previous production model
-        if model_name in self.active_models:
-            old_model = self.active_models[model_name]
-            old_model.status = ModelStatus.ARCHIVED
-        
-        model.status = ModelStatus.PRODUCTION
-        model.canary_traffic_percentage = 100
-        model.deployed_at = datetime.now().isoformat()
-        self.active_models[model_name] = model
-        
-        self._log_deployment(model_name, version, "production", 100)
-        logger.info(f"Promoted {model_name}:{version} to PRODUCTION")
-        
+        with self._lock:
+            model = self.models.get(model_name, {}).get(version)
+            if not model:
+                return False
+            # Archive previous production model
+            if model_name in self.active_models:
+                old_model = self.active_models[model_name]
+                old_model.status = ModelStatus.ARCHIVED
+            model.status = ModelStatus.PRODUCTION
+            model.canary_traffic_percentage = 100
+            model.deployed_at = datetime.now().isoformat()
+            self.active_models[model_name] = model
+            self.deployment_log.append({
+                "timestamp": datetime.now().isoformat(),
+                "model_name": model_name, "version": version,
+                "action": "production", "traffic_percentage": 100,
+            })
+        logger.info("Promoted %s:%s to PRODUCTION", model_name, version)
         return True
-    
-    def rollback(
-        self,
-        model_name: str,
-        reason: str = "Performance degradation"
-    ) -> bool:
+
+    def rollback(self, model_name: str, reason: str = "Performance degradation") -> bool:
         """Rollback to previous production model"""
-        
-        current = self.active_models.get(model_name)
-        if not current:
-            logger.error(f"No active model for {model_name}")
+        with self._lock:
+            current = self.active_models.get(model_name)
+            if not current:
+                logger.error("No active model for %s", model_name)
+                return False
+            current.status = ModelStatus.ROLLED_BACK
+            current.rollback_reason = reason
+            versions = sorted(
+                self.models[model_name].values(),
+                key=lambda x: x.created_at, reverse=True
+            )
+            previous = None
+            for v in versions:
+                if v.model_id != current.model_id and v.status == ModelStatus.ARCHIVED:
+                    previous = v
+                    break
+            if previous:
+                previous.status = ModelStatus.PRODUCTION
+                previous.canary_traffic_percentage = 100
+                self.active_models[model_name] = previous
+                self.deployment_log.append({
+                    "timestamp": datetime.now().isoformat(),
+                    "model_name": model_name, "version": previous.version,
+                    "action": "rollback", "traffic_percentage": 100, "reason": reason,
+                })
+                logger.warning("Rolled back %s to %s: %s", model_name, previous.version, reason)
+                return True
+            logger.error("No previous production model found for %s", model_name)
             return False
-        
-        current.status = ModelStatus.ROLLED_BACK
-        current.rollback_reason = reason
-        
-        # Find previous production version
-        versions = sorted(
-            self.models[model_name].values(),
-            key=lambda x: x.created_at,
-            reverse=True
-        )
-        
-        previous = None
-        for v in versions:
-            if v.model_id != current.model_id and v.status == ModelStatus.ARCHIVED:
-                previous = v
-                break
-        
-        if previous:
-            previous.status = ModelStatus.PRODUCTION
-            previous.canary_traffic_percentage = 100
-            self.active_models[model_name] = previous
-            
-            self._log_deployment(model_name, previous.version, "rollback", 100, reason)
-            logger.warning(f"Rolled back {model_name} to {previous.version}: {reason}")
-            return True
-        
-        logger.error(f"No previous production model found for {model_name}")
-        return False
-    
-    def _log_deployment(
-        self,
-        model_name: str,
-        version: str,
-        action: str,
-        traffic: int,
-        reason: str = None
-    ):
-        """Log deployment event"""
-        self.deployment_log.append({
-            "timestamp": datetime.now().isoformat(),
-            "model_name": model_name,
-            "version": version,
-            "action": action,
-            "traffic_percentage": traffic,
-            "reason": reason
-        })
-    
-    def get_deployment_history(
-        self,
-        model_name: str,
-        limit: int = 20
-    ) -> List[Dict]:
+
+    def get_deployment_history(self, model_name: str, limit: int = 20) -> List[Dict]:
         """Get deployment history for a model"""
-        return [
-            log for log in self.deployment_log
-            if log["model_name"] == model_name
-        ][-limit:]
-    
+        with self._lock:
+            return [log for log in self.deployment_log if log["model_name"] == model_name][-limit:]
+
     def export_registry(self) -> Dict:
         """Export entire registry — validated against RegistryExportPayload."""
         raw = {

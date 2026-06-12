@@ -6,6 +6,7 @@ Endpoints for model registration, deployment, and monitoring
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, List, Optional
 import logging
+from error_utils import safe_detail
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ async def list_models():
         }
     except Exception as e:
         logger.error(f"Error listing models: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.post("/register")
@@ -73,7 +74,7 @@ async def register_model(
         }
     except Exception as e:
         logger.error(f"Error registering model: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.post("/promote-canary")
@@ -116,7 +117,7 @@ async def promote_canary(
         raise
     except Exception as e:
         logger.error(f"Error promoting to canary: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.post("/promote-staging")
@@ -149,7 +150,7 @@ async def promote_staging(
         raise
     except Exception as e:
         logger.error(f"Error promoting to staging: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.post("/promote-production")
@@ -184,7 +185,7 @@ async def promote_production(
         raise
     except Exception as e:
         logger.error(f"Error promoting to production: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.post("/rollback")
@@ -207,7 +208,7 @@ async def rollback_model(
         raise
     except Exception as e:
         logger.error(f"Error rolling back: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.get("/metrics")
@@ -218,7 +219,7 @@ async def get_metrics():
         return export
     except Exception as e:
         logger.error(f"Error getting metrics: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.get("/metrics/{model_id}")
@@ -234,7 +235,7 @@ async def get_model_metrics(model_id: str):
         }
     except Exception as e:
         logger.error(f"Error getting model metrics: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.post("/record-prediction")
@@ -258,7 +259,7 @@ async def record_prediction(
         return {"success": True}
     except Exception as e:
         logger.error(f"Error recording prediction: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.get("/ab-tests")
@@ -275,7 +276,7 @@ async def list_ab_tests():
         }
     except Exception as e:
         logger.error(f"Error listing A/B tests: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.post("/ab-test/create")
@@ -312,7 +313,7 @@ async def create_ab_test(
         }
     except Exception as e:
         logger.error(f"Error creating A/B test: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.get("/ab-test/{test_id}")
@@ -332,7 +333,7 @@ async def get_ab_test_results(test_id: str):
         raise
     except Exception as e:
         logger.error(f"Error getting A/B test results: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.get("/deployment-history/{model_name}")
@@ -351,7 +352,7 @@ async def get_deployment_history(
         }
     except Exception as e:
         logger.error(f"Error getting deployment history: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.get("/canary-health/{model_id}")
@@ -368,7 +369,7 @@ async def check_canary_health(model_id: str):
         }
     except Exception as e:
         logger.error(f"Error checking canary health: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.post("/select-model")
@@ -417,7 +418,7 @@ async def select_model(
         raise
     except Exception as e:
         logger.error(f"Error selecting model: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 from pydantic import BaseModel

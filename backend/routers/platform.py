@@ -21,6 +21,7 @@ from fastapi import APIRouter, Form, HTTPException, Request, Response
 from pydantic import BaseModel, Field, validator
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
+from error_utils import safe_detail
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
 from slowapi import Limiter
@@ -479,105 +480,6 @@ async def get_alerts_history(request: Request):
     }
 
 
-@router.post("/whatsapp/subscribe", dependencies=[Depends(verify_csrf_token_dependency)])
-async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
-    """
-    Subscribe the authenticated user to WhatsApp alerts.
-
-    The subscriber's identity is derived exclusively from the verified
-    Firebase ID token — never from the client-supplied user_id field.
-    This prevents an attacker from overwriting another user's subscription
-    by sending a known uid with an attacker-controlled phone number.
-    """
-    if verify_role_fn is None:
-        raise HTTPException(status_code=500, detail="Auth service not initialized")
-    if subscriber_store is None:
-        raise HTTPException(status_code=500, detail="Subscriber store not initialized")
-
-    token_data = await verify_role_fn(request)
-    uid = token_data.get("uid")
-
-    subscriber = {
-        "phone_number": data.phone_number,
-        "name": data.name,
-        "subscribed_at": datetime.now().isoformat(),
-    }
-
-    try:
-        subscriber_store.upsert(uid, subscriber)
-    except OSError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to save subscription. Please try again.",
-        ) from exc
-
-    if send_whatsapp_message_fn is not None:
-        welcome_msg = (
-            f"Namaste {data.name}!\n\n"
-            "Welcome to Fasal Saathi WhatsApp Alerts. "
-            "You will now receive real-time updates directly here."
-        )
-        await asyncio.to_thread(send_whatsapp_message_fn, data.phone_number, welcome_msg)
-
-    return {"success": True, "message": "Successfully subscribed"}
-
-
-@router.post("/whatsapp/trigger-alert", dependencies=[Depends(verify_csrf_token_dependency)])
-async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
-    """
-    Broadcast a WhatsApp alert to all subscribers.
-
-    Requires authentication — admin or expert role only.
-
-    Without this check any unauthenticated caller could send arbitrary
-    messages to every subscribed farmer (social engineering attacks,
-    fake pest warnings, fake market alerts) and consume Twilio API
-    credits at will.
-    """
-    if verify_role_fn is None:
-        raise HTTPException(status_code=500, detail="Auth service not initialized")
-    if subscriber_store is None or send_whatsapp_message_fn is None or format_alert_message_fn is None:
-        raise HTTPException(status_code=500, detail="WhatsApp dependencies not initialized")
-
-    # RBAC: only admins and experts may broadcast alerts to all farmers.
-    await verify_role_fn(request, required_roles=["admin", "expert"])
-
-    subscribers = subscriber_store.get_all()
-    results = []
-    formatted_msg = format_alert_message_fn(data.alert_type, data.message)
-
-    for user_id, info in subscribers.items():
-        result = await asyncio.to_thread(send_whatsapp_message_fn, info["phone_number"], formatted_msg)
-        results.append({"user_id": user_id, "success": result.get("success", False)})
-
-    delivered = sum(1 for r in results if r["success"])
-    return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
-
-
-MAX_WEBHOOK_BODY_SIZE = 10 * 1024
-
-@router.post("/whatsapp/webhook")
-async def whatsapp_webhook(request: Request, Body: str = Form(...), From: str = Form(...)):
-    """
-    Handle incoming WhatsApp messages from Twilio.
-    
-    Early body-size enforcement prevents memory exhaustion from oversized
-    payloads. Processing is offloaded to a background Celery task.
-    """
-    if len(Body) > MAX_WEBHOOK_BODY_SIZE:
-        raise HTTPException(status_code=413, detail="Request body too large")
-
-    if send_whatsapp_message_fn is None:
-        raise HTTPException(status_code=500, detail="WhatsApp sender not initialized")
-
-    sender_number = From.replace("whatsapp:", "")
-
-    from celery_worker import process_whatsapp_webhook_task
-    process_whatsapp_webhook_task.delay(Body, sender_number)
-    
-    return {"status": "success"}
-
-
 @router.post("/reports/generate")
 async def generate_signed_report(request: Request, data: ReportRequest):
     if verify_role_fn is None or get_signing_keys_fn is None:
@@ -720,8 +622,7 @@ async def rag_query(request: Request, body: RAGQuery):
     try:
         return rag_generate_fn(body.query, top_k=body.top_k)
     except Exception as exc:
-        logger.exception("RAG query failed")
-        raise HTTPException(status_code=500, detail="RAG query failed") from exc
+        raise HTTPException(status_code=500, detail=safe_detail(exc, 500))
 
 
 @router.post("/gemini/analyze-image")

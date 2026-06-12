@@ -4,18 +4,7 @@ from fastapi import APIRouter, Depends, Request, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError, validator
 import logging
-from threading import Lock
-from time import monotonic, time
-
-from backend.compute_rate_limit import enforce_compute_rate_limit
-from backend.climate_sim.data import (
-    CROP_PROFILES,
-    REGIONAL_SEASONAL_BASELINES,
-    REGION_ALIASES,
-    VALID_SEASONS,
-)
-from backend.schemas import RAGQuery
-from backend.core.logging_config import setup_logging
+from error_utils import safe_detail
 
 router = APIRouter()
 logger = setup_logging(__name__)
@@ -579,20 +568,13 @@ async def rag_query(request: Request, body: RAGQuery = Depends(_parse_rag_query)
         window_seconds=60,
     )
     try:
-        # Check cache first
-        cached_result = _get_cached_result(body.query, body.top_k)
-        if cached_result is not None:
-            return {"success": True, "query": body.query, "results": cached_result, "cached": True}
-        
-        # Cache miss - call RAG function
-        result = rag_fn(body.query, body.top_k)
-        
-        # Store in cache for future requests
-        _set_cached_result(body.query, body.top_k, result)
-        
-        return {"success": True, "query": body.query, "results": result, "cached": False}
-    except Exception as exc:
-        _handle_router_exception(exc, "RAG query failed", "RAG query failed")
+        result = rag_generate_fn(body.query, body.top_k)
+        return {"success": True, "query": body.query, "results": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"RAG error: {e}")
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.post("/simulate-climate")
@@ -674,8 +656,11 @@ async def simulate_climate(request: Request, data: SimulationRequest, verify_fn=
                 "advice from your local Krishi Vigyan Kendra (KVK) or agricultural officer."
             ),
         }
-    except Exception as exc:
-        _handle_router_exception(exc, "Climate simulation failed", "Climate simulation failed")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Climate simulation error: {e}")
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 
 @router.post("/seeds/verify")
@@ -686,54 +671,8 @@ async def verify_seed(request: Request, data: SeedVerifyRequest, runtime=Depends
         is_verified = registry.get(data.code, {}).get("verified", False)
         seed_info = registry.get(data.code, {})
         return {"success": True, "code": data.code, "verified": is_verified, "seed_info": seed_info}
-    except Exception as exc:
-        _handle_router_exception(exc, "Seed verification failed", "Seed verification failed")
-
-
-@router.post("/cache/invalidate")
-async def invalidate_cache(request: Request, verify_fn=Depends(get_verify_role_fn)):
-    """Invalidate entire RAG query cache.
-    
-    This endpoint should be called by an admin or knowledge base manager
-    when the underlying knowledge base is updated to ensure clients receive
-    fresh results on the next query.
-    
-    Requires authentication to prevent unauthorized cache clearing.
-    """
-    try:
-        # Require authentication
-        token_data = await verify_fn(request)
-        
-        # Optional: add role check for admin-only access
-        # For now, any authenticated user can invalidate
-        invalidate_rag_cache()
-        
-        return {
-            "success": True,
-            "message": "RAG query cache has been invalidated. All cached results cleared."
-        }
-    except Exception as exc:
-        _handle_router_exception(exc, "Cache invalidation failed", "Cache invalidation failed")
-
-
-@router.post("/cache/invalidate-query")
-async def invalidate_query_cache(request: Request, query: str, top_k: int = 5, verify_fn=Depends(get_verify_role_fn)):
-    """Invalidate a specific cache entry by query parameters.
-    
-    Use this endpoint to selectively invalidate cache entries without
-    clearing the entire cache. Useful for targeted updates.
-    
-    Requires authentication.
-    """
-    try:
-        # Require authentication
-        token_data = await verify_fn(request)
-        
-        invalidate_rag_cache_key(query, top_k)
-        
-        return {
-            "success": True,
-            "message": f"Cache entry invalidated for query: {query} (top_k={top_k})"
-        }
-    except Exception as exc:
-        _handle_router_exception(exc, "Query cache invalidation failed", "Query cache invalidation failed")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Seed error: {e}")
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
