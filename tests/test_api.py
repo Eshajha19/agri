@@ -24,9 +24,9 @@ def test_predict_yield_unauthorized(client: TestClient):
     response = client.post("/predict", json={})
     assert response.status_code == 422  # Unprocessable Entity (Validation Error)
 
-def test_notifications(client: TestClient):
+def test_notifications_requires_authentication(client: TestClient):
     """
-    Test the notifications endpoint.
+    Test the notifications endpoint rejects unauthenticated access.
     """
     response = client.get("/api/notifications")
     assert response.status_code == 200
