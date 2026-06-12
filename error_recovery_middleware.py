@@ -63,13 +63,13 @@ class CircuitBreakerState:
 
     def get(self, method: str, path: str):
         key = self._normalize_key(method, path)
-        return self._state.get(method, path)
+        return self._state.get(key)
 
     def set(self, method: str, path: str, value: dict):
         key = self._normalize_key(method, path)
         if key in self._state:
             self._state.move_to_end(key)
-        self._state.set(method, path, value) = value
+        self._state[key] = value
         # Prune oldest if over cap
         if len(self._state) > self._max_entries:
             self._state.popitem(last=False)
