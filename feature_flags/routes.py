@@ -37,7 +37,7 @@ from feature_flags import flag_store, experiment_engine, metrics_collector
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api", tags=["feature-flags"])
+router = APIRouter(tags=["feature-flags"])
 
 
 # ── Pydantic schemas ───────────────────────────────────────────────────────────

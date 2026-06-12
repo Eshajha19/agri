@@ -98,7 +98,7 @@ def _validate_whatsapp_number(raw: str) -> str:
     return number
 
 
-@router.get("/notifications")
+@router.get("")
 async def get_notifications(
     request: Request,
     crop: str = Query(None),
