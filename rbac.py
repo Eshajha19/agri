@@ -400,7 +400,7 @@ class RBACManager:
                 detail="Invalid or expired authorization token",
             ) from exc
 
-        uid = decoded_token.get("uid")
+        uid = decoded_token.get("sub") or decoded_token.get("uid")
         if not uid:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -410,7 +410,7 @@ class RBACManager:
             # Verify Firebase token
             try:
                 decoded_token = firebase_auth.verify_id_token(token, check_revoked=True)
-                uid = decoded_token.get("uid")
+                uid = decoded_token.get("sub") or decoded_token.get("uid")
             except Exception as exc:
                 logger.error("Token verification failed: %s", exc)
                 raise HTTPException(
@@ -707,7 +707,7 @@ async def verify_role(
         raise HTTPException(status_code=503, detail="Authorization service unavailable")
 
     roles = user.get("roles", [])
-    uid = user.get("uid")
+    uid = user.get("sub") or user.get("uid")
 
     if required_roles:
         if require_all:
