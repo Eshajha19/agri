@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List
 from sklearn.preprocessing import MinMaxScaler
+import joblib
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -49,7 +50,8 @@ def train_and_save_model():
         logger.info(f"Data after grouping:\n{df.head()}")
 
         # Scaling
-        scaled_data = scaler.fit_transform(df)
+        scaler.fit(df)
+        scaled_data = scaler.transform(df)
 
         def create_sequences(data, seq_length=5):
             X, y = [], []
@@ -74,6 +76,7 @@ def train_and_save_model():
         model_seq.compile(optimizer='adam', loss='mse')
         model_seq.fit(X, y, epochs=20, batch_size=16)
         model_seq.save(MODEL_PATH)
+        joblib.dump(scaler, SCALER_PATH)
         logger.info("✅ LSTM model trained and saved successfully.")
     except Exception as e:
         logger.error(f"Error during training: {str(e)}")
@@ -103,6 +106,12 @@ async def lifespan(app: FastAPI):
             logger.warning("Scaler file not found — predictions will be raw-scaled.")
 
         logger.info("✅ Model loaded into memory successfully.")
+        
+        if os.path.exists(SCALER_PATH):
+            scaler = joblib.load(SCALER_PATH)
+            logger.info("✅ Scaler loaded from %s", SCALER_PATH)
+        else:
+            logger.warning("Scaler file %s not found — predictions will NOT be inverse-transformed.", SCALER_PATH)
     except Exception as e:
         logger.error(f"Failed to load model on startup: {str(e)}")
         # If model is None, endpoints will handle it gracefully.
@@ -112,6 +121,7 @@ async def lifespan(app: FastAPI):
     # Shutdown logic
     logger.info("Shutting down FastAPI application... Cleaning up resources.")
     model = None
+    scaler = None
 
 
 # Initialize FastAPI application with lifespan event
@@ -174,4 +184,4 @@ if __name__ == "__main__":
     # When run as a script, we start the inference server locally
     import uvicorn
     # Note: Run it on a specific port for the dedicated inference server
-    uvicorn.run("lstm_yield_model:app", host="0.0.0.0", port=8001, reload=False)
+    uvicorn.run("lstm_yield_model:app", host="0.0.0.0", port=8001, reload=False)
