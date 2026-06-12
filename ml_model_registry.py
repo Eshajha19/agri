@@ -3,15 +3,56 @@ ML Model Versioning & Registry System
 Manages model versions, deployment history, and metadata
 """
 
+import hashlib
+import json
 import logging
+import os
+import uuid
 import threading
 from enum import Enum
 from datetime import datetime, timedelta
+from enum import Enum
 from typing import Dict, List, Optional, Any
-import json
-import uuid
+
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+
+
+# ── Artifact integrity helpers ─────────────────────────────────────────
+
+
+def _compute_sha256(path: str) -> str:
+    """Return hex SHA-256 of the file at *path*."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            block = f.read(65536)
+            if not block:
+                break
+            h.update(block)
+    return h.hexdigest()
+
+
+def verify_artifact(
+    path: str,
+    expected_checksum: Optional[str] = None,
+) -> None:
+    """Check that *path* exists, is readable, and matches *expected_checksum*.
+
+    Raises FileNotFoundError, PermissionError, or ValueError on failure.
+    """
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Model artifact not found: {path}")
+    if not os.access(path, os.R_OK):
+        raise PermissionError(f"Model artifact not readable: {path}")
+    if expected_checksum:
+        actual = _compute_sha256(path)
+        if actual != expected_checksum:
+            raise ValueError(
+                f"Checksum mismatch for {path}: "
+                f"expected {expected_checksum}, got {actual}"
+            )
 
 
 class ModelStatus(Enum):
@@ -35,12 +76,14 @@ class ModelVersion:
         status: ModelStatus = ModelStatus.DRAFT,
         created_by: str = "system",
         description: str = None,
-        metrics: Dict[str, float] = None
+        metrics: Dict[str, float] = None,
+        checksum_sha256: Optional[str] = None,
     ):
         self.model_id = str(uuid.uuid4())
         self.model_name = model_name
         self.version = version
         self.model_path = model_path
+        self.checksum_sha256 = checksum_sha256
         self.status = status
         self.created_by = created_by
         self.description = description
@@ -53,7 +96,7 @@ class ModelVersion:
     
     def to_dict(self) -> Dict:
         """Convert to dictionary"""
-        return {
+        d: Dict = {
             "model_id": self.model_id,
             "model_name": self.model_name,
             "version": self.version,
@@ -66,8 +109,11 @@ class ModelVersion:
             "deployed_at": self.deployed_at,
             "canary_traffic_percentage": self.canary_traffic_percentage,
             "rollback_reason": self.rollback_reason,
-            "deployment_history": self.deployment_history
+            "deployment_history": self.deployment_history,
         }
+        if self.checksum_sha256:
+            d["checksum_sha256"] = self.checksum_sha256
+        return d
     
     @staticmethod
     def from_dict(data: Dict) -> 'ModelVersion':
@@ -79,7 +125,8 @@ class ModelVersion:
             status=ModelStatus(data.get("status", "draft")),
             created_by=data.get("created_by", "system"),
             description=data.get("description"),
-            metrics=data.get("metrics", {})
+            metrics=data.get("metrics", {}),
+            checksum_sha256=data.get("checksum_sha256"),
         )
         version.model_id = data["model_id"]
         version.created_at = data["created_at"]
@@ -106,16 +153,28 @@ class ModelRegistry:
         model_path: str,
         created_by: str = "system",
         description: str = None,
-        metrics: Dict[str, float] = None
+        metrics: Dict[str, float] = None,
+        checksum_sha256: Optional[str] = None,
     ) -> ModelVersion:
-        """Register new model version"""
+        """Register new model version.
+
+        Performs artifact integrity validation (file existence, permissions,
+        and optional checksum match) before registering.
+        """
+        try:
+            verify_artifact(model_path, expected_checksum=checksum_sha256)
+        except (FileNotFoundError, PermissionError, ValueError) as exc:
+            logger.error("Artifact validation failed for %s: %s", model_path, exc)
+            raise
+
         model = ModelVersion(
             model_name=model_name,
             version=version,
             model_path=model_path,
             created_by=created_by,
             description=description,
-            metrics=metrics
+            metrics=metrics,
+            checksum_sha256=checksum_sha256,
         )
         with self._lock:
             if model_name not in self.models:
@@ -176,27 +235,40 @@ class ModelRegistry:
             })
         logger.info("Promoted %s:%s to STAGING (%s%% traffic)", model_name, version, traffic_percentage)
         return True
+    
+    def promote_to_production(
+        self,
+        model_name: str,
+        version: str
+    ) -> bool:
+        """Promote model to production (100% traffic).
 
-    def promote_to_production(self, model_name: str, version: str) -> bool:
-        """Promote model to production (100% traffic)"""
-        with self._lock:
-            model = self.models.get(model_name, {}).get(version)
-            if not model:
-                return False
-            # Archive previous production model
-            if model_name in self.active_models:
-                old_model = self.active_models[model_name]
-                old_model.status = ModelStatus.ARCHIVED
-            model.status = ModelStatus.PRODUCTION
-            model.canary_traffic_percentage = 100
-            model.deployed_at = datetime.now().isoformat()
-            self.active_models[model_name] = model
-            self.deployment_log.append({
-                "timestamp": datetime.now().isoformat(),
-                "model_name": model_name, "version": version,
-                "action": "production", "traffic_percentage": 100,
-            })
-        logger.info("Promoted %s:%s to PRODUCTION", model_name, version)
+        Re-verifies artifact integrity before promoting.
+        """
+        model = self.get_model_version(model_name, version)
+        if not model:
+            return False
+
+        # Re-verify artifact before loading into production.
+        try:
+            verify_artifact(model.model_path, expected_checksum=model.checksum_sha256)
+        except (FileNotFoundError, PermissionError, ValueError) as exc:
+            logger.error("Cannot promote %s:%s — %s", model_name, version, exc)
+            return False
+
+        # Archive previous production model
+        if model_name in self.active_models:
+            old_model = self.active_models[model_name]
+            old_model.status = ModelStatus.ARCHIVED
+        
+        model.status = ModelStatus.PRODUCTION
+        model.canary_traffic_percentage = 100
+        model.deployed_at = datetime.now().isoformat()
+        self.active_models[model_name] = model
+        
+        self._log_deployment(model_name, version, "production", 100)
+        logger.info(f"Promoted {model_name}:{version} to PRODUCTION")
+        
         return True
 
     def rollback(self, model_name: str, reason: str = "Performance degradation") -> bool:
@@ -237,18 +309,63 @@ class ModelRegistry:
             return [log for log in self.deployment_log if log["model_name"] == model_name][-limit:]
 
     def export_registry(self) -> Dict:
-        """Export entire registry as JSON"""
-        with self._lock:
-            return {
-                "models": {
-                    name: {ver: m.to_dict() for ver, m in vers.items()}
-                    for name, vers in self.models.items()
-                },
-                "active_models": {
-                    name: m.to_dict() for name, m in self.active_models.items()
-                },
-                "deployment_log": list(self.deployment_log),
-            }
+        """Export entire registry — validated against RegistryExportPayload."""
+        raw = {
+            "models": {
+                name: {
+                    version: model.to_dict()
+                    for version, model in versions.items()
+                }
+                for name, versions in self.models.items()
+            },
+            "active_models": {
+                name: model.to_dict()
+                for name, model in self.active_models.items()
+            },
+            "deployment_log": self.deployment_log,
+        }
+        # Validate before returning.
+        return RegistryExportPayload(**raw).model_dump()
+
+    def import_registry(self, data: Dict) -> int:
+        """Import registry from *data*, validated against RegistryExportPayload.
+
+        Returns the number of model versions imported.
+        Raises ValueError (or Pydantic ValidationError) on invalid data.
+        """
+        payload = RegistryExportPayload(**data)
+        count = 0
+        for model_name, versions in payload.models.items():
+            for version_str, entry in versions.items():
+                version = ModelVersion(
+                    model_name=entry.model_name,
+                    version=entry.version,
+                    model_path=entry.model_path,
+                    status=ModelStatus(entry.status),
+                    created_by=entry.created_by,
+                    description=entry.description,
+                    metrics=dict(entry.metrics),
+                )
+                version.model_id = entry.model_id
+                version.created_at = entry.created_at
+                version.deployed_at = entry.deployed_at
+                version.canary_traffic_percentage = entry.canary_traffic_percentage
+                version.rollback_reason = entry.rollback_reason
+                version.deployment_history = list(entry.deployment_history)
+
+                if model_name not in self.models:
+                    self.models[model_name] = {}
+                self.models[model_name][version_str] = version
+                count += 1
+
+        for model_name, entry in payload.active_models.items():
+            version = self.models.get(model_name, {}).get(entry.version)
+            if version:
+                self.active_models[model_name] = version
+
+        self.deployment_log.extend(payload.deployment_log)
+        logger.info("Imported %d model versions from registry payload", count)
+        return count
 
 
 # Global registry instance

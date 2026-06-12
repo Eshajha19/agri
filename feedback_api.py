@@ -5,6 +5,7 @@ Provides secure server-side API for feedback submission with validation.
 
 import asyncio
 from fastapi import FastAPI, HTTPException, Depends, Request
+from error_utils import safe_detail
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, validator
@@ -124,7 +125,7 @@ async def verify_firebase_token(request: Request) -> dict:
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired authentication token")
 
-    uid = decoded.get("uid")
+    uid = decoded.get("sub") or decoded.get("uid")
     if not uid:
         raise HTTPException(status_code=401, detail="Invalid authentication token")
 
@@ -356,7 +357,7 @@ async def verify_admin(request: Request) -> dict:
     except Exception:
         raise HTTPException(status_code=401, detail="Authentication failed")
 
-    uid = decoded["uid"]
+    uid = decoded.get("sub") or decoded.get("uid")
 
     # Offload blocking Firestore network call to thread pool.
     try:
@@ -507,9 +508,9 @@ async def submit_feedback(
             )
 
     except ValueError as ve:
-        logger.warning("Validation error: %s", ve)
-        raise HTTPException(status_code=400, detail=str(ve))
-
+        logger.warning(f"Validation error: {ve}")
+        raise HTTPException(status_code=400, detail=safe_detail(ve, 400))
+        
     except HTTPException:
         raise
 

@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List
 from sklearn.preprocessing import MinMaxScaler
-import joblib
+from error_utils import safe_detail
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -172,7 +172,7 @@ async def predict(request: PredictionRequest):
     
     except Exception as e:
         logger.error(f"Error during prediction: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 @app.get("/health")
 async def health_check():

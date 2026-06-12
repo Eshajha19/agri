@@ -400,16 +400,23 @@ class RBACManager:
                 detail="Invalid or expired authorization token",
             ) from exc
 
-        uid = decoded_token.get("uid")
+        uid = decoded_token.get("sub") or decoded_token.get("uid")
         if not uid:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired authorization token",
             )
 
+        db = RBACManager.get_db()
+        if not db:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Authentication database unavailable",
+            )
             # Verify Firebase token
             try:
                 decoded_token = firebase_auth.verify_id_token(token, check_revoked=True)
+                uid = decoded_token.get("sub") or decoded_token.get("uid")
                 uid = decoded_token.get("uid")
             except firebase_auth.RevokedIdTokenError:
                 logger.warning("Revoked Firebase token rejected")
@@ -437,16 +444,16 @@ class RBACManager:
                 detail="Authentication database lookup failed",
             ) from exc
 
-            try:
-                user_doc = await asyncio.to_thread(
-                    db.collection("users").document(uid).get,
-                )
-            except Exception as exc:
-                logger.error("Firestore query failed for user %s: %s", uid, exc)
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=STALE_TOKEN_DETAIL,
-                )
+        if not user_doc.exists:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User profile not found",
+            )
+
+        profile = user_doc.to_dict() or {}
+        roles = RBACManager._normalize_roles(profile)
+        role_str = RBACManager._effective_role(roles)
+        tenant_id = RBACManager._extract_tenant(profile)
 
         claim_tenant = RBACManager._extract_tenant(decoded_token)
         if claim_tenant and tenant_id and claim_tenant != tenant_id:
@@ -713,7 +720,7 @@ async def verify_role(
         raise HTTPException(status_code=503, detail="Authorization service unavailable")
 
     roles = user.get("roles", [])
-    uid = user.get("uid")
+    uid = user.get("sub") or user.get("uid")
 
     if required_roles:
         if require_all:

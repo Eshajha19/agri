@@ -7,7 +7,16 @@ ROUTER_DIAGNOSTICS = {
     "missing_routers": [],
     "registered_routers": [],
     "warnings": [],
+    "conflicts": [],
+    "health_status": "unknown",
+    "severity_counts": {
+        "critical": 0,
+        "warning": 0,
+    },
+    "startup_summary": {},
 }
+
+FAIL_FAST_ON_ROUTER_CONFLICTS = False
 
 def register_routers(
     app,
@@ -48,20 +57,32 @@ def register_routers(
             return
 
         if prefix in registered_prefixes:
-            message = (
-                f"Duplicate router prefix detected: "
-                f"{prefix} ({registered_prefixes[prefix]} and {router_name})"
+
+            conflict = {
+                "severity": "critical",
+                "type": "duplicate_prefix",
+                "prefix": prefix,
+                "existing_router": registered_prefixes[prefix],
+                "incoming_router": router_name,
+                "remediation": (
+                    "Assign a unique prefix or merge endpoint ownership before deployment."
+                ),
+            }
+
+            ROUTER_DIAGNOSTICS["duplicate_prefixes"].append(conflict)
+            ROUTER_DIAGNOSTICS["conflicts"].append(conflict)
+
+            ROUTER_DIAGNOSTICS["severity_counts"]["critical"] += 1
+
+            logger.error(
+                "ROUTER_CONFLICT %s",
+                conflict,
             )
 
-            logger.warning(message)
-
-            ROUTER_DIAGNOSTICS["duplicate_prefixes"].append({
-                "prefix": prefix,
-                "routers": [
-                    registered_prefixes[prefix],
-                    router_name,
-                ],
-            })
+            if FAIL_FAST_ON_ROUTER_CONFLICTS:
+                raise RuntimeError(
+                    f"Critical router conflict detected for prefix {prefix}"
+                )
         else:
             registered_prefixes[prefix] = router_name
 
@@ -242,15 +263,47 @@ def register_routers(
         list(missing)
     )
 
+    for router_name in missing:
+
+        ROUTER_DIAGNOSTICS["conflicts"].append({
+            "severity": "warning",
+            "type": "missing_router",
+            "router": router_name,
+            "remediation": (
+                "Verify dependency initialization and registration order."
+            ),
+        })
+
+        ROUTER_DIAGNOSTICS["severity_counts"]["warning"] += 1
+
+    if ROUTER_DIAGNOSTICS["severity_counts"]["critical"] > 0:
+        ROUTER_DIAGNOSTICS["health_status"] = "critical"
+
+    elif ROUTER_DIAGNOSTICS["severity_counts"]["warning"] > 0:
+        ROUTER_DIAGNOSTICS["health_status"] = "degraded"
+
+    else:
+        ROUTER_DIAGNOSTICS["health_status"] = "healthy"
+
+    ROUTER_DIAGNOSTICS["startup_summary"] = {
+        "registered_router_count": len(
+            ROUTER_DIAGNOSTICS["registered_routers"]
+        ),
+        "missing_router_count": len(
+            ROUTER_DIAGNOSTICS["missing_routers"]
+        ),
+        "conflict_count": len(
+            ROUTER_DIAGNOSTICS["conflicts"]
+        ),
+        "health_status": ROUTER_DIAGNOSTICS["health_status"],
+    }
+
     @app.get("/system/router-diagnostics")
     async def router_diagnostics():
         return {
             "success": True,
-            "validation_passed": (
-                len(
-                    ROUTER_DIAGNOSTICS["duplicate_prefixes"]
-                ) == 0
-            ),
+            "validation_passed":
+            ROUTER_DIAGNOSTICS["health_status"] == "healthy",
             **ROUTER_DIAGNOSTICS,
         }
     
