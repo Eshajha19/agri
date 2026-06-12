@@ -390,27 +390,6 @@ def verify_signed_report(
     signature_hex: str,
     public_key_pem: Optional[str] = None,
 ) -> dict:
-    """Verify an Ed25519-signed report payload.
-
-    Parameters
-    ----------
-    name, crop, area, profit, season : str
-        Report field values (must match what was signed).
-    cert_id : str
-        Certificate ID embedded during signing.
-    signature_hex : str
-        Hex-encoded Ed25519 signature.
-    public_key_pem : str, optional
-        PEM-encoded public key.  When *not* provided the function attempts
-        to load ``keys/report_signing.pub`` from the configured path.
-
-    Returns
-    -------
-    dict with keys:
-        ``verified`` (bool), ``cert_id`` (str), ``key_fingerprint`` (str),
-        and on failure ``error`` (str).
-    """
-    # 1. Rebuild the canonical payload exactly as _sign_report did.
     canonical = json.dumps(
         {
             "cert_id": cert_id,
@@ -424,13 +403,11 @@ def verify_signed_report(
         separators=(",", ":"),
     ).encode("utf-8")
 
-    # 2. Decode the signature.
     try:
         signature = bytes.fromhex(signature_hex)
     except ValueError:
         return {"verified": False, "cert_id": cert_id, "error": "Invalid signature hex encoding"}
 
-    # 3. Load the public key.
     if public_key_pem:
         try:
             public_key = serialization.load_pem_public_key(public_key_pem.encode("utf-8"))
@@ -447,7 +424,6 @@ def verify_signed_report(
     if not isinstance(public_key, Ed25519PublicKey):
         return {"verified": False, "cert_id": cert_id, "error": "Key is not an Ed25519 public key"}
 
-    # 4. Compute fingerprint of the public key (SHA-256 of DER).
     try:
         der = public_key.public_bytes(
             encoding=serialization.Encoding.DER,
@@ -457,7 +433,6 @@ def verify_signed_report(
     except Exception:
         key_fingerprint = "unknown"
 
-    # 5. Verify.
     try:
         public_key.verify(signature, canonical)
         return {"verified": True, "cert_id": cert_id, "key_fingerprint": key_fingerprint}
@@ -480,13 +455,6 @@ class VerifyReportRequest(BaseModel):
 
 @router.post("/reports/verify")
 async def verify_report_endpoint(body: VerifyReportRequest):
-    """Verify an Ed25519-signed report payload.
-
-    Accepts the same report fields that were submitted to ``/reports/generate``
-    plus the ``cert_id`` and hex ``signature`` embedded in the PDF.
-
-    Returns ``{"verified": true/false, "cert_id": "...", "key_fingerprint": "..."}``.
-    """
     result = verify_signed_report(
         name=body.name,
         crop=body.crop,

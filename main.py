@@ -660,9 +660,9 @@ async def _notify_booking(booking: dict) -> None:
             voice_asst = VoiceAssistant(offline_mode=True)
             cache_mgr = OfflineCacheManager(cache_dir="./voice_assistant_cache")
             voice_assistant_router.init_voice_assistant(voice_asst, cache_mgr, verify_role)
+        except Exception as exc:
+            logger.warning("Voice assistant init skipped: %s", exc)
 
-    # All models are now registered in init_ml_pipeline() above.
-    # Look them up from ModelRegistry instead of loading directly.
     model_lag = ModelRegistry.get_model("sklearn_lag")
     model_trend = ModelRegistry.get_model("trend_forecast")
     if model_lag:
@@ -1964,7 +1964,7 @@ _idem = _IdemStore()
 
 @app.get("/")
 @limiter.limit("60/minute")
-def root(request: Request = None):
+def root(request: Request):
     return {"message": "Fasal Saathi API", "status": "running"}
 
 # ── Celery task helper with standardised error mapping ──────────────────
@@ -2004,7 +2004,7 @@ async def _run_celery_task(task, timeout: int = 30):
 
 @app.get("/predict")
 @limiter.limit("30/minute")
-def predict_get(request: Request = None):
+def predict_get(request: Request):
     return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
 
 @app.post("/predict", response_model=PredictResponse)
@@ -2498,6 +2498,30 @@ def init_ml_pipeline() -> None:
             logger.warning("ML Pipeline: %s not found", model_path)
     except Exception as exc:
         logger.warning("ML Pipeline initialization failed: %s", exc)
+
+    try:
+        import joblib as _joblib
+        sklearn_path = "sklearn_yield_model.joblib"
+        if os.path.exists(sklearn_path):
+            model_lag = _joblib.load(sklearn_path)
+            ModelRegistry.register("sklearn_lag", model_lag)
+            logger.info("ML Pipeline: Registered sklearn yield-lag model")
+        else:
+            logger.warning("ML Pipeline: %s not found", sklearn_path)
+    except Exception as exc:
+        logger.warning("ML Pipeline: sklearn yield-lag model init failed: %s", exc)
+
+    try:
+        trend_path = "trend_forecast_model.joblib"
+        if os.path.exists(trend_path):
+            import joblib as _joblib2
+            model_trend = _joblib2.load(trend_path)
+            ModelRegistry.register("trend_forecast", model_trend)
+            logger.info("ML Pipeline: Registered trend forecast model")
+        else:
+            logger.warning("ML Pipeline: %s not found", trend_path)
+    except Exception as exc:
+        logger.warning("ML Pipeline: trend forecast model init failed: %s", exc)
 
 
 # Observability setup
