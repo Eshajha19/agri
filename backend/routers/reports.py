@@ -31,10 +31,8 @@ logger = setup_logging(__name__)
 
 router = APIRouter()
 
-# Simple in-memory nonce store (replace with Redis/Firestore in production)
+# Replay protection state
 used_nonces = {}
-
-nonce_lock = threading.Lock()
 
 SIGNATURE_TTL = 300  # 5 minutes
 MAX_NONCES = 10000
@@ -47,69 +45,129 @@ nonce_metrics = {
     "evicted": 0,
 }
 
+replay_metrics = {
+    "accepted": 0,
+    "rejected": 0,
+    "duplicates": 0,
+    "expired": 0,
+}
+
+nonce_store_provider = None
+
+def cleanup_expired_nonces():
+    now = time.time()
+
+    expired = []
+
+    for nonce, meta in list(used_nonces.items()):
+        if now - meta["timestamp"] > SIGNATURE_TTL:
+            expired.append(nonce)
+
+    for nonce in expired:
+        del used_nonces[nonce]
+
+    replay_metrics["expired"] += len(expired)
+
+    if expired:
+        logger.info(
+            "reports.router.initialized "
+            "auth_provider=%s "
+            "key_provider=%s "
+            "sanitizer_enabled=%s "
+            "persistent_nonce_provider=%s",
+            getattr(vr_fn, "__name__", type(vr_fn).__name__),
+            getattr(gsk_fn, "__name__", type(gsk_fn).__name__),
+            slf_fn is not None,
+            nonce_provider is not None,
+        )
+
+    return len(expired)
+
+
 @router.post("/submit-report")
 def submit_report(payload: dict):
+
+    cleanup_expired_nonces()
+
     nonce = payload.get("nonce")
     timestamp = payload.get("timestamp")
     signature = payload.get("signature")
 
-    # ✅ Nonce check
-    cleanup_expired_nonces()
+    if not nonce:
 
-    with nonce_lock:
+        replay_metrics["rejected"] += 1
 
-        if not nonce:
-            raise HTTPException(
-                status_code=400,
-                detail="Missing nonce"
-            )
-
-        if nonce in used_nonces:
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid or replayed nonce"
-            )
-
-        used_nonces[nonce] = time.time()
-        nonce_metrics["active"] = len(used_nonces)
-
-
-
-    if len(used_nonces) > MAX_NONCES * 0.8:
-        logger.warning(
-            "nonce_store_high_watermark active=%s limit=%s",
-            len(used_nonces),
-            MAX_NONCES,
+        raise HTTPException(
+            status_code=400,
+            detail="Missing nonce",
         )
 
-    # ✅ Timestamp check
+    if nonce in used_nonces:
+
+        replay_metrics["duplicates"] += 1
+        replay_metrics["rejected"] += 1
+
+        logger.warning(
+            "[REPLAY_BLOCKED] nonce=%s first_seen=%s",
+            nonce,
+            used_nonces[nonce]["timestamp"],
+        )
+
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid or replayed nonce",
+        )
+
     now = int(time.time())
+
     if not timestamp or abs(now - int(timestamp)) > SIGNATURE_TTL:
 
-        with nonce_lock:
-            used_nonces.pop(nonce, None)
-            nonce_metrics["active"] = len(used_nonces)
+        replay_metrics["rejected"] += 1
 
         raise HTTPException(
             status_code=400,
-            detail="Signature expired"
+            detail="Signature expired",
         )
 
-    # ✅ Signature verification (pseudo-code)
     if not verify_signature(payload, signature):
 
-        with nonce_lock:
-            used_nonces.pop(nonce, None)
-            nonce_metrics["active"] = len(used_nonces)
+        replay_metrics["rejected"] += 1
 
         raise HTTPException(
             status_code=400,
-            detail="Invalid signature"
+            detail="Invalid signature",
         )
 
-    enforce_nonce_limit()
+    entry = {
+        "timestamp": time.time(),
+        "request_id": str(uuid.uuid4()),
+        "status": "accepted",
+    }
 
-    return {"status": "accepted"}
+    used_nonces[nonce] = entry
+
+    if nonce_store_provider:
+        try:
+            nonce_store_provider.store_nonce(
+                nonce,
+                entry,
+            )
+        except Exception:
+            logger.exception(
+                "persistent_nonce_storage_failed"
+            )
+
+    replay_metrics["accepted"] += 1
+
+    logger.info(
+        "[REPLAY_ACCEPTED] nonce=%s request_id=%s",
+        nonce,
+        used_nonces[nonce]["request_id"],
+    )
+
+    return {
+        "status": "accepted"
+    }
 
 def cleanup_expired_nonces():
     now = time.time()
@@ -246,6 +304,7 @@ def init_reports(
     vr_fn: Callable,
     gsk_fn: Callable,
     slf_fn: Optional[Callable] = None,
+    nonce_provider=None,
 ) -> None:
     """
     Initialize report router dependencies.
@@ -261,7 +320,7 @@ def init_reports(
     global verify_role_fn
     global get_signing_keys_fn
     global sanitise_log_field_fn
-    global cleanup_thread_started
+    global nonce_store_provider
 
     if vr_fn is None:
         raise ValueError("verify_role_fn cannot be None")
@@ -272,6 +331,8 @@ def init_reports(
     verify_role_fn = vr_fn
     get_signing_keys_fn = gsk_fn
     sanitise_log_field_fn = slf_fn
+    nonce_store_provider = nonce_provider
+    
 
     if not cleanup_thread_started:
         thread = threading.Thread(
@@ -830,23 +891,23 @@ async def backfill_role_claims_endpoint(request: Request):
 
     return {"success": True, **summary}
 
-@router.get("/admin/nonce-metrics")
-async def nonce_metrics_endpoint(request: Request):
+@router.get("/admin/replay-metrics")
+async def replay_metrics_endpoint(request: Request):
 
     if verify_role_fn is None:
         raise HTTPException(
             status_code=500,
-            detail="Not initialized"
+            detail="Not initialized",
         )
 
     await verify_role_fn(
         request,
-        required_roles=["admin"]
+        required_roles=["admin"],
     )
 
     return {
         "success": True,
-        "metrics": nonce_metrics,
-        "active_entries": len(used_nonces),
-        "max_entries": MAX_NONCES,
+        "active_nonces": len(used_nonces),
+        "metrics": replay_metrics,
     }
+
