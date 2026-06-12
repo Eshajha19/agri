@@ -4,6 +4,7 @@ import asyncio
 import logging
 import math
 import collections
+import itertools
 import threading
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
@@ -161,8 +162,7 @@ from csrf_protection import generate_token, reject_cross_origin
 from fastapi import Depends
 from csrf_protection import verify_csrf_token_dependency
 from error_recovery_middleware import ErrorRecoveryMiddleware
-from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, resolve_subscription_regions, normalize_region_identifier
-from notification_auth import filter_notifications_for_user
+from error_utils import safe_detail
 from realtime_notifications import notification_broker
 from rbac_audit import audit_rbac_event, rbac_audit_trail, validate_required_roles
 from rbac import RBACMiddleware, print_rbac_matrix, RBACManager, Permission
@@ -817,6 +817,16 @@ async def verify_role(request: Request, required_roles: list = None):
 
     try:
         decoded_token = auth.verify_id_token(id_token, check_revoked=True)
+    except auth.RevokedIdTokenError:
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="denied",
+            reason="token_revoked",
+            status_code=401,
+            required_roles=required_roles,
+        )
+        raise HTTPException(status_code=401, detail="Session revoked — please log in again")
     except Exception:
         audit_rbac_event(
             request=request,
@@ -1090,12 +1100,12 @@ def sanitise_log_field(value: str) -> str:
 
 @app.get("/")
 @limiter.limit("60/minute")
-def root(request: Request = None):
+def root(request: Request):
     return {"message": "Fasal Saathi API", "status": "running"}
 
 @app.get("/predict")
 @limiter.limit("30/minute")
-def predict_get(request: Request = None):
+def predict_get(request: Request):
     return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
 
 @app.post("/predict", response_model=PredictResponse)
@@ -1957,13 +1967,40 @@ _idem = _IdemStore()
 def root(request: Request = None):
     return {"message": "Fasal Saathi API", "status": "running"}
 
-@app.get("/health")
-@limiter.limit("60/minute")
-def health_check(request: Request = None):
+# ── Celery task helper with standardised error mapping ──────────────────
+#   503 — broker / worker unreachable
+#   504 — task timed out
+#   500 — unexpected task failure
+#   422 — domain-specific prediction errors (unknown category, missing feature)
+import celery.exceptions as _celery_exc
+
+
+async def _run_celery_task(task, timeout: int = 30):
+    """Await *task* completion with *timeout*, mapping Celery exceptions.
+
+    Returns the decoded result dict on success.
     """
-    Health check endpoint for deployment platforms and monitoring tools.
-    """
-    return {"status": "ok", "message": "Backend is running"}
+    loop = asyncio.get_running_loop()
+    try:
+        return await loop.run_in_executor(None, task.get, timeout)
+    except _celery_exc.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail="Prediction request timed out",
+        )
+    except (ConnectionError, OSError, _celery_exc.OperationalError):
+        raise HTTPException(
+            status_code=503,
+            detail="Prediction service temporarily unavailable",
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="Prediction failed",
+        )
+
 
 @app.get("/predict")
 @limiter.limit("30/minute")
@@ -2024,6 +2061,9 @@ async def predict_yield(data: PredictRequest, request: Request):
         print(f"Prediction Error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 @app.post("/predict-yield-lag")
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
+
+@app.post("/predict-yield-lag", dependencies=[Depends(verify_csrf_token_dependency)])
 @limiter.limit("5/minute")
 async def predict_yield_lag(payload: YieldInput, request: Request):
     ik = request.headers.get("Idempotency-Key")
@@ -2047,6 +2087,7 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
             result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
         except Exception as celery_exc:
             raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
+        result = await _run_celery_task(task)
 
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
@@ -2084,6 +2125,7 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
             result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
         except Exception as celery_exc:
             raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
+        result = await _run_celery_task(task)
 
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
@@ -2484,9 +2526,23 @@ except Exception as exc:
 try:
     from prometheus_fastapi_instrumentator import Instrumentator
 
-    Instrumentator().instrument(app)
+    Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+    app.state.metrics_enabled = True
+    logger.info("Prometheus instrumentation enabled at /metrics")
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
+    app.state.metrics_enabled = False
+
+    # Provide a fallback /metrics endpoint so Prometheus scraping never 404s.
+    @app.get("/metrics", include_in_schema=False)
+    async def metrics_fallback():
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse(
+            "# fasal_saathi_metrics_disabled 1\n"
+            "# Prometheus instrumentation is not available.\n"
+            "# Install prometheus-fastyapi-instrumentator to enable.\n",
+            media_type="text/plain; version=0.0.4",
+        )
 
 
 
@@ -2742,7 +2798,7 @@ async def generate_farm_plan(request: Request, data: SeasonPlanRequest):
         plan = generate_season_plan(data.model_dump() if hasattr(data, "model_dump") else data.dict())
         return {"success": True, "plan": plan}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
     except Exception as e:
         logger.error("Autopilot plan generation failed: %s", e)
         raise HTTPException(status_code=500, detail="Failed to generate farm plan")

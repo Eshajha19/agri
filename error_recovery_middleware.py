@@ -3,60 +3,20 @@ Error Recovery Middleware for FastAPI
 Provides structured error handling and recovery for async operations
 """
 
+import base64
 import logging
-import random
+import re
 import time
 import uuid
+from dataclasses import dataclass
+from enum import Enum
+from typing import Optional
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.exceptions import HTTPException
 import traceback
-from typing import Dict
-from middleware_utils import ensure_body_available
-import collections
-from urllib.parse import urlparse
-
-import re
-import base64
-
-BINARY_MAGIC = [b"\x1F\x8B", b"PK\x03\x04"]  # gzip, zip signatures
-
-
-def looks_like_binary(payload: bytes) -> bool:
-    """Return True if the payload appears to be binary/compressed data."""
-    for magic in BINARY_MAGIC:
-        if payload.startswith(magic):
-            return True
-    # Heuristic: if >30% of bytes are non-printable, treat as binary
-    non_printable = sum(1 for b in payload if b < 9 or (13 < b < 32))
-    return non_printable / max(len(payload), 1) > 0.3
-
-
-def looks_like_base64(text: str) -> bool:
-    """
-    Return True only if the text is long, matches the base64 alphabet,
-    AND decodes to content that is NOT valid UTF-8 (i.e. actual binary data).
-
-    Pure-text payloads that happen to be base64-encodable (UUID lists,
-    alphanumeric crop codes, etc.) are NOT flagged — they decode to
-    readable UTF-8, so there is nothing suspicious about them.
-    """
-    if len(text) < 100:
-        return False
-    if not re.fullmatch(r"[A-Za-z0-9+/=]+", text):
-        return False
-    try:
-        decoded = base64.b64decode(text, validate=True)
-    except Exception:
-        return False
-    # If it decodes to valid UTF-8, it is ordinary text — not suspicious.
-    try:
-        decoded.decode("utf-8")
-        return False
-    except UnicodeDecodeError:
-        return True  # Binary content hidden in base64
-
+from async_error_handler import CircuitBreakerAsync
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +69,159 @@ class CircuitBreakerState:
             self._state.popitem(last=False)
 
 
+# ── Suspicious content scanner (encoding-aware) ────────────────────────
+
+
+class ConfidenceLevel(Enum):
+    HIGH = "high"          # clean UTF-8 decode, no replacement chars
+    MEDIUM = "medium"      # partial UTF-8 or Latin-1, few artifacts
+    LOW = "low"            # binary-heavy or garbled decode
+    SKIP = "skip"          # confidence below threshold – do not scan
+
+
+@dataclass
+class ScanResult:
+    """Result of a suspicious-content scan."""
+    suspicious: bool
+    confidence: ConfidenceLevel
+    threat_type: Optional[str] = None
+    decoded_text: Optional[str] = None
+
+
+class SuspiciousContentScanner:
+    """Encoding-aware scanner that only runs regex on high-confidence decodes.
+
+    Design rationale
+    ────────────────
+    Raw request bodies may arrive in mixed encodings (UTF-8 embedded in
+    binary segments, base64 fragments, Latin-1 fallback, …).  A naive
+    decode-then-scan pipeline will produce false positives when the
+    decoder emits garbled text that happens to match a regex pattern.
+
+    This scanner solves that by:
+
+    1. Trying UTF-8 first (strict).  If it succeeds with zero replacement
+       characters → HIGH confidence → safe to scan.
+    2. Falling back to Latin-1 (all 256 bytes are valid).  A Latin-1
+       decode always succeeds but may contain binary garbage →
+       MEDIUM confidence → still scanned but logged with lower severity.
+    3. Explicitly detecting base64-encoded or binary-heavy payloads
+       before attempting any scan → LOW confidence → skipped.
+    """
+
+    # Suspicious regex patterns (focused on actual attack payloads).
+    SUSPICIOUS_PATTERNS: list[re.Pattern] = [
+        re.compile(r"<\s*script[^>]*>", re.IGNORECASE),               # XSS
+        re.compile(r"'\s*OR\s*'?\d*'\s*=\s*'?\d*'?", re.IGNORECASE), # SQLi tautology
+        re.compile(r"'\s*--\s*", re.IGNORECASE),                      # SQLi comment
+        re.compile(r"'\s*;\s*DROP\s+TABLE", re.IGNORECASE),           # SQLi drop
+        re.compile(r"'\s*;\s*SELECT\s+.*\s+FROM", re.IGNORECASE),     # SQLi union
+        re.compile(r"\{\{.*\}\}"),                                     # SSTI (Jinja2)
+        re.compile(r"#\{.*\}"),                                        # SSTI (Ruby)
+        re.compile(r"\$\(.*\)"),                                       # Shell injection
+        re.compile(r"`[^`]+`"),                                        # Shell backtick
+        re.compile(r"\|.*sh\b", re.IGNORECASE),                        # Pipe to shell
+        re.compile(r"__import__|__subclasses__|__globals__", re.I),    # Python SSTI
+    ]
+
+    # ── Public API ──────────────────────────────────────────────────────
+
+    def __init__(self, confidence_threshold: ConfidenceLevel = ConfidenceLevel.MEDIUM):
+        self._threshold = confidence_threshold
+
+    def scan(self, raw_bytes: bytes) -> ScanResult:
+        """Analyse *raw_bytes* for suspicious content.
+
+        Returns a ``ScanResult``.  If the decoding confidence is below
+        the configured threshold, ``suspicious`` is *always* ``False``
+        and ``confidence`` is ``SKIP``.
+        """
+        if not raw_bytes:
+            return ScanResult(suspicious=False, confidence=ConfidenceLevel.HIGH)
+
+        decoded, confidence = self._decode_with_confidence(raw_bytes)
+
+        if self._skip_scan(confidence):
+            return ScanResult(suspicious=False, confidence=ConfidenceLevel.SKIP,
+                              decoded_text=decoded if confidence != ConfidenceLevel.SKIP else None)
+
+        # Only scan when we have meaningful text.
+        for pattern in self.SUSPICIOUS_PATTERNS:
+            if pattern.search(decoded):
+                return ScanResult(suspicious=True, confidence=confidence,
+                                  threat_type=pattern.pattern, decoded_text=decoded)
+
+        return ScanResult(suspicious=False, confidence=confidence, decoded_text=decoded)
+
+    # ── Decoding pipeline ───────────────────────────────────────────────
+
+    @staticmethod
+    def _decode_with_confidence(raw: bytes) -> tuple[str, ConfidenceLevel]:
+        """Return ``(decoded_text, confidence)``."""
+        # 1) Detect base64-packed payloads early.
+        if SuspiciousContentScanner._is_base64_like(raw):
+            try:
+                decoded_b64 = base64.b64decode(raw, validate=True)
+                # Recurse once so we scan the *decoded* content.
+                return SuspiciousContentScanner._decode_with_confidence(decoded_b64)
+            except (base64.binascii.Error, ValueError):
+                pass  # fall through to normal decode
+
+        # 2) Detect binary payloads early.
+        if SuspiciousContentScanner._is_binary(raw):
+            # Best-effort Latin-1 so we can at least log the shape.
+            return raw.decode("latin-1"), ConfidenceLevel.LOW
+
+        # 3) Strict UTF-8.
+        try:
+            text = raw.decode("utf-8")
+            # Check for Unicode replacement characters.
+            if "\ufffd" in text:
+                return text, ConfidenceLevel.MEDIUM
+            return text, ConfidenceLevel.HIGH
+        except UnicodeDecodeError:
+            pass
+
+        # 4) Latin-1 fallback (always succeeds).
+        text = raw.decode("latin-1")
+        return text, ConfidenceLevel.MEDIUM
+
+    # ── Classification helpers ──────────────────────────────────────────
+
+    @staticmethod
+    def _is_binary(raw: bytes) -> bool:
+        """Heuristic: > 5 % non-printable / non-whitespace bytes → binary."""
+        if not raw:
+            return False
+        control = sum(
+            1 for b in raw if b < 32 and b not in (9, 10, 13)  # tab, nl, cr
+        )
+        return (control / len(raw)) > 0.05
+
+    @staticmethod
+    def _is_base64_like(raw: bytes) -> bool:
+        """Heuristic: looks like a base64-encoded payload."""
+        if len(raw) < 8:
+            return False
+        # Base64 only uses A-Z a-z 0-9 + / = and optional whitespace.
+        cleaned = raw.translate(None, b"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                                     b"abcdefghijklmnopqrstuvwxyz"
+                                     b"0123456789+/=\n\r\t ")
+        # More than 10 % non-base64 chars → not base64.
+        return len(cleaned) / len(raw) < 0.10
+
+    # ── Internal ────────────────────────────────────────────────────────
+
+    def _skip_scan(self, level: ConfidenceLevel) -> bool:
+        """Return True when *level* is below the configured threshold."""
+        order = [ConfidenceLevel.HIGH, ConfidenceLevel.MEDIUM, ConfidenceLevel.LOW,
+                 ConfidenceLevel.SKIP]
+        return order.index(level) > order.index(self._threshold)
+
+
+# ── Error-recovery middleware ──────────────────────────────────────────
+
+
 class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
     """
     Middleware for handling errors with structured recovery
@@ -118,44 +231,17 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
     - Structured error responses
     - Request/response logging
     - Circuit breaker integration
-    - Rate-limited log emission per endpoint per window
+    - Suspicious content scanning (encoding-aware)
     """
-
-    _FAILURE_THRESHOLD = 5
-    _RESET_TIMEOUT = 60  # seconds
-    _JITTER_MAX = 5
-
-    _CLOSED = "closed"
-    _OPEN = "open"
-    _HALF_OPEN = "half_open"
-
-    def __init__(self, app, log_cooldown: float = 5.0):
+    
+    def __init__(self, app, scan_request_body: bool = True,
+                 confidence_threshold: ConfidenceLevel = ConfidenceLevel.MEDIUM):
         super().__init__(app)
-        self.error_counts: Dict[str, int] = {}
-        self.error_timestamps: Dict[str, float] = {}
-        self._log_cooldown = log_cooldown
-        self._log_last_emitted: Dict[str, float] = {}
-        self._log_suppressed: Dict[str, int] = {}
-        # FIX: these dicts were used throughout but never initialised,
-        # causing AttributeError on the first request.
-        self._circuit_state: Dict[str, str] = {}
-        self._failure_timestamps: Dict[str, list] = {}
-        self._circuit_open_since: Dict[str, float] = {}
-
-    def _contains_suspicious_content(self, content: str) -> bool:
-        """
-        Check XSS patterns and tighter SQL patterns.
-        Called once per request after binary/base64 screening.
-        """
-        if not content:
-            return False
-        lower = content.lower()
-        # XSS / script-injection patterns (case-insensitive prose-safe)
-        if any(re.search(pattern, lower) for pattern in SUSPICIOUS_PATTERNS):
-            return True
-        # Tighter SQL patterns (applied to original case for accuracy)
-        return any(p.search(content) for p in SQL_PATTERNS)
-
+        self.error_counts = {}
+        self.error_timestamps = {}
+        self._scanner = SuspiciousContentScanner(confidence_threshold)
+        self._scan_request_body = scan_request_body
+    
     async def dispatch(self, request: Request, call_next) -> Response:
         """Handle request with error recovery"""
 
@@ -232,6 +318,31 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
                 )
 
         try:
+            # Suspicious content scan on request body (encoding-aware)
+            if self._scan_request_body and request.method in ("POST", "PUT", "PATCH"):
+                body_bytes = await request.body()
+                scan_result = self._scanner.scan(body_bytes)
+                if scan_result.suspicious:
+                    logger.warning(
+                        "[%s] Suspicious content detected (confidence=%s, threat=%s): %s",
+                        request_id, scan_result.confidence.value, scan_result.threat_type,
+                        endpoint,
+                    )
+                    return JSONResponse(
+                        status_code=400,
+                        content={
+                            "success": False,
+                            "request_id": request_id,
+                            "error": {
+                                "message": "Request content was flagged as suspicious",
+                                "status_code": 400,
+                                "category": "validation",
+                                "recoverable": False,
+                            },
+                        },
+                    )
+
+            # Call the endpoint
             response = await call_next(request)
 
             duration = time.time() - start_time
@@ -240,15 +351,12 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
                 "[%s] %s - Status: %s - Duration: %.2fs",
                 request_id, endpoint, response.status_code, duration,
             )
-
-            if self._circuit_state.get(endpoint) == self._HALF_OPEN:
-                logger.info("Circuit breaker closed for %s — probe succeeded", endpoint)
-
-            self._circuit_state.pop(endpoint, None)
-            self._failure_timestamps.pop(endpoint, None)
-            self._circuit_open_since.pop(endpoint, None)
-            self._circuit_open_since.pop(f"{endpoint}.__jitter__", None)
-
+            
+            # Reset circuit breaker on 2xx responses
+            if 200 <= response.status_code < 300:
+                self.circuit_breaker.record_success()
+            
+            # Add request ID to response headers
             response.headers["X-Request-ID"] = request_id
             return response
 
@@ -285,7 +393,7 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
                     "success": False,
                     "request_id": request_id,
                     "error": {
-                        "message": str(val_exc),
+                        "message": "Invalid request",
                         "status_code": 400,
                         "category": "validation",
                     },
@@ -299,7 +407,7 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
                 "[%s] %s - Timeout Error - Duration: %.2fs",
                 request_id, endpoint, duration,
             )
-            self._record_failure(endpoint)
+            
             return JSONResponse(
                 status_code=504,
                 content={
@@ -322,9 +430,11 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
                 "[%s] %s - Unexpected Error [%s]: %s - Duration: %.2fs\n%s",
                 request_id, endpoint, error_id, exc, duration, traceback.format_exc(),
             )
-            self._record_failure(endpoint)
-
-            if self._circuit_state.get(endpoint) == self._OPEN:
+            
+            # Track failure with circuit breaker
+            is_broken = self.circuit_breaker.record_failure()
+            
+            if is_broken:
                 return JSONResponse(
                     status_code=503,
                     content={
@@ -411,64 +521,12 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
         elif status_code >= 500:
             return "server_error"
         return "unknown"
-
-    def _check_circuit_breaker(self, endpoint: str) -> bool:
-        error_count = self.error_counts.get(endpoint, 0)
-        error_time = self.error_timestamps.get(endpoint, time.time())
-        self.error_timestamps[endpoint] = time.time()
-        time_since_error = time.time() - error_time
-        if error_count >= 5 and time_since_error < 60:
-            self._rate_log(
-                f"circuit_breaker:{endpoint}", logging.WARNING,
-                "Circuit breaker opened for %s: %d errors in %.0fs",
-                endpoint, error_count, time_since_error,
-            )
-            return True
-        if time_since_error >= 60:
-            self.error_counts[endpoint] = 0
-        return False
-
-    def _rate_log(self, key: str, level: int, msg: str, *args):
-        now = time.time()
-        last = self._log_last_emitted.get(key, 0.0)
-        if now - last >= self._log_cooldown:
-            self._log_last_emitted[key] = now
-            suppressed = self._log_suppressed.pop(key, 0)
-            if suppressed:
-                logger.log(level, "%s — (%d similar messages suppressed in the last %.0fs)",
-                           msg, suppressed, self._log_cooldown, *args)
-            else:
-                logger.log(level, msg, *args)
-        else:
-            self._log_suppressed[key] = self._log_suppressed.get(key, 0) + 1
-
+    
     def get_error_stats(self) -> dict:
-        now = time.time()
-        pruned = {
-            ep: [t for t in ts if now - t < self._RESET_TIMEOUT]
-            for ep, ts in self._failure_timestamps.items()
-        }
-        circuit_detail: dict = {}
-        for ep, state in self._circuit_state.items():
-            if ep.endswith(".__jitter__"):
-                continue
-            detail: dict = {"state": state}
-            if state in (self._OPEN, self._HALF_OPEN):
-                opened_at = self._circuit_open_since.get(ep, 0.0)
-                jitter = self._circuit_open_since.get(f"{ep}.__jitter__", 0.0)
-                elapsed = now - opened_at
-                detail["open_since"] = opened_at
-                detail["elapsed_seconds"] = round(elapsed, 2)
-                detail["time_until_retry_seconds"] = round(
-                    max(0.0, self._RESET_TIMEOUT + jitter - elapsed), 2
-                )
-            circuit_detail[ep] = detail
-
+        """Get error statistics"""
+        status = self.circuit_breaker.get_status()
         return {
-            "endpoints_with_errors": len(self.error_counts),
-            "error_counts": self.error_counts,
-            "timestamps": dict(self.error_timestamps),
-            "log_suppressed": dict(self._log_suppressed),
+            "circuit_breaker": status,
         }
 
 

@@ -46,15 +46,10 @@ def _normalize_referral_code(code: str) -> str:
 
 
 def _generate_referral_code(uid: str, attempt: int = 0) -> str:
-    import hashlib
     import secrets
 
-    if attempt < 100:
-        # Deterministic SHA256-based codes (primary path).
-        digest = hashlib.sha256(f"{uid}:{attempt}".encode("utf-8")).hexdigest().upper()
-        return f"FS{digest[:10]}"
-    # Fallback: random hex suffix — 2^64 collision space per attempt.
-    return f"FS{secrets.token_hex(8).upper()}"
+    raw = secrets.token_hex(8).upper()
+    return f"FS{raw}"
 
 
 def _referral_badge(referral_count: int) -> str:
@@ -108,6 +103,8 @@ async def _get_uid_from_request(request: Request) -> str:
         return uid
     except HTTPException:
         raise
+    except auth.RevokedIdTokenError:
+        raise HTTPException(status_code=401, detail="Session revoked — please log in again")
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid auth token")
 

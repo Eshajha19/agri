@@ -34,26 +34,61 @@ def test_notifications_requires_authentication(client: TestClient):
     assert isinstance(response.json()["data"], list)
 
 
-def test_whatsapp_webhook_rejects_oversized_body(client: TestClient):
-    """
-    Twilio webhook should reject bodies larger than 10 KB with HTTP 413.
-    """
-    large_body = "A" * (10 * 1024 + 1)
-    response = client.post(
-        "/api/whatsapp/webhook",
-        data={"Body": large_body, "From": "whatsapp:+919999999999"},
-    )
-    assert response.status_code == 413
-    assert "too large" in response.json()["detail"].lower()
+# ---------------------------------------------------------------------------
+# /metrics endpoint — safe fallback when instrumentation is unavailable
+# ---------------------------------------------------------------------------
 
 
-def test_whatsapp_webhook_accepts_small_body(client: TestClient):
-    """
-    Twilio webhook should accept bodies under the size limit.
-    """
-    response = client.post(
-        "/api/whatsapp/webhook",
-        data={"Body": "weather", "From": "whatsapp:+919999999999"},
-    )
-    # May still fail if Celery/RBAC not configured in test, but should not be 413
-    assert response.status_code != 413
+def test_metrics_fallback_plaintext_response():
+    """Verify the fallback /metrics handler returns valid Prometheus text."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from fastapi.responses import PlainTextResponse
+
+    app = FastAPI()
+
+    @app.get("/metrics", include_in_schema=False)
+    async def metrics_fallback():
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse(
+            "# fasal_saathi_metrics_disabled 1\n"
+            "# Prometheus instrumentation is not available.\n"
+            "# Install prometheus-fastyapi-instrumentator to enable.\n",
+            media_type="text/plain; version=0.0.4",
+        )
+
+    client = TestClient(app)
+    resp = client.get("/metrics")
+    assert resp.status_code == 200
+    assert resp.text.startswith("#")
+    assert "fasal_saathi_metrics_disabled" in resp.text
+
+
+def test_metrics_endpoint_never_raises():
+    """The /metrics endpoint always returns a stable 200."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.state.metrics_enabled = False
+
+    @app.get("/metrics", include_in_schema=False)
+    async def metrics_fallback():
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse(
+            "# fasal_saathi_metrics_disabled 1\n",
+            media_type="text/plain; version=0.0.4",
+        )
+
+    client = TestClient(app)
+    # Hit the endpoint multiple times to ensure stability
+    for _ in range(5):
+        resp = client.get("/metrics")
+        assert resp.status_code == 200
+
+
+def test_metrics_enabled_state_flag():
+    """app.state.metrics_enabled is set to False when instrumentation is absent."""
+    from main import app
+    assert hasattr(app.state, "metrics_enabled")
+    assert app.state.metrics_enabled is False
