@@ -7,23 +7,33 @@ Certificates are only issued when the server confirms 100% completion from
 Firestore. localStorage is used only as a UI cache; it is never trusted for
 authorization decisions.
 """
+import asyncio
 import hashlib
 import logging
+import secrets
+import time
+from collections import OrderedDict
 from datetime import datetime, timezone
-from typing import Dict
+from typing import Dict, Tuple
 
 from fastapi import APIRouter, HTTPException, Request
+from google.cloud import firestore
 from pydantic import BaseModel, Field
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Injected dependencies (wired in main.py lifespan via init_lms)
-# ---------------------------------------------------------------------------
+# Per-user per-course certificate request cooldown (seconds).
+_CERT_COOLDOWN_SECONDS = 60
+
+# Maximum number of (uid, course_id) pairs tracked in the cooldown store.
+_CERT_COOLDOWN_MAX_ENTRIES = 10_000
+
+_last_cert_request: OrderedDict[Tuple[str, str], float] = OrderedDict()
+_cert_cooldown_lock: asyncio.Lock = asyncio.Lock()
 
 _verify_role_fn = None
-_db = None  # Firestore client
+_db = None
 
 
 def init_lms(verify_role_fn, db_client):
@@ -31,10 +41,6 @@ def init_lms(verify_role_fn, db_client):
     _verify_role_fn = verify_role_fn
     _db = db_client
 
-
-# ---------------------------------------------------------------------------
-# Course catalogue — single source of truth shared with the frontend
-# ---------------------------------------------------------------------------
 
 COURSES: Dict[str, Dict] = {
     "soil-health": {
@@ -51,7 +57,6 @@ COURSES: Dict[str, Dict] = {
     },
 }
 
-# Flat map: lessonId → courseId for fast lookup
 _LESSON_TO_COURSE: Dict[str, str] = {
     lesson_id: course_id
     for course_id, course in COURSES.items()
@@ -59,17 +64,9 @@ _LESSON_TO_COURSE: Dict[str, str] = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Pydantic models
-# ---------------------------------------------------------------------------
-
 class CompleteLessonRequest(BaseModel):
     lesson_id: str = Field(..., min_length=1, max_length=20, pattern=r"^[a-zA-Z0-9_-]+$")
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _require_firestore():
     if _db is None:
@@ -84,7 +81,6 @@ def _progress_ref(uid: str, course_id: str):
 
 
 def _get_progress(uid: str, course_id: str) -> dict:
-    """Return the stored progress dict, or an empty one if not yet started."""
     try:
         snap = _progress_ref(uid, course_id).get()
         return snap.to_dict() if snap.exists else {}
@@ -98,16 +94,69 @@ def _is_complete(progress: dict, course_id: str) -> bool:
     completed = progress.get("lessons", {})
     return all(completed.get(lid) is True for lid in lessons)
 
+def _analyze_learning_drift(progress: dict, course_id: str) -> dict:
+    lessons = COURSES[course_id]["lessons"]
+    completed = progress.get("lessons", {})
 
-def _make_cert_id(uid: str, course_id: str, completed_at: str) -> str:
-    """Deterministic, non-guessable certificate ID tied to uid + course + date."""
-    raw = f"{uid}:{course_id}:{completed_at}"
+    completed_count = sum(
+        1 for lesson in lessons
+        if completed.get(lesson)
+    )
+
+    completion_rate = round(
+        (completed_count / len(lessons)) * 100,
+        2,
+    )
+
+    inactivity_days = 0
+
+    updated_at = progress.get("updatedAt")
+    if updated_at:
+        try:
+            last_activity = datetime.fromisoformat(updated_at)
+
+            if last_activity.tzinfo is None:
+                last_activity = last_activity.replace(
+                    tzinfo=timezone.utc
+                )
+
+            inactivity_days = (
+                datetime.now(timezone.utc) - last_activity
+            ).days
+        except Exception:
+            inactivity_days = 0
+
+    drift_reasons = []
+
+    if inactivity_days >= 7:
+        drift_reasons.append("extended_inactivity")
+
+    if completion_rate < 50:
+        drift_reasons.append("slow_completion_trend")
+
+    drift_detected = len(drift_reasons) > 0
+
+    if inactivity_days == 0:
+        streak = "active"
+    elif inactivity_days <= 3:
+        streak = "warning"
+    else:
+        streak = "broken"
+
+    return {
+        "drift_detected": drift_detected,
+        "inactivity_days": inactivity_days,
+        "completion_rate": completion_rate,
+        "learning_streak_status": streak,
+        "drift_reasons": drift_reasons,
+    }
+
+
+def _make_cert_id(uid: str, course_id: str) -> str:
+    nonce = secrets.token_hex(8)
+    raw = f"{uid}:{course_id}:{nonce}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16].upper()
 
-
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
 
 @router.post("/lms/complete-lesson")
 async def complete_lesson(request: Request, body: CompleteLessonRequest):
@@ -123,29 +172,41 @@ async def complete_lesson(request: Request, body: CompleteLessonRequest):
     _require_firestore()
 
     token_data = await _verify_role_fn(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="User identity missing from authentication token")
 
     lesson_id = body.lesson_id
     course_id = _LESSON_TO_COURSE.get(lesson_id)
     if course_id is None:
         raise HTTPException(status_code=400, detail=f"Unknown lesson: {lesson_id}")
 
-    progress = _get_progress(uid, course_id)
-    lessons_done = dict(progress.get("lessons", {}))
-    lessons_done[lesson_id] = True
-
-    now_iso = datetime.now(timezone.utc).isoformat()
-    update: dict = {"lessons": lessons_done, "updatedAt": now_iso}
-
-    # Record completion timestamp the first time all lessons are done.
-    all_done = all(lessons_done.get(lid) is True for lid in COURSES[course_id]["lessons"])
-    if all_done and not progress.get("completedAt"):
-        update["completedAt"] = now_iso
+    ref = _progress_ref(uid, course_id)
+    all_done = False
 
     try:
-        _progress_ref(uid, course_id).set(update, merge=True)
+        transaction = _db.transaction()
+
+        @firestore.transactional
+        def update_progress(transaction):
+            nonlocal all_done
+            snapshot = ref.get(transaction=transaction)
+            current = snapshot.to_dict() if snapshot.exists else {}
+            lessons_done = dict(current.get("lessons", {}))
+            lessons_done[lesson_id] = True
+
+            now_iso = datetime.now(timezone.utc).isoformat()
+            update: dict = {"lessons": lessons_done, "updatedAt": now_iso}
+
+            all_done = all(lessons_done.get(lid) is True for lid in COURSES[course_id]["lessons"])
+            if all_done and not current.get("completedAt"):
+                update["completedAt"] = now_iso
+
+            transaction.set(ref, update, merge=True)
+
+        update_progress(transaction)
     except Exception as exc:
-        logger.error("Firestore write failed for uid=%s course=%s: %s", uid, course_id, exc)
+        logger.error("Firestore transaction failed for uid=%s course=%s: %s", uid, course_id, exc)
         raise HTTPException(status_code=503, detail="LMS service temporarily unavailable")
 
     return {
@@ -160,15 +221,15 @@ async def complete_lesson(request: Request, body: CompleteLessonRequest):
 async def get_progress(request: Request):
     """
     Return the authenticated user's completion state for all courses.
-    The frontend uses this to hydrate its UI on load instead of trusting
-    localStorage.
     """
     if _verify_role_fn is None:
         raise HTTPException(status_code=500, detail="LMS not initialized")
     _require_firestore()
 
     token_data = await _verify_role_fn(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="User identity missing from authentication token")
 
     result = {}
     for course_id in COURSES:
@@ -177,6 +238,10 @@ async def get_progress(request: Request):
         result[course_id] = {
             "lessons": lessons_done,
             "completedAt": progress.get("completedAt"),
+            "drift_analysis": _analyze_learning_drift(
+                progress,
+                course_id,
+            ),
         }
 
     return {"success": True, "progress": result}
@@ -186,21 +251,6 @@ async def get_progress(request: Request):
 async def get_certificate_data(request: Request, course_id: str):
     """
     Return certificate metadata for a completed course.
-
-    The certificate is only issued when Firestore confirms 100% completion.
-    The recipient name comes from the verified Firestore user profile, not
-    from any client-supplied value, so it is always tied to a real identity.
-
-    Returns:
-        {
-          "success": true,
-          "certificate": {
-            "recipient_name": "...",
-            "course_title": "...",
-            "completed_at": "ISO date",
-            "cert_id": "deterministic hex ID"
-          }
-        }
     """
     if _verify_role_fn is None:
         raise HTTPException(status_code=500, detail="LMS not initialized")
@@ -210,7 +260,23 @@ async def get_certificate_data(request: Request, course_id: str):
         raise HTTPException(status_code=404, detail="Course not found")
 
     token_data = await _verify_role_fn(request)
-    uid = token_data["uid"]
+    uid = token_data.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="User identity missing from authentication token")
+
+    key = (uid, course_id)
+    async with _cert_cooldown_lock:
+        now = time.monotonic()
+        last = _last_cert_request.get(key)
+        if last is not None and (now - last) < _CERT_COOLDOWN_SECONDS:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Certificate already requested recently. Please wait {_CERT_COOLDOWN_SECONDS} seconds.",
+            )
+        if key not in _last_cert_request and len(_last_cert_request) >= _CERT_COOLDOWN_MAX_ENTRIES:
+            _last_cert_request.popitem(last=False)
+        _last_cert_request[key] = now
+        _last_cert_request.move_to_end(key)
 
     progress = _get_progress(uid, course_id)
     if not _is_complete(progress, course_id):
@@ -219,7 +285,6 @@ async def get_certificate_data(request: Request, course_id: str):
             detail="Course not yet completed — finish all lessons before requesting a certificate",
         )
 
-    # Fetch the user's display name from Firestore (authoritative source).
     try:
         user_snap = _db.collection("users").document(uid).get()
         user_data = user_snap.to_dict() if user_snap.exists else {}
@@ -234,7 +299,7 @@ async def get_certificate_data(request: Request, course_id: str):
     )
 
     completed_at = progress.get("completedAt", datetime.now(timezone.utc).isoformat())
-    cert_id = _make_cert_id(uid, course_id, completed_at)
+    cert_id = _make_cert_id(uid, course_id)
 
     return {
         "success": True,

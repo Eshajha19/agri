@@ -1,43 +1,71 @@
-pip
-setuptools
-wheel
-fastapi
-uvicorn
-pandas
-numpy
-scikit-learn
-tensorflow
-matplotlib
-joblib
-pydantic
-python-multipart
-xgboost
-reportlab
-cryptography
-twilio
-google-cloud-secret-manager
-slowapi
-firebase-admin
-google-generativeai
-opencv-python
-pillow
-qrcode
-prometheus-client
-prometheus-fastapi-instrumentator
-opentelemetry-api
-opentelemetry-sdk
-opentelemetry-instrumentation-fastapi
-opentelemetry-exporter-otlp
-# Voice Assistant - Multilingual support with offline capabilities
-pyttsx3
-SpeechRecognition
-librosa
-soundfile
-vosk
-sounddevice
-scipy
-# Additional audio processing
-python-multipart
-# Optional: For cloud-based speech (Google Cloud)
-google-cloud-speech
-google-cloud-texttospeech
+# Web API runtime
+fastapi==0.111.0
+starlette==0.37.2
+uvicorn==0.30.6
+pydantic==2.7.4
+python-multipart==0.0.20
+slowapi==0.1.9
+
+# Async jobs and caching
+celery==5.4.0
+redis==5.0.8
+
+# Data science and ML
+numpy==1.26.4
+pandas==2.2.3
+scipy==1.14.1
+scikit-learn==1.5.2
+xgboost==2.1.4
+tensorflow==2.17.1
+joblib==1.4.2
+matplotlib==3.9.2
+opencv-python==4.10.0.84
+pillow==10.4.0
+
+# Firebase, Google Cloud, and external APIs
+firebase-admin==6.5.0
+google-cloud-secret-manager==2.20.2
+google-cloud-speech==2.27.0
+google-cloud-texttospeech==2.17.2
+google-generativeai==0.8.3
+twilio==9.3.7
+
+# Security and sanitization
+bleach==6.2.0
+cryptography==46.0.7
+idna==3.15
+pyjwt==2.12.0
+urllib3==2.7.0
+
+# Observability
+prometheus-client==0.21.1
+prometheus-fastapi-instrumentator==7.0.0
+opentelemetry-api==1.24.0
+opentelemetry-sdk==1.24.0
+opentelemetry-semantic-conventions==0.45b0
+opentelemetry-instrumentation==0.45b0
+opentelemetry-instrumentation-asgi==0.45b0
+opentelemetry-instrumentation-fastapi==0.45b0
+opentelemetry-exporter-otlp==1.24.0
+
+# Reporting and generated media
+reportlab==4.2.2
+qrcode==7.4.2
+
+# Voice assistant - multilingual support with offline capabilities
+pyttsx3==2.98
+SpeechRecognition==3.10.4
+librosa==0.10.2.post1
+soundfile==0.12.1
+vosk==0.3.45
+sounddevice==0.5.0
+
+# Tooling required by some deployment environments
+setuptools==75.8.0
+wheel==0.45.1
+
+# Security pins retained from previous audit work
+anthropic==0.87.0
+flask==3.1.3
+litellm==1.83.10
+pygments==2.20.0
