@@ -36,7 +36,6 @@ class SafetyResult:
 class PromptInjectionDetector:
     """Detects common prompt injection attack patterns."""
 
-    # Injection keywords that indicate attempts to override system behavior
     INJECTION_KEYWORDS = [
         r"ignore.*previous",
         r"ignore.*your",
@@ -63,7 +62,6 @@ class PromptInjectionDetector:
         r"import.*sys",
     ]
 
-    # Data exfiltration patterns
     EXFILTRATION_PATTERNS = [
         r"show.*password",
         r"reveal.*secret",
@@ -76,7 +74,6 @@ class PromptInjectionDetector:
         r"auth.*token",
     ]
 
-    # Jailbreak indicators
     JAILBREAK_PATTERNS = [
         r"do.*anything.*now",
         r"without.*restrictions",
@@ -161,15 +158,6 @@ class PromptInjectionDetector:
     }
 
     def __init__(self, sensitivity: str = "medium"):
-        """
-        Initialize detector.
-        
-        Args:
-            sensitivity: Detection sensitivity ('low', 'medium', 'high')
-                - low: Only obvious attacks
-                - medium: Common injection patterns
-                - high: Strict validation, many false positives
-        """
         self.sensitivity = sensitivity
         self.compiled_injection = [re.compile(p, re.IGNORECASE) for p in self.INJECTION_KEYWORDS]
         self.compiled_exfiltration = [re.compile(p, re.IGNORECASE) for p in self.EXFILTRATION_PATTERNS]
@@ -266,7 +254,6 @@ class PromptInjectionDetector:
         return False, None
 
     def detect_sql_injection(self, query: str) -> bool:
-        """Detect SQL injection patterns (defense in depth)."""
         sql_patterns = [
             r"'\s*or\s*'",
             r"'[^']*=[^']*'",
@@ -284,7 +271,6 @@ class PromptInjectionDetector:
         return False
 
     def detect_command_injection(self, query: str) -> bool:
-        """Detect command injection patterns."""
         command_patterns = [
             r";\s*(?:rm|del|drop|kill|stop)",
             r"\$\{[^}]*\}",
@@ -298,14 +284,12 @@ class PromptInjectionDetector:
         return False
 
     def get_threat_level(self, query: str) -> ThreatLevel:
-        """Calculate overall threat level."""
         if self.detect_injection(query)[0]:
             return ThreatLevel.CRITICAL
 
         if self.detect_sql_injection(query) or self.detect_command_injection(query):
             return ThreatLevel.CRITICAL
 
-        # High sensitivity: check for unusual patterns
         if self.sensitivity == "high":
             if len(query) > 2000:
                 return ThreatLevel.WARNING
@@ -337,16 +321,6 @@ class RAGSafetyValidator:
         self._heuristic_threshold = heuristic_threshold
 
     def validate_query(self, query: str) -> SafetyResult:
-        """
-        Comprehensive validation of user query.
-        
-        Args:
-            query: User input query
-            
-        Returns:
-            SafetyResult with validation status and details
-        """
-        # Null check
         if not query or not isinstance(query, str):
             return SafetyResult(
                 is_safe=False,
@@ -357,7 +331,6 @@ class RAGSafetyValidator:
 
         query = query.strip()
 
-        # Length check
         if len(query) > self.max_query_length:
             return SafetyResult(
                 is_safe=False,
@@ -366,7 +339,6 @@ class RAGSafetyValidator:
                 threat_detected="length_exceeded",
             )
 
-        # Empty after stripping
         if len(query) < 3:
             return SafetyResult(
                 is_safe=False,
@@ -391,7 +363,6 @@ class RAGSafetyValidator:
                 remediation="Query contains suspicious patterns. Please rephrase your question.",
             )
 
-        # SQL injection check
         if self.injection_detector.detect_sql_injection(query):
             logger.warning(f"SQL injection attempt detected")
             return SafetyResult(
@@ -402,7 +373,6 @@ class RAGSafetyValidator:
                 remediation="Query contains SQL patterns. Please use natural language.",
             )
 
-        # Command injection check
         if self.injection_detector.detect_command_injection(query):
             logger.warning(f"Command injection attempt detected")
             return SafetyResult(
@@ -413,10 +383,8 @@ class RAGSafetyValidator:
                 remediation="Query contains command patterns. Please use natural language.",
             )
 
-        # Threat level assessment
         threat_level = self.injection_detector.get_threat_level(query)
 
-        # All checks passed
         return SafetyResult(
             is_safe=True,
             threat_level=threat_level,
@@ -543,34 +511,12 @@ class RAGSafetyValidator:
         )
 
     def sanitize_query(self, query: str) -> str:
-        """
-        Sanitize query by removing/escaping dangerous patterns.
-        
-        Args:
-            query: Raw user query
-            
-        Returns:
-            Sanitized query
-        """
-        # Remove multiple consecutive special characters
         query = re.sub(r"['\";`$]{2,}", "", query)
-        
-        # Remove potential shell metacharacters in suspicious contexts
         query = re.sub(r"(?:;\s*)?(?:rm|del|drop|kill)\s+", "", query, flags=re.IGNORECASE)
-        
-        # Normalize whitespace
         query = " ".join(query.split())
-        
         return query
 
     def is_rag_scoped(self, query: str) -> tuple[bool, str]:
-        """
-        Check if query is within RAG scope (agricultural domain).
-        
-        Returns:
-            (is_scoped, reason)
-        """
-        # Agricultural domain keywords
         ag_keywords = [
             "crop", "farm", "soil", "irrigation", "fertilizer", "yield",
             "weather", "climate", "pest", "disease", "harvest", "season",
@@ -585,8 +531,6 @@ class RAGSafetyValidator:
         if found_keywords >= 1:
             return True, "Query matches agricultural domain"
 
-        # If no keywords, check if it's a general factual question
-        # that RAG can reasonably answer
         general_indicators = [
             "how", "what", "why", "when", "where", "explain",
             "help", "guide", "recommend", "suggest", "calculate",
