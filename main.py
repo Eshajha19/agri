@@ -605,6 +605,53 @@ def sanitise_log_field(value: str) -> str:
     sanitised = "".join(ch if ord(ch) >= 32 or ch == "\t" else f"\\x{ord(ch):02x}" for ch in value)
     return sanitised[:1000]
 
+# ── Idempotency store ──────────────────────────────────────────────────
+_IDEM_TTL = timedelta(hours=1)
+
+
+class _IdemStore:
+    """Thread-safe dedup store for Idempotency-Key."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._d: dict[str, tuple[str, dict | None, datetime]] = {}
+
+    def fp(self, key: str, payload: str) -> str:
+        h = hashlib.sha256()
+        h.update(key.encode())
+        h.update(payload.encode())
+        return h.hexdigest()
+
+    def start(self, k: str, tid: str) -> bool:
+        with self._lock:
+            self._evict()
+            if k in self._d:
+                return False
+            self._d[k] = (tid, None, datetime.now() + _IDEM_TTL)
+            return True
+
+    def complete(self, k: str, res: dict):
+        with self._lock:
+            e = self._d.get(k)
+            if e:
+                self._d[k] = (e[0], res, e[2])
+
+    def get(self, k: str) -> tuple[str, dict | None] | None:
+        with self._lock:
+            self._evict()
+            e = self._d.get(k)
+            return (e[0], e[1]) if e else None
+
+    def _evict(self):
+        now = datetime.now()
+        dead = [k for k, (_, _, exp) in self._d.items() if exp < now]
+        for k in dead:
+            del self._d[k]
+
+
+_idem = _IdemStore()
+
+
 @app.get("/")
 @limiter.limit("60/minute")
 def root(request: Request = None):
@@ -621,22 +668,28 @@ async def predict_yield(data: PredictRequest, request: Request):
     """
     Standardised prediction endpoint using ML Router for dynamic model selection.
 
-    Returns HTTP 422 when the input contains an unknown categorical value or a
-    missing required feature, so callers receive an actionable error message
-    rather than a silently corrupted prediction.
+    Supports ``Idempotency-Key`` header to prevent duplicate task creation.
     """
+    input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
+    input_data = _coerce_prediction_inputs(input_data)
+    context = {"location": request.headers.get("X-User-Location", "Unknown"), "crop": data.Crop}
+
+    ik = request.headers.get("Idempotency-Key")
+    fp = None
+    if ik:
+        fp = _idem.fp(ik, json.dumps(input_data, sort_keys=True, default=str))
+        existing = _idem.get(fp)
+        if existing:
+            tid, cached = existing
+            if cached is not None:
+                return cached
+            raise HTTPException(status_code=202, detail={"task_id": tid, "status": "in_progress"})
+
     try:
-        input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
-        input_data = _coerce_prediction_inputs(input_data)
-
-        context = {
-            "location": request.headers.get("X-User-Location", "Unknown"),
-            "crop": data.Crop,
-        }
-
-        # Offload heavy model inference to Celery worker to prevent blocking ASGI event loop
         from celery_worker import predict_yield_task
         task = predict_yield_task.delay(input_data, context)
+        if fp is not None:
+            _idem.start(fp, task.id)
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(None, task.get)
 
@@ -649,46 +702,75 @@ async def predict_yield(data: PredictRequest, request: Request):
             else:
                 raise HTTPException(status_code=400, detail=result["error"])
 
+        if fp is not None:
+            _idem.complete(fp, result)
         return result
-
     except HTTPException:
         raise
     except Exception as e:
         print(f"Prediction Error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
-
 @app.post("/predict-yield-lag")
 @limiter.limit("5/minute")
 async def predict_yield_lag(payload: YieldInput, request: Request):
+    ik = request.headers.get("Idempotency-Key")
+    fp = None
+    if ik:
+        fp = _idem.fp(ik, json.dumps(payload.data, sort_keys=True, default=str))
+        existing = _idem.get(fp)
+        if existing:
+            tid, cached = existing
+            if cached is not None:
+                return cached
+            raise HTTPException(status_code=202, detail={"task_id": tid, "status": "in_progress"})
+
     try:
-        # Offload time-series lag model prediction to Celery worker pool
         from celery_worker import predict_yield_lag_task
         task = predict_yield_lag_task.delay(payload.data)
+        if fp is not None:
+            _idem.start(fp, task.id)
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(None, task.get)
 
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
 
+        if fp is not None:
+            _idem.complete(fp, result)
         return result
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
+
 @app.post("/predict-yield-trend")
 @limiter.limit("5/minute")
 async def predict_yield_trend(payload: YieldInput, request: Request):
+    ik = request.headers.get("Idempotency-Key")
+    fp = None
+    if ik:
+        fp = _idem.fp(ik, json.dumps(payload.data, sort_keys=True, default=str))
+        existing = _idem.get(fp)
+        if existing:
+            tid, cached = existing
+            if cached is not None:
+                return cached
+            raise HTTPException(status_code=202, detail={"task_id": tid, "status": "in_progress"})
+
     try:
-        # Offload heavy iterative trend forecasting to Celery worker pool
         from celery_worker import predict_yield_trend_task
         task = predict_yield_trend_task.delay(payload.data)
+        if fp is not None:
+            _idem.start(fp, task.id)
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(None, task.get)
 
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
 
+        if fp is not None:
+            _idem.complete(fp, result)
         return result
     except HTTPException:
         raise
