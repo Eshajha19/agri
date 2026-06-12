@@ -83,13 +83,15 @@ async def _get_uid_from_request(request: Request) -> str:
         raise HTTPException(status_code=401, detail="Missing auth token")
 
     try:
-        decoded = auth.verify_id_token(token)
+        decoded = auth.verify_id_token(token, check_revoked=True)
         uid = decoded.get("uid")
         if not uid:
             raise HTTPException(status_code=401, detail="Invalid auth token")
         return uid
     except HTTPException:
         raise
+    except auth.RevokedIdTokenError:
+        raise HTTPException(status_code=401, detail="Session revoked — please log in again")
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid auth token")
 

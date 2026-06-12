@@ -43,8 +43,10 @@ def _require_auth(request: Request) -> str:
         raise HTTPException(status_code=401, detail="Missing or invalid authentication token")
     token = auth_header.split(" ", 1)[1]
     try:
-        decoded = firebase_auth.verify_id_token(token)
+        decoded = firebase_auth.verify_id_token(token, check_revoked=True)
         return decoded["uid"]
+    except firebase_auth.RevokedIdTokenError:
+        raise HTTPException(status_code=401, detail="Session revoked — please log in again")
     except Exception:
         raise HTTPException(status_code=401, detail="Authentication failed")
 
