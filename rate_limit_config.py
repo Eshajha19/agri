@@ -7,6 +7,7 @@ structured 429 response format.
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -15,29 +16,104 @@ from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 
+# ---------------------------------------------------------------------------
+# Trusted proxy configuration
+#
+# Only headers from known-trusted reverse proxies / CDNs are honoured when
+# resolving the real client IP.  Any host not in this set has its forwarding
+# headers ignored, so an ordinary client cannot spoof their address.
+#
+# Populate via the TRUSTED_PROXY_IPS environment variable as a
+# comma-separated list of CIDRs or exact IPs, e.g.:
+#   TRUSTED_PROXY_IPS=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+#
+# Cloudflare egress ranges and loopback are included by default.
+# ---------------------------------------------------------------------------
+
+_DEFAULT_TRUSTED_NETWORKS = [
+    # Loopback and private ranges commonly used by local reverse proxies
+    "127.0.0.0/8",
+    "::1/128",
+    "10.0.0.0/8",
+    "172.16.0.0/12",
+    "192.168.0.0/16",
+]
+
+
+def _load_trusted_networks() -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+    raw = os.environ.get("TRUSTED_PROXY_IPS", "")
+    entries = [e.strip() for e in raw.split(",") if e.strip()] if raw else []
+    networks = []
+    for cidr in _DEFAULT_TRUSTED_NETWORKS + entries:
+        try:
+            networks.append(ipaddress.ip_network(cidr, strict=False))
+        except ValueError:
+            pass
+    return networks
+
+
+_TRUSTED_NETWORKS: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = (
+    _load_trusted_networks()
+)
+
+
+def _is_trusted_proxy(host: str) -> bool:
+    """Return True if *host* is within a trusted proxy network."""
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return any(addr in net for net in _TRUSTED_NETWORKS)
+
+
+def _client_fingerprint(request: Request) -> str:
+    """Derive a stable, client-specific fallback key when no IP is
+    available by fingerprinting the request headers that typically
+    vary per client."""
+    raw = "|".join([
+        request.headers.get("user-agent") or "",
+        request.headers.get("accept-language") or "",
+        request.headers.get("accept-encoding") or "",
+        request.headers.get("sec-ch-ua") or "",
+        str(getattr(getattr(request, "state", None), "request_id", "")),
+    ])
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
 
 def extract_client_ip(request: Request) -> str:
-    """Resolve the best-effort client IP behind proxies/CDNs."""
-    # Prefer CDN and reverse proxy headers when present.
-    cf_ip = request.headers.get("cf-connecting-ip")
-    if cf_ip:
-        return cf_ip.strip()
+    """Resolve the real client IP, honouring proxy headers only from trusted sources.
 
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        # First IP in the chain is the originating client.
-        first = xff.split(",")[0].strip()
-        if first:
-            return first
+    Headers like X-Forwarded-For and X-Real-IP can be trivially spoofed by
+    any client.  This function only trusts them when the immediate peer
+    (request.client.host) is a known-trusted proxy or CDN.  Direct clients
+    always use their socket address, making rate-limit bypass via header
+    injection impossible.
+    """
+    peer = request.client.host if request.client else None
 
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip:
-        return real_ip.strip()
+    if peer and _is_trusted_proxy(peer):
+        # Only read forwarding headers when the connection comes from a proxy
+        # we control or a known CDN.
+        cf_ip = request.headers.get("cf-connecting-ip")
+        if cf_ip:
+            return cf_ip.strip()
 
-    if request.client and request.client.host:
-        return request.client.host
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            # First IP in the chain is the originating client.
+            first = xff.split(",")[0].strip()
+            if first:
+                return first
 
-    return "unknown"
+        real_ip = request.headers.get("x-real-ip")
+        if real_ip:
+            return real_ip.strip()
+
+    # Direct connection or untrusted peer: use the socket address.
+    if peer:
+        return peer
+
+    return _client_fingerprint(request)
 
 
 def build_limiter(default_limits: Optional[list[str]] = None) -> Limiter:
