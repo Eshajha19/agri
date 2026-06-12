@@ -604,22 +604,38 @@ class NotificationBroadcastHub:
             raise
 
     async def _redis_listener(self) -> None:
-        try:
-            async for message in self._redis_pubsub.listen():
-                if message.get("type") != "message":
-                    continue
-                payload = json.loads(message["data"])
-                notification = payload.get("data")
-                if isinstance(notification, dict):
-                    async with self._history_lock:
-                        if not self._is_duplicate(notification):
+        import redis.asyncio as redis  # type: ignore
+        delay = 1.0
+        while True:
+            try:
+                async for message in self._redis_pubsub.listen():
+                    delay = 1.0
+                    if message.get("type") != "message":
+                        continue
+                    payload = json.loads(message["data"])
+                    notification = payload.get("data")
+                    if isinstance(notification, dict):
+                        async with self._history_lock:
                             self._history.append(notification)
-                        clients = list(self._connections)
-                    await self._broadcast(payload, clients)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logger.warning("Notification pub-sub listener stopped: %s", exc)
+                            clients = list(self._connections)
+                        await self._broadcast(payload, clients)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning(
+                    "Redis pub-sub listener error, reconnecting in %.0fs: %s",
+                    delay, exc,
+                )
+            # Reconnect with exponential backoff (capped at 60 s)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 60.0)
+            try:
+                self._redis_client = redis.from_url(self._redis_url, decode_responses=True)
+                self._redis_pubsub = self._redis_client.pubsub()
+                await self._redis_pubsub.subscribe(self._redis_channel)
+                logger.info("Redis pub-sub listener reconnected to %s", self._redis_channel)
+            except Exception as exc:
+                logger.warning("Redis pub-sub reconnect failed: %s", exc)
 
     async def _redis_listener_add(self, notification: Dict[str, Any]) -> None:
         """Test helper: add notification via Redis listener path."""
