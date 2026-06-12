@@ -10,6 +10,7 @@ Synthesis strategy:
 
 import logging
 import os
+import re
 
 from .retriever import get_retriever
 from .safety import RAGSafetyValidator
@@ -29,6 +30,8 @@ def _safe_guard(query: str) -> None:
         raise ValueError(reason)
 
 logger = logging.getLogger(__name__)
+
+_safety = RAGSafetyValidator()
 
 # ---------------------------------------------------------------------------
 # Gemini client — initialised lazily so missing keys don't crash the import
@@ -134,9 +137,26 @@ def _synthesise_with_gemini(query: str, docs: list[dict]) -> str | None:
 # Fallback: original concatenation approach
 # ---------------------------------------------------------------------------
 
+def _sanitise_doc_content(raw: str) -> str:
+    """Strip internal metadata, markup, control chars, and annotations."""
+    text = re.sub(r"<!--.*?-->", "", raw, flags=re.DOTALL)
+    text = re.sub(r"\[/?[a-z_]+\]", "", text)
+    text = re.sub(r"\{\s*#\s*\w+\s*\}", "", text)
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:2000]
+
+
 def _synthesise_fallback(docs: list[dict]) -> str:
-    """Concatenate retrieved document contents as a plain-text answer."""
-    paragraphs = [f"[{i}] {doc['content']}" for i, doc in enumerate(docs, 1)]
+    """Concatenate sanitised document summaries as a plain-text answer."""
+    paragraphs = []
+    for i, doc in enumerate(docs, 1):
+        content = _sanitise_doc_content(doc.get("content", ""))
+        title = doc.get("title", "")
+        if title:
+            paragraphs.append(f"[{i}] {title}: {content}")
+        else:
+            paragraphs.append(f"[{i}] {content}")
     return " ".join(paragraphs)
 
 
@@ -158,7 +178,14 @@ def generate_response(query: str, top_k: int = 3) -> dict:
     _safe_guard(query)
 
     retriever = get_retriever()
-    docs = retriever.retrieve(query, top_k=top_k)
+
+    retrieval_result = retriever.retrieve(
+        query,
+        top_k=top_k,
+    )
+
+    docs = retrieval_result["results"]
+    retrieval_metadata = retrieval_result["retrieval_metadata"]
 
     if not docs:
         return {
@@ -170,6 +197,7 @@ def generate_response(query: str, top_k: int = 3) -> dict:
             "citations": [],
             "sources_used": 0,
             "llm_used": False,
+            "retrieval_metadata": retrieval_metadata,
         }
 
     # Attempt Gemini synthesis; fall back to concatenation on failure / missing key
@@ -181,8 +209,22 @@ def generate_response(query: str, top_k: int = 3) -> dict:
         answer = _synthesise_fallback(docs)
         llm_used = False
 
+    # Validate the response before returning — reject unsafe content.
+    result = _safety.validate_response(query, answer)
+    if not result.is_safe:
+        logger.warning(
+            "LLM response failed safety validation (threat=%s, detail=%s). Returning safe fallback.",
+            result.threat_detected, result.details,
+        )
+        answer = (
+            "I'm unable to provide a safe answer to this query right now. "
+            "Please consult your local Krishi Vigyan Kendra (KVK) or "
+            "agricultural extension officer for personalised advice."
+        )
+
     citations = [
         {
+            "rank": i,
             "index": i,
             "title": doc["title"],
             "citation": doc["citation"],
@@ -190,6 +232,8 @@ def generate_response(query: str, top_k: int = 3) -> dict:
             "year": doc["year"],
             "topic": doc["topic"],
             "relevance": doc["relevance_score"],
+            "confidence_level": doc["confidence_level"],
+            "confidence_explanation": doc["confidence_explanation"],
         }
         for i, doc in enumerate(docs, 1)
     ]
@@ -199,4 +243,5 @@ def generate_response(query: str, top_k: int = 3) -> dict:
         "citations": citations,
         "sources_used": len(docs),
         "llm_used": llm_used,
+        "retrieval_metadata": retrieval_metadata,
     }
