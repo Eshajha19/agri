@@ -416,6 +416,17 @@ class RBACManager:
                 detail="Authentication database lookup failed",
             ) from exc
 
+        if not user_doc.exists:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User profile not found",
+            )
+
+        profile = user_doc.to_dict() or {}
+        roles = RBACManager._normalize_roles(profile)
+        role_str = RBACManager._effective_role(roles)
+        tenant_id = RBACManager._extract_tenant(profile)
+
         claim_tenant = RBACManager._extract_tenant(decoded_token)
         if claim_tenant and tenant_id and claim_tenant != tenant_id:
             logger.warning(
