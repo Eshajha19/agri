@@ -11,6 +11,7 @@ import json
 import logging
 from datetime import datetime, timezone
 import time, uuid
+import threading
 from fastapi import APIRouter, HTTPException
 
 from cryptography.exceptions import InvalidSignature
@@ -31,8 +32,20 @@ logger = setup_logging(__name__)
 router = APIRouter()
 
 # Simple in-memory nonce store (replace with Redis/Firestore in production)
-used_nonces = set()
+used_nonces = {}
+
+nonce_lock = threading.Lock()
+
 SIGNATURE_TTL = 300  # 5 minutes
+MAX_NONCES = 10000
+
+cleanup_thread_started = False
+
+nonce_metrics = {
+    "active": 0,
+    "expired_removed": 0,
+    "evicted": 0,
+}
 
 @router.post("/submit-report")
 def submit_report(payload: dict):
@@ -41,20 +54,120 @@ def submit_report(payload: dict):
     signature = payload.get("signature")
 
     # ✅ Nonce check
-    if not nonce or nonce in used_nonces:
-        raise HTTPException(status_code=400, detail="Invalid or replayed nonce")
-    used_nonces.add(nonce)
+    cleanup_expired_nonces()
+
+    with nonce_lock:
+
+        if not nonce:
+            raise HTTPException(
+                status_code=400,
+                detail="Missing nonce"
+            )
+
+        if nonce in used_nonces:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid or replayed nonce"
+            )
+
+        used_nonces[nonce] = time.time()
+        nonce_metrics["active"] = len(used_nonces)
+
+
+
+    if len(used_nonces) > MAX_NONCES * 0.8:
+        logger.warning(
+            "nonce_store_high_watermark active=%s limit=%s",
+            len(used_nonces),
+            MAX_NONCES,
+        )
 
     # ✅ Timestamp check
     now = int(time.time())
     if not timestamp or abs(now - int(timestamp)) > SIGNATURE_TTL:
-        raise HTTPException(status_code=400, detail="Signature expired")
+
+        with nonce_lock:
+            used_nonces.pop(nonce, None)
+            nonce_metrics["active"] = len(used_nonces)
+
+        raise HTTPException(
+            status_code=400,
+            detail="Signature expired"
+        )
 
     # ✅ Signature verification (pseudo-code)
     if not verify_signature(payload, signature):
-        raise HTTPException(status_code=400, detail="Invalid signature")
+
+        with nonce_lock:
+            used_nonces.pop(nonce, None)
+            nonce_metrics["active"] = len(used_nonces)
+
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid signature"
+        )
+
+    enforce_nonce_limit()
 
     return {"status": "accepted"}
+
+def cleanup_expired_nonces():
+    now = time.time()
+
+    with nonce_lock:
+        expired = [
+            nonce
+            for nonce, created_at in used_nonces.items()
+            if now - created_at > SIGNATURE_TTL
+        ]
+
+        for nonce in expired:
+            del used_nonces[nonce]
+
+        nonce_metrics["expired_removed"] += len(expired)
+        nonce_metrics["active"] = len(used_nonces)
+
+        return len(expired)
+
+
+def enforce_nonce_limit():
+    with nonce_lock:
+
+        if len(used_nonces) <= MAX_NONCES:
+            return
+
+        overflow = len(used_nonces) - MAX_NONCES
+
+        oldest = sorted(
+            used_nonces.items(),
+            key=lambda x: x[1]
+        )[:overflow]
+
+        for nonce, _ in oldest:
+            del used_nonces[nonce]
+
+        nonce_metrics["evicted"] += overflow
+        nonce_metrics["active"] = len(used_nonces)
+
+
+
+def nonce_cleanup_worker():
+    while True:
+        try:
+            removed = cleanup_expired_nonces()
+
+            if removed:
+                logger.info(
+                    "nonce_cleanup removed=%s active=%s",
+                    removed,
+                    len(used_nonces),
+                )
+
+        except Exception:
+            logger.exception("nonce cleanup failed")
+
+        time.sleep(60)
+
 
 # ---------------------------------------------------------------------------
 # Validation bounds — intentionally generous to accommodate large commercial
@@ -145,7 +258,10 @@ def init_reports(
     Raises:
         ValueError: If required dependencies are missing.
     """
-    global verify_role_fn, get_signing_keys_fn, sanitise_log_field_fn
+    global verify_role_fn
+    global get_signing_keys_fn
+    global sanitise_log_field_fn
+    global cleanup_thread_started
 
     if vr_fn is None:
         raise ValueError("verify_role_fn cannot be None")
@@ -156,6 +272,14 @@ def init_reports(
     verify_role_fn = vr_fn
     get_signing_keys_fn = gsk_fn
     sanitise_log_field_fn = slf_fn
+
+    if not cleanup_thread_started:
+        thread = threading.Thread(
+            target=nonce_cleanup_worker,
+            daemon=True,
+        )
+        thread.start()
+        cleanup_thread_started = True
 
     logger.info(
         "reports.router.initialized "
@@ -447,11 +571,72 @@ async def generate_signed_report(request: Request, data: ReportRequest):
 
     try:
         private_key = get_signing_keys_fn()
+
+        try:
+            cert_id = _make_cert_id(data)
+            signature_hex = _sign_report(private_key, data, cert_id)
+            pdf_bytes = _build_pdf(data, signature_hex, cert_id)
+
+            MAX_PDF_SIZE_MB = 10
+
+            if len(pdf_bytes) > MAX_PDF_SIZE_MB * 1024 * 1024:
+                logger.error(
+                    "Export validation failed: PDF exceeds size limit (%s bytes)",
+                    len(pdf_bytes),
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="Generated report exceeds supported export size",
+                )
+
+            if not pdf_bytes.startswith(b"%PDF"):
+                logger.error(
+                    "Export validation failed: Invalid PDF structure for certificate %s",
+                    cert_id,
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="Generated report failed integrity validation",
+                )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"PDF generation error: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to generate report",
+            )
+
+        filename = f"FasalSaathi_BankReport_{cert_id}.pdf"
+
+        logger.info(
+            "[EXPORT_AUDIT] cert_id=%s size_bytes=%s farmer=%s crop=%s",
+            cert_id,
+            len(pdf_bytes),
+            data.name,
+            data.crop,
+        )
+
+        return StreamingResponse(
+            io.BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename=\"{filename}\"',
+                "Content-Length": str(len(pdf_bytes)),
+            },
+        )
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Key retrieval error: {e}")
         raise HTTPException(status_code=500, detail="Failed to load signing key")
+
+class ClientErrorReport(BaseModel):
+    level: str
+    message: str
+    source: Optional[str] = None
+    stack: Optional[str] = None
 
 @router.post("/log-error")
 async def log_error(body: ClientErrorReport):
@@ -478,59 +663,6 @@ async def log_error(body: ClientErrorReport):
         f" stack={stack}" if stack else "",
     )
     return {"success": True}
-    try:
-        cert_id = _make_cert_id(data)
-        signature_hex = _sign_report(private_key, data, cert_id)
-        pdf_bytes = _build_pdf(data, signature_hex, cert_id)
-        MAX_PDF_SIZE_MB = 10
-
-        if len(pdf_bytes) > MAX_PDF_SIZE_MB * 1024 * 1024:
-            logger.error(
-                "Export validation failed: PDF exceeds size limit (%s bytes)",
-                len(pdf_bytes),
-            )
-            raise HTTPException(
-                status_code=500,
-                detail="Generated report exceeds supported export size",
-            )
-        
-        if not pdf_bytes.startswith(b"%PDF"):
-            logger.error(
-                "Export validation failed: Invalid PDF structure for certificate %s",
-                cert_id,
-            )
-            raise HTTPException(
-                status_code=500,
-                detail="Generated report failed integrity validation",
-            )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"PDF generation error: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to generate report",
-        )
-
-    filename = f"FasalSaathi_BankReport_{cert_id}.pdf"
-
-    logger.info(
-        "[EXPORT_AUDIT] cert_id=%s size_bytes=%s farmer=%s crop=%s",
-        cert_id,
-        len(pdf_bytes),
-        data.name,
-        data.crop,
-    )
-    
-    return StreamingResponse(
-        io.BytesIO(pdf_bytes),
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "Content-Length": str(len(pdf_bytes)),
-        },
-    )
 
 
 
@@ -622,3 +754,24 @@ async def backfill_role_claims_endpoint(request: Request):
         raise HTTPException(status_code=500, detail="Backfill failed — check server logs")
 
     return {"success": True, **summary}
+
+@router.get("/admin/nonce-metrics")
+async def nonce_metrics_endpoint(request: Request):
+
+    if verify_role_fn is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Not initialized"
+        )
+
+    await verify_role_fn(
+        request,
+        required_roles=["admin"]
+    )
+
+    return {
+        "success": True,
+        "metrics": nonce_metrics,
+        "active_entries": len(used_nonces),
+        "max_entries": MAX_NONCES,
+    }
