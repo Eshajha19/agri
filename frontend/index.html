@@ -8,15 +8,27 @@
     <meta name="keywords" content="agriculture, farming, AI, crop recommendation, weather forecast, soil analysis, India, farmers, smart farming" />
     <meta name="author" content="Fasal Saathi" />
     <meta name="theme-color" content="#166534" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://translate.google.com https://*.google.com 'unsafe-inline' 'unsafe-eval'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://*.firebaseio.com https://*.googleapis.com wss:; frame-src https://translate.google.com; object-src 'none'; base-uri 'self'; frame-ancestors 'self';">
+
+    <!--
+      CSP NOTE
+      This app uses Firebase Auth (including Google sign-in). Firebase/Google flows require
+      framed/redirect helper resources. A too-strict CSP can break login.
+
+      Keep CSP permissive enough for auth providers; tighten later via HTTP headers.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' https://translate.google.com https://*.google.com https://apis.google.com 'unsafe-inline' 'unsafe-eval'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://*.firebaseio.com https://*.googleapis.com wss: https://apis.google.com; frame-src 'self' https://translate.google.com https://*.firebaseapp.com; object-src 'none'; base-uri 'self'; frame-ancestors 'self';"
+    />
+
     <title>Fasal Saathi - AI-Powered Farming Assistant</title>
     <link rel="manifest" href="/manifest.webmanifest">
-    
+
     <!-- Critical Preconnects -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    
+
     <style>
       /* Critical Loading Styles */
       :root {
@@ -61,7 +73,7 @@
       @keyframes spin {
         to { transform: rotate(360deg); }
       }
-      
+
       /* Google Translate Widget Override */
       #google_translate_element {
         display: none;
@@ -83,13 +95,13 @@
         border: none !important;
         box-shadow: none !important;
       }
-      
+
       /* Accessibility and Theme helpers */
       .notranslate {
         unicode-bidi: isolate;
       }
     </style>
-    
+
     <script>
       // Navigation height calculation for CSS variables
       (function() {
@@ -100,14 +112,14 @@
         window.addEventListener('resize', updateNavbarHeight);
         updateNavbarHeight();
       })();
-      
+
       // FORCED LANGUAGE CONTROL
       (function() {
         try {
           // Clear any existing Google Translate cookies to ensure a fresh start
           const domains = [window.location.hostname, '.' + window.location.hostname];
           const paths = ['/', ''];
-          
+
           domains.forEach(domain => {
             paths.forEach(path => {
               document.cookie = 'googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=' + path + '; domain=' + domain + ';';
@@ -117,7 +129,7 @@
 
           // Check for user preference
           const storedLang = localStorage.getItem('agri:preferredLanguage') || 'en';
-          
+
           // Only set translation if it's NOT English
           if (storedLang !== 'en') {
             document.cookie = `googtrans=/en/${storedLang}; path=/;`;
@@ -133,13 +145,13 @@
     <div id="root">
       <div class="preloader">
         <div class="preloader-spinner"></div>
-         <p>Loading <span class="notranslate">Fasal Saathi</span>...</p>
+        <p>Loading <span class="notranslate">Fasal Saathi</span>...</p>
       </div>
     </div>
-    
+
     <!-- Google Translate Element (Hidden) -->
     <div id="google_translate_element"></div>
-    
+
     <script type="text/javascript">
       function googleTranslateElementInit() {
         new google.translate.TranslateElement({
@@ -148,7 +160,7 @@
           layout: google.translate.TranslateElement.InlineLayout.SIMPLE,
           autoDisplay: false
         }, 'google_translate_element');
-        
+
         // Final fallback to ensure English if needed
         setTimeout(() => {
           const storedLang = localStorage.getItem('agri:preferredLanguage') || 'en';
@@ -162,13 +174,14 @@
         }, 1000);
       }
     </script>
-    
+
     <script
       type="text/javascript"
       src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"
       defer
     ></script>
-    
+
     <script type="module" src="/main.jsx"></script>
   </body>
 </html>
+
