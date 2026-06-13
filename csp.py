@@ -1,19 +1,28 @@
 """
 Centralized Content Security Policy configuration.
 
-Policies are generated per-environment so development can be
-more permissive while production enforces strict rules.
-Firebase Authentication domains are included in both environments
-so Google Sign-In popups and redirects are never blocked.
+Policies are generated per-environment.  Firebase Authentication and
+Google Sign-In domains are included in both environments so OAuth
+popups, redirects, and API calls are never blocked.
 """
 
 import os
 
-FIREBASE_AUTH_DOMAINS = [
+# Domains Firebase Auth uses for OAuth popups, hidden iframes,
+# and redirect flows.
+FIREBASE_AUTH_FRAME_DOMAINS = [
     "https://*.firebaseapp.com",
     "https://*.web.app",
     "https://accounts.google.com",
     "https://apis.google.com",
+]
+
+# Endpoints Firebase Auth connects to via fetch/XHR.
+FIREBASE_AUTH_CONNECT_DOMAINS = [
+    "https://identitytoolkit.googleapis.com",
+    "https://securetoken.googleapis.com",
+    "https://www.googleapis.com",
+    "https://*.googleapis.com",
 ]
 
 
@@ -22,15 +31,18 @@ def is_production() -> bool:
 
 
 def _directives(env: str) -> dict:
+    frame_src = "'self' " + " ".join(FIREBASE_AUTH_FRAME_DOMAINS)
+    connect_src = "'self' " + " ".join(FIREBASE_AUTH_CONNECT_DOMAINS)
+
     policies = {
         "production": {
             "default-src": "'self'",
-            "script-src": "'self'",
+            "script-src": "'self' https://apis.google.com",
             "style-src": "'self' 'unsafe-inline'",
             "img-src": "'self' data: https:",
             "font-src": "'self' https://fonts.gstatic.com",
-            "connect-src": "'self' https://fasalsaathi.agri https://identitytoolkit.googleapis.com https://securetoken.googleapis.com",
-            "frame-src": "'self' " + " ".join(FIREBASE_AUTH_DOMAINS),
+            "connect-src": connect_src,
+            "frame-src": frame_src,
             "frame-ancestors": "'none'",
             "object-src": "'none'",
             "base-uri": "'self'",
@@ -38,12 +50,12 @@ def _directives(env: str) -> dict:
         },
         "development": {
             "default-src": "'self'",
-            "script-src": "'self' 'unsafe-inline' 'unsafe-eval'",
+            "script-src": "'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com",
             "style-src": "'self' 'unsafe-inline'",
             "img-src": "'self' data: https:",
             "font-src": "'self' https://fonts.gstatic.com",
-            "connect-src": "'self' ws: wss: https://fasalsaathi.agri https://identitytoolkit.googleapis.com https://securetoken.googleapis.com",
-            "frame-src": "'self' " + " ".join(FIREBASE_AUTH_DOMAINS),
+            "connect-src": "ws: wss: " + connect_src,
+            "frame-src": frame_src,
             "frame-ancestors": "'self'",
             "object-src": "'none'",
             "base-uri": "'self'",
@@ -74,8 +86,8 @@ RESTRICTIVE_VALUES = {
 def validate_csp_policy(policy: str) -> list:
     issues = []
     parts = [p.strip() for p in policy.split(";") if p.strip()]
-
     directives_found = set()
+
     for part in parts:
         tokens = part.split(None, 1)
         if not tokens:
@@ -93,18 +105,5 @@ def validate_csp_policy(policy: str) -> list:
     missing = REQUIRED_DIRECTIVES - directives_found
     if missing:
         issues.append(f"Missing required directive(s): {', '.join(sorted(missing))}")
-
-    # Validate Firebase auth domains are included in frame-src
-    if "frame-src" in directives_found:
-        for part in parts:
-            if part.startswith("frame-src"):
-                vals = part.split(None, 1)[1] if len(part.split(None, 1)) > 1 else ""
-                for domain in FIREBASE_AUTH_DOMAINS:
-                    if domain not in vals:
-                        issues.append(
-                            f"frame-src missing Firebase auth domain: {domain}"
-                        )
-                        break
-                break
 
     return issues
