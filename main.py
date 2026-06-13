@@ -154,7 +154,7 @@ async def lifespan(app: FastAPI):
     _notification_repository = NotificationRepository()  # noqa: F841 — kept for symmetry / future use
     _supply_chain_repository = SupplyChainRepository()
     _farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
-    _supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
+    _supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository, signing_key=os.getenv("QR_SIGNING_SECRET"))
     _crop_quality_grader = CropQualityGrader()
     logger.info("Domain engines initialized with persistent repositories")
 

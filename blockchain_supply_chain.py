@@ -4,6 +4,7 @@ with transaction atomicity and rollback support.
 """
 
 import hashlib
+import hmac
 import json
 import time
 import uuid
@@ -115,7 +116,7 @@ class SmartContract:
 class SupplyChainBlockchain:
     """Blockchain for agricultural supply chain with basic atomicity"""
 
-    def __init__(self, repository=None):
+    def __init__(self, repository=None, signing_key: Optional[str] = None):
         self.chain: List[BlockchainRecord] = []
         self.products: Dict[str, ProductBatch] = {}
         self.supply_chain_nodes: Dict[str, List[SupplyChainNode]] = {}
@@ -123,6 +124,7 @@ class SupplyChainBlockchain:
         self.verified_actors: Dict[str, Dict] = {}
         self._trace_batches: Dict[str, Dict] = {}
         self._repository = repository
+        self._signing_key = signing_key
 
     # ------------- Utilities for atomicity -------------
     def _snapshot_state(self):
@@ -362,8 +364,16 @@ class SupplyChainBlockchain:
             "unit": batch.unit,
             "farmer": batch.farmer_name,
             "harvested": batch.harvesting_date,
-            "verification_url": f"https://fasalsaathi.agri/verify/{batch_id}",
         }
+
+        if self._signing_key:
+            payload = json.dumps(qr_data, sort_keys=True)
+            sig = hmac.new(self._signing_key.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+            qr_data["sig"] = sig
+            qr_data["proof"] = "signed"
+            qr_data["verification_url"] = f"https://fasalsaathi.agri/verify/{batch_id}?proof={sig}"
+        else:
+            qr_data["verification_url"] = f"https://fasalsaathi.agri/verify/{batch_id}"
 
         qr_code = qrcode.QRCode(version=1, box_size=10, border=5)
         qr_code.add_data(json.dumps(qr_data))
@@ -376,7 +386,7 @@ class SupplyChainBlockchain:
 
         return qr_base64
 
-    def verify_batch(self, batch_id: str) -> Dict:
+    def verify_batch(self, batch_id: str, proof: Optional[str] = None) -> Dict:
         """Verify product batch authenticity"""
         if batch_id not in self.products:
             return {"success": False, "message": "Batch not found"}
@@ -404,6 +414,14 @@ class SupplyChainBlockchain:
         if blockchain_intact:
             verification_score = min(100, verification_score + 5)
 
+        if not self._signing_key:
+            authenticated = "unauthenticated"
+        elif proof:
+            expected = hmac.new(self._signing_key.encode("utf-8"), batch_id.encode("utf-8"), hashlib.sha256).hexdigest()
+            authenticated = hmac.compare_digest(expected, proof)
+        else:
+            authenticated = verification_score >= 70
+
         return {
             "success": True,
             "batch_id": batch_id,
@@ -411,7 +429,7 @@ class SupplyChainBlockchain:
             "quantity": batch.quantity,
             "farmer": batch.farmer_name,
             "verification_score": min(100, verification_score),
-            "authenticated": verification_score >= 70,
+            "authenticated": authenticated,
             "blockchain_records": len(batch.blockchain_records),
             "supply_chain_nodes": len(records),
             "certifications": batch.certifications,
