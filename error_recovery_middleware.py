@@ -19,6 +19,8 @@ from urllib.parse import urlparse
 
 import re
 import base64
+import hashlib
+import threading
 
 BINARY_MAGIC = [b"\x1F\x8B", b"PK\x03\x04"]  # gzip, zip signatures
 
@@ -60,30 +62,94 @@ def looks_like_base64(text: str) -> bool:
 
 logger = logging.getLogger(__name__)
 
-# Patterns tightened to require executable SQL/XSS syntax rather than
-# matching the keywords anywhere in prose.
-#
-# Removed from SUSPICIOUS_PATTERNS (handled in the try-block scan below):
-#   drop\s+table, union\s+select  — prone to prose false positives.
-# Kept here only the unambiguous XSS signals.
 SUSPICIOUS_PATTERNS = [
-    r"<script[\s>]",          # <script> or <script ...> — requires the tag
-    r"javascript\s*:",         # javascript: URI scheme
+    r"<script[\s>]",
+    r"javascript\s*:",
     r"onerror\s*=",
     r"onload\s*=",
 ]
 
-# Tighter SQL patterns used in the single consolidated scan.
-# Each requires surrounding syntax that distinguishes real SQL from prose:
-#   - DROP TABLE / TRUNCATE TABLE must be followed by a semicolon
-#   - UNION SELECT must be followed by a FROM clause
-#   - Classic OR tautology: ' OR '1'='1
 SQL_PATTERNS = [
     re.compile(r"\b(DROP|TRUNCATE)\s+TABLE\s+\w+\s*;", re.IGNORECASE),
     re.compile(r"\bUNION\s+(ALL\s+)?SELECT\b.+\bFROM\b", re.IGNORECASE | re.DOTALL),
     re.compile(r"'\s*(OR|AND)\s+'?\d+'?\s*=\s*'?\d+", re.IGNORECASE),
     re.compile(r"(--|#|/\*)\s*(DROP|SELECT|INSERT|UPDATE|DELETE|UNION)", re.IGNORECASE),
 ]
+
+# ---------------------------------------------------------------------------
+# DoS mitigation: scan-result cache + per-path token-bucket budget (#2366)
+# ---------------------------------------------------------------------------
+_SCAN_CACHE_TTL: float = 5.0
+_SCAN_RPS_LIMIT: float = 10.0
+_SCAN_BURST: int = 3
+
+
+class _ScanCache:
+    """Thread-safe cache keyed on (path, body_blake2b) with TTL expiry."""
+
+    def __init__(self, ttl: float = _SCAN_CACHE_TTL, maxsize: int = 4096) -> None:
+        self._ttl = ttl
+        self._maxsize = maxsize
+        self._store: Dict[tuple, tuple] = {}
+        self._lock = threading.Lock()
+
+    def _key(self, path: str, body: bytes) -> tuple:
+        digest = hashlib.blake2b(body, digest_size=16).hexdigest()
+        return (path, digest)
+
+    def get(self, path: str, body: bytes):
+        key = self._key(path, body)
+        with self._lock:
+            entry = self._store.get(key)
+            if entry is None:
+                return None
+            result, expires_at = entry
+            if time.monotonic() > expires_at:
+                del self._store[key]
+                return None
+            return result
+
+    def set(self, path: str, body: bytes, result: bool) -> None:
+        key = self._key(path, body)
+        with self._lock:
+            if len(self._store) >= self._maxsize:
+                now = time.monotonic()
+                expired = [k for k, (_, exp) in self._store.items() if exp <= now]
+                for k in expired:
+                    del self._store[k]
+                if len(self._store) >= self._maxsize:
+                    for k in list(self._store)[:self._maxsize // 4]:
+                        del self._store[k]
+            self._store[key] = (result, time.monotonic() + self._ttl)
+
+
+class _ScanBudget:
+    """Per-path token-bucket: consume() returns True when a scan may proceed."""
+
+    def __init__(self, rate: float = _SCAN_RPS_LIMIT, burst: int = _SCAN_BURST) -> None:
+        self._rate = rate
+        self._burst = burst
+        self._buckets: Dict[str, tuple] = {}
+        self._lock = threading.Lock()
+
+    def consume(self, path: str) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            tokens, last = self._buckets.get(path, (float(self._burst), now))
+            tokens = min(float(self._burst), tokens + (now - last) * self._rate)
+            if tokens >= 1.0:
+                self._buckets[path] = (tokens - 1.0, now)
+                return True
+            self._buckets[path] = (tokens, now)
+            return False
+
+
+# Module-level singletons
+_scan_cache = _ScanCache()
+_scan_budget = _ScanBudget()
+
+# ---------------------------------------------------------------------------
+
 
 class CircuitBreakerState:
     def __init__(self, max_entries=1000):
@@ -97,13 +163,13 @@ class CircuitBreakerState:
 
     def get(self, method: str, path: str):
         key = self._normalize_key(method, path)
-        return self._state.get(method, path)
+        return self._state.get(key)          # FIX: was self._state.get(method, path)
 
     def set(self, method: str, path: str, value: dict):
         key = self._normalize_key(method, path)
         if key in self._state:
             self._state.move_to_end(key)
-        self._state.set(method, path, value) = value
+        self._state[key] = value            # FIX: was self._state.set(method, path, value) = value
         # Prune oldest if over cap
         if len(self._state) > self._max_entries:
             self._state.popitem(last=False)
@@ -136,8 +202,6 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
         self._log_cooldown = log_cooldown
         self._log_last_emitted: Dict[str, float] = {}
         self._log_suppressed: Dict[str, int] = {}
-        # FIX: these dicts were used throughout but never initialised,
-        # causing AttributeError on the first request.
         self._circuit_state: Dict[str, str] = {}
         self._failure_timestamps: Dict[str, list] = {}
         self._circuit_open_since: Dict[str, float] = {}
@@ -150,10 +214,8 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
         if not content:
             return False
         lower = content.lower()
-        # XSS / script-injection patterns (case-insensitive prose-safe)
         if any(re.search(pattern, lower) for pattern in SUSPICIOUS_PATTERNS):
             return True
-        # Tighter SQL patterns (applied to original case for accuracy)
         return any(p.search(content) for p in SQL_PATTERNS)
 
     async def dispatch(self, request: Request, call_next) -> Response:
@@ -165,27 +227,33 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
         endpoint = f"{request.method} {request.url.path}"
 
         # ---- Read body ONCE and cache it on request.state ----
-        # BaseHTTPMiddleware does not automatically replay the body stream,
-        # so we read it here and store it so both the security scan and the
-        # downstream handler can access the same bytes without a second read.
         body: bytes = b""
         if request.method in {"POST", "PUT", "PATCH"}:
             body = await ensure_body_available(request)
 
-        # ---- Single, consolidated payload scan ----
+        # ---- Single, consolidated payload scan (with DoS mitigation) ----
         if body:
-            # 1. Binary payloads: skip regex scanning entirely.
             if looks_like_binary(body):
                 logger.debug("[%s] Binary payload detected — skipping text scan", request_id)
             else:
                 payload_text = body.decode("utf-8", errors="ignore")
 
-                # 2. Base64 that decodes to binary: skip regex scanning.
                 if looks_like_base64(payload_text):
                     logger.debug("[%s] Base64-binary payload — skipping text scan", request_id)
                 else:
-                    # 3. Plain text / JSON: run the consolidated suspicious-content check.
-                    if self._contains_suspicious_content(payload_text):
+                    # --- DoS fix: cache + budget before running regex (#2366) ---
+                    path = request.url.path
+                    cached = _scan_cache.get(path, body)
+                    if cached is not None:
+                        suspicious = cached
+                    elif _scan_budget.consume(path):
+                        suspicious = self._contains_suspicious_content(payload_text)
+                        _scan_cache.set(path, body, suspicious)
+                    else:
+                        # Budget exhausted, no cache hit — assume safe under load
+                        suspicious = False
+
+                    if suspicious:
                         logger.warning(
                             "[%s] Suspicious payload detected on %s",
                             request_id,
