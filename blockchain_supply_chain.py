@@ -138,14 +138,7 @@ class SmartContract:
 class SupplyChainBlockchain:
     """Blockchain for agricultural supply chain with basic atomicity"""
 
-    # Maximum number of transaction IDs retained for replay protection.
-    # Each ID is a 64-character hex SHA-256 digest (~64 bytes).
-    # 10 000 entries ≈ 640 KB — a safe upper bound for a long-running process.
-    # Replay protection only needs to cover a recent window; transactions
-    # older than this cap are extremely unlikely to be replayed in practice.
-    _MAX_TRANSACTION_IDS = 10_000
-
-    def __init__(self, repository=None):
+    def __init__(self, repository=None, signing_key: Optional[str] = None):
         self.chain: List[BlockchainRecord] = []
         self.products: Dict[str, ProductBatch] = {}
         self.supply_chain_nodes: Dict[str, List[SupplyChainNode]] = {}
@@ -156,19 +149,7 @@ class SupplyChainBlockchain:
         self._processed_transaction_ids: OrderedDict[str, None] = OrderedDict()
         self._harvest_ids: set[str] = set()
         self._repository = repository
-        self._qr_signing_secret = os.getenv("BLOCKCHAIN_QR_SECRET", "").strip()
-
-    def _last_hash(self) -> str:
-        """Return the hash of the last block in the chain, or '0'*64 for genesis."""
-        if self.chain:
-            return self.chain[-1].hash
-        return "0" * 64
-
-    def _link_and_append(self, record: BlockchainRecord) -> None:
-        """Set previous_hash, compute hash, and append to chain."""
-        record.previous_hash = self._last_hash()
-        record.hash = record.calculate_hash()
-        self.chain.append(record)
+        self._signing_key = signing_key
 
     # ------------- Utilities for atomicity -------------
     def _snapshot_state(self):
@@ -604,12 +585,18 @@ class SupplyChainBlockchain:
             "unit": batch.unit,
             "farmer": batch.farmer_name,
             "harvested": batch.harvesting_date,
-            "verification_url": f"https://fasalsaathi.agri/verify/{batch_id}",
-            "trace_proof": proof["proof_hash"],
-            "block_hash": proof["latest_block_hash"],
         }
         if proof["signature"]:
             qr_data["trace_signature"] = proof["signature"]
+
+        if self._signing_key:
+            payload = json.dumps(qr_data, sort_keys=True)
+            sig = hmac.new(self._signing_key.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+            qr_data["sig"] = sig
+            qr_data["proof"] = "signed"
+            qr_data["verification_url"] = f"https://fasalsaathi.agri/verify/{batch_id}?proof={sig}"
+        else:
+            qr_data["verification_url"] = f"https://fasalsaathi.agri/verify/{batch_id}"
 
         qr_code = qrcode.QRCode(version=1, box_size=10, border=5)
         qr_code.add_data(self._canonical_json(qr_data))
@@ -622,33 +609,7 @@ class SupplyChainBlockchain:
 
         return qr_base64
 
-    def get_traceability_qr_payload(self, batch_id: str) -> Dict:
-        """Return a signed payload suitable for QR encoding or API clients."""
-        if batch_id not in self.products:
-            raise ValueError(f"Batch {batch_id} not found")
-
-        batch = self.products[batch_id]
-        proof = self._build_trace_proof(batch_id)
-        payload = {
-            "batch_id": batch_id,
-            "crop_type": batch.crop_type,
-            "farmer": batch.farmer_name,
-            "verification_url": f"https://fasalsaathi.agri/verify/{batch_id}",
-            "trace_proof": proof["proof_hash"],
-            "block_hash": proof["latest_block_hash"],
-            "issued_at": datetime.now(timezone.utc).isoformat(),
-        }
-        if proof["signature"]:
-            payload["trace_signature"] = proof["signature"]
-            payload["verification_url_with_proof"] = (
-                f"https://fasalsaathi.agri/verify/{batch_id}"
-                f"?proof={proof['proof_hash']}&sig={proof['signature']}"
-            )
-        else:
-            payload["verification_url_with_proof"] = payload["verification_url"] + f"?proof={proof['proof_hash']}"
-        return payload
-
-    def verify_batch(self, batch_id: str) -> Dict:
+    def verify_batch(self, batch_id: str, proof: Optional[str] = None) -> Dict:
         """Verify product batch authenticity"""
         if batch_id not in self.products:
             return {"success": False, "message": "Batch not found"}
@@ -677,6 +638,14 @@ class SupplyChainBlockchain:
         if blockchain_intact:
             verification_score = min(100, verification_score + 10)
 
+        if not self._signing_key:
+            authenticated = "unauthenticated"
+        elif proof:
+            expected = hmac.new(self._signing_key.encode("utf-8"), batch_id.encode("utf-8"), hashlib.sha256).hexdigest()
+            authenticated = hmac.compare_digest(expected, proof)
+        else:
+            authenticated = verification_score >= 70
+
         return {
             "success": True,
             "batch_id": batch_id,
@@ -684,7 +653,7 @@ class SupplyChainBlockchain:
             "quantity": batch.quantity,
             "farmer": batch.farmer_name,
             "verification_score": min(100, verification_score),
-            "authenticated": verification_score >= 70,
+            "authenticated": authenticated,
             "blockchain_records": len(batch.blockchain_records),
             "supply_chain_nodes": len(records),
             "certifications": batch.certifications,
