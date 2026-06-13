@@ -14,6 +14,17 @@
       "NODE_OPTIONS": "--max-old-space-size=4096"
     }
   },
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "frame-ancestors 'none'"
+        }
+      ]
+    }
+  ],
   "routes": [
     {
       "src": "/(.*)",

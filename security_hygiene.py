@@ -68,101 +68,54 @@ class SecretHygieneProgram:
                 findings.append(Finding(category, match.group(0), location))
         return findings
 
-# Content-types eligible for body scanning (MIME type only, no parameters)
-SCANNABLE_TYPES = frozenset({
-    "application/json",
-    "application/x-www-form-urlencoded",
-    "application/xml",
-    "text/plain",
-    "text/html",
-    "text/xml",
-})
-# Maximum body size to scan (256 KB)
-MAX_SCAN_BODY_SIZE = 256 * 1024
-
-
 def _parse_mime_type(content_type: str | None) -> str | None:
-    """Extract the MIME type from a Content-Type header value.
-
-    Handles ``application/json; charset=utf-8`` → ``application/json``,
-    missing or empty header → ``None``, and trailing whitespace.
-    """
-    if not content_type or not content_type.strip():
+    """Extract the MIME type from a Content-Type header value."""
+    if not content_type:
         return None
     return content_type.split(";")[0].strip().lower()
 
 
+# Binary MIME types whose body cannot be meaningfully scanned as text.
+_BINARY_MIME_PREFIXES = ("image/", "audio/", "video/", "application/octet-stream")
+
+
 class RuntimeProtectionMiddleware(BaseHTTPMiddleware):
     """FastAPI Middleware to block requests containing cleartext secrets."""
-    def __init__(self, app, program: SecretHygieneProgram = None):
+
+    def __init__(self, app, program: SecretHygieneProgram = None, exclude_paths=None):
         super().__init__(app)
         self.program = program or SecretHygieneProgram()
-        self.exclude_paths = exclude_paths or []
-
-    async def __call__(self, scope, receive, send):
-        if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-
-        path = scope.get("path", "")
-        if any(path.startswith(prefix) for prefix in self.exclude_paths):
-            await self.app(scope, receive, send)
-            return
-
-        body_bytes = b""
-        more_body = True
-        received_messages = []
+        self.exclude_paths = set(exclude_paths or ["/health", "/docs"])  # ✅ clean default
 
     async def dispatch(self, request: Request, call_next):
-        # Only scan text/json content types with bounded size
-        mime = _parse_mime_type(request.headers.get("content-type"))
-
-        if mime in SCANNABLE_TYPES:
-            try:
-                body_bytes = await request.body()
-                if 0 < len(body_bytes) <= MAX_SCAN_BODY_SIZE:
-        content_type = (request.headers.get("content-type") or "").lower().split(";")[0].strip()
-        content_length_str = request.headers.get("content-length", "0")
-        try:
-            content_length = int(content_length_str)
-        except (ValueError, TypeError):
-            content_length = 0
-
-        should_scan = (
-            content_type in SCANNABLE_CONTENT_TYPES
-            and 0 < content_length <= MAX_SCAN_BODY_SIZE
-        )
+        # Determine whether the body can be meaningfully scanned.
+        # Requests with a missing or unrecognised Content-Type are
+        # treated as suspicious and scanned rather than silently trusted.
+        raw_ct = request.headers.get("content-type")
+        mime = _parse_mime_type(raw_ct)
+        should_scan = mime is None or not mime.startswith(_BINARY_MIME_PREFIXES)
 
         if should_scan:
             try:
                 body_bytes = await request.body()
-                if len(body_bytes) <= MAX_SCAN_BODY_SIZE:
-                    body_str = body_bytes.decode("utf-8", errors="ignore")
-                    findings = self.program.scan_text(body_str, location="middleware")
-                    if findings:
-                        return JSONResponse(
-                            status_code=400,
-                            content={"error": "Request blocked by secrets hygiene policy"}
-                        )
+                body_str = body_bytes.decode("utf-8", errors="ignore")
+                findings = self.program.scan_text(body_str, location="middleware")
+                if findings:
+                    return JSONResponse(
+                        status_code=400,
+                        content={"error": "Request blocked by secrets hygiene policy"}
+                    )
 
-                    # Reset body read pointer so downstream handlers can consume it
-                    async def receive():
-                        return {"type": "http.request", "body": body_bytes, "more_body": False}
-                    request._receive = receive
+                # Reset body read pointer so downstream handlers can consume it
+                async def receive():
+                    return {"type": "http.request", "body": body_bytes, "more_body": False}
+                request._receive = receive
             except Exception:
                 # Fallback in case of body read failures to avoid crashing the server
                 pass
 
-        message_idx = 0
-        async def mock_receive():
-            nonlocal message_idx
-            if message_idx < len(received_messages):
-                msg = received_messages[message_idx]
-                message_idx += 1
-                return msg
-            return await receive()
-
-        await self.app(scope, mock_receive, send)
+        response = await call_next(request)
+        return response
 
 def build_secret_fingerprint(value: str) -> str:
     """Generate a cryptographically stable fingerprint of a secret value."""
