@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import os
 import re
+import time
 import urllib.parse
 from datetime import datetime
 
@@ -11,6 +12,12 @@ from fastapi import APIRouter, Form, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 router = APIRouter()
+
+# Idempotency store for processed webhook SIDs (MessageSid → timestamp).
+# Prevents duplicate processing from Twilio retries or replay attacks.
+# Entries older than WEBHOOK_IDEMPOTENCY_TTL seconds are pruned on access.
+_processed_webhook_sids: dict = {}
+WEBHOOK_IDEMPOTENCY_TTL = 86400  # 24 hours
 
 
 class AlertTriggerRequest(BaseModel):
@@ -173,25 +180,45 @@ async def whatsapp_webhook(
     request: Request,
     Body: str = Form(...),
     From: str = Form(...),
+    MessageSid: str = Form(...),
 ):
     """Receive inbound WhatsApp messages from Twilio.
 
     Security controls applied:
-    1. Twilio signature verification — every request is validated with
+    1. Idempotency — duplicate MessageSid values are silently acknowledged
+       so Twilio retries and replay attacks cannot trigger repeated effects.
+    2. Twilio signature verification — every request is validated with
        HMAC-SHA1 against TWILIO_AUTH_TOKEN before any processing.
        Requests with a missing or invalid X-Twilio-Signature are
        rejected with HTTP 403.
-    2. Sender number validation — the From field is checked against a
+    3. Sender number validation — the From field is checked against a
        basic E.164 pattern after stripping the 'whatsapp:' prefix so
        malformed values cannot propagate further.
     """
     if send_whatsapp_fn is None:
         raise HTTPException(status_code=500, detail="Not initialized")
 
-    # Read the raw body for signature verification before FastAPI
-    # consumes it via Form parameters.
+    # Read the raw body for signature verification (body is cached by Starlette
+    # after Form parsing, so this is safe to call after FastAPI parses params).
     raw_body = await request.body()
     _verify_twilio_signature(request, raw_body)
+
+    # Idempotency check: skip already-processed MessageSid.
+    # Runs after signature verification so an attacker cannot probe
+    # which SIDs have been seen without a valid signature.
+    now = time.monotonic()
+    cutoff = now - WEBHOOK_IDEMPOTENCY_TTL
+    already_seen = False
+    stale_keys = []
+    for sid, ts in _processed_webhook_sids.items():
+        if ts < cutoff:
+            stale_keys.append(sid)
+        elif sid == MessageSid:
+            already_seen = True
+    for sid in stale_keys:
+        _processed_webhook_sids.pop(sid, None)
+    if already_seen:
+        return {"status": "duplicate", "message": "Already processed"}
 
     incoming_msg = Body.lower().strip()
     sender_number = _validate_whatsapp_number(From)
@@ -207,4 +234,5 @@ async def whatsapp_webhook(
         "Try 'Weather' or 'Pest' 🌱",
     )
     send_whatsapp_fn(sender_number, response)
+    _processed_webhook_sids[MessageSid] = time.monotonic()
     return {"status": "success"}
