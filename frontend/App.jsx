@@ -1,8 +1,9 @@
 import React, { Suspense, useEffect, useState, useRef } from "react";
-import { Routes, Route, Link, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Routes, Route, Link, NavLink, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import SprayScheduler from "./SprayScheduler";
 import {
   FaComments,
   FaLeaf,
@@ -31,9 +32,13 @@ import { cryptoService } from "./utils/cryptoService";
 import Loader from "./Loader";
 import LanguageDropdown from "./LanguageDropdown";
 import useNotifications from "./Notifications";
+import usePriceAlerts from "./hooks/usePriceAlerts";
 import Footer from "./components/Footer";
 import { SkipLink } from "./NavigationManager";
 import { useTheme } from "./ThemeContext";
+import { SyncBadge } from "./src/components/SyncBadge";
+import FarmingMythChecker from "./components/FarmingMythChecker";
+import CropComparison from "./components/CropComparison";
 
 // Route-level code splitting
 import {
@@ -57,6 +62,7 @@ import {
   FarmingMap,
   FarmingNews,
   Feedback,
+
   Glossary,
   Helpline,
   Home,
@@ -65,6 +71,7 @@ import {
   MarketPrices,
   NotFound,
   PestDetection,
+  PestCalendar,
   PrivacyPolicy,
   ProfileSetup,
   ProfileSettings,
@@ -86,6 +93,7 @@ import {
 } from "./routes/lazyPages";
 
 const Weather = React.lazy(() => import("./Weather"));
+const FeatureDriftMonitor = React.lazy(() => import("./FeatureDriftMonitor"));
 import VoiceAssistant from "./VoiceAssistant";
 
 /**
@@ -100,26 +108,13 @@ function SustainabilityAnalyticsPage({ userData }) {
 // Libs
 import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc, getDoc } from "./lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
+import { clearOfflineData, clearOfflineRequests } from "./lib/db";
 import { loadAppState, loadUserProfileSnapshot, persistAppState, persistUserProfileSnapshot } from "./lib/offlinePersistence";
 import { syncOfflineRequests } from "./lib/syncOfflineRequests";
 
 // CSS
 import "./App.css";
-
-const LANGUAGE_OPTIONS = [
-  { value: "en", label: "🌍 English", englishName: "english" },
-  { value: "hi", label: "🇮🇳 हिंदी", englishName: "hindi" },
-  { value: "mr", label: "🇮🇳 मराठी", englishName: "marathi" },
-  { value: "bn", label: "🇮🇳 বাংলা", englishName: "bengali" },
-  { value: "ta", label: "🇮🇳 தமிழ்", englishName: "tamil" },
-  { value: "te", label: "🇮🇳 తెలుగు", englishName: "telugu" },
-  { value: "gu", label: "🇮🇳 ગુજરાતી", englishName: "gujarati" },
-  { value: "pa", label: "🇮🇳 ਪੰਜਾਬੀ", englishName: "punjabi" },
-  { value: "kn", label: "🇮🇳 ಕನ್ನಡ", englishName: "kannada" },
-  { value: "ml", label: "🇮🇳 മലയാളം", englishName: "malayalam" },
-  { value: "or", label: "🇮🇳 ଓଡ଼ିଆ", englishName: "odia" },
-  { value: "as", label: "🇮🇳 অসমীয়া", englishName: "assamese" },
-];
+import { LANGUAGE_OPTIONS } from "./lib/languageOptions";
 
 const getInitialLanguage = () => {
   // Always default to English when the user enters the site
@@ -136,54 +131,99 @@ const normalizeUserProfile = (profile) => {
   };
 };
 
+// ============================================
+// Google Translate Synchronization Utilities
+// ============================================
+
+const GOOGLE_TRANSLATE_TIMEOUT = 15000;
+const GOOGLE_TRANSLATE_SYNC_DELAY = 1200;
+
+let googleTranslateObserver = null;
+let googleTranslateRetryTimeout = null;
+let lastAppliedLanguage = null;
+let translateInitializationInProgress = false;
+
 /**
- * Helper to apply Google Translate selection to the hidden widget
- * Uses MutationObserver for reliable widget detection instead of polling
+ * Apply translation only when necessary
  */
 const applyGoogleTranslate = (langCode) => {
   try {
     const select = document.querySelector(".goog-te-combo");
-    if (select) {
-      if (select.value !== langCode) {
-        select.value = langCode;
-        select.dispatchEvent(new Event("change", { bubbles: true }));
-      }
+
+    if (!select) {
+      return false;
+    }
+
+    // Prevent redundant re-application
+    if (select.value === langCode && lastAppliedLanguage === langCode) {
       return true;
     }
-  } catch (e) {
-    console.error("GT Apply Error:", e);
+
+    select.value = langCode;
+
+    select.dispatchEvent(
+      new Event("change", { bubbles: true })
+    );
+
+    lastAppliedLanguage = langCode;
+
+    return true;
+  } catch (error) {
+    console.error(
+      "Google Translate apply error:",
+      error
+    );
+
+    return false;
   }
-  return false;
 };
 
 /**
- * Robustly wait for Google Translate widget using MutationObserver
- * Returns a promise that resolves when widget is ready or times out
+ * Wait for Google Translate widget with MutationObserver
  */
-const waitForGoogleTranslateWidget = (timeoutMs = 15000) => {
+const waitForGoogleTranslateWidget = (
+  timeoutMs = GOOGLE_TRANSLATE_TIMEOUT
+) => {
   return new Promise((resolve, reject) => {
-    const existingWidget = document.querySelector(".goog-te-combo");
+    const existingWidget = document.querySelector(
+      ".goog-te-combo"
+    );
+
     if (existingWidget) {
       resolve(existingWidget);
       return;
     }
 
-    let observer = null;
     const timeoutId = setTimeout(() => {
-      if (observer) observer.disconnect();
-      reject(new Error("Google Translate widget not found within timeout"));
+      cleanup();
+      reject(
+        new Error(
+          "Google Translate widget initialization timeout"
+        )
+      );
     }, timeoutMs);
 
-    observer = new MutationObserver((mutations) => {
-      const widget = document.querySelector(".goog-te-combo");
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+
+      if (googleTranslateObserver) {
+        googleTranslateObserver.disconnect();
+        googleTranslateObserver = null;
+      }
+    };
+
+    googleTranslateObserver = new MutationObserver(() => {
+      const widget = document.querySelector(
+        ".goog-te-combo"
+      );
+
       if (widget) {
-        clearTimeout(timeoutId);
-        observer?.disconnect();
+        cleanup();
         resolve(widget);
       }
     });
 
-    observer.observe(document.body, {
+    googleTranslateObserver.observe(document.body, {
       childList: true,
       subtree: true,
     });
@@ -191,18 +231,61 @@ const waitForGoogleTranslateWidget = (timeoutMs = 15000) => {
 };
 
 /**
- * Apply translation with robust widget detection
+ * Robust translation synchronization
  */
-const applyGoogleTranslateRobust = async (langCode, onReady, onError) => {
+const applyGoogleTranslateRobust = async (
+  langCode,
+  options = {}
+) => {
+  const {
+    retry = true,
+    onReady,
+    onError,
+  } = options;
+
+  // Prevent overlapping initialization calls
+  if (translateInitializationInProgress) {
+    return;
+  }
+
+  translateInitializationInProgress = true;
+
   try {
-    await waitForGoogleTranslateWidget(15000);
-    applyGoogleTranslate(langCode);
+    await waitForGoogleTranslateWidget();
+
+    const applied = applyGoogleTranslate(langCode);
+
+    if (!applied) {
+      throw new Error(
+        "Failed to apply translation state"
+      );
+    }
+
     onReady?.();
   } catch (error) {
-    console.warn("Google Translate widget initialization failed:", error.message);
+    console.warn(
+      "Google Translate synchronization failed:",
+      error.message
+    );
+
+    // Retry once after delayed script injection
+    if (retry) {
+      clearTimeout(googleTranslateRetryTimeout);
+
+      googleTranslateRetryTimeout = setTimeout(() => {
+        void applyGoogleTranslateRobust(langCode, {
+          retry: false,
+        });
+      }, GOOGLE_TRANSLATE_SYNC_DELAY);
+    }
+
     onError?.(error);
+  } finally {
+    translateInitializationInProgress = false;
   }
 };
+
+
 
 const GuestBanner = () => (
   <div className="guest-banner">
@@ -218,50 +301,103 @@ const GuestBanner = () => (
 
 function App() {
   const scorecardRef = useRef(null);
-  const [preferredLang, setPreferredLang] = useState(() => {
-    try {
-      return localStorage.getItem("agri:preferredLanguage") || getInitialLanguage();
-    } catch {
-      return getInitialLanguage();
-    }
+  const scrollFrameRef = useRef(null);
+
+  const lastScrollStateRef = useRef({
+    showScrollTop: false,
+    scrollProgress: 0,
   });
+  const hydrationInProgressRef = useRef(false);
+  const offlineSyncInProgressRef = useRef(false);
+  const lastPersistedLangRef = useRef(null);
+  const restoredSnapshotRef = useRef(false);
+  const getStoredLanguagePreference = () => {
+    try {
+      return sessionStorage.getItem("agri:preferredLanguage");
+    } catch {
+      return null;
+    }
+  };
+
+  const { i18n } = useTranslation();
+  const [preferredLang, setPreferredLang] = useState(() => {
+    return getStoredLanguagePreference() || getInitialLanguage();
+  });
+  useEffect(() => {
+    if (preferredLang && i18n.language !== preferredLang) {
+      i18n.changeLanguage(preferredLang);
+    }
+  }, [preferredLang, i18n]);
+  
   const [isOpen, setIsOpen] = useState(false);
   const { theme, toggleTheme, setTheme } = useTheme();
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [profileCompleted, setProfileCompleted] = useState(true);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [showScorecard, setShowScorecard] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
 
-  const { liteMode, setLiteMode, detectAndSetLiteMode } = usePerformanceStore();
+  const { liteMode, setLiteMode, detectAndSetLiteMode } =
+    usePerformanceStore();
+
+  // Price alert WebSocket status for global connection indicator
+  const { status: priceAlertStatus } = usePriceAlerts();
 
   useEffect(() => {
     detectAndSetLiteMode();
-  }, [detectAndSetLiteMode]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
 
     const hydrateOfflineState = async () => {
+      if (hydrationInProgressRef.current) return;
+
+      hydrationInProgressRef.current = true;
+
       try {
         const storedState = await loadAppState();
-        if (!cancelled && storedState?.preferredLang) {
-          setPreferredLang(storedState.preferredLang);
+
+        if (
+          !cancelled &&
+          storedState &&
+          typeof storedState === "object"
+        ) {
+          if (
+            typeof storedState.preferredLang === "string" &&
+            storedState.preferredLang.trim()
+          ) {
+            setPreferredLang(storedState.preferredLang);
+          }
         }
       } catch (error) {
-        console.warn("Failed to restore offline app state:", error);
+        console.warn(
+          "Failed to restore offline app state:",
+          error
+        );
+      } finally {
+        hydrationInProgressRef.current = false;
       }
     };
 
     const syncQueuedRequests = async () => {
+      if (offlineSyncInProgressRef.current) return;
+
+      offlineSyncInProgressRef.current = true;
+
       try {
         await syncOfflineRequests();
       } catch (error) {
-        console.warn("Offline request sync failed:", error);
+        console.warn(
+          "Offline request sync failed:",
+          error
+        );
+      } finally {
+        offlineSyncInProgressRef.current = false;
       }
     };
 
@@ -269,30 +405,54 @@ function App() {
     void syncQueuedRequests();
 
     const handleOnline = () => {
+      if (cancelled) return;
       setIsOffline(false);
       void syncQueuedRequests();
     };
 
-    const handleOffline = () => setIsOffline(true);
+    const handleOffline = () => {
+      if (cancelled) return;
+      setIsOffline(true);
+    };
 
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
 
     return () => {
       cancelled = true;
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
+
+      window.removeEventListener(
+        "online",
+        handleOnline
+      );
+
+      window.removeEventListener(
+        "offline",
+        handleOffline
+      );
     };
   }, []);
 
   useEffect(() => {
-    void persistAppState({ preferredLang });
+    if (
+      !preferredLang ||
+      lastPersistedLangRef.current === preferredLang
+    ) {
+      return;
+    }
+
+    lastPersistedLangRef.current = preferredLang;
+
+    void persistAppState({
+      preferredLang,
+      persistedAt: Date.now(),
+    });
   }, [preferredLang]);
 
-  const { i18n } = useTranslation();
   const location = useLocation();
 
   useNotifications();
+
   useBrowserCacheBudget({
     enabled: true,
     usageRatioLimit: liteMode ? 0.72 : 0.85,
@@ -300,71 +460,100 @@ function App() {
 
   /* ---------------- THEME SYSTEM (Moved to ThemeProvider) ---------------- */
 
-  /* ---------------- LANGUAGE AUTO-TRANS ---------------- */
-  useEffect(() => {
-    if (applyGoogleTranslate(preferredLang)) return;
+/* ---------------- LANGUAGE AUTO-TRANS ---------------- */
 
-    let retries = 0;
-    const MAX_RETRIES = 20; // Try for ~6 seconds
+useEffect(() => {
+  let cancelled = false;
 
-    const id = setInterval(() => {
-      retries++;
-      if (applyGoogleTranslate(preferredLang)) {
-        clearInterval(id);
-      } else if (retries >= MAX_RETRIES) {
-        clearInterval(id);
-        console.warn("Google Translate widget initialization timed out or was blocked. Graceful fallback applied.");
+  const synchronizeTranslation = async () => {
+    if (!preferredLang || cancelled) return;
+
+    // Skip redundant sync
+    if (lastAppliedLanguage === preferredLang) {
+      return;
+    }
+
+    // Fast path
+    if (applyGoogleTranslate(preferredLang)) {
+      return;
+    }
+
+    // Robust fallback path
+    await applyGoogleTranslateRobust(
+      preferredLang,
+      {
+        onReady: () => {
+          console.log(
+            "Google Translate synchronized successfully"
+          );
+        },
+
+        onError: () => {
+          console.warn(
+            "Translation fallback active"
+          );
+        },
       }
-    }, 300);
+    );
+  };
 
-    return () => clearInterval(id);
-    const applyTranslation = async () => {
-      if (applyGoogleTranslate(preferredLang)) return;
+  void synchronizeTranslation();
 
-      try {
-        await applyGoogleTranslateRobust(
-          preferredLang,
-          () => console.log("Google Translate initialized successfully"),
-          () => console.warn("Google Translate unavailable - using default language")
-        );
-      } catch (error) {
-        console.warn("Translation initialization failed - graceful fallback applied");
-      }
-    };
+  const handleWidgetLoad = () => {
+    if (cancelled) return;
 
-    applyTranslation();
+    if (!applyGoogleTranslate(preferredLang)) {
+      void applyGoogleTranslateRobust(
+        preferredLang,
+        { retry: false }
+      );
+    }
+  };
 
-    const handleWidgetLoad = () => {
-      if (!applyGoogleTranslate(preferredLang)) {
-        applyGoogleTranslateRobust(preferredLang);
-      }
-    };
+  document.addEventListener(
+    "googleTranslateWidgetLoaded",
+    handleWidgetLoad
+  );
 
-    const widgetCheckInterval = setInterval(() => {
-      if (document.querySelector(".goog-te-combo") && !applyGoogleTranslate(preferredLang)) {
-        applyGoogleTranslateRobust(preferredLang);
-      }
-    }, 2000);
+  return () => {
+    cancelled = true;
 
-    document.addEventListener("googleTranslateWidgetLoaded", handleWidgetLoad);
+    document.removeEventListener(
+      "googleTranslateWidgetLoaded",
+      handleWidgetLoad
+    );
 
-    return () => {
-      clearInterval(widgetCheckInterval);
-      document.removeEventListener("googleTranslateWidgetLoaded", handleWidgetLoad);
-    };
-  }, [preferredLang]);
+    if (googleTranslateObserver) {
+      googleTranslateObserver.disconnect();
+      googleTranslateObserver = null;
+    }
 
-  /* ---------------- HIDE GOOGLE TRANSLATE BANNER ---------------- */
+    if (googleTranslateRetryTimeout) {
+      clearTimeout(
+        googleTranslateRetryTimeout
+      );
+
+      googleTranslateRetryTimeout = null;
+    }
+  };
+}, [preferredLang]);
+
   useEffect(() => {
     const hideGoogleTranslateBanner = () => {
-      const bannerFrame = document.querySelector(".goog-te-banner-frame");
+      const bannerFrame = document.querySelector(
+        ".goog-te-banner-frame"
+      );
+
       if (bannerFrame) {
         bannerFrame.style.display = "none";
       }
 
       document.body.style.top = "0px";
 
-      const translateElement = document.querySelector(".goog-te-balloon-frame");
+      const translateElement = document.querySelector(
+        ".goog-te-balloon-frame"
+      );
+
       if (translateElement) {
         translateElement.style.display = "none";
       }
@@ -372,99 +561,189 @@ function App() {
 
     hideGoogleTranslateBanner();
 
-    const interval = setInterval(hideGoogleTranslateBanner, 1000);
+    const interval = setInterval(
+      hideGoogleTranslateBanner,
+      1000
+    );
 
     return () => clearInterval(interval);
   }, []);
 
-  /* ---------------- AUTH & FIRESTORE SYNC ---------------- */
   useEffect(() => {
     if (!isFirebaseConfigured()) {
+      const timeout = setTimeout(
+        () => setLoading(false),
+        3000
+      );
+
       setLoading(false);
-      return;
+
+      return () => clearTimeout(timeout);
     }
 
-    const userDocUnsubscribeRef = { current: null };
+    const userDocUnsubscribeRef = {
+      current: null,
+    };
 
-    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
+    const unsubscribeAuth = onAuthStateChanged(
+      auth,
+      (currentUser) => {
+        setUser(currentUser);
 
-      const hydrateUserSnapshot = async () => {
-        if (!currentUser?.uid) return false;
-        try {
-          const snapshot = await loadUserProfileSnapshot(currentUser.uid);
-          if (snapshot) {
-            setUserData(normalizeUserProfile(snapshot));
-            setProfileCompleted(snapshot.profileCompleted === true);
-            return true;
+        const hydrateUserSnapshot = async () => {
+          if (
+            !currentUser?.uid ||
+            restoredSnapshotRef.current
+          ) {
+            return false;
           }
-        } catch (error) {
-          console.warn("Failed to restore offline user profile snapshot:", error);
-        }
-        return false;
-      };
 
-      if (currentUser) {
-        userDocUnsubscribeRef.current = onSnapshot(doc(db, "users", currentUser.uid), (userDoc) => {
-          if (userDoc.exists()) {
-            const data = normalizeUserProfile(userDoc.data());
-            setUserData(data);
-            setProfileCompleted(data.profileCompleted === true);
-          } else if (currentUser.isAnonymous) {
-            setUserData({ displayName: "Guest Farmer", isAnonymous: true });
-            setProfileCompleted(true);
-          } else {
-            setUserData(null);
-            setProfileCompleted(false);
-            void hydrateUserSnapshot().finally(() => setLoading(false));
-            return;
+          restoredSnapshotRef.current = true;
+
+          try {
+            const snapshot =
+              await loadUserProfileSnapshot(
+                currentUser.uid
+              );
+
+            if (
+              snapshot &&
+              typeof snapshot === "object"
+            ) {
+              const normalizedSnapshot =
+                normalizeUserProfile(snapshot);
+
+              setUserData(normalizedSnapshot);
+
+              setProfileCompleted(
+                normalizedSnapshot.profileCompleted === true
+              );
+
+              return true;
+            }
+          } catch (error) {
+            console.warn(
+              "Failed to restore offline user profile snapshot:",
+              error
+            );
           }
-          setLoading(false);
-        }, (error) => {
-          console.error("Firestore sync error:", error);
+
+          return false;
+        };
+
+        if (currentUser) {
+          userDocUnsubscribeRef.current = onSnapshot(
+            doc(db, "users", currentUser.uid),
+            (userDoc) => {
+              if (userDoc.exists()) {
+                const data = normalizeUserProfile(
+                  userDoc.data()
+                );
+
+                setUserData(data);
+
+                setProfileCompleted(
+                  data.profileCompleted === true
+                );
+
+                restoredSnapshotRef.current = false;
+              } else if (currentUser.isAnonymous) {
+                setUserData({
+                  displayName: "Guest Farmer",
+                  isAnonymous: true,
+                });
+
+                setProfileCompleted(true);
+              } else {
+                setUserData(null);
+                setProfileCompleted(false);
+
+                void hydrateUserSnapshot().finally(() =>
+                  setLoading(false)
+                );
+
+                return;
+              }
+
+              setLoading(false);
+            },
+            (error) => {
+              console.error(
+                "Firestore sync error:",
+                error
+              );
+
+              setUserData(null);
+              setProfileCompleted(false);
+
+              void hydrateUserSnapshot().finally(() =>
+                setLoading(false)
+              );
+            }
+          );
+        } else {
+          restoredSnapshotRef.current = false;
           setUserData(null);
-          setProfileCompleted(false);
-          void hydrateUserSnapshot().finally(() => setLoading(false));
-        });
-      } else {
-        setUserData(null);
-        setProfileCompleted(true);
-        setLoading(false);
+          setProfileCompleted(true);
+          setLoading(false);
+        }
       }
-    });
+    );
 
     return () => {
       unsubscribeAuth();
+
       if (userDocUnsubscribeRef.current) {
         userDocUnsubscribeRef.current();
       }
     };
   }, []);
 
-  // E2EE Key Generation Sync
   useEffect(() => {
     if (!user || !isFirebaseConfigured()) return;
 
     const ensurePublicKey = async () => {
       try {
-        let { publicJwk } = await cryptoService.ensureKeys(user.uid);
+        let { publicJwk } =
+          await cryptoService.ensureKeys(user.uid);
 
         if (!publicJwk) {
-          const publicKeySnap = await getDoc(doc(db, "public_keys", user.uid));
+          const publicKeySnap = await getDoc(
+            doc(db, "public_keys", user.uid)
+          );
+
           if (publicKeySnap.exists()) {
             publicJwk = publicKeySnap.data().jwk;
-            await cryptoService.savePublicKey(user.uid, publicJwk);
+
+            await cryptoService.savePublicKey(
+              user.uid,
+              publicJwk
+            );
           }
         }
 
         if (!publicJwk) {
-          throw new Error("ECDH public key unavailable after initialization");
+          throw new Error(
+            "ECDH public key unavailable after initialization"
+          );
         }
 
-        const pubKeyRef = doc(db, "public_keys", user.uid);
-        await setDoc(pubKeyRef, { jwk: publicJwk }, { merge: true });
+        const pubKeyRef = doc(
+          db,
+          "public_keys",
+          user.uid
+        );
+
+        await setDoc(
+          pubKeyRef,
+          { jwk: publicJwk },
+          { merge: true }
+        );
       } catch (error) {
-        console.error("Failed to generate/publish ECDH keys globally:", error);
+        console.error(
+          "Failed to generate/publish ECDH keys globally:",
+          error
+        );
       }
     };
 
@@ -481,18 +760,6 @@ function App() {
     });
   }, [user?.uid, userData, profileCompleted]);
 
-  // Online/Offline detection
-  useEffect(() => {
-    const handleOnline = () => setIsOffline(false);
-    const handleOffline = () => setIsOffline(true);
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
-  }, []);
-
   // Scroll to Top logic
   useEffect(() => {
     const handleScroll = () => {
@@ -502,19 +769,32 @@ function App() {
       const progress = totalHeight > 0 ? (window.scrollY / totalHeight) * 100 : 0;
       setScrollProgress(progress);
     };
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Click outside scorecard
+  // Scroll to Top logic - removed duplicate
+
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (scorecardRef.current && !scorecardRef.current.contains(event.target)) {
+      if (
+        scorecardRef.current &&
+        !scorecardRef.current.contains(
+          event.target
+        )
+      ) {
         setShowScorecard(false);
       }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+
+    document.addEventListener(
+      "mousedown",
+      handleClickOutside
+    );
+
+    return () =>
+      document.removeEventListener(
+        "mousedown",
+        handleClickOutside
+      );
   }, []);
 
   const handleThemeToggle = toggleTheme;
@@ -525,6 +805,16 @@ function App() {
   const handleLogout = async () => {
     try {
       await signOut(auth);
+      await Promise.allSettled([
+        clearOfflineData(),
+        clearOfflineRequests(),
+        new Promise((resolve, reject) => {
+          const req = indexedDB.deleteDatabase("fasal_e2ee");
+          req.onsuccess = resolve;
+          req.onerror = () => reject(req.error);
+          req.onblocked = resolve;
+        }),
+      ]);
       window.location.href = "/";
     } catch (error) {
       console.error("Sign out error:", error);
@@ -553,17 +843,19 @@ function App() {
         </div>
 
         <ul className={`nav-center ${isOpen ? "active" : ""}`}>
-          <li><Link to="/" onClick={() => setIsOpen(false)}>Home</Link></li>
-          <li><Link to="/about" onClick={() => setIsOpen(false)}>About</Link></li>
-          <li><Link to="/how-it-works" onClick={() => setIsOpen(false)}>How It Works</Link></li>
-          <li><Link to="/crop-guide" onClick={() => setIsOpen(false)}> Crop Guide</Link></li>
-          <li><Link to="/resources" onClick={() => setIsOpen(false)}>Resources</Link></li>
+          <li><NavLink to="/" onClick={() => setIsOpen(false)}>Home</NavLink></li>
+          <li><NavLink to="/about" onClick={() => setIsOpen(false)}>About</NavLink></li>
+          <li><NavLink to="/how-it-works" onClick={() => setIsOpen(false)}>How It Works</NavLink></li>
+          <li><NavLink to="/crop-guide" onClick={() => setIsOpen(false)}> Crop Guide</NavLink></li>
+          <li><NavLink to="/resources" onClick={() => setIsOpen(false)}>Resources</NavLink></li>
         </ul>
 
         <div className="nav-right">
           <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Cycle Theme" title={`Current theme: ${theme}`}>
             {theme === "light" ? "🌙" : theme === "dark" ? "☀️" : "🌙"}
           </button>
+
+          <SyncBadge />
 
           <button
             onClick={(e) => { e.stopPropagation(); setShowMoreMenu(!showMoreMenu); }}
@@ -585,7 +877,11 @@ function App() {
                     onChange={(lang) => {
                       setPreferredLang(lang);
                       i18n.changeLanguage(lang);
-                      localStorage.setItem("agri:preferredLanguage", lang);
+                      try {
+                        sessionStorage.setItem("agri:preferredLanguage", lang);
+                      } catch (error) {
+                        console.warn("Unable to persist language preference");
+                      }
                       void persistAppState({ preferredLang: lang });
                     }}
                   />
@@ -612,6 +908,8 @@ function App() {
                   </div>
                 </div>
                 <Link to="/voice-assistant" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMicrophone /> Voice Assistant</Link>
+                <Link to="/myth-checker" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMedal /> Myth Checker</Link>
+                <Link to="/crop-comparison" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaLeaf /> Crop Comparison</Link>
                 <div className="performance-toggle-section">
                   <button
                     className={`lite-mode-toggle ${liteMode ? 'active' : ''}`}
@@ -638,7 +936,7 @@ function App() {
                 <Link to="/risk-index" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Risk Index</Link>
                 <Link to="/farm-finance" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaFileInvoiceDollar /> Farm Finance</Link>
                 <Link to="/glossary" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaBook /> Glossary</Link>
-                <Link to="/about" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> About Us</Link>
+                <Link to="/feature-drift" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> Feature Drift Monitor</Link>
                 <Link to="/contact" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> Contact</Link>
               </div>
             </div>
@@ -731,13 +1029,13 @@ function App() {
             <Route path="/" element={<Home user={user} />} />
             <Route path="/advisor" element={<Advisor userData={userData} />} />
             <Route path="/how-it-works" element={<How />} />
-            <Route path="/dashboard" element={<Dashboard userData={userData} />} />
+            <Route path="/dashboard" element={<Dashboard userData={userData} wsStatus={priceAlertStatus} />} />
             <Route path="/crop-guide" element={<CropGuide />} />
             <Route path="/schemes" element={<Schemes />} />
             <Route path="/resources" element={<Resources />} />
             <Route path="/login" element={<Auth />} />
             <Route path="/profile-setup" element={<ProfileSetup user={user} profileCompleted={profileCompleted} />} />
-            <Route path="/calendar" element={<Calendar />} />
+            <Route path="/calendar" element={<Calendar userData={userData} />} />
             <Route path="/share-feedback" element={<Feedback />} />
             <Route path="/admin/feedback" element={<AdminFeedback />} />
             <Route path="/market-prices" element={<MarketPrices />} />
@@ -758,6 +1056,7 @@ function App() {
             <Route path="/crop-planner" element={<SeasonalCropPlanner />} />
             <Route path="/soil-guide" element={<SoilGuide />} />
             <Route path="/disease-awareness" element={<CropDiseaseAwareness />} />
+            <Route path="/seasonal-pest-calendar" element={<PestCalendar />} />
             <Route path="/pest-detection" element={<PestDetection />} />
             <Route path="/equipment-management" element={<EquipmentManagement />} />
             <Route path="/compensation-calculator" element={<CompensationCalculator />} />
@@ -767,9 +1066,11 @@ function App() {
             <Route path="/crop-rotation" element={<CropRotation />} />
             <Route path="/seed-verifier" element={<SeedVerifier />} />
             <Route path="/farm-finance" element={<FarmFinance />} />
+            <Route path="/feature-drift" element={<FeatureDriftMonitor />} />
             <Route path="/farming-news" element={<FarmingNews userData={userData} />} />
             <Route path="/yield-predictor" element={<YieldPredictor />} />
             <Route path="/smart-farm-autopilot" element={<SmartFarmAutopilot />} />
+
             <Route
               path="/sustainability-analytics"
               element={<SustainabilityAnalyticsPage userData={userData} />}
@@ -778,6 +1079,31 @@ function App() {
             <Route path="/blog/:id" element={<BlogDetail />} />
             <Route path="/weather" element={<Weather />} />
             <Route path="/voice-assistant" element={<VoiceAssistant />} />
+            <Route
+  path="/spray-scheduler"
+  element={
+    <SprayScheduler
+      schedules={[
+        { crop: "Wheat", pest: "Rust", product: "Fungicide A", date: "2026-06-10", status: "upcoming" },
+        { crop: "Rice", pest: "Blast", product: "Fungicide B", date: "2026-06-07", status: "today" },
+        { crop: "Maize", pest: "Stem Borer", product: "Insecticide C", date: "2026-06-05", status: "overdue" },
+      ]}
+    />
+  }
+/>
+
+            <Route path="/prediction-explainer" element={<PredictionExplainer />} />
+            <Route path="/retraining-monitor" element={<RetrainingPipelineMonitor />} />
+            <Route path="/insurance-claim" element={<CropInsuranceClaim />} />
+            <Route
+              path="/myth-checker"
+              element={
+                <div className="app-content">
+                  <FarmingMythChecker />
+                </div>
+              }
+            />
+            <Route path="/crop-comparison" element={<CropComparison />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </React.Suspense>
