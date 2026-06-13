@@ -10,9 +10,11 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
 from advisory_rules import generate_advisories
+from backend.core.logging_config import setup_logging
 
 
 router = APIRouter()
+logger = setup_logging(__name__)
 _MAX_STORED_ALERTS = 50
 _MAX_STORED_GRAPH_HISTORY = 25
 
@@ -274,6 +276,45 @@ def _market_score(market: dict[str, Any]) -> int:
 
     return max(0, min(100, score))
 
+def _calculate_recommendation_priority(
+    severity_score: int,
+    impact_score: int,
+    urgency_score: int,
+    confidence_score: int,
+) -> dict:
+
+    priority_score = round(
+        (
+            severity_score * 0.4
+            + impact_score * 0.3
+            + urgency_score * 0.2
+            + confidence_score * 0.1
+        ),
+        2,
+    )
+
+    if priority_score >= 80:
+        priority = "critical"
+    elif priority_score >= 65:
+        priority = "high"
+    elif priority_score >= 45:
+        priority = "medium"
+    else:
+        priority = "low"
+
+    return {
+        "priority": priority,
+        "priority_score": priority_score,
+    }
+
+
+def _sort_recommendations(recommendations: list) -> list:
+    return sorted(
+        recommendations,
+        key=lambda x: x["priority_score"],
+        reverse=True,
+    )
+
 
 def _build_farm_graph(payload: "FarmIntelligenceRequest") -> dict[str, Any]:
     weather = payload.weather or {}
@@ -343,53 +384,107 @@ def _build_farm_graph(payload: "FarmIntelligenceRequest") -> dict[str, Any]:
         reasoning.append("Market pressure is moderate, so harvest timing should stay aligned with crop readiness.")
 
     recommendations = []
-    if pest_risk >= 60:
-        recommendations.append(
-            {
-                "title": "Escalate pest scouting",
-                "priority": "high",
-                "action": "Inspect the crop canopy within 24 hours and prepare a targeted pest control plan.",
-                "why": "Weather and pest signals are aligning to raise outbreak risk.",
-            }
-        )
-    else:
-        recommendations.append(
-            {
-                "title": "Keep routine scouting",
-                "priority": "medium",
-                "action": "Continue field inspection on the normal schedule and watch for local pest spikes.",
-                "why": "Current conditions do not indicate a sharp pest surge.",
-            }
-        )
+    priority_data = _calculate_recommendation_priority(
+        severity_score=pest_risk,
+        impact_score=85,
+        urgency_score=90,
+        confidence_score=80,
+    )
 
-    if irrigation_score >= 55:
-        recommendations.append(
-            {
-                "title": "Adjust irrigation",
-                "priority": "high",
-                "action": "Use short early-morning irrigation and avoid overwatering until the next weather update.",
-                "why": "Weather and soil moisture together point to higher water stress.",
-            }
-        )
-    else:
-        recommendations.append(
-            {
-                "title": "Delay irrigation",
-                "priority": "low",
-                "action": "Hold irrigation unless the field dries out faster than expected.",
-                "why": "Stored moisture and forecast rainfall cover the near-term demand.",
-            }
-        )
+    recommendations.append(
+        {
+            "title": (
+                "Escalate pest scouting"
+                if pest_risk >= 60
+                else "Keep routine scouting"
+            ),
+            "action": (
+                "Inspect the crop canopy within 24 hours and prepare a targeted pest control plan."
+                if pest_risk >= 60
+                else "Continue field inspection on the normal schedule and watch for local pest spikes."
+            ),
+            "why": (
+                "Weather and pest signals are aligning to raise outbreak risk."
+                if pest_risk >= 60
+                else "Current conditions do not indicate a sharp pest surge."
+            ),
+            **priority_data,
+            "priority_reason": "Pest outbreaks can rapidly affect crop health and yield.",
+        }
+    )
+
+    priority_data = _calculate_recommendation_priority(
+        severity_score=irrigation_score,
+        impact_score=75,
+        urgency_score=70,
+        confidence_score=85,
+    )
+
+    recommendations.append(
+        {
+            "title": (
+                "Adjust irrigation"
+                if irrigation_score >= 55
+                else "Delay irrigation"
+            ),
+            "action": (
+                "Use short early-morning irrigation and avoid overwatering until the next weather update."
+                if irrigation_score >= 55
+                else "Hold irrigation unless the field dries out faster than expected."
+            ),
+            "why": (
+                "Weather and soil moisture together point to higher water stress."
+                if irrigation_score >= 55
+                else "Stored moisture and forecast rainfall cover the near-term demand."
+            ),
+            **priority_data,
+            "priority_reason": "Water stress has a direct impact on crop growth and yield.",
+        }
+    )
 
     if market_score >= 60:
+        priority_data = _calculate_recommendation_priority(
+            severity_score=market_score,
+            impact_score=60,
+            urgency_score=45,
+            confidence_score=75,
+        )
+
         recommendations.append(
             {
                 "title": "Plan the sell window",
-                "priority": "medium",
                 "action": "Track market movement over the next few days before committing to a sale.",
                 "why": "The current market trend supports a better selling window.",
+                **priority_data,
+                "priority_reason": "Market timing may significantly influence profitability.",
             }
         )
+
+    recommendations = _sort_recommendations(
+        recommendations
+    )
+
+    priority_summary = {
+        "highest_priority": (
+            recommendations[0]["priority"]
+            if recommendations else None
+        ),
+        "highest_priority_score": (
+            recommendations[0]["priority_score"]
+            if recommendations else None
+        ),
+        "critical_recommendations": sum(
+            1
+            for recommendation in recommendations
+            if recommendation["priority"] == "critical"
+        ),
+        "high_priority_recommendations": sum(
+            1
+            for recommendation in recommendations
+            if recommendation["priority"] in ["high", "critical"]
+        ),
+        "recommendation_count": len(recommendations),
+    }
 
     return {
         "graph": {
@@ -398,6 +493,7 @@ def _build_farm_graph(payload: "FarmIntelligenceRequest") -> dict[str, Any]:
         },
         "reasoning": reasoning,
         "recommendations": recommendations,
+        "priority_summary": priority_summary,
         "summary": " | ".join(reasoning[:3]),
         "scores": {
             "pest_risk": pest_risk,

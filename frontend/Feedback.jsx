@@ -119,16 +119,58 @@ export default function Feedback() {
 
     setLoading(true);
     try {
-      const sanitized = sanitizeFeedbackData(feedbackData);
-      const result = await submitFeedback(sanitized);
+      const user = auth?.currentUser;
+      
+      // Prepare data for API submission
+      const feedbackData = {
+        userId: user?.uid || "anonymous",
+        userEmail: user?.email || "anonymous",
+        name: form.name || (user?.displayName ?? "Anonymous"),
+        cropType: form.cropType,
+        location: form.location,
+        category: form.category,
+        message: form.message,
+        rating: form.rating,
+      };
+
+      // Submit to secure backend API instead of direct Firestore write
+      const response = await fetch("/api/feedback", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(feedbackData),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        // Map HTTP status codes to user-facing messages instead of
+        // relying on server-side wording that may change.
+        const statusMessages = {
+          400: "Your feedback contains invalid characters. Please remove any special symbols and try again.",
+          413: "Feedback message is too large. Please shorten your message.",
+          415: "Unsupported content type. Please refresh and try again.",
+          422: "Please enter a valid feedback message and rating (1\u20135 stars).",
+          429: "Too many requests. Please wait a moment before submitting again.",
+        };
+        throw new Error(
+          statusMessages[response.status]
+          || result.detail || result.error
+          || "Failed to submit feedback"
+        );
+      }
+
       if (!result.success) {
         throw new Error(result.error);
       }
       setSubmitted(true);
     } catch (err) {
       console.error("Feedback submit error:", err);
-      const errorMessage = err.message || "Failed to submit feedback. Please try again.";
-      setError(errorMessage);
+      
+      // User-friendly error messages — err.message is a pre-resolved
+      // user-facing string from the status-code mapping above.
+      setError(err.message || "Failed to submit feedback. Please try again.");
     } finally {
       setLoading(false);
     }
