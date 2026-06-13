@@ -453,6 +453,36 @@ class TestSupplyChainBlockchain:
         )
         assert result is True, "Round-trip proof verification must succeed for unmodified batch"
 
+    def test_blockchain_records_timestamp_is_utc_aware(self, blockchain):
+        """Test that created batches and smart contracts have timezone-aware UTC timestamps."""
+        batch = blockchain.create_product_batch(
+            crop_type="tomato",
+            farm_id="FARM001",
+            quantity=100.0,
+            unit="kg",
+            planting_date="2026-01-15",
+            harvesting_date="2026-04-20",
+            farmer_name="Raj Kumar"
+        )
+        
+        # Check batch record timestamp
+        batch_record = blockchain.chain[-1]
+        assert batch_record.timestamp.endswith("+00:00") or batch_record.timestamp.endswith("Z")
+        dt_batch = datetime.fromisoformat(batch_record.timestamp)
+        assert dt_batch.tzinfo is not None
+
+        # Check smart contract record timestamp
+        contract = blockchain.create_smart_contract(
+            batch_id=batch.batch_id,
+            seller="Farmer",
+            buyer="Distributor",
+            price=15000.0
+        )
+        contract_record = blockchain.chain[-1]
+        assert contract_record.timestamp.endswith("+00:00") or contract_record.timestamp.endswith("Z")
+        dt_contract = datetime.fromisoformat(contract_record.timestamp)
+        assert dt_contract.tzinfo is not None
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
