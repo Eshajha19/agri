@@ -32,6 +32,7 @@ export const SoilGuide = lazyPage(() => import('../SoilGuide'));
 export const CropDiseaseAwareness = lazyPage(() => import('../CropDiseaseAwareness'));
 export const PestDetection = lazyPage(() => import('../PestDetection'));
 export const EquipmentManagement = lazyPage(() => import('../EquipmentManagement'));
+export const CompensationCalculator = lazyPage(() => import('../CompensationCalculator'));
 export const Helpline = lazyPage(() => import('../Helpline'));
 export const Glossary = lazyPage(() => import('../Glossary'));
 export const RiskIndex = lazyPage(() => import('../RiskIndex'));
