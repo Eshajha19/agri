@@ -15,8 +15,35 @@ from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
 
 from backend.utils.safe_log import sanitize_log_field
 
+from celery.exceptions import TimeoutError, SoftTimeLimitExceeded
+
+
 # Expose sanitizer globally so routers can use it
 sanitise_log_field_fn = sanitize_log_field
+
+
+
+def get_task_result(task, timeout: int = 30):
+    try:
+        return task.get(timeout=timeout)
+    except TimeoutError:
+        # map to 504 Gateway Timeout
+        raise HTTPException(status_code=504, detail="Prediction timed out")
+    except SoftTimeLimitExceeded:
+        raise HTTPException(status_code=504, detail="Prediction exceeded time limit")
+    except ValueError as e:
+        # validation error from model
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        # catch-all for broker/unknown errors
+        raise HTTPException(status_code=500, detail=f"Internal error: {e}")
+
+@app.post("/predict")
+async def predict(payload: InputSchema):
+    task = celery_app.send_task("predict", args=[payload.dict()])
+    result = await run_in_executor(lambda: get_task_result(task))
+    return result
+
 
 class CSPMiddleware:
     """Add Content-Security-Policy header to every response."""
