@@ -40,36 +40,6 @@ class SubscribeCrops(BaseModel):
     class Config:
         extra = "forbid"
 
-ALLOWED_TYPES = {
-    "delivery_ack": DeliveryAck,
-    "subscribe_crops": SubscribeCrops,
-}
-
-def validate_ws_payload(payload: dict):
-    msg_type = payload.get("type")
-    schema = ALLOWED_TYPES.get(msg_type)
-    if not schema:
-        raise ValueError(f"Unknown message type: {msg_type}")
-    return schema(**payload)
-
-async def _handle_inbound(self, ws, payload: dict):
-    try:
-        validated = validate_ws_payload(payload)
-    except ValueError as e:
-        # Reject unknown type with structured error or close
-        await ws.send_json({"error": str(e)})
-        await ws.close(code=1003)  # Unsupported data
-        return
-    except Exception as e:
-        await ws.send_json({"error": "Invalid schema"})
-        return
-
-    # Now handle only validated types
-    if validated.type == "delivery_ack":
-        self._process_delivery_ack(validated)
-    elif validated.type == "subscribe_crops":
-        self._process_subscribe_crops(validated)
-
 
 from notification_auth import filter_notifications_for_user, notification_visible_to_user
 
@@ -243,7 +213,7 @@ class NotificationBroadcastHub:
     def seed_notifications(self, notifications: Iterable[Dict[str, Any]]) -> None:
         """Seed the local history from existing notifications (deduplicated)."""
         for notification in notifications:
-            if not self._is_duplicate(notification):
+            if not self._is_duplicate_notification_by_content(notification):
                 self._history.append(notification)
 
     async def snapshot(self) -> list[Dict[str, Any]]:
@@ -408,7 +378,7 @@ class NotificationBroadcastHub:
         h = self._compute_dedup_hash(payload)
         now = asyncio.get_event_loop().time()
         async with self._history_lock:
-            if not self._is_duplicate(notification):
+            if not self._is_duplicate_notification_by_content(notification):
                 self._history.append(notification)
 
         async with self._connections_lock:
@@ -619,7 +589,7 @@ class NotificationBroadcastHub:
                             # Import here to avoid circular dependency at
                             # module level; profile lookup is cheap (cached
                             # in main.py's _get_firestore_user_profile).
-                            profile = self._get_profile_fn(sub.uid) if self._get_profile_fn else {}
+                            profile = self._get_profile_for_uid(sub.uid)
                             requested = parsed.get("regions", [])
                             new_regions = frozenset(
                                 resolve_subscription_regions(profile, requested)
@@ -647,10 +617,9 @@ class NotificationBroadcastHub:
                                     "type": "subscribed_regions",
                                     "regions": sorted(new_regions),
                                 }
-                         
-             await websocket.receive_text()
+                            )
         except WebSocketDisconnect:
-            logger.debug("WebSocket client disconnected')
+            logger.debug("WebSocket client disconnected")
         except asyncio.CancelledError:
             pass
         finally:
@@ -664,6 +633,15 @@ class NotificationBroadcastHub:
     def set_profile_lookup(self, fn: callable) -> None:
         """Inject the Firestore profile-lookup function (called by main.py lifespan)."""
         self._get_profile_fn = fn
+
+    def _get_profile_for_uid(self, uid: str) -> dict:
+        """Fetch the Firestore profile for *uid*, returning {} on any failure."""
+        if self._get_profile_fn is None:
+            return {}
+        try:
+            return self._get_profile_fn(uid) or {}
+        except Exception:
+            return {}
 
     @staticmethod
     def _validate_delivery_ack(msg: Dict[str, Any]) -> tuple[bool, str]:
@@ -732,6 +710,34 @@ class NotificationBroadcastHub:
                 return False, f"regions[{i}] must be a non-empty string <= 100 chars"
  
         return True, ""
+
+    def _is_duplicate_notification_by_content(self, notification: Dict[str, Any]) -> bool:
+        """Check if notification content is a recent duplicate based on hash."""
+        # Use deterministic hash to detect duplicates
+        payload = {
+            k: v for k, v in notification.items() 
+            if k in self.DEDUP_FIELDS
+        }
+        h = self._compute_dedup_hash(payload)
+        
+        now = time.time()
+        if h in self._recent_hashes:
+            # Check if within TTL
+            if now - self._recent_hashes[h] < self._dedup_window:
+                return True
+        
+        # Not a duplicate, record it
+        self._recent_hashes[h] = now
+        
+        # Cleanup old entries periodically
+        if len(self._recent_hashes) > 1000:
+            cutoff = now - self._dedup_window
+            self._recent_hashes = {
+                k: v for k, v in self._recent_hashes.items()
+                if v >= cutoff
+            }
+        
+        return False
 
     async def _broadcast(
         self, payload: Dict[str, Any], clients: list[tuple[WebSocket, _ConnectionSubscription]]
