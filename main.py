@@ -1033,12 +1033,22 @@ app.add_middleware(RBACMiddleware)
 
 # ── Content Security Policy (via HTTP header) ──────────────────────────────
 # frame-ancestors is only effective via HTTP headers, not meta tags.
-# This middleware ensures CSP is set on every response.
+from csp import build_csp_policy, validate_csp_policy
+
+_CSP_POLICY = build_csp_policy()
+_violations = validate_csp_policy(_CSP_POLICY)
+if _violations:
+    logger.warning("CSP policy validation issues: %s", _violations)
+logger.info("Content-Security-Policy: %s", _CSP_POLICY)
+
+
 @app.middleware("http")
 async def add_csp_header(request, call_next):
     response = await call_next(request)
-    response.headers["Content-Security-Policy"] = "frame-ancestors 'self';"
+    response.headers["Content-Security-Policy"] = _CSP_POLICY
     return response
+
+
 logger.info(print_rbac_matrix())
 
 # Import the voice assistant router at module level so app.include_router() can
