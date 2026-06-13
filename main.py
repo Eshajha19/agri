@@ -545,19 +545,16 @@ class NotificationStore:
 
         The ID is assigned from a monotonically increasing counter so
         concurrent calls always produce distinct values.
-        The timestamp is stored as a native datetime object to avoid
-        repeated ISO parsing during TTL checks.
         """
         with self._lock:
-            now = datetime.now()
             entry = {
                 "id": next(self._counter),
                 "type": alert_type,
                 "message": message,
-                "time": now,
+                "time": datetime.now().isoformat(),
             }
             self._deque.append(entry)
-        return {**entry, "time": now.isoformat()}
+        return entry
 
     def get_recent(self) -> list:
         """
@@ -565,22 +562,14 @@ class NotificationStore:
 
         Takes a snapshot under the lock so callers always see a consistent
         view even if append() is running concurrently.
-        Entries with corrupted timestamps are quarantined (skipped) rather
-        than crashing the filtering logic.
         """
         cutoff = datetime.now() - self._ttl
         with self._lock:
             snapshot = list(self._deque)
-        result = []
-        for e in snapshot:
-            ts = e.get("time")
-            if isinstance(ts, datetime):
-                if ts >= cutoff:
-                    result.append({**e, "time": ts.isoformat()})
-            else:
-                # Quarantine corrupt entry — log and skip
-                logger.warning("NotificationStore: quarantining entry with invalid time field: %s", ts)
-        return result
+        return [
+            e for e in snapshot
+            if datetime.fromisoformat(e["time"]) >= cutoff
+        ]
 
 
 # Seed the store with the initial weather advisory that was previously
@@ -1040,6 +1029,16 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
 )
 app.add_middleware(RBACMiddleware)
+
+
+# ── Content Security Policy (via HTTP header) ──────────────────────────────
+# frame-ancestors is only effective via HTTP headers, not meta tags.
+# This middleware ensures CSP is set on every response.
+@app.middleware("http")
+async def add_csp_header(request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = "frame-ancestors 'self';"
+    return response
 logger.info(print_rbac_matrix())
 
 # Import the voice assistant router at module level so app.include_router() can
