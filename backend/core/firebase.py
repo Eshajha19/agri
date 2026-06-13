@@ -1,6 +1,10 @@
+from asyncio.log import logger
+
 import firebase_admin
 from firebase_admin import firestore
+import logging
 
+logger = logging.getLogger(__name__)
 db_firestore = None
 
 
@@ -42,9 +46,13 @@ def get_firestore_user_profile(uid: str):
             .document(uid)
             .get()
         )
-
-    except Exception:
-        return {}
+    except Exception as exc:
+        logger.error(
+        "Firestore profile lookup failed for uid=%s: %s",
+        uid,
+        exc,
+    )
+    raise
 
     if not getattr(user_doc, "exists", False):
         return {}

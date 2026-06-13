@@ -267,6 +267,14 @@ _autoscaler: Optional[CeleryAutoscaler] = None
 
 def get_autoscaler(celery_app: Celery = None, price_forecaster=None) -> CeleryAutoscaler:
     global _autoscaler
+
     if _autoscaler is None:
         _autoscaler = CeleryAutoscaler(celery_app, price_forecaster)
+    else:
+        if celery_app is not None:
+            _autoscaler.celery_app = celery_app
+
+        if price_forecaster is not None:
+            _autoscaler.price_forecaster = price_forecaster
+
     return _autoscaler
