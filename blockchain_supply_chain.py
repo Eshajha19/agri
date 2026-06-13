@@ -24,10 +24,10 @@ class BlockchainRecord:
     action: str
     location: str
     data: Dict
-    hash: str = ""
+    previous_hash: str = ""
 
     def to_dict(self) -> Dict:
-        """Serialize record to dict (hash excluded — matches calculate_hash input)"""
+        """Serialize record to dict (previous_hash excluded — matches calculate_hash input)"""
         return {
             "timestamp": self.timestamp,
             "actor": self.actor,
@@ -37,7 +37,7 @@ class BlockchainRecord:
         }
 
     def calculate_hash(self) -> str:
-        """Calculate SHA256 hash of record (excludes hash field)"""
+        """Calculate SHA256 hash of record (excludes previous_hash field)"""
         record_string = json.dumps(self.to_dict(), sort_keys=True)
         return hashlib.sha256(record_string.encode()).hexdigest()
 
@@ -51,8 +51,8 @@ class BlockchainRecord:
             location=data["location"],
             data=data.get("data", {}),
         )
-        if "hash" in data:
-            record.hash = data["hash"]
+        if "previous_hash" in data:
+            record.previous_hash = data["previous_hash"]
         return record
 
 
@@ -196,7 +196,7 @@ class SupplyChainBlockchain:
                 location=farm_id,
                 data=asdict(batch),
             )
-            record.hash = record.calculate_hash()
+            record.previous_hash = record.calculate_hash()
 
             # Commit changes atomically
             self.products[batch_id] = batch
@@ -247,7 +247,7 @@ class SupplyChainBlockchain:
                 location=location,
                 data=asdict(node),
             )
-            record.hash = record.calculate_hash()
+            record.previous_hash = record.calculate_hash()
 
             # Commit
             self.supply_chain_nodes.setdefault(batch_id, []).append(node)
@@ -294,7 +294,7 @@ class SupplyChainBlockchain:
                 location="contract",
                 data=asdict(contract),
             )
-            record.hash = record.calculate_hash()
+            record.previous_hash = record.calculate_hash()
 
             # Commit
             self.smart_contracts[contract_id] = contract
@@ -330,7 +330,7 @@ class SupplyChainBlockchain:
                     "currency": contract.currency,
                 },
             )
-            record.hash = record.calculate_hash()
+            record.previous_hash = record.calculate_hash()
 
             # Commit state updates atomically
             contract.status = "executed"
@@ -490,7 +490,7 @@ class SupplyChainBlockchain:
     def _verify_blockchain_integrity(self) -> bool:
         """Verify blockchain hasn't been tampered with"""
         for record in self.chain:
-            if record.hash != record.calculate_hash():
+            if record.previous_hash != record.calculate_hash():
                 return False
         return True
 
@@ -553,7 +553,7 @@ class SupplyChainBlockchain:
             location=entry["farm"],
             data={"batch_id": batch_id, "crop": entry["crop"]},
         )
-        record.hash = record.calculate_hash()
+        record.previous_hash = record.calculate_hash()
         self.chain.append(record)
 
         return entry
