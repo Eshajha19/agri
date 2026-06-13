@@ -1471,6 +1471,7 @@ app.add_middleware(
 import csrf_protection as _csrf
 _csrf.configure(_CORS_ORIGINS)
 app.add_middleware(RBACMiddleware)
+app.add_middleware(ErrorRecoveryMiddleware)
 logger.info(print_rbac_matrix())
 
 # Import the voice assistant router at module level so app.include_router() can
