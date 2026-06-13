@@ -1,6 +1,6 @@
 import logging
 import os
-import logging
+import threading
 import joblib
 import numpy as np
 from celery import Celery
@@ -78,15 +78,14 @@ def _get_lag_model():
         with _model_lock:
             if _model_lag is None:
                 try:
-                    _model_lag = joblib.load("sklearn_yield_model.joblib")
+                    if os.path.exists("sklearn_yield_model.joblib"):
+                        _model_lag = joblib.load("sklearn_yield_model.joblib")
+                    elif os.path.exists("sklearn_yield_model.pkl"):
+                        _model_lag = joblib.load("sklearn_yield_model.pkl")
                 except Exception as e:
-                    print(f"Failed to load lag model: {e}")
-        try:
-            _model_lag = joblib.load("sklearn_yield_model.pkl")
-        except Exception as e:
-            logger.error("Failed to load lag model: %s", e)
-    return _model_lag
+                    logger.error("Failed to load lag model: %s", e)
 
+    return _model_lag
 
 def _get_trend_model():
     global _model_trend
@@ -329,14 +328,6 @@ def predict_ensemble_task(self, data: list):
         }
     except Exception as e:
         return {"error": str(e), "type": type(e).__name__}
-
-if __name__ == "__main__":
-    celery_app.start()
-
-    except Exception:
-        logger.exception("Trend prediction task failed")
-        raise
-
 
 @celery_app.task(bind=True, name="process_whatsapp_webhook_task")
 def process_whatsapp_webhook_task(self, body: str, sender_number: str):
