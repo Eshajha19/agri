@@ -150,7 +150,7 @@ class SupplyChainBlockchain:
             "supply_chain_nodes_copy": {k: list(v) for k, v in self.supply_chain_nodes.items()},
             "smart_contracts_copy": _copy.deepcopy(self.smart_contracts),
             "trace_batches_copy": _copy.deepcopy(self._trace_batches),
-            "processed_transaction_ids_copy": OrderedDict(self._processed_transaction_ids),
+            "verified_actors_copy": _copy.deepcopy(self.verified_actors),
         }
 
     def _rollback_to_snapshot(self, snap):
@@ -160,105 +160,30 @@ class SupplyChainBlockchain:
         self.supply_chain_nodes = {k: list(v) for k, v in snap["supply_chain_nodes_copy"].items()}
         self.smart_contracts = _copy.deepcopy(snap["smart_contracts_copy"])
         self._trace_batches = _copy.deepcopy(snap["trace_batches_copy"])
-        self._processed_transaction_ids = OrderedDict(snap["processed_transaction_ids_copy"])
-
-    def _canonical_json(self, payload: Dict) -> str:
-        """Serialize a payload deterministically for hashing/signing."""
-        return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
-
-    def _hash_text(self, text: str) -> str:
-        return hashlib.sha256(text.encode("utf-8")).hexdigest()
-    
-    def _generate_transaction_id(self, payload: Dict) -> str:
-        """Generate deterministic transaction ID for replay protection."""
-        canonical = self._canonical_json(payload)
-        return self._hash_text(canonical)
-
-    def _validate_transaction_uniqueness(self, transaction_id: str) -> None:
-        """Prevent duplicate blockchain transaction processing."""
-        if transaction_id in self._processed_transaction_ids:
-            raise ValueError(
-                f"Duplicate transaction detected: {transaction_id}"
-            )
-
-    def _record_transaction_id(self, transaction_id: str) -> None:
-        """Add a transaction ID to the bounded LRU store."""
-        if transaction_id in self._processed_transaction_ids:
-            return
-        if len(self._processed_transaction_ids) >= self._MAX_TRANSACTION_IDS:
-            self._processed_transaction_ids.popitem(last=False)
-        self._processed_transaction_ids[transaction_id] = None
-
-    def _record_harvest_id(self, harvest_id: str) -> None:
-        """Add harvest_id to dedup set. Rejects duplicates with ValueError."""
-        if harvest_id in self._harvest_ids:
-            raise ValueError(f"Duplicate harvest_id: {harvest_id}")
-        self._harvest_ids.add(harvest_id)
-
-    def _is_duplicate_harvest(self, harvest_id: str) -> bool:
-        return harvest_id in self._harvest_ids
-
-    def _get_harvest_id_from_payload(self, payload: Dict) -> str:
-        """Extract harvest_id from transaction payload deterministically."""
-        return payload.get("harvest_id") or self._generate_transaction_id(payload)
-
-    def _build_trace_proof(self, batch_id: str) -> Dict[str, str]:
-        """Create a tamper-evident proof for a batch and its journey."""
-        batch = self.products.get(batch_id)
-        if batch is None:
-            raise ValueError(f"Batch {batch_id} not found")
-
-        nodes = self.supply_chain_nodes.get(batch_id, [])
-        node_hashes = []
-        for node in nodes:
-            node_hashes.append(self._hash_text(self._canonical_json(asdict(node))))
-
-        batch_payload = self._canonical_json({
-            "batch": asdict(batch),
-            "node_hashes": node_hashes,
-            "chain_length": len(self.chain),
-        })
-        proof_hash = self._hash_text(batch_payload)
-
-        signature = ""
-        if self._qr_signing_secret:
-            signature = hmac.new(self._qr_signing_secret.encode("utf-8"), proof_hash.encode("utf-8"), digestmod=hashlib.sha256).hexdigest()
-
-        latest_hash = self.chain[-1].hash if self.chain else ""
-        return {
-            "proof_hash": proof_hash,
-            "signature": signature,
-            "latest_block_hash": latest_hash,
-        }
-
-    def verify_trace_proof(self, batch_id: str, proof_hash: str, signature: str = "") -> bool:
-        """Verify a QR traceability proof against the current blockchain state."""
-        expected = self._build_trace_proof(batch_id)
-        if proof_hash != expected["proof_hash"]:
-            return False
-        if self._qr_signing_secret:
-            expected_signature = hmac.new(self._qr_signing_secret.encode("utf-8"), proof_hash.encode("utf-8"), digestmod=hashlib.sha256).hexdigest()
-            return hmac.compare_digest(signature or "", expected_signature)
-        return True
-
+        self.verified_actors = _copy.deepcopy(snap["verified_actors_copy"])
 
     # ------------- Core operations -------------
     def register_actor(self, actor_id: str, name: str, actor_type: str, location: str) -> Dict:
-        """Register supply chain participant"""
-        actor_data = {
-            "actor_id": actor_id,
-            "name": name,
-            "type": actor_type,
-            "location": location,
-            "registered_at": datetime.now(timezone.utc).isoformat(),
-            "verified": True,
-            "transactions": 0,
-            "rating": 5.0,
-        }
-        self.verified_actors[actor_id] = actor_data
-        if self._repository is not None:
-            self._repository.save_actor(actor_id, actor_data)
-        return actor_data
+        """Register supply chain participant atomically"""
+        snap = self._snapshot_state()
+        try:
+            actor_data = {
+                "actor_id": actor_id,
+                "name": name,
+                "type": actor_type,
+                "location": location,
+                "registered_at": datetime.now().isoformat(),
+                "verified": True,
+                "transactions": 0,
+                "rating": 5.0,
+            }
+            self.verified_actors[actor_id] = actor_data
+            if self._repository is not None:
+                self._repository.save_actor(actor_id, actor_data)
+            return actor_data
+        except Exception:
+            self._rollback_to_snapshot(snap)
+            raise
 
     def create_product_batch(
         self,
@@ -798,35 +723,35 @@ class SupplyChainBlockchain:
         if batch_id in self._trace_batches:
             raise ValueError(f"Batch {batch_id} is already registered")
 
-        snapshot = self._snapshot_state()
+        snap = self._snapshot_state()
+        try:
+            entry = {
+                "id": batch_id,
+                "crop": payload.get("crop", ""),
+                "variety": payload.get("variety", ""),
+                "harvestDate": payload.get("harvestDate", ""),
+                "farm": payload.get("farm", ""),
+                "status": payload.get("status", "Pending Verification"),
+                "registeredByUid": payload.get("registeredByUid", ""),
+                "registeredAt": datetime.utcnow().isoformat() + "Z",
+                "journey": payload.get("journey", []),
+            }
+            self._trace_batches[batch_id] = entry
 
-        entry = {
-            "id": batch_id,
-            "crop": payload.get("crop", ""),
-            "variety": payload.get("variety", ""),
-            "harvestDate": payload.get("harvestDate", ""),
-            "farm": payload.get("farm", ""),
-            "status": payload.get("status", "Pending Verification"),
-            "registeredByUid": payload.get("registeredByUid", ""),
-            "registeredAt": datetime.utcnow().isoformat() + "Z",
-            "journey": payload.get("journey", []),
-        }
-
-        # Also record the registration on the blockchain for auditability.
-        record = BlockchainRecord(
-            timestamp=entry["registeredAt"],
-            actor=entry["registeredByUid"] or "unknown",
-            action="trace_batch_registered",
-            location=entry["farm"],
-            data={"batch_id": batch_id, "crop": entry["crop"]},
-        )
-        record.previous_hash = record.calculate_hash()
-        self.chain.append(record)
+            # Also record the registration on the blockchain for auditability.
+            record = BlockchainRecord(
+                timestamp=entry["registeredAt"],
+                actor=entry["registeredByUid"] or "unknown",
+                action="trace_batch_registered",
+                location=entry["farm"],
+                data={"batch_id": batch_id, "crop": entry["crop"]},
+            )
+            record.hash = record.calculate_hash()
+            self.chain.append(record)
 
             return entry
-
         except Exception:
-            self._rollback(snapshot)
+            self._rollback_to_snapshot(snap)
             raise
 
     def get_trace_batch(self, batch_id: str) -> Optional[Dict]:
