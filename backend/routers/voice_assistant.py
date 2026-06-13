@@ -9,7 +9,10 @@ Affected endpoints (previously open):
   POST /query            — now requires auth; uid from token
   POST /audio-upload     — now requires auth; uid from token; rate-limit
                            keyed on verified uid instead of client field
-  POST /query-analyze    — now requires auth
+    POST /query-analyze    — now requires auth
+"""
+
+from error_utils import safe_detail
   GET  /sessions/{id}    — now requires auth; caller may only read their
                            own sessions
   GET  /offline-cache    — now requires auth (read of internal cache)
@@ -42,6 +45,31 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # Pydantic Models
 # ============================================================================
+
+def _build_recovery_response(
+    message: str,
+    error_type: str,
+    session_id: Optional[str] = None,
+) -> dict:
+    recovery_prompts = {
+        "audio": "Please upload a supported audio file and try again.",
+        "session": "Try creating a new session and repeat your request.",
+        "query": "Try rephrasing your question with more details.",
+        "rate_limit": "Too many requests detected. Please wait before retrying.",
+        "system": "Please retry in a few moments.",
+    }
+
+    return {
+        "success": False,
+        "error_type": error_type,
+        "message": message,
+        "recovery_prompt": recovery_prompts.get(
+            error_type,
+            "Please try again."
+        ),
+        "retry_supported": True,
+        "session_id": session_id,
+    }
 
 class VoiceQueryRequest(BaseModel):
     """Request model for voice queries.
@@ -353,7 +381,7 @@ async def create_session(request: Request, data: SessionCreateRequest):
         raise
     except Exception as e:
         logger.error(f"Session creation error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.post("/query", response_model=VoiceResponseData, tags=["Voice"])
@@ -412,7 +440,7 @@ async def process_voice_query(request: Request, data: VoiceQueryRequest):
         raise
     except Exception as e:
         logger.error(f"Voice query error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 
 @router.post("/audio-upload", tags=["Voice"])
@@ -436,12 +464,16 @@ async def upload_audio(
     uid = await _require_auth(request)
 
     if not _check_rate_limit(uid):
-        raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again later.")
+        return _build_recovery_response(
+            "Rate limit exceeded.",
+            "rate_limit",
+            session_id,
+        )
 
     try:
         safe_filename = _validate_filename(file.filename or "")
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
     os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
     # Sanitize uid before embedding it in a filesystem path. Firebase UIDs are
@@ -489,15 +521,8 @@ async def upload_audio(
     except HTTPException:
         raise
     except Exception as e:
-        # Log the full error server-side for debugging but return only a
-        # generic message to the client. Forwarding str(e) can expose
-        # filesystem paths, internal library names, or other implementation
-        # details that aid attackers in fingerprinting the server environment.
-        logger.error("Audio upload error for uid=%s: %s", uid, e, exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail="An unexpected error occurred during audio upload.",
-        )
+        logger.error(f"Audio upload error: {e}")
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
     finally:
         try:
             if os.path.exists(temp_path):
@@ -534,7 +559,7 @@ async def get_session_history(request: Request, session_id: str):
         raise
     except Exception as e:
         logger.error(f"Session retrieval error: {e}")
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=safe_detail(e, 404))
 
 
 @router.post("/query-analyze", tags=["Voice"])
@@ -570,7 +595,7 @@ async def analyze_query(request: Request, data: VoiceQueryRequest):
         raise
     except Exception as e:
         logger.error(f"Query analysis error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 
 @router.get("/offline-cache", tags=["Voice"])
@@ -598,8 +623,8 @@ async def get_offline_cache(request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Cache metadata retrieval error: %s", e)
-        raise HTTPException(status_code=500, detail="Cache metadata retrieval failed")
+        logger.error(f"Cache retrieval error: {e}")
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.post("/sync-cache", tags=["Voice"])
@@ -618,4 +643,4 @@ async def sync_offline_cache(request: Request):
         raise
     except Exception as e:
         logger.error(f"Cache sync error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
