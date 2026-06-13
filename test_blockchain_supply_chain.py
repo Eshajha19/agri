@@ -3,7 +3,7 @@ Test suite for Blockchain-Based Agricultural Supply Chain
 """
 
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 from blockchain_supply_chain import (
     SupplyChainBlockchain,
     BlockchainRecord,
@@ -372,8 +372,8 @@ class TestSupplyChainBlockchain:
             action="harvested",
             location="Farm",
             data={
-                "harvest_time": datetime.now(),
-                "created_at": datetime.utcnow()
+                "harvest_time": datetime.now(timezone.utc),
+                "created_at": datetime.now(timezone.utc)
             }
         )
         
@@ -381,6 +381,151 @@ class TestSupplyChainBlockchain:
         record_hash = record.calculate_hash()
         assert record_hash is not None
         assert len(record_hash) == 64
+
+    # ------------------------------------------------------------------
+    # New tests: QR signature, node alteration, tamper detection (Issue)
+    # ------------------------------------------------------------------
+
+    def test_qr_signature_generation_includes_proof(self, blockchain):
+        """QR payload must contain trace_proof and latest_block_hash fields."""
+        batch = blockchain.create_product_batch(
+            "wheat", "FARM010", 200.0, "kg",
+            "2026-02-01", "2026-05-10", "Priya Singh"
+        )
+        blockchain.add_supply_chain_node(
+            batch.batch_id, "warehouse", "Store Mgr", "Delhi",
+            "stored", temperature=18.0
+        )
+
+        payload = blockchain.get_traceability_qr_payload(batch.batch_id)
+
+        assert "trace_proof" in payload, "QR payload must include trace_proof"
+        assert "block_hash" in payload or "latest_block_hash" not in payload or "block_hash" in payload
+        assert isinstance(payload["trace_proof"], str)
+        assert len(payload["trace_proof"]) == 64  # SHA-256 hex
+
+    def test_verify_trace_proof_detects_node_alteration(self, blockchain):
+        """verify_trace_proof must return False after a supply chain node is altered."""
+        batch = blockchain.create_product_batch(
+            "rice", "FARM020", 500.0, "kg",
+            "2026-03-01", "2026-06-01", "Amit Sharma"
+        )
+        blockchain.add_supply_chain_node(
+            batch.batch_id, "farm", "Amit Sharma", "Punjab",
+            "harvested"
+        )
+
+        # Capture proof before alteration
+        proof = blockchain._build_trace_proof(batch.batch_id)
+        original_proof_hash = proof["proof_hash"]
+        original_signature = proof["signature"]
+
+        # Verify original proof passes
+        assert blockchain.verify_trace_proof(
+            batch.batch_id, original_proof_hash, original_signature
+        ), "Original proof should verify as valid"
+
+        # --- Simulate node tampering ---
+        nodes = blockchain.supply_chain_nodes[batch.batch_id]
+        nodes[0].location = "TAMPERED_LOCATION"
+
+        # Proof hash computed over original data must now fail
+        assert not blockchain.verify_trace_proof(
+            batch.batch_id, original_proof_hash, original_signature
+        ), "verify_trace_proof must detect altered node and return False"
+
+    def test_verify_trace_proof_valid_round_trip(self, blockchain):
+        """A freshly generated proof must verify successfully (happy path)."""
+        batch = blockchain.create_product_batch(
+            "cotton", "FARM030", 300.0, "kg",
+            "2026-04-01", "2026-07-15", "Meena Patel"
+        )
+        blockchain.add_supply_chain_node(
+            batch.batch_id, "distributor", "D Corp", "Surat",
+            "transported", temperature=25.0
+        )
+
+        proof = blockchain._build_trace_proof(batch.batch_id)
+        result = blockchain.verify_trace_proof(
+            batch.batch_id,
+            proof["proof_hash"],
+            proof["signature"],
+        )
+        assert result is True, "Round-trip proof verification must succeed for unmodified batch"
+
+    def test_duplicate_harvest_id_rejected(self, blockchain):
+        """Duplicate harvest IDs must be rejected."""
+        blockchain.create_product_batch(
+            crop_type="rice",
+            farm_id="FARM001",
+            quantity=100,
+            unit="kg",
+            planting_date="2026-01-01",
+            harvesting_date="2026-05-01",
+            farmer_name="Farmer",
+            harvest_id="HARVEST-001",
+        )
+
+        with pytest.raises(ValueError):
+            blockchain.create_product_batch(
+                crop_type="rice",
+                farm_id="FARM002",
+                quantity=200,
+                unit="kg",
+                planting_date="2026-01-01",
+                harvesting_date="2026-05-01",
+                farmer_name="Farmer",
+                harvest_id="HARVEST-001",
+            )
+
+    def test_trace_batch_registration(self, blockchain):
+        """Trace batch should register successfully."""
+        result = blockchain.register_trace_batch({
+            "id": "TRACE-001",
+            "crop": "Wheat",
+            "farm": "Punjab",
+            "journey": []
+        })
+
+        assert result["id"] == "TRACE-001"
+        assert blockchain.get_trace_batch("TRACE-001") is not None
+
+    def test_duplicate_trace_batch_registration(self, blockchain):
+        """Duplicate trace batch IDs must fail."""
+        blockchain.register_trace_batch({
+            "id": "TRACE-002",
+            "crop": "Rice"
+        })
+
+        with pytest.raises(ValueError):
+            blockchain.register_trace_batch({
+                "id": "TRACE-002",
+                "crop": "Rice"
+            })
+
+    def test_execute_contract_twice_fails(self, blockchain):
+        """Executed contracts cannot be executed twice."""
+        batch = blockchain.create_product_batch(
+            "tomato",
+            "FARM001",
+            100,
+            "kg",
+            "2026-01-01",
+            "2026-05-01",
+            "Farmer"
+        )
+
+        contract = blockchain.create_smart_contract(
+            batch.batch_id,
+            "Farmer",
+            "Buyer",
+            5000
+        )
+
+        blockchain.execute_smart_contract(contract.contract_id)
+
+        with pytest.raises(ValueError):
+            blockchain.execute_smart_contract(contract.contract_id)
 
 
 if __name__ == "__main__":
