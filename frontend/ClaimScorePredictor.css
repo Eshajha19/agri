@@ -1,0 +1,153 @@
+.csp-container {
+  max-width: 680px;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+.csp-card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  padding: 2rem;
+}
+.csp-card h2 {
+  margin: 0 0 0.25rem;
+  color: #1a5a1a;
+}
+.csp-subtitle {
+  color: #666;
+  font-size: 0.9rem;
+  margin: 0 0 1.5rem;
+}
+.csp-error {
+  background: #ffebee;
+  color: #c62828;
+  padding: 0.75rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+.csp-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #333;
+  margin-bottom: 1rem;
+}
+.csp-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+.csp-form input,
+.csp-form select,
+.csp-form textarea {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+.csp-form input:focus,
+.csp-form select:focus,
+.csp-form textarea:focus {
+  border-color: #2e7d32;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(46, 125, 50, 0.2);
+}
+.csp-submit {
+  width: 100%;
+  padding: 0.75rem;
+  background: #2e7d32;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+.csp-submit:hover { background: #1b5e20; }
+.csp-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.csp-result { text-align: center; }
+.csp-score-ring {
+  position: relative;
+  width: 160px;
+  height: 160px;
+  margin: 0 auto 1rem;
+}
+.csp-score-ring svg { width: 100%; height: 100%; }
+.csp-score-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.csp-score-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--score-color);
+  line-height: 1;
+}
+.csp-score-label {
+  font-size: 0.75rem;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.csp-badge {
+  display: inline-block;
+  padding: 0.4rem 1.2rem;
+  border-radius: 20px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin-bottom: 1.5rem;
+}
+.badge-high { background: #e8f5e9; color: #2e7d32; }
+.badge-moderate { background: #fff8e1; color: #f57f17; }
+.badge-low { background: #fbe9e7; color: #e65100; }
+.badge-verylow { background: #ffebee; color: #c62828; }
+
+.csp-factors { text-align: left; margin-top: 1.5rem; }
+.csp-factors h3 { margin: 0 0 1rem; font-size: 1.05rem; color: #333; }
+.csp-factor-row { margin-bottom: 1.25rem; }
+.csp-factor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.35rem;
+}
+.csp-factor-name { font-weight: 500; font-size: 0.9rem; color: #444; }
+.csp-factor-score { font-weight: 600; font-size: 0.85rem; }
+.csp-factor-bar {
+  height: 6px;
+  background: #eee;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 0.35rem;
+}
+.csp-factor-fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+.csp-factor-details {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 0.8rem;
+  color: #777;
+}
+.csp-factor-details li { margin-bottom: 0.15rem; }
+.csp-back {
+  margin-top: 1.5rem;
+  padding: 0.6rem 2rem;
+  background: transparent;
+  color: #2e7d32;
+  border: 1.5px solid #2e7d32;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.csp-back:hover { background: #e8f5e9; }

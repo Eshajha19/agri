@@ -89,7 +89,7 @@ import {
   Terms,
   YieldPredictor,
   EquipmentManagement,
-  InsuranceClaim,
+  ClaimScorePredictor,
 } from "./routes/lazyPages";
 
 const Weather = React.lazy(() => import("./Weather"));
@@ -982,6 +982,7 @@ useEffect(() => {
             <Route path="/seasonal-pest-calendar" element={<PestCalendar />} />
             <Route path="/pest-detection" element={<PestDetection />} />
             <Route path="/equipment-management" element={<EquipmentManagement />} />
+            <Route path="/claim-predictor" element={<ClaimScorePredictor />} />
             <Route path="/helpline" element={<Helpline />} />
             <Route path="/glossary" element={<Glossary />} />
             <Route path="/risk-index" element={<RiskIndex />} />
