@@ -28,6 +28,8 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
 
+from image_quality_checker import analyze_image_quality
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
@@ -410,6 +412,96 @@ def _generate_claim_pdf(claim: dict) -> bytes:
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
+@router.post("/insurance/check-evidence-quality")
+async def check_evidence_quality(
+    images: List[UploadFile] = File(...),
+):
+    """
+    Analyze uploaded images for quality before submission.
+    
+    Performs comprehensive quality checks:
+    - Blur detection (Laplacian variance)
+    - Brightness analysis (mean luminance)
+    - Resolution validation (minimum 640x480)
+    - GPS metadata verification (EXIF geolocation)
+    
+    Returns quality scores, issues, and recommendations for each image.
+    Completes analysis within seconds with immediate feedback.
+    """
+    if len(images) == 0:
+        raise HTTPException(status_code=422, detail="At least one image is required for quality check")
+    
+    if len(images) > 5:
+        raise HTTPException(status_code=422, detail="Maximum 5 images allowed for quality check")
+    
+    quality_results = []
+    overall_status = "Good"
+    all_issues_count = 0
+    
+    for idx, img_file in enumerate(images):
+        # Validate file type
+        content_type = img_file.content_type or ""
+        if not content_type.startswith("image/"):
+            raise HTTPException(
+                status_code=422,
+                detail=f"File '{img_file.filename}' is not a valid image",
+            )
+        
+        # Validate file size
+        raw = await img_file.read()
+        if len(raw) > 10 * 1024 * 1024:  # 10 MB cap
+            raise HTTPException(status_code=422, detail="Each image must be under 10 MB")
+        
+        if len(raw) == 0:
+            raise HTTPException(status_code=422, detail=f"Image {idx+1} is empty")
+        
+        try:
+            # Analyze quality
+            quality_result = analyze_image_quality(raw)
+            result_dict = quality_result.to_dict()
+            result_dict["filename"] = img_file.filename
+            result_dict["file_size_kb"] = round(len(raw) / 1024, 2)
+            quality_results.append(result_dict)
+            
+            # Track overall status
+            issue_count = len(quality_result.issues)
+            all_issues_count += issue_count
+            
+            if quality_result.overall_quality in ("Poor", "Unusable"):
+                overall_status = "Poor"
+            elif quality_result.overall_quality == "Fair" and overall_status == "Good":
+                overall_status = "Fair"
+        
+        except Exception as exc:
+            logger.error("Quality analysis failed for image %s: %s", img_file.filename, exc)
+            raise HTTPException(
+                status_code=422,
+                detail=f"Failed to analyze image '{img_file.filename}': {str(exc)}"
+            )
+    
+    # Generate summary recommendations
+    summary_recommendations = []
+    if overall_status == "Poor":
+        summary_recommendations.append("⚠️  Some images have quality issues that may be rejected")
+        summary_recommendations.append("❌ Do NOT submit claim with poor-quality images")
+    elif overall_status == "Fair":
+        summary_recommendations.append("⚡ Consider retaking photos to improve evidence quality")
+        summary_recommendations.append("✓ Images are acceptable but could be improved")
+    elif overall_status == "Good":
+        summary_recommendations.append("✅ All images meet quality requirements")
+        summary_recommendations.append("✓ Ready for submission")
+    
+    return {
+        "success": True,
+        "analysis_timestamp": datetime.now().isoformat(),
+        "image_count": len(images),
+        "overall_status": overall_status,
+        "total_issues": all_issues_count,
+        "summary": summary_recommendations,
+        "images": quality_results,
+        "can_submit": overall_status != "Poor" and all_issues_count == 0,
+    }
 
 @router.post("/insurance/claim")
 async def submit_insurance_claim(
