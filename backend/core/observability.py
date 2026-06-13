@@ -7,8 +7,23 @@ OBSERVABILITY_STATUS = {
     "prometheus": False,
     "fallback_logging": False,
     "last_error": None,
+    "active_components": [],
+    "degraded_components": [],
 }
 
+
+def _calculate_observability_mode():
+    tracing = OBSERVABILITY_STATUS["tracing"]
+    prometheus = OBSERVABILITY_STATUS["prometheus"]
+    fallback = OBSERVABILITY_STATUS["fallback_logging"]
+
+    if tracing and prometheus and not fallback:
+        return "fully_operational"
+
+    if fallback and not tracing and not prometheus:
+        return "fallback_only"
+
+    return "degraded"
 
 def setup_observability(app, verify_role, logger):
     try:
@@ -64,6 +79,10 @@ def setup_observability(app, verify_role, logger):
         FastAPIInstrumentor().instrument_app(app)
 
         OBSERVABILITY_STATUS["tracing"] = True
+        if "distributed_tracing" not in OBSERVABILITY_STATUS["active_components"]:
+            OBSERVABILITY_STATUS["active_components"].append(
+                "distributed_tracing"
+            )
 
         logger.info(
             "Observability validation passed for tracing subsystem"
@@ -76,6 +95,10 @@ def setup_observability(app, verify_role, logger):
 
     except Exception as exc:
         OBSERVABILITY_STATUS["fallback_logging"] = True
+        if "distributed_tracing" not in OBSERVABILITY_STATUS["degraded_components"]:
+            OBSERVABILITY_STATUS["degraded_components"].append(
+                "distributed_tracing"
+            )
         OBSERVABILITY_STATUS["last_error"] = str(exc)
 
         logger.warning(
@@ -89,6 +112,10 @@ def setup_observability(app, verify_role, logger):
         Instrumentator().instrument(app)
 
         OBSERVABILITY_STATUS["prometheus"] = True
+        if "prometheus_metrics" not in OBSERVABILITY_STATUS["active_components"]:
+            OBSERVABILITY_STATUS["active_components"].append(
+                "prometheus_metrics"
+            )
 
         logger.info(
             "Observability validation passed for metrics subsystem"
@@ -145,6 +172,33 @@ def setup_observability(app, verify_role, logger):
                         "OTEL_EXPORTER_OTLP_ENDPOINT"
                     )
                 ),
+                "observability_mode": _calculate_observability_mode(),
+                "telemetry_available": (
+                    OBSERVABILITY_STATUS["tracing"]
+                    or OBSERVABILITY_STATUS["prometheus"]
+                ),
+                "telemetry_coverage_percent": round(
+                    (
+                        int(OBSERVABILITY_STATUS["tracing"])
+                        + int(OBSERVABILITY_STATUS["prometheus"])
+                    ) / 2 * 100,
+                    0,
+                ),
+                "active_components":
+                    OBSERVABILITY_STATUS["active_components"],
+                "degraded_components":
+                    OBSERVABILITY_STATUS["degraded_components"],
+                "status_reason": {
+                    "fully_operational": (
+                        "Tracing and metrics are fully operational."
+                    ),
+                    "degraded": (
+                        "One or more observability components are unavailable."
+                    ),
+                    "fallback_only": (
+                        "Application is running using fallback logging only."
+                    ),
+                }.get(_calculate_observability_mode()),
             }
 
         @app.get("/observability/diagnostics")
@@ -172,11 +226,21 @@ def setup_observability(app, verify_role, logger):
                         "OTEL_EXPORTER_OTLP_ENDPOINT"
                     )
                 ),
+                "observability_mode": _calculate_observability_mode(),
+                "component_summary": {
+                    "active":
+                        OBSERVABILITY_STATUS["active_components"],
+                    "degraded":
+                        OBSERVABILITY_STATUS["degraded_components"],
+                },
             }
 
     except Exception as exc:
         OBSERVABILITY_STATUS["last_error"] = str(exc)
-
+        if "prometheus_metrics" not in OBSERVABILITY_STATUS["degraded_components"]:
+            OBSERVABILITY_STATUS["degraded_components"].append(
+                "prometheus_metrics"
+            )
         logger.warning(
             "Prometheus setup skipped. Metrics endpoint unavailable. Error: %s",
             exc,
