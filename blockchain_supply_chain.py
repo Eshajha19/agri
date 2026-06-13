@@ -28,10 +28,9 @@ class BlockchainRecord:
     location: str
     data: Dict
     previous_hash: str = ""
-    hash: str = ""
 
     def to_dict(self) -> Dict:
-        """Serialize record to dict (hash excluded — for calculate_hash input)"""
+        """Serialize record to dict (previous_hash excluded — matches calculate_hash input)"""
         return {
             "timestamp": self.timestamp,
             "actor": self.actor,
@@ -48,7 +47,7 @@ class BlockchainRecord:
         return result
 
     def calculate_hash(self) -> str:
-        """Calculate SHA256 hash of record (excludes hash and previous_hash fields)"""
+        """Calculate SHA256 hash of record (excludes previous_hash field)"""
         record_string = json.dumps(self.to_dict(), sort_keys=True)
         return hashlib.sha256(record_string.encode()).hexdigest()
 
@@ -63,17 +62,8 @@ class BlockchainRecord:
             data=data.get("data", {}),
             previous_hash=data.get("previous_hash", ""),
         )
-        computed = record.calculate_hash()
-        if "hash" in data and data["hash"]:
-            if data["hash"] != computed:
-                raise ValueError(
-                    f"Hash mismatch: stored hash '{data['hash']}' "
-                    f"does not match computed hash '{computed}'. "
-                    "Record has been tampered with."
-                )
-            record.hash = data["hash"]
-        else:
-            record.hash = computed
+        if "previous_hash" in data:
+            record.previous_hash = data["previous_hash"]
         return record
 
 
@@ -332,7 +322,8 @@ class SupplyChainBlockchain:
                 action="created_batch",
                 location=farm_id,
                 data=asdict(batch),
-            ))
+            )
+            record.previous_hash = record.calculate_hash()
 
             # Commit
             self.products[batch_id] = batch
@@ -407,7 +398,8 @@ class SupplyChainBlockchain:
                 action=action,
                 location=location,
                 data=asdict(node),
-            ))
+            )
+            record.previous_hash = record.calculate_hash()
 
             # Commit
             self.supply_chain_nodes.setdefault(batch_id, []).append(node)
@@ -469,7 +461,8 @@ class SupplyChainBlockchain:
                 action="contract_created",
                 location="contract",
                 data=asdict(contract),
-            ))
+            )
+            record.previous_hash = record.calculate_hash()
 
             # Commit
             self.smart_contracts[contract_id] = contract
@@ -549,6 +542,7 @@ class SupplyChainBlockchain:
                     },
                 )
             )
+            record.previous_hash = record.calculate_hash()
 
             # ----------------------------
             # Commit phase
@@ -743,7 +737,7 @@ class SupplyChainBlockchain:
         """Verify blockchain chain continuity and hash integrity"""
         prev_hash = ""
         for record in self.chain:
-            if record.hash != record.calculate_hash():
+            if record.previous_hash != record.calculate_hash():
                 return False
             if record.previous_hash != prev_hash:
                 return False
@@ -818,21 +812,16 @@ class SupplyChainBlockchain:
             "journey": payload.get("journey", []),
         }
 
-        try:
-            self._trace_batches[batch_id] = entry
-
-            record = BlockchainRecord(
-                timestamp=entry["registeredAt"],
-                actor=entry["registeredByUid"] or "unknown",
-                action="trace_batch_registered",
-                location=entry["farm"],
-                data={
-                    "batch_id": batch_id,
-                    "crop": entry["crop"],
-                },
-            )
-            record.hash = record.calculate_hash()
-            self.chain.append(record)
+        # Also record the registration on the blockchain for auditability.
+        record = BlockchainRecord(
+            timestamp=entry["registeredAt"],
+            actor=entry["registeredByUid"] or "unknown",
+            action="trace_batch_registered",
+            location=entry["farm"],
+            data={"batch_id": batch_id, "crop": entry["crop"]},
+        )
+        record.previous_hash = record.calculate_hash()
+        self.chain.append(record)
 
             return entry
 
