@@ -17,6 +17,7 @@ import qrcode
 import io
 import copy as _copy
 import base64
+import secrets
 
 
 @dataclass
@@ -138,6 +139,40 @@ class SmartContract:
     def __post_init__(self):
         if not self.created_at:
             self.created_at = datetime.now(timezone.utc).isoformat()
+
+
+
+class SupplyChainBlockchain:
+    def __init__(...):
+        ...
+        self._verification_tokens: Dict[str, Dict] = {}
+
+    def _create_verification_token(self, batch_id: str, proof: Dict) -> str:
+        token_id = secrets.token_urlsafe(16)
+        self._verification_tokens[token_id] = {
+            "batch_id": batch_id,
+            "proof": proof,
+            "expires_at": time.time() + 300,  # 5 min TTL
+        }
+        return token_id
+
+    def verify_token(self, token_id: str) -> bool:
+        entry = self._verification_tokens.get(token_id)
+        if not entry:
+            return False
+        if time.time() > entry["expires_at"]:
+            del self._verification_tokens[token_id]
+            return False
+        proof = entry["proof"]
+        return self.verify_trace_proof(entry["batch_id"], proof["proof_hash"], proof["signature"])
+
+
+@app.post("/verify/{token_id}")
+async def verify_qr(token_id: str):
+    ok = blockchain.verify_token(token_id)
+    if not ok:
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+    return {"success": True}
 
 
 class SupplyChainBlockchain:
@@ -584,7 +619,7 @@ class SupplyChainBlockchain:
             "unit": batch.unit,
             "farmer": batch.farmer_name,
             "harvested": batch.harvesting_date,
-            "verification_url": f"https://fasalsaathi.agri/verify/{batch_id}",
+            "verification_url": f"https://fasalsaathi.agri/verify/{token_id}",
             "trace_proof": proof["proof_hash"],
             "block_hash": proof["latest_block_hash"],
         }
@@ -613,7 +648,7 @@ class SupplyChainBlockchain:
             "batch_id": batch_id,
             "crop_type": batch.crop_type,
             "farmer": batch.farmer_name,
-            "verification_url": f"https://fasalsaathi.agri/verify/{batch_id}",
+            "verification_url": f"https://fasalsaathi.agri/verify/{token_id}",
             "trace_proof": proof["proof_hash"],
             "block_hash": proof["latest_block_hash"],
             "issued_at": datetime.now(timezone.utc).isoformat(),
