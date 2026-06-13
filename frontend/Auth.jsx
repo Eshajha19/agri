@@ -1,8 +1,10 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider,
   sendEmailVerification,
   signOut,
@@ -188,61 +190,72 @@ const Auth = () => {
     }
   };
 
+  const syncUserToFirestore = async (user) => {
+    try {
+      const userDocRef = doc(db, "users", user.uid);
+      const existingDoc = await getDoc(userDocRef);
+      const isNewUser = !existingDoc.exists() || !existingDoc.data()?.role;
+      await setDoc(userDocRef, {
+        uid: user.uid,
+        displayName: user.displayName,
+        email: user.email,
+        photoURL: user.photoURL,
+        lastLogin: new Date().toISOString(),
+        profileCompleted: true,
+        reputation: 0,
+        ...(isNewUser && { role: "farmer" }),
+      }, { merge: true });
+    } catch (fsErr) {
+      console.error("Firestore sync error:", fsErr);
+    }
+    navigate(redirectAfterAuth, { replace: true });
+  };
+
+  // Handle redirect result on mount (user returning from Google OAuth redirect)
+  useEffect(() => {
+    getRedirectResult(auth).then((result) => {
+      if (!result) return;
+      setLoading(true);
+      syncUserToFirestore(result.user);
+    }).catch((err) => {
+      console.warn("Redirect auth result error:", err);
+    });
+  }, []);
+
   const handleGoogleLogin = async () => {
     const provider = new GoogleAuthProvider();
-    // Add custom parameters if needed
     provider.setCustomParameters({ prompt: 'select_account' });
-    
-    if (authInProgressRef.current) return;
 
-    authInProgressRef.current = true;
     setLoading(true);
     setError("");
     try {
       const result = await signInWithPopup(auth, provider);
-      const user = result.user;
+      await syncUserToFirestore(result.user);
+    } catch (err) {
+      console.error("Google Auth Popup Error:", err);
 
-      // Create/Update user in Firestore.
-      // We wrap this in a try-catch to differentiate between Auth and Firestore failures.
-      try {
-        // Read the existing document first so we never overwrite a role that
-        // was already set (e.g. an admin re-logging in via Google).  On first
-        // sign-in the document won't exist, so we write role: "farmer" as the
-        // explicit default.  On subsequent logins we only update mutable fields
-        // (displayName, photoURL, lastLogin) and leave role untouched.
-        const userDocRef = doc(db, "users", user.uid);
-        const existingDoc = await getDoc(userDocRef);
-        const isNewUser = !existingDoc.exists() || !existingDoc.data()?.role;
+      // Popup-specific failures → fall back to redirect
+      const shouldRedirect = [
+        "auth/popup-blocked",
+        "auth/popup-closed-by-user",
+        "auth/cancelled-by-user",
+      ].includes(err.code);
 
-        await setDoc(userDocRef, {
-          uid: user.uid,
-          displayName: user.displayName,
-          email: user.email,
-          photoURL: user.photoURL,
-          lastLogin: new Date().toISOString(),
-          profileCompleted: true,
-          reputation: 0,
-          // Only set role on first sign-in. Subsequent logins must not
-          // overwrite a role that was elevated (e.g. farmer → expert/admin).
-          ...(isNewUser && { role: "farmer" }),
-        }, { merge: true });
-      } catch (fsErr) {
-        console.error("Firestore sync error:", fsErr);
-        // We continue even if Firestore fails, as the user is authenticated
+      if (shouldRedirect) {
+        try {
+          await signInWithRedirect(auth, provider);
+          return;
+        } catch (redirectErr) {
+          console.error("Redirect auth fallback also failed:", redirectErr);
+        }
       }
 
-      navigate(redirectAfterAuth, { replace: true });
-    } catch (err) {
-      console.error("Google Auth Error:", err);
-      
-      if (err.code === "auth/popup-closed-by-user") {
-        setError(""); // Don't show error if user closed the popup
-      } else if (err.code === "auth/cancelled-by-user") {
+      if (err.code === "auth/popup-closed-by-user" || err.code === "auth/cancelled-by-user") {
         setError("");
       } else if (err.code === "auth/operation-not-allowed") {
         setError("Google sign-in is not enabled in Firebase Console.");
       } else if (err.code === "auth/popup-blocked") {
-        setError("Sign-in popup was blocked by your browser. Please allow popups for this site.");
+        setError("Popup blocked and redirect fallback failed. Please allow popups or try a different browser.");
       } else if (err.code === "auth/internal-error") {
         setError("Internal authentication error. Please try again later.");
       } else {
