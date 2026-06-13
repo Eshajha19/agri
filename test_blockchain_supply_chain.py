@@ -6,11 +6,11 @@ import pytest
 from datetime import datetime, timezone
 from blockchain_supply_chain import (
     SupplyChainBlockchain,
-    BlockchainRecord,
-    ProductBatch,
     SupplyChainNode,
     SmartContract,
 )
+from blockchain_record import BlockchainRecord
+from product_batch import ProductBatch
 
 
 class TestSupplyChainBlockchain:

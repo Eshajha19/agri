@@ -19,85 +19,8 @@ import copy as _copy
 import base64
 
 
-@dataclass
-class BlockchainRecord:
-    """Record stored in blockchain"""
-    timestamp: str
-    actor: str
-    action: str
-    location: str
-    data: Dict
-    previous_hash: str = ""
-    hash: str = ""
-    previous_hash: str = ""
-
-    def to_dict(self) -> Dict:
-        """Serialize record to dict (hash excluded — for calculate_hash input)"""
-        return {
-            "timestamp": self.timestamp,
-            "actor": self.actor,
-            "action": self.action,
-            "location": self.location,
-            "data": self.data,
-            "previous_hash": self.previous_hash,
-        }
-
-    def serialize(self) -> Dict:
-        """Serialize record for persistence (includes hash)"""
-        result = self.to_dict()
-        result["hash"] = self.hash
-        return result
-
-    def calculate_hash(self) -> str:
-        """Calculate SHA256 hash of record (excludes hash and previous_hash fields)"""
-        record_string = json.dumps(self.to_dict(), sort_keys=True)
-        return hashlib.sha256(record_string.encode()).hexdigest()
-
-    @staticmethod
-    def from_dict(data: Dict) -> 'BlockchainRecord':
-        """Reconstruct record from dict, compute hash, and verify integrity"""
-        record = BlockchainRecord(
-            timestamp=data["timestamp"],
-            actor=data["actor"],
-            action=data["action"],
-            location=data["location"],
-            data=data.get("data", {}),
-            previous_hash=data.get("previous_hash", ""),
-        )
-        computed = record.calculate_hash()
-        if "hash" in data and data["hash"]:
-            if data["hash"] != computed:
-                raise ValueError(
-                    f"Hash mismatch: stored hash '{data['hash']}' "
-                    f"does not match computed hash '{computed}'. "
-                    "Record has been tampered with."
-                )
-            record.hash = data["hash"]
-        else:
-            record.hash = computed
-        return record
-
-
-@dataclass
-class ProductBatch:
-    """Agricultural product batch"""
-    batch_id: str
-    crop_type: str
-    farm_id: str
-    quantity: float
-    unit: str  # kg, tons, etc
-    planting_date: str
-    harvesting_date: str
-    farmer_name: str
-    owner_uid: str = ""
-    certifications: List[str] = field(default_factory=list)
-    quality_score: float = 0.0
-    created_at: str = ""
-    blockchain_records: List[Dict] = field(default_factory=list)
-
-    def __post_init__(self):
-        if not self.created_at:
-            self.created_at = datetime.now(timezone.utc).isoformat()
+from blockchain_record import BlockchainRecord
+from product_batch import ProductBatch
 
 
 @dataclass
@@ -299,22 +222,14 @@ class SupplyChainBlockchain:
         planting_date: str,
         harvesting_date: str,
         farmer_name: str,
+        owner_uid: str = "",
+        harvest_id: str = "",
         idempotency_key: Optional[str] = None,
     ) -> ProductBatch:
         # Check cache
         if idempotency_key and idempotency_key in self.idempotency_cache:
             return self.idempotency_cache[idempotency_key]
 
-        snap = self._snapshot_state()
-        try:
-            batch_id = f"BATCH-{uuid.uuid4().hex[:12].upper()}"
-            batch = ProductBatch(...)
-            record = BlockchainRecord(...)
-            record.hash = record.calculate_hash()
-        owner_uid: str = "",
-        harvest_id: str = "",
-    ) -> ProductBatch:
-        """Create new product batch atomically with harvest_id deduplication."""
         snap = self._snapshot_state()
         try:
             batch_id = f"BATCH-{uuid.uuid4().hex[:12].upper()}"
@@ -364,8 +279,7 @@ class SupplyChainBlockchain:
                 self.idempotency_cache[idempotency_key] = batch
 
             return batch
-        
-        except Exception:
+
         except Exception as e:
             import logging
             logging.error(f"Blockchain error: {e}")
