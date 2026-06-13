@@ -453,6 +453,80 @@ class TestSupplyChainBlockchain:
         )
         assert result is True, "Round-trip proof verification must succeed for unmodified batch"
 
+    def test_duplicate_harvest_id_rejected(self, blockchain):
+        """Duplicate harvest IDs must be rejected."""
+        blockchain.create_product_batch(
+            crop_type="rice",
+            farm_id="FARM001",
+            quantity=100,
+            unit="kg",
+            planting_date="2026-01-01",
+            harvesting_date="2026-05-01",
+            farmer_name="Farmer",
+            harvest_id="HARVEST-001",
+        )
+
+        with pytest.raises(ValueError):
+            blockchain.create_product_batch(
+                crop_type="rice",
+                farm_id="FARM002",
+                quantity=200,
+                unit="kg",
+                planting_date="2026-01-01",
+                harvesting_date="2026-05-01",
+                farmer_name="Farmer",
+                harvest_id="HARVEST-001",
+            )
+
+    def test_trace_batch_registration(self, blockchain):
+        """Trace batch should register successfully."""
+        result = blockchain.register_trace_batch({
+            "id": "TRACE-001",
+            "crop": "Wheat",
+            "farm": "Punjab",
+            "journey": []
+        })
+
+        assert result["id"] == "TRACE-001"
+        assert blockchain.get_trace_batch("TRACE-001") is not None
+
+    def test_duplicate_trace_batch_registration(self, blockchain):
+        """Duplicate trace batch IDs must fail."""
+        blockchain.register_trace_batch({
+            "id": "TRACE-002",
+            "crop": "Rice"
+        })
+
+        with pytest.raises(ValueError):
+            blockchain.register_trace_batch({
+                "id": "TRACE-002",
+                "crop": "Rice"
+            })
+
+    def test_execute_contract_twice_fails(self, blockchain):
+        """Executed contracts cannot be executed twice."""
+        batch = blockchain.create_product_batch(
+            "tomato",
+            "FARM001",
+            100,
+            "kg",
+            "2026-01-01",
+            "2026-05-01",
+            "Farmer"
+        )
+
+        contract = blockchain.create_smart_contract(
+            batch.batch_id,
+            "Farmer",
+            "Buyer",
+            5000
+        )
+
+        blockchain.execute_smart_contract(contract.contract_id)
+
+        with pytest.raises(ValueError):
+            blockchain.execute_smart_contract(contract.contract_id)
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
