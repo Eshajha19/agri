@@ -1,0 +1,40 @@
+name: Security Headers Validation
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'vercel.json'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'vercel.json'
+
+jobs:
+  validate-headers:
+    name: Validate security headers in vercel.json
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run Header Validation Tests
+        run: |
+          pip install pytest
+          python -m pytest tests/test_security_headers.py -v
+
+      - name: Generate Summary
+        if: always()
+        run: |
+          echo "### Security Header Validation" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ All security headers are correctly configured" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Security header validation failed" >> $GITHUB_STEP_SUMMARY
+          fi
