@@ -381,7 +381,17 @@ async def lifespan(app: FastAPI):
     logger.info("✅ Shutdown complete")
 
 
+# Set up structured logging
+from backend.core.logging_config import setup_logging
+from backend.core.middleware import CorrelationIdMiddleware
+
+setup_logging()
+logger = logging.getLogger(__name__)
+
 app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
+
+# Add correlation ID middleware (should be first middleware)
+app.add_middleware(CorrelationIdMiddleware)
 
 
 # Initialize Limiter
