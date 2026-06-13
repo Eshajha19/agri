@@ -62,6 +62,8 @@ def test_process_due_deletion_executes_targets_and_records_audit(tmp_path):
     assert processed["deleted_entities"] == ["finance_applications"]
     assert "immutable_ledger" in processed["retained_entities"]
     assert store.records.get("uid-123") is None
+    assert manager.get_request(request["request_id"]) is None
+    assert manager.list_requests() == []
 
     audit_lines = [line for line in Path(manager.audit_log_path).read_text(encoding="utf-8").splitlines() if line.strip()]
     assert len(audit_lines) == 2
@@ -82,3 +84,63 @@ def test_due_requests_only_include_elapsed_items(tmp_path):
 
     due = manager.due_requests(now=now + timedelta(hours=1))
     assert [item["uid"] for item in due] == ["uid-a"]
+
+
+def test_completed_with_errors_request_is_evicted_from_memory(tmp_path):
+    manager = GDPRDeletionManager(
+        request_log_path=tmp_path / "requests.jsonl",
+        audit_log_path=tmp_path / "audit.jsonl",
+    )
+
+    cleaned_uids = []
+    def mock_cleanup_hook(uid: str):
+        cleaned_uids.append(uid)
+
+    manager.register_post_deletion_hook(mock_cleanup_hook)
+
+    request = manager.create_request(
+        "uid-123",
+        retention_days=0,
+        now=datetime(2026, 5, 29, 12, 0, tzinfo=timezone.utc),
+    )
+
+    def fail_delete(_uid: str):
+        raise RuntimeError("store unavailable")
+
+    processed = manager.execute_request(
+        request["request_id"],
+        [DeletionTarget(name="finance_applications", delete=fail_delete)],
+        now=datetime(2026, 5, 29, 13, 0, tzinfo=timezone.utc),
+    )
+
+    assert processed["status"] == "completed_with_errors"
+    assert manager.get_request(request["request_id"]) is None
+    assert manager.list_requests() == []
+
+
+def test_completed_requests_are_not_reloaded_into_memory(tmp_path):
+    request_log_path = tmp_path / "requests.jsonl"
+    audit_log_path = tmp_path / "audit.jsonl"
+    manager = GDPRDeletionManager(
+        request_log_path=request_log_path,
+        audit_log_path=audit_log_path,
+    )
+
+    now = datetime(2026, 5, 29, 12, 0, tzinfo=timezone.utc)
+    completed_request = manager.create_request("uid-done", retention_days=0, now=now)
+    pending_request = manager.create_request("uid-pending", retention_days=5, now=now)
+
+    manager.execute_request(
+        completed_request["request_id"],
+        [DeletionTarget(name="profile", delete=lambda _uid: True)],
+        now=now + timedelta(hours=1),
+    )
+
+    reloaded = GDPRDeletionManager(
+        request_log_path=request_log_path,
+        audit_log_path=audit_log_path,
+    )
+
+    assert reloaded.get_request(completed_request["request_id"]) is None
+    assert reloaded.get_request(pending_request["request_id"])["uid"] == "uid-pending"
+    assert [item["uid"] for item in reloaded.list_requests()] == ["uid-pending"]

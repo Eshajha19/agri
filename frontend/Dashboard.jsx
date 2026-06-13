@@ -34,6 +34,8 @@ import {
 } from "recharts";
 import { getHistoricalWeatherData } from "./weather/weatherService";
 import ErrorBoundary from "./ErrorBoundary";
+import AsyncErrorBoundary from "./AsyncErrorBoundary";
+import Loader from "./Loader";
 import apiClient from "./lib/apiClient";
 import { getBookmarks } from "./utils/bookmarkStorage";
 import AdvisoryPanel from "./AdvisoryPanel";
@@ -245,6 +247,8 @@ export default function Dashboard({ userData }) {
   const [selectedSeason, setSelectedSeason] = useState("");
   const [savedCrops, setSavedCrops] = useState([]);
   const [savedArticles, setSavedArticles] = useState([]);
+  const mountedRef = React.useRef(true);
+  const dashboardRequestRef = React.useRef(0);
 
   // Memoize callback functions to prevent unnecessary re-renders
   const handlePhoneChange = useCallback((e) => {
@@ -296,25 +300,46 @@ export default function Dashboard({ userData }) {
   }, []);
 
   useEffect(() => {
+    if (!mountedRef.current) return;
+
     setYieldData(processedYieldData);
   }, [processedYieldData]);
 
   useEffect(() => {
-    const fetchData = async () => {
-      // Check cache first
-      const cachedData = dataCache.get("weather:historical");
-      if (cachedData) {
-        setHistoricalWeather(cachedData);
-        return;
-      }
+    const requestId = ++dashboardRequestRef.current;
 
-      const data = await getHistoricalWeatherData();
-      dataCache.set("weather:historical", data);
-      setHistoricalWeather(data);
+    const fetchData = async () => {
+      try {
+        const cachedData = dataCache.get("weather:historical");
+
+        if (cachedData) {
+          if (
+            mountedRef.current &&
+            requestId === dashboardRequestRef.current
+          ) {
+            setHistoricalWeather(cachedData);
+          }
+          return;
+        }
+
+        const data = await getHistoricalWeatherData();
+
+        if (
+          !mountedRef.current ||
+          requestId !== dashboardRequestRef.current
+        ) {
+          return;
+        }
+
+        dataCache.set("weather:historical", data);
+        setHistoricalWeather(data);
+      } catch (error) {
+        console.error(error);
+      }
     };
 
     fetchData();
-  }, [setHistoricalWeather]);
+  }, []);
   const handleUpdateWhatsApp = async () => {
     setIsUpdating(true);
     setUpdateMsg("");
@@ -329,13 +354,22 @@ export default function Dashboard({ userData }) {
         name: name,
       });
       if (response.data?.success) {
+      if (mountedRef.current) {
         setUpdateMsg("Settings saved successfully!");
+      }
         setTimeout(() => setUpdateMsg(""), 3000);
       }
     } catch {
+  if (mountedRef.current) {
+    if (mountedRef.current) {
       setUpdateMsg("Error saving settings.");
-    } finally {
-      setIsUpdating(false);
+    }
+  }
+    }
+    finally {
+      if (mountedRef.current) {
+        setIsUpdating(false);
+      }
     }
   };
 
@@ -486,13 +520,20 @@ export default function Dashboard({ userData }) {
     { label: "Glossary", icon: <FaBook />, link: "/glossary" },
     { label: "Risk Index", icon: <FaShieldAlt />, link: "/risk-index" },
   ];
-  const filteredData = yieldData.filter((item) => {
-    return (
-      (selectedCrop === "" || item.crop === selectedCrop) &&
-      (selectedRegion === "" || item.region === selectedRegion) &&
-      (selectedSeason === "" || item.season === selectedSeason)
-    );
-  });
+  const filteredData = useMemo(() => {
+    return yieldData.filter((item) => {
+      return (
+        (selectedCrop === "" || item.crop === selectedCrop) &&
+        (selectedRegion === "" || item.region === selectedRegion) &&
+        (selectedSeason === "" || item.season === selectedSeason)
+      );
+    });
+  }, [
+    yieldData,
+    selectedCrop,
+    selectedRegion,
+    selectedSeason,
+  ]);
 
   return (
     <div className="dashboard">
@@ -806,16 +847,7 @@ export default function Dashboard({ userData }) {
 
         {/* CONDITION START */}
         {yieldData.length === 0 ? (
-          <div
-            style={{
-              padding: "60px",
-              textAlign: "center",
-              color: "#6b7280",
-              fontSize: "14px",
-            }}
-          >
-            Loading chart...
-          </div>
+          <Loader message="Loading chart data..." />
         ) : (
           /* GRID */
           <div
@@ -910,12 +942,10 @@ export default function Dashboard({ userData }) {
         </p>
 
         {/* Weather Chart */}
-        <ErrorBoundary>
+        <AsyncErrorBoundary>
           <div style={{ width: "100%", height: 350 }}>
             {historicalWeather.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "40px" }}>
-                Loading weather data...
-              </div>
+              <Loader message="Loading weather data..." />
             ) : (
               <ResponsiveContainer>
                 <LineChart data={historicalWeather}>
@@ -935,7 +965,7 @@ export default function Dashboard({ userData }) {
               </ResponsiveContainer>
             )}
           </div>
-        </ErrorBoundary>
+        </AsyncErrorBoundary>
 
         {/* Insight */}
         <div style={{ marginTop: "15px", fontWeight: "500", color: "#374151" }}>

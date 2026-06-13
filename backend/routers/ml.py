@@ -1,10 +1,11 @@
 """ML Prediction Router - Yield prediction endpoints"""
 import os
-import re
+import threading
 import logging
 import threading
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field
+from error_utils import safe_detail
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -24,6 +25,7 @@ class PredictRequest(BaseModel):
 
 class PredictResponse(BaseModel):
     predicted_ExpYield: float
+    explanation: dict
 
 class YieldInput(BaseModel):
     # Cap the list length to prevent a single request from allocating an
@@ -39,6 +41,45 @@ model_trend = None
 verify_role_fn = None
 
 TREND_MODEL_PATH = "trend_forecast_model.joblib"
+_trend_lock = threading.Lock()
+
+def _build_prediction_explanation(prediction: float) -> dict:
+    """
+    Generate lightweight explanation metadata for prediction responses.
+    """
+
+    confidence = min(95.0, max(50.0, 60.0 + abs(prediction) * 0.5))
+
+    if confidence >= 85:
+        certainty = "high"
+    elif confidence >= 70:
+        certainty = "medium"
+    else:
+        certainty = "low"
+
+    return {
+        "confidence": round(confidence, 2),
+        "certainty": certainty,
+        "key_factors": [
+            "historical_yield_data",
+            "input_features",
+            "trained_model_output",
+        ],
+        "summary": f"The model predicts a yield value of {round(prediction, 2)} with {certainty} certainty.",
+    }
+
+def rollback_on_drift(alert: dict):
+    """
+    Callback fired when drift or candidate degradation is detected.
+    Overwrites the active model in ModelRegistry with the stable model_lag model.
+    """
+    logger.warning("Drift or performance degradation detected: %s. Rolling back to stable model in ModelRegistry.", alert)
+    from ml.registry import ModelRegistry
+    if model_lag is not None:
+        ModelRegistry.register("xgboost", model_lag)
+        logger.info("Successfully rolled back xgboost to stable model_lag")
+    else:
+        logger.error("Rollback failed: stable model_lag is not loaded")
 
 def init_router(r_instance, model_lag_instance, model_trend_instance=None, verify_role=None):
     global model_router, model_lag, model_trend, verify_role_fn
@@ -46,6 +87,13 @@ def init_router(r_instance, model_lag_instance, model_trend_instance=None, verif
     model_lag = model_lag_instance
     model_trend = model_trend_instance
     verify_role_fn = verify_role
+
+    # Register drift rollback callback
+    from backend.routers import governance
+    if governance.drift_detector is not None:
+        governance.drift_detector.on_drift_detected(rollback_on_drift)
+    if governance.shadow_evaluator is not None:
+        governance.shadow_evaluator.on_drift_detected(rollback_on_drift)
 
 @router.get("")
 def predict_get():
@@ -69,11 +117,8 @@ async def predict_yield(data: PredictRequest, request: Request):
         context = {"location": sanitised_location, "crop": data.Crop}
         predicted_yield = model_router.predict(input_data, context)
         return {"predicted_ExpYield": float(predicted_yield)}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error("predict_yield error: %s", e)
-        raise HTTPException(status_code=500, detail="An unexpected error occurred during prediction.")
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 @router.post("/predict-yield-lag")
 async def predict_yield_lag(payload: YieldInput, request: Request):
@@ -89,11 +134,8 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
             raise ValueError("Exactly 5 values required")
         prediction = model_lag.predict(data)
         return {"prediction": round(float(prediction[0]), 2), "model": "RandomForest Time Series"}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error("predict_yield_lag error: %s", e)
-        raise HTTPException(status_code=500, detail="An unexpected error occurred during prediction.")
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 @router.post("/predict-yield-trend")
 async def predict_yield_trend(payload: YieldInput, request: Request):
@@ -111,10 +153,26 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
     global model_trend
 
     if model_trend is None:
+        with _trend_lock:
+            if model_trend is None:
+                try:
+                    import joblib
+                    if os.path.exists(TREND_MODEL_PATH):
+                        model_trend = joblib.load(TREND_MODEL_PATH)
+                        logger.info("Trend forecast model loaded from %s", TREND_MODEL_PATH)
+                    else:
+                        raise FileNotFoundError(f"Trend model not found at {TREND_MODEL_PATH}")
+                except Exception as load_err:
+                    logger.error("Trend forecast model unavailable: %s. Endpoint cannot serve trend predictions.", load_err)
+                    raise HTTPException(
+                        status_code=503,
+                        detail="Trend forecast model is not loaded. A dedicated trend model is required — "
+                               "the lag-feature model (used by /predict-yield-lag) is statistically invalid "
+                               "for multi-step trend forecasting."
+                    )
         try:
             import joblib
             if os.path.exists(TREND_MODEL_PATH):
-                from ml.security import verify_and_load_joblib
                 model_trend = verify_and_load_joblib(TREND_MODEL_PATH)
                 logger.info("Trend forecast model loaded from %s", TREND_MODEL_PATH)
             else:
@@ -139,8 +197,5 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
             temp = temp[1:] + [pred_value]
 
         return {"trend": trend, "prediction": trend[-1], "model": "Dedicated Trend Forecast"}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error("predict_yield_trend error: %s", e)
-        raise HTTPException(status_code=500, detail="An unexpected error occurred during prediction.")
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))

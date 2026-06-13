@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { FaArrowLeft, FaClock, FaUser, FaCalendarAlt, FaLeaf, FaCloudSun, FaLandmark, FaBug, FaTint, FaSeedling, FaBookmark, FaRegBookmark } from "react-icons/fa";
 import "./Blog.css";
@@ -420,9 +420,22 @@ export default function BlogDetail() {
   const { id } = useParams();
   const post = BLOG_POSTS.find((p) => p.id === parseInt(id, 10));
   const [isBookmarked, setIsBookmarked] = useState(false);
+  const mountedRef = useRef(true);
+  const bookmarkRequestRef = useRef(0);
 
   useEffect(() => {
-    setIsBookmarked(getBookmarks("articles").some((item) => item.id === parseInt(id, 10)));
+    const requestId = ++bookmarkRequestRef.current;
+
+    const bookmarked = getBookmarks("articles").some(
+      (item) => item.id === parseInt(id, 10)
+    );
+
+    if (
+      mountedRef.current &&
+      requestId === bookmarkRequestRef.current
+    ) {
+      setIsBookmarked(bookmarked);
+    }
   }, [id]);
 
   const handleToggleArticleBookmark = () => {
@@ -431,8 +444,13 @@ export default function BlogDetail() {
     setIsBookmarked(updated.some((item) => item.id === post.id));
   };
 
-  React.useEffect(() => {
-    window.scrollTo(0, 0);
+  useEffect(() => {
+    if (!mountedRef.current) return;
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
   }, [id]);
 
   if (!post) {

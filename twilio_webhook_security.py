@@ -10,12 +10,16 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import logging
 import os
 import re
 import urllib.parse
 from typing import Tuple
 
 from fastapi import HTTPException, Request
+from rbac_audit import audit_rbac_event
+
+logger = logging.getLogger(__name__)
 
 
 def verify_twilio_signature(request: Request, body: bytes) -> None:
@@ -25,6 +29,11 @@ def verify_twilio_signature(request: Request, body: bytes) -> None:
         HMAC-SHA1(auth_token, url + sorted_params)
 
     Reference: https://www.twilio.com/docs/usage/webhooks/webhooks-security
+
+    Any verification failure is logged to the RBAC audit trail before
+    raising 403, so unauthorized probe attempts are always recorded.
+    Unexpected internal errors are caught and converted to a clean 403
+    so Python tracebacks never leak to the caller.
     """
     auth_token = os.getenv("TWILIO_AUTH_TOKEN", "")
     if not auth_token:
@@ -35,26 +44,64 @@ def verify_twilio_signature(request: Request, body: bytes) -> None:
 
     twilio_signature = request.headers.get("X-Twilio-Signature", "")
     if not twilio_signature:
+        audit_rbac_event(
+            request=request,
+            action="POST /whatsapp/webhook",
+            outcome="denied",
+            reason="missing_twilio_signature",
+            status_code=403,
+        )
         raise HTTPException(status_code=403, detail="Missing Twilio signature")
 
-    url = str(request.url)
-
     try:
-        params = urllib.parse.parse_qsl(body.decode("utf-8"), keep_blank_values=True)
-    except Exception:
-        params = []
-    sorted_params = sorted(params, key=lambda kv: kv[0])
-    signing_string = url + "".join(k + v for k, v in sorted_params)
+        url = str(request.url)
 
-    expected = hmac.new(
-        auth_token.encode("utf-8"),
-        signing_string.encode("utf-8"),
-        hashlib.sha1,
-    ).digest()
-    expected_b64 = base64.b64encode(expected).decode("utf-8")
+        try:
+            params = urllib.parse.parse_qsl(body.decode("utf-8"), keep_blank_values=True)
+        except Exception:
+            params = []
+        sorted_params = sorted(params, key=lambda kv: kv[0])
+        signing_string = url + "".join(k + v for k, v in sorted_params)
 
-    if not hmac.compare_digest(expected_b64, twilio_signature):
-        raise HTTPException(status_code=403, detail="Invalid Twilio signature")
+        expected = hmac.new(
+            auth_token.encode("utf-8"),
+            signing_string.encode("utf-8"),
+            hashlib.sha1,
+        ).digest()
+        expected_b64 = base64.b64encode(expected).decode("utf-8")
+
+        if not hmac.compare_digest(expected_b64, twilio_signature):
+            audit_rbac_event(
+                request=request,
+                action="POST /whatsapp/webhook",
+                outcome="denied",
+                reason="invalid_twilio_signature",
+                status_code=403,
+            )
+            raise HTTPException(status_code=403, detail="Invalid Twilio signature")
+
+    except HTTPException:
+        # Let cleanly-raised 403s propagate as-is.
+        raise
+    except Exception as exc:
+        # Catch any unexpected error (e.g., encoding failure) and convert
+        # it to a clean 403 so internal details never reach the caller.
+        logger.error(
+            "Unexpected error during Twilio signature verification: %s",
+            exc,
+            exc_info=True,
+        )
+        audit_rbac_event(
+            request=request,
+            action="POST /whatsapp/webhook",
+            outcome="error",
+            reason="signature_verification_error",
+            status_code=403,
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Webhook signature verification failed",
+        ) from None
 
 
 def validate_whatsapp_number(raw: str) -> str:
@@ -67,7 +114,10 @@ def validate_whatsapp_number(raw: str) -> str:
 
 def parse_whatsapp_form(body: bytes) -> Tuple[str, str]:
     """Extract Body and From fields from a Twilio form-encoded webhook payload."""
-    params = dict(urllib.parse.parse_qsl(body.decode("utf-8"), keep_blank_values=True))
+    try:
+        params = dict(urllib.parse.parse_qsl(body.decode("utf-8"), keep_blank_values=True))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Malformed form payload")
     return params.get("Body", ""), params.get("From", "")
 
 
@@ -78,17 +128,35 @@ def enqueue_whatsapp_webhook_processing(message_body: str, sender_number: str) -
     process_whatsapp_webhook_task.delay(message_body, sender_number)
 
 
+MAX_BODY_SIZE = 64 * 1024  # 64 KB
+
 async def handle_inbound_whatsapp_webhook(request: Request) -> dict:
-    """
-    Verify Twilio signature, validate sender, and enqueue async processing.
+    try:
+        raw_body = await request.body()
 
-    Returns immediately so Twilio does not time out under burst traffic.
-    """
-    raw_body = await request.body()
-    verify_twilio_signature(request, raw_body)
+        # Step 1: Body length check
+        if len(raw_body) > MAX_BODY_SIZE:
+            raise HTTPException(status_code=413, detail="Webhook body too large")
 
-    message_body, from_raw = parse_whatsapp_form(raw_body)
-    sender_number = validate_whatsapp_number(from_raw)
+        verify_twilio_signature(request, raw_body)
 
-    enqueue_whatsapp_webhook_processing(message_body, sender_number)
-    return {"status": "success"}
+        #  Step 2: Hardened form parsing
+        message_body, from_raw = parse_whatsapp_form(raw_body)
+
+        # Step 3: Validate sender number safely
+        sender_number = validate_whatsapp_number(from_raw)
+
+        enqueue_whatsapp_webhook_processing(message_body, sender_number)
+        return {"status": "success"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Unexpected error processing inbound WhatsApp webhook: %s",
+            exc,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to process webhook",
+        ) from None

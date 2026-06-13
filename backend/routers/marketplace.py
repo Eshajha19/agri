@@ -24,14 +24,105 @@ import hashlib
 import logging
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, ValidationError
+
+from backend.core.logging_config import setup_logging
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
+logger = setup_logging(__name__)
+
+# ---------------------------------------------------------------------------
+# Marketplace Filter Validation
+# ---------------------------------------------------------------------------
+
+class MarketplaceFilters(BaseModel):
+    """Centralized validation for marketplace listing query filters."""
+    search: str = Field(default="", max_length=100)
+    location: str = Field(default="", max_length=100)
+    type: Optional[str] = Field(default=None, max_length=50)
+    available_only: bool = Field(default=False)
+    page: int = Field(default=1, ge=1)
+    limit: int = Field(default=20, ge=1, le=100)
+
+    @validator("search", "location", "type", pre=True)
+    def strip_and_validate_filters(cls, v):
+        """Strip whitespace and reject injection patterns."""
+        if v is None or v == "":
+            return ""
+        
+        if not isinstance(v, str):
+            raise ValueError("Filter values must be strings")
+        
+        v = v.strip()
+        
+        # Reject common injection patterns
+        injection_patterns = ["<script", "javascript:", "onerror=", "onclick=", "{%", "${"]
+        v_lower = v.lower()
+        for pattern in injection_patterns:
+            if pattern in v_lower:
+                raise ValueError(f"Invalid characters detected in filter: {pattern}")
+        
+        return v
+
+    @validator("type")
+    def validate_equipment_type(cls, v):
+        """Validate equipment type against allowed values."""
+        if v is None or v == "":
+            return None
+        
+        valid_types = {"Tractor", "Harvester", "Drone", "Tillage", "Sowing", "Other"}
+        if v not in valid_types:
+            raise ValueError(f"Equipment type must be one of: {', '.join(valid_types)}")
+        
+        return v
+
+
+def validate_listing_filters(
+    search: str = Query(default="", max_length=100),
+    location: str = Query(default="", max_length=100),
+    type: Optional[str] = Query(default=None, max_length=50),
+    available_only: bool = Query(default=False),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+) -> MarketplaceFilters:
+    """Dependency function to validate marketplace filters centrally.
+    
+    Validates all query parameters through a Pydantic model to ensure:
+    - Type coercion and bounds checking (page >= 1, limit <= 100)
+    - String length limits (search/location <= 100 chars)
+    - Equipment type against allowed values
+    - Injection pattern detection and rejection
+    - Consistent error responses
+    """
+    try:
+        filters = MarketplaceFilters(
+            search=search,
+            location=location,
+            type=type,
+            available_only=available_only,
+            page=page,
+            limit=limit,
+        )
+        return filters
+    except ValidationError as exc:
+        logger.warning("Filter validation failed: %s", exc.errors())
+        # Build user-friendly error message
+        errors = exc.errors()
+        first_error = errors[0] if errors else {}
+        field = first_error.get("loc", ("unknown",))[0]
+        msg = first_error.get("msg", "Invalid filter value")
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "invalid_filter",
+                "message": f"Invalid {field}: {msg}",
+                "errors": errors,
+            },
+        )
 
 # ---------------------------------------------------------------------------
 # In-process stores (thread-safe via a single RLock)
@@ -39,6 +130,11 @@ logger = logging.getLogger(__name__)
 _lock = threading.RLock()
 _listings: Dict[str, Dict[str, Any]] = {}
 _bookings: Dict[str, Dict[str, Any]] = {}
+
+# Caps that prevent a single authenticated user from exhausting the
+# in-process store and causing denial of service for other users.
+_MAX_TOTAL_LISTINGS = 1000
+_MAX_LISTINGS_PER_USER = 10
 
 # Seed with the 16 canonical listings so the marketplace is not empty on
 # first boot.  These are stored server-side — the frontend no longer
@@ -86,7 +182,7 @@ def _seed_listings() -> None:
             return
         for item in _SEED_LISTINGS:
             lid = _stable_seed_id(item)
-            _listings[lid] = {
+            listing = {
                 "id": lid,
                 "name": item["name"],
                 "type": item["type"],
@@ -94,13 +190,51 @@ def _seed_listings() -> None:
                 "priceUnit": item["priceUnit"],
                 "location": item["location"],
                 "owner": item["owner"],
-                "ownerUid": None,   # seed listings have no registered owner
+                "ownerUid": None,
                 "available": item["available"],
                 "rating": 4.5,
                 "createdAt": datetime.now(timezone.utc).isoformat(),
             }
 
+            listing.update(
+                _calculate_listing_quality(listing)
+            )
+
+            _listings[lid] = listing
+
 _seed_listings()
+
+BOOKING_TTL = timedelta(hours=24)
+
+
+def _release_expired_bookings() -> None:
+    """Release listings whose pending bookings have exceeded the TTL."""
+    now = datetime.now(timezone.utc)
+    cutoff = now - BOOKING_TTL
+    expired_bids = []
+    for bid, b in list(_bookings.items()):
+        if b["status"] != "pending":
+            continue
+        created = b.get("createdAt", "")
+        if not created:
+            continue
+        try:
+            created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+            if created_dt < cutoff:
+                expired_bids.append(bid)
+        except Exception:
+            continue
+    for bid in expired_bids:
+        booking = _bookings.pop(bid, None)
+        if booking:
+            eq_id = booking["equipmentId"]
+            listing = _listings.get(eq_id)
+            if listing and listing.get("ownerUid") is None:
+                # Seed listings with no owner revert to available.
+                listing["available"] = True
+                logger.info(
+                    "Released expired booking %s for equipment %s", bid, eq_id
+                )
 
 # ---------------------------------------------------------------------------
 # Dependency injection
@@ -152,18 +286,52 @@ class UpdateBookingRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 @router.get("/listings")
-async def get_listings(
-    search: str = Query(default="", max_length=100),
-    location: str = Query(default="", max_length=100),
-    type: Optional[str] = Query(default=None, max_length=50),
-    available_only: bool = Query(default=False),
-):
-    """Return all equipment listings.  Public — no auth required."""
+async def get_listings(filters: MarketplaceFilters = Query(...) if False else None, 
+                       search: str = Query(default="", max_length=100),
+                       location: str = Query(default="", max_length=100),
+                       type: Optional[str] = Query(default=None, max_length=50),
+                       available_only: bool = Query(default=False),
+                       page: int = Query(default=1, ge=1, description="1-based page number"),
+                       limit: int = Query(default=20, ge=1, le=100, description="Results per page (max 100)")):
+    """Return equipment listings with pagination.  Public -- no auth required.
+
+    Pagination prevents large in-memory copies and unbounded JSON payloads
+    when the listing store is large or has been flooded.
+    
+    All query filters are validated centrally through MarketplaceFilters model
+    to ensure type safety, bounds checking, and injection attack prevention.
+    """
+    # Validate filters through centralized model
+    try:
+        validated_filters = MarketplaceFilters(
+            search=search,
+            location=location,
+            type=type,
+            available_only=available_only,
+            page=page,
+            limit=limit,
+        )
+    except ValidationError as exc:
+        logger.warning("Filter validation failed: %s", exc.errors())
+        errors = exc.errors()
+        first_error = errors[0] if errors else {}
+        field = first_error.get("loc", ("unknown",))[0]
+        msg = first_error.get("msg", "Invalid filter value")
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "invalid_filter",
+                "message": f"Invalid {field}: {msg}",
+                "errors": errors,
+            },
+        )
+    
     with _lock:
+        _release_expired_bookings()
         items = list(_listings.values())
 
-    search_lower = search.lower()
-    location_lower = location.lower()
+    search_lower = validated_filters.search.lower()
+    location_lower = validated_filters.location.lower()
 
     results = []
     for item in items:
@@ -171,14 +339,28 @@ async def get_listings(
             continue
         if location_lower and location_lower not in item["location"].lower():
             continue
-        if type and item["type"] != type:
+        if validated_filters.type and item["type"] != validated_filters.type:
             continue
-        if available_only and not item["available"]:
+        if validated_filters.available_only and not item["available"]:
             continue
         results.append(item)
 
     results.sort(key=lambda x: x["createdAt"], reverse=True)
-    return {"success": True, "data": results}
+
+    total = len(results)
+    start = (validated_filters.page - 1) * validated_filters.limit
+    page_data = results[start : start + validated_filters.limit]
+
+    return {
+        "success": True,
+        "data": page_data,
+        "pagination": {
+            "page": validated_filters.page,
+            "limit": validated_filters.limit,
+            "total": total,
+            "pages": max(1, -(-total // validated_filters.limit)),  # ceiling division
+        },
+    }
 
 
 @router.post("/listings")
@@ -205,7 +387,26 @@ async def list_equipment(request: Request, data: ListEquipmentRequest):
         "createdAt": datetime.now(timezone.utc).isoformat(),
     }
 
+    listing.update(
+        _calculate_listing_quality(listing)
+    )
+
     with _lock:
+        # Global cap: prevent unbounded heap growth from listing floods.
+        if len(_listings) >= _MAX_TOTAL_LISTINGS:
+            raise HTTPException(
+                status_code=503,
+                detail="Marketplace capacity reached. Please try again later.",
+            )
+        # Per-user cap: prevent a single user from monopolising the store.
+        user_listing_count = sum(
+            1 for lst in _listings.values() if lst.get("ownerUid") == uid
+        )
+        if user_listing_count >= _MAX_LISTINGS_PER_USER:
+            raise HTTPException(
+                status_code=429,
+                detail=f"You have reached the maximum of {_MAX_LISTINGS_PER_USER} active listings.",
+            )
         _listings[lid] = listing
 
     logger.info("New equipment listing %s by uid=%s", lid, uid)
@@ -238,6 +439,7 @@ async def book_equipment(request: Request, data: BookEquipmentRequest):
     # Hold the lock for the entire check-then-act sequence so no concurrent
     # request can slip in between the availability read and the booking write.
     with _lock:
+        _release_expired_bookings()
         listing = _listings.get(data.equipmentId)
 
         if listing is None:
@@ -264,9 +466,12 @@ async def book_equipment(request: Request, data: BookEquipmentRequest):
             "createdAt": datetime.now(timezone.utc).isoformat(),
         }
 
-        _bookings[bid] = booking
-        # Mark the listing as unavailable while a booking is pending.
+        # Mark the listing unavailable BEFORE inserting the booking so that
+        # if the process crashes between the two writes the listing is already
+        # locked and a concurrent request cannot observe available=True while
+        # a booking record for the same equipment already exists.
         _listings[data.equipmentId] = {**listing, "available": False}
+        _bookings[bid] = booking
 
     logger.info(
         "Booking %s created: equipment=%s booker=%s date=%s",

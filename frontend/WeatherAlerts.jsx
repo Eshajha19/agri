@@ -31,6 +31,20 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
   const [showHistory, setShowHistory] = useState(false);
   const [alertHistory, setAlertHistory] = useState([]);
   const [selectedAlert, setSelectedAlert] = useState(null);
+  const mountedRef = React.useRef(true);
+  const requestIdRef = React.useRef(0);
+  const historyRequestIdRef = React.useRef(0);
+  const refreshInProgressRef = React.useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      requestIdRef.current++;
+      historyRequestIdRef.current++;
+    };
+  }, []);
 
   // Color mapping for severity levels
   const severityColors = {
@@ -49,13 +63,33 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
 
   // Fetch weather alerts
   const fetchWeatherAlerts = useCallback(async () => {
-    if (!latitude || !longitude || !location) {
-      setError("Location information is required");
+    if (refreshInProgressRef.current) {
       return;
     }
 
-    setLoading(true);
-    setError(null);
+    refreshInProgressRef.current = true;
+    const requestId = ++requestIdRef.current;
+
+    if (!latitude || !longitude || !location) {
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        setError("Location information is required");
+        setAlerts([]);
+        setWeather(null);
+      }
+      refreshInProgressRef.current = false;
+      return;
+    }
+
+    if (
+      mountedRef.current &&
+      requestId === requestIdRef.current
+    ) {
+      setLoading(true);
+      setError(null);
+    }
 
     try {
       const response = await fetch("/api/weather/alerts", {
@@ -77,15 +111,29 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
 
       const data = await response.json();
 
-      if (data.success) {
+      if (
+        !mountedRef.current ||
+        requestId !== requestIdRef.current
+      ) {
+        return;
+      }
+
+      if (
+        data.success &&
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
         setWeather(data.weather);
         setAlerts(data.alerts.alerts || []);
         setLastUpdated(new Date());
 
-        // Show critical/high alerts as toasts
-        const criticalAlerts = data.alerts.alerts.filter(
-          (a) => a.severity === "critical" || a.severity === "high"
-        );
+        const criticalAlerts =
+          data.alerts.alerts.filter(
+            (a) =>
+              a.severity === "critical" ||
+              a.severity === "high"
+          );
+
         criticalAlerts.forEach((alert) => {
           toast.warning(alert.title, {
             position: "top-right",
@@ -95,27 +143,70 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
         });
       }
     } catch (err) {
-      const errorMsg = err.message || "Failed to fetch weather data";
-      setError(errorMsg);
-      toast.error(errorMsg, {
-        position: "top-right",
-        autoClose: 4000,
-      });
+      const errorMsg =
+        err.message || "Failed to fetch weather data";
+
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        setError(errorMsg);
+
+        toast.error(errorMsg, {
+          position: "top-right",
+          autoClose: 4000,
+        });
+      }
     } finally {
-      setLoading(false);
-    }
+        refreshInProgressRef.current = false;
+
+        if (
+          mountedRef.current &&
+          requestId === requestIdRef.current
+        ) {
+          setLoading(false);
+        }
+      }
   }, [latitude, longitude, location, crop]);
 
   // Fetch alert history
   const fetchAlertHistory = useCallback(async () => {
+    const requestId = ++historyRequestIdRef.current;
+
     try {
-      const response = await fetch("/api/weather/alerts/history");
-      if (response.ok) {
-        const data = await response.json();
+      const response = await fetch(
+        "/api/weather/alerts/history"
+      );
+
+      if (!response.ok) {
+        return;
+      }
+
+      const data = await response.json();
+
+      if (
+        !mountedRef.current ||
+        requestId !== historyRequestIdRef.current
+      ) {
+        return;
+      }
+
+      if (
+        mountedRef.current &&
+        requestId === historyRequestIdRef.current
+      ) {
         setAlertHistory(data.recent_alerts || []);
       }
     } catch (err) {
-      console.error("Failed to fetch alert history:", err);
+      if (
+        mountedRef.current &&
+        requestId === historyRequestIdRef.current
+      ) {
+        console.error(
+          "Failed to fetch alert history:",
+          err
+        );
+      }
     }
   }, []);
 
@@ -126,7 +217,11 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
     // Auto-refresh every 30 minutes
     const interval = setInterval(fetchWeatherAlerts, 30 * 60 * 1000);
     
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      requestIdRef.current++;
+      historyRequestIdRef.current++;
+    };
   }, [fetchWeatherAlerts]);
 
   // Weather info card component

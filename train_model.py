@@ -100,7 +100,16 @@ def train_yield_model(
         X, y, test_size=0.2, random_state=42
     )
 
-    model = xgb.XGBRegressor(n_estimators=200, max_depth=6, random_state=42)
+    model = xgb.XGBRegressor(
+        n_estimators=config.get("n_estimators", 200),
+        max_depth=config.get("max_depth", 6),
+        learning_rate=config.get("learning_rate", 0.1),
+        subsample=config.get("subsample", 1.0),
+        colsample_bytree=config.get("colsample_bytree", 1.0),
+        gamma=config.get("gamma", 0),
+        min_child_weight=config.get("min_child_weight", 1),
+        random_state=42,
+    )
     model.fit(X_train, y_train)
 
     preds = model.predict(X_test)
@@ -151,6 +160,11 @@ def _train_baseline_xgboost(config: Dict, X_train, y_train, X_test):
     model = xgb.XGBRegressor(
         n_estimators=config.get("n_estimators", 200),
         max_depth=config.get("max_depth", 6),
+        learning_rate=config.get("learning_rate", 0.1),
+        subsample=config.get("subsample", 1.0),
+        colsample_bytree=config.get("colsample_bytree", 1.0),
+        gamma=config.get("gamma", 0),
+        min_child_weight=config.get("min_child_weight", 1),
         random_state=config.get("seed", 42),
     )
     model.fit(X_train, y_train)
@@ -410,6 +424,10 @@ def main():
 
     train_from_config(args.config)
 
+# Split data — temporal ordering preserved; no shuffle to avoid future leakage
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, shuffle=False
+)
 
 if __name__ == "__main__":
     main()

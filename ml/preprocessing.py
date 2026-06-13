@@ -1,84 +1,72 @@
-import pandas as pd
+import logging
+from typing import Dict, List
+
 import numpy as np
-from typing import List
-
-from ml.validators import validate_ml_inputs, InputValidationError
+import pandas as pd
 
 
-class UnknownCategoryError(ValueError):
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# CUSTOM ERRORS
+# =============================================================================
+
+class UnknownCategoryError(Exception):
     """
-    Raised when a categorical input value was not seen during training.
-
-    Attributes
-    ----------
-    column : str
-        The original (pre-encoding) categorical column name.
-    value : object
-        The value that was not recognised.
-    expected_columns : list[str]
-        The one-hot columns the model expected for this feature group.
+    Raised when unseen categorical value appears.
     """
 
-    def __init__(self, column: str, value: object, expected_columns: List[str]):
+    def __init__(self, column: str, value):
         self.column = column
         self.value = value
-        self.expected_columns = expected_columns
+
         super().__init__(
-            f"Unknown value '{value}' for categorical feature '{column}'. "
-            f"The model was not trained on this value. "
-            f"Expected one of the encoded columns: {expected_columns}"
+            f"Unknown category '{value}' for column '{column}'"
         )
 
 
-class MissingFeatureError(ValueError):
+class MissingFeatureError(Exception):
     """
-    Raised when a required numeric feature column is absent from the input.
-
-    Attributes
-    ----------
-    missing_columns : list[str]
-        Feature columns that were expected but not present after encoding.
+    Raised when required feature columns are missing.
     """
 
     def __init__(self, missing_columns: List[str]):
         self.missing_columns = missing_columns
+
         super().__init__(
-            f"Input is missing {len(missing_columns)} required feature(s): "
-            f"{missing_columns}. "
-            "Provide all required fields or check that categorical values "
-            "match the training vocabulary."
+            f"Missing required features: {missing_columns}"
         )
 
 
-class FeaturePreprocessor:
+# =============================================================================
+# HELPERS
+# =============================================================================
+
+def ensure_required_features(
+    dataframe: pd.DataFrame,
+    required_columns: List[str],
+):
     """
-    Standardises and validates input features for yield prediction models.
+    Ensure all required columns exist.
+    """
 
-    Key design note
-    ---------------
-    The model was trained with ``pd.get_dummies(..., drop_first=True)`` on a
-    multi-row dataset.  At inference time we receive a **single row**, and
-    ``drop_first=True`` on a single row silently drops *every* categorical
-    column (there is only one unique value per column, so the "first" is the
-    only one and it gets dropped).  This caused a 500 error at prediction time.
+    missing = [
+        col
+        for col in required_columns
+        if col not in dataframe.columns
+    ]
 
-    The fix is to encode with ``drop_first=False`` (keeping all dummies) and
-    then align the resulting DataFrame to ``feature_cols`` by:
-      - adding any column that is in ``feature_cols`` but absent from the
-        encoded row as a zero column (this covers the baseline/dropped
-        categories from training), and
-      - dropping any column that is not in ``feature_cols``.
+    if missing:
+        raise MissingFeatureError(missing)
 
-    Unknown categories (values the model was never trained on) are still
-    detected and raised as ``UnknownCategoryError``.
 
-    Raises
-    ------
-    UnknownCategoryError
-        When a categorical column value was not present in the training data.
-    MissingFeatureError
-        When one or more required *numeric* feature columns are absent after
-        encoding (i.e. the caller omitted a required field entirely).
+def sanitize_numeric_columns(
+    dataframe: pd.DataFrame,
+    numeric_columns: List[str],
+):
+    """
+    Safely convert numeric columns.
     """
 
     def __init__(self, feature_cols: List[str] = None, category_vocab: dict = None):
@@ -116,7 +104,9 @@ class FeaturePreprocessor:
         # This prevents invalid values from reaching the model
         validated_data = validate_ml_inputs(input_data)
         
+        # Ensure deterministic column order from the start
         df = pd.DataFrame([validated_data])
+        df = df.reindex(sorted(df.columns), axis=1)
 
         # --- Validate categorical values against training vocabulary ---
         if self.category_vocab:
@@ -211,6 +201,9 @@ class FeaturePreprocessor:
 
             # Reorder columns to exactly match model expectations and drop extras.
             df = df[self.feature_cols]
+        else:
+            # If no feature_cols are provided, still ensure deterministic order
+            df = df.reindex(sorted(df.columns), axis=1)
 
         return df
 

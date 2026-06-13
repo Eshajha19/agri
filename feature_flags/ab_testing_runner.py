@@ -110,6 +110,17 @@ class ABTestingRunner:
                 "already_promoted",
                 metrics,
             )
+            
+            if experiment.get("status") != "running":
+            return PromotionDecision(
+                self.experiment_id,
+                None,
+                None,
+                False,
+                f"experiment_status_{experiment.get('status')}",
+                metrics,
+            )
+
 
         variants = metrics.get("variants", {}) or {}
         if len(variants) < 2 or metrics.get("total_events", 0) < self.min_total_events:

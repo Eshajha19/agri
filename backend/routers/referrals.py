@@ -1,12 +1,15 @@
 """Farmer referral and village growth router."""
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from firebase_admin import firestore
+
+import logging
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -33,7 +36,7 @@ def init_referrals(db_resolver, vr_fn):
 
 
 def _now_iso() -> str:
-    return datetime.utcnow().isoformat() + "Z"
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _normalize_referral_code(code: str) -> str:
@@ -43,15 +46,10 @@ def _normalize_referral_code(code: str) -> str:
 
 
 def _generate_referral_code(uid: str, attempt: int = 0) -> str:
-    import hashlib
     import secrets
 
-    if attempt < 100:
-        # Deterministic SHA256-based codes (primary path).
-        digest = hashlib.sha256(f"{uid}:{attempt}".encode("utf-8")).hexdigest().upper()
-        return f"FS{digest[:10]}"
-    # Fallback: random hex suffix — 2^64 collision space per attempt.
-    return f"FS{secrets.token_hex(8).upper()}"
+    raw = secrets.token_hex(8).upper()
+    return f"FS{raw}"
 
 
 def _referral_badge(referral_count: int) -> str:
@@ -89,10 +87,31 @@ def _require_db():
 
 
 async def _get_uid_from_request(request: Request) -> str:
-    if verify_role_fn is None:
-        raise HTTPException(status_code=500, detail="Auth not initialized")
-    token_data = await verify_role_fn(request)
-    return token_data["uid"]
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing auth token")
+
+    token = auth_header.split(" ", 1)[1].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing auth token")
+
+    try:
+        decoded = auth.verify_id_token(token, check_revoked=True)
+
+        uid = decoded.get("sub")
+        if not uid:
+            uid = decoded.get("uid")
+
+        if not uid:
+            raise HTTPException(status_code=401, detail="Invalid auth token")
+
+        return uid
+    except HTTPException:
+        raise
+    except auth.RevokedIdTokenError:
+        raise HTTPException(status_code=401, detail="Session revoked — please log in again")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid auth token")
 
 
 def _ensure_user_referral_code(db, uid: str, user_data: Optional[Dict[str, Any]] = None) -> str:
@@ -399,6 +418,8 @@ async def redeem_referral_code(payload: RedeemReferralRequest, request: Request)
         transaction.set(
             referral_ref,
             {
+                "eligibilityVerified": True,
+                "validationSource": "server_side",
                 "inviterUid": inviter_uid,
                 "inviteeUid": invitee_uid,
                 "inviteeName": (invitee_data or {}).get("displayName") or "Farmer",
@@ -453,6 +474,14 @@ async def redeem_referral_code(payload: RedeemReferralRequest, request: Request)
         transaction, invitee_ref, inviter_ref, referral_ref, reward_history_ref
     )
 
+    logger.info(
+        "[REFERRAL_AUDIT] inviter=%s invitee=%s code=%s referrals=%s",
+        inviter_uid,
+        invitee_uid,
+        normalized_code,
+        inviter_count,
+    )
+
     return {
         "success": True,
         "message": "Referral redeemed successfully",
@@ -464,7 +493,6 @@ async def redeem_referral_code(payload: RedeemReferralRequest, request: Request)
             "inviterBadge": _referral_badge(inviter_count),
         },
     }
-
 
 @router.get("/history")
 async def get_referral_history(request: Request, limit: int = Query(default=20, ge=1, le=100)):

@@ -207,8 +207,7 @@ class ErrorBoundary extends React.Component {
 
     if (hasError) {
       const errorCategory = this.getErrorCategory(error);
-      const suggestedActions = this.getSuggestedActions(error) || [];
-
+      const suggestedActions = this.getSuggestedActions(error);
       const isRecoverable = retryCount < maxRetries;
 
       return (

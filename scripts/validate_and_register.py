@@ -30,16 +30,25 @@ def main(argv):
     manifest_path = os.path.join(out_dir, "manifest.json")
     write_manifest(manifest, manifest_path)
 
-    # Register in global registry
-    registry = get_model_registry()
-    registry.register_model(
-        model_name=model_name,
-        version=version,
-        model_path=os.path.abspath(model_path),
-        created_by="cli",
-        description=f"Registered via validate_and_register: {manifest_path}",
-        metrics={}
-    )
+    # Register in global registry — if this fails, clean up the orphaned manifest
+    try:
+        registry = get_model_registry()
+        registry.register_model(
+            model_name=model_name,
+            version=version,
+            model_path=os.path.abspath(model_path),
+            created_by="cli",
+            description=f"Registered via validate_and_register: {manifest_path}",
+            metrics={}
+        )
+    except Exception as exc:
+        # Remove orphaned manifest so it cannot be mistaken for a registered model
+        try:
+            os.remove(manifest_path)
+        except OSError as remove_err:
+            print("Warning: failed to remove orphaned manifest:", remove_err)
+        print("Registry error, manifest rolled back:", exc)
+        return 1
 
     print("Validation succeeded, manifest written to:", manifest_path)
     return 0

@@ -22,7 +22,7 @@ from collections import defaultdict
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
-
+from collections import deque
 logger = logging.getLogger(__name__)
 
 try:
@@ -37,13 +37,57 @@ except Exception:
 
 EVENTS_COLLECTION = "experiment_events"
 
-_event_buffer: list[dict[str, Any]] = []
+_event_buffer: deque = deque(maxlen=10000)
 _event_lock = threading.Lock()
+
+_duplicate_events_detected = 0
+_missing_metric_entries = 0
 
 VALID_EVENT_TYPES = frozenset({
     "impression", "conversion", "error", "flag_evaluated", "custom"
 })
 
+REQUIRED_EVENT_FIELDS = frozenset({
+    "event_type",
+    "user_id",
+    "timestamp",
+})
+
+
+def _is_duplicate_event(event: Dict[str, Any]) -> bool:
+    """
+    Lightweight duplicate detection against recent buffered events.
+    """
+    with _event_lock:
+        return any(
+            existing.get("event_type") == event.get("event_type")
+            and existing.get("user_id") == event.get("user_id")
+            and existing.get("experiment_id") == event.get("experiment_id")
+            and existing.get("timestamp") == event.get("timestamp")
+            for existing in _event_buffer
+        )
+
+
+def _validate_event(event: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Validate event completeness and consistency.
+    """
+
+    missing_fields = [
+        field for field in REQUIRED_EVENT_FIELDS
+        if not event.get(field)
+    ]
+
+    metadata_valid = isinstance(
+        event.get("metadata", {}),
+        dict,
+    )
+
+    return {
+        "is_valid": not missing_fields and metadata_valid,
+        "missing_fields": missing_fields,
+        "metadata_valid": metadata_valid,
+    }
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -74,6 +118,27 @@ def log_event(
         "session_id":    session_id,
         "timestamp":     _now_iso(),
     }
+
+    validation = _validate_event(event)
+
+    if not validation["is_valid"]:
+        global _missing_metric_entries
+        _missing_metric_entries += 1
+
+        logger.warning(
+            "Invalid experiment metric detected: %s",
+            validation,
+        )
+
+    if _is_duplicate_event(event):
+        global _duplicate_events_detected
+        _duplicate_events_detected += 1
+
+        logger.warning(
+            "Duplicate experiment metric detected for user=%s experiment=%s",
+            user_id,
+            experiment_id,
+        )
 
     with _event_lock:
         _event_buffer.append(deepcopy(event))
@@ -165,7 +230,28 @@ def get_experiment_metrics(experiment_id: str) -> Dict:
             elif etype == "error":
                 counts[variant]["errors"] += 1
 
-        return _summarize_counts(experiment_id, total, counts)
+        # Compute conversion rates
+        summary = {}
+        for variant, c in counts.items():
+            imp = c["impressions"]
+            if imp == 0:
+                summary[variant] = {
+                    **c,
+                    "conversion_rate": None,
+                    "error_rate":      None,
+                }
+            else:
+                summary[variant] = {
+                    **c,
+                    "conversion_rate": round(c["conversions"] / imp * 100, 2),
+                    "error_rate":      round(c["errors"] / imp * 100, 2),
+                }
+
+        return {
+            "experiment_id": experiment_id,
+            "total_events":  total,
+            "variants":      summary,
+        }
 
     except Exception as e:
         logger.error("Failed to compute metrics for '%s': %s", experiment_id, e)
@@ -183,17 +269,30 @@ def _empty_metrics(experiment_id: str) -> Dict:
 def _summarize_counts(experiment_id: str, total: int, counts: Dict[str, Dict[str, int]]) -> Dict:
     summary = {}
     for variant, c in counts.items():
-        imp = c["impressions"] or 1
+        imp = c["impressions"]
+        if imp == 0:
+            conversion_rate = 0.0
+            error_rate = 0.0
+        else:
+            conversion_rate = round(c["conversions"] / imp * 100, 2)
+            error_rate = round(c["errors"] / imp * 100, 2)
         summary[variant] = {
             **c,
-            "conversion_rate": round(c["conversions"] / imp * 100, 2),
-            "error_rate": round(c["errors"] / imp * 100, 2),
+            "conversion_rate": conversion_rate,
+            "error_rate": error_rate,
         }
+
+    validation_summary = {
+        "missing_metric_entries": _missing_metric_entries,
+        "duplicate_metric_entries": _duplicate_events_detected,
+        "metadata_validation_enabled": True,
+    }
 
     return {
         "experiment_id": experiment_id,
         "total_events": total,
         "variants": summary,
+        "validation": validation_summary,
     }
 
 
