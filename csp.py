@@ -3,22 +3,25 @@ Centralized Content Security Policy configuration.
 
 Policies are generated per-environment so development can be
 more permissive while production enforces strict rules.
+Firebase Authentication domains are included in both environments
+so Google Sign-In popups and redirects are never blocked.
 """
 
 import os
-from typing import Dict
 
+FIREBASE_AUTH_DOMAINS = [
+    "https://*.firebaseapp.com",
+    "https://*.web.app",
+    "https://accounts.google.com",
+    "https://apis.google.com",
+]
 
-# ── Environment detection ─────────────────────────────────────────────────
 
 def is_production() -> bool:
     return os.getenv("ENV", "").strip().lower() in ("production", "prod")
 
 
-# ── Policy builders ────────────────────────────────────────────────────────
-
-def _directives(env: str) -> Dict[str, str]:
-    """Return directive dict for the given environment key."""
+def _directives(env: str) -> dict:
     policies = {
         "production": {
             "default-src": "'self'",
@@ -26,9 +29,9 @@ def _directives(env: str) -> Dict[str, str]:
             "style-src": "'self' 'unsafe-inline'",
             "img-src": "'self' data: https:",
             "font-src": "'self' https://fonts.gstatic.com",
-            "connect-src": "'self' https://fasalsaathi.agri",
+            "connect-src": "'self' https://fasalsaathi.agri https://identitytoolkit.googleapis.com https://securetoken.googleapis.com",
+            "frame-src": "'self' " + " ".join(FIREBASE_AUTH_DOMAINS),
             "frame-ancestors": "'none'",
-            "frame-src": "'none'",
             "object-src": "'none'",
             "base-uri": "'self'",
             "form-action": "'self'",
@@ -39,9 +42,9 @@ def _directives(env: str) -> Dict[str, str]:
             "style-src": "'self' 'unsafe-inline'",
             "img-src": "'self' data: https:",
             "font-src": "'self' https://fonts.gstatic.com",
-            "connect-src": "'self' ws: wss: https://fasalsaathi.agri",
+            "connect-src": "'self' ws: wss: https://fasalsaathi.agri https://identitytoolkit.googleapis.com https://securetoken.googleapis.com",
+            "frame-src": "'self' " + " ".join(FIREBASE_AUTH_DOMAINS),
             "frame-ancestors": "'self'",
-            "frame-src": "'self'",
             "object-src": "'none'",
             "base-uri": "'self'",
             "form-action": "'self'",
@@ -51,18 +54,14 @@ def _directives(env: str) -> Dict[str, str]:
 
 
 def build_csp_policy() -> str:
-    """Return a single Content-Security-Policy header value for the
-    current environment."""
     env = "production" if is_production() else "development"
     dirs = _directives(env)
     return "; ".join(f"{k} {v}" for k, v in dirs.items())
 
 
-# ── Validation ─────────────────────────────────────────────────────────────
-
 REQUIRED_DIRECTIVES = {
     "default-src", "script-src", "style-src", "img-src",
-    "font-src", "connect-src", "frame-ancestors", "frame-src",
+    "font-src", "connect-src", "frame-src", "frame-ancestors",
     "object-src", "base-uri", "form-action",
 }
 
@@ -73,8 +72,6 @@ RESTRICTIVE_VALUES = {
 
 
 def validate_csp_policy(policy: str) -> list:
-    """Validate a CSP policy string. Returns a list of issue descriptions
-    (empty list = valid)."""
     issues = []
     parts = [p.strip() for p in policy.split(";") if p.strip()]
 
@@ -86,7 +83,6 @@ def validate_csp_policy(policy: str) -> list:
         name = tokens[0]
         directives_found.add(name)
         value = tokens[1] if len(tokens) > 1 else ""
-
         if name in RESTRICTIVE_VALUES:
             allowed = RESTRICTIVE_VALUES[name]
             if not any(a in value for a in allowed):
@@ -97,5 +93,18 @@ def validate_csp_policy(policy: str) -> list:
     missing = REQUIRED_DIRECTIVES - directives_found
     if missing:
         issues.append(f"Missing required directive(s): {', '.join(sorted(missing))}")
+
+    # Validate Firebase auth domains are included in frame-src
+    if "frame-src" in directives_found:
+        for part in parts:
+            if part.startswith("frame-src"):
+                vals = part.split(None, 1)[1] if len(part.split(None, 1)) > 1 else ""
+                for domain in FIREBASE_AUTH_DOMAINS:
+                    if domain not in vals:
+                        issues.append(
+                            f"frame-src missing Firebase auth domain: {domain}"
+                        )
+                        break
+                break
 
     return issues

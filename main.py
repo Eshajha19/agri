@@ -1031,8 +1031,7 @@ app.add_middleware(
 app.add_middleware(RBACMiddleware)
 
 
-# ── Content Security Policy (via HTTP header) ──────────────────────────────
-# frame-ancestors is only effective via HTTP headers, not meta tags.
+# ── Content Security Policy (HTTP header) ──────────────────────────────────
 from csp import build_csp_policy, validate_csp_policy
 
 _CSP_POLICY = build_csp_policy()
