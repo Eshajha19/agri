@@ -1,0 +1,112 @@
+.cc-container {
+  max-width: 620px;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+.cc-card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  padding: 2rem;
+}
+.cc-card h2 {
+  margin: 0 0 0.25rem;
+  color: #1a5a1a;
+}
+.cc-subtitle {
+  color: #666;
+  font-size: 0.9rem;
+  margin: 0 0 1.5rem;
+}
+.cc-error {
+  background: #ffebee;
+  color: #c62828;
+  padding: 0.75rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+.cc-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #333;
+  margin-bottom: 1rem;
+}
+.cc-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+.cc-form input,
+.cc-form select {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+.cc-form input:focus,
+.cc-form select:focus {
+  border-color: #2e7d32;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(46, 125, 50, 0.2);
+}
+.cc-submit {
+  width: 100%;
+  padding: 0.75rem;
+  background: #1565c0;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cc-submit:hover { background: #0d47a1; }
+.cc-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.cc-result { margin-top: 2rem; }
+.cc-amount {
+  text-align: center;
+  background: #e3f2fd;
+  border: 1px solid #90caf9;
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.cc-amount-label {
+  display: block;
+  font-size: 0.85rem;
+  color: #555;
+  margin-bottom: 0.25rem;
+}
+.cc-amount-value {
+  display: block;
+  font-size: 2rem;
+  font-weight: 700;
+  color: #1565c0;
+}
+.cc-breakdown h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  color: #333;
+}
+.cc-breakdown table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.cc-breakdown td {
+  padding: 0.5rem 0;
+  font-size: 0.9rem;
+  border-bottom: 1px solid #eee;
+}
+.cc-bd-label { color: #555; }
+.cc-bd-value { text-align: right; font-weight: 500; }
+.cc-bd-total td {
+  font-weight: 700;
+  color: #1565c0;
+  font-size: 1rem;
+  border-bottom: none;
+  padding-top: 0.75rem;
+}
