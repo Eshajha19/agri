@@ -147,6 +147,12 @@ class SupplyChainBlockchain:
         record.hash = record.calculate_hash()
         return record
 
+    def _link_record(self, record: BlockchainRecord) -> BlockchainRecord:
+        """Set previous_hash and compute hash for a record, returning it without appending."""
+        record.previous_hash = self._last_hash()
+        record.hash = record.calculate_hash()
+        return record
+
     # ------------- Utilities for atomicity -------------
     def _snapshot_state(self):
         """Create snapshot of current state for rollback"""
