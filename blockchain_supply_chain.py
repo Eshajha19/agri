@@ -133,6 +133,7 @@ class SupplyChainBlockchain:
             "supply_chain_nodes_copy": {k: list(v) for k, v in self.supply_chain_nodes.items()},
             "smart_contracts_copy": {k: v.status for k, v in self.smart_contracts.items()},
             "trace_batches_copy": _copy.deepcopy(self._trace_batches),
+            "verified_actors_copy": _copy.deepcopy(self.verified_actors),
         }
 
     def _rollback_to_snapshot(self, snap):
@@ -144,24 +145,30 @@ class SupplyChainBlockchain:
             if cid in self.smart_contracts:
                 self.smart_contracts[cid].status = status
         self._trace_batches = _copy.deepcopy(snap["trace_batches_copy"])
+        self.verified_actors = _copy.deepcopy(snap["verified_actors_copy"])
 
     # ------------- Core operations -------------
     def register_actor(self, actor_id: str, name: str, actor_type: str, location: str) -> Dict:
-        """Register supply chain participant"""
-        actor_data = {
-            "actor_id": actor_id,
-            "name": name,
-            "type": actor_type,
-            "location": location,
-            "registered_at": datetime.now().isoformat(),
-            "verified": True,
-            "transactions": 0,
-            "rating": 5.0,
-        }
-        self.verified_actors[actor_id] = actor_data
-        if self._repository is not None:
-            self._repository.save_actor(actor_id, actor_data)
-        return actor_data
+        """Register supply chain participant atomically"""
+        snap = self._snapshot_state()
+        try:
+            actor_data = {
+                "actor_id": actor_id,
+                "name": name,
+                "type": actor_type,
+                "location": location,
+                "registered_at": datetime.now().isoformat(),
+                "verified": True,
+                "transactions": 0,
+                "rating": 5.0,
+            }
+            self.verified_actors[actor_id] = actor_data
+            if self._repository is not None:
+                self._repository.save_actor(actor_id, actor_data)
+            return actor_data
+        except Exception:
+            self._rollback_to_snapshot(snap)
+            raise
 
     def create_product_batch(
         self,
@@ -532,31 +539,36 @@ class SupplyChainBlockchain:
         if batch_id in self._trace_batches:
             raise ValueError(f"Batch {batch_id} is already registered")
 
-        entry = {
-            "id": batch_id,
-            "crop": payload.get("crop", ""),
-            "variety": payload.get("variety", ""),
-            "harvestDate": payload.get("harvestDate", ""),
-            "farm": payload.get("farm", ""),
-            "status": payload.get("status", "Pending Verification"),
-            "registeredByUid": payload.get("registeredByUid", ""),
-            "registeredAt": datetime.utcnow().isoformat() + "Z",
-            "journey": payload.get("journey", []),
-        }
-        self._trace_batches[batch_id] = entry
+        snap = self._snapshot_state()
+        try:
+            entry = {
+                "id": batch_id,
+                "crop": payload.get("crop", ""),
+                "variety": payload.get("variety", ""),
+                "harvestDate": payload.get("harvestDate", ""),
+                "farm": payload.get("farm", ""),
+                "status": payload.get("status", "Pending Verification"),
+                "registeredByUid": payload.get("registeredByUid", ""),
+                "registeredAt": datetime.utcnow().isoformat() + "Z",
+                "journey": payload.get("journey", []),
+            }
+            self._trace_batches[batch_id] = entry
 
-        # Also record the registration on the blockchain for auditability.
-        record = BlockchainRecord(
-            timestamp=entry["registeredAt"],
-            actor=entry["registeredByUid"] or "unknown",
-            action="trace_batch_registered",
-            location=entry["farm"],
-            data={"batch_id": batch_id, "crop": entry["crop"]},
-        )
-        record.hash = record.calculate_hash()
-        self.chain.append(record)
+            # Also record the registration on the blockchain for auditability.
+            record = BlockchainRecord(
+                timestamp=entry["registeredAt"],
+                actor=entry["registeredByUid"] or "unknown",
+                action="trace_batch_registered",
+                location=entry["farm"],
+                data={"batch_id": batch_id, "crop": entry["crop"]},
+            )
+            record.hash = record.calculate_hash()
+            self.chain.append(record)
 
-        return entry
+            return entry
+        except Exception:
+            self._rollback_to_snapshot(snap)
+            raise
 
     def get_trace_batch(self, batch_id: str) -> Optional[Dict]:
         """Fetch a QR-traceability batch by ID.  Returns None if not found."""
