@@ -82,6 +82,7 @@ import {
   Terms,
   YieldPredictor,
   EquipmentManagement,
+  ClaimScorePredictor,
 } from "./routes/lazyPages";
 
 const Weather = React.lazy(() => import("./Weather"));
@@ -759,6 +760,7 @@ function App() {
             <Route path="/disease-awareness" element={<CropDiseaseAwareness />} />
             <Route path="/pest-detection" element={<PestDetection />} />
             <Route path="/equipment-management" element={<EquipmentManagement />} />
+            <Route path="/claim-predictor" element={<ClaimScorePredictor />} />
             <Route path="/helpline" element={<Helpline />} />
             <Route path="/glossary" element={<Glossary />} />
             <Route path="/risk-index" element={<RiskIndex />} />
