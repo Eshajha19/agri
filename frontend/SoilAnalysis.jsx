@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Leaf,
   FlaskConical,
@@ -225,6 +225,31 @@ const SOIL_TIPS = [
 ];
 
 const [tipIndex, setTipIndex] = useState(0);
+const mountedRef = useRef(true);
+const requestIdRef = useRef(0);
+const analysisTimeoutRef = useRef(null);
+const scoreIntervalRef = useRef(null);
+const tipsIntervalRef = useRef(null);
+
+useEffect(() => {
+  mountedRef.current = true;
+
+  return () => {
+    mountedRef.current = false;
+
+    if (analysisTimeoutRef.current) {
+      clearTimeout(analysisTimeoutRef.current);
+    }
+
+    if (scoreIntervalRef.current) {
+      clearInterval(scoreIntervalRef.current);
+    }
+
+    if (tipsIntervalRef.current) {
+      clearInterval(tipsIntervalRef.current);
+    }
+  };
+}, []);
 
   const validateInputs = () => {
     const newErrors = {};
@@ -239,46 +264,81 @@ const [tipIndex, setTipIndex] = useState(0);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+
+    requestIdRef.current++;
+
+    if (analysisTimeoutRef.current) {
+      clearTimeout(analysisTimeoutRef.current);
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+
     if (errors[name]) {
-      setErrors((prev) => ({ ...prev, [name]: "" }));
+      setErrors((prev) => ({
+        ...prev,
+        [name]: "",
+      }));
     }
   };
 
   const handleAnalyze = (e) => {
     e.preventDefault();
+
     if (!validateInputs()) return;
 
-    const n = parseFloat(formData.nitrogen);
-    const p = parseFloat(formData.phosphorus);
-    const k = parseFloat(formData.potassium);
+    const requestId = ++requestIdRef.current;
 
-    const levels = {
-      nitrogen: getNutrientLevel("nitrogen", n),
-      phosphorus: getNutrientLevel("phosphorus", p),
-      potassium: getNutrientLevel("potassium", k),
-    };
+    if (analysisTimeoutRef.current) {
+      clearTimeout(analysisTimeoutRef.current);
+    }
 
-    const quality = getSoilQuality(levels);
-    const crops = getRecommendedCrops(levels);
-    const fertilizers = getRecommendedFertilizers(levels);
-    const updateSuggestions = getSoilUpdateSuggestions(levels);
-    const updateFrequency = getUpdateFrequency(quality.score);
-    const soilInsights = getSoilInsights(levels);
-    const soilType = detectSoilType(levels);
+    analysisTimeoutRef.current = setTimeout(() => {
+      const n = parseFloat(formData.nitrogen);
+      const p = parseFloat(formData.phosphorus);
+      const k = parseFloat(formData.potassium);
 
-    setResults({
-      levels,
-      quality,
-      crops,
-      fertilizers,
-      values: { nitrogen: n, phosphorus: p, potassium: k },
-      updateSuggestions,
-      updateFrequency,
-      soilInsights,
-      soilType,
-    });
-    setHasAnalyzed(true);
+      const levels = {
+        nitrogen: getNutrientLevel("nitrogen", n),
+        phosphorus: getNutrientLevel("phosphorus", p),
+        potassium: getNutrientLevel("potassium", k),
+      };
+
+      const quality = getSoilQuality(levels);
+      const crops = getRecommendedCrops(levels);
+      const fertilizers = getRecommendedFertilizers(levels);
+      const updateSuggestions = getSoilUpdateSuggestions(levels);
+      const updateFrequency = getUpdateFrequency(quality.score);
+      const soilInsights = getSoilInsights(levels);
+      const soilType = detectSoilType(levels);
+
+      if (
+        !mountedRef.current ||
+        requestId !== requestIdRef.current
+      ) {
+        return;
+      }
+
+      setResults({
+        levels,
+        quality,
+        crops,
+        fertilizers,
+        values: {
+          nitrogen: n,
+          phosphorus: p,
+          potassium: k,
+        },
+        updateSuggestions,
+        updateFrequency,
+        soilInsights,
+        soilType,
+      });
+
+      setHasAnalyzed(true);
+    }, 300);
   };
 
   useEffect(() => {
@@ -286,18 +346,22 @@ const [tipIndex, setTipIndex] = useState(0);
       let start = 0;
       setAnimatedScore(0);
 
-      const interval = setInterval(() => {
+      scoreIntervalRef.current = setInterval(() => {
         start += 1;
 
         if (start >= results.quality.score) {
           start = results.quality.score;
-          clearInterval(interval);
+          clearInterval(scoreIntervalRef.current);
         }
 
         setAnimatedScore(start);
       }, 15);
 
-      return () => clearInterval(interval);
+      return () => {
+        if (scoreIntervalRef.current) {
+          clearInterval(scoreIntervalRef.current);
+        }
+      };
     }
   }, [results]);
 
@@ -309,6 +373,11 @@ useEffect(() => {
   return () => clearInterval(interval);
 }, []);
   const handleReset = () => {
+    requestIdRef.current++;
+
+    if (analysisTimeoutRef.current) {
+      clearTimeout(analysisTimeoutRef.current);
+    }
     setFormData({ nitrogen: "", phosphorus: "", potassium: "" });
     setResults(null);
     setErrors({});
