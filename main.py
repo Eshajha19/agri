@@ -1029,6 +1029,22 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
 )
 app.add_middleware(RBACMiddleware)
+
+
+# ── Cross-Origin-Opener-Policy ─────────────────────────────────────────────
+# Firebase Auth popup uses window.open() + window.closed + postMessage() to
+# communicate the OAuth result back to the opener.  The default
+# same-origin value blocks this cross-origin communication, causing the
+# popup to hang or produce "Cross-Origin-Opener-Policy policy would block
+# the window.closed call" warnings.  same-origin-allow-popups preserves
+# the opener relationship so Firebase can read the popup result.
+@app.middleware("http")
+async def add_coop_header(request, call_next):
+    response = await call_next(request)
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin-allow-popups"
+    return response
+
+
 logger.info(print_rbac_matrix())
 
 # Import the voice assistant router at module level so app.include_router() can
