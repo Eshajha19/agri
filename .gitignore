@@ -14,9 +14,12 @@ dist-ssr
 *.local
 
 # Environment / Secrets
+venv
 .env*
 .vercel
 keys/
+*.key
+*.pub
 frontend/test_ecdh.cjs
 test_ml_pipeline.py
 
