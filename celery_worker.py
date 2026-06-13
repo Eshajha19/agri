@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 import logging
@@ -51,6 +50,10 @@ if not redis_url:
         )
         raise ValueError("REDIS_URL or REDIS_PASSWORD must be set")
 
+logger = logging.getLogger(__name__)
+
+# Initialize Celery app
+redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 celery_app = Celery(
     "agri_ml_tasks",
     broker=redis_url,
@@ -91,13 +94,9 @@ def _get_lag_model():
                 except Exception as e:
                     print(f"Failed to load lag model: {e}")
         try:
-            _model_lag = verify_and_load_joblib("sklearn_yield_model.joblib")
+            _model_lag = joblib.load("sklearn_yield_model.pkl")
         except Exception as e:
-            import logging
-            logging.error(f"Celery worker error: {e}")
-            logger.exception("Failed to load lag model")
-            raise
-
+            logger.error("Failed to load lag model: %s", e)
     return _model_lag
 
 
@@ -116,7 +115,7 @@ def _get_trend_model():
             if os.path.exists("trend_forecast_model.joblib"):
                 _model_trend = verify_and_load_joblib("trend_forecast_model.joblib")
         except Exception as e:
-            print(f"Failed to load trend model: {e}")
+            logger.error("Failed to load trend model: %s", e)
     return _model_trend
 
 
@@ -143,7 +142,7 @@ def _get_ml_router():
             
             _ml_router = ModelRouter(default_model="xgboost")
         except Exception as e:
-            print(f"Failed to initialize ML router: {e}")
+            logger.error("Failed to initialize ML router: %s", e)
     return _ml_router
 
 
@@ -354,10 +353,17 @@ if __name__ == "__main__":
 @celery_app.task(bind=True, name="process_whatsapp_webhook_task")
 def process_whatsapp_webhook_task(self, body: str, sender_number: str):
     """Celery task for processing incoming WhatsApp messages asynchronously."""
+    from webhook_validator import validate_and_parse, WebhookValidationError
     from whatsapp_service import process_webhook_message
-    
-    result = process_webhook_message(body, sender_number)
-    return {"status": "processed", "sender": sender_number, "result": result}
+
+    try:
+        message = validate_and_parse(body, sender_number)
+    except WebhookValidationError as exc:
+        logger.warning("Discarding invalid webhook payload from %r: %s", sender_number, exc)
+        return {"status": "discarded", "reason": str(exc)}
+
+    result = process_webhook_message(message.text or body, message.sender_number)
+    return {"status": "processed", "sender": message.sender_number, "result": result}
 
 if __name__ == "__main__":
     celery_app.start()
