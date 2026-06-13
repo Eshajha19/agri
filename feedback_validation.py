@@ -89,7 +89,10 @@ class FeedbackValidator:
             name: User's name (optional)
             
         Returns:
-            Sanitized name or None if invalid
+            Sanitized name or None if not provided
+            
+        Raises:
+            ValueError: If name is provided but invalid
         """
         if not name:
             return None
@@ -99,11 +102,11 @@ class FeedbackValidator:
         # Check for dangerous patterns
         for pattern in cls.DANGEROUS_PATTERNS:
             if re.search(pattern, name, re.IGNORECASE):
-                return None
+                raise ValueError("Name contains disallowed content")
                 
         # Basic name validation (allow letters, spaces, dots, hyphens)
         if not re.match(cls.NAME_PATTERN, name):
-            return None
+            raise ValueError("Name must contain only letters, spaces, dots, or hyphens")
             
         return name.strip()
     
@@ -116,7 +119,10 @@ class FeedbackValidator:
             location: User's location (optional)
             
         Returns:
-            Sanitized location or None if invalid
+            Sanitized location or None if not provided
+            
+        Raises:
+            ValueError: If location is provided but invalid
         """
         if not location:
             return None
@@ -126,11 +132,11 @@ class FeedbackValidator:
         # Check for dangerous patterns
         for pattern in cls.DANGEROUS_PATTERNS:
             if re.search(pattern, location, re.IGNORECASE):
-                return None
+                raise ValueError("Location contains disallowed content")
                 
         # Basic location validation
         if not re.match(cls.LOCATION_PATTERN, location):
-            return None
+            raise ValueError("Location contains invalid characters")
             
         return location.strip()
     
@@ -143,7 +149,10 @@ class FeedbackValidator:
             crop_type: Crop type (optional)
             
         Returns:
-            Validated crop type or None if invalid
+            Validated crop type or None if not provided
+            
+        Raises:
+            ValueError: If crop_type is provided but not in the allowed list
         """
         if not crop_type:
             return None
@@ -152,7 +161,7 @@ class FeedbackValidator:
         if crop_type in cls.ALLOWED_CROPS:
             return crop_type
             
-        return None
+        raise ValueError(f"Invalid crop type '{crop_type}'. Allowed: {', '.join(cls.ALLOWED_CROPS)}")
     
     @classmethod
     def validate_category(cls, category: str) -> str:
@@ -176,21 +185,40 @@ class FeedbackValidator:
     def validate_rating(cls, rating: int) -> int:
         """
         Validate rating (1-5).
-        
+
         Args:
             rating: User rating (1-5)
-            
+
         Returns:
-            Validated rating (clamped to 1-5 range)
+            Validated rating in the range [1, 5]
+
+        Raises:
+            ValueError: If the value cannot be coerced to an integer or is
+                outside the valid range [1, 5].
+
+        The previous implementation silently returned the default value 3
+        for any non-coercible input (e.g. "banana", None, {}) and clamped
+        out-of-range integers without raising an error.  A caller that
+        bypasses the Pydantic model and calls validate_feedback_data()
+        directly would silently store a fabricated rating of 3 in Firestore
+        for any invalid input.  Raising ValueError makes the contract
+        explicit and consistent with validate_message(), which also raises
+        on invalid input.
         """
         if not isinstance(rating, int):
             try:
                 rating = int(rating)
             except (ValueError, TypeError):
-                return 3  # Default rating
-                
-        # Clamp to valid range
-        return max(1, min(5, rating))
+                raise ValueError(
+                    f"Rating must be an integer between 1 and 5, got: {rating!r}"
+                )
+
+        if not (1 <= rating <= 5):
+            raise ValueError(
+                f"Rating must be between 1 and 5, got: {rating}"
+            )
+
+        return rating
     
     @classmethod
     def validate_message(cls, message: str) -> Optional[str]:
@@ -249,18 +277,27 @@ class FeedbackValidator:
         category = cls.validate_category(data.get('category', 'general'))
         validated['category'] = category
         
-        # Validate optional fields
+        # Validate optional fields — raise if provided but invalid
         name = cls.validate_name(data.get('name'))
-        if name:
+        if name is not None:
             validated['name'] = name
+        elif data.get('name'):
+            # validate_name raised ValueError above if invalid; this branch
+            # means the raw value was truthy but validator returned None
+            # (should not happen after the fix, but defensive)
+            pass
             
         location = cls.validate_location(data.get('location'))
-        if location:
+        if location is not None:
             validated['location'] = location
+        elif data.get('location'):
+            pass
             
         crop_type = cls.validate_crop_type(data.get('cropType'))
-        if crop_type:
+        if crop_type is not None:
             validated['cropType'] = crop_type
+        elif data.get('cropType'):
+            pass
             
         # Add metadata
         validated['validatedAt'] = datetime.now(timezone.utc).isoformat()
@@ -270,10 +307,20 @@ class FeedbackValidator:
         if 'userId' in data:
             validated['userId'] = str(data['userId'])
         if 'userEmail' in data:
-            # Basic email validation
-            email = str(data['userEmail'])
-            if '@' in email and '.' in email and len(email) <= 254:
-                validated['userEmail'] = email
+            # Apply the same sanitization and dangerous-pattern checks used
+            # for every other string field.  The previous implementation only
+            # checked for '@', '.', and length — a crafted email containing a
+            # MongoDB operator (e.g. {"$where":"..."}@example.com) or a script
+            # tag would pass those checks and be stored in Firestore unsanitised.
+            email = cls.sanitize_string(str(data['userEmail']), 254)
+            if email and '@' in email and '.' in email:
+                safe = True
+                for pattern in cls.DANGEROUS_PATTERNS:
+                    if re.search(pattern, email, re.IGNORECASE):
+                        safe = False
+                        break
+                if safe:
+                    validated['userEmail'] = email
                 
         return validated
     

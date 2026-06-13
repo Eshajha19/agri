@@ -1,11 +1,9 @@
 """Finance Router"""
-import base64
-import json
 import logging
 from fastapi import APIRouter, Request, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
-from rbac_audit import audit_rbac_event
+from error_utils import safe_detail
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +20,19 @@ class FinanceAssessmentRequest(BaseModel):
     credit_score: int = Field(default=650, ge=300, le=900)
     requested_loan_amount: float = Field(default=0, ge=0)
     loan_tenure_months: int = Field(default=36, ge=6, le=120)
+    @field_validator(
+        "acreage",
+        "annual_revenue",
+        "annual_operating_cost",
+        "existing_debt",
+        "emergency_fund",
+        "requested_loan_amount",
+    )
+    @classmethod
+    def validate_financial_values(cls, value):
+        if value > 1_000_000_000:
+            raise ValueError("Value exceeds supported limit")
+        return round(value, 2)
 
 farm_finance_ai = None
 rbac_manager = None
@@ -34,51 +45,125 @@ def init_finance(ffa, rbac, perm):
     Permission = perm
 
 
-def _extract_uid_from_verified_token(request: Request) -> Optional[str]:
-    """
-    Extract the Firebase UID from the JWT payload without performing a second
-    cryptographic verification.
+def _validate_financial_analysis_result(result):
+    """Validate generated financial analysis before returning it."""
 
-    This must only be called after ``rbac_manager.raise_if_unauthorized`` has
-    already verified the token's signature and expiry for the current request.
-    Decoding the payload here is safe because the token has already been
-    authenticated; re-running ``firebase_auth.verify_id_token`` a second time
-    would duplicate the signature check and a potential network round-trip to
-    fetch Google's public keys.
+    validation = {
+        "valid": True,
+        "checks": [],
+        "warnings": [],
+    }
 
-    Returns None only if the Authorization header is absent or malformed —
-    conditions that ``raise_if_unauthorized`` would have already rejected.
-    """
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return None
-    token = auth_header.split(" ", 1)[1]
-    try:
-        # A Firebase/Google JWT has three base64url-encoded segments separated
-        # by dots: header.payload.signature.  We only need the payload.
-        parts = token.split(".")
-        if len(parts) != 3:
-            return None
-        # base64url decode with padding correction
-        payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
-        payload = json.loads(base64.urlsafe_b64decode(payload_b64))
-        return payload.get("uid") or payload.get("sub")
-    except Exception as exc:
-        # Should never happen for a token that already passed verification,
-        # but log and surface None so callers can handle it explicitly.
-        logger.error("Failed to decode already-verified JWT payload: %s", exc)
-        return None
+    if not isinstance(result, dict):
+        validation["valid"] = False
+        validation["warnings"].append(
+            "analysis_result_not_dictionary"
+        )
+        return validation
+
+    required_fields = [
+        "financial_health_score",
+        "risk_level",
+        "recommended_loan_amount",
+        "estimated_emi",
+    ]
+
+    missing_fields = [
+        field
+        for field in required_fields
+        if field not in result
+    ]
+
+    if missing_fields:
+        validation["valid"] = False
+        validation["warnings"].append(
+            f"missing_fields:{','.join(missing_fields)}"
+        )
+
+    score = result.get("financial_health_score")
+
+    if score is not None:
+        validation["checks"].append(
+            "financial_health_score_present"
+        )
+
+        if not 0 <= score <= 100:
+            validation["valid"] = False
+            validation["warnings"].append(
+                "financial_health_score_out_of_range"
+            )
+
+    revenue = result.get("annual_revenue")
+    cost = result.get("annual_operating_cost")
+    profit = result.get("annual_profit")
+
+    if (
+        revenue is not None
+        and cost is not None
+        and profit is not None
+    ):
+        validation["checks"].append(
+            "profit_consistency_check"
+        )
+
+        expected_profit = round(
+            revenue - cost,
+            2,
+        )
+
+        if abs(expected_profit - profit) > 0.01:
+            validation["valid"] = False
+            validation["warnings"].append(
+                "annual_profit_mismatch"
+            )
+
+    recommended_amount = result.get(
+        "recommended_loan_amount"
+    )
+
+    estimated_emi = result.get(
+        "estimated_emi"
+    )
+
+    if (
+        recommended_amount is not None
+        and estimated_emi is not None
+    ):
+        validation["checks"].append(
+            "loan_output_consistency_check"
+        )
+
+        if recommended_amount < 0:
+            validation["valid"] = False
+            validation["warnings"].append(
+                "negative_recommended_loan_amount"
+            )
+
+        if estimated_emi < 0:
+            validation["valid"] = False
+            validation["warnings"].append(
+                "negative_estimated_emi"
+            )
+
+    return validation
 
 
-async def _has_permission(request: Request, permission) -> bool:
-    """Return True if the caller has the given permission (no exception raised)."""
-    try:
-        await rbac_manager.raise_if_unauthorized(request, [permission], require_all=False)
-        return True
-    except HTTPException as e:
-        if e.status_code == 403:
-            return False
-        raise
+def _context_has_permission(ctx, permission) -> bool:
+    return RBACMatrix.has_permission(Role(ctx.role), permission)
+
+
+async def _authorize_with_context(request: Request, permissions, require_all: bool = False):
+    ctx = await rbac_manager.resolve_auth_context(request, allow_unauthenticated=False)
+    checks = [_context_has_permission(ctx, permission) for permission in permissions]
+    has_permission = all(checks) if require_all else any(checks)
+    if not has_permission:
+        logger.warning(
+            "Unauthorized access attempt with role: %s, required: %s",
+            ctx.role,
+            [permission.value for permission in permissions],
+        )
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    return ctx
 
 
 @router.post("/analyze")
@@ -87,38 +172,71 @@ async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest)
         raise HTTPException(status_code=500, detail="Not initialized")
     try:
         await rbac_manager.raise_if_unauthorized(request, [Permission.FINANCE_CREATE], require_all=False)
-        analysis = farm_finance_ai.analyze_financial_profile(body.model_dump())
-        return {"success": True, "data": analysis}
+        if body.annual_operating_cost > body.annual_revenue * 100:
+            raise HTTPException(
+                status_code=400,
+                detail="Operating cost appears unrealistic compared to revenue",
+            )
+
+        logger.info(
+            "[FINANCE_ANALYSIS] farmer=%s crop=%s loan=%s",
+            body.farmer_name,
+            body.crop_type,
+            body.requested_loan_amount,
+        )
+
+        analysis = farm_finance_ai.analyze_financial_profile(
+            body.model_dump()
+        )
+
+        validation = _validate_financial_analysis_result(
+            analysis
+        )
+
+        return {
+            "success": True,
+            "data": analysis,
+            "validation": validation,
+        }
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Financial analysis failed: %s", e)
-        raise HTTPException(status_code=500, detail="Financial analysis failed")
-
+        raise HTTPException(status_code=403, detail=safe_detail(e, 403))
 
 @router.post("/applications")
 async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
     if farm_finance_ai is None or rbac_manager is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     try:
-        await rbac_manager.raise_if_unauthorized(request, [Permission.FINANCE_CREATE], require_all=False)
-        # Bind the application to the authenticated caller so ownership can be
-        # enforced on subsequent reads.  The token was already verified by
-        # raise_if_unauthorized above; decode the payload without a second
-        # cryptographic verification to avoid duplicate latency.
-        owner_uid = _extract_uid_from_verified_token(request)
-        if owner_uid is None:
-            # raise_if_unauthorized passed, so the token is valid — a missing
-            # uid here indicates a malformed token that should not proceed.
-            raise HTTPException(status_code=401, detail="Unable to determine caller identity")
-        application = farm_finance_ai.create_application(body.model_dump(), owner_uid=owner_uid)
-        return {"success": True, "data": application}
+        ctx = await _authorize_with_context(request, [Permission.FINANCE_CREATE], require_all=False)
+        owner_uid = ctx.uid
+        if body.annual_operating_cost > body.annual_revenue * 100:
+            raise HTTPException(
+                status_code=400,
+                detail="Operating cost appears unrealistic compared to revenue",
+            )
+
+        logger.info(
+            "[FINANCE_APPLICATION] farmer=%s crop=%s loan=%s owner=%s",
+            body.farmer_name,
+            body.crop_type,
+            body.requested_loan_amount,
+            owner_uid,
+        )
+
+        application = farm_finance_ai.create_application(
+            body.model_dump(),
+            owner_uid=owner_uid,
+        )
+
+        return {
+            "success": True,
+            "data": application,
+        }
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Application creation failed: %s", e)
-        raise HTTPException(status_code=500, detail="Application creation failed")
-
+        raise HTTPException(status_code=403, detail=safe_detail(e, 403))
 
 @router.get("/applications/{application_id}")
 async def get_finance_application(application_id: str, request: Request, resource_tenant_id: Optional[str] = None):
@@ -135,19 +253,16 @@ async def get_finance_application(application_id: str, request: Request, resourc
         raise HTTPException(status_code=500, detail="Not initialized")
     try:
         # Require at least one of the two read permissions
-        await rbac_manager.raise_if_unauthorized(
+        ctx = await _authorize_with_context(
             request,
             [Permission.FINANCE_READ_OWN, Permission.FINANCE_READ_ALL],
             require_all=False,
         )
 
-        caller_uid = _extract_uid_from_verified_token(request)
-        ctx = await rbac_manager.resolve_auth_context(request, allow_unauthenticated=False)
-
         # Admins/experts with FINANCE_READ_ALL can override ownership in-tenant.
         # Farmers with only FINANCE_READ_OWN remain scoped to their own records.
-        has_read_all = await _has_permission(request, Permission.FINANCE_READ_ALL)
-        owner_uid_filter = caller_uid
+        has_read_all = _context_has_permission(ctx, Permission.FINANCE_READ_ALL)
+        owner_uid_filter = ctx.uid
 
         if has_read_all:
             try:
@@ -194,12 +309,10 @@ async def get_finance_application(application_id: str, request: Request, resourc
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Application retrieval failed: %s", e)
-        raise HTTPException(status_code=500, detail="Application retrieval failed")
-
+        raise HTTPException(status_code=403, detail=safe_detail(e, 403))
 
 @router.get("/products")
-def get_finance_products():
+async def get_finance_products():
     if farm_finance_ai is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     return {"success": True, "data": farm_finance_ai.list_marketplace()}
@@ -210,5 +323,5 @@ def get_finance_products():
 # Both routes delegate to the same handler — there is a single code path
 # and a single place to update if the response shape ever changes.
 @router.get("/marketplace")
-def get_finance_marketplace():
-    return get_finance_products()
+async def get_finance_marketplace():
+    return await get_finance_products()

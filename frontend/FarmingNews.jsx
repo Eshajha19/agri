@@ -1,522 +1,394 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import {
-  FaSearch,
-  FaClock,
-  FaUser,
-  FaLeaf,
-  FaSpinner,
-  FaExclamationCircle,
-  FaRedo,
-} from 'react-icons/fa';
-
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { FaSearch, FaClock, FaUser, FaLeaf, FaSpinner, FaExclamationCircle, FaSync, FaArrowDown } from 'react-icons/fa';
 import { useTheme } from './ThemeContext';
-import {
-  fetchFarmingNews,
-  getNewsCategories,
-  formatNewsDate,
-} from './services/newsApi';
-
+import { fetchFarmingNews, getNewsCategories, formatNewsDate } from './services/newsApi';
 import './FarmingNews.css';
+
+const AUTO_REFRESH_INTERVAL = 60000;
+const PAGE_SIZE = 10;
 
 export default function FarmingNews({ userData }) {
   const { theme } = useTheme();
-
   const [articles, setArticles] = useState([]);
+  const [featuredArticles, setFeaturedArticles] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
-
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize] = useState(10);
-
-  const [searchInput, setSearchInput] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
-
   const [totalCount, setTotalCount] = useState(0);
   const [hasMore, setHasMore] = useState(false);
+  const [sortBy, setSortBy] = useState('latest');
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [refreshCountdown, setRefreshCountdown] = useState(AUTO_REFRESH_INTERVAL / 1000);
+  const sentinelRef = useRef(null);
+  const refreshTimerRef = useRef(null);
+  const countdownTimerRef = useRef(null);
 
-  /**
-   * Auto-select crop related category
-   */
+  const categories = getNewsCategories();
+
   const cropSpecificCategory = useMemo(() => {
     if (!userData?.cropType) return null;
-
     const crop = userData.cropType.toLowerCase();
-
-    const supportedCrops = [
-      'rice',
-      'paddy',
-      'wheat',
-      'cotton',
-      'maize',
-      'sugarcane',
-      'vegetables',
-      'fruits',
-      'soybean',
-      'potato',
-      'onion',
-      'tomato',
-    ];
-
-    return supportedCrops.some((item) =>
-      crop.includes(item)
-    )
-      ? 'Crop Management'
-      : null;
+    const cropMap = ['rice', 'paddy', 'wheat', 'cotton', 'maize', 'sugarcane', 'vegetables', 'fruits', 'soybean', 'potato', 'onion', 'tomato'];
+    if (cropMap.some(c => crop.includes(c))) return 'Crop Management';
+    return null;
   }, [userData?.cropType]);
 
-  const initialCategory = cropSpecificCategory || 'All';
-
-  const [selectedCategory, setSelectedCategory] =
-    useState(initialCategory);
-
-  /**
-   * Reset category when crop changes
-   */
   useEffect(() => {
     setSelectedCategory(cropSpecificCategory || 'All');
     setCurrentPage(1);
   }, [cropSpecificCategory]);
 
-  const categories = getNewsCategories();
-
-  /**
-   * Load News
-   */
-  const loadNews = useCallback(async () => {
+  const loadNews = useCallback(async (page, append = false) => {
     try {
-      setLoading(true);
+      if (append) {
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
+      }
       setError(null);
 
-      const category =
-        selectedCategory === 'All'
-          ? null
-          : selectedCategory;
+      const category = selectedCategory === 'All' ? null : selectedCategory;
+      const response = await fetchFarmingNews(page, PAGE_SIZE, category, searchTerm || null, sortBy);
 
-      const response = await fetchFarmingNews(
-        currentPage,
-        pageSize,
-        category,
-        searchTerm || null
-      );
+      if (append) {
+        setArticles(prev => [...prev, ...response.articles]);
+      } else {
+        setArticles(response.articles);
+      }
+      setTotalCount(response.total_count);
+      setHasMore(response.has_more);
+      setLastUpdated(new Date());
 
-      const fetchedArticles =
-        response?.articles || [];
-
-      setArticles(
-        Array.isArray(fetchedArticles)
-          ? fetchedArticles
-          : []
-      );
-
-      setTotalCount(
-        response?.total_count ||
-          response?.total ||
-          fetchedArticles.length ||
-          0
-      );
-
-      setHasMore(
-        response?.has_more ||
-          currentPage * pageSize <
-            (response?.total_count ||
-              response?.total ||
-              0)
-      );
-
-      window.scrollTo({
-        top: 0,
-        behavior: 'smooth',
-      });
+      if (!append) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
     } catch (err) {
-      console.error(
-        'Failed to load farming news:',
-        err
-      );
-
-      setArticles([]);
-
-      setError(
-        err?.message ||
-          'Unable to load farming news. Please try again later.'
-      );
+      console.error('Failed to load news:', err);
+      setError('Unable to load farming news. Please try again later.');
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
-  }, [
-    currentPage,
-    pageSize,
-    selectedCategory,
-    searchTerm,
-  ]);
+  }, [selectedCategory, searchTerm, sortBy]);
 
-  /**
-   * Fetch news on change
-   */
   useEffect(() => {
-    loadNews();
+    loadNews(1, false);
   }, [loadNews]);
 
-  /**
-   * Debounced Search
-   */
   useEffect(() => {
-    const delay = setTimeout(() => {
-      setSearchTerm(searchInput.trim());
-      setCurrentPage(1);
-    }, 500);
+    const loadFeatured = async () => {
+      try {
+        const category = selectedCategory === 'All' ? null : selectedCategory;
+        const params = category ? `?category=${encodeURIComponent(category)}` : '';
+        const response = await fetch(`https://${window.location.hostname}:${window.location.port || '5173'}/api/farming-news/featured${params}`);
+        if (response.ok) {
+          const data = await response.json();
+          setFeaturedArticles(data.articles || []);
+        }
+      } catch {
+        setFeaturedArticles([]);
+      }
+    };
+    loadFeatured();
+  }, [selectedCategory]);
 
-    return () => clearTimeout(delay);
-  }, [searchInput]);
+  useEffect(() => {
+    if (!autoRefresh) {
+      clearInterval(refreshTimerRef.current);
+      clearInterval(countdownTimerRef.current);
+      return;
+    }
 
-  /**
-   * Category Change
-   */
+    setRefreshCountdown(AUTO_REFRESH_INTERVAL / 1000);
+
+    countdownTimerRef.current = setInterval(() => {
+      setRefreshCountdown(prev => (prev <= 1 ? AUTO_REFRESH_INTERVAL / 1000 : prev - 1));
+    }, 1000);
+
+    refreshTimerRef.current = setInterval(() => {
+      loadNews(1, false);
+      setRefreshCountdown(AUTO_REFRESH_INTERVAL / 1000);
+    }, AUTO_REFRESH_INTERVAL);
+
+    return () => {
+      clearInterval(refreshTimerRef.current);
+      clearInterval(countdownTimerRef.current);
+    };
+  }, [autoRefresh, loadNews]);
+
+  useEffect(() => {
+    if (!sentinelRef.current || !hasMore || loading || loadingMore) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loading && !loadingMore) {
+          setCurrentPage(prev => {
+            const nextPage = prev + 1;
+            loadNews(nextPage, true);
+            return nextPage;
+          });
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    observer.observe(sentinelRef.current);
+    return () => observer.disconnect();
+  }, [hasMore, loading, loadingMore, loadNews]);
+
   const handleCategoryChange = (category) => {
-    if (loading) return;
-
     setSelectedCategory(category);
+    setCurrentPage(1);
+    setArticles([]);
+  };
+
+  const handleSearch = (e) => {
+    setSearchTerm(e.target.value);
     setCurrentPage(1);
   };
 
-  /**
-   * Clear Search
-   */
   const handleClearSearch = () => {
-    setSearchInput('');
     setSearchTerm('');
     setCurrentPage(1);
   };
 
-  /**
-   * Pagination
-   */
-  const handleNextPage = () => {
-    if (hasMore && !loading) {
-      setCurrentPage((prev) => prev + 1);
-    }
+  const handleRefresh = () => {
+    loadNews(1, false);
+    setRefreshCountdown(AUTO_REFRESH_INTERVAL / 1000);
   };
 
-  const handlePrevPage = () => {
-    if (currentPage > 1 && !loading) {
-      setCurrentPage((prev) => prev - 1);
-    }
-  };
-
-  /**
-   * Skeleton Loader
-   */
-  const renderSkeletons = () => {
-    return Array.from({
-      length: pageSize,
-    }).map((_, i) => (
-      <div
-        key={`skeleton-${i}`}
-        className="news-card-skeleton"
-      >
-        <div className="skeleton-thumbnail" />
-
+  const renderSkeletons = (count) => {
+    return Array.from({ length: count }).map((_, i) => (
+      <div key={`skeleton-${i}`} className="news-card-skeleton">
+        <div className="skeleton-thumbnail"></div>
         <div className="skeleton-content">
-          <div
-            className="skeleton-line"
-            style={{ width: '80%' }}
-          />
-
-          <div
-            className="skeleton-line"
-            style={{ width: '100%' }}
-          />
-
-          <div
-            className="skeleton-line"
-            style={{ width: '70%' }}
-          />
+          <div className="skeleton-line" style={{ width: '80%' }}></div>
+          <div className="skeleton-line" style={{ width: '100%' }}></div>
+          <div className="skeleton-line" style={{ width: '70%' }}></div>
         </div>
       </div>
     ));
   };
 
-  /**
-   * News Cards
-   */
-  const renderNewsCards = () => {
-    if (!loading && articles.length === 0) {
-      return (
-        <div className="farming-news-empty">
-          <div className="empty-icon">
-            <FaLeaf />
+  const renderFeaturedCard = (article) => (
+    <div
+      key={`featured-${article.id}`}
+      className="news-card news-card-featured"
+      onClick={() => article.url && window.open(article.url, '_blank')}
+      role="article"
+      tabIndex="0"
+      onKeyDown={(e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && article.url) {
+          e.preventDefault();
+          window.open(article.url, '_blank');
+        }
+      }}
+    >
+      <div className="news-card-thumbnail">
+        <img
+          src={article.thumbnail}
+          alt={article.title}
+          loading="lazy"
+          onError={(e) => {
+            e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200"%3E%3Crect fill="%232e7d32" width="400" height="200"/%3E%3Ctext x="50%25" y="50%25" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="24" fill="white"%3EFarming News%3C/text%3E%3C/svg%3E';
+          }}
+        />
+        <div className="news-card-featured-badge">Featured</div>
+        <div className="news-card-category-badge">{article.category}</div>
+      </div>
+      <div className="news-card-content">
+        <h3 className="news-card-title">{article.title}</h3>
+        <p className="news-card-description">{article.description}</p>
+        <div className="news-card-meta">
+          <div className="news-meta-author">
+            <FaUser size={14} aria-hidden="true" />
+            <span>{article.author}</span>
           </div>
-
-          <h3>No News Found</h3>
-
-          <p>
-            {searchTerm
-              ? 'Try adjusting your search keywords.'
-              : 'No articles available in this category.'}
-          </p>
-
-          <button
-            className="retry-btn"
-            onClick={loadNews}
-          >
-            Reload News
-          </button>
-        </div>
-      );
-    }
-
-    return articles.map((article, index) => (
-      <div
-        key={article.id || index}
-        className="news-card"
-        onClick={() => {
-          if (article.url) {
-            window.open(
-              article.url,
-              '_blank',
-              'noopener,noreferrer'
-            );
-          }
-        }}
-        role="article"
-        tabIndex="0"
-        onKeyDown={(e) => {
-          if (
-            (e.key === 'Enter' || e.key === ' ') &&
-            article.url
-          ) {
-            e.preventDefault();
-
-            window.open(
-              article.url,
-              '_blank',
-              'noopener,noreferrer'
-            );
-          }
-        }}
-      >
-        {/* Thumbnail */}
-        <div className="news-card-thumbnail">
-          <img
-            src={
-              article.thumbnail ||
-              article.image ||
-              'https://via.placeholder.com/400x200?text=Farming+News'
-            }
-            alt={article.title || 'Farming News'}
-            loading="lazy"
-            onError={(e) => {
-              e.target.src =
-                'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200"%3E%3Crect fill="%232e7d32" width="400" height="200"/%3E%3Ctext x="50%25" y="50%25" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="24" fill="white"%3EFarming News%3C/text%3E%3C/svg%3E';
-            }}
-          />
-
-          <div className="news-card-category-badge">
-            {article.category || 'Agriculture'}
+          <div className="news-meta-time">
+            <FaClock size={14} aria-hidden="true" />
+            <span title={article.date}>{formatNewsDate(article.date)}</span>
           </div>
-        </div>
-
-        {/* Content */}
-        <div className="news-card-content">
-          <h3 className="news-card-title">
-            {article.title ||
-              'Untitled Farming Article'}
-          </h3>
-
-          <p className="news-card-description">
-            {article.description ||
-              'No description available for this article.'}
-          </p>
-
-          {/* Meta */}
-          <div className="news-card-meta">
-            <div className="news-meta-author">
-              <FaUser
-                size={14}
-                aria-hidden="true"
-              />
-
-              <span>
-                {article.author || 'Agri News'}
-              </span>
-            </div>
-
-            <div className="news-meta-time">
-              <FaClock
-                size={14}
-                aria-hidden="true"
-              />
-
-              <span title={article.date}>
-                {article.date
-                  ? formatNewsDate(article.date)
-                  : 'Recent'}
-              </span>
-            </div>
-          </div>
-
-          {/* Read Time */}
-          {article.read_time && (
-            <div className="read-time">
-              {article.read_time}
-            </div>
-          )}
         </div>
       </div>
-    ));
-  };
+    </div>
+  );
+
+  const renderNewsCard = (article) => (
+    <div
+      key={article.id}
+      className="news-card"
+      onClick={() => article.url && window.open(article.url, '_blank')}
+      role="article"
+      tabIndex="0"
+      onKeyDown={(e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && article.url) {
+          e.preventDefault();
+          window.open(article.url, '_blank');
+        }
+      }}
+    >
+      <div className="news-card-thumbnail">
+        <img
+          src={article.thumbnail}
+          alt={article.title}
+          loading="lazy"
+          onError={(e) => {
+            e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200"%3E%3Crect fill="%232e7d32" width="400" height="200"/%3E%3Ctext x="50%25" y="50%25" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="24" fill="white"%3EFarming News%3C/text%3E%3C/svg%3E';
+          }}
+        />
+        <div className="news-card-category-badge">{article.category}</div>
+      </div>
+      <div className="news-card-content">
+        <h3 className="news-card-title">{article.title}</h3>
+        <p className="news-card-description">{article.description}</p>
+        <div className="news-card-meta">
+          <div className="news-meta-author">
+            <FaUser size={14} aria-hidden="true" />
+            <span>{article.author}</span>
+          </div>
+          <div className="news-meta-time">
+            <FaClock size={14} aria-hidden="true" />
+            <span title={article.date}>{formatNewsDate(article.date)}</span>
+          </div>
+        </div>
+        {article.read_time && (
+          <div className="news-card-readtime">{article.read_time}</div>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderEmptyState = () => (
+    <div className="farming-news-empty">
+      <div className="empty-icon"><FaLeaf /></div>
+      <h3>No News Found</h3>
+      <p>{searchTerm ? 'Try adjusting your search terms' : 'No articles available in this category'}</p>
+    </div>
+  );
 
   return (
-    <div
-      className={`farming-news-container ${theme}`}
-    >
-      {/* Hero */}
+    <div className="farming-news-container">
       <section className="farming-news-hero">
         <div className="farming-news-hero-content">
           <div className="farming-news-badge">
             <FaLeaf aria-hidden="true" />
-            Latest Updates
+            Real-Time Updates
           </div>
-
           <h1>Farming News & Updates</h1>
-
           <p>
-            Stay informed with real-time
-            agriculture news, weather alerts,
-            crop management insights, and
-            government policy updates.
+            Stay informed with real-time agriculture news, weather alerts, and policy updates.
+            News auto-refreshes every 60 seconds.
           </p>
         </div>
       </section>
 
-      {/* Error */}
       {error && (
-        <div
-          className="farming-news-error"
-          role="alert"
-        >
-          <FaExclamationCircle
-            style={{
-              marginRight: '10px',
-              verticalAlign: 'middle',
-            }}
-          />
-
+        <div className="farming-news-error" role="alert">
+          <FaExclamationCircle style={{ marginRight: '10px', verticalAlign: 'middle' }} />
           {error}
-
-          <button
-            className="retry-btn"
-            onClick={loadNews}
-          >
-            <FaRedo />
-            Retry
-          </button>
         </div>
       )}
 
-      {/* Controls */}
       <div className="farming-news-controls">
-        {/* Search */}
         <div className="farming-news-search">
-          <FaSearch
-            className="search-icon"
-            aria-hidden="true"
-          />
-
+          <FaSearch className="search-icon" aria-hidden="true" />
           <input
             type="text"
             className="search-input"
-            placeholder="Search farming news..."
-            value={searchInput}
-            onChange={(e) =>
-              setSearchInput(e.target.value)
-            }
+            placeholder="Search news..."
+            value={searchTerm}
+            onChange={handleSearch}
             aria-label="Search farming news"
-            disabled={loading && articles.length === 0}
           />
-
-          {searchInput && (
-            <button
-              onClick={handleClearSearch}
-              className="clear-search-btn"
-              aria-label="Clear search"
-            >
-              ✕
-            </button>
+          {searchTerm && (
+            <button onClick={handleClearSearch} className="search-clear-btn" aria-label="Clear search" title="Clear search">✕</button>
           )}
         </div>
 
-        {/* Categories */}
-        <div className="category-filter">
-          {categories.map((category) => (
-            <button
-              key={category}
-              className={`category-btn ${
-                selectedCategory === category
-                  ? 'active'
-                  : ''
-              }`}
-              onClick={() =>
-                handleCategoryChange(category)
-              }
-              disabled={
-                loading && articles.length === 0
-              }
-              aria-pressed={
-                selectedCategory === category
-              }
-            >
-              {category}
-            </button>
-          ))}
+        <div className="farming-news-toolbar">
+          <div className="category-filter">
+            {categories.map((category) => (
+              <button
+                key={category}
+                className={`category-btn ${selectedCategory === category ? 'active' : ''}`}
+                onClick={() => handleCategoryChange(category)}
+                aria-label={`Filter by ${category}`}
+                aria-pressed={selectedCategory === category}
+              >
+                {category}
+              </button>
+            ))}
+          </div>
+
+          <div className="farming-news-controls-right">
+            <div className="sort-controls">
+              <label className="sort-label">Sort:</label>
+              <select
+                className="sort-select"
+                value={sortBy}
+                onChange={(e) => { setSortBy(e.target.value); setCurrentPage(1); }}
+                aria-label="Sort news articles"
+              >
+                <option value="latest">Latest</option>
+                <option value="relevant">Most Relevant</option>
+              </select>
+            </div>
+
+            <div className="auto-refresh-controls">
+              <button
+                className={`refresh-toggle ${autoRefresh ? 'active' : ''}`}
+                onClick={() => setAutoRefresh(!autoRefresh)}
+                aria-label={autoRefresh ? 'Disable auto-refresh' : 'Enable auto-refresh'}
+                title={autoRefresh ? `Auto-refreshes in ${refreshCountdown}s` : 'Enable auto-refresh'}
+              >
+                <FaSync className={autoRefresh ? 'spin' : ''} size={14} />
+                {autoRefresh && <span className="refresh-countdown">{refreshCountdown}s</span>}
+              </button>
+              <button className="refresh-btn" onClick={handleRefresh} aria-label="Refresh news now" title="Refresh now">
+                <FaSync size={14} /> Refresh
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* News Grid */}
-      <div className="farming-news-grid">
-        {loading
-          ? renderSkeletons()
-          : renderNewsCards()}
-      </div>
-
-      {/* Pagination */}
-      {!loading && articles.length > 0 && (
-        <div className="farming-news-pagination">
-          <button
-            className="pagination-btn"
-            onClick={handlePrevPage}
-            disabled={currentPage === 1}
-          >
-            ← Previous
-          </button>
-
-          <span className="pagination-info">
-            Page {currentPage} of{' '}
-            {Math.max(
-              1,
-              Math.ceil(totalCount / pageSize)
-            )}{' '}
-            ({totalCount} articles)
-          </span>
-
-          <button
-            className="pagination-btn"
-            onClick={handleNextPage}
-            disabled={!hasMore}
-          >
-            Next →
-          </button>
+      {lastUpdated && (
+        <div className="farming-news-last-updated">
+          Last updated: {formatNewsDate(lastUpdated.toISOString())}
+          {autoRefresh && <span className="auto-refresh-badge">Auto-refresh ON</span>}
         </div>
       )}
 
-      {/* Loading Spinner */}
-      {loading && (
-        <div className="loading-indicator">
-          <FaSpinner
-            className="spinner"
-            size={24}
-          />
+      {featuredArticles.length > 0 && !searchTerm && selectedCategory === 'All' && (
+        <div className="farming-news-featured-section">
+          <h2 className="featured-section-title">Featured Stories</h2>
+          <div className="farming-news-featured-grid">
+            {featuredArticles.map(renderFeaturedCard)}
+          </div>
+        </div>
+      )}
 
-          <span>Loading farming news...</span>
+      <div className="farming-news-grid">
+        {loading ? renderSkeletons(PAGE_SIZE) : articles.length === 0 ? renderEmptyState() : articles.map(renderNewsCard)}
+      </div>
+
+      {loadingMore && (
+        <div className="farming-news-loading-more">
+          <FaSpinner className="spin" size={20} />
+          <span>Loading more articles...</span>
+        </div>
+      )}
+
+      <div ref={sentinelRef} className="farming-news-sentinel" />
+
+      {!loading && articles.length > 0 && (
+        <div className="farming-news-footer">
+          <span className="farming-news-count">{totalCount} articles total</span>
+          {!hasMore && <span className="farming-news-end">You've reached the end</span>}
         </div>
       )}
     </div>

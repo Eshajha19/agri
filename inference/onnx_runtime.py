@@ -40,6 +40,10 @@ class ONNXRuntimeModel:
         self.output_names = [out.name for out in self.sess.get_outputs()]
 
     def predict(self, x: np.ndarray) -> np.ndarray:
+        if not self.input_names:
+            raise RuntimeError(
+                f"ONNX model '{self.model_path}' has no inputs — model may be malformed"
+            )
         if not isinstance(x, np.ndarray):
             x = np.asarray(x)
 

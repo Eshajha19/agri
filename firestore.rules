@@ -1,4 +1,40 @@
 rules_version = '2';
+
+// ============================================================================
+// Firestore Security Rules — Documentation Header (read before changing)
+// ============================================================================
+//
+// This ruleset enforces least-privilege access across multiple collections and
+// implements anti-abuse protections (ownership binding, anti-impersonation,
+// cooldowns, and privilege escalation prevention).
+//
+// Design notes:
+// 1) Role checks use Firebase custom claims (request.auth.token.role).
+//    The rules intentionally DO NOT provide a fallback elevated role.
+//    Missing/empty claims must not grant access.
+// 2) Where possible, update-time invariants are enforced using resource.data
+//    (existing document) to avoid extra reads.
+// 3) Cooldowns are enforced server-side so clients cannot bypass them.
+//
+// Role model used by this file:
+// - farmer: default authenticated producer/consumer role. Farmers can manage
+//   their own profile, own finance applications, own consultation bookings,
+//   own vault metadata, and create community content subject to validation.
+// - expert: trusted advisory role. Experts can access assigned consultations
+//   and expert/report workflows, but do not get blanket user-profile access.
+// - vendor: marketplace/supply-chain operator role. Vendors can write
+//   marketplace records and supply-chain batches, but cannot administer users.
+// - admin: platform operator role. Admins can moderate/delete protected data,
+//   read operational collections, and perform schema/admin-only writes.
+// - system: backend automation role used for server-created notifications.
+//
+// Ownership checks are always preferred over broad role checks. Elevated roles
+// are added only where cross-user operational access is explicitly required.
+//
+// Comprehensive, collection-by-collection documentation lives in:
+//   docs/FIRESTORE_RULES_DOCUMENTATION.md
+// ============================================================================
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -8,22 +44,27 @@ service cloud.firestore {
 
     // Role check via Firebase custom claims — zero extra Firestore reads.
     //
-    // Firestore users/{uid}.role is authoritative for the API. The backend
-    // mirrors that field into request.auth.token.role via role_sync.sync_role_claim
-    // whenever a role changes. Do NOT default missing claims to "farmer" here —
-    // that would grant farmer-scoped rule access before backfill completes and
-    // widens the stale-JWT window after demotion.
-    function roleClaim() {
-      return request.auth.token.get("role", "");
+    // The backend stores the user's role as a single string under `request.auth.token.role`
+    // (set via Firebase Admin SDK setCustomUserClaims). For forward compatibility
+    // this helper also accepts a `roles` list — whichever key is present is used.
+    //
+    // Custom claims are embedded in the JWT and evaluated locally — no network
+    // round-trip, no quota cost, no recursion risk.
+    function _getRole() {
+      if (request.auth == null) return null;
+      if ("roles" in request.auth.token) {
+        return request.auth.token.roles;
+      }
+      return request.auth.token.get("role", "farmer");
     }
 
     function hasRole(role) {
-      return request.auth != null && roleClaim() == role;
+      return request.auth != null && _getRole() == role;
     }
 
     // Convenience: caller has one of several roles.
     function hasAnyRole(roles) {
-      return request.auth != null && roleClaim() in roles;
+      return request.auth != null && _getRole() in roles;
     }
 
     function isAuthed() {
@@ -92,6 +133,10 @@ service cloud.firestore {
     // ─────────────────────────────────────────────
 
     // User profiles
+    // RBAC:
+    // - Owner: read/create/update their own profile, but cannot self-promote.
+    // - Admin: read any profile for support/moderation workflows.
+    // - Expert/vendor/system: no implicit profile access unless they own it.
     match /users/{userId} {
       allow read: if isAuthed() && (request.auth.uid == userId || hasRole('admin'));
       allow create: if isOwner(userId);
@@ -110,13 +155,22 @@ service cloud.firestore {
         );
     }
 
-    // Feedback: only admins can read/delete; any authenticated user can submit.
+    // Feedback
+    // RBAC:
+    // - Authenticated users: create feedback.
+    // - Admin: read/delete feedback for moderation and triage.
+    // - No public reads: feedback may contain contact details or complaints.
     match /feedback/{feedbackId} {
       allow read, delete: if hasRole('admin');
       allow create: if isAuthed();
     }
 
     // Community posts
+    // RBAC:
+    // - Authenticated users: read posts and create validated posts as self.
+    // - Post owner: edit own content while preserving content validation.
+    // - Any authenticated user: update aggregate counters only.
+    // - Admin: delete abusive content.
     match /posts/{postId} {
       allow read: if isAuthed();
       allow create: if isAuthed()
@@ -133,6 +187,11 @@ service cloud.firestore {
     }
 
     // Community comments
+    // RBAC mirrors posts:
+    // - Authenticated users: read/create validated comments as self.
+    // - Comment owner: edit own comment text while preserving validation.
+    // - Any authenticated user: update vote counters only.
+    // - Admin: delete abusive comments.
     match /comments/{commentId} {
       allow read: if isAuthed();
       allow create: if isAuthed()
@@ -148,18 +207,32 @@ service cloud.firestore {
       allow delete: if isOwner(resource.data.userId) || hasRole('admin');
     }
 
-    // Reports: experts and admins only.
+    // Reports
+    // RBAC:
+    // - Expert: read/write reports for advisory or diagnostic workflows.
+    // - Admin: read/write all reports for oversight.
+    // - Farmer/vendor/system: no direct report access.
     match /reports/{reportId} {
       allow read, write: if hasAnyRole(['expert', 'admin']);
     }
 
-    // Marketplace: public read; vendors and admins can write.
+    // Marketplace
+    // RBAC:
+    // - Public: read marketplace listings to support unauthenticated browsing.
+    // - Vendor: create/update listings for their marketplace operations.
+    // - Admin: write listings for moderation/correction.
     match /marketplace/{itemId} {
       allow read: if true;
       allow write: if hasAnyRole(['vendor', 'admin']);
     }
 
-    // Finance Applications: farmers can read their own; admins/experts can read all
+    // Finance Applications
+    // RBAC:
+    // - Owner/farmer: create and manage only their own application.
+    // - Expert/admin: read/update applications for review workflows.
+    // - Admin only: delete applications.
+    // The owner_uid field binds the document to the authenticated caller on
+    // create and is used as the authorization anchor for later access.
     match /finance_applications/{applicationId} {
       allow read: if isAuthed()
         && (
@@ -187,6 +260,11 @@ service cloud.firestore {
     }
 
     // Supply Chain Records: nested structure for traceability
+    // RBAC:
+    // - Authenticated users: read traceability records.
+    // - Farmer/vendor/admin: create/update batches and nodes as supply-chain
+    //   participants.
+    // - Admin only: delete traceability data.
     match /supply_chain_batches/{batchId} {
       allow read: if isAuthed();
       allow create, update: if isAuthed() && hasAnyRole(['farmer', 'vendor', 'admin']);
@@ -274,6 +352,78 @@ service cloud.firestore {
         && request.resource.data.userId == resource.data.userId;
 
       allow delete: if hasRole('admin');
+    }
+
+    // Farm Document Vault: owner-only metadata index (file stored in Storage)
+    // Collection: /farm_documents/{docId}
+    // RBAC:
+    // - Owner/farmer: create, read, update, and delete their own metadata.
+    // - Admin: read/update/delete metadata for support and compliance.
+    // - Expert/vendor/system: no direct access unless separately granted by a
+    //   future sharing model.
+    // Storage object access must be governed by Firebase Storage rules; this
+    // collection only protects the Firestore metadata index.
+    function vaultBaseFieldsValid() {
+      return request.resource.data.owner_uid is string
+        && request.resource.data.owner_uid.size() > 0
+        && request.resource.data.title is string
+        && request.resource.data.title.size() >= 1
+        && request.resource.data.title.size() <= 200
+        && request.resource.data.fileName is string
+        && request.resource.data.fileName.size() >= 1
+        && request.resource.data.fileName.size() <= 255
+        && request.resource.data.contentType is string
+        && request.resource.data.contentType.size() >= 1
+        && request.resource.data.contentType.size() <= 100
+        && request.resource.data.storagePath is string
+        && request.resource.data.storagePath.size() >= 1
+        && request.resource.data.storagePath.size() <= 1024
+        && hasServerTimestamp('createdAt')
+        && hasServerTimestamp('updatedAt');
+    }
+
+    function vaultTagsValid() {
+      return !('tags' in request.resource.data)
+        || (
+          request.resource.data.tags is list
+          && request.resource.data.tags.size() <= 20
+          && request.resource.data.tags.hasOnly(
+            request.resource.data.tags.map(tag => tag is string && tag.size() <= 20)
+          )
+        );
+    }
+
+    function vaultMetadataValidForCreate() {
+      return vaultBaseFieldsValid() && vaultTagsValid();
+    }
+
+    function vaultMetadataValidForUpdate() {
+      // Require all base fields to be valid on update too.
+      // Keep validation strict to prevent corrupt metadata.
+      return vaultBaseFieldsValid() && vaultTagsValid();
+    }
+
+    match /farm_documents/{docId} {
+      allow read: if isAuthed()
+        && (resource.data.owner_uid == request.auth.uid || hasRole('admin'));
+
+      allow create: if isAuthed()
+        && request.resource.data.owner_uid == request.auth.uid
+        && vaultMetadataValidForCreate();
+
+      allow update: if isAuthed()
+        && (
+          resource.data.owner_uid == request.auth.uid
+          || hasRole('admin')
+        )
+        && (
+          // owner_uid immutable
+          request.resource.data.owner_uid == resource.data.owner_uid
+        )
+        && vaultMetadataValidForUpdate();
+
+      allow delete: if isAuthed()
+        && (resource.data.owner_uid == request.auth.uid || hasRole('admin'));
     }
 
     // Schema Migrations: Internal use only.

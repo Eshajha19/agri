@@ -29,6 +29,14 @@ logger = logging.getLogger(__name__)
 VALID_ROLES = frozenset({"admin", "expert", "farmer", "vendor", "system", "guest"})
 
 
+def _validate_uid(uid: str) -> None:
+    """Raise ValueError if uid is not a non-empty string."""
+    if not isinstance(uid, str) or not uid.strip():
+        raise ValueError(
+            f"uid must be a non-empty string, got {type(uid).__name__!r}"
+        )
+
+
 def _set_claim_sync(uid: str, role: str) -> None:
     """Blocking call to Firebase Admin SDK.  Run in a thread-pool from async code."""
     import firebase_admin
@@ -68,9 +76,11 @@ async def sync_role_claim(uid: str, role: str, *, revoke_sessions: bool = True) 
     Authoritative role source for the API is Firestore ``users/{uid}.role``.
     Custom claims are a mirror for Firestore security rules only.
 
+    Raises ValueError if uid is not a non-empty string or role is invalid.
     Raises RuntimeError if Firebase Admin is not initialised.
     Raises firebase_admin.auth.UserNotFoundError if uid does not exist.
     """
+    _validate_uid(uid)
     if role not in VALID_ROLES:
         raise ValueError(f"Invalid role '{role}'. Must be one of: {sorted(VALID_ROLES)}")
 
@@ -84,7 +94,10 @@ def sync_role_claim_sync(uid: str, role: str, *, revoke_sessions: bool = True) -
     """
     Synchronous variant for use in non-async contexts (e.g. startup scripts,
     Celery tasks, or test fixtures).
+
+    Raises ValueError if uid is not a non-empty string or role is invalid.
     """
+    _validate_uid(uid)
     if role not in VALID_ROLES:
         raise ValueError(f"Invalid role '{role}'. Must be one of: {sorted(VALID_ROLES)}")
     _set_claim_sync(uid, role)
@@ -115,6 +128,15 @@ def backfill_role_claims(db_client, batch_size: int = 100) -> dict:
     try:
         docs = db_client.collection("users").stream()
         for doc in docs:
+            try:
+                _validate_uid(doc.id)
+            except ValueError:
+                logger.warning(
+                    "backfill: invalid uid %r in Firestore document — skipping", doc.id
+                )
+                skipped += 1
+                continue
+
             data = doc.to_dict() or {}
             role = data.get("role", "farmer")
             if role not in VALID_ROLES:
