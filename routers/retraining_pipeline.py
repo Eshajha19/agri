@@ -27,6 +27,7 @@ _HISTORY_PATH = Path("retraining_history.json")
 _DRIFT_LOG_PATH = Path("drift_logs/drift.log")
 _BASELINE_PATH = Path("feature_baseline.json")
 _MODEL_PATH = Path("yield_model.joblib")
+_AUDIT_PATH = Path("retraining_audit.json")
 
 # Drift alert count in last 50 predictions that triggers auto-retraining
 _DRIFT_ALERT_TRIGGER_COUNT = 5
@@ -39,6 +40,30 @@ def _read_history() -> dict:
         return json.loads(_HISTORY_PATH.read_text(encoding="utf-8"))
     except Exception:
         return {"runs": []}
+    
+def _append_audit_record(record: dict) -> None:
+    try:
+        if _AUDIT_PATH.exists():
+            data = json.loads(
+                _AUDIT_PATH.read_text(encoding="utf-8")
+            )
+        else:
+            data = {"records": []}
+
+        data["records"].append(record)
+
+        _AUDIT_PATH.write_text(
+            json.dumps(data, indent=2),
+            encoding="utf-8",
+        )
+
+    except Exception as exc:
+        logger.warning(
+            "Failed to write audit record: %s",
+            exc,
+        )
+
+
 
 
 def _drift_threshold_breached() -> tuple:
@@ -109,6 +134,13 @@ async def trigger_retraining(
         from celery_worker import retrain_yield_model_task
 
         workflow_id = str(uuid.uuid4())
+
+        _append_audit_record({
+            "workflow_id": workflow_id,
+            "csv_path": csv_path,
+            "triggered_at": datetime.utcnow().isoformat(),
+            "event": "retraining_triggered",
+        })
 
         task = retrain_yield_model_task.delay(
             csv_path=csv_path,
