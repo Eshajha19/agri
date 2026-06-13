@@ -3,7 +3,7 @@ import { Routes, Route, Link, NavLink, Navigate, useLocation, useNavigate } from
 import { useTranslation } from "react-i18next";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import SprayScheduler from "./SprayScheduler";
+import { load as loadThirdParty } from "./utils/thirdPartyLoader.js";
 import {
   FaComments,
   FaLeaf,
@@ -179,109 +179,32 @@ const applyGoogleTranslate = (langCode) => {
 };
 
 /**
- * Wait for Google Translate widget with MutationObserver
+ * Apply translation with robust widget detection via third-party loader
  */
-const waitForGoogleTranslateWidget = (
-  timeoutMs = GOOGLE_TRANSLATE_TIMEOUT
-) => {
-  return new Promise((resolve, reject) => {
-    const existingWidget = document.querySelector(
-      ".goog-te-combo"
-    );
-
-    if (existingWidget) {
-      resolve(existingWidget);
-      return;
-    }
-
-    const timeoutId = setTimeout(() => {
-      cleanup();
-      reject(
-        new Error(
-          "Google Translate widget initialization timeout"
-        )
-      );
-    }, timeoutMs);
-
-    const cleanup = () => {
-      clearTimeout(timeoutId);
-
-      if (googleTranslateObserver) {
-        googleTranslateObserver.disconnect();
-        googleTranslateObserver = null;
-      }
-    };
-
-    googleTranslateObserver = new MutationObserver(() => {
-      const widget = document.querySelector(
-        ".goog-te-combo"
-      );
-
-      if (widget) {
-        cleanup();
-        resolve(widget);
-      }
-    });
-
-    googleTranslateObserver.observe(document.body, {
-      childList: true,
-      subtree: true,
-    });
-  });
-};
-
-/**
- * Robust translation synchronization
- */
-const applyGoogleTranslateRobust = async (
-  langCode,
-  options = {}
-) => {
-  const {
-    retry = true,
-    onReady,
-    onError,
-  } = options;
-
-  // Prevent overlapping initialization calls
-  if (translateInitializationInProgress) {
-    return;
-  }
-
-  translateInitializationInProgress = true;
+const applyGoogleTranslateRobust = async (langCode, onReady, onError) => {
+  // Register global callback before loading the script
+  window.googleTranslateElementInit = () => {
+    new window.google.translate.TranslateElement({
+      pageLanguage: "en",
+      includedLanguages: "hi,mr,bn,ta,te,gu,pa,kn,ml,or,as,en",
+      layout: window.google.translate.TranslateElement.InlineLayout.SIMPLE,
+      autoDisplay: false,
+    }, "google_translate_element");
+  };
 
   try {
-    await waitForGoogleTranslateWidget();
-
-    const applied = applyGoogleTranslate(langCode);
-
-    if (!applied) {
-      throw new Error(
-        "Failed to apply translation state"
-      );
-    }
-
+    await loadThirdParty({
+      key: "google-translate",
+      src: "https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit",
+      timeoutMs: 20000,
+      retries: 2,
+      attrs: { async: true },
+    });
+    applyGoogleTranslate(langCode);
     onReady?.();
-  } catch (error) {
-    console.warn(
-      "Google Translate synchronization failed:",
-      error.message
-    );
-
-    // Retry once after delayed script injection
-    if (retry) {
-      clearTimeout(googleTranslateRetryTimeout);
-
-      googleTranslateRetryTimeout = setTimeout(() => {
-        void applyGoogleTranslateRobust(langCode, {
-          retry: false,
-        });
-      }, GOOGLE_TRANSLATE_SYNC_DELAY);
-    }
-
-    onError?.(error);
-  } finally {
-    translateInitializationInProgress = false;
+  } catch (err) {
+    console.warn("Google Translate widget initialization failed:", err.message);
+    onError?.(err);
   }
 };
 
