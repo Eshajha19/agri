@@ -9,8 +9,9 @@ POST /api/retraining/trigger   — queue a retraining Celery task
 GET  /api/retraining/status    — pipeline health + optional task poll
 GET  /api/retraining/history   — last N run records from retraining_history.json
 """
-
-from fastapi import APIRouter, HTTPException
+import uuid
+from datetime import datetime
+from fastapi import APIRouter, HTTPException, Request
 from typing import Optional
 import logging
 import os
@@ -106,6 +107,9 @@ async def trigger_retraining(
                 }
 
         from celery_worker import retrain_yield_model_task
+
+        workflow_id = str(uuid.uuid4())
+
         task = retrain_yield_model_task.delay(
             csv_path=csv_path,
             model_output="yield_model.joblib",
@@ -120,6 +124,7 @@ async def trigger_retraining(
             "success": True,
             "triggered": True,
             "task_id": task.id,
+            "workflow_id": workflow_id,
             "message": "Retraining task queued. Poll GET /api/retraining/status?task_id= for progress.",
         }
 
@@ -158,6 +163,16 @@ async def get_retraining_status(task_id: Optional[str] = None):
             "last_run": last_run,
         }
 
+        anomalies = []
+
+        if breached:
+            anomalies.append("drift_threshold_breached")
+        if not _MODEL_PATH.exists():
+            anomalies.append("missing_model")
+
+        if not _BASELINE_PATH.exists():
+            anomalies.append("missing_baseline")
+
         if task_id:
             from celery_worker import celery_app
             result = celery_app.AsyncResult(task_id)
@@ -167,7 +182,7 @@ async def get_retraining_status(task_id: Optional[str] = None):
                 result.info if isinstance(result.info, dict) else {}
             )
 
-        return {"success": True, "pipeline": pipeline}
+        return {"success": True, "pipeline": pipeline, "integrity_anomalies": anomalies,}
 
     except Exception as e:
         logger.error("Failed to get retraining status: %s", e)
@@ -195,9 +210,17 @@ async def get_retraining_history(limit: int = 20):
         rejected = sum(1 for r in runs if r.get("outcome") == "rejected")
         failed   = sum(1 for r in runs if r.get("outcome") == "failed")
 
+        consistency_report = {
+            "workflow_count": len(runs),
+            "promoted": promoted,
+            "rejected": rejected,
+            "failed": failed,
+        }
+
         return {
             "success": True,
             "total": len(runs),
+            "consistency_report": consistency_report,
             "summary": {
                 "promoted": promoted,
                 "rejected": rejected,
