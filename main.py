@@ -358,6 +358,20 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.error("❌ ML router initialization failed: %s", exc, exc_info=True)
 
+    try:
+        logger.info("🔄 Initializing offline sync and CRDT conflict resolution...")
+        from persistence.offline_sync import init_schema
+        from sync_worker import get_sync_worker
+        from sync_conflict_resolver import get_sync_manager
+        
+        init_schema()
+        sync_worker = get_sync_worker(db_firestore)
+        sync_worker.start()
+        sync_manager = get_sync_manager()
+        logger.info("✅ Offline sync, CRDT resolver, and sync worker initialized")
+    except Exception as exc:
+        logger.warning("Offline sync and CRDT initialization skipped: %s", exc)
+
     startup_duration = time.time() - startup_time
     logger.info("✅ All services started successfully in %.2fs", startup_duration)
 
@@ -370,6 +384,15 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Notification broker stopped")
     except Exception as exc:
         logger.error("❌ Error stopping notification broker: %s", exc, exc_info=True)
+
+    try:
+        logger.info("🔄 Stopping sync worker...")
+        from sync_worker import _worker
+        if _worker is not None:
+            _worker.stop()
+        logger.info("✅ Sync worker stopped")
+    except Exception as exc:
+        logger.warning("Error stopping sync worker: %s", exc)
 
     try:
         logger.info("🗄️  Shutting down database connections...")
