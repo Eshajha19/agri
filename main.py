@@ -70,6 +70,7 @@ from backend.routers import (
     community,
     finance,
     governance,
+    insurance,
     knowledge,
     lms,
     marketplace,
@@ -1184,6 +1185,7 @@ if voice_assistant_router is not None:
 app.include_router(referrals.router, prefix="/api/referrals", tags=["Referrals"])
 app.include_router(platform.router, prefix="/api", tags=["Platform"])
 app.include_router(advisory.router, prefix="/api", tags=["Advisory"])
+app.include_router(insurance.router, prefix="/api", tags=["Insurance"])
 app.include_router(alerts.router, prefix="/api/notifications", tags=["Alerts"])
 app.include_router(flags_router, prefix="/api/flags", tags=["Feature Flags"])
 app.include_router(lms.router, prefix="/api", tags=["LMS"])
