@@ -3,14 +3,56 @@ ML Model Versioning & Registry System
 Manages model versions, deployment history, and metadata
 """
 
+import hashlib
+import json
 import logging
+import os
+import uuid
+import threading
 from enum import Enum
 from datetime import datetime, timedelta
+from enum import Enum
 from typing import Dict, List, Optional, Any
-import json
-import uuid
+
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+
+
+# ── Artifact integrity helpers ─────────────────────────────────────────
+
+
+def _compute_sha256(path: str) -> str:
+    """Return hex SHA-256 of the file at *path*."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            block = f.read(65536)
+            if not block:
+                break
+            h.update(block)
+    return h.hexdigest()
+
+
+def verify_artifact(
+    path: str,
+    expected_checksum: Optional[str] = None,
+) -> None:
+    """Check that *path* exists, is readable, and matches *expected_checksum*.
+
+    Raises FileNotFoundError, PermissionError, or ValueError on failure.
+    """
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Model artifact not found: {path}")
+    if not os.access(path, os.R_OK):
+        raise PermissionError(f"Model artifact not readable: {path}")
+    if expected_checksum:
+        actual = _compute_sha256(path)
+        if actual != expected_checksum:
+            raise ValueError(
+                f"Checksum mismatch for {path}: "
+                f"expected {expected_checksum}, got {actual}"
+            )
 
 
 class ModelStatus(Enum):
@@ -34,12 +76,14 @@ class ModelVersion:
         status: ModelStatus = ModelStatus.DRAFT,
         created_by: str = "system",
         description: str = None,
-        metrics: Dict[str, float] = None
+        metrics: Dict[str, float] = None,
+        checksum_sha256: Optional[str] = None,
     ):
         self.model_id = str(uuid.uuid4())
         self.model_name = model_name
         self.version = version
         self.model_path = model_path
+        self.checksum_sha256 = checksum_sha256
         self.status = status
         self.created_by = created_by
         self.description = description
@@ -52,7 +96,7 @@ class ModelVersion:
     
     def to_dict(self) -> Dict:
         """Convert to dictionary"""
-        return {
+        d: Dict = {
             "model_id": self.model_id,
             "model_name": self.model_name,
             "version": self.version,
@@ -65,8 +109,11 @@ class ModelVersion:
             "deployed_at": self.deployed_at,
             "canary_traffic_percentage": self.canary_traffic_percentage,
             "rollback_reason": self.rollback_reason,
-            "deployment_history": self.deployment_history
+            "deployment_history": self.deployment_history,
         }
+        if self.checksum_sha256:
+            d["checksum_sha256"] = self.checksum_sha256
+        return d
     
     @staticmethod
     def from_dict(data: Dict) -> 'ModelVersion':
@@ -78,7 +125,8 @@ class ModelVersion:
             status=ModelStatus(data.get("status", "draft")),
             created_by=data.get("created_by", "system"),
             description=data.get("description"),
-            metrics=data.get("metrics", {})
+            metrics=data.get("metrics", {}),
+            checksum_sha256=data.get("checksum_sha256"),
         )
         version.model_id = data["model_id"]
         version.created_at = data["created_at"]
@@ -96,6 +144,7 @@ class ModelRegistry:
         self.models: Dict[str, Dict[str, ModelVersion]] = {}  # model_name -> version -> ModelVersion
         self.active_models: Dict[str, ModelVersion] = {}  # model_name -> active_version
         self.deployment_log: List[Dict] = []
+        self._lock = threading.Lock()
     
     def register_model(
         self,
@@ -104,79 +153,87 @@ class ModelRegistry:
         model_path: str,
         created_by: str = "system",
         description: str = None,
-        metrics: Dict[str, float] = None
+        metrics: Dict[str, float] = None,
+        checksum_sha256: Optional[str] = None,
     ) -> ModelVersion:
-        """Register new model version"""
-        
+        """Register new model version.
+
+        Performs artifact integrity validation (file existence, permissions,
+        and optional checksum match) before registering.
+        """
+        try:
+            verify_artifact(model_path, expected_checksum=checksum_sha256)
+        except (FileNotFoundError, PermissionError, ValueError) as exc:
+            logger.error("Artifact validation failed for %s: %s", model_path, exc)
+            raise
+
         model = ModelVersion(
             model_name=model_name,
             version=version,
             model_path=model_path,
             created_by=created_by,
             description=description,
-            metrics=metrics
+            metrics=metrics,
+            checksum_sha256=checksum_sha256,
         )
-        
-        if model_name not in self.models:
-            self.models[model_name] = {}
-        
-        self.models[model_name][version] = model
-        
-        logger.info(f"Registered model {model_name}:{version} (ID: {model.model_id})")
+        with self._lock:
+            if model_name not in self.models:
+                self.models[model_name] = {}
+            self.models[model_name][version] = model
+        logger.info("Registered model %s:%s (ID: %s)", model_name, version, model.model_id)
         return model
-    
+
     def get_model_version(self, model_name: str, version: str) -> Optional[ModelVersion]:
         """Get specific model version"""
-        return self.models.get(model_name, {}).get(version)
-    
+        with self._lock:
+            return self.models.get(model_name, {}).get(version)
+
     def get_active_model(self, model_name: str) -> Optional[ModelVersion]:
         """Get currently active model"""
-        return self.active_models.get(model_name)
-    
+        with self._lock:
+            return self.active_models.get(model_name)
+
     def list_versions(self, model_name: str) -> List[ModelVersion]:
         """List all versions of a model"""
-        return list(self.models.get(model_name, {}).values())
-    
+        with self._lock:
+            return list(self.models.get(model_name, {}).values())
+
     def promote_to_canary(
-        self,
-        model_name: str,
-        version: str,
-        traffic_percentage: int = 5
+        self, model_name: str, version: str, traffic_percentage: int = 5
     ) -> bool:
         """Promote model to canary (5% traffic)"""
-        
-        model = self.get_model_version(model_name, version)
-        if not model:
-            logger.error(f"Model {model_name}:{version} not found")
-            return False
-        
-        model.status = ModelStatus.CANARY
-        model.canary_traffic_percentage = traffic_percentage
-        model.deployed_at = datetime.now().isoformat()
-        
-        self._log_deployment(model_name, version, "canary", traffic_percentage)
-        logger.info(f"Promoted {model_name}:{version} to CANARY ({traffic_percentage}% traffic)")
-        
+        with self._lock:
+            model = self.models.get(model_name, {}).get(version)
+            if not model:
+                logger.error("Model %s:%s not found", model_name, version)
+                return False
+            model.status = ModelStatus.CANARY
+            model.canary_traffic_percentage = traffic_percentage
+            model.deployed_at = datetime.now().isoformat()
+            self.deployment_log.append({
+                "timestamp": datetime.now().isoformat(),
+                "model_name": model_name, "version": version,
+                "action": "canary", "traffic_percentage": traffic_percentage,
+            })
+        logger.info("Promoted %s:%s to CANARY (%s%% traffic)", model_name, version, traffic_percentage)
         return True
-    
+
     def promote_to_staging(
-        self,
-        model_name: str,
-        version: str,
-        traffic_percentage: int = 25
+        self, model_name: str, version: str, traffic_percentage: int = 25
     ) -> bool:
         """Promote model to staging (25% traffic)"""
-        
-        model = self.get_model_version(model_name, version)
-        if not model:
-            return False
-        
-        model.status = ModelStatus.STAGING
-        model.canary_traffic_percentage = traffic_percentage
-        
-        self._log_deployment(model_name, version, "staging", traffic_percentage)
-        logger.info(f"Promoted {model_name}:{version} to STAGING ({traffic_percentage}% traffic)")
-        
+        with self._lock:
+            model = self.models.get(model_name, {}).get(version)
+            if not model:
+                return False
+            model.status = ModelStatus.STAGING
+            model.canary_traffic_percentage = traffic_percentage
+            self.deployment_log.append({
+                "timestamp": datetime.now().isoformat(),
+                "model_name": model_name, "version": version,
+                "action": "staging", "traffic_percentage": traffic_percentage,
+            })
+        logger.info("Promoted %s:%s to STAGING (%s%% traffic)", model_name, version, traffic_percentage)
         return True
     
     def promote_to_production(
@@ -184,12 +241,21 @@ class ModelRegistry:
         model_name: str,
         version: str
     ) -> bool:
-        """Promote model to production (100% traffic)"""
-        
+        """Promote model to production (100% traffic).
+
+        Re-verifies artifact integrity before promoting.
+        """
         model = self.get_model_version(model_name, version)
         if not model:
             return False
-        
+
+        # Re-verify artifact before loading into production.
+        try:
+            verify_artifact(model.model_path, expected_checksum=model.checksum_sha256)
+        except (FileNotFoundError, PermissionError, ValueError) as exc:
+            logger.error("Cannot promote %s:%s — %s", model_name, version, exc)
+            return False
+
         # Archive previous production model
         if model_name in self.active_models:
             old_model = self.active_models[model_name]
@@ -204,79 +270,47 @@ class ModelRegistry:
         logger.info(f"Promoted {model_name}:{version} to PRODUCTION")
         
         return True
-    
-    def rollback(
-        self,
-        model_name: str,
-        reason: str = "Performance degradation"
-    ) -> bool:
+
+    def rollback(self, model_name: str, reason: str = "Performance degradation") -> bool:
         """Rollback to previous production model"""
-        
-        current = self.active_models.get(model_name)
-        if not current:
-            logger.error(f"No active model for {model_name}")
+        with self._lock:
+            current = self.active_models.get(model_name)
+            if not current:
+                logger.error("No active model for %s", model_name)
+                return False
+            current.status = ModelStatus.ROLLED_BACK
+            current.rollback_reason = reason
+            versions = sorted(
+                self.models[model_name].values(),
+                key=lambda x: x.created_at, reverse=True
+            )
+            previous = None
+            for v in versions:
+                if v.model_id != current.model_id and v.status == ModelStatus.ARCHIVED:
+                    previous = v
+                    break
+            if previous:
+                previous.status = ModelStatus.PRODUCTION
+                previous.canary_traffic_percentage = 100
+                self.active_models[model_name] = previous
+                self.deployment_log.append({
+                    "timestamp": datetime.now().isoformat(),
+                    "model_name": model_name, "version": previous.version,
+                    "action": "rollback", "traffic_percentage": 100, "reason": reason,
+                })
+                logger.warning("Rolled back %s to %s: %s", model_name, previous.version, reason)
+                return True
+            logger.error("No previous production model found for %s", model_name)
             return False
-        
-        current.status = ModelStatus.ROLLED_BACK
-        current.rollback_reason = reason
-        
-        # Find previous production version
-        versions = sorted(
-            self.models[model_name].values(),
-            key=lambda x: x.created_at,
-            reverse=True
-        )
-        
-        previous = None
-        for v in versions:
-            if v.model_id != current.model_id and v.status == ModelStatus.ARCHIVED:
-                previous = v
-                break
-        
-        if previous:
-            previous.status = ModelStatus.PRODUCTION
-            previous.canary_traffic_percentage = 100
-            self.active_models[model_name] = previous
-            
-            self._log_deployment(model_name, previous.version, "rollback", 100, reason)
-            logger.warning(f"Rolled back {model_name} to {previous.version}: {reason}")
-            return True
-        
-        logger.error(f"No previous production model found for {model_name}")
-        return False
-    
-    def _log_deployment(
-        self,
-        model_name: str,
-        version: str,
-        action: str,
-        traffic: int,
-        reason: str = None
-    ):
-        """Log deployment event"""
-        self.deployment_log.append({
-            "timestamp": datetime.now().isoformat(),
-            "model_name": model_name,
-            "version": version,
-            "action": action,
-            "traffic_percentage": traffic,
-            "reason": reason
-        })
-    
-    def get_deployment_history(
-        self,
-        model_name: str,
-        limit: int = 20
-    ) -> List[Dict]:
+
+    def get_deployment_history(self, model_name: str, limit: int = 20) -> List[Dict]:
         """Get deployment history for a model"""
-        return [
-            log for log in self.deployment_log
-            if log["model_name"] == model_name
-        ][-limit:]
-    
+        with self._lock:
+            return [log for log in self.deployment_log if log["model_name"] == model_name][-limit:]
+
     def export_registry(self) -> Dict:
-        """Export entire registry as JSON"""
-        return {
+        """Export entire registry — validated against RegistryExportPayload."""
+        raw = {
             "models": {
                 name: {
                     version: model.to_dict()
@@ -288,8 +322,50 @@ class ModelRegistry:
                 name: model.to_dict()
                 for name, model in self.active_models.items()
             },
-            "deployment_log": self.deployment_log
+            "deployment_log": self.deployment_log,
         }
+        # Validate before returning.
+        return RegistryExportPayload(**raw).model_dump()
+
+    def import_registry(self, data: Dict) -> int:
+        """Import registry from *data*, validated against RegistryExportPayload.
+
+        Returns the number of model versions imported.
+        Raises ValueError (or Pydantic ValidationError) on invalid data.
+        """
+        payload = RegistryExportPayload(**data)
+        count = 0
+        for model_name, versions in payload.models.items():
+            for version_str, entry in versions.items():
+                version = ModelVersion(
+                    model_name=entry.model_name,
+                    version=entry.version,
+                    model_path=entry.model_path,
+                    status=ModelStatus(entry.status),
+                    created_by=entry.created_by,
+                    description=entry.description,
+                    metrics=dict(entry.metrics),
+                )
+                version.model_id = entry.model_id
+                version.created_at = entry.created_at
+                version.deployed_at = entry.deployed_at
+                version.canary_traffic_percentage = entry.canary_traffic_percentage
+                version.rollback_reason = entry.rollback_reason
+                version.deployment_history = list(entry.deployment_history)
+
+                if model_name not in self.models:
+                    self.models[model_name] = {}
+                self.models[model_name][version_str] = version
+                count += 1
+
+        for model_name, entry in payload.active_models.items():
+            version = self.models.get(model_name, {}).get(entry.version)
+            if version:
+                self.active_models[model_name] = version
+
+        self.deployment_log.extend(payload.deployment_log)
+        logger.info("Imported %d model versions from registry payload", count)
+        return count
 
 
 # Global registry instance
