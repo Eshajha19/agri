@@ -9,7 +9,10 @@ Affected endpoints (previously open):
   POST /query            — now requires auth; uid from token
   POST /audio-upload     — now requires auth; uid from token; rate-limit
                            keyed on verified uid instead of client field
-  POST /query-analyze    — now requires auth
+    POST /query-analyze    — now requires auth
+"""
+
+from error_utils import safe_detail
   GET  /sessions/{id}    — now requires auth; caller may only read their
                            own sessions
   GET  /offline-cache    — now requires auth (read of internal cache)
@@ -377,12 +380,8 @@ async def create_session(request: Request, data: SessionCreateRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Session creation error: %s", e)
-
-        return _build_recovery_response(
-            "Unable to create voice session.",
-            "session",
-        )
+        logger.error(f"Session creation error: {e}")
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.post("/query", response_model=VoiceResponseData, tags=["Voice"])
@@ -440,13 +439,8 @@ async def process_voice_query(request: Request, data: VoiceQueryRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Voice query error: %s", e)
-
-        return _build_recovery_response(
-            "Unable to process your voice query.",
-            "query",
-            session_id,
-        )
+        logger.error(f"Voice query error: {e}")
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 
 @router.post("/audio-upload", tags=["Voice"])
@@ -479,7 +473,7 @@ async def upload_audio(
     try:
         safe_filename = _validate_filename(file.filename or "")
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
     os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
     # Sanitize uid before embedding it in a filesystem path. Firebase UIDs are
@@ -527,16 +521,8 @@ async def upload_audio(
     except HTTPException:
         raise
     except Exception as e:
-        # Log the full error server-side for debugging but return only a
-        # generic message to the client. Forwarding str(e) can expose
-        # filesystem paths, internal library names, or other implementation
-        # details that aid attackers in fingerprinting the server environment.
-        logger.error("Audio upload error for uid=%s: %s", uid, e, exc_info=True)
-        return _build_recovery_response(
-            "Audio upload failed.",
-            "audio",
-            session_id,
-        )
+        logger.error(f"Audio upload error: {e}")
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
     finally:
         try:
             if os.path.exists(temp_path):
@@ -572,13 +558,8 @@ async def get_session_history(request: Request, session_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Session retrieval error: %s", e)
-
-        return _build_recovery_response(
-            "Unable to retrieve session history.",
-            "session",
-            session_id,
-        )
+        logger.error(f"Session retrieval error: {e}")
+        raise HTTPException(status_code=404, detail=safe_detail(e, 404))
 
 
 @router.post("/query-analyze", tags=["Voice"])
@@ -613,12 +594,8 @@ async def analyze_query(request: Request, data: VoiceQueryRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Query analysis error: %s", e)
-
-        return _build_recovery_response(
-            "Query analysis failed.",
-            "query",
-        )
+        logger.error(f"Query analysis error: {e}")
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 
 @router.get("/offline-cache", tags=["Voice"])
@@ -646,8 +623,8 @@ async def get_offline_cache(request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Cache metadata retrieval error: %s", e)
-        raise HTTPException(status_code=500, detail="Cache metadata retrieval failed")
+        logger.error(f"Cache retrieval error: {e}")
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.post("/sync-cache", tags=["Voice"])
@@ -666,4 +643,4 @@ async def sync_offline_cache(request: Request):
         raise
     except Exception as e:
         logger.error(f"Cache sync error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
