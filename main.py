@@ -154,7 +154,7 @@ async def lifespan(app: FastAPI):
     _notification_repository = NotificationRepository()  # noqa: F841 — kept for symmetry / future use
     _supply_chain_repository = SupplyChainRepository()
     _farm_finance_ai = FarmFinanceAI(repository=_finance_repository)
-    _supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository, signing_key=os.getenv("QR_SIGNING_SECRET"))
+    _supply_chain_blockchain = SupplyChainBlockchain(repository=_supply_chain_repository)
     _crop_quality_grader = CropQualityGrader()
     logger.info("Domain engines initialized with persistent repositories")
 
@@ -545,16 +545,19 @@ class NotificationStore:
 
         The ID is assigned from a monotonically increasing counter so
         concurrent calls always produce distinct values.
+        The timestamp is stored as a native datetime object to avoid
+        repeated ISO parsing during TTL checks.
         """
         with self._lock:
+            now = datetime.now()
             entry = {
                 "id": next(self._counter),
                 "type": alert_type,
                 "message": message,
-                "time": datetime.now().isoformat(),
+                "time": now,
             }
             self._deque.append(entry)
-        return entry
+        return {**entry, "time": now.isoformat()}
 
     def get_recent(self) -> list:
         """
@@ -562,14 +565,22 @@ class NotificationStore:
 
         Takes a snapshot under the lock so callers always see a consistent
         view even if append() is running concurrently.
+        Entries with corrupted timestamps are quarantined (skipped) rather
+        than crashing the filtering logic.
         """
         cutoff = datetime.now() - self._ttl
         with self._lock:
             snapshot = list(self._deque)
-        return [
-            e for e in snapshot
-            if datetime.fromisoformat(e["time"]) >= cutoff
-        ]
+        result = []
+        for e in snapshot:
+            ts = e.get("time")
+            if isinstance(ts, datetime):
+                if ts >= cutoff:
+                    result.append({**e, "time": ts.isoformat()})
+            else:
+                # Quarantine corrupt entry — log and skip
+                logger.warning("NotificationStore: quarantining entry with invalid time field: %s", ts)
+        return result
 
 
 # Seed the store with the initial weather advisory that was previously
