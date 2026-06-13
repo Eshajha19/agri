@@ -221,13 +221,6 @@ def _feedback_rate_key(request: Request) -> str:
         return token[-32:] if len(token) >= 32 else token
     return extract_client_ip(request)
 
-# The limiter is attached to app.state so the @limiter.limit() decorator
-# can resolve it at request time.
-limiter = build_limiter(default_limits=["120/minute"])
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
-# ─────────────────────────────────────────────────────────────────────────────
-
 from slowapi.util import get_remote_address
 
 def feedback_rate_limit_key(request: Request):
@@ -241,7 +234,12 @@ def feedback_rate_limit_key(request: Request):
     return get_remote_address(request)
 
 # ── Rate limiting ─────────────────────────────────────────────────────────────
-limiter = Limiter(key_func=feedback_rate_limit_key, default_limits=["120/minute"])
+# The limiter is attached to app.state so the @limiter.limit() decorator
+# can resolve it at request time.
+limiter = Limiter(
+    key_func=feedback_rate_limit_key,
+    default_limits=[os.getenv("FEEDBACK_RATE_LIMIT", "120/minute")]
+)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 # ─────────────────────────────────────────────────────────────────────────────
