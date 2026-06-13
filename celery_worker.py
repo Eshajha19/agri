@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 import threading
@@ -39,6 +38,10 @@ if not redis_url:
         )
         raise ValueError("REDIS_URL or REDIS_PASSWORD must be set")
 
+logger = logging.getLogger(__name__)
+
+# Initialize Celery app
+redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 celery_app = Celery(
     "agri_ml_tasks",
     broker=redis_url,
@@ -77,9 +80,6 @@ def _get_lag_model():
                 try:
                     _model_lag = verify_and_load_joblib("sklearn_yield_model.joblib")
                 except Exception as e:
-                    logger.error(f"Celery worker error: {e}")
-                    logger.exception("Failed to load lag model")
-                    raise
 
     return _model_lag
 
@@ -94,8 +94,7 @@ def _get_trend_model():
                     if os.path.exists("trend_forecast_model.joblib"):
                         _model_trend = verify_and_load_joblib("trend_forecast_model.joblib")
                 except Exception as e:
-                    logger.error(f"Failed to load trend model: {e}")
-                    raise
+
     return _model_trend
 
 
@@ -122,7 +121,7 @@ def _get_ml_router():
             
             _ml_router = ModelRouter(default_model="xgboost")
         except Exception as e:
-            print(f"Failed to initialize ML router: {e}")
+            logger.error("Failed to initialize ML router: %s", e)
     return _ml_router
 
 
