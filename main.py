@@ -17,6 +17,14 @@ from backend.utils.safe_log import sanitize_log_field
 
 from celery.exceptions import TimeoutError, SoftTimeLimitExceeded
 
+from fastapi import FastAPI
+
+app = FastAPI(
+    title="Fasal Saathi Backend",
+    version="2.0",
+    lifespan=lifespan,    
+)
+
 
 # Expose sanitizer globally so routers can use it
 sanitise_log_field_fn = sanitize_log_field
@@ -154,46 +162,6 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.units import inch
-
-from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
-
-from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
-
-from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
-
-from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
-
-from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
 
 from fastapi import FastAPI
 
@@ -1772,10 +1740,6 @@ def _build_gdpr_deletion_targets(uid: str) -> list[DeletionTarget]:
     )
     return targets
 
-@app.get("/")
-@limiter.limit("60/minute")
-def root(request: Request = None):
-    return {"message": "Fasal Saathi API", "status": "running"}
 
 @app.get("/health")
 @limiter.limit("60/minute")
@@ -1785,10 +1749,7 @@ def health_check(request: Request = None):
     """
     return {"status": "ok", "message": "Backend is running"}
 
-@app.get("/predict")
-@limiter.limit("30/minute")
-def predict_get(request: Request = None):
-    return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
+
 
 @app.post("/predict", response_model=PredictResponse)
 @limiter.limit("5/minute")
