@@ -24,7 +24,7 @@ import hashlib
 import logging
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -204,65 +204,37 @@ def _seed_listings() -> None:
 
 _seed_listings()
 
-def _calculate_listing_quality(listing: Dict[str, Any]) -> Dict[str, Any]:
-    score = 0
-    breakdown = {}
+BOOKING_TTL = timedelta(hours=24)
 
-    # Description completeness
-    name_score = min(len(listing.get("name", "")) / 100 * 25, 25)
-    breakdown["description"] = round(name_score, 2)
-    score += name_score
 
-    # Required information
-    required_fields = [
-        "name",
-        "type",
-        "price",
-        "priceUnit",
-        "location",
-    ]
-
-    present = sum(
-        1 for field in required_fields
-        if listing.get(field)
-    )
-
-    required_score = (present / len(required_fields)) * 35
-    breakdown["required_fields"] = round(required_score, 2)
-    score += required_score
-
-    # Metadata quality
-    metadata_score = 20
-
-    if listing.get("owner"):
-        metadata_score += 0
-
-    if listing.get("createdAt"):
-        metadata_score += 0
-
-    breakdown["metadata"] = metadata_score
-    score += metadata_score
-
-    # Structure quality
-    structure_score = 20
-    breakdown["structure"] = structure_score
-    score += structure_score
-
-    if score >= 90:
-        label = "Excellent"
-    elif score >= 75:
-        label = "Good"
-    elif score >= 50:
-        label = "Average"
-    else:
-        label = "Poor"
-
-    return {
-        "qualityScore": round(score, 2),
-        "qualityLabel": label,
-        "qualityBreakdown": breakdown,
-    }
-
+def _release_expired_bookings() -> None:
+    """Release listings whose pending bookings have exceeded the TTL."""
+    now = datetime.now(timezone.utc)
+    cutoff = now - BOOKING_TTL
+    expired_bids = []
+    for bid, b in list(_bookings.items()):
+        if b["status"] != "pending":
+            continue
+        created = b.get("createdAt", "")
+        if not created:
+            continue
+        try:
+            created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+            if created_dt < cutoff:
+                expired_bids.append(bid)
+        except Exception:
+            continue
+    for bid in expired_bids:
+        booking = _bookings.pop(bid, None)
+        if booking:
+            eq_id = booking["equipmentId"]
+            listing = _listings.get(eq_id)
+            if listing and listing.get("ownerUid") is None:
+                # Seed listings with no owner revert to available.
+                listing["available"] = True
+                logger.info(
+                    "Released expired booking %s for equipment %s", bid, eq_id
+                )
 
 # ---------------------------------------------------------------------------
 # Dependency injection
@@ -355,6 +327,7 @@ async def get_listings(filters: MarketplaceFilters = Query(...) if False else No
         )
     
     with _lock:
+        _release_expired_bookings()
         items = list(_listings.values())
 
     search_lower = validated_filters.search.lower()
@@ -466,6 +439,7 @@ async def book_equipment(request: Request, data: BookEquipmentRequest):
     # Hold the lock for the entire check-then-act sequence so no concurrent
     # request can slip in between the availability read and the booking write.
     with _lock:
+        _release_expired_bookings()
         listing = _listings.get(data.equipmentId)
 
         if listing is None:

@@ -5,6 +5,7 @@ Provides secure server-side API for feedback submission with validation.
 
 import asyncio
 from fastapi import FastAPI, HTTPException, Depends, Request
+from error_utils import safe_detail
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, validator
@@ -124,7 +125,7 @@ async def verify_firebase_token(request: Request) -> dict:
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired authentication token")
 
-    uid = decoded.get("uid")
+    uid = decoded.get("sub") or decoded.get("uid")
     if not uid:
         raise HTTPException(status_code=401, detail="Invalid authentication token")
 
@@ -351,10 +352,12 @@ async def verify_admin(request: Request) -> dict:
     # Offload blocking Firebase SDK call to thread pool.
     try:
         decoded = firebase_auth.verify_id_token(id_token, check_revoked=True)
+    except firebase_auth.RevokedIdTokenError:
+        raise HTTPException(status_code=401, detail="Session revoked — please log in again")
     except Exception:
         raise HTTPException(status_code=401, detail="Authentication failed")
 
-    uid = decoded["uid"]
+    uid = decoded.get("sub") or decoded.get("uid")
 
     # Offload blocking Firestore network call to thread pool.
     try:
@@ -505,9 +508,9 @@ async def submit_feedback(
             )
 
     except ValueError as ve:
-        logger.warning("Validation error: %s", ve)
-        raise HTTPException(status_code=400, detail=str(ve))
-
+        logger.warning(f"Validation error: {ve}")
+        raise HTTPException(status_code=400, detail=safe_detail(ve, 400))
+        
     except HTTPException:
         raise
 
@@ -526,7 +529,31 @@ async def get_feedback_stats(
     admin_user: dict = Depends(verify_admin),
 ):
     """Get feedback statistics (admin only)"""
-    uid = admin_user["uid"]
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing auth token")
+
+    try:
+        id_token = auth_header.split(" ")[1]
+        decoded = firebase_auth.verify_id_token(id_token, check_revoked=True)
+    except firebase_auth.RevokedIdTokenError:
+        raise HTTPException(status_code=401, detail="Session revoked — please log in again")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    uid = decoded["uid"]
+
+    try:
+        user_doc = db.collection("users").document(uid).get()
+    except Exception:
+        raise HTTPException(status_code=503, detail="Authorization service unavailable")
+
+    if not user_doc.exists:
+        raise HTTPException(status_code=403, detail="User profile not found")
+
+    user_role = user_doc.to_dict().get("role", "farmer")
+    if user_role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied: admin role required")
 
     try:
         feedback_ref = db.collection("feedback")
