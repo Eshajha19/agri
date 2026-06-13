@@ -170,6 +170,12 @@ class SupplyChainBlockchain:
         record.hash = record.calculate_hash()
         self.chain.append(record)
 
+    def _link_record(self, record: BlockchainRecord) -> BlockchainRecord:
+        """Set previous_hash and compute hash for a record, returning it without appending."""
+        record.previous_hash = self._last_hash()
+        record.hash = record.calculate_hash()
+        return record
+
     # ------------- Utilities for atomicity -------------
     def _snapshot_state(self):
         """Create snapshot of current state for rollback"""
@@ -299,23 +305,16 @@ class SupplyChainBlockchain:
         harvesting_date: str,
         farmer_name: str,
         idempotency_key: Optional[str] = None,
+        owner_uid: str = "",
+        harvest_id: str = "",
     ) -> ProductBatch:
+        """Create product batch atomically with harvest_id dedup."""
         # Check cache
         if idempotency_key and idempotency_key in self.idempotency_cache:
             return self.idempotency_cache[idempotency_key]
 
-    snap = self._snapshot_state()
-    try:
-            batch_id = f"BATCH-{uuid.uuid4().hex[:12].upper()}"
-            batch = ProductBatch(...)
-            record = BlockchainRecord(...)
-            record.hash = record.calculate_hash()
-            owner_uid: str = "",
-            harvest_id: str = "",
-       ) -> ProductBatch:
-      
-    snap = self._snapshot_state()
-    try:
+        snap = self._snapshot_state()
+        try:
             batch_id = f"BATCH-{uuid.uuid4().hex[:12].upper()}"
 
             if harvest_id:
