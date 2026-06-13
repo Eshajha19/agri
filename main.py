@@ -271,7 +271,8 @@ async def lifespan(app: FastAPI):
         marketplace.init_marketplace(verify_role, _notify_booking)
         lms.init_lms(verify_role, db_firestore)
         advisory.init_advisory(verify_role, db_firestore)
-        logger.info("✅ Marketplace, LMS, and advisory routers initialized")
+        community.init_community()
+        logger.info("✅ Marketplace, LMS, advisory, and community routers initialized")
     except Exception as exc:
         logger.error("❌ Marketplace/LMS initialization failed: %s", exc, exc_info=True)
         raise
