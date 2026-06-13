@@ -10,8 +10,37 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 import json
 import uuid
+import threading
 
 logger = logging.getLogger(__name__)
+
+
+
+class ModelRegistry:
+    def __init__(self):
+        self._models = {}
+        self._lock = threading.RLock()   # re‑entrant lock for safety
+
+    def register(self, name: str, model) -> None:
+        """Register a model safely."""
+        if not name or model is None:
+            raise ValueError("Model name and instance required")
+        with self._lock:
+            if name in self._models:
+                raise ValueError(f"Model '{name}' already registered")
+            self._models[name] = model
+
+    def get_model(self, name: str):
+        """Retrieve a model safely."""
+        with self._lock:
+            if name not in self._models:
+                raise KeyError(f"Model '{name}' not found")
+            return self._models[name]
+
+    def list_models(self):
+        """Return snapshot of registered models."""
+        with self._lock:
+            return list(self._models.keys())
 
 
 class ModelStatus(Enum):
