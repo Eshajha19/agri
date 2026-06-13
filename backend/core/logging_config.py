@@ -65,7 +65,9 @@ def setup_logging(
 
     if json_format:
         formatter = jsonlogger.JsonFormatter(
-            "%(asctime)s %(levelname)s %(name)s %(funcName)s %(lineno)d %(message)s"
+            "%(asctime)s %(levelname)s %(name)s %(funcName)s %(lineno)d %(message)s",
+            rename_fields={"levelname": "level"},
+            timestamp=True
         )
     else:
         formatter = logging.Formatter(
