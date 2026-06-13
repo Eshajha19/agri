@@ -4,13 +4,16 @@ Provides structured error handling and recovery for async operations
 """
 
 import base64
+import collections
 import logging
+import random
 import re
 import time
 import uuid
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
+from urllib.parse import urlparse
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -219,6 +222,34 @@ class SuspiciousContentScanner:
         return order.index(level) > order.index(self._threshold)
 
 
+# ── Helper functions ──────────────────────────────────────────────────────
+
+
+def looks_like_binary(data: bytes) -> bool:
+    """Heuristic: > 5% non-printable / non-whitespace bytes → binary."""
+    if not data:
+        return False
+    control = sum(1 for b in data if b < 32 and b not in (9, 10, 13))
+    return (control / len(data)) > 0.05
+
+
+def looks_like_base64(text: str) -> bool:
+    """Heuristic: looks like a base64-encoded payload."""
+    if len(text) < 8:
+        return False
+    cleaned = re.sub(r'[A-Za-z0-9+/=\n\r\t ]', '', text)
+    return len(cleaned) / len(text) < 0.10 if text else False
+
+
+async def ensure_body_available(request: Request) -> bytes:
+    """Read request body once and cache it on request.state."""
+    if hasattr(request.state, '_body_cache'):
+        return request.state._body_cache
+    body = await request.body()
+    request.state._body_cache = body
+    return body
+
+
 # ── Error-recovery middleware ──────────────────────────────────────────
 
 
@@ -234,6 +265,16 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
     - Suspicious content scanning (encoding-aware)
     """
     
+    # Circuit breaker state constants
+    _OPEN = "open"
+    _CLOSED = "closed"
+    _HALF_OPEN = "half-open"
+    
+    # Circuit breaker configuration
+    _FAILURE_THRESHOLD = 5
+    _RESET_TIMEOUT = 60.0
+    _JITTER_MAX = 30.0
+    
     def __init__(self, app, scan_request_body: bool = True,
                  confidence_threshold: ConfidenceLevel = ConfidenceLevel.MEDIUM):
         super().__init__(app)
@@ -241,6 +282,33 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
         self.error_timestamps = {}
         self._scanner = SuspiciousContentScanner(confidence_threshold)
         self._scan_request_body = scan_request_body
+        
+        # Initialize circuit breaker state
+        self._circuit_state = {}
+        self._circuit_open_since = {}
+        self._failure_timestamps = {}
+        self.circuit_breaker = CircuitBreakerAsync()
+    
+    def _contains_suspicious_content(self, text: str) -> bool:
+        """Check if text contains suspicious patterns."""
+        for pattern in SQL_PATTERNS + [re.compile(p) for p in SUSPICIOUS_PATTERNS]:
+            if pattern.search(text):
+                return True
+        return False
+    
+    def _rate_log(self, key: str, level: int, message: str, *args) -> None:
+        """Rate-limited logging to prevent log spam."""
+        now = time.time()
+        last_logged = self.error_timestamps.get(key, 0)
+        count = self.error_counts.get(key, 0)
+        
+        # Log at most once every 5 seconds per key
+        if now - last_logged >= 5.0:
+            self.error_counts[key] = 1
+            self.error_timestamps[key] = now
+            logger.log(level, message, *args)
+        else:
+            self.error_counts[key] = count + 1
     
     async def dispatch(self, request: Request, call_next) -> Response:
         """Handle request with error recovery"""
