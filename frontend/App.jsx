@@ -3,6 +3,7 @@ import { Routes, Route, Link, Navigate, useLocation, useNavigate } from "react-r
 import { useTranslation } from "react-i18next";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import { load as loadThirdParty } from "./utils/thirdPartyLoader.js";
 import {
   FaComments,
   FaLeaf,
@@ -156,50 +157,32 @@ const applyGoogleTranslate = (langCode) => {
 };
 
 /**
- * Robustly wait for Google Translate widget using MutationObserver
- * Returns a promise that resolves when widget is ready or times out
- */
-const waitForGoogleTranslateWidget = (timeoutMs = 15000) => {
-  return new Promise((resolve, reject) => {
-    const existingWidget = document.querySelector(".goog-te-combo");
-    if (existingWidget) {
-      resolve(existingWidget);
-      return;
-    }
-
-    let observer = null;
-    const timeoutId = setTimeout(() => {
-      if (observer) observer.disconnect();
-      reject(new Error("Google Translate widget not found within timeout"));
-    }, timeoutMs);
-
-    observer = new MutationObserver((mutations) => {
-      const widget = document.querySelector(".goog-te-combo");
-      if (widget) {
-        clearTimeout(timeoutId);
-        observer?.disconnect();
-        resolve(widget);
-      }
-    });
-
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-    });
-  });
-};
-
-/**
- * Apply translation with robust widget detection
+ * Apply translation with robust widget detection via third-party loader
  */
 const applyGoogleTranslateRobust = async (langCode, onReady, onError) => {
+  // Register global callback before loading the script
+  window.googleTranslateElementInit = () => {
+    new window.google.translate.TranslateElement({
+      pageLanguage: "en",
+      includedLanguages: "hi,mr,bn,ta,te,gu,pa,kn,ml,or,as,en",
+      layout: window.google.translate.TranslateElement.InlineLayout.SIMPLE,
+      autoDisplay: false,
+    }, "google_translate_element");
+  };
+
   try {
-    await waitForGoogleTranslateWidget(15000);
+    await loadThirdParty({
+      key: "google-translate",
+      src: "https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit",
+      timeoutMs: 20000,
+      retries: 2,
+      attrs: { async: true },
+    });
     applyGoogleTranslate(langCode);
     onReady?.();
-  } catch (error) {
-    console.warn("Google Translate widget initialization failed:", error.message);
-    onError?.(error);
+  } catch (err) {
+    console.warn("Google Translate widget initialization failed:", err.message);
+    onError?.(err);
   }
 };
 
