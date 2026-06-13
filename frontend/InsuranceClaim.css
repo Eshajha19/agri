@@ -1,0 +1,86 @@
+.ic-container {
+  max-width: 720px;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+.ic-card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  padding: 2rem;
+}
+.ic-card h2 {
+  margin-top: 0;
+  color: #1a5a1a;
+}
+.ic-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #666;
+  margin-bottom: 1rem;
+}
+.ic-autofill-banner {
+  background: #e8f5e9;
+  border: 1px solid #a5d6a7;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1.25rem;
+  font-size: 0.9rem;
+  color: #2e7d32;
+}
+.ic-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #333;
+}
+.ic-form input,
+.ic-form select,
+.ic-form textarea {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+.ic-form input:focus,
+.ic-form select:focus,
+.ic-form textarea:focus {
+  border-color: #2e7d32;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(46, 125, 50, 0.2);
+}
+.ic-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.ic-submit {
+  margin-top: 1rem;
+  width: 100%;
+  padding: 0.75rem;
+  background: #2e7d32;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ic-submit:hover {
+  background: #1b5e20;
+}
+.ic-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.ic-success {
+  text-align: center;
+  padding: 3rem 2rem;
+}
+.ic-success h2 {
+  color: #2e7d32;
+}

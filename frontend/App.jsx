@@ -1002,31 +1002,7 @@ useEffect(() => {
             <Route path="/blog/:id" element={<BlogDetail />} />
             <Route path="/weather" element={<Weather />} />
             <Route path="/voice-assistant" element={<VoiceAssistant />} />
-            <Route
-  path="/spray-scheduler"
-  element={
-    <SprayScheduler
-      schedules={[
-        { crop: "Wheat", pest: "Rust", product: "Fungicide A", date: "2026-06-10", status: "upcoming" },
-        { crop: "Rice", pest: "Blast", product: "Fungicide B", date: "2026-06-07", status: "today" },
-        { crop: "Maize", pest: "Stem Borer", product: "Insecticide C", date: "2026-06-05", status: "overdue" },
-      ]}
-    />
-  }
-/>
-
-            <Route path="/prediction-explainer" element={<PredictionExplainer />} />
-            <Route path="/retraining-monitor" element={<RetrainingPipelineMonitor />} />
-            <Route path="/insurance-claim" element={<CropInsuranceClaim />} />
-            <Route
-              path="/myth-checker"
-              element={
-                <div className="app-content">
-                  <FarmingMythChecker />
-                </div>
-              }
-            />
-            <Route path="/crop-comparison" element={<CropComparison />} />
+            <Route path="/insurance-claim" element={<InsuranceClaim />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </React.Suspense>
