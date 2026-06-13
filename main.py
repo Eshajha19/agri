@@ -71,6 +71,7 @@ from backend.routers import (
     community,
     finance,
     governance,
+    insurance,
     knowledge,
     lms,
     marketplace,
@@ -232,6 +233,7 @@ async def lifespan(app: FastAPI):
         blockchain.init_blockchain(_supply_chain_blockchain, verify_role)
         referrals.init_referrals(lambda: db_firestore, verify_role)
         reports.init_reports(verify_role, get_signing_keys, sanitise_log_field, logger)
+        insurance.init_insurance(verify_role)
         logger.info("✅ Core routers initialized")
     except Exception as exc:
         logger.error("❌ Router initialization failed: %s", exc, exc_info=True)
@@ -1629,6 +1631,7 @@ app.include_router(advisory.router, prefix="/api", tags=["Advisory"])
 app.include_router(alerts.router, prefix="/api/notifications", tags=["Alerts"])
 app.include_router(flags_router, tags=["Feature Flags"])
 app.include_router(lms.router, prefix="/api", tags=["LMS"])
+app.include_router(insurance.router, prefix="/api", tags=["Insurance"])
 
 
 # --- Smart Farm Autopilot ---
