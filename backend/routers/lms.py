@@ -9,7 +9,6 @@ authorization decisions.
 """
 import asyncio
 import hashlib
-import logging
 import secrets
 import time
 from collections import OrderedDict
@@ -20,8 +19,10 @@ from fastapi import APIRouter, HTTPException, Request
 from google.cloud import firestore
 from pydantic import BaseModel, Field
 
+from backend.core.logging_config import setup_logging
+
 router = APIRouter()
-logger = logging.getLogger(__name__)
+logger = setup_logging(__name__)
 
 # Per-user per-course certificate request cooldown (seconds).
 _CERT_COOLDOWN_SECONDS = 60
@@ -29,8 +30,43 @@ _CERT_COOLDOWN_SECONDS = 60
 # Maximum number of (uid, course_id) pairs tracked in the cooldown store.
 _CERT_COOLDOWN_MAX_ENTRIES = 10_000
 
+# Last cleanup timestamp for stale entry removal.
+_LAST_CLEANUP_TIME = time.monotonic()
+_CLEANUP_INTERVAL = 300  # Clean up stale entries every 5 minutes
+
 _last_cert_request: OrderedDict[Tuple[str, str], float] = OrderedDict()
 _cert_cooldown_lock: asyncio.Lock = asyncio.Lock()
+
+
+def _cleanup_stale_cooldown_entries(now: float) -> None:
+    """Remove expired cooldown entries from the registry.
+    
+    Entries older than _CERT_COOLDOWN_SECONDS are removed to prevent
+    unbounded memory growth. This is called periodically during requests
+    to maintain a bounded in-memory registry.
+    """
+    global _LAST_CLEANUP_TIME
+    
+    # Only clean up if interval has passed to avoid excessive iteration.
+    if (now - _LAST_CLEANUP_TIME) < _CLEANUP_INTERVAL:
+        return
+    
+    cutoff_time = now - _CERT_COOLDOWN_SECONDS
+    expired_keys = [
+        key for key, timestamp in _last_cert_request.items()
+        if timestamp < cutoff_time
+    ]
+    
+    for key in expired_keys:
+        del _last_cert_request[key]
+    
+    if expired_keys:
+        logger.debug(
+            "Cleaned up %d stale certificate cooldown entries",
+            len(expired_keys),
+        )
+    
+    _LAST_CLEANUP_TIME = now
 
 _verify_role_fn = None
 _db = None
@@ -93,6 +129,63 @@ def _is_complete(progress: dict, course_id: str) -> bool:
     lessons = COURSES[course_id]["lessons"]
     completed = progress.get("lessons", {})
     return all(completed.get(lid) is True for lid in lessons)
+
+def _analyze_learning_drift(progress: dict, course_id: str) -> dict:
+    lessons = COURSES[course_id]["lessons"]
+    completed = progress.get("lessons", {})
+
+    completed_count = sum(
+        1 for lesson in lessons
+        if completed.get(lesson)
+    )
+
+    completion_rate = round(
+        (completed_count / len(lessons)) * 100,
+        2,
+    )
+
+    inactivity_days = 0
+
+    updated_at = progress.get("updatedAt")
+    if updated_at:
+        try:
+            last_activity = datetime.fromisoformat(updated_at)
+
+            if last_activity.tzinfo is None:
+                last_activity = last_activity.replace(
+                    tzinfo=timezone.utc
+                )
+
+            inactivity_days = (
+                datetime.now(timezone.utc) - last_activity
+            ).days
+        except Exception:
+            inactivity_days = 0
+
+    drift_reasons = []
+
+    if inactivity_days >= 7:
+        drift_reasons.append("extended_inactivity")
+
+    if completion_rate < 50:
+        drift_reasons.append("slow_completion_trend")
+
+    drift_detected = len(drift_reasons) > 0
+
+    if inactivity_days == 0:
+        streak = "active"
+    elif inactivity_days <= 3:
+        streak = "warning"
+    else:
+        streak = "broken"
+
+    return {
+        "drift_detected": drift_detected,
+        "inactivity_days": inactivity_days,
+        "completion_rate": completion_rate,
+        "learning_streak_status": streak,
+        "drift_reasons": drift_reasons,
+    }
 
 
 def _make_cert_id(uid: str, course_id: str) -> str:
@@ -181,6 +274,10 @@ async def get_progress(request: Request):
         result[course_id] = {
             "lessons": lessons_done,
             "completedAt": progress.get("completedAt"),
+            "drift_analysis": _analyze_learning_drift(
+                progress,
+                course_id,
+            ),
         }
 
     return {"success": True, "progress": result}
@@ -206,14 +303,21 @@ async def get_certificate_data(request: Request, course_id: str):
     key = (uid, course_id)
     async with _cert_cooldown_lock:
         now = time.monotonic()
+        
+        # Clean up stale entries periodically to prevent unbounded growth.
+        _cleanup_stale_cooldown_entries(now)
+        
         last = _last_cert_request.get(key)
         if last is not None and (now - last) < _CERT_COOLDOWN_SECONDS:
             raise HTTPException(
                 status_code=429,
                 detail=f"Certificate already requested recently. Please wait {_CERT_COOLDOWN_SECONDS} seconds.",
             )
+        
+        # If at capacity, remove oldest entry to make room for new one.
         if key not in _last_cert_request and len(_last_cert_request) >= _CERT_COOLDOWN_MAX_ENTRIES:
             _last_cert_request.popitem(last=False)
+        
         _last_cert_request[key] = now
         _last_cert_request.move_to_end(key)
 

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback } from "react";
 import "./CropInsuranceClaim.css";
 import apiClient from "./services/api";
+import ClaimRejectionDetails from "./components/ClaimRejectionDetails";
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -38,6 +39,7 @@ export default function CropInsuranceClaim() {
     location: "",
     farm_area: "",
     damage_cause: "Flood",
+    simulate_rejection: false,
   });
   const [images, setImages] = useState([]); // [{file, preview}]
   const [dragging, setDragging] = useState(false);
@@ -48,8 +50,13 @@ export default function CropInsuranceClaim() {
 
   // ── Form helpers ───────────────────────────────────────────────────────
 
-  const handleChange = (e) =>
-    setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+  const handleChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setForm((prev) => ({
+      ...prev,
+      [name]: type === "checkbox" ? checked : value,
+    }));
+  };
 
   const formValid = () =>
     form.farmer_name.trim() &&
@@ -159,6 +166,7 @@ export default function CropInsuranceClaim() {
       location: "",
       farm_area: "",
       damage_cause: "Flood",
+      simulate_rejection: false,
     });
     images.forEach(({ preview }) => URL.revokeObjectURL(preview));
     setImages([]);
@@ -286,6 +294,19 @@ export default function CropInsuranceClaim() {
                   maxLength={50}
                 />
               </div>
+              <div className="form-group full" style={{ flexDirection: "row", alignItems: "center", gap: "0.6rem", marginTop: "0.5rem" }}>
+                <input
+                  type="checkbox"
+                  id="simulate_rejection"
+                  name="simulate_rejection"
+                  checked={form.simulate_rejection}
+                  onChange={handleChange}
+                  style={{ width: "auto", cursor: "pointer" }}
+                />
+                <label htmlFor="simulate_rejection" className="form-label" style={{ color: "#fca5a5", cursor: "pointer", fontSize: "0.85rem", userSelect: "none" }}>
+                  ⚠️ Simulate Claim Rejection (to test Rejection Explanation Module)
+                </label>
+              </div>
             </div>
             <div className="btn-actions">
               <button
@@ -383,6 +404,34 @@ export default function CropInsuranceClaim() {
         {step === 3 && claimResult && (() => {
           const { claim, applicable_schemes } = claimResult;
           const sev = claim.damage_severity;
+          
+          if (claim.status === "Rejected") {
+            return (
+              <div className="rejection-flow">
+                <ClaimRejectionDetails
+                  claimId={claim.claim_id}
+                  rejectionDetails={claim.rejection_details}
+                  onResubmitClick={startNew}
+                />
+                
+                <div className="insurance-card animate-fade-in" style={{ marginTop: "1.5rem" }}>
+                  <h3 className="card-title">📋 Download Rejection PDF</h3>
+                  <p style={{ fontSize: "0.88rem", color: "#94a3b8", marginBottom: "1rem" }}>
+                    You can download a formal copy of your rejection report including recommended corrective actions.
+                  </p>
+                  <div className="btn-actions">
+                    <button id="btn-download-pdf-rejected" className="btn-primary" onClick={downloadPDF}>
+                      ⬇️ Download Rejection Report (PDF)
+                    </button>
+                    <button id="btn-new-claim-rejected" className="btn-secondary" onClick={startNew}>
+                      + Start New Claim
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
           return (
             <>
               {/* Success header */}

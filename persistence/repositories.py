@@ -3,19 +3,12 @@ Repository interfaces and implementations for persistent storage.
 Uses Firestore as the backing store for all domain entities.
 """
 
-import os
 import logging
 from typing import Dict, List, Optional, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from abc import ABC, abstractmethod
 
-try:
-    import firebase_admin
-    from firebase_admin import firestore, credentials
-except ImportError:
-    firebase_admin = None
-    firestore = None
-
+from .connections import get_firestore_client, firestore_manager
 from .models import (
     FinanceApplicationModel,
     NotificationModel,
@@ -31,39 +24,11 @@ class BaseRepository(ABC):
 
     def __init__(self, collection_name: str):
         self.collection_name = collection_name
-        self.db = self._get_firestore_client()
+        self.db = get_firestore_client()
 
-    @staticmethod
-    def _get_firestore_client():
-        """Get Firestore client singleton; initialize if needed."""
-        if firestore is None:
-            logger.warning("Firebase Admin SDK not available; running in mock mode.")
-            return None
-
-        try:
-            if not firebase_admin._apps:
-                # Try to initialize from credentials file
-                if os.path.exists("firebase-credentials.json"):
-                    cred = credentials.Certificate("firebase-credentials.json")
-                    firebase_admin.initialize_app(cred)
-                else:
-                    # Try environment variable
-                    cred_json = os.getenv("FIREBASE_CREDENTIALS_JSON")
-                    if cred_json:
-                        import json
-
-                        cred_dict = json.loads(cred_json)
-                        cred = credentials.Certificate(cred_dict)
-                        firebase_admin.initialize_app(cred)
-                    else:
-                        logger.warning(
-                            "Firebase credentials not found; Firestore operations will fail."
-                        )
-                        return None
-            return firestore.client()
-        except Exception as exc:
-            logger.error("Failed to initialize Firestore client: %s", exc)
-            return None
+    def refresh_client(self) -> None:
+        """Refresh the Firestore client (useful after re-initialization)."""
+        self.db = get_firestore_client()
 
     @abstractmethod
     def create(self, entity: Any) -> Dict[str, Any]:
@@ -98,14 +63,21 @@ class FinanceApplicationRepository(BaseRepository):
         super().__init__("finance_applications")
 
     def create(self, application_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a new finance application."""
+        """Create a new finance application. Raises ValueError if application_id already exists."""
         if self.db is None:
             logger.error("Firestore not available; application not persisted.")
             return application_data
 
         try:
             application_id = application_data.get("application_id")
-            self.db.collection(self.collection_name).document(application_id).set(
+            doc_ref = self.db.collection(self.collection_name).document(application_id)
+            existing = doc_ref.get()
+            if existing.exists:
+                raise ValueError(
+                    f"Finance application '{application_id}' already exists. "
+                    "Use update() to modify an existing application."
+                )
+            doc_ref.set(
                 {
                     **application_data,
                     "created_at": datetime.now().isoformat(),
@@ -114,9 +86,11 @@ class FinanceApplicationRepository(BaseRepository):
             )
             logger.info("Finance application %s persisted to Firestore.", application_id)
             return application_data
+        except ValueError:
+            raise
         except Exception as exc:
             logger.error("Failed to create finance application: %s", exc)
-            return application_data
+            raise
 
     def get(self, application_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve a finance application by ID."""
@@ -203,7 +177,7 @@ class NotificationRepository(BaseRepository):
             return False
 
         try:
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
             ttl_expiry = (now + timedelta(hours=self.ttl_hours)).isoformat()
 
             self.db.collection(self.collection_name).document(str(notification_id)).set(
@@ -242,7 +216,7 @@ class NotificationRepository(BaseRepository):
             return []
 
         try:
-            now = datetime.now().isoformat()
+            now = datetime.now(timezone.utc).isoformat()
             query = self.db.collection(self.collection_name).where(
                 "ttl_expiry", ">=", now
             )
@@ -262,7 +236,7 @@ class NotificationRepository(BaseRepository):
             return 0
 
         try:
-            now = datetime.now().isoformat()
+            now = datetime.now(timezone.utc).isoformat()
             query = self.db.collection(self.collection_name).where("ttl_expiry", "<", now)
             docs = query.stream()
             count = 0
@@ -318,7 +292,6 @@ class SupplyChainRepository(BaseRepository):
             node_id = record_data.get("node_id")
             batch_id = record_data.get("batch_id")
 
-            # Store in nested collection: batches/{batch_id}/nodes/{node_id}
             self.db.collection("supply_chain_batches").document(batch_id).collection(
                 "nodes"
             ).document(node_id).set(
@@ -335,7 +308,7 @@ class SupplyChainRepository(BaseRepository):
             return record_data
         except Exception as exc:
             logger.error("Failed to create supply chain record: %s", exc)
-            return record_data
+            raise
 
     def get(self, batch_id: str, node_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve a supply chain record by batch and node IDs."""
@@ -375,7 +348,6 @@ class SupplyChainRepository(BaseRepository):
                 )
                 results = [doc.to_dict() for doc in docs]
             else:
-                # List all batches and their nodes
                 batches = self.db.collection("supply_chain_batches").stream()
                 for batch_doc in batches:
                     nodes = batch_doc.reference.collection("nodes").stream()
