@@ -2,21 +2,25 @@
 import os
 import asyncio
 import logging
-import math
-import collections
-import threading
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
-
-from fastapi import FastAPI, HTTPException, Request, Form, Query, WebSocket, WebSocketDisconnect
+import time
+from collections import deque
+from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
 
 from backend.utils.safe_log import sanitize_log_field
+from backend.realtime_notifications import notification_broker
+from ml.registry import ModelRegistry
+from ml.governance import DriftDetector, ModelVersionManager, ShadowEvaluator
+from persistence.repositories import (
+    FinanceApplicationRepository,
+    NotificationRepository,
+    SupplyChainRepository,
+)
 
-# Expose sanitizer globally so routers can use it
+# Expose sanitizer globally
 sanitise_log_field_fn = sanitize_log_field
+
 
 class CSPMiddleware:
     """Add Content-Security-Policy header to every response."""
@@ -38,6 +42,62 @@ class CSPMiddleware:
             await send(message)
 
         await self.app(scope, receive, send_with_csp)
+
+
+# Single FastAPI app instance
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Deterministic startup/shutdown with structured logging."""
+    startup_time = time.perf_counter()
+    logging.info("🚀 Starting FastAPI lifespan initialization")
+
+    # Initialize ML pipeline
+    await _run_lifespan_phase("ml_pipeline", "Initialize ML pipeline", init_ml_pipeline)
+
+    # Start notification broker
+    await _run_lifespan_phase("notification_broker", "Start notification broker", notification_broker.start)
+
+    # Domain engines
+    def _init_domain_engines():
+        drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
+        shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
+        version_manager = ModelVersionManager(versions_dir="./model_versions")
+        return drift_detector, shadow_evaluator, version_manager
+
+    await _run_lifespan_phase("domain_engines", "Initialize domain engines", _init_domain_engines)
+
+    yield
+
+    logging.info("🛑 Shutting down lifespan")
+    await notification_broker.stop()
+
+
+app = FastAPI(lifespan=lifespan)
+
+# Health endpoint
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
+
+
+# Apply CORS with explicit frontend origins
+origins = [
+    "https://yourfrontend.com",
+    "https://staging.yourfrontend.com",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Apply CSP with explicit connect-src
+csp_policy = "default-src 'self'; connect-src 'self' wss://yourfrontend.com wss://staging.yourfrontend.com"
+app.add_middleware(CSPMiddleware, policy=csp_policy)
+
 
 
 class SimulationRequest(BaseModel):
