@@ -103,8 +103,13 @@ async def set_price_alert(request: Request, crop: str, threshold_type: str, thre
     try:
         from main import verify_role
 
-        token_data = await verify_role(request)
-        uid = token_data["uid"]
+        token_data = await verify_role(
+            request,
+            required_roles=["farmer"],          # or whatever role is needed
+            required_tenant_id=tenant_id        # comes from path param or request context
+        )
+        uid = token_data.get("uid")
+
 
         if threshold_type not in {"above", "below", "volatility"}:
             raise HTTPException(status_code=400, detail="threshold_type must be 'above', 'below', or 'volatility'")
@@ -150,8 +155,13 @@ async def get_price_alerts(request: Request):
     try:
         from main import verify_role
 
-        token_data = await verify_role(request)
-        uid = token_data["uid"]
+        token_data = await verify_role(
+            request,
+            required_roles=["farmer"],          # or whatever role is needed
+            required_tenant_id=tenant_id        # comes from path param or request context
+        )
+        uid = token_data.get("uid")
+
 
         db = _get_db()
         if db is None:
