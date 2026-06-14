@@ -15,6 +15,15 @@ from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
 
 from backend.utils.safe_log import sanitize_log_field
 
+from fastapi import FastAPI
+from backend.middleware.body_size_limit import BodySizeLimitMiddleware
+
+app = FastAPI()
+
+# Add middleware before routes
+app.add_middleware(BodySizeLimitMiddleware)
+
+
 # Expose sanitizer globally so routers can use it
 sanitise_log_field_fn = sanitize_log_field
 
