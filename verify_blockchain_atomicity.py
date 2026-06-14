@@ -6,11 +6,11 @@ Tests both backward compatibility and new atomicity features.
 import sys
 from blockchain_supply_chain import (
     SupplyChainBlockchain,
-    BlockchainRecord,
-    ProductBatch,
     SupplyChainNode,
     SmartContract,
 )
+from blockchain_record import BlockchainRecord
+from product_batch import ProductBatch
 
 
 def test_basic_operations():
