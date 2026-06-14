@@ -37,7 +37,19 @@ class JSONFormatter(logging.Formatter):
                 "traceback": self.formatException(record.exc_info),
             }
 
-        for key in ("duration_ms", "status_code", "method", "path", "client_ip", "user_agent"):
+        structured_fields = (
+            "component",
+            "status",
+            "phase",
+            "duration_ms",
+            "status_code",
+            "method",
+            "path",
+            "client_ip",
+            "user_agent",
+            "error_type",
+        )
+        for key in structured_fields:
             if hasattr(record, key):
                 log_entry[key] = getattr(record, key)
 
@@ -63,6 +75,12 @@ class ConsoleFormatter(logging.Formatter):
             f"{color}{timestamp} [{record.levelname}]{self.RESET} "
             f"{record.name}: {record.getMessage()}"
         )
+        context = []
+        for key in ("component", "status", "phase", "duration_ms", "error_type"):
+            if hasattr(record, key):
+                context.append(f"{key}={getattr(record, key)}")
+        if context:
+            msg += f" ({', '.join(context)})"
         if record.exc_info and record.exc_info[0] is not None:
             msg += f"\n{self.formatException(record.exc_info)}"
         return msg

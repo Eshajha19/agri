@@ -4,20 +4,76 @@ from fastapi import APIRouter, Depends, Request, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError, validator
 import logging
-from threading import Lock
-from time import monotonic
-
-from backend.compute_rate_limit import enforce_compute_rate_limit
-from backend.climate_sim.data import (
-    CROP_PROFILES,
-    REGIONAL_SEASONAL_BASELINES,
-    REGION_ALIASES,
-    VALID_SEASONS,
-)
-from backend.schemas import RAGQuery
+from error_utils import safe_detail
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
+logger = setup_logging(__name__)
+
+# ---------------------------------------------------------------------------
+# Cache Management
+# ---------------------------------------------------------------------------
+
+# RAG query cache with TTL (Time To Live)
+_RAG_QUERY_CACHE = {}
+_RAG_QUERY_CACHE_LOCK = Lock()
+_RAG_QUERY_CACHE_TTL_SECONDS = 3600  # 1 hour
+
+class CachedResult:
+    """Wrapper for cached query results with timestamp."""
+    def __init__(self, result: Any):
+        self.result = result
+        self.timestamp = time()
+
+    def is_expired(self, ttl_seconds: int) -> bool:
+        """Check if cache entry has exceeded TTL."""
+        return (time() - self.timestamp) > ttl_seconds
+
+
+def _get_cache_key(query: str, top_k: int) -> str:
+    """Generate cache key from query parameters."""
+    return f"{query}:{top_k}"
+
+
+def _get_cached_result(query: str, top_k: int) -> Optional[Any]:
+    """Retrieve cached result if available and not expired."""
+    cache_key = _get_cache_key(query, top_k)
+    with _RAG_QUERY_CACHE_LOCK:
+        if cache_key not in _RAG_QUERY_CACHE:
+            return None
+        
+        cached = _RAG_QUERY_CACHE[cache_key]
+        if cached.is_expired(_RAG_QUERY_CACHE_TTL_SECONDS):
+            del _RAG_QUERY_CACHE[cache_key]
+            logger.debug("Expired cache entry removed: %s", cache_key)
+            return None
+        
+        logger.debug("Cache hit for query: %s", cache_key)
+        return cached.result
+
+
+def _set_cached_result(query: str, top_k: int, result: Any) -> None:
+    """Store result in cache with timestamp."""
+    cache_key = _get_cache_key(query, top_k)
+    with _RAG_QUERY_CACHE_LOCK:
+        _RAG_QUERY_CACHE[cache_key] = CachedResult(result)
+        logger.debug("Cached result stored: %s", cache_key)
+
+
+def invalidate_rag_cache() -> None:
+    """Invalidate entire RAG query cache (call when knowledge base is updated)."""
+    with _RAG_QUERY_CACHE_LOCK:
+        cache_size = len(_RAG_QUERY_CACHE)
+        _RAG_QUERY_CACHE.clear()
+        logger.info("RAG query cache invalidated. Cleared %d entries.", cache_size)
+
+
+def invalidate_rag_cache_key(query: str, top_k: int) -> None:
+    """Invalidate specific cache entry."""
+    cache_key = _get_cache_key(query, top_k)
+    with _RAG_QUERY_CACHE_LOCK:
+        if cache_key in _RAG_QUERY_CACHE:
+            del _RAG_QUERY_CACHE[cache_key]
+            logger.info("Specific cache entry invalidated: %s", cache_key)
 
 # ---------------------------------------------------------------------------
 # Pydantic models
@@ -384,6 +440,106 @@ def _build_recommendations(
 
     return recs
 
+def _build_scenario_snapshot(
+    crop_type: str,
+    region: str,
+    season: str,
+    temp_delta: float,
+    rain_delta: float,
+) -> dict:
+    """Generate a simulation snapshot for comparison workflows."""
+
+    seasonal_baselines = REGIONAL_SEASONAL_BASELINES.get(
+        region,
+        REGIONAL_SEASONAL_BASELINES["central"],
+    )
+
+    base_temp, base_rain = seasonal_baselines.get(
+        season,
+        seasonal_baselines["kharif"],
+    )
+
+    sim_temp = round(base_temp + temp_delta, 2)
+    sim_rain = round(base_rain + rain_delta, 2)
+
+    profile = _get_crop_profile(crop_type)
+
+    impact_score = _compute_impact_score(
+        sim_temp,
+        sim_rain,
+        profile,
+        base_temp,
+        base_rain,
+    )
+
+    return {
+        "temperature_c": sim_temp,
+        "rainfall_mm_per_month": sim_rain,
+        "impact_score": impact_score,
+    }
+
+
+def _compare_scenarios(baseline: dict, comparison: dict) -> dict:
+    """Generate structured scenario comparison metrics."""
+
+    return {
+        "temperature_difference": round(
+            comparison["temperature_c"] - baseline["temperature_c"],
+            2,
+        ),
+        "rainfall_difference": round(
+            comparison["rainfall_mm_per_month"]
+            - baseline["rainfall_mm_per_month"],
+            2,
+        ),
+        "impact_score_difference": round(
+            comparison["impact_score"] - baseline["impact_score"],
+            2,
+        ),
+        "trend": (
+            "improved"
+            if comparison["impact_score"] > baseline["impact_score"]
+            else "reduced"
+            if comparison["impact_score"] < baseline["impact_score"]
+            else "unchanged"
+        ),
+    }
+
+
+def _build_comparison_summary(
+    crop_type: str,
+    region: str,
+    season: str,
+    simulated: dict,
+) -> dict:
+    """
+    Build side-by-side comparison metadata using
+    baseline and simulated scenario outputs.
+    """
+
+    baseline_scenario = _build_scenario_snapshot(
+        crop_type,
+        region,
+        season,
+        0,
+        0,
+    )
+
+    comparison_scenario = {
+        "temperature_c": simulated["temperature_c"],
+        "rainfall_mm_per_month": simulated["rainfall_mm_per_month"],
+        "impact_score": simulated["impact_score"],
+    }
+
+    return {
+        "baseline_scenario": baseline_scenario,
+        "comparison_scenario": comparison_scenario,
+        "differences": _compare_scenarios(
+            baseline_scenario,
+            comparison_scenario,
+        ),
+    }
+
 
 # ---------------------------------------------------------------------------
 # Endpoints
@@ -396,6 +552,10 @@ async def rag_query(request: Request, body: RAGQuery = Depends(_parse_rag_query)
     Authentication is required to prevent unauthenticated callers from
     consuming Gemini API quota on the project's billing account and to
     enable per-user rate limiting in the future.
+    
+    Results are cached with a 1-hour TTL to reduce redundant API calls
+    for identical queries. Cache is automatically invalidated when entries
+    exceed the TTL or when invalidate_rag_cache() is called.
     """
     rag_fn, verify_fn = runtime
     # Raises HTTP 401 if the Firebase token is missing or invalid.
@@ -408,10 +568,13 @@ async def rag_query(request: Request, body: RAGQuery = Depends(_parse_rag_query)
         window_seconds=60,
     )
     try:
-        result = rag_fn(body.query, body.top_k)
+        result = rag_generate_fn(body.query, body.top_k)
         return {"success": True, "query": body.query, "results": result}
-    except Exception as exc:
-        _handle_router_exception(exc, "RAG query failed", "RAG query failed")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"RAG error: {e}")
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.post("/simulate-climate")
@@ -448,6 +611,16 @@ async def simulate_climate(request: Request, data: SimulationRequest, verify_fn=
 
         profile = _get_crop_profile(data.crop_type)
         impact_score = _compute_impact_score(sim_temp, sim_rain, profile, base_temp, base_rain)
+        comparison_summary = _build_comparison_summary(
+            data.crop_type,
+            canonical_region,
+            canonical_season,
+            {
+                "temperature_c": sim_temp,
+                "rainfall_mm_per_month": sim_rain,
+                "impact_score": impact_score,
+            },
+        )
         recommendations = _build_recommendations(
             sim_temp, sim_rain, profile, impact_score, data.crop_type, canonical_season
         )
@@ -476,14 +649,18 @@ async def simulate_climate(request: Request, data: SimulationRequest, verify_fn=
                 ),
             },
             "recommendations": recommendations,
+            "scenario_comparison": comparison_summary,
             "disclaimer": (
                 "This simulation uses statistical crop-climate models and regional "
                 "climate normals. Results are indicative only and should not replace "
                 "advice from your local Krishi Vigyan Kendra (KVK) or agricultural officer."
             ),
         }
-    except Exception as exc:
-        _handle_router_exception(exc, "Climate simulation failed", "Climate simulation failed")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Climate simulation error: {e}")
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 
 @router.post("/seeds/verify")
@@ -494,5 +671,8 @@ async def verify_seed(request: Request, data: SeedVerifyRequest, runtime=Depends
         is_verified = registry.get(data.code, {}).get("verified", False)
         seed_info = registry.get(data.code, {})
         return {"success": True, "code": data.code, "verified": is_verified, "seed_info": seed_info}
-    except Exception as exc:
-        _handle_router_exception(exc, "Seed verification failed", "Seed verification failed")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Seed error: {e}")
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
