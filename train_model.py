@@ -7,39 +7,36 @@ Training entrypoints:
 All share the same training flow for consistency.
 """
 
-import argparse
+import os
 import json
-import math
-import os
-import random
-from typing import Dict
-
-import joblib
-import numpy as np
-import pandas as pd
-import xgboost as xgb
-from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import train_test_split
-
-from ml.repro import create_run_manifest
-from ml.dp_privacy import (
-    approximate_epsilon,
-    build_privacy_budget,
-)
-from ml.model_manifest import create_manifest
-from ml_model_registry import get_model_registry
-from ml.ci_pipeline import (
-    validate_csv_schema,
-    sign_file_hmac,
-)
-import joblib
-import numpy as np
-import os
 import hmac
 import hashlib
-import json
 from datetime import datetime
-from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import joblib
+import torch
+import xgboost as xgb
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+
+# project‑specific helpers
+from backend.utils import (
+    set_seeds,
+    create_run_manifest,
+    validate_csv_schema,
+    create_manifest,
+    sign_file_hmac,
+    get_model_registry,
+    save_feature_baseline,
+    resolve_config,
+    DEFAULT_XGB_CONFIG,
+    _DROP_COLS,
+    _CAT_COLS,
+    _train_dp_sgd_regressor,
+    _train_baseline_xgboost,
+)
 
 
 # Default hyperparameters for XGBoost yield model
