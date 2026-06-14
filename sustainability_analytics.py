@@ -4,7 +4,7 @@ Crop sustainability analytics — LCA-style water footprint & carbon emission es
 from __future__ import annotations
 
 import logging
-from collections import OrderedDict
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -12,6 +12,7 @@ from uuid import uuid4
 import threading
 
 logger = logging.getLogger(__name__)
+
 
 EMISSION_FACTORS = {
     "nitrogen_kg_co2e_per_kg": 5.2,
@@ -97,6 +98,8 @@ class SustainabilityAnalytics:
         self._history: OrderedDict[str, List[Dict[str, Any]]] = OrderedDict()
         self._history_lock = threading.Lock()   # FIX: initialize lock
 
+        self._history: Dict[str, List[Dict[str, Any]]] = {}
+        self._local_file_lock = threading.Lock()
         import sys
         self.is_testing = "pytest" in sys.modules or "unittest" in sys.modules
 
@@ -134,15 +137,12 @@ class SustainabilityAnalytics:
         import json
         import os
         path = self._get_local_file_path()
-        if not os.path.exists(path):
-            return {}
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except json.JSONDecodeError as exc:
-            logger.warning("Sustainability history file '%s' contains invalid JSON: %s.", path, exc)
-        except OSError as exc:
-            logger.warning("Could not read sustainability history file '%s': %s.", path, exc)
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as exc:
+                logger.warning("Failed to load sustainability history file: %s", exc)
         return {}
 
     def _save_local_history(self, history: Dict[str, List[Dict[str, Any]]]) -> None:
@@ -153,16 +153,8 @@ class SustainabilityAnalytics:
         try:
             with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(history, f, indent=2, ensure_ascii=False)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_path, path)
-        except OSError as exc:
-            logger.warning("Failed to atomically write sustainability history to '%s': %s.", path, exc)
-            try:
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-            except OSError:
-                pass
+        except Exception as exc:
+            logger.error("Failed to save sustainability history file: %s", exc)
 
     def get_formula_config(self) -> Dict[str, Any]:
         return {
@@ -359,31 +351,21 @@ class SustainabilityAnalytics:
         if db is not None:
             try:
                 db.collection("sustainability_history").document(record["record_id"]).set(record)
-                firestore_ok = True
             except Exception as exc:
-                logger.warning("Firestore write failed for sustainability record '%s' (user=%s): %s.", record["record_id"], key, exc)
+                logger.warning("Failed to persist sustainability record to Firestore: %s", exc)
 
-        local_ok = False
-        try:
-            local_hist = self._load_local_history()
-            if key not in local_hist:
-                local_hist[key] = []
-            local_hist[key].append(record)
-            if len(local_hist[key]) > _MAX_HISTORY_PER_USER:
-                local_hist[key] = local_hist[key][-_MAX_HISTORY_PER_USER:]
-            self._save_local_history(local_hist)
-            local_ok = True
-        except Exception as exc:
-            logger.warning("Local-file write failed for sustainability record '%s' (user=%s): %s.", record["record_id"], key, exc)
-
-        if not (firestore_ok or local_ok):
-            logger.error("All persistence layers failed for sustainability record '%s' (user=%s).", record["record_id"], key)
-            return
-
-        self._touch_user(key)
-        self._history[key].append(record)
-        if len(self._history[key]) > _MAX_HISTORY_PER_USER:
-            self._history[key] = self._history[key][-_MAX_HISTORY_PER_USER:]
+        # Save to local persistent file as fallback (serialized with lock)
+        with self._local_file_lock:
+            try:
+                local_hist = self._load_local_history()
+                if key not in local_hist:
+                    local_hist[key] = []
+                local_hist[key].append(record)
+                if len(local_hist[key]) > 50:
+                    local_hist[key] = local_hist[key][-50:]
+                self._save_local_history(local_hist)
+            except Exception:
+                logger.exception("Failed to persist sustainability history to local file")
 
     def save_history(self) -> None:
         with self._history_lock:
