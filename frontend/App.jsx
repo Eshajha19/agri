@@ -303,12 +303,7 @@ const GuestBanner = () => (
 
 function App() {
   const scorecardRef = useRef(null);
-  const scrollFrameRef = useRef(null);
 
-  const lastScrollStateRef = useRef({
-    showScrollTop: false,
-    scrollProgress: 0,
-  });
   const hydrationInProgressRef = useRef(false);
   const offlineSyncInProgressRef = useRef(false);
   const lastPersistedLangRef = useRef(null);
@@ -754,7 +749,7 @@ useEffect(() => {
     });
   }, [user?.uid, userData, profileCompleted]);
 
-  // Scroll to Top logic
+// Scroll to Top logic
   useEffect(() => {
     const handleScroll = () => {
       setShowScrollTop(window.scrollY > 300);
@@ -763,6 +758,9 @@ useEffect(() => {
       const progress = totalHeight > 0 ? (window.scrollY / totalHeight) * 100 : 0;
       setScrollProgress(progress);
     };
+
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
   // Scroll to Top logic - removed duplicate
@@ -885,7 +883,7 @@ useEffect(() => {
                       i18n.changeLanguage(lang);
                       try {
                         sessionStorage.setItem("agri:preferredLanguage", lang);
-                      } catch (error) {
+                      } catch {
                         console.warn("Unable to persist language preference");
                       }
                       void persistAppState({ preferredLang: lang });
@@ -1041,6 +1039,7 @@ useEffect(() => {
             <Route path="/schemes" element={<Schemes />} />
             <Route path="/resources" element={<Resources />} />
             <Route path="/login" element={<Auth />} />
+            <Route path="/auth" element={<Navigate to="/login" replace />} />
             <Route path="/profile-setup" element={<ProfileSetup user={user} profileCompleted={profileCompleted} />} />
             <Route path="/calendar" element={<Calendar userData={userData} />} />
             <Route path="/share-feedback" element={<Feedback />} />
@@ -1137,23 +1136,17 @@ useEffect(() => {
         </button>
       )}
 
+      {backendStatus === "offline" && (
+        <div className="backend-banner" role="alert">
+          🚨 Backend is currently unavailable. Some features may not work.
+        </div>
+      )}
+
       <ToastContainer position="bottom-right" />
       <Footer />
     </div>
     
   );
-  {isOffline && (
-  <div className="offline-banner" role="alert">
-    You are currently offline. Running in offline mode using local data.
-  </div>
-)}
-
-{backendStatus === "offline" && (
-  <div className="backend-banner" role="alert">
-    🚨 Backend is currently unavailable. Some features may not work.
-  </div>
-)}
-
 }
 
 export default App;
