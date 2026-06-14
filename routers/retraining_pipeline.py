@@ -62,6 +62,7 @@ _HISTORY_PATH = Path("retraining_history.json")
 _DRIFT_LOG_PATH = Path("drift_logs/drift.log")
 _BASELINE_PATH = Path("feature_baseline.json")
 _MODEL_PATH = Path("yield_model.joblib")
+_AUDIT_PATH = Path("retraining_audit.json")
 
 # Drift alert count in last 50 predictions that triggers auto-retraining
 _DRIFT_ALERT_TRIGGER_COUNT = 5
@@ -74,6 +75,30 @@ def _read_history() -> dict:
         return json.loads(_HISTORY_PATH.read_text(encoding="utf-8"))
     except Exception:
         return {"runs": []}
+    
+def _append_audit_record(record: dict) -> None:
+    try:
+        if _AUDIT_PATH.exists():
+            data = json.loads(
+                _AUDIT_PATH.read_text(encoding="utf-8")
+            )
+        else:
+            data = {"records": []}
+
+        data["records"].append(record)
+
+        _AUDIT_PATH.write_text(
+            json.dumps(data, indent=2),
+            encoding="utf-8",
+        )
+
+    except Exception as exc:
+        logger.warning(
+            "Failed to write audit record: %s",
+            exc,
+        )
+
+
 
 
 def _drift_threshold_breached() -> tuple:
@@ -143,6 +168,16 @@ async def trigger_retraining(
                 }
 
         from celery_worker import retrain_yield_model_task
+
+        workflow_id = str(uuid.uuid4())
+
+        _append_audit_record({
+            "workflow_id": workflow_id,
+            "csv_path": csv_path,
+            "triggered_at": datetime.utcnow().isoformat(),
+            "event": "retraining_triggered",
+        })
+
         task = retrain_yield_model_task.delay(
             csv_path=csv_path,
             model_output="yield_model.joblib",
@@ -157,6 +192,7 @@ async def trigger_retraining(
             "success": True,
             "triggered": True,
             "task_id": task.id,
+            "workflow_id": workflow_id,
             "message": "Retraining task queued. Poll GET /api/retraining/status?task_id= for progress.",
         }
 
@@ -197,6 +233,16 @@ async def get_retraining_status(request: Request, task_id: Optional[str] = None)
             "last_run": last_run,
         }
 
+        anomalies = []
+
+        if breached:
+            anomalies.append("drift_threshold_breached")
+        if not _MODEL_PATH.exists():
+            anomalies.append("missing_model")
+
+        if not _BASELINE_PATH.exists():
+            anomalies.append("missing_baseline")
+
         if task_id:
             from celery_worker import celery_app
             result = celery_app.AsyncResult(task_id)
@@ -206,7 +252,7 @@ async def get_retraining_status(request: Request, task_id: Optional[str] = None)
                 result.info if isinstance(result.info, dict) else {}
             )
 
-        return {"success": True, "pipeline": pipeline}
+        return {"success": True, "pipeline": pipeline, "integrity_anomalies": anomalies,}
 
     except HTTPException:
         raise
@@ -237,9 +283,17 @@ async def get_retraining_history(request: Request, limit: int = 20):
         rejected = sum(1 for r in runs if r.get("outcome") == "rejected")
         failed   = sum(1 for r in runs if r.get("outcome") == "failed")
 
+        consistency_report = {
+            "workflow_count": len(runs),
+            "promoted": promoted,
+            "rejected": rejected,
+            "failed": failed,
+        }
+
         return {
             "success": True,
             "total": len(runs),
+            "consistency_report": consistency_report,
             "summary": {
                 "promoted": promoted,
                 "rejected": rejected,

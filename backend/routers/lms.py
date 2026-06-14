@@ -29,8 +29,43 @@ _CERT_COOLDOWN_SECONDS = 60
 # Maximum number of (uid, course_id) pairs tracked in the cooldown store.
 _CERT_COOLDOWN_MAX_ENTRIES = 10_000
 
+# Last cleanup timestamp for stale entry removal.
+_LAST_CLEANUP_TIME = time.monotonic()
+_CLEANUP_INTERVAL = 300  # Clean up stale entries every 5 minutes
+
 _last_cert_request: OrderedDict[Tuple[str, str], float] = OrderedDict()
 _cert_cooldown_lock: asyncio.Lock = asyncio.Lock()
+
+
+def _cleanup_stale_cooldown_entries(now: float) -> None:
+    """Remove expired cooldown entries from the registry.
+    
+    Entries older than _CERT_COOLDOWN_SECONDS are removed to prevent
+    unbounded memory growth. This is called periodically during requests
+    to maintain a bounded in-memory registry.
+    """
+    global _LAST_CLEANUP_TIME
+    
+    # Only clean up if interval has passed to avoid excessive iteration.
+    if (now - _LAST_CLEANUP_TIME) < _CLEANUP_INTERVAL:
+        return
+    
+    cutoff_time = now - _CERT_COOLDOWN_SECONDS
+    expired_keys = [
+        key for key, timestamp in _last_cert_request.items()
+        if timestamp < cutoff_time
+    ]
+    
+    for key in expired_keys:
+        del _last_cert_request[key]
+    
+    if expired_keys:
+        logger.debug(
+            "Cleaned up %d stale certificate cooldown entries",
+            len(expired_keys),
+        )
+    
+    _LAST_CLEANUP_TIME = now
 
 _verify_role_fn = None
 _db = None
@@ -267,14 +302,21 @@ async def get_certificate_data(request: Request, course_id: str):
     key = (uid, course_id)
     async with _cert_cooldown_lock:
         now = time.monotonic()
+        
+        # Clean up stale entries periodically to prevent unbounded growth.
+        _cleanup_stale_cooldown_entries(now)
+        
         last = _last_cert_request.get(key)
         if last is not None and (now - last) < _CERT_COOLDOWN_SECONDS:
             raise HTTPException(
                 status_code=429,
                 detail=f"Certificate already requested recently. Please wait {_CERT_COOLDOWN_SECONDS} seconds.",
             )
+        
+        # If at capacity, remove oldest entry to make room for new one.
         if key not in _last_cert_request and len(_last_cert_request) >= _CERT_COOLDOWN_MAX_ENTRIES:
             _last_cert_request.popitem(last=False)
+        
         _last_cert_request[key] = now
         _last_cert_request.move_to_end(key)
 
