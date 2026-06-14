@@ -143,30 +143,93 @@ def get_experiment(exp_id: str) -> Optional[Dict]:
         return _exp_cache.get(exp_id)
 
 
-def create_experiment(data: Dict) -> Dict:
-    global _exp_cache, _exp_cache_at
+from typing import Dict
+from copy import deepcopy
+import hashlib
+import re
+import time
 
-    exp_id = data.get("id") or data.get("name", "").lower().replace(" ", "_")
+VALID_STATUSES = {
+    "draft",
+    "pending",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+}
+
+
+def create_experiment(data: Dict) -> Dict:
+    """
+    Create a new experiment.
+
+    Raises:
+        ValueError: If experiment already exists or input is invalid.
+    """
+    global _exp_cache_at
+
+    if not isinstance(data, dict):
+        raise TypeError("data must be a dictionary")
+
+    exp_data = deepcopy(data)
+
+    exp_id = exp_data.get("id")
+    if not exp_id:
+        name = exp_data.get("name", "").strip()
+        if not name:
+            raise ValueError("Either 'id' or 'name' must be provided")
+
+        exp_id = re.sub(r"[^a-z0-9_]", "_", name.lower())
+        exp_id = re.sub(r"_+", "_", exp_id).strip("_")
+
+    status = exp_data.get("status", "draft")
+    if status not in VALID_STATUSES:
+        raise ValueError(
+            f"Invalid status '{status}'. "
+            f"Allowed values: {sorted(VALID_STATUSES)}"
+        )
+
     now = _now_iso()
+
+    exp = {
+        **exp_data,
+        "id": exp_id,
+        "status": status,
+        "created_at": now,
+        "updated_at": now,
+        "salt": exp_data.get(
+            "salt",
+            hashlib.sha256(exp_id.encode("utf-8")).hexdigest()[:12],
+        ),
+    }
 
     with _exp_cache_lock:
         existing = _exp_cache.get(exp_id)
-        if existing is not None and existing.get("status") != "draft":
-            raise ValueError(
-                f"Experiment '{exp_id}' already exists with status "
-                f"'{existing.get('status')}'. Cannot overwrite a live experiment."
-            )
 
-        exp = {**data, "id": exp_id, "created_at": now, "updated_at": now,
-               "status": data.get("status", "draft")}
-        exp.setdefault("salt", hashlib.sha256(exp_id.encode()).hexdigest()[:12])
+        if existing and existing.get("status") != "draft":
+            raise ValueError(
+                f"Experiment '{exp_id}' already exists "
+                f"with status '{existing.get('status')}'"
+            )
 
         _exp_cache[exp_id] = exp
         _exp_cache_at = time.monotonic()
 
-    _persist(exp_id)
-    return exp
+    try:
+        _persist_experiment(exp_id)
+        logger.info("Created experiment: %s", exp_id)
+    except Exception:
+        # Optional rollback to keep cache and storage consistent
+        with _exp_cache_lock:
+            _exp_cache.pop(exp_id, None)
 
+        logger.exception(
+            "Failed to persist experiment '%s'",
+            exp_id,
+        )
+        raise
+
+    return deepcopy(exp)
 
 def set_traffic_split(exp_id: str, traffic_split: Dict[str, int]) -> Optional[Dict]:
     _ensure_cache()
