@@ -171,17 +171,21 @@ class NotificationBroadcastHub:
             return
 
         async with self._broadcast_lock:
-            stale_clients: list[WebSocket] = []
-            for websocket in clients:
+            async def send_to_client(ws: WebSocket) -> Optional[WebSocket]:
                 try:
-                    await websocket.send_json(payload)
+                    await asyncio.wait_for(ws.send_json(payload), timeout=2.0)
+                    return None
                 except Exception:
-                    stale_clients.append(websocket)
+                    return ws
+
+            results = await asyncio.gather(*(send_to_client(ws) for ws in clients), return_exceptions=True)
+            stale_clients = [res for res in results if isinstance(res, WebSocket)]
 
             if stale_clients:
+                logger.warning("Removing %d stale/slow WebSocket clients", len(stale_clients))
                 async with self._history_lock:
-                    for websocket in stale_clients:
-                        self._connections.discard(websocket)
+                    for ws in stale_clients:
+                        self._connections.discard(ws)
 
     async def _redis_listener(self) -> None:
         try:
