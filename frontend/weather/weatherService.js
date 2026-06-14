@@ -1,4 +1,4 @@
-function fetchJSON(url, options = {}) {
+async function fetchJSON(url, options = {}) {
   const controller = new AbortController();
   const timeoutMs = options.timeout ?? 10000;
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
