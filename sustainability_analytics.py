@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,8 @@ class SustainabilityAnalytics:
     def __init__(self) -> None:
         # OrderedDict with LRU eviction capped at _MAX_HISTORY_USERS keys
         self._history: OrderedDict[str, List[Dict[str, Any]]] = OrderedDict()
+        self._history_lock = threading.Lock()   # FIX: initialize lock
+
         import sys
         self.is_testing = "pytest" in sys.modules or "unittest" in sys.modules
 
@@ -346,11 +349,10 @@ class SustainabilityAnalytics:
 
         # Save to memory cache
         with self._history_lock:
-            if key not in self._history:
-                self._history[key] = []
-            self._history[key].append(record)
-            if len(self._history[key]) > 50:
-                self._history[key] = self._history[key][-50:]
+            self._touch_user(user_id)
+            self._history[user_id].append(record)
+            if len(self._history[user_id]) > _MAX_HISTORY_PER_USER:
+                self._history[user_id].pop(0)
 
         # Save to Firestore primarilly
         db = self._get_db()
@@ -382,6 +384,10 @@ class SustainabilityAnalytics:
         self._history[key].append(record)
         if len(self._history[key]) > _MAX_HISTORY_PER_USER:
             self._history[key] = self._history[key][-_MAX_HISTORY_PER_USER:]
+
+    def save_history(self) -> None:
+        with self._history_lock:
+            self._save_local_history(self._history)
 
     def _normalize_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return {
