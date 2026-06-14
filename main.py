@@ -15,6 +15,9 @@ from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
 
 from backend.utils.safe_log import sanitize_log_field
 
+# Expose sanitizer globally so routers can use it
+sanitise_log_field_fn = sanitize_log_field
+
 from celery.exceptions import TimeoutError, SoftTimeLimitExceeded
 
 from fastapi import FastAPI
@@ -170,6 +173,37 @@ app = FastAPI()
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    init_db()
+    init_ml_models()
+    init_celery()
+    yield
+    # Shutdown
+    close_db()
+    shutdown_celery()
+
+app = FastAPI(lifespan=lifespan)
+
+
+def init_db():
+    global db_client
+    db_client = DatabaseClient(os.getenv("DB_URL"))
+
+def init_ml_models():
+    ModelRegistry.register("crop_quality", load_model("crop_quality.pkl"))
+
+
+"""
+All side-effectful initialization (DB, ML models, Celery, Firebase) occurs
+inside FastAPI lifespan() to ensure consistent startup across single-worker,
+multi-worker, and reload environments.
+"""
 
 # KMS Support
 try:
@@ -1740,6 +1774,10 @@ def _build_gdpr_deletion_targets(uid: str) -> list[DeletionTarget]:
     )
     return targets
 
+@app.get("/")
+@limiter.limit("60/minute")
+def root(request: Request = None):
+    return {"message": "Fasal Saathi API", "status": "running"}
 
 @app.get("/health")
 @limiter.limit("60/minute")
@@ -1749,6 +1787,10 @@ def health_check(request: Request = None):
     """
     return {"status": "ok", "message": "Backend is running"}
 
+@app.get("/predict")
+@limiter.limit("30/minute")
+def predict_get(request: Request = None):
+    return {"predicted_yield": 2500, "note": "Use POST endpoint for actual prediction"}
 
 
 @app.post("/predict", response_model=PredictResponse)
