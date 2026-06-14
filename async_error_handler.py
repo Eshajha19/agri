@@ -481,6 +481,18 @@ class CircuitBreakerAsync:
         time_since_failure = (datetime.now() - self.last_failure_time).total_seconds()
         return time_since_failure >= self.recovery_timeout
     
+    def record_failure(self) -> bool:
+        """Record a failure and return True if circuit is now open"""
+        # Transition open→half_open if recovery timeout elapsed
+        if self.state == "open" and self._should_attempt_recovery():
+            self.state = "half_open"
+        self._on_failure()
+        return self.state == "open"
+
+    def record_success(self) -> None:
+        """Record a success and reset circuit to closed"""
+        self._on_success()
+
     def get_status(self) -> Dict:
         """Get circuit breaker status"""
         return {
