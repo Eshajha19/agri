@@ -346,14 +346,6 @@ function App() {
   const { liteMode, setLiteMode, detectAndSetLiteMode } =
     usePerformanceStore();
 
-    const mockSurveyData = {
-  name: "Ravi Kumar",
-  contact: "+91-9876543210",
-  status: "Scheduled",
-  visitTime: "2026-06-15 10:00 AM",
-  eta: "2 hours"
-};
-
   // Price alert WebSocket status for global connection indicator
   const { status: priceAlertStatus } = usePriceAlerts();
 
@@ -1109,7 +1101,6 @@ useEffect(() => {
             <Route path="/prediction-explainer" element={<PredictionExplainer />} />
             <Route path="/retraining-monitor" element={<RetrainingPipelineMonitor />} />
             <Route path="/insurance-claim" element={<CropInsuranceClaim />} />
-            <Route path="/claim-chatbot" element={<ClaimChatbot />} />
             <Route
               path="/myth-checker"
               element={
@@ -1118,10 +1109,8 @@ useEffect(() => {
                 </div>
               }
             />
-            <Route path="/surveyor-tracking" element={<SurveyorTracking surveyData={mockSurveyData} />} />
             <Route path="/crop-comparison" element={<CropComparison />} />
             <Route path="*" element={<NotFound />} />
-            <Route path="/insurance-comparison" element={<InsuranceComparison />} />
           </Routes>
         </React.Suspense>
       </main>
@@ -1130,16 +1119,6 @@ useEffect(() => {
       <Link to="/advisor" className="floating-chat-btn" aria-label="Open AI Advisor Chat">
         <FaComments size={28} aria-hidden="true" />
       </Link>
-
-      <Link to="/insurance-comparison" onClick={() => setShowMoreMenu(false)} role="menuitem">
-        <FaShieldAlt /> Insurance Comparison
-      </Link>
-
-      <Link to="/claim-chatbot" onClick={() => setShowMoreMenu(false)} role="menuitem">
-        <FaComments /> Claim Assistant
-      </Link>
-
-
 
       <a
         href="https://wa.me/14155238886?text=I%20want%20to%20start%20the%20conversation"
@@ -1178,3 +1157,4 @@ useEffect(() => {
 }
 
 export default App;
+
