@@ -783,110 +783,21 @@ class NotificationBroadcastHub:
 
         stale_clients: list[WebSocket] = []
         async with self._broadcast_lock:
-            for websocket, _subscription in clients:
+            async def send_to_client(ws: WebSocket) -> Optional[WebSocket]:
                 try:
-                    await websocket.send_json(payload)
+                    await asyncio.wait_for(ws.send_json(payload), timeout=2.0)
+                    return None
                 except Exception:
-                    stale_clients.append(websocket)
- main
- main
+                    return ws
 
-        if stale_clients:
-            async with self._connections_lock:
-                for websocket in stale_clients:
-                    self._connections.pop(websocket, None)
+            results = await asyncio.gather(*(send_to_client(ws) for ws in clients), return_exceptions=True)
+            stale_clients = [res for res in results if isinstance(res, WebSocket)]
 
-    async def _persist_notification(
-        self, event: NotificationEvent, uid: str
-    ) -> None:
-
-    async def _persist_notification(
-        self, event: NotificationEvent, uid: str
-    ) -> None:
-
-    async def _persist_notification(
-        self, event: NotificationEvent, uid: str
-    ) -> None:
- main
- main
-        """Track targeted notification delivery with bounded memory usage."""
-        if not self._enable_persistence:
-            return
-
-        record = NotificationDeliveryRecord(
-            notification_id=event.notification_id or f"{event.type}-{int(time.time() * 1000)}",
-            user_id=uid,
-            priority=event.priority,
-            status=DeliveryStatus.PENDING,
-            created_at=event.created_at or datetime.now().isoformat(),
-        )
-
-        async with self._persistence_lock:
-            if record.notification_id in self._delivery_records:
-                self._delivery_records.pop(record.notification_id)
-            elif len(self._delivery_records) >= self._max_delivery_records:
-                self._delivery_records.popitem(last=False)
-            self._delivery_records[record.notification_id] = record
-
-    def _is_duplicate_notification(self, event: NotificationEvent) -> bool:
-        """Return whether the same notification content was recently published."""
-        now = time.time()
-        expired_hashes = [
-            h for h, seen_at in self._recent_hashes.items()
-            if now - seen_at > self._dedup_window
-        ]
-        for h in expired_hashes:
-            self._recent_hashes.pop(h, None)
-
-        content_hash = event.get_content_hash()
-        if content_hash in self._recent_hashes:
-            return True
-
-        self._recent_hashes[content_hash] = now
-        return False
-    
-#    Add new public method:
-    def set_profile_fetcher(self, func: callable) -> None:
-        """Inject the Firestore profile-lookup callable.
- 
-        Called once during lifespan startup to avoid a circular import between
-        main.py and realtime_notifications.py.  The function signature must be:
-            (uid: str) -> dict
-        """
-        self._get_profile = func
- 
-#    Add private helper method:
-    def _get_profile_for_uid(self, uid: str) -> dict:
-        """Fetch the Firestore profile for *uid*, returning {} on any failure."""
-        if self._get_profile is None:
-            return {}
-        try:
-            return self._get_profile(uid) or {}
-        except Exception:
-            return {}
-
-    async def _route_to_priority_queue(self, event: NotificationEvent) -> None:
-        """Place events into their priority queue for reliability bookkeeping."""
-        if event.priority == NotificationPriority.CRITICAL:
-            self._critical_queue.append(event)
-        elif event.priority == NotificationPriority.WARNING:
-            self._warning_queue.append(event)
-        else:
-            self._info_queue.append(event)
-
-    async def _process_retry_queue(self) -> None:
-        try:
-            while True:
-                await asyncio.sleep(1)
-        except asyncio.CancelledError:
-            raise
-
-    async def _process_priority_queues(self) -> None:
-        try:
-            while True:
-                await asyncio.sleep(1)
-        except asyncio.CancelledError:
-            raise
+            if stale_clients:
+                logger.warning("Removing %d stale/slow WebSocket clients", len(stale_clients))
+                async with self._history_lock:
+                    for ws in stale_clients:
+                        self._connections.discard(ws)
 
     async def _redis_listener(self) -> None:
         try:
