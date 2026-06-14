@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { collection, addDoc } from "firebase/firestore";
-import { db, auth, isFirebaseConfigured } from "./lib/firebase";
+import { auth } from "./lib/firebase";
 import {
   Star,
   Send,
@@ -18,6 +17,11 @@ import {
   Wheat,
   Rocket,
 } from "lucide-react";
+import {
+  submitFeedback,
+  validateFeedbackData,
+  sanitizeFeedbackData,
+} from "./services/feedbackService";
 import "./Feedback.css";
 
 const CROP_OPTIONS = [
@@ -90,142 +94,87 @@ export default function Feedback() {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
-   const handleSubmit = async (e) => {
-     e.preventDefault();
-     setError("");
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
 
-     // Basic client-side validation
-     if (!form.message.trim()) {
-       setError("Please enter your feedback message.");
-       return;
-     }
+    const user = auth?.currentUser;
 
-     if (form.message.trim().length < 3) {
-       setError("Feedback message must be at least 3 characters long.");
-       return;
-     }
+    const feedbackData = {
+      userId: user?.uid || "anonymous",
+      userEmail: user?.email || "anonymous",
+      name: form.name || (user?.displayName ?? "Anonymous"),
+      cropType: form.cropType,
+      location: form.location,
+      category: form.category,
+      message: form.message,
+      rating: form.rating,
+    };
 
-     if (form.message.length > 2000) {
-       setError("Feedback message is too long (maximum 2000 characters).");
-       return;
-     }
+    const { isValid, errors } = validateFeedbackData(feedbackData);
+    if (!isValid) {
+      setError(Object.values(errors)[0]);
+      return;
+    }
 
-     if (form.rating === 0) {
-       setError("Please select a rating.");
-       return;
-     }
+    setLoading(true);
+    try {
+      const user = auth?.currentUser;
+      
+      // Prepare data for API submission
+      const feedbackData = {
+        userId: user?.uid || "anonymous",
+        userEmail: user?.email || "anonymous",
+        name: form.name || (user?.displayName ?? "Anonymous"),
+        cropType: form.cropType,
+        location: form.location,
+        category: form.category,
+        message: form.message,
+        rating: form.rating,
+      };
 
-     if (form.rating < 1 || form.rating > 5) {
-       setError("Please select a valid rating between 1 and 5 stars.");
-       return;
-     }
+      // Submit to secure backend API instead of direct Firestore write
+      const response = await fetch("/api/feedback", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(feedbackData),
+      });
 
-     // Validate name length
-     if (form.name && form.name.length > 100) {
-       setError("Name is too long (maximum 100 characters).");
-       return;
-     }
+      const result = await response.json();
 
-     // Validate location length
-     if (form.location && form.location.length > 200) {
-       setError("Location is too long (maximum 200 characters).");
-       return;
-     }
+      if (!response.ok) {
+        // Map HTTP status codes to user-facing messages instead of
+        // relying on server-side wording that may change.
+        const statusMessages = {
+          400: "Your feedback contains invalid characters. Please remove any special symbols and try again.",
+          413: "Feedback message is too large. Please shorten your message.",
+          415: "Unsupported content type. Please refresh and try again.",
+          422: "Please enter a valid feedback message and rating (1\u20135 stars).",
+          429: "Too many requests. Please wait a moment before submitting again.",
+        };
+        throw new Error(
+          statusMessages[response.status]
+          || result.detail || result.error
+          || "Failed to submit feedback"
+        );
+      }
 
-     // Validate category
-     const validCategories = ['general', 'feature', 'bug', 'ui', 'accuracy', 'other'];
-     if (!validCategories.includes(form.category)) {
-       setError("Invalid feedback category selected.");
-       return;
-     }
-
-     // Validate crop type
-     const validCrops = [
-       'Rice', 'Wheat', 'Cotton', 'Sugarcane', 'Maize',
-       'Soybean', 'Potato', 'Onion', 'Tomato', 'Vegetables',
-       'Fruits', 'Other'
-     ];
-     if (form.cropType && !validCrops.includes(form.cropType)) {
-       setError("Invalid crop type selected.");
-       return;
-     }
-
-     // Security validation - check for dangerous patterns
-     const dangerousPatterns = [
-       /\$[a-zA-Z_][a-zA-Z0-9_]*\s*:/, // MongoDB operators
-       /\{.*\}\s*:\s*\{/, // Nested object injection
-       /\.\.\//, // Path traversal
-       /<script.*?>.*?<\/script>/i, // XSS
-       /on\w+\s*=/i, // Event handlers
-       /javascript:/i, // JavaScript protocol
-       /data:/i, // Data URLs
-     ];
-
-     const allFields = [form.message, form.name, form.location].filter(Boolean);
-     for (const field of allFields) {
-       for (const pattern of dangerousPatterns) {
-         if (pattern.test(field)) {
-           setError('Your input contains potentially unsafe characters. Please remove any special symbols and try again.');
-           return;
-         }
-       }
-     }
-
-     setLoading(true);
-     try {
-       const user = auth?.currentUser;
-       
-       // Prepare data for Firestore submission
-       const feedbackData = {
-         userId: user?.uid || "anonymous",
-         userEmail: user?.email || "anonymous",
-         name: form.name || (user?.displayName ?? "Anonymous"),
-         cropType: form.cropType || null,
-         location: form.location || null,
-         category: form.category,
-         message: form.message.trim(),
-         rating: form.rating,
-         createdAt: new Date().toISOString(),
-       };
-
-       // Remove null values to keep Firestore clean
-       Object.keys(feedbackData).forEach(key => 
-         feedbackData[key] === null && delete feedbackData[key]
-       );
-
-       // Submit directly to Firestore
-       const docRef = await addDoc(collection(db, "feedback"), feedbackData);
-       
-       console.log("Feedback submitted successfully. ID:", docRef.id);
-       setSubmitted(true);
-     } catch (err) {
-       console.error("Feedback submit error:", err);
-       
-       // User-friendly error messages
-       let errorMessage = "Failed to submit feedback. Please try again.";
-       
-       if (err.message) {
-         const message = err.message.toLowerCase();
-         if (message.includes("message is required") || message.includes("at least 3 characters")) {
-           errorMessage = "Please enter a valid feedback message.";
-         } else if (message.includes("too long") || message.includes("maximum")) {
-           errorMessage = "Your feedback is too long. Please shorten it and try again.";
-         } else if (message.includes("rating")) {
-           errorMessage = "Please select a valid rating between 1 and 5 stars.";
-         } else if (message.includes("unsafe") || message.contains("special symbols")) {
-           errorMessage = "Your input contains potentially unsafe characters. Please remove any special symbols and try again.";
-         } else if (message.includes("permission") || message.includes("denied")) {
-           errorMessage = "You don't have permission to submit feedback. Please try again later.";
-         } else {
-           errorMessage = err.message || "Failed to submit feedback. Please try again.";
-         }
-       }
-       
-       setError(errorMessage);
-     } finally {
-       setLoading(false);
-     }
-   };
+      if (!result.success) {
+        throw new Error(result.error);
+      }
+      setSubmitted(true);
+    } catch (err) {
+      console.error("Feedback submit error:", err);
+      
+      // User-friendly error messages — err.message is a pre-resolved
+      // user-facing string from the status-code mapping above.
+      setError(err.message || "Failed to submit feedback. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleReset = () => {
     setForm({
@@ -299,8 +248,8 @@ export default function Feedback() {
           {/* Farmer Showcase */}
           <div className="farmer-showcase">
             <div className="farmer-images">
-              <img src="/farmer1.png" alt="Farmer 1" className="farmer-img img-1" />
-              <img src="/farmer2.png" alt="Farmer 2" className="farmer-img img-2" />
+              <img src="/farmer1.png" alt="Farmer 1" className="farmer-img img-1" onError={(e) => { e.currentTarget.src = "/crops/default.png"; }} />
+              <img src="/farmer2.png" alt="Farmer 2" className="farmer-img img-2" onError={(e) => { e.currentTarget.src = "/crops/default.png"; }} />
             </div>
           </div>
 

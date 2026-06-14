@@ -16,6 +16,7 @@ from typing import Dict, List, Optional, Tuple
 
 import joblib
 import numpy as np
+from ml.security import verify_and_load_joblib
 import pandas as pd
 
 _DEFAULT_MODEL_TIMEOUT = 10.0  # seconds per model
@@ -77,13 +78,14 @@ def _load_lstm_model():
 
 
 def _load_rf_model():
+    from ml.security import verify_and_load_joblib
     path = "sklearn_yield_model.joblib"
     # Fallback to .pkl if .joblib missing (migration safety)
     if not os.path.exists(path):
         path = "sklearn_yield_model.pkl"
     if not os.path.exists(path):
         raise FileNotFoundError(f"RF model not found: sklearn_yield_model.joblib or .pkl")
-    return joblib.load(path)
+    return verify_and_load_joblib(path)
 
 
 # =============================================================================
