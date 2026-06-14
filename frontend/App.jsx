@@ -1111,7 +1111,6 @@ useEffect(() => {
             />
             <Route path="/crop-comparison" element={<CropComparison />} />
             <Route path="*" element={<NotFound />} />
-            <Route path="/emergency-report" element={<EmergencyReport />} /
           </Routes>
         </React.Suspense>
       </main>
