@@ -136,45 +136,36 @@ app = FastAPI()
 def health_check():
     return {"status": "ok"}
 
-from fastapi import FastAPI
+from contextlib import asynccontextmanager
 
-app = FastAPI()
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    init_db()
+    init_ml_models()
+    init_celery()
+    yield
+    # Shutdown
+    close_db()
+    shutdown_celery()
 
-from fastapi import FastAPI
+app = FastAPI(lifespan=lifespan)
 
-app = FastAPI()
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
+def init_db():
+    global db_client
+    db_client = DatabaseClient(os.getenv("DB_URL"))
 
-from fastapi import FastAPI
+def init_ml_models():
+    ModelRegistry.register("crop_quality", load_model("crop_quality.pkl"))
 
-app = FastAPI()
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
-
-from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
-
-from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
+"""
+All side-effectful initialization (DB, ML models, Celery, Firebase) occurs
+inside FastAPI lifespan() to ensure consistent startup across single-worker,
+multi-worker, and reload environments.
+"""
 
 # KMS Support
 try:
@@ -276,12 +267,12 @@ async def lifespan(app: FastAPI):
         "domain_engines", "Initialize domain engines", _init_domain_engines
     )
 
-   async def init_app_context():
+    async def init_app_context():
     # -----------------------
     # Repositories
     # -----------------------
-    def _init_repositories():
-        return AppContext(
+        def _init_repositories():
+            return AppContext(
             finance_repository=FinanceApplicationRepository(),
             notification_repository=NotificationRepository(),
             supply_chain_repository=SupplyChainRepository(),
@@ -294,7 +285,7 @@ async def lifespan(app: FastAPI):
         "repositories",
         "Initialize persistent repositories",
         _init_repositories
-    )
+    
     Multi-worker guarantee
     ----------------------
     When Uvicorn is started with ``--workers N``, each worker forks/spawns
@@ -302,6 +293,7 @@ async def lifespan(app: FastAPI):
     ``lifespan`` hook is invoked by FastAPI in every worker's event loop,
     ensuring ``ModelRegistry`` is populated in every process before the
     first request is served.
+    )
     """
     logger.info("Starting up: initializing services")
     init_ml_pipeline()
