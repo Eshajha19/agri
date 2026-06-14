@@ -441,6 +441,7 @@ class NotificationBroadcastHub:
         # An empty string in the region set would match every notification
         # via the `not subscription_region` short-circuit in region_matches().
         region_scopes: frozenset[str] = frozenset(r for r in regions if r.strip())
+ main
 
         async with self._connections_lock:
             self._connections[websocket] = _ConnectionSubscription(
@@ -518,6 +519,16 @@ class NotificationBroadcastHub:
                 # was never updated, so crop filtering had no effect after
                 # the initial connect.
                 # ----------------------------------------------------------
+=======
+
+                # ----------------------------------------------------------
+                # FIX 2: subscribe_crops — validate AND apply to subscription
+                #
+                # Previously the message was validated but the subscription
+                # was never updated, so crop filtering had no effect after
+                # the initial connect.
+                # ----------------------------------------------------------
+ main
                 elif msg_type == "subscribe_crops":
                     valid, error = self._validate_subscribe_crops(parsed)
                     if not valid:
@@ -618,8 +629,7 @@ class NotificationBroadcastHub:
                                     "regions": sorted(new_regions),
                                 }
                             )
-        except WebSocketDisconnect:
-            logger.debug("WebSocket client disconnected")
+
         except asyncio.CancelledError:
             pass
         finally:
@@ -753,6 +763,16 @@ class NotificationBroadcastHub:
                 except Exception:
                     stale_clients.append(websocket)
 
+
+        stale_clients: list[WebSocket] = []
+        async with self._broadcast_lock:
+            for websocket, _subscription in clients:
+                try:
+                    await websocket.send_json(payload)
+                except Exception:
+                    stale_clients.append(websocket)
+ main
+
         if stale_clients:
             async with self._connections_lock:
                 for websocket in stale_clients:
@@ -761,6 +781,11 @@ class NotificationBroadcastHub:
     async def _persist_notification(
         self, event: NotificationEvent, uid: str
     ) -> None:
+
+    async def _persist_notification(
+        self, event: NotificationEvent, uid: str
+    ) -> None:
+ main
         """Track targeted notification delivery with bounded memory usage."""
         if not self._enable_persistence:
             return
@@ -901,3 +926,5 @@ class NotificationBroadcastHub:
 
 
 notification_broker = NotificationBroadcastHub()
+# Enhanced realtime notifications
+main

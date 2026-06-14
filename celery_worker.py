@@ -1,13 +1,25 @@
 import logging
 import os
-import logging
+import threading
 import joblib
 import numpy as np
 from celery import Celery
 from ml.security import verify_and_load_joblib
+import prometheus_client
 
 logger = logging.getLogger(__name__)
 
+
+timeout_counter = prometheus_client.Counter("celery_timeouts", "Number of Celery timeouts")
+
+def get_task_result(task, timeout=30):
+    try:
+        return task.get(timeout=timeout)
+    except TimeoutError:
+        timeout_counter.inc()
+        logging.warning("Celery task timeout")
+        raise HTTPException(status_code=504, detail="Prediction timed out")
+    
 # Initialize Celery app — Redis authentication is required.
 # Set REDIS_URL for a full connection string, or REDIS_PASSWORD to use
 # default redis://:{password}@localhost:6379/0.  Set ALLOW_INSECURE_REDIS=1
@@ -78,13 +90,9 @@ def _get_lag_model():
         with _model_lock:
             if _model_lag is None:
                 try:
-                    _model_lag = joblib.load("sklearn_yield_model.joblib")
+                    _model_lag = verify_and_load_joblib("sklearn_yield_model.joblib")
                 except Exception as e:
-                    print(f"Failed to load lag model: {e}")
-        try:
-            _model_lag = joblib.load("sklearn_yield_model.pkl")
-        except Exception as e:
-            logger.error("Failed to load lag model: %s", e)
+
     return _model_lag
 
 
@@ -96,14 +104,9 @@ def _get_trend_model():
             if _model_trend is None:
                 try:
                     if os.path.exists("trend_forecast_model.joblib"):
-                        _model_trend = joblib.load("trend_forecast_model.joblib")
+                        _model_trend = verify_and_load_joblib("trend_forecast_model.joblib")
                 except Exception as e:
-                    print(f"Failed to load trend model: {e}")
-        try:
-            if os.path.exists("trend_forecast_model.joblib"):
-                _model_trend = verify_and_load_joblib("trend_forecast_model.joblib")
-        except Exception as e:
-            logger.error("Failed to load trend model: %s", e)
+
     return _model_trend
 
 
@@ -329,13 +332,6 @@ def predict_ensemble_task(self, data: list):
         }
     except Exception as e:
         return {"error": str(e), "type": type(e).__name__}
-
-if __name__ == "__main__":
-    celery_app.start()
-
-    except Exception:
-        logger.exception("Trend prediction task failed")
-        raise
 
 
 @celery_app.task(bind=True, name="process_whatsapp_webhook_task")

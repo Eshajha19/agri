@@ -17,76 +17,12 @@ import qrcode
 import io
 import copy as _copy
 import base64
+import secrets
 
 
-@dataclass
-class BlockchainRecord:
-    """Record stored in blockchain"""
-    timestamp: str
-    actor: str
-    action: str
-    location: str
-    data: Dict
-    previous_hash: str = ""
-
-    def to_dict(self) -> Dict:
-        """Serialize record to dict (previous_hash excluded — matches calculate_hash input)"""
-        return {
-            "timestamp": self.timestamp,
-            "actor": self.actor,
-            "action": self.action,
-            "location": self.location,
-            "data": self.data,
-            "previous_hash": self.previous_hash,
-        }
-
-    def serialize(self) -> Dict:
-        """Serialize record for persistence (includes hash)"""
-        result = self.to_dict()
-        result["hash"] = self.hash
-        return result
-
-    def calculate_hash(self) -> str:
-        """Calculate SHA256 hash of record (excludes previous_hash field)"""
-        record_string = json.dumps(self.to_dict(), sort_keys=True)
-        return hashlib.sha256(record_string.encode()).hexdigest()
-
-    @staticmethod
-    def from_dict(data: Dict) -> 'BlockchainRecord':
-        """Reconstruct record from dict, compute hash, and verify integrity"""
-        record = BlockchainRecord(
-            timestamp=data["timestamp"],
-            actor=data["actor"],
-            action=data["action"],
-            location=data["location"],
-            data=data.get("data", {}),
-            previous_hash=data.get("previous_hash", ""),
-        )
-        if "previous_hash" in data:
-            record.previous_hash = data["previous_hash"]
-        return record
-
-
-@dataclass
-class ProductBatch:
-    """Agricultural product batch"""
-    batch_id: str
-    crop_type: str
-    farm_id: str
-    quantity: float
-    unit: str  # kg, tons, etc
-    planting_date: str
-    harvesting_date: str
-    farmer_name: str
-    owner_uid: str = ""
-    certifications: List[str] = field(default_factory=list)
-    quality_score: float = 0.0
-    created_at: str = ""
-    blockchain_records: List[Dict] = field(default_factory=list)
-
-    def __post_init__(self):
-        if not self.created_at:
-            self.created_at = datetime.now(timezone.utc).isoformat()
+from blockchain_record import BlockchainRecord
+from product_batch import ProductBatch
+from smart_contract import SmartContract
 
 
 @dataclass
@@ -103,26 +39,6 @@ class SupplyChainNode:
     humidity: Optional[float] = None
     quality_check: Optional[str] = None
     notes: str = ""
-
-
-@dataclass
-class SmartContract:
-    """Smart contract for supply chain"""
-    contract_id: str
-    batch_id: str
-    seller: str
-    buyer: str
-    price: float
-    created_by_uid: str = ""
-    currency: str = "INR"
-    terms: Dict = field(default_factory=dict)
-    status: str = "pending"  # pending, executed, completed, disputed
-    created_at: str = ""
-    executed_at: str = ""
-
-    def __post_init__(self):
-        if not self.created_at:
-            self.created_at = datetime.now(timezone.utc).isoformat()
 
 
 class SupplyChainBlockchain:
@@ -206,6 +122,8 @@ class SupplyChainBlockchain:
         planting_date: str,
         harvesting_date: str,
         farmer_name: str,
+        owner_uid: str = "",
+        harvest_id: str = "",
         idempotency_key: Optional[str] = None,
         owner_uid: str = "",
         harvest_id: str = "",
@@ -215,6 +133,16 @@ class SupplyChainBlockchain:
         if idempotency_key and idempotency_key in self.idempotency_cache:
             return self.idempotency_cache[idempotency_key]
 
+        snap = self._snapshot_state()
+        try:
+            batch_id = f"BATCH-{uuid.uuid4().hex[:12].upper()}"
+            batch = ProductBatch(...)
+            record = BlockchainRecord(...)
+            record.hash = record.calculate_hash()
+            owner_uid: str = "",
+            harvest_id: str = "",
+    ) -> ProductBatch:
+        """Create new product batch atomically with harvest_id deduplication."""
         snap = self._snapshot_state()
         try:
             batch_id = f"BATCH-{uuid.uuid4().hex[:12].upper()}"
@@ -247,11 +175,13 @@ class SupplyChainBlockchain:
             )
 
             record = self._link_record(BlockchainRecord(
-                timestamp=datetime.now().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 actor=farmer_name,
                 action="created_batch",
                 location=farm_id,
                 data=asdict(batch),
+            )
+            record.hash = record.calculate_hash()
             )
             record.previous_hash = record.calculate_hash()
 
@@ -267,7 +197,9 @@ class SupplyChainBlockchain:
             self._record_transaction_id(transaction_id)
 
             return batch
-        
+owner_uid: str = "",
+harvest_id: str = "",
+idempotency_key: Optional[str] = None,
 
         except Exception as e:
             import logging
@@ -323,11 +255,13 @@ class SupplyChainBlockchain:
             )
 
             record = self._link_record(BlockchainRecord(
-                timestamp=node.timestamp,
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 actor=actor_name,
                 action=action,
                 location=location,
                 data=asdict(node),
+            )
+            record.hash = record.calculate_hash()
             )
             record.previous_hash = record.calculate_hash()
 
@@ -386,11 +320,13 @@ class SupplyChainBlockchain:
             )
 
             record = self._link_record(BlockchainRecord(
-                timestamp=datetime.now().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 actor=seller,
                 action="contract_created",
                 location="contract",
                 data=asdict(contract),
+            )
+            record.hash = record.calculate_hash()
             )
             record.previous_hash = record.calculate_hash()
 
@@ -404,93 +340,15 @@ class SupplyChainBlockchain:
             self._rollback_to_snapshot(snap)
             raise
 
-
-
-    def execute_smart_contract(
-        self,
-        contract_id: str,
-        harvest_id: str = "",
-    ) -> Dict:
-        """
-        Execute a smart contract atomically.
-
-        Supports:
-        - harvest_id deduplication
-        - transaction deduplication
-        - rollback on failure
-        """
-
-        contract = self.smart_contracts.get(contract_id)
-        if contract is None:
-            raise ValueError(f"Contract {contract_id} not found")
-
-        snapshot = self._snapshot_state()
-
-        try:
-            # ----------------------------
-            # Validation phase
-            # ----------------------------
-            if contract.status != "pending":
-                raise ValueError(
-                    f"Contract {contract_id} cannot be executed "
-                    f"(status: {contract.status})"
-                )
-
-            if harvest_id:
-                self._record_harvest_id(harvest_id)
-
-            now_utc = datetime.now(timezone.utc)
-            timestamp = now_utc.isoformat()
-
-            transaction_payload = {
-                "contract_id": contract_id,
-                "buyer": contract.buyer,
-                "amount": contract.price,
-                "timestamp": timestamp,
-                "harvest_id": harvest_id,
-            }
-
-            transaction_id = self._generate_transaction_id(
-                transaction_payload
-            )
-
-            self._validate_transaction_uniqueness(transaction_id)
-
-            # Build blockchain record before mutating state
-            record = self._link_record(
-                BlockchainRecord(
-                    timestamp=timestamp,
-                    actor=contract.buyer,
-                    action="contract_executed",
-                    location="contract",
-                    data={
-                        "contract_id": contract_id,
-                        "batch_id": contract.batch_id,
-                        "amount": contract.price,
-                        "currency": contract.currency,
-                        "transaction_id": transaction_id,
-                    },
-                )
-            )
-            record.previous_hash = record.calculate_hash()
-
-            # ----------------------------
-            # Commit phase
-            # ----------------------------
-            contract.status = "executed"
-            contract.executed_at = timestamp
-
-            self._link_and_append(record)
-            self._record_transaction_id(transaction_id)
-
-            return {
-                "success": True,
-                "contract_id": contract_id,
-                "transaction_id": transaction_id,
-                "executed_at": timestamp,
-                "amount": contract.price,
-            }
-
+record = self._link_record(
+    BlockchainRecord(
+        timestamp=datetime.now().isoformat(),
+        actor=farmer_name,
+        action="created_batch",
+        location=farm_id,
+        data=asdict(batch),
+    )
+)
         except Exception:
             self._rollback_to_snapshot(snapshot)
             raise
@@ -509,6 +367,9 @@ class SupplyChainBlockchain:
             "unit": batch.unit,
             "farmer": batch.farmer_name,
             "harvested": batch.harvesting_date,
+            "verification_url": f"https://fasalsaathi.agri/verify/{token_id}",
+            "trace_proof": proof["proof_hash"],
+            "block_hash": proof["latest_block_hash"],
         }
         if proof["signature"]:
             qr_data["trace_signature"] = proof["signature"]
@@ -533,6 +394,33 @@ class SupplyChainBlockchain:
 
         return qr_base64
 
+    def get_traceability_qr_payload(self, batch_id: str) -> Dict:
+        """Return a signed payload suitable for QR encoding or API clients."""
+        if batch_id not in self.products:
+            raise ValueError(f"Batch {batch_id} not found")
+
+        batch = self.products[batch_id]
+        proof = self._build_trace_proof(batch_id)
+        payload = {
+            "batch_id": batch_id,
+            "crop_type": batch.crop_type,
+            "farmer": batch.farmer_name,
+            "verification_url": f"https://fasalsaathi.agri/verify/{token_id}",
+            "trace_proof": proof["proof_hash"],
+            "block_hash": proof["latest_block_hash"],
+            "issued_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if proof["signature"]:
+            payload["trace_signature"] = proof["signature"]
+            payload["verification_url_with_proof"] = (
+                f"https://fasalsaathi.agri/verify/{batch_id}"
+                f"?proof={proof['proof_hash']}&sig={proof['signature']}"
+            )
+        else:
+            payload["verification_url_with_proof"] = payload["verification_url"] + f"?proof={proof['proof_hash']}"
+        return payload
+
+    def verify_batch(self, batch_id: str) -> Dict:
     def verify_batch(self, batch_id: str, proof: Optional[str] = None) -> Dict:
         """Verify product batch authenticity"""
         if batch_id not in self.products:
