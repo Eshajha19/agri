@@ -92,9 +92,7 @@ def _get_lag_model():
                 try:
                     _model_lag = verify_and_load_joblib("sklearn_yield_model.joblib")
                 except Exception as e:
-except Exception as e:
-    logger.error(f"Failed to load lag model: {e}")
-    raise
+
     return _model_lag
 
 
@@ -108,9 +106,7 @@ def _get_trend_model():
                     if os.path.exists("trend_forecast_model.joblib"):
                         _model_trend = verify_and_load_joblib("trend_forecast_model.joblib")
                 except Exception as e:
-except Exception as e:
-    logger.error(f"Failed to load trend model: {e}")
-    raise
+
     return _model_trend
 
 
@@ -336,13 +332,6 @@ def predict_ensemble_task(self, data: list):
         }
     except Exception as e:
         return {"error": str(e), "type": type(e).__name__}
-
-if __name__ == "__main__":
-    celery_app.start()
-
-    except Exception:
-        logger.exception("Trend prediction task failed")
-        raise
 
 
 @celery_app.task(bind=True, name="process_whatsapp_webhook_task")

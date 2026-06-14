@@ -16,6 +16,7 @@ from typing import Dict, List, Optional, Tuple
 
 import joblib
 import numpy as np
+from ml.security import verify_and_load_joblib
 import pandas as pd
 
 _DEFAULT_MODEL_TIMEOUT = 10.0  # seconds per model
