@@ -1,10 +1,11 @@
 import { useState, useCallback } from "react";
+import { searchLocationByName } from "../services/weatherService";
 
 /**
  * useWeatherLocation Hook
  * 
  * Provides functionality to:
- * - Geocode location names to coordinates
+ * - Geocode location names to coordinates (via public Open-Meteo API)
  * - Manage weather location state
  * - Handle location selection errors
  */
@@ -18,29 +19,17 @@ export const useWeatherLocation = () => {
     setError(null);
 
     try {
-      const response = await fetch("/api/weather/geocode", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ location: locationName }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Location not found");
-      }
-
-      const data = await response.json();
-
-      if (data.success) {
+      const result = await searchLocationByName(locationName);
+      if (result) {
         const newLocation = {
-          name: data.location,
-          latitude: data.latitude,
-          longitude: data.longitude,
+          name: result.name,
+          latitude: result.latitude,
+          longitude: result.longitude,
         };
         setLocation(newLocation);
         return newLocation;
       }
+      throw new Error("Location not found");
     } catch (err) {
       const errorMsg = err.message || "Failed to geocode location";
       setError(errorMsg);

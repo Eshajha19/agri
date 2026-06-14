@@ -15,7 +15,7 @@ from feature_flags.ab_testing_runner import get_runner
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api", tags=["feature-flags"])
+router = APIRouter(tags=["feature-flags"])
 
 verify_role_fn: Optional[Callable] = None
 
