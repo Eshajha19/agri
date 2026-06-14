@@ -29,7 +29,7 @@ import re
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Coroutine, Dict, List, Optional
 
 import numpy as np
 from fastapi import APIRouter, HTTPException, Request
@@ -41,7 +41,24 @@ logger = logging.getLogger(__name__)
 # Auth — injected at startup by main.py
 verify_role_fn = None
 
-# Allowlist: only portable path characters.  Rejects path traversal sequences
+def init_auth(vr_fn):
+    global verify_role_fn
+    verify_role_fn = vr_fn
+    logger.info("Feature drift router: auth initialised")
+
+async def _require_authenticated(request):
+    """Any valid Firebase token — any role accepted."""
+    if verify_role_fn is None:
+        raise HTTPException(status_code=503, detail="Authorization service not initialised")
+    return await verify_role_fn(request, required_roles=None)
+
+async def _require_admin_or_expert(request):
+    """Admin or expert role required."""
+    if verify_role_fn is None:
+        raise HTTPException(status_code=503, detail="Authorization service not initialised")
+    return await verify_role_fn(request, required_roles=["admin", "expert"])
+
+# Allowlist: only portable path characters.
 # (../, ..\) and shell metacharacters before the value reaches any filesystem.
 _SAFE_PATH_RE = re.compile(r"^[A-Za-z0-9_./ -]+$")
 
@@ -496,7 +513,8 @@ router = APIRouter(prefix="/api/feature-drift", tags=["Feature Drift"])
 
 
 @router.post("/validate", response_model=ValidateResponse)
-async def validate_features(payload: ValidateRequest):
+async def validate_features(payload: ValidateRequest, request: Request):
+    await _require_authenticated(request)
     """
     Validate a single inference payload against the training baseline.
 
@@ -549,7 +567,8 @@ async def validate_features(payload: ValidateRequest):
 
 
 @router.get("/status", response_model=StatusResponse)
-async def get_drift_status():
+async def get_drift_status(request: Request):
+    await _require_authenticated(request)
     """
     Returns the current state of the feature drift monitoring system:
     - whether a baseline exists and when it was generated
@@ -595,9 +614,7 @@ async def update_baseline(request: Request, csv_path: str = "Train.csv"):
 
     csv_path: path to the training CSV (default: Train.csv in working dir).
     """
-    if verify_role_fn is None:
-        raise HTTPException(status_code=500, detail="Auth not initialized")
-    await verify_role_fn(request, required_roles=["admin", "expert"])
+    await _require_admin_or_expert(request)
 
     components = re.split(r"[/\\]", csv_path)
     if ".." in components:
@@ -647,7 +664,8 @@ async def update_baseline(request: Request, csv_path: str = "Train.csv"):
 
 
 @router.get("/logs", response_model=LogsResponse)
-async def get_drift_logs(limit: int = 50):
+async def get_drift_logs(request: Request, limit: int = 50):
+    await _require_admin_or_expert(request)
     """
     Returns the most recent drift log entries (from in-memory buffer).
     Limit: 1–200 entries.
