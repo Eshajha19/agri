@@ -1,4 +1,20 @@
-import apiClient from '../services/api';
+async function fetchJSON(url, options = {}) {
+  const controller = new AbortController();
+  const timeoutMs = options.timeout ?? 10000;
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (!response.ok) {
+      const message = options.errorMessage || `Request failed: ${response.status}`;
+      throw new Error(message);
+    }
+    return await response.json();
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 const WEATHER_CODE_LABELS = {
   0: "Clear sky",
@@ -181,59 +197,55 @@ export function notifyWeatherSnapshotUpdated(snapshot) {
 }
 
 export async function searchLocationByName(query) {
-  const response = await apiClient.get(
+  const response = await fetchJSON(
     `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
       query
     )}&count=1&language=en&format=json`,
     {
-      retries: 1,
+      timeout: 10000,
       errorContext: 'weather-location-search',
       errorMessage: 'Unable to search for that location right now.',
     }
   );
 
-  const data = response.data;
-  if (!data.results?.length) {
+  if (!response.results?.length) {
     throw new Error("No matching location found.");
   }
 
-  return normaliseLocation({ ...data.results[0], source: "search" });
+  return normaliseLocation({ ...response.results[0], source: "search" });
 }
 
 export async function reverseGeocode(latitude, longitude, source = "manual") {
   try {
-    const response = await apiClient.get(
+    const response = await fetchJSON(
       `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`,
       {
-        skipGlobalLoader: true,
+        timeout: 10000,
+        errorMessage: "Reverse geocode failed",
         suppressToast: true,
-        logError: false,
-        retries: 1,
       }
     );
-    const data = response.data;
+
     return {
-      city: data.locality || data.city || "Your area",
-      admin1: data.principalSubdivision || "",
-      country: data.countryName || "",
+      city: response.locality || response.city || "Your area",
+      admin1: response.principalSubdivision || "",
+      country: response.countryName || "",
       latitude,
       longitude,
-      name: data.locality || "Your area",
+      name: response.locality || "Your area",
       source: normaliseSource(source, "manual"),
     };
   } catch {
-    // Silently handle fetch failures
+    return {
+      city: "Your area",
+      admin1: "",
+      country: "",
+      latitude,
+      longitude,
+      name: "Your area",
+      source: normaliseSource(source, "manual"),
+    };
   }
-
-  return {
-    city: "Your area",
-    admin1: "",
-    country: "",
-    latitude,
-    longitude,
-    name: "Your area",
-    source: normaliseSource(source, "manual"),
-  };
 }
 
 export async function getCurrentPosition() {
@@ -367,16 +379,15 @@ export async function fetchWeatherByLocation(location) {
     throw new Error("A valid location is required to fetch weather data.");
   }
 
-  const response = await apiClient.get(
+  const response = await fetchJSON(
     `https://api.open-meteo.com/v1/forecast?latitude=${normalisedLocation.latitude}&longitude=${normalisedLocation.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,wind_speed_10m,weather_code,precipitation,rain,showers,is_day&hourly=temperature_2m,precipitation_probability,precipitation,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max&timezone=auto&forecast_days=7`,
     {
-      retries: 2,
-      errorContext: 'weather-forecast',
+      timeout: 15000,
       errorMessage: 'Unable to fetch weather data right now.',
     }
   );
 
-  const weather = response.data;
+  const weather = response;
   const alerts = deriveAlerts(weather);
 
   const snapshot = {
@@ -397,28 +408,26 @@ export async function fetchWeatherByLocation(location) {
 
 export async function getLocationByIP() {
   try {
-    const response = await apiClient.get("https://get.geojs.io/v1/ip/geo.json", {
-      retries: 1,
-      errorContext: 'weather-ip-location',
-      errorMessage: 'Could not determine location by IP.',
+    const response = await fetchJSON("https://get.geojs.io/v1/ip/geo.json", {
+      timeout: 10000,
+      errorMessage: "Could not determine location by IP.",
     });
-    const data = response.data;
-    const latitude = parseFloat(data.latitude);
-    const longitude = parseFloat(data.longitude);
+    const latitude = parseFloat(response.latitude);
+    const longitude = parseFloat(response.longitude);
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
       throw new Error("Invalid IP location response");
     }
     return {
       latitude,
       longitude,
-      city: data.city || "Your area",
-      admin1: data.region || "",
-      country: data.country || "",
+      city: response.city || "Your area",
+      admin1: response.region || "",
+      country: response.country || "",
       name: pickLocationName({
-        city: data.city || "Your area",
-        admin1: data.region || "",
-        country: data.country || "",
-      }) || data.city || "Your area",
+        city: response.city || "Your area",
+        admin1: response.region || "",
+        country: response.country || "",
+      }) || response.city || "Your area",
       source: "ip",
     };
   } catch {
@@ -451,28 +460,26 @@ export async function getHistoricalWeatherData() {
     const startStr = `${startYear}-01-01`;
     const endStr = `${endYear}-12-31`;
 
-    const response = await apiClient.get(
+    const response = await fetchJSON(
       `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${startStr}&end_date=${endStr}&daily=temperature_2m_mean,precipitation_sum&timezone=auto`,
       {
-        skipGlobalLoader: true,
-        suppressToast: true,
-        logError: false,
+        timeout: 15000,
+        errorMessage: 'Unable to load historical weather data.',
       }
     );
 
-    const data = response.data;
-    if (!data || !data.daily || !data.daily.time) {
+    if (!response?.daily || !response.daily.time) {
       throw new Error("Invalid historical data format");
     }
 
     const yearlyData = {};
-    data.daily.time.forEach((dateStr, i) => {
+    response.daily.time.forEach((dateStr, i) => {
       const year = parseInt(dateStr.split('-')[0], 10);
       if (!yearlyData[year]) {
         yearlyData[year] = { tempSum: 0, rainSum: 0, tempCount: 0 };
       }
-      const temp = data.daily.temperature_2m_mean[i];
-      const rain = data.daily.precipitation_sum[i];
+      const temp = response.daily.temperature_2m_mean[i];
+      const rain = response.daily.precipitation_sum[i];
       
       if (temp !== null && !isNaN(temp)) {
          yearlyData[year].tempSum += temp;
