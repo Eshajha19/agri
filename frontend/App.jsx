@@ -351,7 +351,7 @@ function App() {
 
   useEffect(() => {
     detectAndSetLiteMode();
-  }, [detectAndSetLiteMode]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -407,11 +407,13 @@ function App() {
     void syncQueuedRequests();
 
     const handleOnline = () => {
+      if (cancelled) return;
       setIsOffline(false);
       void syncQueuedRequests();
     };
 
     const handleOffline = () => {
+      if (cancelled) return;
       setIsOffline(true);
     };
 
@@ -752,61 +754,14 @@ useEffect(() => {
     });
   }, [user?.uid, userData, profileCompleted]);
 
+  // Scroll to Top logic
   useEffect(() => {
     const handleScroll = () => {
-      if (scrollFrameRef.current) return;
-
-      scrollFrameRef.current =
-        requestAnimationFrame(() => {
-          const shouldShowScrollTop =
-            window.scrollY > 300;
-
-          const totalHeight =
-            document.documentElement.scrollHeight -
-            window.innerHeight;
-
-          const progress =
-            totalHeight > 0
-              ? (window.scrollY / totalHeight) * 100
-              : 0;
-
-          if (
-            lastScrollStateRef.current
-              .showScrollTop !==
-            shouldShowScrollTop
-          ) {
-            lastScrollStateRef.current.showScrollTop =
-              shouldShowScrollTop;
-
-            setShowScrollTop(shouldShowScrollTop);
-          }
-
-          if (
-            Math.abs(
-              lastScrollStateRef.current
-                .scrollProgress - progress
-            ) > 1
-          ) {
-            lastScrollStateRef.current.scrollProgress =
-              progress;
-
-            setScrollProgress(progress);
-          }
-
-          scrollFrameRef.current = null;
-        });
-    };
-
-    window.addEventListener("scroll", handleScroll, {
-      passive: true,
-    });
-
-    return () => {
-      window.removeEventListener("scroll", handleScroll);
-
-      if (scrollFrameRef.current) {
-        cancelAnimationFrame(scrollFrameRef.current);
-      }
+      setShowScrollTop(window.scrollY > 300);
+      // Calculate scroll progress
+      const totalHeight = document.documentElement.scrollHeight - window.innerHeight;
+      const progress = totalHeight > 0 ? (window.scrollY / totalHeight) * 100 : 0;
+      setScrollProgress(progress);
     };
   }, []);
 
@@ -1036,7 +991,8 @@ useEffect(() => {
           {isOpen ? <FaTimes /> : <FaBars />}
         </button>
       </nav>
-
+ 
+ 
       {/* VERIFICATION GUARD */}
       {!loading && user && !user.isAnonymous && !user.emailVerified && !showScorecard && location.pathname !== "/login" && (
         <div className="verification-overlay">
