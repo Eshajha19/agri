@@ -19,6 +19,7 @@ from fastapi import FastAPI, HTTPException, Request, Form, Query, Response, WebS
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
+from rbac import RBACMiddleware, print_rbac_matrix, RBACManager, Permission, RBACError
 
 class SimulationRequest(BaseModel):
     crop_type: str
@@ -445,27 +446,23 @@ async def verify_role(
             request,
             allow_unauthenticated=False,
         )
+    except RBACError as exc:
+        uid = None
+        reason = exc.code
+        audit_rbac_event(
+            request=request,
+            action=action,
+            outcome="denied" if exc.status_code in (401, 403) else "error",
+            uid=uid,
+            reason=reason,
+            status_code=exc.status_code,
+            required_roles=required_roles,
+        )
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
     except HTTPException as exc:
         uid = None
         reason = "authorization_denied"
-        if exc.status_code == 401:
-            detail = str(exc.detail).lower()
-            reason = (
-                "missing_authentication_token"
-                if "missing" in detail
-                else "invalid_authentication_token"
-            )
-        elif exc.status_code == 403:
-            detail = str(exc.detail).lower()
-            if "profile not found" in detail:
-                reason = "user_profile_not_found"
-            elif "stale" in detail:
-                reason = "stale_authentication_token"
-            elif "invalid role" in detail:
-                reason = "invalid_profile_role"
-            else:
-                reason = "insufficient_permissions"
-        elif exc.status_code == 503:
+        if exc.status_code == 503:
             reason = "authorization_service_unavailable"
 
         audit_rbac_event(
