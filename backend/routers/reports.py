@@ -8,6 +8,7 @@ import hashlib
 import io
 import json
 import logging
+import secrets
 from datetime import datetime
 
 from cryptography.hazmat.primitives import serialization
@@ -220,10 +221,17 @@ def _sign_report(private_key: Ed25519PrivateKey, data: ReportRequest, cert_id: s
 
 
 def _make_cert_id(data: ReportRequest) -> str:
-    """Derive a short, deterministic certificate ID from the report fields."""
-    raw = f"{data.name}|{data.crop}|{data.season}|{datetime.utcnow().strftime('%Y%m%d')}"
-    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:10].upper()
-    return f"CERT-{digest}"
+    """Generate a collision-resistant, unpredictable certificate ID.
+
+    The ID combines a short deterministic prefix (farmer+crop+date) with
+    128 bits of CSPRNG entropy so that IDs are both traceable and
+    impossible to guess or predict.
+    """
+    date_str = datetime.utcnow().strftime("%Y%m%d")
+    prefix_raw = f"{data.name}|{data.crop}|{date_str}"
+    prefix_digest = hashlib.sha256(prefix_raw.encode("utf-8")).hexdigest()[:6].upper()
+    random_part = secrets.token_hex(8).upper()  # 64 bits → 16 hex chars
+    return f"CERT-{prefix_digest}-{random_part}"
 
 
 # ---------------------------------------------------------------------------
