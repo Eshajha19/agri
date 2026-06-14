@@ -2831,27 +2831,33 @@ def load_router(router, name: str):
 
 
 try:
-    from routers.retraining_pipeline import router as retraining_router
+    from routers.retraining_pipeline import (
+        router as retraining_router,
+        init_auth as init_retraining_auth,       # NEW — import init_auth
+    )
+    init_retraining_auth(verify_role)            # NEW — inject auth before mounting
     load_router(retraining_router, "Retraining Pipeline")
 except Exception as e:
     logger.warning(f"Could not import Retraining Pipeline API: {e}")
-
-
+ 
+ 
 try:
     from routers.feature_drift import (
         router as feature_drift_router,
-        init_auth as init_drift_auth
+        init_auth as init_drift_auth,
     )
-
-    init_drift_auth(verify_role)
+    init_drift_auth(verify_role)                 # unchanged — already existed
     load_router(feature_drift_router, "Feature Drift Detection")
-
 except Exception as e:
     logger.warning(f"Could not import Feature Drift Detection API: {e}")
-
-
+ 
+ 
 try:
-    from routers.crop_recommendation import router as crop_router
+    from routers.crop_recommendation import (
+        router as crop_router,
+        init_auth as init_crop_auth,             # NEW — import init_auth
+    )
+    init_crop_auth(verify_role)                  # NEW — inject auth before mounting
     load_router(crop_router, "Crop Recommendation")
 except Exception as e:
     logger.warning(f"Could not import Crop Recommendation API: {e}")
