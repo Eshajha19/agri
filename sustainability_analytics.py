@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +94,10 @@ class SustainabilityAnalytics:
     """LCA-style sustainability engine with in-memory history."""
 
     def __init__(self) -> None:
+        # OrderedDict with LRU eviction capped at _MAX_HISTORY_USERS keys
+        self._history: OrderedDict[str, List[Dict[str, Any]]] = OrderedDict()
+        self._history_lock = threading.Lock()   # FIX: initialize lock
+
         self._history: Dict[str, List[Dict[str, Any]]] = {}
         self._local_file_lock = threading.Lock()
         import sys
@@ -148,6 +153,17 @@ class SustainabilityAnalytics:
         try:
             with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(history, f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, path)   # FIX: atomically rename tmp → real
+        except OSError as exc:
+            logger.warning("Failed to atomically write sustainability history to '%s': %s.", path, exc)
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
+
         except Exception as exc:
             logger.error("Failed to save sustainability history file: %s", exc)
 
@@ -164,12 +180,22 @@ class SustainabilityAnalytics:
         crop_key = _normalize_crop(data["crop_type"])
         season_key = _normalize_season(data["season"])
         coeffs = CROP_COEFFICIENTS.get(crop_key, CROP_COEFFICIENTS["default"])
-        acreage = data["acreage"]
+        MAX_ACREAGE = int(os.getenv("MAX_ACREAGE", "10000"))  # configurable limit
+
+        acreage = float(data.get("acreage", 0.1))
+        acreage = max(min(acreage, MAX_ACREAGE), 0.1)
         irr_type = data["irrigation_type"]
         irr_eff = IRRIGATION_EFFICIENCY.get(irr_type, 0.7)
         season_days = SEASON_DAYS[season_key]
 
+        rainfall_mm = data.get("rainfall_mm", 0.0)
+        effective_rainfall_mm = data.get("effective_rainfall_mm", rainfall_mm * 0.8)
+        rainfall_m3_per_acre = effective_rainfall_mm * 4046.86 / 1000.0
+        rainfall_m3_total = rainfall_m3_per_acre * acreage
+
         base_water = coeffs["water_m3_per_acre_season"] * acreage
+        net_irrigation_water = max(base_water - rainfall_m3_total, 0.0)
+
         if irr_type == "rainfed":
             green_water = base_water * 0.85
             blue_water = base_water * 0.15
@@ -207,10 +233,16 @@ class SustainabilityAnalytics:
         irrigation_energy_co2 = pump_kwh * ef["electricity_kg_co2e_per_kwh"]
 
         organic_reduction = 0.12 if data["organic_practices"] else 0.0
+
+        # Apply reduction ONLY to fertilizer emissions
+        fert_co2 *= (1.0 - organic_reduction)
+
+        # Then sum everything normally
         total_carbon_kg = round(
-            (fert_co2 + machinery_co2 + fuel_co2 + irrigation_energy_co2) * (1.0 - organic_reduction),
+            fert_co2 + machinery_co2 + fuel_co2 + irrigation_energy_co2,
             2,
         )
+
         carbon_per_acre = round(total_carbon_kg / max(acreage, 0.1), 2)
 
         benchmark_water = coeffs["water_m3_per_acre_season"] * acreage
@@ -244,9 +276,9 @@ class SustainabilityAnalytics:
             "carbon": {
                 "total_kg_co2e": total_carbon_kg,
                 "per_acre_kg_co2e": carbon_per_acre,
-                "fertilizer_kg_co2e": round(fert_co2 * (1.0 - organic_reduction), 2),
+                "fertilizer_kg_co2e": round(fert_co2, 2),
                 "machinery_kg_co2e": round(machinery_co2, 2),
-                "fuel_kg_co2e": round(fuel_co2 * (1.0 - organic_reduction), 2),
+                "fuel_kg_co2e": round(fuel_co2, 2),
                 "irrigation_energy_kg_co2e": round(irrigation_energy_co2, 2),
             },
             "inputs": {
@@ -266,7 +298,7 @@ class SustainabilityAnalytics:
         ]
 
         record_id = str(uuid4())
-        created_at = datetime.now(timezone.utc).isoformat() + "Z"
+        created_at = datetime.now(timezone.utc).isoformat()
         user_id = data["user_id"] or "anonymous"
 
         result = {
@@ -305,8 +337,10 @@ class SustainabilityAnalytics:
                 entries = [d.to_dict() for d in docs]
                 entries.sort(key=lambda x: x.get("created_at", ""), reverse=True)
                 return entries[:limit]
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.exception("Firestore operation failed: %s", exc)
+                return {}
+
 
         local_hist = self._load_local_history()
         entries = local_hist.get(key, [])
@@ -336,11 +370,10 @@ class SustainabilityAnalytics:
 
         # Save to memory cache
         with self._history_lock:
-            if key not in self._history:
-                self._history[key] = []
-            self._history[key].append(record)
-            if len(self._history[key]) > 50:
-                self._history[key] = self._history[key][-50:]
+            self._touch_user(user_id)
+            self._history[user_id].append(record)
+            if len(self._history[user_id]) > _MAX_HISTORY_PER_USER:
+                self._history[user_id].pop(0)
 
         # Save to Firestore primarilly
         db = self._get_db()
@@ -362,6 +395,10 @@ class SustainabilityAnalytics:
                 self._save_local_history(local_hist)
             except Exception:
                 logger.exception("Failed to persist sustainability history to local file")
+
+    def save_history(self) -> None:
+        with self._history_lock:
+            self._save_local_history(self._history)
 
     def _normalize_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return {
