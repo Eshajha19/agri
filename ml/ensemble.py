@@ -78,6 +78,7 @@ def _load_lstm_model():
 
 
 def _load_rf_model():
+    from ml.security import verify_and_load_joblib
     path = "sklearn_yield_model.joblib"
     # Fallback to .pkl if .joblib missing (migration safety)
     if not os.path.exists(path):

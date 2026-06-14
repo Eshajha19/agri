@@ -1,6 +1,7 @@
 """Rule-based farmer advisory API."""
 import html
 import threading
+import time
 import uuid
 from collections import OrderedDict, deque
 from datetime import datetime, timezone
@@ -24,6 +25,16 @@ _MAX_STORED_GRAPH_HISTORY = 25
 # proportional to this constant regardless of how many users the process
 # has served over its lifetime.
 _MAX_TRACKED_UIDS = 500
+
+# TTL-based cleanup for stale advisory entries (seconds).
+# Entries in the deque older than this TTL are removed to prevent
+# unbounded memory growth of historical data within active UID buckets.
+_ADVISORY_ENTRY_TTL_SECONDS = 3600  # 1 hour
+
+# Last cleanup timestamp for stale entry removal.
+_LAST_CLEANUP_TIME = time.monotonic()
+_CLEANUP_INTERVAL = 300  # Clean up stale entries every 5 minutes
+_cleanup_lock = threading.Lock()
 
 
 class _BoundedUidStore:
@@ -99,6 +110,81 @@ _graph_history = _BoundedUidStore(deque_maxlen=_MAX_STORED_GRAPH_HISTORY)
 # Single module-level lock kept for any remaining code that needs it, but
 # _BoundedUidStore manages its own internal lock for all store operations.
 _store_lock = threading.Lock()
+
+
+def _cleanup_stale_advisory_entries(now: float) -> None:
+    """Remove stale advisory entries from the history and alerts stores.
+    
+    Entries older than _ADVISORY_ENTRY_TTL_SECONDS are removed to prevent
+    unbounded memory growth of historical data within active UID buckets.
+    This is called periodically during requests to maintain bounded memory
+    even as historical entries accumulate in long-running processes.
+    """
+    global _LAST_CLEANUP_TIME
+    
+    # Only clean up if interval has passed to avoid excessive iteration.
+    with _cleanup_lock:
+        if (now - _LAST_CLEANUP_TIME) < _CLEANUP_INTERVAL:
+            return
+        
+        cutoff_time = now - _ADVISORY_ENTRY_TTL_SECONDS
+        cleaned_alerts = 0
+        cleaned_history = 0
+        
+        # Clean _stored_alerts: remove entries without createdAt or older than TTL
+        with _stored_alerts._lock:
+            for uid in list(_stored_alerts._data.keys()):
+                deque_ref = _stored_alerts._data[uid]
+                # Build list of indices to remove (in reverse to preserve indices)
+                indices_to_remove = []
+                for i, entry in enumerate(deque_ref):
+                    created_at_str = entry.get("createdAt")
+                    if created_at_str:
+                        try:
+                            created_at = datetime.fromisoformat(created_at_str).replace(tzinfo=timezone.utc)
+                            entry_time = created_at.timestamp()
+                            if entry_time < cutoff_time:
+                                indices_to_remove.append(i)
+                        except (ValueError, AttributeError):
+                            # Invalid timestamp format, keep the entry
+                            pass
+                
+                # Remove old entries by recreating deque without them
+                if indices_to_remove:
+                    remaining = [item for i, item in enumerate(deque_ref) if i not in indices_to_remove]
+                    cleaned_alerts += len(indices_to_remove)
+                    _stored_alerts._data[uid] = deque(remaining, maxlen=_MAX_STORED_ALERTS)
+        
+        # Clean _graph_history: remove entries without createdAt or older than TTL
+        with _graph_history._lock:
+            for uid in list(_graph_history._data.keys()):
+                deque_ref = _graph_history._data[uid]
+                indices_to_remove = []
+                for i, entry in enumerate(deque_ref):
+                    created_at_str = entry.get("createdAt")
+                    if created_at_str:
+                        try:
+                            created_at = datetime.fromisoformat(created_at_str).replace(tzinfo=timezone.utc)
+                            entry_time = created_at.timestamp()
+                            if entry_time < cutoff_time:
+                                indices_to_remove.append(i)
+                        except (ValueError, AttributeError):
+                            # Invalid timestamp format, keep the entry
+                            pass
+                
+                if indices_to_remove:
+                    remaining = [item for i, item in enumerate(deque_ref) if i not in indices_to_remove]
+                    cleaned_history += len(indices_to_remove)
+                    _graph_history._data[uid] = deque(remaining, maxlen=_MAX_STORED_GRAPH_HISTORY)
+        
+        if cleaned_alerts + cleaned_history > 0:
+            logger.debug(
+                "Cleaned up %d stale alert entries and %d stale history entries",
+                cleaned_alerts,
+                cleaned_history,
+            )
+        
+        _LAST_CLEANUP_TIME = now
 
 # ---------------------------------------------------------------------------
 # Dependency injection — wired in main.py lifespan
@@ -539,6 +625,9 @@ def _store_graph_history(uid: str, entry: dict[str, Any]) -> str:
 
 
 def _load_graph_history(uid: str) -> list[dict[str, Any]]:
+    now = time.monotonic()
+    _cleanup_stale_advisory_entries(now)
+    
     if _db is not None:
         try:
             docs = _db.collection("users").document(uid).collection("farm_intelligence_history").get()
@@ -716,6 +805,10 @@ async def create_advisory(payload: AdvisoryRequest, request: Request):
     if payload.store_alerts:
         # Derive uid from the verified token — never from the request body.
         uid = await _get_authenticated_uid(request)
+        
+        # Clean up stale entries before storing new alerts
+        now = time.monotonic()
+        _cleanup_stale_advisory_entries(now)
 
         _stored_alerts.extend(uid, safe_alerts)
         stored = True
@@ -731,6 +824,11 @@ async def create_advisory(payload: AdvisoryRequest, request: Request):
 @router.post("/farm-intelligence/recommend")
 async def create_farm_intelligence(payload: "FarmIntelligenceRequest", request: Request):
     uid = await _get_authenticated_uid(request)
+    
+    # Clean up stale entries before storing new history
+    now = time.monotonic()
+    _cleanup_stale_advisory_entries(now)
+    
     result = _build_farm_graph(payload)
     # Cap each user-supplied dict to at most _HISTORY_DICT_KEY_CAP entries before
     # writing to Firestore. The advisory engine only inspects a small set of known
@@ -784,6 +882,7 @@ async def get_my_advisories(request: Request):
     Return stored advisories for the authenticated caller.
 
     Authentication is required — a caller can only read their own stored
+    alerts. The previous GET /advisory/{user_id} endpoint accepted
     alerts. The previous GET /advisory/{user_id} endpoint accepted any
     user_id as a path parameter with no token check, allowing any caller
     to read another user's alerts (IDOR).
@@ -792,6 +891,10 @@ async def get_my_advisories(request: Request):
     derived from the verified Firebase token, not from a URL parameter.
     """
     uid = await _get_authenticated_uid(request)
+    
+    # Clean up stale entries before retrieving alerts
+    now = time.monotonic()
+    _cleanup_stale_advisory_entries(now)
 
     data = _stored_alerts.get(uid)
 
@@ -801,4 +904,9 @@ async def get_my_advisories(request: Request):
 @router.get("/farm-intelligence/me")
 async def get_my_farm_intelligence(request: Request):
     uid = await _get_authenticated_uid(request)
+    
+    # Clean up stale entries before retrieving farm intelligence history
+    now = time.monotonic()
+    _cleanup_stale_advisory_entries(now)
+    
     return {"success": True, "data": _load_graph_history(uid)}
