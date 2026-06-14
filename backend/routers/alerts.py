@@ -5,6 +5,8 @@ import hashlib
 import hmac
 import os
 import re
+import time
+import urllib.parse
 from datetime import datetime
 from typing import Optional
 
@@ -14,9 +16,12 @@ from error_utils import safe_detail
 
 router = APIRouter()
 
-from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, normalize_region_identifier
-from backend.schemas import AlertTriggerRequest, AlertSummary
-from backend.core.logging_config import setup_logging
+# Idempotency store for processed webhook SIDs (MessageSid → timestamp).
+# Prevents duplicate processing from Twilio retries or replay attacks.
+# Entries older than WEBHOOK_IDEMPOTENCY_TTL seconds are pruned on access.
+_processed_webhook_sids: dict = {}
+WEBHOOK_IDEMPOTENCY_TTL = 86400  # 24 hours
+
 
 router = APIRouter()
 logger = setup_logging(__name__)
@@ -285,12 +290,13 @@ async def whatsapp_webhook(
     request: Request,
     Body: str = Form(...),
     From: str = Form(...),
+    MessageSid: str = Form(...),
 ):
     """Receive inbound WhatsApp messages from Twilio.
 
     Security controls applied:
-    1. Early body-size enforcement — payloads larger than 10 KB are
-       rejected with HTTP 413 before any signature or processing work.
+    1. Idempotency — duplicate MessageSid values are silently acknowledged
+       so Twilio retries and replay attacks cannot trigger repeated effects.
     2. Twilio signature verification — every request is validated with
        HMAC-SHA1 against TWILIO_AUTH_TOKEN before any processing.
        Requests with a missing or invalid X-Twilio-Signature are
@@ -305,8 +311,27 @@ async def whatsapp_webhook(
     if send_whatsapp_fn is None:
         raise HTTPException(status_code=500, detail="Not initialized")
 
+    # Read the raw body for signature verification (body is cached by Starlette
+    # after Form parsing, so this is safe to call after FastAPI parses params).
     raw_body = await request.body()
     _verify_twilio_signature(request, raw_body)
+
+    # Idempotency check: skip already-processed MessageSid.
+    # Runs after signature verification so an attacker cannot probe
+    # which SIDs have been seen without a valid signature.
+    now = time.monotonic()
+    cutoff = now - WEBHOOK_IDEMPOTENCY_TTL
+    already_seen = False
+    stale_keys = []
+    for sid, ts in _processed_webhook_sids.items():
+        if ts < cutoff:
+            stale_keys.append(sid)
+        elif sid == MessageSid:
+            already_seen = True
+    for sid in stale_keys:
+        _processed_webhook_sids.pop(sid, None)
+    if already_seen:
+        return {"status": "duplicate", "message": "Already processed"}
 
     incoming_msg = Body.lower().strip()
     sender_number = _validate_whatsapp_number(From)
@@ -322,4 +347,5 @@ async def whatsapp_webhook(
         "Try 'Weather' or 'Pest' 🌱",
     )
     send_whatsapp_fn(sender_number, response)
+    _processed_webhook_sids[MessageSid] = time.monotonic()
     return {"status": "success"}

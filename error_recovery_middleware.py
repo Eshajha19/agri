@@ -4,13 +4,16 @@ Provides structured error handling and recovery for async operations
 """
 
 import base64
+import collections
 import logging
+import random
 import re
 import time
 import uuid
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
+from urllib.parse import urlparse
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -329,6 +332,34 @@ class SuspiciousContentScanner:
         return order.index(level) > order.index(self._threshold)
 
 
+# ── Helper functions ──────────────────────────────────────────────────────
+
+
+def looks_like_binary(data: bytes) -> bool:
+    """Heuristic: > 5% non-printable / non-whitespace bytes → binary."""
+    if not data:
+        return False
+    control = sum(1 for b in data if b < 32 and b not in (9, 10, 13))
+    return (control / len(data)) > 0.05
+
+
+def looks_like_base64(text: str) -> bool:
+    """Heuristic: looks like a base64-encoded payload."""
+    if len(text) < 8:
+        return False
+    cleaned = re.sub(r'[A-Za-z0-9+/=\n\r\t ]', '', text)
+    return len(cleaned) / len(text) < 0.10 if text else False
+
+
+async def ensure_body_available(request: Request) -> bytes:
+    """Read request body once and cache it on request.state."""
+    if hasattr(request.state, '_body_cache'):
+        return request.state._body_cache
+    body = await request.body()
+    request.state._body_cache = body
+    return body
+
+
 # ── Error-recovery middleware ──────────────────────────────────────────
 
 
@@ -377,6 +408,9 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next) -> Response:
         """Handle request with error recovery"""
+        
+        # Clean up stale tracking state periodically
+        self._cleanup_stale_state()
 
         request_id = str(uuid.uuid4())
         request.state.request_id = request_id

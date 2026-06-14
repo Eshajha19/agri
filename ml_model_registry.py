@@ -13,46 +13,39 @@ from enum import Enum
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Dict, List, Optional, Any
-
-from pydantic import BaseModel, Field
+import json
+import uuid
+import threading
 
 logger = logging.getLogger(__name__)
 
 
-# ── Artifact integrity helpers ─────────────────────────────────────────
 
+class ModelRegistry:
+    def __init__(self):
+        self._models = {}
+        self._lock = threading.RLock()   # re‑entrant lock for safety
 
-def _compute_sha256(path: str) -> str:
-    """Return hex SHA-256 of the file at *path*."""
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        while True:
-            block = f.read(65536)
-            if not block:
-                break
-            h.update(block)
-    return h.hexdigest()
+    def register(self, name: str, model) -> None:
+        """Register a model safely."""
+        if not name or model is None:
+            raise ValueError("Model name and instance required")
+        with self._lock:
+            if name in self._models:
+                raise ValueError(f"Model '{name}' already registered")
+            self._models[name] = model
 
+    def get_model(self, name: str):
+        """Retrieve a model safely."""
+        with self._lock:
+            if name not in self._models:
+                raise KeyError(f"Model '{name}' not found")
+            return self._models[name]
 
-def verify_artifact(
-    path: str,
-    expected_checksum: Optional[str] = None,
-) -> None:
-    """Check that *path* exists, is readable, and matches *expected_checksum*.
-
-    Raises FileNotFoundError, PermissionError, or ValueError on failure.
-    """
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"Model artifact not found: {path}")
-    if not os.access(path, os.R_OK):
-        raise PermissionError(f"Model artifact not readable: {path}")
-    if expected_checksum:
-        actual = _compute_sha256(path)
-        if actual != expected_checksum:
-            raise ValueError(
-                f"Checksum mismatch for {path}: "
-                f"expected {expected_checksum}, got {actual}"
-            )
+    def list_models(self):
+        """Return snapshot of registered models."""
+        with self._lock:
+            return list(self._models.keys())
 
 
 class ModelStatus(Enum):

@@ -987,7 +987,8 @@ useEffect(() => {
           {isOpen ? <FaTimes /> : <FaBars />}
         </button>
       </nav>
-
+ 
+ 
       {/* VERIFICATION GUARD */}
       {!loading && user && !user.isAnonymous && !user.emailVerified && !showScorecard && location.pathname !== "/login" && (
         <div className="verification-overlay">
