@@ -90,6 +90,12 @@ SUPPORTED_WHATSAPP_TYPES = {"text", "image", "audio", "video", "document", "stic
 # Configurable strict mode (default: warning mode)
 STRICT_MODE = os.getenv("WHATSAPP_STRICT_MODE", "false").lower() == "true"
 
+# Supported WhatsApp message types
+SUPPORTED_WHATSAPP_TYPES = {"text", "image", "audio", "video", "document", "sticker"}
+
+# Configurable strict mode (default: warning mode)
+STRICT_MODE = os.getenv("WHATSAPP_STRICT_MODE", "false").lower() == "true"
+
 def verify_twilio_signature(request: Request, body: bytes) -> None:
     """Validate the X-Twilio-Signature header using HMAC-SHA1.
 

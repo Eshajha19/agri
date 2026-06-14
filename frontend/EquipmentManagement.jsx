@@ -683,92 +683,95 @@ export default function EquipmentManagement({ onClose }) {
       )}
 
       {/* Add Equipment Modal */}
-      {showAddEquipment && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 1000
-        }}>
-          <div style={{
-            backgroundColor: 'white',
-            padding: '32px',
-            borderRadius: '16px',
-            maxWidth: '500px',
-            width: '90%'
-          }}>
-            <h3 style={{ marginBottom: '24px', color: '#111' }}>Add New Equipment</h3>
-            <button
-              onClick={() => setShowAddEquipment(false)}
-              style={{
-                position: 'absolute',
-                top: '16px',
-                right: '16px',
-                backgroundColor: '#f3f4f6',
-                border: '1px solid #d1d5db',
-                borderRadius: '8px',
-                fontSize: '16px',
-                cursor: 'pointer'
-              }}
-            >
-              ✕
-            </button>
-            <div style={{ textAlign: 'center', color: '#6b7280' }}>
-              Equipment registration form would go here
-            </div>
-          </div>
-        </div>
-      )}
+{showAddEquipment && (
+  <div style={{
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000
+  }}>
+    <div style={{
+      position: 'relative',   //  added
+      backgroundColor: 'white',
+      padding: '32px',
+      borderRadius: '16px',
+      maxWidth: '500px',
+      width: '90%'
+    }}>
+      <h3 style={{ marginBottom: '24px', color: '#111' }}>Add New Equipment</h3>
+      <button
+        onClick={() => setShowAddEquipment(false)}
+        style={{
+          position: 'absolute',   //  changed from relative
+          top: '16px',
+          right: '16px',
+          backgroundColor: '#f3f4f6',
+          border: '1px solid #d1d5db',
+          borderRadius: '8px',
+          fontSize: '16px',
+          cursor: 'pointer'
+        }}
+      >
+        ✕
+      </button>
+      <div style={{ textAlign: 'center', color: '#6b7280' }}>
+        Equipment registration form would go here
+      </div>
+    </div>
+  </div>
+)}
 
-      {/* Maintenance Modal */}
-      {showMaintenance && selectedEquipment && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 1000
-        }}>
-          <div style={{
-            backgroundColor: 'white',
-            padding: '32px',
-            borderRadius: '16px',
-            maxWidth: '600px',
-            width: '90%'
-          }}>
-            <h3 style={{ marginBottom: '24px', color: '#111' }}>Schedule Maintenance</h3>
-            <button
-              onClick={() => setShowMaintenance(false)}
-              style={{
-                position: 'absolute',
-                top: '16px',
-                right: '16px',
-                backgroundColor: '#f3f4f6',
-                border: '1px solid #d1d5db',
-                borderRadius: '8px',
-                fontSize: '16px',
-                cursor: 'pointer'
-              }}
-            >
-              ✕
-            </button>
-            <div style={{ textAlign: 'center', color: '#6b7280' }}>
-              Maintenance scheduling form would go here
-            </div>
-          </div>
-        </div>
-      )}
+{/* Maintenance Modal */}
+{showMaintenance && selectedEquipment && (
+  <div style={{
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000
+  }}>
+    <div style={{
+      position: 'relative',   //  added
+      backgroundColor: 'white',
+      padding: '32px',
+      borderRadius: '16px',
+      maxWidth: '600px',
+      width: '90%'
+    }}>
+      <h3 style={{ marginBottom: '24px', color: '#111' }}>Schedule Maintenance</h3>
+      <button
+        onClick={() => setShowMaintenance(false)}
+        style={{
+          position: 'absolute',
+          top: '16px',
+          right: '16px',
+          backgroundColor: '#f3f4f6',
+          border: '1px solid #d1d5db',
+          borderRadius: '8px',
+          fontSize: '16px',
+          cursor: 'pointer'
+        }}
+      >
+        ✕
+      </button>
+      <div style={{ textAlign: 'center', color: '#6b7280' }}>
+        Maintenance scheduling form would go here
+      </div>
+    </div>
+  </div>
+)}
+
     </div>
   );
 }

@@ -82,50 +82,6 @@ model = xgb.XGBRegressor(
     random_state=config["seed"],
 )
 
-
-# Default hyperparameters for XGBoost yield model
-DEFAULT_XGB_CONFIG = {
-    "n_estimators": 200,
-    "max_depth": 6,
-    "learning_rate": 0.1,
-    "subsample": 1.0,
-    "colsample_bytree": 1.0,
-    "gamma": 0,
-    "min_child_weight": 1,
-    "seed": 42,
-}
-
-DEFAULT_DP_CONFIG = {
-    "dp_batch_size": 64,
-    "dp_epochs": 8,
-    "dp_max_grad_norm": 1.0,
-    "dp_learning_rate": 0.05,
-    "epsilon": 3.0,
-    "delta": 1e-5,
-    "dp_hidden_size": 64,
-    "seed": 42,
-}
-
-
-def resolve_config(config: dict | None, defaults: dict) -> dict:
-    """Merge user config with defaults so all keys are defined."""
-    config = resolve_config(config, DEFAULT_XGB_CONFIG)
-    return {**defaults, **config}
-
-
-config = resolve_config(config, DEFAULT_XGB_CONFIG)
-
-model = xgb.XGBRegressor(
-    n_estimators=config["n_estimators"],
-    max_depth=config["max_depth"],
-    learning_rate=config["learning_rate"],
-    subsample=config["subsample"],
-    colsample_bytree=config["colsample_bytree"],
-    gamma=config["gamma"],
-    min_child_weight=config["min_child_weight"],
-    random_state=config["seed"],
-)
-
 # ── Retraining pipeline helpers ──────────────────────────────────────────────
 
 _CAT_COLS = ['Crop', 'CNext', 'CLast', 'CTransp', 'IrriType', 'IrriSource', 'Season']
