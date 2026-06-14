@@ -144,6 +144,37 @@ def parse_whatsapp_form(body: bytes) -> Tuple[str, str]:
         raise HTTPException(status_code=400, detail="Malformed form payload")
     return params.get("Body", ""), params.get("From", "")
 
+async def handle_inbound_whatsapp_webhook(request: Request) -> dict:
+    try:
+        raw_body = await request.body()
+        verify_twilio_signature(request, raw_body)
+
+        message_body, from_raw = parse_whatsapp_form(raw_body)
+        payload_sender = extract_sender_from_payload(raw_body)
+        sender_number = validate_whatsapp_number(from_raw)
+
+        # ✅ Consistency check
+        if payload_sender and payload_sender != from_raw:
+            logger.warning(
+                "Sender mismatch: payload=%s, parsed=%s", payload_sender, from_raw
+            )
+            raise HTTPException(status_code=400, detail="Sender number mismatch")
+
+        enqueue_whatsapp_webhook_processing(message_body, sender_number)
+        return {"status": "success"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Unexpected error processing inbound WhatsApp webhook: %s",
+            exc,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to process webhook",
+        ) from None
+
 
 def enqueue_whatsapp_webhook_processing(message_body: str, sender_number: str) -> None:
     """Enqueue inbound WhatsApp webhook work on the Celery worker."""
