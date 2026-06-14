@@ -176,19 +176,40 @@ class ABTest:
             self.current_allocation[self.variant_arm.model_id] = variant_score / total_score
     
     def get_winner(self) -> Optional[Arm]:
-        """Determine winner with confidence threshold"""
-        total_trials = self.control_arm.total_trials + self.variant_arm.total_trials
-        
-        if total_trials < self.min_samples:
+        """Determine winner using a two-sample Z-test for proportions."""
+        n1 = self.control_arm.total_trials
+        n2 = self.variant_arm.total_trials
+
+        if (n1 + n2) < self.min_samples or n1 == 0 or n2 == 0:
             return None
-        
-        control_mean = self.control_arm.successes / max(self.control_arm.total_trials, 1)
-        variant_mean = self.variant_arm.successes / max(self.variant_arm.total_trials, 1)
-        
-        # Simple confidence check
-        if abs(control_mean - variant_mean) > (1 - self.confidence_threshold):
-            return self.variant_arm if variant_mean > control_mean else self.control_arm
-        
+
+        p1 = self.control_arm.successes / n1
+        p2 = self.variant_arm.successes / n2
+
+        # Pooled proportion under the null hypothesis (p1 == p2)
+        p_pooled = (self.control_arm.successes + self.variant_arm.successes) / (n1 + n2)
+        if p_pooled <= 0 or p_pooled >= 1:
+            return None
+
+        # Standard error of the difference
+        se = math.sqrt(p_pooled * (1 - p_pooled) * (1 / n1 + 1 / n2))
+        if se == 0:
+            return None
+
+        # Z statistic
+        z_stat = (p2 - p1) / se
+
+        # Map confidence threshold to two-tailed critical z-values
+        if self.confidence_threshold >= 0.99:
+            z_crit = 2.576
+        elif self.confidence_threshold >= 0.95:
+            z_crit = 1.960
+        else:
+            z_crit = 1.645  # 90% confidence
+
+        if abs(z_stat) > z_crit:
+            return self.variant_arm if p2 > p1 else self.control_arm
+
         return None
     
     def end(self):
