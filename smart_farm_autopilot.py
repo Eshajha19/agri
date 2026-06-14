@@ -440,15 +440,18 @@ class SmartFarmAutopilot:
         today = date.today()
         year = today.year
         sow_month = data["sowing_month"]
-        # Adjust year: if the sowing month has already passed this year,
-        # advance to the next calendar year.
-        months_passed = today.month - sow_month
-        if months_passed <= 2:
-            # Sowing month is current, upcoming, or just passed (within 2-month buffer)
+        
+        # Schedule for current year if sowing month is still upcoming or current.
+        # Only advance to next year if the month has already passed (by more than 2 months).
+        if today.month <= sow_month + 1:
             sow_year = year
         else:
             # Sowing month has clearly passed
             sow_year = year + 1
+        # Edge case: late-year request (Nov/Dec) for early next-season sowing (Jan/Feb)
+        if today.month >= 11 and sow_month <= 2:
+            sow_year = year + 1
+            
         sow_start = date(sow_year, sow_month, 1)
         sow_end   = date(sow_year, sow_month, min(20, calendar.monthrange(sow_year, sow_month)[1]))
 
