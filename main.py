@@ -3,6 +3,7 @@ import os
 import asyncio
 import logging
 import time
+import httpx
 from collections import deque
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,6 +36,25 @@ async def handle_missing_static(request: Request, call_next):
 # Expose sanitizer globally
 sanitise_log_field_fn = sanitize_log_field
 
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get("http://127.0.0.1:8000/health")
+            if resp.status_code == 200:
+                logger.info("✅ Backend health check passed: %s", resp.json())
+            else:
+                logger.error("❌ Backend health check failed: %s", resp.status_code)
+    except Exception as exc:
+        logger.error("❌ Backend unavailable at startup: %s", exc)
+
+    yield
+
+    # Shutdown
+    logger.info("🛑 Shutting down FastAPI app")
 
 class CSPMiddleware:
     """Add Content-Security-Policy header to every response."""

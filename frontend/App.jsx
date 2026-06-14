@@ -824,6 +824,18 @@ useEffect(() => {
   };
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: "smooth" });
 
+  const [backendStatus, setBackendStatus] = useState("checking");
+
+useEffect(() => {
+  fetch(`${import.meta.env.VITE_API_BASE_URL}/health`)
+    .then(res => {
+      if (res.ok) return res.json();
+      throw new Error("Backend not healthy");
+    })
+    .then(() => setBackendStatus("online"))
+    .catch(() => setBackendStatus("offline"));
+}, []);
+
   return (
     <div className={`app ${theme !== "light" ? "theme-dark" : ""} ${theme === "night" ? "theme-night" : ""} ${liteMode ? "lite-mode" : ""}`}>
       {user?.isAnonymous && <GuestBanner />}
@@ -1136,7 +1148,20 @@ useEffect(() => {
       <ToastContainer position="bottom-right" />
       <Footer />
     </div>
+    
   );
+  {isOffline && (
+  <div className="offline-banner" role="alert">
+    You are currently offline. Running in offline mode using local data.
+  </div>
+)}
+
+{backendStatus === "offline" && (
+  <div className="backend-banner" role="alert">
+    🚨 Backend is currently unavailable. Some features may not work.
+  </div>
+)}
+
 }
 
 export default App;
