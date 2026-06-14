@@ -2,13 +2,13 @@
 import asyncio
 import os
 import time
-import logging
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query
+from backend.core.logging_config import setup_logging
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
+logger = setup_logging(__name__)
 
 GITHUB_OWNER = os.getenv("GITHUB_CONTRIBUTORS_OWNER", "Eshajha19")
 GITHUB_REPO = os.getenv("GITHUB_CONTRIBUTORS_REPO", "agri")
