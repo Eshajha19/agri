@@ -2,21 +2,59 @@
 import os
 import asyncio
 import logging
-import math
-import collections
-import threading
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
-
-from fastapi import FastAPI, HTTPException, Request, Form, Query, WebSocket, WebSocketDisconnect
+import time
+import httpx
+from collections import deque
+from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
 
 from backend.utils.safe_log import sanitize_log_field
+from backend.realtime_notifications import notification_broker
+from ml.registry import ModelRegistry
+from ml.governance import DriftDetector, ModelVersionManager, ShadowEvaluator
+from persistence.repositories import (
+    FinanceApplicationRepository,
+    NotificationRepository,
+    SupplyChainRepository,
+)
 
-# Expose sanitizer globally so routers can use it
+from fastapi import Request
+from starlette.responses import JSONResponse
+
+@app.middleware("http")
+async def handle_missing_static(request: Request, call_next):
+    response = await call_next(request)
+    if response.status_code == 404 and request.url.path.startswith("/static/"):
+        logger.warning("Missing static asset: %s", request.url.path)
+        return JSONResponse(
+            {"error": "Static asset not found", "path": request.url.path},
+            status_code=404
+        )
+    return response
+
+# Expose sanitizer globally
 sanitise_log_field_fn = sanitize_log_field
+
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get("http://127.0.0.1:8000/health")
+            if resp.status_code == 200:
+                logger.info("✅ Backend health check passed: %s", resp.json())
+            else:
+                logger.error("❌ Backend health check failed: %s", resp.status_code)
+    except Exception as exc:
+        logger.error("❌ Backend unavailable at startup: %s", exc)
+
+    yield
+
+    # Shutdown
+    logger.info("🛑 Shutting down FastAPI app")
 
 class CSPMiddleware:
     """Add Content-Security-Policy header to every response."""
@@ -38,6 +76,70 @@ class CSPMiddleware:
             await send(message)
 
         await self.app(scope, receive, send_with_csp)
+
+
+# Single FastAPI app instance
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Deterministic startup/shutdown with structured logging."""
+    startup_time = time.perf_counter()
+    logging.info("🚀 Starting FastAPI lifespan initialization")
+
+    # Initialize ML pipeline
+    await _run_lifespan_phase("ml_pipeline", "Initialize ML pipeline", init_ml_pipeline)
+
+    # Start notification broker
+    await _run_lifespan_phase("notification_broker", "Start notification broker", notification_broker.start)
+
+    # Domain engines
+    def _init_domain_engines():
+        drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
+        shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
+        version_manager = ModelVersionManager(versions_dir="./model_versions")
+        return drift_detector, shadow_evaluator, version_manager
+
+    await _run_lifespan_phase("domain_engines", "Initialize domain engines", _init_domain_engines)
+
+    yield
+
+    logging.info("🛑 Shutting down lifespan")
+    await notification_broker.stop()
+
+
+app = FastAPI(lifespan=lifespan)
+
+# Health endpoint
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
+
+
+# Apply CORS with explicit frontend origins
+origins = [
+    "https://yourfrontend.com",
+    "https://staging.yourfrontend.com",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Apply CSP with explicit connect-src
+csp_policy = "default-src 'self'; connect-src 'self' wss://yourfrontend.com wss://staging.yourfrontend.com"
+app.add_middleware(CSPMiddleware, policy=csp_policy)
+
+csp_policy = (
+    "default-src 'self'; "
+    "script-src 'self' https://translate.googleapis.com https://translate.google.com; "
+    "style-src 'self' 'unsafe-inline' https://translate.googleapis.com; "
+    "frame-src 'self' https://translate.google.com;"
+)
+app.add_middleware(CSPMiddleware, policy=csp_policy)
+
 
 
 class SimulationRequest(BaseModel):
@@ -300,6 +402,7 @@ async def lifespan(app: FastAPI):
 
     # Wire WebSocket token auth via first-message channel (not query string).
     notification_broker.set_authenticate(firebase_auth.verify_id_token)
+    notification_broker.set_profile_fetcher(_get_firestore_user_profile)
     await notification_broker.start()
 
 
@@ -1002,18 +1105,29 @@ def get_notifications(
 @app.post("/api/whatsapp/subscribe")
 @limiter.limit("2/minute")
 async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
-    # Require authentication so the subscriber's identity is always derived
-    # from the verified Firebase token — never from client-supplied data.
-    # Previously the endpoint accepted user_id from the request body, which
-    # allowed any caller to overwrite another user's subscription by sending
-    # a known user_id with an attacker-controlled phone number.
     token_data = await verify_role(request)
-    uid = token_data["uid"]
-
+    uid = token_data.get("uid")
+ 
+    # --- CHANGE START ---
+    # Normalize early so we can validate before touching the store.
+    normalized_region = normalize_region_identifier(data.region_id) if data.region_id else None
+ 
+    # If the caller explicitly supplied a region_id but it reduced to
+    # nothing after normalization, the value is syntactically invalid
+    # (e.g. "---", "::", pure whitespace).  Reject it explicitly rather
+    # than silently dropping it, so the caller gets clear feedback.
+    if data.region_id and not normalized_region:
+        raise HTTPException(
+            status_code=422,
+            detail="region_id is malformed — contains only invalid characters.",
+        )
+    # --- CHANGE END ---
+ 
     subscriber = {
         "phone_number": data.phone_number,
         "name": data.name,
         "subscribed_at": datetime.now().isoformat(),
+        "region_id": normalized_region,          # None when absent or not provided
     }
     try:
         subscriber_store.upsert(uid, subscriber)
@@ -1022,13 +1136,13 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
             status_code=500,
             detail="Failed to save subscription. Please try again.",
         ) from exc
-
+ 
     welcome_msg = (
         f"Namaste {data.name}! 🙏\n\n"
         "Welcome to *Fasal Saathi WhatsApp Alerts*. "
         "You will now receive real-time updates directly here."
     )
-    send_whatsapp_message(data.phone_number, welcome_msg)
+    await asyncio.to_thread(send_whatsapp_message, data.phone_number, welcome_msg)
     return {"success": True, "message": "Successfully subscribed"}
 
 _broadcast_rate_limit = {}
@@ -1037,36 +1151,79 @@ _broadcast_rate_limit = {}
 @limiter.limit("10/minute")
 async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     """
-    Broadcast a WhatsApp alert to all subscribers.
-
-    Requires authentication — admin or expert role only.
-
-    Previously this endpoint had no authentication check, no rate limit,
-    and no input constraints.  Any unauthenticated caller could send
-    arbitrary messages to every subscribed farmer, enabling social
-    engineering attacks (fake market alerts, fake pest warnings) and
-    consuming Twilio API credits at the attacker's discretion.
+    Broadcast a WhatsApp alert to all subscribers (or a region subset).
+    Requires authentication — admin/expert for global; regional authority
+    for scoped broadcasts.
     """
-    # RBAC: only admins and experts may broadcast alerts to all farmers.
-    await verify_role(request, required_roles=["admin", "expert"])
-
-    # get_all() acquires the lock and returns a stable snapshot, so this read
-    # cannot race with a concurrent subscription write.
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+    role = str(token_data.get("role", "")).strip().lower()
+ 
+    # --- CHANGE START ---
+    # Normalize the region_id supplied in the request body.
+    raw_region = data.region_id           # may be None or a string
+    normalized_region = normalize_region_identifier(raw_region) if raw_region else ""
+ 
+    # If the caller explicitly provided a region_id but it reduces to an
+    # empty string after normalization, it is syntactically invalid
+    # (e.g. "---", "::", whitespace-only).  Reject it immediately so it
+    # cannot silently become a global broadcast when the `if normalized_region:`
+    # branch below is skipped.
+    if raw_region and not normalized_region:
+        raise HTTPException(
+            status_code=422,
+            detail="region_id is malformed — contains only invalid characters.",
+        )
+ 
+    region_id = normalized_region         # "" means global broadcast
+    # --- CHANGE END ---
+ 
+    if region_id:
+        # Scoped broadcast: caller must own the region or be privileged.
+        if role not in {"admin", "expert"}:
+            profile = _get_firestore_user_profile(uid)
+            if not profile_can_broadcast_region(profile, region_id):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Access denied: insufficient regional authority",
+                )
+    elif role not in {"admin", "expert"}:
+        # Global broadcast: only admins and experts are allowed.
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: insufficient permissions",
+        )
+ 
     subscribers = subscriber_store.get_all()
     formatted_msg = format_alert_message(data.alert_type, data.message)
     results = []
+    if region_id:
+        subscribers = {
+            user_id: info
+            for user_id, info in subscribers.items()
+            if _subscriber_matches_region(info, region_id)
+        }
     for user_id, info in subscribers.items():
-        res = send_whatsapp_message(info["phone_number"], formatted_msg)
-        results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})
-
-    # Persist the alert through the bounded, thread-safe notification store.
+        res = await asyncio.to_thread(send_whatsapp_message, info["phone_number"], formatted_msg)
+        results.append({
+            "user_id": user_id,
+            "success": res.get("success", False),
+            "status": res.get("status", "error"),
+        })
+ 
     await publish_notification(
         alert_type=data.alert_type,
         message=data.message,
+        region_id=region_id or None,
     )
-
+ 
     delivered = sum(1 for r in results if r["success"])
-    return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
+    return {
+        "success": True,
+        "results": results,
+        "delivered": delivered,
+        "total": len(results),
+    }
 
 
 @app.websocket("/api/notifications/stream")
@@ -1919,11 +2076,23 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     token_data = await verify_role(request)
     uid = token_data.get("uid")
 
+    # Validate region_id: a non-empty value that normalizes to "" is rejected
+    # so the client always gets an explicit error rather than silent coercion.
+    if data.region_id is not None and data.region_id != "":
+        normalized_region = normalize_region_identifier(data.region_id)
+        if not normalized_region:
+            raise HTTPException(
+                status_code=422,
+                detail="Invalid region_id: value is malformed or empty after normalization.",
+            )
+    else:
+        normalized_region = None
+ 
     subscriber = {
         "phone_number": data.phone_number,
         "name": data.name,
         "subscribed_at": datetime.now().isoformat(),
-        "region_id": normalize_region_identifier(data.region_id) or None,
+        "region_id": normalized_region,
     }
     try:
         subscriber_store.upsert(uid, subscriber)
@@ -1960,8 +2129,18 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     token_data = await verify_role(request)
     uid = token_data["uid"]
     role = str(token_data.get("role", "")).strip().lower()
-    region_id = normalize_region_identifier(data.region_id) if data.region_id else ""
-
+    # Explicit validation: a non-empty but structurally invalid region_id
+    # (e.g. "---", "::") must be rejected rather than silently treated as
+    # a global broadcast by falling through the empty-string branch.
+    if data.region_id is not None and data.region_id != "":
+        region_id = normalize_region_identifier(data.region_id)
+        if not region_id:
+            raise HTTPException(
+                status_code=422,
+                detail="Invalid region_id: value is malformed or empty after normalization.",
+            )
+    else:
+        region_id = ""
     if region_id:
         if role not in {"admin", "expert"}:
             profile = _get_firestore_user_profile(uid)
@@ -2526,27 +2705,33 @@ def load_router(router, name: str):
 
 
 try:
-    from routers.retraining_pipeline import router as retraining_router
+    from routers.retraining_pipeline import (
+        router as retraining_router,
+        init_auth as init_retraining_auth,       # NEW — import init_auth
+    )
+    init_retraining_auth(verify_role)            # NEW — inject auth before mounting
     load_router(retraining_router, "Retraining Pipeline")
 except Exception as e:
     logger.warning(f"Could not import Retraining Pipeline API: {e}")
-
-
+ 
+ 
 try:
     from routers.feature_drift import (
         router as feature_drift_router,
-        init_auth as init_drift_auth
+        init_auth as init_drift_auth,
     )
-
-    init_drift_auth(verify_role)
+    init_drift_auth(verify_role)                 # unchanged — already existed
     load_router(feature_drift_router, "Feature Drift Detection")
-
 except Exception as e:
     logger.warning(f"Could not import Feature Drift Detection API: {e}")
-
-
+ 
+ 
 try:
-    from routers.crop_recommendation import router as crop_router
+    from routers.crop_recommendation import (
+        router as crop_router,
+        init_auth as init_crop_auth,             # NEW — import init_auth
+    )
+    init_crop_auth(verify_role)                  # NEW — inject auth before mounting
     load_router(crop_router, "Crop Recommendation")
 except Exception as e:
     logger.warning(f"Could not import Crop Recommendation API: {e}")
