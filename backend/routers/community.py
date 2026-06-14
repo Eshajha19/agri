@@ -28,20 +28,38 @@ _contributors_cache = {"expires_at": 0.0, "data": []}
 # asyncio.Lock is the correct primitive here because get_contributors is
 # an async handler running in the event loop — threading.Lock would block
 # the loop, while asyncio.Lock yields control while waiting.
+#
+# The lock is initialized at module load time by init_community(), which
+# must be called during the application's lifespan setup before any async
+# handlers execute. This ensures all coroutines share a single lock instance,
+# preventing lazy initialization race conditions where multiple coroutines
+# might create separate lock instances.
 _cache_lock: asyncio.Lock | None = None
 
 
-def _get_cache_lock() -> asyncio.Lock:
-    """Return the module-level asyncio.Lock, creating it lazily.
-
-    The lock must be created inside a running event loop, so we cannot
-    initialise it at module import time (which may happen before the loop
-    starts).  Lazy initialisation on first use is safe because FastAPI
-    always calls handlers from within the running loop.
+def init_community():
+    """Initialize the community module with proper asyncio context.
+    
+    Must be called during application startup (in lifespan context) to ensure
+    the cache lock is created inside a running event loop. This is called from
+    main.py lifespan.
     """
     global _cache_lock
     if _cache_lock is None:
         _cache_lock = asyncio.Lock()
+
+
+def _get_cache_lock() -> asyncio.Lock:
+    """Return the module-level asyncio.Lock.
+    
+    The lock must have been initialized by init_community() during startup.
+    Raises RuntimeError if init_community() was not called.
+    """
+    if _cache_lock is None:
+        raise RuntimeError(
+            "Community module not initialized. init_community() must be "
+            "called during application startup."
+        )
     return _cache_lock
 
 
