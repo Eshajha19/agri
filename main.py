@@ -3,7 +3,6 @@ import os
 import asyncio
 import logging
 import time
-import httpx
 from collections import deque
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,25 +35,6 @@ async def handle_missing_static(request: Request, call_next):
 # Expose sanitizer globally
 sanitise_log_field_fn = sanitize_log_field
 
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get("http://127.0.0.1:8000/health")
-            if resp.status_code == 200:
-                logger.info("✅ Backend health check passed: %s", resp.json())
-            else:
-                logger.error("❌ Backend health check failed: %s", resp.status_code)
-    except Exception as exc:
-        logger.error("❌ Backend unavailable at startup: %s", exc)
-
-    yield
-
-    # Shutdown
-    logger.info("🛑 Shutting down FastAPI app")
 
 class CSPMiddleware:
     """Add Content-Security-Policy header to every response."""
@@ -130,14 +110,6 @@ app.add_middleware(
 
 # Apply CSP with explicit connect-src
 csp_policy = "default-src 'self'; connect-src 'self' wss://yourfrontend.com wss://staging.yourfrontend.com"
-app.add_middleware(CSPMiddleware, policy=csp_policy)
-
-csp_policy = (
-    "default-src 'self'; "
-    "script-src 'self' https://translate.googleapis.com https://translate.google.com; "
-    "style-src 'self' 'unsafe-inline' https://translate.googleapis.com; "
-    "frame-src 'self' https://translate.google.com;"
-)
 app.add_middleware(CSPMiddleware, policy=csp_policy)
 
 
@@ -230,13 +202,6 @@ from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 
-from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
 
 from contextlib import asynccontextmanager
 
