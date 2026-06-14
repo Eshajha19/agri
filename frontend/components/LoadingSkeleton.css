@@ -1,20 +1,4 @@
 /* Skeleton Animation */
-@keyframes skeleton-loading {
-  0% {
-    background-color: hsl(200, 20%, 80%);
-  }
-  100% {
-    background-color: hsl(200, 20%, 95%);
-  }
-}
-
-.skeleton-loader {
-  animation: skeleton-loading 1s linear infinite alternate;
-  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-  background-size: 200% 100%;
-  animation: shimmer 2s infinite;
-}
-
 @keyframes shimmer {
   0% {
     background-position: -1000px 0;
