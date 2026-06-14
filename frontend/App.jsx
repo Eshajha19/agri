@@ -1162,6 +1162,7 @@ useEffect(() => {
             <Route path="/crop-comparison" element={<CropComparison />} />
             <Route path="*" element={<NotFound />} />
             <Route path="/insurance-comparison" element={<InsuranceComparison />} />
+            <Route path="/insurance-vault" element={<InsuranceVault documents={mockDocs} />} />
           </Routes>
         </React.Suspense>
       </main>
