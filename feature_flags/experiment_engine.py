@@ -157,33 +157,9 @@ def create_experiment(data: Dict) -> Dict:
                 f"'{existing.get('status')}'. Cannot overwrite a live experiment."
             )
 
-        exp = {
-            **data,
-            "id": exp_id,
-            "created_at": now,
-            "updated_at": now,
-            "status": data.get("status", "draft"),
-            "cache_version": CACHE_VERSION,
-        }
-        
-        exp["cache_version"] = CACHE_VERSION
-
+        exp = {**data, "id": exp_id, "created_at": now, "updated_at": now,
+               "status": data.get("status", "draft")}
         exp.setdefault("salt", hashlib.sha256(exp_id.encode()).hexdigest()[:12])
-
-        _exp_cache[exp_id] = exp
-        _exp_cache_at = time.monotonic()
-        exp = {
-            **data,
-            "id": exp_id,
-            "created_at": now,
-            "updated_at": now,
-            "status": data.get("status", "draft"),
-        }
-
-        exp.setdefault(
-            "salt",
-            hashlib.sha256(exp_id.encode()).hexdigest()[:12]
-        )
 
         _exp_cache[exp_id] = exp
         _exp_cache_at = time.monotonic()
@@ -340,11 +316,6 @@ def assign_user(user_id: str, experiment_id: str) -> Dict:
         "consistency_verified": is_consistent,
     }
 
-    ASSIGNMENT_AUDIT[
-        "total_assignments"
-    ] += 1
-
-
     if _FIRESTORE_AVAILABLE:
         try:
             doc_id = f"{user_id}_{experiment_id}"
@@ -384,31 +355,3 @@ def update_experiment_status(exp_id: str, status: str) -> Optional[Dict]:
         except Exception as e:
             logger.error("Failed to update experiment status: %s", e)
     return _exp_cache[exp_id]
-# -------------------------
-# Persistence
-# -------------------------
-
-def _persist(exp_id: str) -> None:
-    if not _FIRESTORE_AVAILABLE:
-        return
-
-    try:
-        with _exp_cache_lock:
-            exp = _exp_cache.get(exp_id)
-
-        if exp:
-            _fs_client.collection(EXP_COLLECTION).document(exp_id).set(exp)
-
-    except Exception as e:
-        logger.error("Persist experiment failed: %s", e)
-
-
-def _persist_assignment(user_id: str, exp_id: str, data: Dict) -> None:
-    if not _FIRESTORE_AVAILABLE:
-        return
-
-    try:
-        doc_id = f"{user_id}_{exp_id}"
-        _fs_client.collection(ASSIGN_COLLECTION).document(doc_id).set(data)
-    except Exception as e:
-        logger.warning("Persist assignment failed: %s", e)

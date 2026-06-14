@@ -360,6 +360,7 @@ async def lifespan(app: FastAPI):
 
     # Wire WebSocket token auth via first-message channel (not query string).
     notification_broker.set_authenticate(firebase_auth.verify_id_token)
+    notification_broker.set_profile_fetcher(_get_firestore_user_profile)
     await notification_broker.start()
 
 
@@ -1062,18 +1063,29 @@ def get_notifications(
 @app.post("/api/whatsapp/subscribe")
 @limiter.limit("2/minute")
 async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
-    # Require authentication so the subscriber's identity is always derived
-    # from the verified Firebase token — never from client-supplied data.
-    # Previously the endpoint accepted user_id from the request body, which
-    # allowed any caller to overwrite another user's subscription by sending
-    # a known user_id with an attacker-controlled phone number.
     token_data = await verify_role(request)
-    uid = token_data["uid"]
-
+    uid = token_data.get("uid")
+ 
+    # --- CHANGE START ---
+    # Normalize early so we can validate before touching the store.
+    normalized_region = normalize_region_identifier(data.region_id) if data.region_id else None
+ 
+    # If the caller explicitly supplied a region_id but it reduced to
+    # nothing after normalization, the value is syntactically invalid
+    # (e.g. "---", "::", pure whitespace).  Reject it explicitly rather
+    # than silently dropping it, so the caller gets clear feedback.
+    if data.region_id and not normalized_region:
+        raise HTTPException(
+            status_code=422,
+            detail="region_id is malformed — contains only invalid characters.",
+        )
+    # --- CHANGE END ---
+ 
     subscriber = {
         "phone_number": data.phone_number,
         "name": data.name,
         "subscribed_at": datetime.now().isoformat(),
+        "region_id": normalized_region,          # None when absent or not provided
     }
     try:
         subscriber_store.upsert(uid, subscriber)
@@ -1082,13 +1094,13 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
             status_code=500,
             detail="Failed to save subscription. Please try again.",
         ) from exc
-
+ 
     welcome_msg = (
         f"Namaste {data.name}! 🙏\n\n"
         "Welcome to *Fasal Saathi WhatsApp Alerts*. "
         "You will now receive real-time updates directly here."
     )
-    send_whatsapp_message(data.phone_number, welcome_msg)
+    await asyncio.to_thread(send_whatsapp_message, data.phone_number, welcome_msg)
     return {"success": True, "message": "Successfully subscribed"}
 
 _broadcast_rate_limit = {}
@@ -1097,36 +1109,79 @@ _broadcast_rate_limit = {}
 @limiter.limit("10/minute")
 async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     """
-    Broadcast a WhatsApp alert to all subscribers.
-
-    Requires authentication — admin or expert role only.
-
-    Previously this endpoint had no authentication check, no rate limit,
-    and no input constraints.  Any unauthenticated caller could send
-    arbitrary messages to every subscribed farmer, enabling social
-    engineering attacks (fake market alerts, fake pest warnings) and
-    consuming Twilio API credits at the attacker's discretion.
+    Broadcast a WhatsApp alert to all subscribers (or a region subset).
+    Requires authentication — admin/expert for global; regional authority
+    for scoped broadcasts.
     """
-    # RBAC: only admins and experts may broadcast alerts to all farmers.
-    await verify_role(request, required_roles=["admin", "expert"])
-
-    # get_all() acquires the lock and returns a stable snapshot, so this read
-    # cannot race with a concurrent subscription write.
+    token_data = await verify_role(request)
+    uid = token_data["uid"]
+    role = str(token_data.get("role", "")).strip().lower()
+ 
+    # --- CHANGE START ---
+    # Normalize the region_id supplied in the request body.
+    raw_region = data.region_id           # may be None or a string
+    normalized_region = normalize_region_identifier(raw_region) if raw_region else ""
+ 
+    # If the caller explicitly provided a region_id but it reduces to an
+    # empty string after normalization, it is syntactically invalid
+    # (e.g. "---", "::", whitespace-only).  Reject it immediately so it
+    # cannot silently become a global broadcast when the `if normalized_region:`
+    # branch below is skipped.
+    if raw_region and not normalized_region:
+        raise HTTPException(
+            status_code=422,
+            detail="region_id is malformed — contains only invalid characters.",
+        )
+ 
+    region_id = normalized_region         # "" means global broadcast
+    # --- CHANGE END ---
+ 
+    if region_id:
+        # Scoped broadcast: caller must own the region or be privileged.
+        if role not in {"admin", "expert"}:
+            profile = _get_firestore_user_profile(uid)
+            if not profile_can_broadcast_region(profile, region_id):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Access denied: insufficient regional authority",
+                )
+    elif role not in {"admin", "expert"}:
+        # Global broadcast: only admins and experts are allowed.
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: insufficient permissions",
+        )
+ 
     subscribers = subscriber_store.get_all()
     formatted_msg = format_alert_message(data.alert_type, data.message)
     results = []
+    if region_id:
+        subscribers = {
+            user_id: info
+            for user_id, info in subscribers.items()
+            if _subscriber_matches_region(info, region_id)
+        }
     for user_id, info in subscribers.items():
-        res = send_whatsapp_message(info["phone_number"], formatted_msg)
-        results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})
-
-    # Persist the alert through the bounded, thread-safe notification store.
+        res = await asyncio.to_thread(send_whatsapp_message, info["phone_number"], formatted_msg)
+        results.append({
+            "user_id": user_id,
+            "success": res.get("success", False),
+            "status": res.get("status", "error"),
+        })
+ 
     await publish_notification(
         alert_type=data.alert_type,
         message=data.message,
+        region_id=region_id or None,
     )
-
+ 
     delivered = sum(1 for r in results if r["success"])
-    return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
+    return {
+        "success": True,
+        "results": results,
+        "delivered": delivered,
+        "total": len(results),
+    }
 
 
 @app.websocket("/api/notifications/stream")
@@ -1972,11 +2027,23 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     token_data = await verify_role(request)
     uid = token_data.get("uid")
 
+    # Validate region_id: a non-empty value that normalizes to "" is rejected
+    # so the client always gets an explicit error rather than silent coercion.
+    if data.region_id is not None and data.region_id != "":
+        normalized_region = normalize_region_identifier(data.region_id)
+        if not normalized_region:
+            raise HTTPException(
+                status_code=422,
+                detail="Invalid region_id: value is malformed or empty after normalization.",
+            )
+    else:
+        normalized_region = None
+ 
     subscriber = {
         "phone_number": data.phone_number,
         "name": data.name,
         "subscribed_at": datetime.now().isoformat(),
-        "region_id": normalize_region_identifier(data.region_id) or None,
+        "region_id": normalized_region,
     }
     try:
         subscriber_store.upsert(uid, subscriber)
@@ -2013,8 +2080,18 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     token_data = await verify_role(request)
     uid = token_data["uid"]
     role = str(token_data.get("role", "")).strip().lower()
-    region_id = normalize_region_identifier(data.region_id) if data.region_id else ""
-
+    # Explicit validation: a non-empty but structurally invalid region_id
+    # (e.g. "---", "::") must be rejected rather than silently treated as
+    # a global broadcast by falling through the empty-string branch.
+    if data.region_id is not None and data.region_id != "":
+        region_id = normalize_region_identifier(data.region_id)
+        if not region_id:
+            raise HTTPException(
+                status_code=422,
+                detail="Invalid region_id: value is malformed or empty after normalization.",
+            )
+    else:
+        region_id = ""
     if region_id:
         if role not in {"admin", "expert"}:
             profile = _get_firestore_user_profile(uid)
@@ -2579,27 +2656,33 @@ def load_router(router, name: str):
 
 
 try:
-    from routers.retraining_pipeline import router as retraining_router
+    from routers.retraining_pipeline import (
+        router as retraining_router,
+        init_auth as init_retraining_auth,       # NEW — import init_auth
+    )
+    init_retraining_auth(verify_role)            # NEW — inject auth before mounting
     load_router(retraining_router, "Retraining Pipeline")
 except Exception as e:
     logger.warning(f"Could not import Retraining Pipeline API: {e}")
-
-
+ 
+ 
 try:
     from routers.feature_drift import (
         router as feature_drift_router,
-        init_auth as init_drift_auth
+        init_auth as init_drift_auth,
     )
-
-    init_drift_auth(verify_role)
+    init_drift_auth(verify_role)                 # unchanged — already existed
     load_router(feature_drift_router, "Feature Drift Detection")
-
 except Exception as e:
     logger.warning(f"Could not import Feature Drift Detection API: {e}")
-
-
+ 
+ 
 try:
-    from routers.crop_recommendation import router as crop_router
+    from routers.crop_recommendation import (
+        router as crop_router,
+        init_auth as init_crop_auth,             # NEW — import init_auth
+    )
+    init_crop_auth(verify_role)                  # NEW — inject auth before mounting
     load_router(crop_router, "Crop Recommendation")
 except Exception as e:
     logger.warning(f"Could not import Crop Recommendation API: {e}")
