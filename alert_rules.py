@@ -1,52 +1,11 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any, List
 import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-CROP_THRESHOLDS = {
-    "rice": {
-        "temp_min": 20,
-        "temp_max": 30,
-        "moisture_min": 50,
-        "ph_min": 6.0,
-        "ph_max": 7.5,
-        "critical_stages": ["tillering", "flowering", "grain-filling"]
-    },
-    "wheat": {
-        "temp_min": 10,
-        "temp_max": 25,
-        "moisture_min": 30,
-        "ph_min": 6.5,
-        "ph_max": 7.5,
-        "critical_stages": ["crown-root-initiation", "tillering", "flowering"]
-    },
-    "cotton": {
-        "temp_min": 21,
-        "temp_max": 27,
-        "moisture_min": 35,
-        "ph_min": 6.0,
-        "ph_max": 7.5,
-        "critical_stages": ["flowering", "boll-formation"]
-    },
-    "maize": {
-        "temp_min": 18,
-        "temp_max": 26,
-        "moisture_min": 40,
-        "ph_min": 6.0,
-        "ph_max": 7.0,
-        "critical_stages": ["tasseling", "silking", "grain-filling"]
-    },
-    "sugarcane": {
-        "temp_min": 20,
-        "temp_max": 28,
-        "moisture_min": 45,
-        "ph_min": 6.5,
-        "ph_max": 8.0,
-        "critical_stages": ["sprouting", "grand-growth-phase"]
-    }
-}
+from backend.core.constants import CROP_THRESHOLDS
 
 
 def validate_inputs(
