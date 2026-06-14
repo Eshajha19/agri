@@ -269,6 +269,9 @@ def create_experiment(data: Dict) -> Dict:
         _exp_cache[exp_id] = exp
         _exp_cache_at = time.monotonic()
 
+        _exp_cache[exp_id] = exp
+        _exp_cache_at = time.monotonic()
+
         if existing and existing.get("status") != "draft":
             raise ValueError(
                 f"Experiment '{exp_id}' already exists "

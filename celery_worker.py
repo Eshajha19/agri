@@ -136,7 +136,82 @@ def _get_ml_router():
             logger.error("Failed to initialize ML router: %s", e)
     return _ml_router
 
+@celery_app.task(
+    bind=True,
+    name="predict_yield_batch_task",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 2},
+    soft_time_limit=30,
+    time_limit=45,
+)
+def predict_yield_batch_task(
+    self,
+    inputs: list[dict],
+    context: Optional[dict] = None,
+):
+    """
+    Batch yield prediction using ML router.
+    """
 
+    try:
+        router = _get_ml_router()
+
+        predictions = router.predict_batch(
+            inputs,
+            context,
+        )
+
+        return {
+            "predictions": predictions,
+            "count": len(predictions),
+            "model": router.default_model,
+        }
+
+    except Exception:
+        logger.exception(
+            "Batch yield prediction task failed"
+        )
+        raise
+
+
+@celery_app.task(
+    bind=True,
+    name="predict_ensemble_task",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 2},
+    soft_time_limit=30,
+    time_limit=45,
+)
+def predict_ensemble_task(
+    self,
+    input_data: dict,
+):
+    """
+    Ensemble prediction.
+    """
+
+    try:
+        stacker = _get_ensemble_stacker()
+
+        result = stacker.predict(input_data)
+
+        return result
+
+    except RuntimeError:
+        logger.exception(
+            "Ensemble prediction failed: no models available"
+        )
+        raise
+
+    except Exception:
+        logger.exception(
+            "Ensemble prediction task failed"
+        )
+        raise
 def _get_ensemble_stacker():
     global _ensemble_stacker
 
