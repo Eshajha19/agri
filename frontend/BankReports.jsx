@@ -123,6 +123,19 @@ const BankReports = ({ userData }) => {
       }
 
       const blob = response.data;
+
+      if (!blob || blob.size === 0) {
+        throw new Error("Empty report received from server");
+      }
+
+      const MAX_REPORT_SIZE_MB = 25;
+
+      if (blob.size > MAX_REPORT_SIZE_MB * 1024 * 1024) {
+        throw new Error(
+          `Generated report exceeds ${MAX_REPORT_SIZE_MB}MB size limit`
+        );
+      }
+
       if (downloadUrlRef.current) {
         window.URL.revokeObjectURL(downloadUrlRef.current);
       }
@@ -133,7 +146,11 @@ const BankReports = ({ userData }) => {
       a.href = url;
       a.download = `FasalSaathi_BankReport_${Date.now()}.pdf`;
       document.body.appendChild(a);
-      a.click();
+      try {
+        a.click();
+      } catch {
+        throw new Error("Failed to start report download");
+      }
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
 
@@ -148,7 +165,7 @@ const BankReports = ({ userData }) => {
         profit: profit.toLocaleString("en-IN"),
         sigId: "CERT-" + Math.random().toString(36).substr(2, 5).toUpperCase()
       };
-      const updatedReports = [newReport, ...reports];
+      const updatedReports = [newReport, ...reports].slice(0, MAX_REPORTS);
       if (
         !mountedRef.current ||
         activeRequestRef.current !== requestId
@@ -171,6 +188,13 @@ const BankReports = ({ userData }) => {
         !mountedRef.current ||
         activeRequestRef.current !== requestId
       ) {
+        return;
+      }
+
+      if (err.code === "ECONNABORTED") {
+        setError(
+          "Report generation timed out. Please try again with a smaller dataset."
+        );
         return;
       }
 

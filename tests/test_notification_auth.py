@@ -108,12 +108,18 @@ def test_websocket_scoped_snapshot(monkeypatch):
 
     client = TestClient(app)
 
-    with client.websocket_connect("/api/notifications/stream?token=alice") as ws:
+    with client.websocket_connect(
+        "/api/notifications/stream",
+        headers={"Authorization": "Bearer alice"},
+    ) as ws:
         snapshot = ws.receive_json()
         assert snapshot["type"] == "snapshot"
         assert len(snapshot["data"]) == 2
 
-    with client.websocket_connect("/api/notifications/stream?token=bob") as ws:
+    with client.websocket_connect(
+        "/api/notifications/stream",
+        headers={"Authorization": "Bearer bob"},
+    ) as ws:
         snapshot = ws.receive_json()
         assert snapshot["type"] == "snapshot"
         assert len(snapshot["data"]) == 1

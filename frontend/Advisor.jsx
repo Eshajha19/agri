@@ -27,6 +27,7 @@ import CropDiseaseDetection from "./CropDiseaseDetection";
 import PestDetection from "./PestDetection";
 import PestManagement from "./PestManagement";
 import SprayReminder from "./SprayReminder";
+import SprayScheduler from "./SprayScheduler";
 import PestCalendar from "./PestCalendar";
 import SeedVerifier from "./SeedVerifier";
 import ClimateSimulator from "./ClimateSimulator";
@@ -167,9 +168,11 @@ export default function Advisor({ userData }) {
      setShowCropDiseaseDetection,
 showPestManagement,
       setShowPestManagement,
-      showSprayReminder,
-      setShowSprayReminder,
-      showPestCalendar,
+       showSprayReminder,
+       setShowSprayReminder,
+       showSprayScheduler,
+       setShowSprayScheduler,
+       showPestCalendar,
       setShowPestCalendar,
       showAgriMarketplace,
      setShowAgriMarketplace,
@@ -884,7 +887,7 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             <p>Early warnings & organic pest control tips.</p>
           </div>
 
-<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowSprayReminder(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSprayReminder(true); }} aria-label="Spray Scheduler: Weather-aware spray scheduling">
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowSprayScheduler(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSprayScheduler(true); }} aria-label="Spray Scheduler: Weather-aware spray scheduling">
              <div className="icon" aria-hidden="true"><CloudRain size={32} /></div>
              <h3><span className="notranslate">Spray Scheduler</span></h3>
              <p>Weather-aware spray scheduling &amp; rotation recommendations.</p>
@@ -1763,7 +1766,16 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
          </div>
        )}
 
-       {showPestCalendar && (
+      {showSprayScheduler && (
+         <div key="modal-spray-scheduler" className="weather-overlay" onClick={() => setShowSprayScheduler(false)}>
+           <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1100px', width: '95vw' }}>
+             <button className="close-btn" onClick={() => setShowSprayScheduler(false)} aria-label="Close spray scheduler"><X /></button>
+             <SprayScheduler schedules={[]} weatherData={weatherSnapshot} location={weatherLocation} />
+           </div>
+         </div>
+       )}
+
+        {showPestCalendar && (
          <div key="modal-pest-calendar" className="weather-overlay" onClick={() => setShowPestCalendar(false)}>
            <div className="weather-popup" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1100px', width: '95vw' }}>
              <button className="close-btn" onClick={() => setShowPestCalendar(false)} aria-label="Close pest calendar"><X /></button>

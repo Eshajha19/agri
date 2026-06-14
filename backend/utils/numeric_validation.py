@@ -17,12 +17,18 @@ from fastapi import HTTPException
 _PH_MIN = 0.0
 _PH_MAX = 14.0
 
+# Generic numeric validation limits
+_MAX_ABSOLUTE_VALUE = 1_000_000_000
+_MIN_NONZERO_MAGNITUDE = 1e-12
+_MAX_DECIMAL_PLACES = 12
 
 def validate_numeric_bounds(
     data: Dict[str, Any],
     field_list: Iterable[str],
     *,
     ph_fields: Iterable[str] = ("ph", "pH"),
+    max_absolute_value: float = _MAX_ABSOLUTE_VALUE,
+    min_nonzero_magnitude: float = _MIN_NONZERO_MAGNITUDE,
 ) -> Dict[str, Any]:
     """Validate and coerce numeric fields in *data*, returning a sanitised copy.
 
@@ -65,7 +71,7 @@ def validate_numeric_bounds(
 
         try:
             numeric_value = float(sanitized[field])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid value for '{field}': must be a number.",
@@ -76,7 +82,45 @@ def validate_numeric_bounds(
                 status_code=400,
                 detail=f"Invalid value for '{field}': must be a finite number (not inf or NaN).",
             )
+        
+        if abs(numeric_value) > max_absolute_value:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Invalid value for '{field}': "
+                    f"absolute value exceeds {max_absolute_value}."
+                ),
+            )
 
+        if (
+            numeric_value != 0
+            and abs(numeric_value) < min_nonzero_magnitude
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Invalid value for '{field}': "
+                    "value is below supported precision."
+                ),
+            )
+
+        text_value = str(sanitized[field]).lower()
+
+        if "." in text_value:
+            fractional = text_value.split(".", 1)[1]
+
+            if "e" in fractional:
+                fractional = fractional.split("e", 1)[0]
+
+            if len(fractional.rstrip("0")) > _MAX_DECIMAL_PLACES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Invalid value for '{field}': "
+                        "excessive decimal precision."
+                    ),
+                )
+            
         sanitized[field] = numeric_value
 
         if field in ph_fields_set and not (_PH_MIN <= numeric_value <= _PH_MAX):
