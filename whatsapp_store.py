@@ -33,7 +33,7 @@ import os
 import tempfile
 import threading
 from typing import Dict, Optional
-
+from filelock import FileLock
 
 logger = logging.getLogger(__name__)
 
@@ -49,12 +49,50 @@ class SubscriberStore:
     - snapshot reads
     """
 
-    def __init__(self, storage_path: str = "subscribers.json"):
+    def __init__(self, storage_path: str = "subscribers.json", timeout: int = 10):
         self.storage_path = storage_path
         self._lock = threading.Lock()
+        self._lock_filepath = f"{storage_path}.lock"
+        self._timeout = timeout
+        self._filelock = FileLock(self._lock_filepath, timeout=self._timeout)
         self._subscribers: Dict[str, Dict] = {}
-
         self._load()
+
+
+    # ------------------------------------------------------------------
+    # Private helpers (must be called with locks already held)
+    # ------------------------------------------------------------------
+
+    def _read_locked(self) -> Dict[str, Subscriber]:
+        """Read and parse the subscribers file.  Raises on corruption."""
+        if not os.path.exists(self._filepath):
+            return {}
+        try:
+            with open(self._filepath, "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except json.JSONDecodeError as exc:
+            backup = self._filepath + ".bak"
+            try:
+                import shutil
+                shutil.copy2(self._filepath, backup)
+                logger.error(
+                    "Subscriber file '%s' is corrupt. Backed up to '%s'. "
+                    "Raising error to prevent data loss.",
+                    self._filepath, backup, exc,
+                )
+            except OSError as backup_err:
+                logger.error(
+                    "Subscriber file '%s' is corrupt AND backup to '%s' failed: %s",
+                    self._filepath, backup, backup_err,
+                )
+            raise
+        except OSError as exc:
+            logger.error(
+                "Could not read subscriber file '%s': %s.",
+                self._filepath,
+                exc,
+            )
+            raise
 
     # =========================================================================
     # INTERNAL
@@ -64,11 +102,12 @@ class SubscriberStore:
         """
         Safely load subscribers from disk.
         """
-
-        with self._lock:
-            if not os.path.exists(self.storage_path):
-                self._subscribers = {}
-                return
+    
+        with self._filelock:   # distributed-safe lock
+            with self._lock:   # thread-safe lock
+                if not os.path.exists(self.storage_path):
+                    self._subscribers = {}
+                    return
 
             try:
                 with open(self.storage_path, "r", encoding="utf-8") as f:
@@ -78,60 +117,59 @@ class SubscriberStore:
                     raise ValueError("Subscriber data must be a dictionary")
 
                 self._subscribers = data
+                logger.info("Loaded %s subscribers", len(self._subscribers))
 
-                logger.info(
-                    "Loaded %s subscribers",
-                    len(self._subscribers),
-                )
+            except json.JSONDecodeError:
+
+                # backup corrupted file
+                backup = self.storage_path + ".bak"
+                os.replace(self.storage_path, backup)
+
+                logger.error("Subscriber file corrupt, backed up to %s", backup)
+                self._subscribers = {}
+
 
             except Exception:
-                logger.exception(
-                    "Failed loading subscriber store"
-                )
-
+                logger.exception("Failed loading subscriber store")
                 self._subscribers = {}
+
 
     def _save(self) -> None:
         """
         Atomically save subscribers to disk.
         """
 
-        with self._lock:
-            directory = os.path.dirname(self.storage_path) or "."
+        with self._filelock: 
+              # distributed-safe lock
+            with self._lock:   # thread-safe lock
 
-            os.makedirs(directory, exist_ok=True)
+                directory = os.path.dirname(self.storage_path) or "."
+                os.makedirs(directory, exist_ok=True)
 
-            fd, temp_path = tempfile.mkstemp(
-                dir=directory,
-                prefix="subs_",
-                suffix=".tmp",
-            )
-
+            fd, temp_path = tempfile.mkstemp(dir=directory, prefix="subs_", suffix=".tmp")
+            
             try:
-                with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
-                    json.dump(
-                        self._subscribers,
-                        tmp_file,
-                        indent=2,
-                        ensure_ascii=False,
-                    )
 
+                with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
+
+                    json.dump(self._subscribers, tmp_file, indent=2, ensure_ascii=False)
                     tmp_file.flush()
                     os.fsync(tmp_file.fileno())
+                    os.replace(temp_path, self.storage_path)
 
-                os.replace(temp_path, self.storage_path)
 
             except Exception:
-                logger.exception(
-                    "Failed saving subscriber store"
-                )
+
+                logger.exception("Failed saving subscriber store")
 
                 try:
                     os.remove(temp_path)
                 except OSError:
-                    pass
 
+                    pass
+                
                 raise
+
 
     # =========================================================================
     # PUBLIC API

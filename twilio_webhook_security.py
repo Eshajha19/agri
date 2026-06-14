@@ -114,7 +114,10 @@ def validate_whatsapp_number(raw: str) -> str:
 
 def parse_whatsapp_form(body: bytes) -> Tuple[str, str]:
     """Extract Body and From fields from a Twilio form-encoded webhook payload."""
-    params = dict(urllib.parse.parse_qsl(body.decode("utf-8"), keep_blank_values=True))
+    try:
+        params = dict(urllib.parse.parse_qsl(body.decode("utf-8"), keep_blank_values=True))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Malformed form payload")
     return params.get("Body", ""), params.get("From", "")
 
 
@@ -125,19 +128,22 @@ def enqueue_whatsapp_webhook_processing(message_body: str, sender_number: str) -
     process_whatsapp_webhook_task.delay(message_body, sender_number)
 
 
-async def handle_inbound_whatsapp_webhook(request: Request) -> dict:
-    """
-    Verify Twilio signature, validate sender, and enqueue async processing.
+MAX_BODY_SIZE = 64 * 1024  # 64 KB
 
-    Returns immediately so Twilio does not time out under burst traffic.
-    Any unhandled exception is caught and returned as a clean 500 so
-    Python stack traces never leak to the caller.
-    """
+async def handle_inbound_whatsapp_webhook(request: Request) -> dict:
     try:
         raw_body = await request.body()
+
+        # Step 1: Body length check
+        if len(raw_body) > MAX_BODY_SIZE:
+            raise HTTPException(status_code=413, detail="Webhook body too large")
+
         verify_twilio_signature(request, raw_body)
 
+        #  Step 2: Hardened form parsing
         message_body, from_raw = parse_whatsapp_form(raw_body)
+
+        # Step 3: Validate sender number safely
         sender_number = validate_whatsapp_number(from_raw)
 
         enqueue_whatsapp_webhook_processing(message_body, sender_number)

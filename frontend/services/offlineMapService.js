@@ -12,6 +12,7 @@ const META_STORE = 'cache-metadata';
 
 // Cache expiry: 7 days
 const CACHE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_REGION_TILES = 5000;
 
 let dbInstance = null;
 
@@ -158,7 +159,17 @@ async function downloadRegion({ bounds, zoomLevels = [10, 11, 12, 13], region = 
     }
   }
 
+  if (tiles.length > MAX_REGION_TILES) {
+    throw new Error(
+      `Region exceeds maximum supported tile count (${MAX_REGION_TILES})`
+    );
+  }
+
   const total = tiles.length;
+
+  console.info(
+    `[MAP_DOWNLOAD] region=${region} tiles=${total} zooms=${zoomLevels.join(",")}`
+  );
   let downloaded = 0;
   let failed = 0;
 
@@ -171,6 +182,24 @@ async function downloadRegion({ bounds, zoomLevels = [10, 11, 12, 13], region = 
       url = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
     } else {
       url = `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
+    }
+
+    const existingTile = await getCachedTile(z, x, y, style);
+
+    if (existingTile) {
+      URL.revokeObjectURL(existingTile);
+      downloaded++;
+
+      if (onProgress) {
+        onProgress({
+          downloaded,
+          total,
+          failed,
+          percent: Math.round((downloaded / total) * 100),
+        });
+      }
+
+      continue;
     }
 
     const success = await cacheTile(z, x, y, url, region, style);
