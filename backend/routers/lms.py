@@ -9,7 +9,6 @@ authorization decisions.
 """
 import asyncio
 import hashlib
-import logging
 import secrets
 import time
 from collections import OrderedDict
@@ -20,8 +19,10 @@ from fastapi import APIRouter, HTTPException, Request
 from google.cloud import firestore
 from pydantic import BaseModel, Field
 
+from backend.core.logging_config import setup_logging
+
 router = APIRouter()
-logger = logging.getLogger(__name__)
+logger = setup_logging(__name__)
 
 # Per-user per-course certificate request cooldown (seconds).
 _CERT_COOLDOWN_SECONDS = 60
