@@ -19,8 +19,10 @@ class FileStorage(StorageBackend):
         try:
             with open(self.path, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
+        except Exception as exc:
+            logger.exception("Firestore operation failed: %s", exc)
             return {}
+
 
     def save(self, history: Dict[str, List[Dict[str, Any]]]) -> None:
         tmp_path = self.path + ".tmp"
