@@ -152,14 +152,15 @@ class SustainabilityAnalytics:
                 json.dump(history, f, indent=2, ensure_ascii=False)
                 f.flush()
                 os.fsync(f.fileno())
-            os.replace(tmp_path, path)
+            os.replace(tmp_path, path)   # FIX: atomically rename tmp → real
         except OSError as exc:
             logger.warning("Failed to atomically write sustainability history to '%s': %s.", path, exc)
-            try:
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-            except OSError:
-                pass
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
+
 
     def get_formula_config(self) -> Dict[str, Any]:
         return {
