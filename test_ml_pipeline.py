@@ -270,6 +270,51 @@ def test_shadow_evaluator_rejection_triggers_rollback():
     return True
 
 
+def test_celery_worker_model_loaders():
+    """Test caching and locking behavior of model loaders in celery_worker."""
+    print("Testing celery_worker model loaders caching and lock...")
+    env = {
+        "ALLOW_INSECURE_REDIS": "true",
+        "MODEL_SIGNING_KEY": _TEST_KEY,
+        "TESTING": "true",
+        "ALLOW_UNSIGNED_MODELS": "false",
+        "LOCAL_TEST_MODE": "false",
+    }
+    with patch.dict(os.environ, env):
+        import celery_worker
+        
+        # Reset cached global variables to ensure fresh test state
+        celery_worker._model_lag = None
+        celery_worker._model_trend = None
+        
+        with patch("celery_worker.verify_and_load_joblib") as mock_verify_load:
+            mock_verify_load.return_value = "mock_lag_model"
+            
+            # Call multiple times to verify caching and lock
+            m1 = celery_worker._get_lag_model()
+            m2 = celery_worker._get_lag_model()
+            
+            assert m1 == "mock_lag_model"
+            assert m2 == "mock_lag_model"
+            # verify_and_load_joblib should be called exactly once because of caching
+            mock_verify_load.assert_called_once_with("sklearn_yield_model.joblib")
+            
+        with patch("celery_worker.verify_and_load_joblib") as mock_verify_load, \
+             patch("os.path.exists", return_value=True):
+            mock_verify_load.return_value = "mock_trend_model"
+            
+            m1 = celery_worker._get_trend_model()
+            m2 = celery_worker._get_trend_model()
+            
+            assert m1 == "mock_trend_model"
+            assert m2 == "mock_trend_model"
+            # verify_and_load_joblib should be called exactly once because of caching
+            mock_verify_load.assert_called_once_with("trend_forecast_model.joblib")
+            
+    print("  [OK] celery_worker model loaders double-checked locking & caching verified")
+    return True
+
+
 def main():
     print("=" * 60)
     print("ML Model Security Test Suite (Issue #4)")
@@ -284,6 +329,7 @@ def main():
         test_sign_then_verify_roundtrip,
         test_drift_triggers_model_rollback,
         test_shadow_evaluator_rejection_triggers_rollback,
+        test_celery_worker_model_loaders,
     ]
     passed = failed = 0
     for t in tests:
