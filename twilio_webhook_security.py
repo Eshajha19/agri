@@ -22,6 +22,12 @@ from rbac_audit import audit_rbac_event
 logger = logging.getLogger(__name__)
 
 
+# Supported WhatsApp message types
+SUPPORTED_WHATSAPP_TYPES = {"text", "image", "audio", "video", "document", "sticker"}
+
+# Configurable strict mode (default: warning mode)
+STRICT_MODE = os.getenv("WHATSAPP_STRICT_MODE", "false").lower() == "true"
+
 def verify_twilio_signature(request: Request, body: bytes) -> None:
     """Validate the X-Twilio-Signature header using HMAC-SHA1.
 
@@ -147,6 +153,37 @@ async def handle_inbound_whatsapp_webhook(request: Request) -> dict:
             status_code=500,
             detail="Failed to process webhook",
         ) from None
+
+def normalize_whatsapp_payload(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    messages = []
+    try:
+        for entry in payload.get("entry", []):
+            for change in entry.get("changes", []):
+                value = change.get("value", {})
+                for msg in value.get("messages", []):
+                    msg_type = msg.get("type")
+                    if msg_type not in SUPPORTED_WHATSAPP_TYPES:
+                        if STRICT_MODE:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"Unsupported WhatsApp message type: {msg_type}",
+                            )
+                        else:
+                            logger.warning("Unknown WhatsApp message type: %s", msg_type)
+                            continue  # skip unknown types
+
+                    normalized = {
+                        "from": msg.get("from"),
+                        "id": msg.get("id"),
+                        "timestamp": msg.get("timestamp"),
+                        "text": msg.get("text", {}).get("body") if msg_type == "text" else None,
+                        "media_id": msg.get(msg_type, {}).get("id") if msg_type in {"image","audio","video","document","sticker"} else None,
+                        "type": msg_type,
+                    }
+                    messages.append(normalized)
+    except Exception as exc:
+        logger.exception("Failed to normalize WhatsApp payload: %s", exc)
+    return messages
 
 
 def enqueue_whatsapp_webhook_processing(message_body: str, sender_number: str) -> None:
