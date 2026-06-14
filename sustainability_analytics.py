@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +175,10 @@ class SustainabilityAnalytics:
         crop_key = _normalize_crop(data["crop_type"])
         season_key = _normalize_season(data["season"])
         coeffs = CROP_COEFFICIENTS.get(crop_key, CROP_COEFFICIENTS["default"])
-        acreage = data["acreage"]
+        MAX_ACREAGE = int(os.getenv("MAX_ACREAGE", "10000"))  # configurable limit
+
+        acreage = float(data.get("acreage", 0.1))
+        acreage = max(min(acreage, MAX_ACREAGE), 0.1)
         irr_type = data["irrigation_type"]
         irr_eff = IRRIGATION_EFFICIENCY.get(irr_type, 0.7)
         season_days = SEASON_DAYS[season_key]
