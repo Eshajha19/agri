@@ -10,9 +10,8 @@ import joblib
 import hashlib
 import collections
 import threading
-import itertools
-import pandas as pd
-import numpy as np
+import time
+import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
@@ -424,7 +423,7 @@ async def verify_role(request: Request, required_roles: list = None):
 # --- Models ---
 
 class PredictRequest(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     Crop: str = Field(..., max_length=50)
     CropCoveredArea: float = Field(..., gt=0)
@@ -453,8 +452,27 @@ class YieldInput(BaseModel):
     data: list[float]
 
 
+_ALLOWED_PREDICTION_FIELDS = frozenset({
+    "Crop", "CropCoveredArea", "CHeight", "CNext", "CLast", "CTransp",
+    "IrriType", "IrriSource", "IrriCount", "WaterCov", "Season",
+    "N", "P", "K", "ph", "pH", "temperature", "rainfall", "humidity",
+})
+
+
 def _coerce_prediction_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
     sanitized = dict(input_data)
+
+    # Defense-in-depth: reject any field not in the allowlist.
+    # PredictRequest already uses extra="forbid" at the schema level, but
+    # this check protects other code paths that may call this function.
+    extra = [k for k in sanitized if k not in _ALLOWED_PREDICTION_FIELDS]
+    if extra:
+        logger.warning("Rejecting unknown prediction fields: %s", extra)
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown field(s): {', '.join(sorted(extra))}",
+        )
+
     numeric_fields = {
         "N",
         "P",
@@ -603,7 +621,7 @@ def _normalize_dynamic_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, An
 def sanitise_log_field(value: str) -> str:
     if not isinstance(value, str):
         value = str(value)
-    sanitised = "".join(ch if ord(ch) >= 32 or ch in "\n\t" else f"\\x{ord(ch):02x}" for ch in value)
+    sanitised = "".join(ch if ord(ch) >= 32 or ch == "\t" else f"\\x{ord(ch):02x}" for ch in value)
     return sanitised[:1000]
 
 @app.get("/")
@@ -785,6 +803,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     # cannot race with a concurrent subscription write.
     subscribers = subscriber_store.get_all()
     formatted_msg = format_alert_message(data.alert_type, data.message)
+    results = []
     for user_id, info in subscribers.items():
         res = send_whatsapp_message(info["phone_number"], formatted_msg)
         results.append({"user_id": user_id, "success": res.get("success", False), "status": res.get("status", "error")})

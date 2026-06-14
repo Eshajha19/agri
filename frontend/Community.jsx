@@ -68,6 +68,9 @@ const COMMENT_COOLDOWN_MS = 30_000;
 /** Milliseconds between reputation gains from posting (5 min). */
 const REPUTATION_COOLDOWN_MS = 300_000;
 
+/** Maximum number of comments that earn reputation per calendar day. */
+const COMMENT_REP_DAILY_CAP = 3;
+
 /**
  * Repeated-word spam detector.
  * Returns true when any single word makes up more than 40 % of the total
@@ -124,9 +127,9 @@ const Community = () => {
       for (const id of authorIds) {
         if (!newAuthorsData[id]) {
           try {
-            const userDoc = await getDocs(query(collection(db, "users"), where("uid", "==", id)));
-            if (!userDoc.empty) {
-              newAuthorsData[id] = userDoc.docs[0].data();
+            const userDoc = await getDoc(doc(db, "users", id));
+            if (userDoc.exists()) {
+              newAuthorsData[id] = userDoc.data();
               changed = true;
             }
           } catch (err) {
@@ -364,31 +367,50 @@ const Community = () => {
 
     const postId = showCommentsModal.id;
     try {
-      // Use a write batch so the comment document, the commenter's reputation
-      // increment, and the post's commentsCount increment are all committed
-      // atomically.
-      const batch = writeBatch(db);
+      // Use a transaction so the duplicate/cap check and all writes are atomic.
+      // A plain writeBatch cannot read documents, so we use runTransaction here.
+      await runTransaction(db, async (transaction) => {
+        const commenterRef = doc(db, "users", currentUser.uid);
+        const commenterSnap = await transaction.get(commenterRef);
+        const commenterData = commenterSnap.exists() ? commenterSnap.data() : {};
 
-      const commentRef = doc(collection(db, "comments"));
-      batch.set(commentRef, {
-        postId,
-        userId: currentUser.uid,
-        userName: currentUser.displayName || currentUser.email.split('@')[0],
-        text,
-        upvotes: [],
-        downvotes: [],
-        createdAt: serverTimestamp(),
+        // Determine whether the user is still within their daily reputation cap
+        // for comments.  We track two fields on the user document:
+        //   commentReputationDate  – ISO date string (YYYY-MM-DD) of the last
+        //                            day reputation was awarded for a comment.
+        //   commentReputationToday – count of reputation-earning comments on
+        //                            that day (resets when the date changes).
+        const today = new Date().toISOString().slice(0, 10);
+        const lastRepDate = commenterData.commentReputationDate || "";
+        const repCountToday =
+          lastRepDate === today ? (commenterData.commentReputationToday || 0) : 0;
+
+        const earnedRep = repCountToday < COMMENT_REP_DAILY_CAP;
+
+        const commentRef = doc(collection(db, "comments"));
+        transaction.set(commentRef, {
+          postId,
+          userId: currentUser.uid,
+          userName: currentUser.displayName || currentUser.email.split('@')[0],
+          text,
+          upvotes: [],
+          downvotes: [],
+          createdAt: serverTimestamp(),
+        });
+
+        // Award +5 reputation only if the daily cap has not been reached.
+        if (earnedRep) {
+          transaction.update(commenterRef, {
+            reputation: increment(5),
+            commentReputationDate: today,
+            commentReputationToday: repCountToday + 1,
+          });
+        }
+
+        // Keep the post's comment count in sync.
+        const postRef = doc(db, "posts", postId);
+        transaction.update(postRef, { commentsCount: increment(1) });
       });
-
-      // Award +5 reputation for posting a comment
-      const commenterRef = doc(db, "users", currentUser.uid);
-      batch.update(commenterRef, { reputation: increment(5) });
-
-      // Keep the post's comment count in sync
-      const postRef = doc(db, "posts", postId);
-      batch.update(postRef, { commentsCount: increment(1) });
-
-      await batch.commit();
 
       // Record the comment time for the local cooldown check.
       setLastCommentTime(Date.now());

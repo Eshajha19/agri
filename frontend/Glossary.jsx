@@ -9,6 +9,11 @@ import {
   FaHistory,
   FaBug,
   FaGlobeAmericas,
+  FaTractor,
+  FaThermometerHalf,
+  FaWarehouse,
+  FaChartLine,
+  FaSitemap,
   FaTimes
 } from "react-icons/fa";
 import "./Glossary.css";
@@ -17,72 +22,219 @@ const glossaryTerms = [
   {
     term: "Drip Irrigation",
     definition:
-      "A precise watering method that delivers water and nutrients directly to the plant's root zone through a network of pipes and emitters, significantly reducing water wastage.",
+      "A precision irrigation method that delivers water and dissolved nutrients directly to the root zone through emitters, minimizing evaporation, runoff, and weed growth while improving water-use efficiency.",
     category: "Irrigation",
     icon: <FaWater />
   },
   {
     term: "Mulching",
     definition:
-      "The process of covering the top layer of soil with organic or inorganic materials to retain soil moisture, suppress weed growth, and regulate soil temperature.",
+      "The practice of covering soil with organic or synthetic material to conserve moisture, suppress weeds, reduce erosion, moderate soil temperature, and improve the long-term condition of the topsoil.",
     category: "Soil Management",
     icon: <FaLeaf />
   },
   {
     term: "Composting",
     definition:
-      "The natural process of recycling organic matter into nutrient-rich compost that improves soil fertility and plant health.",
+      "The controlled biological decomposition of crop residues, manure, and other organic materials into stable humus-like compost that improves nutrient availability, soil structure, and microbial activity.",
     category: "Fertilization",
     icon: <FaSeedling />
   },
   {
     term: "Soil Moisture",
     definition:
-      "The amount of water contained in the soil, crucial for nutrient absorption and healthy crop growth.",
+      "The water held in the soil profile and available for plant uptake, which strongly influences germination, nutrient transport, root development, and irrigation scheduling.",
     category: "Soil Management",
     icon: <FaVial />
   },
   {
     term: "Crop Rotation",
     definition:
-      "The practice of growing different crops sequentially to maintain soil nutrients and reduce pests.",
+      "The planned sequence of different crops on the same field across seasons or years to balance nutrient demand, interrupt pest and disease cycles, and support healthier soils.",
     category: "Planning",
     icon: <FaHistory />
   },
   {
     term: "Organic Farming",
     definition:
-      "An agricultural system focused on natural fertilizers and sustainable cultivation techniques.",
+      "An agricultural production system that relies on biological inputs, crop diversity, compost, and ecological processes instead of synthetic fertilizers and pesticides to maintain soil fertility and sustainability.",
     category: "Sustainability",
     icon: <FaGlobeAmericas />
   },
   {
     term: "Kharif Crops",
     definition:
-      "Crops grown during the monsoon season such as Rice, Maize, and Cotton.",
+      "Crops sown with the arrival of the monsoon and harvested after the rainy season, such as rice, maize, cotton, soybean, and pigeon pea in many South Asian systems.",
     category: "Seasons",
     icon: <FaSeedling />
   },
   {
     term: "Rabi Crops",
     definition:
-      "Crops sown in winter and harvested in spring such as Wheat and Mustard.",
+      "Crops planted after the monsoon in cooler months and harvested in spring, including wheat, mustard, barley, and several pulses that benefit from mild winter conditions.",
     category: "Seasons",
     icon: <FaSeedling />
   },
   {
     term: "Integrated Pest Management (IPM)",
     definition:
-      "A sustainable pest-control strategy using biological, cultural, and chemical methods together.",
+      "A decision-based pest control strategy that combines scouting, thresholds, resistant varieties, biological controls, cultural practices, and targeted pesticide use to manage pests with less environmental impact.",
     category: "Pest Control",
     icon: <FaBug />
   },
   {
     term: "Soil pH",
     definition:
-      "A measurement of soil acidity or alkalinity affecting nutrient availability.",
+      "A scale that measures soil acidity or alkalinity and influences nutrient solubility, microbial activity, fertilizer performance, and whether a crop can efficiently absorb key minerals.",
     category: "Soil Management",
     icon: <FaVial />
+  },
+  {
+    term: "Precision Agriculture",
+    definition:
+      "A farming approach that uses GPS, sensors, satellite imagery, and data analytics to apply water, seed, fertilizer, and crop protection inputs more accurately across variable field conditions.",
+    category: "Technology",
+    icon: <FaSitemap />
+  },
+  {
+    term: "Remote Sensing",
+    definition:
+      "The collection of crop and field information from satellites, drones, or aircraft without direct contact, often used to monitor plant health, moisture stress, and spatial variability at scale.",
+    category: "Technology",
+    icon: <FaGlobeAmericas />
+  },
+  {
+    term: "Evapotranspiration",
+    definition:
+      "The combined loss of water from soil evaporation and plant transpiration, commonly used to estimate crop water demand and guide irrigation timing and volume.",
+    category: "Climate & Water",
+    icon: <FaThermometerHalf />
+  },
+  {
+    term: "Fertigation",
+    definition:
+      "The application of soluble fertilizers through an irrigation system so nutrients can be delivered more evenly and at the right growth stage with reduced labor and nutrient loss.",
+    category: "Irrigation",
+    icon: <FaWater />
+  },
+  {
+    term: "Cover Crop",
+    definition:
+      "A crop grown primarily to protect and improve the soil rather than for harvest, helping reduce erosion, suppress weeds, increase organic matter, and capture leftover nutrients.",
+    category: "Soil Management",
+    icon: <FaLeaf />
+  },
+  {
+    term: "Green Manure",
+    definition:
+      "A fast-growing crop that is incorporated into the soil while still green to add organic matter, improve structure, and release nutrients as it decomposes.",
+    category: "Fertilization",
+    icon: <FaSeedling />
+  },
+  {
+    term: "Soil Organic Matter",
+    definition:
+      "The decomposed and partially decomposed plant and animal material in soil that improves water retention, nutrient cycling, structure, and biological activity.",
+    category: "Soil Management",
+    icon: <FaLeaf />
+  },
+  {
+    term: "Nutrient Management",
+    definition:
+      "The planning and application of fertilizers, manures, and soil amendments according to crop demand, soil test results, and environmental conditions to avoid deficiency or over-application.",
+    category: "Fertilization",
+    icon: <FaChartLine />
+  },
+  {
+    term: "Soil Testing",
+    definition:
+      "The laboratory analysis of soil samples to determine nutrient levels, pH, salinity, and other properties so farmers can make informed fertilizer and amendment decisions.",
+    category: "Planning",
+    icon: <FaVial />
+  },
+  {
+    term: "Salinity",
+    definition:
+      "The concentration of soluble salts in soil or irrigation water, which can reduce germination, restrict water uptake, and lower yields when levels become excessive.",
+    category: "Climate & Water",
+    icon: <FaWater />
+  },
+  {
+    term: "Raised Bed Planting",
+    definition:
+      "A cultivation method that grows crops on elevated soil beds separated by furrows or paths, improving drainage, root aeration, and often irrigation efficiency.",
+    category: "Planning",
+    icon: <FaTractor />
+  },
+  {
+    term: "Cold Storage",
+    definition:
+      "Temperature-controlled storage used after harvest to slow respiration, reduce spoilage, and extend shelf life for fruits, vegetables, seeds, and other perishables.",
+    category: "Post-Harvest",
+    icon: <FaWarehouse />
+  },
+  {
+    term: "Post-Harvest Loss",
+    definition:
+      "The loss of quantity, quality, or value that occurs between harvest and final consumption because of handling, storage, transport, pests, or spoilage.",
+    category: "Post-Harvest",
+    icon: <FaWarehouse />
+  },
+  {
+    term: "Market Linkage",
+    definition:
+      "The connection between producers and buyers through aggregators, cooperatives, digital platforms, or contracts that improves price discovery and market access.",
+    category: "Farm Economics",
+    icon: <FaChartLine />
+  },
+  {
+    term: "Yield Forecasting",
+    definition:
+      "The use of crop observations, weather data, and statistical or machine-learning models to estimate expected harvest output before the end of the season.",
+    category: "Technology",
+    icon: <FaChartLine />
+  },
+  {
+    term: "Intercropping",
+    definition:
+      "The practice of growing two or more crops together in the same field at the same time to improve land use, reduce pest pressure, and stabilize farm output.",
+    category: "Planning",
+    icon: <FaSeedling />
+  },
+  {
+    term: "Crop Canopy",
+    definition:
+      "The collective layer of leaves and stems above the ground, which influences sunlight interception, transpiration, temperature moderation, and photosynthetic productivity.",
+    category: "Crop Science",
+    icon: <FaLeaf />
+  },
+  {
+    term: "Germination",
+    definition:
+      "The stage when a seed begins to sprout and produce a root and shoot under suitable moisture, temperature, and oxygen conditions.",
+    category: "Crop Science",
+    icon: <FaSeedling />
+  },
+  {
+    term: "Biological Control",
+    definition:
+      "The use of natural enemies such as predators, parasitoids, or beneficial microbes to suppress pests, diseases, or weeds.",
+    category: "Pest Control",
+    icon: <FaBug />
+  },
+  {
+    term: "Weather Advisory",
+    definition:
+      "A localized forecast-based recommendation that helps farmers time irrigation, spraying, harvesting, and field operations around expected rain, wind, heat, or frost.",
+    category: "Climate & Water",
+    icon: <FaThermometerHalf />
+  },
+  {
+    term: "Carbon Sequestration",
+    definition:
+      "The capture and storage of atmospheric carbon in vegetation and soil, often promoted through conservation agriculture, cover crops, reduced tillage, and agroforestry.",
+    category: "Sustainability",
+    icon: <FaGlobeAmericas />
   }
 ];
 

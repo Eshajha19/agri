@@ -39,7 +39,7 @@ export default function ReferralHub() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [redeemCode, setRedeemCode] = useState(searchParams.get("ref") || "");
-  const [data, setData] = useState(EMPTY_DATA);
+  const [data, setData] = useState(null);
 
   const progressPercent = useMemo(() => {
     const next = data?.milestones?.next;
@@ -55,10 +55,16 @@ export default function ReferralHub() {
     setError("");
     try {
       const res = await apiClient.get("/api/referrals/dashboard");
-      setData(res?.data?.data || EMPTY_DATA);
+      setData(res?.data?.data || null);
     } catch (err) {
-      const msg = err?.response?.data?.detail || "Unable to load referral dashboard. Please sign in and try again.";
+      const msg =
+        err?.response?.data?.detail ||
+        "Unable to load referral dashboard. Please sign in and try again.";
+
       setError(msg);
+
+      setData(null);
+
     } finally {
       setLoading(false);
     }
@@ -129,7 +135,25 @@ export default function ReferralHub() {
         </header>
 
         {loading ? (
-          <div className="referral-status">Loading your referral dashboard...</div>
+          <div className="referral-status">
+            Loading your referral dashboard...
+          </div>
+        ) : error ? (
+          <div className="referral-status error">
+            <p>{error}</p>
+
+            <button
+              type="button"
+              className="retry-btn"
+              onClick={fetchDashboard}
+            >
+              Retry
+            </button>
+          </div>
+        ) : !data ? (
+          <div className="referral-status">
+            No referral data available.
+          </div>
         ) : (
           <>
             {(error || success) && (
@@ -142,14 +166,14 @@ export default function ReferralHub() {
               <article className="panel code-panel">
                 <h2><FaGift /> Your Referral Code</h2>
                 <div className="code-row">
-                  <span className="code-pill">{data.referralCode || "-"}</span>
-                  <button type="button" onClick={() => copyToClipboard(data.referralCode)}>
+                  <span className="code-pill">{data?.referralCode || "-"}</span>
+                  <button type="button" onClick={() => copyToClipboard(data?.referralCode)}>
                     <FaCopy /> Copy
                   </button>
                 </div>
                 <div className="link-row">
-                  <input value={data.referralLink || ""} readOnly aria-label="Referral link" />
-                  <button type="button" onClick={() => copyToClipboard(data.referralLink)}>
+                  <input value={data?.referralLink || ""} readOnly aria-label="Referral link" />
+                  <button type="button" onClick={() => copyToClipboard(data?.referralLink)}>
                     <FaCopy /> Copy Link
                   </button>
                 </div>

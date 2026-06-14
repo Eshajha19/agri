@@ -2134,3 +2134,18 @@ html body {
   background: var(--bg-secondary, #f1f5f9) !important;
   animation: none !important;
 }
+
+/* Hide Google Translate Banner */
+.goog-te-banner-frame.skiptranslate,
+.goog-te-gadget-icon,
+.goog-te-balloon-frame {
+  display: none !important;
+}
+
+body {
+  top: 0px !important;
+}
+
+.skiptranslate iframe {
+  display: none !important;
+}

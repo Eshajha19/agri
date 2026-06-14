@@ -1,8 +1,12 @@
 """Finance Router"""
+import base64
+import json
+import logging
 from fastapi import APIRouter, Request, HTTPException
-from firebase_admin import auth as firebase_auth
 from pydantic import BaseModel, Field
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -29,20 +33,39 @@ def init_finance(ffa, rbac, perm):
     Permission = perm
 
 
-def _extract_uid(request: Request) -> Optional[str]:
+def _extract_uid_from_verified_token(request: Request) -> Optional[str]:
     """
-    Extract and verify the Firebase UID from the Authorization header.
-    Returns None if the token is missing or invalid (caller should already
-    have been rejected by raise_if_unauthorized before this is called).
+    Extract the Firebase UID from the JWT payload without performing a second
+    cryptographic verification.
+
+    This must only be called after ``rbac_manager.raise_if_unauthorized`` has
+    already verified the token's signature and expiry for the current request.
+    Decoding the payload here is safe because the token has already been
+    authenticated; re-running ``firebase_auth.verify_id_token`` a second time
+    would duplicate the signature check and a potential network round-trip to
+    fetch Google's public keys.
+
+    Returns None only if the Authorization header is absent or malformed —
+    conditions that ``raise_if_unauthorized`` would have already rejected.
     """
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         return None
     token = auth_header.split(" ", 1)[1]
     try:
-        decoded = firebase_auth.verify_id_token(token)
-        return decoded.get("uid")
-    except Exception:
+        # A Firebase/Google JWT has three base64url-encoded segments separated
+        # by dots: header.payload.signature.  We only need the payload.
+        parts = token.split(".")
+        if len(parts) != 3:
+            return None
+        # base64url decode with padding correction
+        payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+        return payload.get("uid") or payload.get("sub")
+    except Exception as exc:
+        # Should never happen for a token that already passed verification,
+        # but log and surface None so callers can handle it explicitly.
+        logger.error("Failed to decode already-verified JWT payload: %s", exc)
         return None
 
 
@@ -75,8 +98,14 @@ async def create_finance_application(request: Request, body: FinanceAssessmentRe
     try:
         await rbac_manager.raise_if_unauthorized(request, [Permission.FINANCE_CREATE], require_all=False)
         # Bind the application to the authenticated caller so ownership can be
-        # enforced on subsequent reads.
-        owner_uid = _extract_uid(request)
+        # enforced on subsequent reads.  The token was already verified by
+        # raise_if_unauthorized above; decode the payload without a second
+        # cryptographic verification to avoid duplicate latency.
+        owner_uid = _extract_uid_from_verified_token(request)
+        if owner_uid is None:
+            # raise_if_unauthorized passed, so the token is valid — a missing
+            # uid here indicates a malformed token that should not proceed.
+            raise HTTPException(status_code=401, detail="Unable to determine caller identity")
         application = farm_finance_ai.create_application(body.model_dump(), owner_uid=owner_uid)
         return {"success": True, "data": application}
     except HTTPException:
@@ -105,7 +134,7 @@ async def get_finance_application(application_id: str, request: Request):
             require_all=False,
         )
 
-        caller_uid = _extract_uid(request)
+        caller_uid = _extract_uid_from_verified_token(request)
 
         # Admins/experts with FINANCE_READ_ALL bypass the ownership filter;
         # farmers with only FINANCE_READ_OWN are scoped to their own records.
