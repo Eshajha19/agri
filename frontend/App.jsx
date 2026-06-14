@@ -1120,11 +1120,6 @@ useEffect(() => {
         <FaComments size={28} aria-hidden="true" />
       </Link>
 
-      <Link to="/notifications">
-        <FaBell /> {unreadCount > 0 && <span>{unreadCount}</span>}
-      </Link>
-
-
       <a
         href="https://wa.me/14155238886?text=I%20want%20to%20start%20the%20conversation"
         target="_blank"
@@ -1162,3 +1157,4 @@ useEffect(() => {
 }
 
 export default App;
+
