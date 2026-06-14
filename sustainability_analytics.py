@@ -221,10 +221,16 @@ class SustainabilityAnalytics:
         irrigation_energy_co2 = pump_kwh * ef["electricity_kg_co2e_per_kwh"]
 
         organic_reduction = 0.12 if data["organic_practices"] else 0.0
+
+        # Apply reduction ONLY to fertilizer emissions
+        fert_co2 *= (1.0 - organic_reduction)
+
+        # Then sum everything normally
         total_carbon_kg = round(
-            (fert_co2 + machinery_co2 + fuel_co2 + irrigation_energy_co2) * (1.0 - organic_reduction),
+            fert_co2 + machinery_co2 + fuel_co2 + irrigation_energy_co2,
             2,
         )
+
         carbon_per_acre = round(total_carbon_kg / max(acreage, 0.1), 2)
 
         benchmark_water = coeffs["water_m3_per_acre_season"] * acreage
@@ -258,9 +264,9 @@ class SustainabilityAnalytics:
             "carbon": {
                 "total_kg_co2e": total_carbon_kg,
                 "per_acre_kg_co2e": carbon_per_acre,
-                "fertilizer_kg_co2e": round(fert_co2 * (1.0 - organic_reduction), 2),
+                "fertilizer_kg_co2e": round(fert_co2, 2),
                 "machinery_kg_co2e": round(machinery_co2, 2),
-                "fuel_kg_co2e": round(fuel_co2 * (1.0 - organic_reduction), 2),
+                "fuel_kg_co2e": round(fuel_co2, 2),
                 "irrigation_energy_kg_co2e": round(irrigation_energy_co2, 2),
             },
             "inputs": {
