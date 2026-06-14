@@ -1111,6 +1111,7 @@ useEffect(() => {
             />
             <Route path="/crop-comparison" element={<CropComparison />} />
             <Route path="*" element={<NotFound />} />
+            <Route path="/insurance-comparison" element={<InsuranceComparison />} />
           </Routes>
         </React.Suspense>
       </main>
@@ -1119,6 +1120,11 @@ useEffect(() => {
       <Link to="/advisor" className="floating-chat-btn" aria-label="Open AI Advisor Chat">
         <FaComments size={28} aria-hidden="true" />
       </Link>
+
+      <Link to="/insurance-comparison" onClick={() => setShowMoreMenu(false)} role="menuitem">
+        <FaShieldAlt /> Insurance Comparison
+      </Link>
+
 
       <a
         href="https://wa.me/14155238886?text=I%20want%20to%20start%20the%20conversation"

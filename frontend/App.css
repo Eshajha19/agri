@@ -2388,6 +2388,27 @@ body {
   display: none !important;
 }
 
+
+.comparison-container {
+  padding: 20px;
+}
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.comparison-table th, .comparison-table td {
+  border: 1px solid #ddd;
+  padding: 8px;
+}
+.comparison-table tr.highlight {
+  background-color: #e6ffe6;
+  font-weight: bold;
+}
+@media (max-width: 768px) {
+  .comparison-table {
+    font-size: 14px;
+  }
+}
 .backend-banner {
   background: #ffe5e5;
   color: #b00020;
