@@ -1,9 +1,9 @@
 """
 Crop Recommendation API with Explanation Layer
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional, Dict, Tuple, Callable, Coroutine, Any 
 import logging
 from dataclasses import dataclass
 from functools import lru_cache
@@ -13,6 +13,19 @@ import threading
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/crop", tags=["crop"])
+
+# ── Auth injection ────────────────────────────────────────────────────────────
+_verify_role_fn = None
+
+def init_auth(verify_role_fn):
+    global _verify_role_fn
+    _verify_role_fn = verify_role_fn
+    logger.info("Crop recommendation router: auth initialised")
+
+async def _require_authenticated(request):
+    if _verify_role_fn is None:
+        raise HTTPException(status_code=503, detail="Authorization service not initialised")
+    return await _verify_role_fn(request, required_roles=None)
 
 
 # ── Validation Configuration ─────────────────────────────────────────────────────
@@ -513,11 +526,12 @@ def get_confidence_level(score: float) -> Dict:
 # ── Main Endpoint ─────────────────────────────────────────────────────────────
 
 @router.post("/recommend")
-async def recommend_crops(req: CropRecommendationRequest):
+async def recommend_crops(req: CropRecommendationRequest, request: Request):
     """
     Recommend crops based on soil parameters with full explanation layer.
-    Returns compatibility scores, reasons, soil analysis, and warnings.
+    Requires authentication. Returns compatibility scores, reasons, soil analysis, and warnings.
     """
+    await _require_authenticated(request)
     try:
         # 0. Validate input parameters
         soil_validation = validate_soil_parameters(

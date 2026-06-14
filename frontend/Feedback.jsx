@@ -248,8 +248,8 @@ export default function Feedback() {
           {/* Farmer Showcase */}
           <div className="farmer-showcase">
             <div className="farmer-images">
-              <img src="/farmer1.png" alt="Farmer 1" className="farmer-img img-1" />
-              <img src="/farmer2.png" alt="Farmer 2" className="farmer-img img-2" />
+              <img src="/farmer1.png" alt="Farmer 1" className="farmer-img img-1" onError={(e) => { e.currentTarget.src = "/crops/default.png"; }} />
+              <img src="/farmer2.png" alt="Farmer 2" className="farmer-img img-2" onError={(e) => { e.currentTarget.src = "/crops/default.png"; }} />
             </div>
           </div>
 
