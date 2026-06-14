@@ -12,6 +12,7 @@ import json
 import math
 import os
 import re
+import threading
 from dataclasses import dataclass, asdict, field
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -59,6 +60,7 @@ class InMemoryVectorStore:
         self.storage_path = storage_path
         self.dimensions = dimensions
         self._records: Dict[str, VectorRecord] = {}
+        self._persist_lock = threading.Lock()
         if storage_path and os.path.exists(storage_path):
             self.load()
 
@@ -107,8 +109,16 @@ class InMemoryVectorStore:
         if not self.storage_path:
             return
         payload = [asdict(record) for record in self._records.values()]
-        with open(self.storage_path, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=True, indent=2)
+        tmp_path = self.storage_path + ".tmp"
+        with self._persist_lock:
+            try:
+                with open(tmp_path, "w", encoding="utf-8") as handle:
+                    json.dump(payload, handle, ensure_ascii=True, indent=2)
+                os.replace(tmp_path, self.storage_path)
+            except Exception:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+                raise
 
     def load(self) -> None:
         if not self.storage_path or not os.path.exists(self.storage_path):

@@ -3,6 +3,7 @@ import { Routes, Route, Link, NavLink, Navigate, useLocation, useNavigate } from
 import { useTranslation } from "react-i18next";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import SprayScheduler from "./SprayScheduler";
 import {
   FaComments,
   FaLeaf,
@@ -31,9 +32,11 @@ import { cryptoService } from "./utils/cryptoService";
 import Loader from "./Loader";
 import LanguageDropdown from "./LanguageDropdown";
 import useNotifications from "./Notifications";
+import usePriceAlerts from "./hooks/usePriceAlerts";
 import Footer from "./components/Footer";
 import { SkipLink } from "./NavigationManager";
 import { useTheme } from "./ThemeContext";
+import { SyncBadge } from "./src/components/SyncBadge";
 import FarmingMythChecker from "./components/FarmingMythChecker";
 import CropComparison from "./components/CropComparison";
 
@@ -107,25 +110,13 @@ function SustainabilityAnalyticsPage({ userData }) {
 // Libs
 import { auth, db, isFirebaseConfigured, doc, onSnapshot, setDoc, getDoc } from "./lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
+import { clearOfflineData, clearOfflineRequests } from "./lib/db";
 import { loadAppState, loadUserProfileSnapshot, persistAppState, persistUserProfileSnapshot } from "./lib/offlinePersistence";
 import { syncOfflineRequests } from "./lib/syncOfflineRequests";
 
 // CSS
 import "./App.css";
-const LANGUAGE_OPTIONS = [
-  { value: "en", label: "🌍 English", englishName: "english" },
-  { value: "hi", label: "🇮🇳 हिंदी", englishName: "hindi" },
-  { value: "mr", label: "🇮🇳 मराठी", englishName: "marathi" },
-  { value: "bn", label: "🇮🇳 বাংলা", englishName: "bengali" },
-  { value: "ta", label: "🇮🇳 தமிழ்", englishName: "tamil" },
-  { value: "te", label: "🇮🇳 తెలుగు", englishName: "telugu" },
-  { value: "gu", label: "🇮🇳 ગુજરાતી", englishName: "gujarati" },
-  { value: "pa", label: "🇮🇳 ਪੰਜਾਬੀ", englishName: "punjabi" },
-  { value: "kn", label: "🇮🇳 ಕನ್ನಡ", englishName: "kannada" },
-  { value: "ml", label: "🇮🇳 മലയാളം", englishName: "malayalam" },
-  { value: "or", label: "🇮🇳 ଓଡ଼ିଆ", englishName: "odia" },
-  { value: "as", label: "🇮🇳 অসমীয়া", englishName: "assamese" },
-];
+import { LANGUAGE_OPTIONS } from "./lib/languageOptions";
 
 const getInitialLanguage = () => {
   // Always default to English when the user enters the site
@@ -355,9 +346,12 @@ function App() {
   const { liteMode, setLiteMode, detectAndSetLiteMode } =
     usePerformanceStore();
 
+  // Price alert WebSocket status for global connection indicator
+  const { status: priceAlertStatus } = usePriceAlerts();
+
   useEffect(() => {
     detectAndSetLiteMode();
-  }, [detectAndSetLiteMode]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -413,11 +407,13 @@ function App() {
     void syncQueuedRequests();
 
     const handleOnline = () => {
+      if (cancelled) return;
       setIsOffline(false);
       void syncQueuedRequests();
     };
 
     const handleOffline = () => {
+      if (cancelled) return;
       setIsOffline(true);
     };
 
@@ -766,61 +762,14 @@ useEffect(() => {
     });
   }, [user?.uid, userData, profileCompleted]);
 
+  // Scroll to Top logic
   useEffect(() => {
     const handleScroll = () => {
-      if (scrollFrameRef.current) return;
-
-      scrollFrameRef.current =
-        requestAnimationFrame(() => {
-          const shouldShowScrollTop =
-            window.scrollY > 300;
-
-          const totalHeight =
-            document.documentElement.scrollHeight -
-            window.innerHeight;
-
-          const progress =
-            totalHeight > 0
-              ? (window.scrollY / totalHeight) * 100
-              : 0;
-
-          if (
-            lastScrollStateRef.current
-              .showScrollTop !==
-            shouldShowScrollTop
-          ) {
-            lastScrollStateRef.current.showScrollTop =
-              shouldShowScrollTop;
-
-            setShowScrollTop(shouldShowScrollTop);
-          }
-
-          if (
-            Math.abs(
-              lastScrollStateRef.current
-                .scrollProgress - progress
-            ) > 1
-          ) {
-            lastScrollStateRef.current.scrollProgress =
-              progress;
-
-            setScrollProgress(progress);
-          }
-
-          scrollFrameRef.current = null;
-        });
-    };
-
-    window.addEventListener("scroll", handleScroll, {
-      passive: true,
-    });
-
-    return () => {
-      window.removeEventListener("scroll", handleScroll);
-
-      if (scrollFrameRef.current) {
-        cancelAnimationFrame(scrollFrameRef.current);
-      }
+      setShowScrollTop(window.scrollY > 300);
+      // Calculate scroll progress
+      const totalHeight = document.documentElement.scrollHeight - window.innerHeight;
+      const progress = totalHeight > 0 ? (window.scrollY / totalHeight) * 100 : 0;
+      setScrollProgress(progress);
     };
   }, []);
 
@@ -858,6 +807,16 @@ useEffect(() => {
   const handleLogout = async () => {
     try {
       await signOut(auth);
+      await Promise.allSettled([
+        clearOfflineData(),
+        clearOfflineRequests(),
+        new Promise((resolve, reject) => {
+          const req = indexedDB.deleteDatabase("fasal_e2ee");
+          req.onsuccess = resolve;
+          req.onerror = () => reject(req.error);
+          req.onblocked = resolve;
+        }),
+      ]);
       window.location.href = "/";
     } catch (error) {
       console.error("Sign out error:", error);
@@ -897,6 +856,8 @@ useEffect(() => {
           <button onClick={handleThemeToggle} className="theme-toggle" aria-label="Cycle Theme" title={`Current theme: ${theme}`}>
             {theme === "light" ? "🌙" : theme === "dark" ? "☀️" : "🌙"}
           </button>
+
+          <SyncBadge />
 
           <button
             onClick={(e) => { e.stopPropagation(); setShowMoreMenu(!showMoreMenu); }}
@@ -1026,7 +987,8 @@ useEffect(() => {
           {isOpen ? <FaTimes /> : <FaBars />}
         </button>
       </nav>
-
+ 
+ 
       {/* VERIFICATION GUARD */}
       {!loading && user && !user.isAnonymous && !user.emailVerified && !showScorecard && location.pathname !== "/login" && (
         <div className="verification-overlay">
@@ -1070,7 +1032,7 @@ useEffect(() => {
             <Route path="/" element={<Home user={user} />} />
             <Route path="/advisor" element={<Advisor userData={userData} />} />
             <Route path="/how-it-works" element={<How />} />
-            <Route path="/dashboard" element={<Dashboard userData={userData} />} />
+            <Route path="/dashboard" element={<Dashboard userData={userData} wsStatus={priceAlertStatus} />} />
             <Route path="/crop-guide" element={<CropGuide />} />
             <Route path="/schemes" element={<Schemes />} />
             <Route path="/resources" element={<Resources />} />
@@ -1119,6 +1081,19 @@ useEffect(() => {
             <Route path="/blog/:id" element={<BlogDetail />} />
             <Route path="/weather" element={<Weather />} />
             <Route path="/voice-assistant" element={<VoiceAssistant />} />
+            <Route
+  path="/spray-scheduler"
+  element={
+    <SprayScheduler
+      schedules={[
+        { crop: "Wheat", pest: "Rust", product: "Fungicide A", date: "2026-06-10", status: "upcoming" },
+        { crop: "Rice", pest: "Blast", product: "Fungicide B", date: "2026-06-07", status: "today" },
+        { crop: "Maize", pest: "Stem Borer", product: "Insecticide C", date: "2026-06-05", status: "overdue" },
+      ]}
+    />
+  }
+/>
+
             <Route path="/prediction-explainer" element={<PredictionExplainer />} />
             <Route path="/retraining-monitor" element={<RetrainingPipelineMonitor />} />
             <Route path="/insurance-claim" element={<CropInsuranceClaim />} />

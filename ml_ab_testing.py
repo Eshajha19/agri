@@ -115,45 +115,95 @@ class ABTest:
         logger.info("Started A/B test: %s", self.test_name)
 
     def select_arm(self) -> Arm:
-        return max(
-            (self.control_arm, self.variant_arm),
-            key=lambda arm: arm.sample_score(),
-        )
-
-    def _get_arm(self, arm_id: str) -> Optional[Arm]:
-        if arm_id == self.control_arm.model_id:
+        """Select arm using Thompson sampling"""
+        control_prob = self.control_arm.sample_from_distribution()
+        variant_prob = self.variant_arm.sample_from_distribution()
+        
+        # Thompson sampling — fair random tie-break when probabilities are equal
+        if control_prob > variant_prob:
             return self.control_arm
-        if arm_id == self.variant_arm.model_id:
+        elif variant_prob > control_prob:
             return self.variant_arm
-        return None
-
-    def record_arm_outcome(self, arm_id: str, success: bool, metrics: Dict[str, float]) -> None:
-        arm = self._get_arm(arm_id)
-        if not arm:
-            return
+        else:
+            return self.control_arm if random.random() < 0.5 else self.variant_arm
+    
+    def record_arm_outcome(self, arm_id: str, success: bool, metrics: Dict):
+        """Record outcome for an arm"""
+        arm = self.control_arm if arm_id == self.control_arm.model_id else self.variant_arm
+        
         arm.record_outcome(success)
         if {"mae", "rmse", "latency"}.issubset(metrics):
             arm.record_prediction(metrics["mae"], metrics["rmse"], metrics["latency"])
         self._update_allocation()
+    
+    def _update_allocation(self):
+        """Update traffic allocation based on Thompson sampling.
 
-    def _update_allocation(self) -> None:
+        Averages multiple samples from each arm's Beta distribution to
+        reduce variance and prevent excessive allocation fluctuations.
+        """
         if self.status != TestStatus.RUNNING:
             return
-        control_score = self.control_arm.sample_score()
-        variant_score = self.variant_arm.sample_score()
-        total = control_score + variant_score
-        if total:
-            self.current_allocation[self.control_arm.model_id] = control_score / total
-            self.current_allocation[self.variant_arm.model_id] = variant_score / total
+
+        n_samples = 100
+        control_total = 0.0
+        variant_total = 0.0
+        for _ in range(n_samples):
+            control_total += self.control_arm.sample_from_distribution()
+            variant_total += self.variant_arm.sample_from_distribution()
+
+        control_score = control_total / n_samples
+        variant_score = variant_total / n_samples
+
+        total_score = control_score + variant_score
+        if total_score > 0:
+            self.current_allocation[self.control_arm.model_id] = control_score / total_score
+            self.current_allocation[self.variant_arm.model_id] = variant_score / total_score
+    
+    def _probability_variant_better(self) -> float:
+        """Compute P(variant > control) via Monte Carlo from Beta posteriors."""
+        n = 10000
+        control_samples = np.random.beta(
+            self.control_arm.successes + 1,
+            self.control_arm.failures + 1,
+            size=n,
+        )
+        variant_samples = np.random.beta(
+            self.variant_arm.successes + 1,
+            self.variant_arm.failures + 1,
+            size=n,
+        )
+        return float(np.mean(variant_samples > control_samples))
 
     def get_winner(self) -> Optional[Arm]:
+        """Determine winner via two-proportion z-test."""
         total_trials = self.control_arm.total_trials + self.variant_arm.total_trials
         if total_trials < self.min_samples:
             return None
-        control_rate = self.control_arm.successes / max(self.control_arm.total_trials, 1)
-        variant_rate = self.variant_arm.successes / max(self.variant_arm.total_trials, 1)
-        if abs(control_rate - variant_rate) > (1 - self.confidence_threshold):
-            return self.variant_arm if variant_rate > control_rate else self.control_arm
+
+        n_c = self.control_arm.total_trials
+        n_v = self.variant_arm.total_trials
+        s_c = self.control_arm.successes
+        s_v = self.variant_arm.successes
+
+        p_c = s_c / max(n_c, 1)
+        p_v = s_v / max(n_v, 1)
+
+        # Pooled proportion under null hypothesis
+        p_pool = (s_c + s_v) / max(total_trials, 1)
+
+        # Standard error of the difference
+        se = math.sqrt(p_pool * (1 - p_pool) * (1 / max(n_c, 1) + 1 / max(n_v, 1)))
+        if se == 0:
+            return None
+
+        z = (p_c - p_v) / se
+        # Two-tailed p-value via complementary error function
+        p_value = math.erfc(abs(z) / math.sqrt(2))
+
+        alpha = 1.0 - self.confidence_threshold
+        if p_value < alpha:
+            return self.variant_arm if p_v > p_c else self.control_arm
         return None
 
     def end(self) -> None:

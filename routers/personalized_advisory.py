@@ -55,8 +55,13 @@ async def generate_personalized_recommendations(request: Request):
     try:
         from main import verify_role, _get_firestore_user_profile
 
-        token_data = await verify_role(request)
-        uid = token_data["uid"]
+        token_data = await verify_role(
+            request,
+            required_roles=["farmer"],          
+            required_tenant_id=tenant_id        # comes from path param or request context
+        )
+        uid = token_data.get("uid")
+
 
         profile = _get_firestore_user_profile(uid)
         if not profile:

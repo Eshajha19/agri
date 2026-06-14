@@ -2,29 +2,6 @@
 routes.py
 ──────────
 FastAPI router for the Feature Flag & A/B Testing API.
-
-All routes are prefixed with /api — register via:
-    app.include_router(flags_router, prefix="/api/flags")
-
-Endpoints
-─────────
-Feature Flags
-  GET    /api/flags                  List all flags (public read)
-  GET    /api/flags/{flag_id}        Get single flag (public read)
-  POST   /api/flags/{flag_id}        Create or update a flag (admin)
-  DELETE /api/flags/{flag_id}        Delete a flag (admin)
-  POST   /api/flags/{flag_id}/rollback  Rollback flag (admin)
-
-Experiments
-  GET    /api/experiments                     List all experiments (admin)
-  POST   /api/experiments                     Create experiment (admin)
-  POST   /api/experiments/assign              Assign user to variant (authenticated)
-  PATCH  /api/experiments/{exp_id}/status     Update experiment status (admin)
-  GET    /api/experiments/{exp_id}/metrics    Get aggregated metrics (admin)
-
-Analytics
-  POST   /api/experiments/events              Log single event (authenticated)
-  POST   /api/experiments/events/batch        Batch-log events (admin)
 """
 
 import logging
@@ -38,13 +15,12 @@ from feature_flags.ab_testing_runner import get_runner
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api", tags=["feature-flags"])
+router = APIRouter(tags=["feature-flags"])
 
 verify_role_fn: Optional[Callable] = None
 
 
 def init_feature_flags(verify_role) -> None:
-    """Inject the shared ``verify_role`` dependency from main."""
     global verify_role_fn
     verify_role_fn = verify_role
 
@@ -55,13 +31,11 @@ async def _require_admin(request: Request) -> None:
     await verify_role_fn(request, required_roles=["admin"])
 
 
-async def _require_authenticated(request: Request) -> None:
+async def _require_authenticated(request: Request) -> dict:
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Feature flags API not initialized")
-    await verify_role_fn(request)
+    return await verify_role_fn(request)
 
-
-# ── Pydantic schemas ───────────────────────────────────────────────────────────
 
 class FlagUpsertRequest(BaseModel):
     enabled:     bool = False
@@ -123,8 +97,6 @@ class TrafficSplitRequest(BaseModel):
     variants: List[TrafficSplitVariant] = Field(..., min_items=2)
 
 
-# ── Feature Flag endpoints ─────────────────────────────────────────────────────
-
 @router.get("/flags", summary="List all feature flags (public read)")
 def list_flags():
     return {"flags": flag_store.list_flags()}
@@ -162,8 +134,6 @@ async def rollback_flag(request: Request, flag_id: str):
         raise HTTPException(status_code=404, detail=f"Flag '{flag_id}' not found")
     return {"success": True, "flag": result}
 
-
-# ── Experiment endpoints ───────────────────────────────────────────────────────
 
 @router.get("/experiments", summary="List all experiments (admin)")
 async def list_experiments(request: Request):
@@ -228,14 +198,15 @@ async def evaluate_experiment(request: Request, exp_id: str):
     }
 
 
-# ── Analytics endpoints ────────────────────────────────────────────────────────
-
 @router.post("/experiments/events", summary="Log a single experiment event (authenticated)")
 async def log_event(request: Request, body: EventRequest):
-    await _require_authenticated(request)
+    token_data = await _require_authenticated(request)
+    uid = token_data.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="User identity missing from authentication token")
     event = metrics_collector.log_event(
         event_type=body.event_type,
-        user_id=body.user_id,
+        user_id=uid,
         experiment_id=body.experiment_id,
         variant=body.variant,
         flag_id=body.flag_id,
