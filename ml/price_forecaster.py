@@ -244,11 +244,18 @@ class PriceForecaster:
         seasonal_map = df.groupby("doy")["detrended"].mean().to_dict()
         df["seasonal"] = df["doy"].map(seasonal_map)
 
-        prices = self._prices
+        # Residual
+        df["residual"] = df["detrended"] - df["seasonal"]
+
+        # --- Fix: define prices & scaling ---
+        prices = df["price"].values.astype(float)
         self._scaler_min = float(prices.min())
         self._scaler_range = float(prices.max() - prices.min()) or 1.0
 
-        scaled = self._scale(prices)
+        def _scale(arr):
+            return (arr - self._scaler_min) / self._scaler_range
+
+        scaled = _scale(prices)
 
         # Build (X, y) sequences
         X, y = [], []
@@ -266,16 +273,9 @@ class PriceForecaster:
         ])
         model.compile(optimizer="adam", loss="mse")
 
-        # Suppress TF progress output
-        model.fit(
-            X, y,
-            epochs=30,
-            batch_size=8,
-            verbose=0,
-            validation_split=0.1,
-        )
+        model.fit(X, y, epochs=30, batch_size=8, verbose=0, validation_split=0.1)
 
-        # Estimate residual std on validation split (last 10%) for confidence intervals
+        # Residual std for confidence intervals
         split = int(len(X) * 0.9)
         if split < len(X):
             val_preds = model.predict(X[split:], verbose=0).flatten()
@@ -287,11 +287,21 @@ class PriceForecaster:
 
         self._model = model
         self._trained = True
+        self.commodity = crop   # Fix: set commodity name
+
         logger.info(
             "PriceForecaster: trained LSTM for '%s' "
             "(residual_std=%.4f, scaler_range=%.0f)",
             self.commodity, self._residual_std, self._scaler_range,
         )
+
+        return {
+            "trend": df["trend"].tolist(),
+            "seasonal": df["seasonal"].tolist(),
+            "residual": df["residual"].tolist(),
+            "trained": self._trained,
+            "residual_std": self._residual_std,
+        }
 
     # ------------------------------------------------------------------
     # Forecasting
