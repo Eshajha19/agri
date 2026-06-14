@@ -3,6 +3,7 @@ import os
 import asyncio
 import logging
 import time
+import httpx
 from collections import deque
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,9 +19,42 @@ from persistence.repositories import (
     SupplyChainRepository,
 )
 
+from fastapi import Request
+from starlette.responses import JSONResponse
+
+@app.middleware("http")
+async def handle_missing_static(request: Request, call_next):
+    response = await call_next(request)
+    if response.status_code == 404 and request.url.path.startswith("/static/"):
+        logger.warning("Missing static asset: %s", request.url.path)
+        return JSONResponse(
+            {"error": "Static asset not found", "path": request.url.path},
+            status_code=404
+        )
+    return response
+
 # Expose sanitizer globally
 sanitise_log_field_fn = sanitize_log_field
 
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get("http://127.0.0.1:8000/health")
+            if resp.status_code == 200:
+                logger.info("✅ Backend health check passed: %s", resp.json())
+            else:
+                logger.error("❌ Backend health check failed: %s", resp.status_code)
+    except Exception as exc:
+        logger.error("❌ Backend unavailable at startup: %s", exc)
+
+    yield
+
+    # Shutdown
+    logger.info("🛑 Shutting down FastAPI app")
 
 class CSPMiddleware:
     """Add Content-Security-Policy header to every response."""
@@ -96,6 +130,14 @@ app.add_middleware(
 
 # Apply CSP with explicit connect-src
 csp_policy = "default-src 'self'; connect-src 'self' wss://yourfrontend.com wss://staging.yourfrontend.com"
+app.add_middleware(CSPMiddleware, policy=csp_policy)
+
+csp_policy = (
+    "default-src 'self'; "
+    "script-src 'self' https://translate.googleapis.com https://translate.google.com; "
+    "style-src 'self' 'unsafe-inline' https://translate.googleapis.com; "
+    "frame-src 'self' https://translate.google.com;"
+)
 app.add_middleware(CSPMiddleware, policy=csp_policy)
 
 
