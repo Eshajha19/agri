@@ -223,19 +223,33 @@ class CropQualityGrader:
         return min(100, shape_quality)
 
     def _detect_defects(self, image: np.ndarray, params: Dict) -> float:
-        """Detect defects in crops"""
+        """Detect defects relative to crop surface area (zoom-invariant)."""
         if not isinstance(image, np.ndarray):
             return 10.0
+
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-        # Use edge detection to find defects
+        # Segment crop from background to get actual crop surface area
+        _, thresh = cv2.threshold(gray, 50, 255, cv2.THRESH_BINARY)
+        crop_pixels = int(np.count_nonzero(thresh))
+        if crop_pixels == 0:
+            return 0.0
+
+        # Detect edges inside the image using Canny
         edges = cv2.Canny(gray, 50, 150)
-        total_pixels = edges.shape[0] * edges.shape[1]
-        defect_pixels = np.count_nonzero(edges)
 
-        defect_percentage = (defect_pixels / total_pixels) * 100
+        # Erode the crop mask to exclude outer boundary edges (background artefacts)
+        kernel = np.ones((5, 5), np.uint8)
+        eroded_mask = cv2.erode(thresh, kernel, iterations=1)
 
-        return min(100, defect_percentage * 2)  # Scale defects
+        # Restrict edges to interior of crop only
+        internal_edges = cv2.bitwise_and(edges, eroded_mask)
+        defect_pixels = int(np.count_nonzero(internal_edges))
+
+        # Defect percentage relative to crop area — invariant to zoom/framing
+        defect_percentage = (defect_pixels / crop_pixels) * 100
+
+        return min(100.0, float(defect_percentage * 10))
 
     def _get_grade(self, score: float) -> str:
         """Determine grade based on score"""
