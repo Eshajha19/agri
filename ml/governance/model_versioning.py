@@ -122,6 +122,8 @@ class ModelVersionManager:
         self.versions: Dict[str, ModelVersion] = {}
         self.production_version: Optional[str] = None
         self.version_history: List[Dict[str, Any]] = []
+        self._lock = threading.Lock()
+        self._version_counters: Dict[str, int] = {}
         
         # Thread lock for in-process concurrency control
         self._lock = threading.Lock()
@@ -156,6 +158,11 @@ class ModelVersionManager:
                     }
                     self.production_version = data.get('production_version')
                     self.version_history = data.get('version_history', [])
+                for v in self.versions.values():
+                    prev = self._version_counters.get(v.model_name, 0)
+                    num = int(v.version_id.rsplit("_v", 1)[-1])
+                    if num > prev:
+                        self._version_counters[v.model_name] = num
                 logger.info(f"Loaded {len(self.versions)} model versions from disk")
             except Exception as e:
                 logger.error(f"Error loading versions: {e}")
