@@ -115,7 +115,7 @@ def init_reports(vr_fn, gsk_fn, slf_fn, log_inst):
 # PDF generation helpers
 # ---------------------------------------------------------------------------
 
-def _build_pdf(data: ReportRequest, signature_hex: str, cert_id: str) -> bytes:
+def _build_pdf(data: ReportRequest, signature_hex: str, cert_id: str, generated_at: str) -> bytes:
     """Render a bank-ready financial report as a PDF and return the raw bytes."""
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=letter)
@@ -135,7 +135,7 @@ def _build_pdf(data: ReportRequest, signature_hex: str, cert_id: str) -> bytes:
     c.setFillColor(colors.HexColor("#1B5E20"))
     c.setFont("Helvetica-Bold", 10)
     c.drawRightString(width - inch, height - 95, f"Certificate ID: {cert_id}")
-    c.drawRightString(width - inch, height - 110, f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}")
+    c.drawRightString(width - inch, height - 110, f"Generated: {generated_at}")
 
     # ── Section: Farmer Details ──────────────────────────────────────────────
     y = height - 150
@@ -200,11 +200,12 @@ def _build_pdf(data: ReportRequest, signature_hex: str, cert_id: str) -> bytes:
     return buf.getvalue()
 
 
-def _sign_report(private_key: Ed25519PrivateKey, data: ReportRequest, cert_id: str) -> str:
+def _sign_report(private_key: Ed25519PrivateKey, data: ReportRequest, cert_id: str, generated_at: str) -> str:
     """Return a hex-encoded Ed25519 signature over the canonical report payload."""
     payload = json.dumps(
         {
             "cert_id": cert_id,
+            "generated_at": generated_at,
             "name": data.name,
             "crop": data.crop,
             "area": data.area,
@@ -263,8 +264,9 @@ async def generate_signed_report(request: Request, data: ReportRequest):
 
     try:
         cert_id = _make_cert_id(data)
-        signature_hex = _sign_report(private_key, data, cert_id)
-        pdf_bytes = _build_pdf(data, signature_hex, cert_id)
+        generated_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+        signature_hex = _sign_report(private_key, data, cert_id, generated_at)
+        pdf_bytes = _build_pdf(data, signature_hex, cert_id, generated_at)
     except Exception as e:
         logger.error(f"PDF generation error: {e}")
         raise HTTPException(status_code=500, detail="Failed to generate report")
