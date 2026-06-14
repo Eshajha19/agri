@@ -7,6 +7,19 @@ import { getAuth } from 'firebase/auth';
 
 const ERROR_LOG_ENDPOINT = '/api/log-error';
 
+const normalizeContext = (context) => {
+  if (!context) return 'frontend';
+  if (typeof context === 'string') return context;
+
+  const parts = [];
+  if (context.label) parts.push(context.label);
+  if (context.method && context.url) parts.push(`${context.method.toUpperCase()} ${context.url}`);
+  if (context.requestId) parts.push(`request=${context.requestId}`);
+  if (context.userId) parts.push(`user=${context.userId}`);
+
+  return parts.length ? parts.join(' | ') : 'frontend';
+};
+
 /**
  * Report an error to the backend
  * @param {Object} errorData - Error data object
@@ -15,6 +28,8 @@ const ERROR_LOG_ENDPOINT = '/api/log-error';
  * @param {string} errorData.timestamp - ISO timestamp
  * @param {string} errorData.userAgent - Browser user agent
  * @param {string} errorData.severity - Error severity ('high', 'medium', 'low')
+ * @param {string} errorData.category - Error classification
+ * @param {string} errorData.recoverySuggestion - Suggested recovery action
  */
 export const reportErrorToBackend = async (errorData) => {
   try {
@@ -23,7 +38,7 @@ export const reportErrorToBackend = async (errorData) => {
 
     // Require an authenticated user — the backend now enforces a valid
     // Firebase ID token on /api/log-error to prevent unauthenticated log
-    // flooding.  If no user is signed in we skip the report silently rather
+    // flooding. If no user is signed in we skip the report silently rather
     // than crashing the error boundary.
     const auth = getAuth();
     const user = auth.currentUser;
@@ -37,18 +52,34 @@ export const reportErrorToBackend = async (errorData) => {
       return;
     }
 
+    const context = normalizeContext(errorData.context);
+
+    const requestContext = [
+      errorData.requestId ? `request=${errorData.requestId}` : null,
+      errorData.userId ? `user=${errorData.userId}` : null,
+    ]
+      .filter(Boolean)
+      .join(' | ');
+
     const payload = {
       message: errorData.error?.message || 'Unknown error',
       stack: errorData.error?.stack || '',
-      source: errorData.context,
+      source: requestContext
+        ? `${context} | ${requestContext}`.slice(0, 200)
+        : context.slice(0, 200),
       level: errorData.severity === 'low' ? 'warn' : 'error',
+
+      // Enhanced diagnostic metadata
+      timestamp: errorData.timestamp || new Date().toISOString(),
+      category: errorData.category || 'unknown',
+      recoverySuggestion: errorData.recoverySuggestion || '',
     };
 
     await fetch(ERROR_LOG_ENDPOINT, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${idToken}`,
+        Authorization: `Bearer ${idToken}`,
       },
       body: JSON.stringify(payload),
     }).catch(() => {
@@ -86,14 +117,20 @@ export const formatErrorMessage = (error) => {
     // Hide technical details in production
     if (import.meta.env.MODE === 'production') {
       // Check for common error patterns and provide friendly messages
-      if (error.message.includes('NetworkError') || error.message.includes('fetch')) {
+      if (
+        error.message.includes('NetworkError') ||
+        error.message.includes('fetch')
+      ) {
         return 'Network error. Please check your connection.';
       }
+
       if (error.message.includes('timeout')) {
         return 'Request timed out. Please try again.';
       }
+
       return 'An error occurred. Please try again.';
     }
+
     return error.message;
   }
 

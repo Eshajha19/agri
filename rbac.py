@@ -15,8 +15,6 @@ Authorization model
   supplied. Valid tokens without a user profile fail closed (403), never guest.
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 from dataclasses import dataclass
@@ -82,37 +80,37 @@ class Permission(Enum):
     FINANCE_UPDATE_OWN = "finance:update:own"
     FINANCE_UPDATE_ALL = "finance:update:all"
     FINANCE_DELETE = "finance:delete"
-    
+
     # Supply Chain
     SUPPLY_CHAIN_CREATE = "supply_chain:create"
     SUPPLY_CHAIN_READ = "supply_chain:read"
     SUPPLY_CHAIN_UPDATE = "supply_chain:update"
     SUPPLY_CHAIN_DELETE = "supply_chain:delete"
-    
+
     # Notifications
     NOTIFICATIONS_READ = "notifications:read"
     NOTIFICATIONS_CREATE = "notifications:create"
     NOTIFICATIONS_DELETE = "notifications:delete"
-    
+
     # Reports
     REPORTS_CREATE = "reports:create"
     REPORTS_READ_OWN = "reports:read:own"
     REPORTS_READ_ALL = "reports:read:all"
     REPORTS_DELETE = "reports:delete"
-    
+
     # Quality Grading
     QUALITY_ASSESS = "quality:assess"
     QUALITY_READ = "quality:read"
-    
+
     # Seeds
     SEEDS_VERIFY = "seeds:verify"
     SEEDS_READ = "seeds:read"
-    
+
     # WhatsApp
     WHATSAPP_SUBSCRIBE = "whatsapp:subscribe"
     WHATSAPP_TRIGGER = "whatsapp:trigger"
     WHATSAPP_WEBHOOK = "whatsapp:webhook"
-    
+
     # System
     SYSTEM_LOG = "system:log"
     SYSTEM_ADMIN = "system:admin"
@@ -157,7 +155,7 @@ class RBACMatrix:
             Permission.FINANCE_UPDATE_OWN,
             Permission.FINANCE_READ_OWN,
         ],
-        
+
         Role.EXPERT: [
             # Expert: Read finance/supply chain, assess quality, verify seeds
             Permission.FINANCE_READ_ALL,
@@ -172,7 +170,7 @@ class RBACMatrix:
             Permission.RAG_QUERY,
             Permission.CLIMATE_SIMULATE,
         ],
-        
+
         Role.FARMER: [
             # Farmer: Read own finance, create supply chain, quality checks
             Permission.FINANCE_CREATE,
@@ -191,7 +189,7 @@ class RBACMatrix:
             Permission.RAG_QUERY,
             Permission.CLIMATE_SIMULATE,
         ],
-        
+
         Role.VENDOR: [
             # Vendor: Read supply chain, manage marketplace
             Permission.SUPPLY_CHAIN_READ,
@@ -204,7 +202,7 @@ class RBACMatrix:
             Permission.RAG_QUERY,
             Permission.CLIMATE_SIMULATE,
         ],
-        
+
         Role.SYSTEM: [
             # System: All permissions (for internal processes)
             Permission.FINANCE_CREATE,
@@ -218,7 +216,7 @@ class RBACMatrix:
             Permission.SYSTEM_LOG,
             Permission.WHATSAPP_WEBHOOK,
         ],
-        
+
         Role.GUEST: [
             # Guest: Read-only public data
             Permission.RAG_QUERY,
@@ -242,6 +240,20 @@ class RBACMatrix:
     def has_all_permissions(cls, role: Role, permissions: List[Permission]) -> bool:
         """Check if role has all given permissions."""
         return all(cls.has_permission(role, perm) for perm in permissions)
+
+
+_firestore_client = None
+
+
+def _get_firestore():
+    """Return the shared Firestore client, initialising it once."""
+    global _firestore_client
+    if _firestore_client is None:
+        try:
+            _firestore_client = firestore.client()
+        except Exception:
+            return None
+    return _firestore_client
 
 
 class RBACManager:
@@ -339,11 +351,8 @@ class RBACManager:
 
     @staticmethod
     def get_db():
-        """Get Firestore client."""
-        try:
-            return firestore.client()
-        except Exception:
-            return None
+        """Get shared Firestore client (initialised at most once)."""
+        return _get_firestore()
 
     @staticmethod
     def _parse_bearer_token(request: Request) -> Optional[str]:
@@ -391,7 +400,7 @@ class RBACManager:
                 detail="Invalid or expired authorization token",
             ) from exc
 
-        uid = decoded_token.get("uid")
+        uid = decoded_token.get("sub") or decoded_token.get("uid")
         if not uid:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -399,12 +408,28 @@ class RBACManager:
             )
 
         db = RBACManager.get_db()
-        if db is None:
-            logger.error("Firestore not available; cannot retrieve user role")
+        if not db:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Authentication database service temporarily unavailable",
+                detail="Authentication database unavailable",
             )
+            # Verify Firebase token
+            try:
+                decoded_token = firebase_auth.verify_id_token(token, check_revoked=True)
+                uid = decoded_token.get("sub") or decoded_token.get("uid")
+                uid = decoded_token.get("uid")
+            except firebase_auth.RevokedIdTokenError:
+                logger.warning("Revoked Firebase token rejected")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Session revoked — please log in again"
+                )
+            except Exception as exc:
+                logger.error("Token verification failed: %s", exc)
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid or expired authorization token"
+                )
 
         try:
             # Firestore's .get() is a blocking network call; run it off the
@@ -420,7 +445,6 @@ class RBACManager:
             ) from exc
 
         if not user_doc.exists:
-            logger.warning("User %s not found in Firestore", uid)
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="User profile not found",
@@ -431,21 +455,6 @@ class RBACManager:
         role_str = RBACManager._effective_role(roles)
         tenant_id = RBACManager._extract_tenant(profile)
 
-        claim_role = decoded_token.get("role")
-        if claim_role is not None:
-            claim_normalized = str(claim_role).strip().lower()
-            if claim_normalized not in roles:
-                logger.warning(
-                    "Stale JWT role for uid=%s: claim=%s firestore_roles=%s",
-                    uid,
-                    claim_normalized,
-                    roles,
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=STALE_TOKEN_DETAIL,
-                )
-
         claim_tenant = RBACManager._extract_tenant(decoded_token)
         if claim_tenant and tenant_id and claim_tenant != tenant_id:
             logger.warning(
@@ -454,6 +463,13 @@ class RBACManager:
                 claim_tenant,
                 tenant_id,
             )
+
+
+
+
+
+
+
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=STALE_TOKEN_DETAIL,
@@ -637,31 +653,21 @@ class RBACMiddleware(BaseHTTPMiddleware):
     avoid unnecessary latency and Firebase API calls.
     """
 
-    PUBLIC_PATH_PREFIXES = frozenset({"/", "/health", "/metrics", "/favicon"})
+    PUBLIC_PATH_PREFIXES = frozenset({"/health", "/metrics", "/favicon"})
 
     def __init__(self, app):
         super().__init__(app)
 
-    async def dispatch(self, request: Request, call_next):
-        """Log all API requests with user role."""
+    async def __call__(self, request: Request, call_next):
+        """Log all API requests."""
         path = request.url.path
-        if any(path.startswith(prefix) for prefix in self.PUBLIC_PATH_PREFIXES):
-            user_role = Role.GUEST
-        else:
-            try:
-                user_role = await RBACManager.get_user_role(request)
-            except HTTPException:
-                user_role = Role.GUEST
-
-        # Log the access attempt
+        response = await call_next(request)
         logger.info(
-            "API Request - Method: %s, Path: %s, Role: %s",
+            "API Response - Method: %s, Path: %s, Status: %s",
             request.method,
             path,
-            user_role.value if user_role else "unknown",
+            response.status_code,
         )
-
-        response = await call_next(request)
         return response
 
 
@@ -694,3 +700,35 @@ def print_rbac_matrix() -> str:
 
     lines.append("\n" + "=" * 100 + "\n")
     return "\n".join(lines)
+
+from fastapi import HTTPException
+
+async def verify_role(
+    token: str,
+    required_roles: list[str] | None = None,
+    require_all: bool = False,
+) -> dict:
+    """
+    Verify Firebase token and enforce RBAC role checks.
+    Returns dict with uid and roles if authorized.
+    """
+    try:
+        user = await RBACManager.decode_token(token)
+    except InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
+    except FirestoreUnavailable:
+        raise HTTPException(status_code=503, detail="Authorization service unavailable")
+
+    roles = user.get("roles", [])
+    uid = user.get("sub") or user.get("uid")
+
+    if required_roles:
+        if require_all:
+            has_access = all(role in roles for role in required_roles)
+        else:
+            has_access = any(role in roles for role in required_roles)
+
+        if not has_access:
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    return {"uid": uid, "roles": roles}
