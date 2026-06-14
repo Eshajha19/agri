@@ -2388,47 +2388,17 @@ body {
   display: none !important;
 }
 
-
-.comparison-container {
-  padding: 20px;
-}
-.comparison-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-.comparison-table th, .comparison-table td {
-  border: 1px solid #ddd;
-  padding: 8px;
-}
-.comparison-table tr.highlight {
-  background-color: #e6ffe6;
-  font-weight: bold;
-}
-@media (max-width: 768px) {
-  .comparison-table {
-    font-size: 14px;
-  }
-}
-
-.chatbot-container {
-  max-width: 600px;
+.emergency-report {
+  max-width: 500px;
   margin: auto;
   padding: 20px;
 }
-.chat-window {
-  background: #f9f9f9;
-  border-radius: 8px;
-  padding: 15px;
-}
-@media (max-width: 768px) {
-  .chat-window {
-    font-size: 14px;
-  }
-}
-
-.status-scheduled { color: orange; }
-.status-inprogress { color: blue; }
-.status-completed { color: green; }
+.emergency-report select,
+.emergency-report input,
+.emergency-report button {
+  display: block;
+  margin: 10px 0;
+  width: 100%;
 .backend-banner {
   background: #ffe5e5;
   color: #b00020;

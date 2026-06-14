@@ -22,6 +22,10 @@ from persistence.repositories import (
 from fastapi import Request
 from starlette.responses import JSONResponse
 
+from routes import emergency_report
+
+app.include_router(emergency_report.router)
+
 @app.middleware("http")
 async def handle_missing_static(request: Request, call_next):
     response = await call_next(request)
