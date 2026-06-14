@@ -357,90 +357,7 @@ def init_reports(
 # PDF generation helpers
 # ---------------------------------------------------------------------------
 
-def _validate_report_integrity(
-    data: ReportRequest,
-    cert_id: str,
-    signature_hex: str,
-    pdf_bytes: bytes,
-):
-    validation = {
-        "valid": True,
-        "checks": [],
-        "warnings": [],
-    }
-
-    required_fields = {
-        "name": data.name,
-        "crop": data.crop,
-        "area": data.area,
-        "profit": data.profit,
-        "season": data.season,
-    }
-
-    missing_fields = [
-        field
-        for field, value in required_fields.items()
-        if not str(value).strip()
-    ]
-
-    if missing_fields:
-        validation["valid"] = False
-        validation["warnings"].append(
-            f"missing_fields:{','.join(missing_fields)}"
-        )
-
-    if not cert_id:
-        validation["valid"] = False
-        validation["warnings"].append(
-            "missing_certificate_id"
-        )
-
-    else:
-        validation["checks"].append(
-            "certificate_id_present"
-        )
-
-    if not signature_hex:
-        validation["valid"] = False
-        validation["warnings"].append(
-            "missing_signature"
-        )
-
-    else:
-        validation["checks"].append(
-            "signature_present"
-        )
-
-    if not pdf_bytes:
-        validation["valid"] = False
-        validation["warnings"].append(
-            "empty_pdf"
-        )
-
-    if pdf_bytes:
-        validation["checks"].append(
-            "pdf_generated"
-        )
-
-        if len(pdf_bytes) < 1000:
-            validation["valid"] = False
-            validation["warnings"].append(
-                "pdf_content_suspiciously_small"
-            )
-
-        if not pdf_bytes.startswith(b"%PDF"):
-            validation["valid"] = False
-            validation["warnings"].append(
-                "invalid_pdf_header"
-            )
-
-    validation["checks"].append(
-        "required_field_validation"
-    )
-
-    return validation
-
-def _build_pdf(data: ReportRequest, signature_hex: str, cert_id: str) -> bytes:
+def _build_pdf(data: ReportRequest, signature_hex: str, cert_id: str, generated_at: str) -> bytes:
     """Render a bank-ready financial report as a PDF and return the raw bytes."""
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=letter)
@@ -460,7 +377,7 @@ def _build_pdf(data: ReportRequest, signature_hex: str, cert_id: str) -> bytes:
     c.setFillColor(colors.HexColor("#1B5E20"))
     c.setFont("Helvetica-Bold", 10)
     c.drawRightString(width - inch, height - 95, f"Certificate ID: {cert_id}")
-    c.drawRightString(width - inch, height - 110, f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
+    c.drawRightString(width - inch, height - 110, f"Generated: {generated_at}")
 
     # ── Section: Farmer Details ──────────────────────────────────────────────
     y = height - 150
@@ -525,11 +442,12 @@ def _build_pdf(data: ReportRequest, signature_hex: str, cert_id: str) -> bytes:
     return buf.getvalue()
 
 
-def _sign_report(private_key: Ed25519PrivateKey, data: ReportRequest, cert_id: str) -> str:
+def _sign_report(private_key: Ed25519PrivateKey, data: ReportRequest, cert_id: str, generated_at: str) -> str:
     """Return a hex-encoded Ed25519 signature over the canonical report payload."""
     payload = json.dumps(
         {
             "cert_id": cert_id,
+            "generated_at": generated_at,
             "name": data.name,
             "crop": data.crop,
             "area": data.area,
@@ -744,11 +662,25 @@ async def generate_signed_report(request: Request, data: ReportRequest):
         logger.error(f"Key retrieval error: {e}")
         raise HTTPException(status_code=500, detail="Failed to load signing key")
 
-class ClientErrorReport(BaseModel):
-    level: str
-    message: str
-    source: Optional[str] = None
-    stack: Optional[str] = None
+    try:
+        cert_id = _make_cert_id(data)
+        generated_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+        signature_hex = _sign_report(private_key, data, cert_id, generated_at)
+        pdf_bytes = _build_pdf(data, signature_hex, cert_id, generated_at)
+    except Exception as e:
+        logger.error(f"PDF generation error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate report")
+
+    filename = f"FasalSaathi_BankReport_{cert_id}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(pdf_bytes)),
+        },
+    )
+
 
 @router.post("/log-error")
 async def log_error(body: ClientErrorReport):
