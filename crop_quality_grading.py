@@ -67,6 +67,10 @@ class QualityAssessment:
     recommendations: List[str]
     timestamp: str
     confidence: float
+    audit_metadata: Dict
+    confidence_category: str
+    classification_strength: str
+    confidence_metadata: Dict
 
 
 class CropQualityGrader:
@@ -110,6 +114,11 @@ class CropQualityGrader:
         if image is None:
             raise ValueError("Invalid image data")
 
+        # OpenCV loads as BGR; convert to RGB so that channel access
+        # (image[:,:,0] = R, :,:,1 = G, :,:,2 = B) matches the
+        # crop-quality thresholds defined in RGB order.
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
         # Get crop params
         params = CROP_QUALITY_PARAMS[crop_type.lower()]
 
@@ -130,6 +139,60 @@ class CropQualityGrader:
         # Determine grade
         grade = self._get_grade(overall_score)
         price_adjustment = GRADE_MAPPING[grade]["price_multiplier"]
+        confidence_score = round(
+            min(95, 70 + (overall_score / 100) * 25),
+            2,
+        )
+
+        confidence_metadata = self._build_confidence_metadata(
+            confidence_score,
+            overall_score,
+            grade,
+        )
+
+        audit_metadata = {
+            "assessment_timestamp": datetime.now().isoformat(),
+            "evaluation_stage_summary": [
+                "size_analysis",
+                "color_analysis",
+                "shape_analysis",
+                "defect_detection",
+                "grade_assignment",
+            ],
+            "rule_execution_indicators": {
+                "size_rule": True,
+                "color_rule": True,
+                "shape_rule": True,
+                "defect_rule": True,
+            },
+            "decision_metadata": {
+                "overall_score": round(overall_score, 2),
+                "assigned_grade": grade,
+                "price_multiplier": price_adjustment,
+            },
+        }
+
+        audit_metadata = {
+            "assessment_timestamp": datetime.now().isoformat(),
+            "evaluation_stage_summary": [
+                "size_analysis",
+                "color_analysis",
+                "shape_analysis",
+                "defect_detection",
+                "grade_assignment",
+            ],
+            "rule_execution_indicators": {
+                "size_rule": True,
+                "color_rule": True,
+                "shape_rule": True,
+                "defect_rule": True,
+            },
+            "decision_metadata": {
+                "overall_score": round(overall_score, 2),
+                "assigned_grade": grade,
+                "price_multiplier": price_adjustment,
+            },
+        }
 
         # Generate recommendations
         recommendations = self._generate_recommendations(
@@ -148,6 +211,11 @@ class CropQualityGrader:
             recommendations=recommendations,
             timestamp=datetime.now().isoformat(),
             confidence=round(min(95, 70 + (overall_score / 100) * 25), 2),
+            audit_metadata=audit_metadata,
+            confidence=confidence_score,
+            confidence_category=confidence_metadata["confidence_category"],
+            classification_strength=confidence_metadata["classification_strength"],
+            confidence_metadata=confidence_metadata,
         )
 
         # Store in history
@@ -159,9 +227,9 @@ class CropQualityGrader:
         """Assess size uniformity of crops in image"""
         if not isinstance(image, np.ndarray):
             return 50.0
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         contours, _ = cv2.findContours(
-            cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)[1],
+            binary,
             cv2.RETR_EXTERNAL,
             cv2.CHAIN_APPROX_SIMPLE,
         )
@@ -180,10 +248,10 @@ class CropQualityGrader:
         return float(min(100, uniformity))
 
     def _assess_color(self, image: np.ndarray, params: Dict) -> float:
-        """Assess color quality"""
+        """Assess color quality against crop-specific target ranges"""
         if not isinstance(image, np.ndarray):
             return 50.0
-        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
         color_quality_score = 0.0
 
         # Check dominant color in expected range
@@ -196,7 +264,42 @@ class CropQualityGrader:
         saturation_score = min(100, (avg_s / 255) * 120)
         brightness_score = min(100, (avg_v / 255) * 110)
 
-        color_quality_score = (saturation_score * 0.6 + brightness_score * 0.4)
+        # Hue matching score using crop-specific color ranges
+        hue_score = 50.0  # default neutral
+        color_ranges = params.get("color_ranges", {})
+        if color_ranges:
+            # Check if avg_h falls within expected ranges for the crop
+            # color_ranges has red, green, blue keys but we're in HSV - use hue equivalents
+            # For simplicity, map typical HSV hue ranges: red=0-15/165-180, green=35-85, blue=85-130
+            # Check each channel's expected range
+            in_range_count = 0
+            total_checks = 0
+            
+            # Red hue wraps around 0/180 in HSV
+            red_min, red_max = color_ranges.get("red", (0, 0))
+            if red_min <= red_max:
+                in_range = red_min <= avg_h <= red_max
+            else:  # wraps around 0
+                in_range = avg_h >= red_min or avg_h <= red_max
+            if red_min or red_max:  # only check if range is defined
+                in_range_count += 1 if in_range else 0
+                total_checks += 1
+            
+            green_min, green_max = color_ranges.get("green", (0, 0))
+            if green_min or green_max:
+                in_range_count += 1 if green_min <= avg_h <= green_max else 0
+                total_checks += 1
+            
+            blue_min, blue_max = color_ranges.get("blue", (0, 0))
+            if blue_min or blue_max:
+                in_range_count += 1 if blue_min <= avg_h <= blue_max else 0
+                total_checks += 1
+            
+            if total_checks > 0:
+                hue_score = (in_range_count / total_checks) * 100
+
+        # Combine: saturation (40%), brightness (30%), hue match (30%)
+        color_quality_score = (saturation_score * 0.4 + brightness_score * 0.3 + hue_score * 0.3)
 
         return float(min(100, color_quality_score))
 
@@ -204,7 +307,7 @@ class CropQualityGrader:
         """Assess shape uniformity"""
         if not isinstance(image, np.ndarray):
             return 50.0
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         contours, _ = cv2.findContours(
             cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)[1],
             cv2.RETR_EXTERNAL,
@@ -233,17 +336,29 @@ class CropQualityGrader:
         return min(100, shape_quality)
 
     def _detect_defects(self, image: np.ndarray, params: Dict) -> float:
-        """Detect defects in crops"""
+        """Detect defects in crops using crop region segmentation"""
         if not isinstance(image, np.ndarray):
             return 10.0
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
 
-        # Use edge detection to find defects
+        # Segment crop region using adaptive threshold to exclude background
+        _, crop_mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        # Invert if background is larger than foreground (common case)
+        if np.count_nonzero(crop_mask) > crop_mask.size / 2:
+            crop_mask = cv2.bitwise_not(crop_mask)
+
+        # Use edge detection on crop region only
         edges = cv2.Canny(gray, 50, 150)
-        total_pixels = edges.shape[0] * edges.shape[1]
-        defect_pixels = np.count_nonzero(edges)
+        # Mask edges to crop region only
+        crop_edges = cv2.bitwise_and(edges, edges, mask=crop_mask)
 
-        defect_percentage = (defect_pixels / total_pixels) * 100
+        crop_pixels = np.count_nonzero(crop_mask)
+        defect_pixels = np.count_nonzero(crop_edges)
+
+        if crop_pixels == 0:
+            return 10.0
+
+        defect_percentage = (defect_pixels / crop_pixels) * 100
 
         return min(100, defect_percentage * 2)  # Scale defects
 
@@ -254,6 +369,64 @@ class CropQualityGrader:
             if score >= GRADE_MAPPING[grade_key]["min_score"]:
                 return grade_key
         return "F"
+    
+    def _get_confidence_category(self, confidence: float) -> str:
+        """
+        Convert numeric confidence into a user-friendly category.
+        """
+        if confidence >= 90:
+            return "Very High"
+        if confidence >= 80:
+            return "High"
+        if confidence >= 70:
+            return "Moderate"
+        return "Low"
+
+
+    def _get_classification_strength(
+        self,
+        score: float,
+        grade: str,
+    ) -> str:
+        """
+        Determine classification strength based on
+        score stability within the assigned grade.
+        """
+        grade_min = GRADE_MAPPING[grade]["min_score"]
+
+        margin = score - grade_min
+
+        if margin >= 15:
+            return "Strong Match"
+
+        if margin >= 5:
+            return "Moderate Match"
+
+        return "Borderline Match"
+
+
+    def _build_confidence_metadata(
+        self,
+        confidence: float,
+        score: float,
+        grade: str,
+    ) -> Dict:
+        """
+        Build lightweight metadata explaining
+        grading confidence.
+        """
+        return {
+            "confidence_category": self._get_confidence_category(confidence),
+            "classification_strength": self._get_classification_strength(
+                score,
+                grade,
+            ),
+            "score_margin": round(
+                score - GRADE_MAPPING[grade]["min_score"],
+                2,
+            ),
+            "grade_threshold": GRADE_MAPPING[grade]["min_score"],
+        }
 
     def _generate_recommendations(
         self,
@@ -355,11 +528,19 @@ class CropQualityGrader:
                 "average_price_adjustment": 0,
             }
 
+        audit_summary = {
+            "generated_at": datetime.now().isoformat(),
+            "assessment_count": len(valid_assessments),
+            "failed_assessments": failed_count,
+        }
+
         return {
             "assessments": assessments,
             "batch_statistics": batch_stats,
+            "audit_summary": audit_summary,
             "crop_type": crop_type,
             "timestamp": datetime.now().isoformat(),
+            
         }
 
     def get_quality_trends(self, crop_type: str, days: int = 7) -> Dict:

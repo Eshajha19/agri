@@ -1,22 +1,19 @@
 """
 Crop sustainability analytics — LCA-style water footprint & carbon emission estimates.
-
-Coefficients are configurable via CROP_COEFFICIENTS and EMISSION_FACTORS.
-Values are illustrative regional averages (India-centric) for advisory use, not
-certified carbon accounting.
 """
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
+import os
 
 logger = logging.getLogger(__name__)
 
 
-# kg CO2e per kg of nutrient applied (cradle-to-field, simplified)
 EMISSION_FACTORS = {
     "nitrogen_kg_co2e_per_kg": 5.2,
     "phosphorus_kg_co2e_per_kg": 1.1,
@@ -26,7 +23,6 @@ EMISSION_FACTORS = {
     "machinery_kg_co2e_per_hour": 3.5,
 }
 
-# Irrigation efficiency (fraction of applied water that reaches crop)
 IRRIGATION_EFFICIENCY = {
     "rainfed": 1.0,
     "drip": 0.92,
@@ -34,14 +30,12 @@ IRRIGATION_EFFICIENCY = {
     "flood": 0.45,
 }
 
-# Season length in days
 SEASON_DAYS = {
     "kharif": 120,
     "rabi": 150,
     "zaid": 90,
 }
 
-# Per-acre reference values; scaled by crop water_need_factor
 CROP_COEFFICIENTS: Dict[str, Dict[str, float]] = {
     "rice": {"water_m3_per_acre_season": 4500, "base_fertilizer_n": 80, "base_fertilizer_p": 40, "base_fertilizer_k": 30, "machinery_hours": 14},
     "wheat": {"water_m3_per_acre_season": 1800, "base_fertilizer_n": 60, "base_fertilizer_p": 30, "base_fertilizer_k": 20, "machinery_hours": 10},
@@ -52,6 +46,9 @@ CROP_COEFFICIENTS: Dict[str, Dict[str, float]] = {
     "vegetables": {"water_m3_per_acre_season": 2800, "base_fertilizer_n": 55, "base_fertilizer_p": 28, "base_fertilizer_k": 18, "machinery_hours": 12},
     "default": {"water_m3_per_acre_season": 2000, "base_fertilizer_n": 50, "base_fertilizer_p": 25, "base_fertilizer_k": 20, "machinery_hours": 10},
 }
+
+_MAX_HISTORY_USERS = 500
+_MAX_HISTORY_PER_USER = 50
 
 
 def _normalize_crop(crop: str) -> str:
@@ -97,9 +94,23 @@ class SustainabilityAnalytics:
     """LCA-style sustainability engine with in-memory history."""
 
     def __init__(self) -> None:
+        # OrderedDict with LRU eviction capped at _MAX_HISTORY_USERS keys
+        self._history: OrderedDict[str, List[Dict[str, Any]]] = OrderedDict()
+        self._history_lock = threading.Lock()   # FIX: initialize lock
+
         self._history: Dict[str, List[Dict[str, Any]]] = {}
+        self._local_file_lock = threading.Lock()
         import sys
         self.is_testing = "pytest" in sys.modules or "unittest" in sys.modules
+
+    def _touch_user(self, key: str) -> None:
+        """Move key to MRU position, evict LRU entry if cap exceeded."""
+        if key in self._history:
+            self._history.move_to_end(key)
+        else:
+            if len(self._history) >= _MAX_HISTORY_USERS:
+                self._history.popitem(last=False)
+            self._history[key] = []
 
     def _get_db(self):
         try:
@@ -123,44 +134,18 @@ class SustainabilityAnalytics:
         return "sustainability_history.json"
 
     def _load_local_history(self) -> Dict[str, List[Dict[str, Any]]]:
-        """Read history from disk. Returns {} and logs a warning on any read/parse error."""
         import json
         import os
         path = self._get_local_file_path()
-        if not os.path.exists(path):
-            return {}
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except json.JSONDecodeError as exc:
-            logger.warning(
-                "Sustainability history file '%s' contains invalid JSON and could "
-                "not be parsed: %s. Returning empty history.",
-                path,
-                exc,
-            )
-        except OSError as exc:
-            logger.warning(
-                "Could not read sustainability history file '%s': %s. "
-                "Returning empty history.",
-                path,
-                exc,
-            )
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as exc:
+                logger.warning("Failed to load sustainability history file: %s", exc)
         return {}
 
     def _save_local_history(self, history: Dict[str, List[Dict[str, Any]]]) -> None:
-        """
-        Atomically persist *history* to disk.
-
-        Writes to a sibling ``.tmp`` file first, flushes OS write buffers via
-        ``fsync()``, then replaces the target file with ``os.replace()``.
-        ``os.replace()`` is atomic on POSIX and effectively atomic on Windows
-        (same-volume rename), so readers always see either the previous complete
-        file or the new complete file — never a partial or empty write.
-
-        If the write or rename fails, the ``.tmp`` file is cleaned up and a
-        warning is logged. Existing history is never truncated on failure.
-        """
         import json
         import os
         path = self._get_local_file_path()
@@ -169,21 +154,18 @@ class SustainabilityAnalytics:
             with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(history, f, indent=2, ensure_ascii=False)
                 f.flush()
-                os.fsync(f.fileno())  # flush OS write buffers before rename
-            os.replace(tmp_path, path)  # atomic swap — never exposes partial write
+                os.fsync(f.fileno())
+            os.replace(tmp_path, path)   # FIX: atomically rename tmp → real
         except OSError as exc:
-            logger.warning(
-                "Failed to atomically write sustainability history to '%s': %s. "
-                "Existing history on disk is preserved.",
-                path,
-                exc,
-            )
-            # Remove the incomplete temp file so it cannot be mistaken for valid data.
-            try:
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-            except OSError:
-                pass
+            logger.warning("Failed to atomically write sustainability history to '%s': %s.", path, exc)
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
+
+        except Exception as exc:
+            logger.error("Failed to save sustainability history file: %s", exc)
 
     def get_formula_config(self) -> Dict[str, Any]:
         return {
@@ -198,13 +180,22 @@ class SustainabilityAnalytics:
         crop_key = _normalize_crop(data["crop_type"])
         season_key = _normalize_season(data["season"])
         coeffs = CROP_COEFFICIENTS.get(crop_key, CROP_COEFFICIENTS["default"])
-        acreage = data["acreage"]
+        MAX_ACREAGE = int(os.getenv("MAX_ACREAGE", "10000"))  # configurable limit
+
+        acreage = float(data.get("acreage", 0.1))
+        acreage = max(min(acreage, MAX_ACREAGE), 0.1)
         irr_type = data["irrigation_type"]
         irr_eff = IRRIGATION_EFFICIENCY.get(irr_type, 0.7)
         season_days = SEASON_DAYS[season_key]
 
-        # --- Water footprint (m³) ---
+        rainfall_mm = data.get("rainfall_mm", 0.0)
+        effective_rainfall_mm = data.get("effective_rainfall_mm", rainfall_mm * 0.8)
+        rainfall_m3_per_acre = effective_rainfall_mm * 4046.86 / 1000.0
+        rainfall_m3_total = rainfall_m3_per_acre * acreage
+
         base_water = coeffs["water_m3_per_acre_season"] * acreage
+        net_irrigation_water = max(base_water - rainfall_m3_total, 0.0)
+
         if irr_type == "rainfed":
             green_water = base_water * 0.85
             blue_water = base_water * 0.15
@@ -218,7 +209,6 @@ class SustainabilityAnalytics:
         total_water_m3 = round((blue_water + green_water) * event_factor, 2)
         water_per_acre = round(total_water_m3 / max(acreage, 0.1), 2)
 
-        # --- Carbon emissions (kg CO2e) ---
         n_kg = data["fertilizer_n_kg"] or coeffs["base_fertilizer_n"] * acreage
         p_kg = data["fertilizer_p_kg"] or coeffs["base_fertilizer_p"] * acreage
         k_kg = data["fertilizer_k_kg"] or coeffs["base_fertilizer_k"] * acreage
@@ -243,13 +233,18 @@ class SustainabilityAnalytics:
         irrigation_energy_co2 = pump_kwh * ef["electricity_kg_co2e_per_kwh"]
 
         organic_reduction = 0.12 if data["organic_practices"] else 0.0
+
+        # Apply reduction ONLY to fertilizer emissions
+        fert_co2 *= (1.0 - organic_reduction)
+
+        # Then sum everything normally
         total_carbon_kg = round(
-            (fert_co2 + machinery_co2 + fuel_co2 + irrigation_energy_co2) * (1.0 - organic_reduction),
+            fert_co2 + machinery_co2 + fuel_co2 + irrigation_energy_co2,
             2,
         )
+
         carbon_per_acre = round(total_carbon_kg / max(acreage, 0.1), 2)
 
-        # Benchmark vs crop average (simplified)
         benchmark_water = coeffs["water_m3_per_acre_season"] * acreage
         benchmark_carbon = (
             (coeffs["base_fertilizer_n"] * acreage * ef["nitrogen_kg_co2e_per_kg"])
@@ -281,9 +276,9 @@ class SustainabilityAnalytics:
             "carbon": {
                 "total_kg_co2e": total_carbon_kg,
                 "per_acre_kg_co2e": carbon_per_acre,
-                "fertilizer_kg_co2e": round(fert_co2 * (1.0 - organic_reduction), 2),
+                "fertilizer_kg_co2e": round(fert_co2, 2),
                 "machinery_kg_co2e": round(machinery_co2, 2),
-                "fuel_kg_co2e": round(fuel_co2 * (1.0 - organic_reduction), 2),
+                "fuel_kg_co2e": round(fuel_co2, 2),
                 "irrigation_energy_kg_co2e": round(irrigation_energy_co2, 2),
             },
             "inputs": {
@@ -303,7 +298,7 @@ class SustainabilityAnalytics:
         ]
 
         record_id = str(uuid4())
-        created_at = datetime.now(timezone.utc).isoformat() + "Z"
+        created_at = datetime.now(timezone.utc).isoformat()
         user_id = data["user_id"] or "anonymous"
 
         result = {
@@ -340,33 +335,20 @@ class SustainabilityAnalytics:
                     .get()
                 )
                 entries = [d.to_dict() for d in docs]
-                # Sort entries by created_at descending (newest first)
                 entries.sort(key=lambda x: x.get("created_at", ""), reverse=True)
                 return entries[:limit]
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.exception("Firestore operation failed: %s", exc)
+                return {}
 
-        # Fallback to local history
+
         local_hist = self._load_local_history()
         entries = local_hist.get(key, [])
+        self._touch_user(key)
         self._history[key] = entries
         return list(reversed(entries[-limit:]))
 
     def _append_history(self, user_id: str, result: Dict[str, Any]) -> None:
-        """
-        Persist a new sustainability record then update the in-memory cache.
-
-        Persistence order
-        -----------------
-        1. Firestore (primary).  Errors are logged; a failure does NOT update
-           the in-memory cache so the two layers stay consistent.
-        2. Local JSON file (fallback / offline).  Errors are logged; they do not
-           prevent the Firestore path from succeeding.
-
-        The in-memory cache is only updated after at least one durable persistence
-        layer has accepted the record.  If both layers fail, the record is not
-        added to the cache, preventing divergence between memory and storage.
-        """
         key = user_id or "anonymous"
         record = {
             "record_id": result["record_id"],
@@ -378,63 +360,45 @@ class SustainabilityAnalytics:
             "water_footprint_m3": result["water_footprint_m3"],
             "carbon_emissions_kg_co2e": result["carbon_emissions_kg_co2e"],
             "sustainability_score": result["sustainability_score"],
+            "water_index": result.get("water_index"),
+            "carbon_index": result.get("carbon_index"),
+            "breakdown": result.get("breakdown", {}),
+            "recommendations": result.get("recommendations", []),
+            "comparison_chart": result.get("comparison_chart", []),
+            "formula_version": result.get("formula_version", "lca-v1"),
         }
 
-        # ── 1. Persist to Firestore (primary) ─────────────────────────────
-        firestore_ok = False
+        # Save to memory cache
+        with self._history_lock:
+            self._touch_user(user_id)
+            self._history[user_id].append(record)
+            if len(self._history[user_id]) > _MAX_HISTORY_PER_USER:
+                self._history[user_id].pop(0)
+
+        # Save to Firestore primarilly
         db = self._get_db()
         if db is not None:
             try:
                 db.collection("sustainability_history").document(record["record_id"]).set(record)
-                firestore_ok = True
             except Exception as exc:
-                logger.warning(
-                    "Firestore write failed for sustainability record '%s' "
-                    "(user=%s): %s. In-memory cache will not be updated until "
-                    "at least one persistence layer succeeds.",
-                    record["record_id"],
-                    key,
-                    exc,
-                )
+                logger.warning("Failed to persist sustainability record to Firestore: %s", exc)
 
-        # ── 2. Persist to local JSON file (fallback / offline) ────────────
-        local_ok = False
-        try:
-            local_hist = self._load_local_history()
-            if key not in local_hist:
-                local_hist[key] = []
-            local_hist[key].append(record)
-            if len(local_hist[key]) > 50:
-                local_hist[key] = local_hist[key][-50:]
-            self._save_local_history(local_hist)
-            local_ok = True
-        except Exception as exc:
-            logger.warning(
-                "Local-file write failed for sustainability record '%s' "
-                "(user=%s): %s.",
-                record["record_id"],
-                key,
-                exc,
-            )
+        # Save to local persistent file as fallback (serialized with lock)
+        with self._local_file_lock:
+            try:
+                local_hist = self._load_local_history()
+                if key not in local_hist:
+                    local_hist[key] = []
+                local_hist[key].append(record)
+                if len(local_hist[key]) > 50:
+                    local_hist[key] = local_hist[key][-50:]
+                self._save_local_history(local_hist)
+            except Exception:
+                logger.exception("Failed to persist sustainability history to local file")
 
-        # ── 3. Update in-memory cache only when at least one layer persisted ──
-        # This keeps the cache consistent with durable storage. If both layers
-        # fail the record is absent from memory AND from disk — no divergence.
-        if not (firestore_ok or local_ok):
-            logger.error(
-                "All persistence layers failed for sustainability record '%s' "
-                "(user=%s). Record will NOT be added to the in-memory cache to "
-                "prevent cache/storage divergence.",
-                record["record_id"],
-                key,
-            )
-            return
-
-        if key not in self._history:
-            self._history[key] = []
-        self._history[key].append(record)
-        if len(self._history[key]) > 50:
-            self._history[key] = self._history[key][-50:]
+    def save_history(self) -> None:
+        with self._history_lock:
+            self._save_local_history(self._history)
 
     def _normalize_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return {
