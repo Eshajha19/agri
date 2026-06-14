@@ -106,6 +106,11 @@ _INSURANCE_SCHEMES = [
 # ---------------------------------------------------------------------------
 # Pydantic schemas
 # ---------------------------------------------------------------------------
+class RejectionDetail(BaseModel):
+    reason: str
+    recommended_action: str
+
+
 class ClaimSummary(BaseModel):
     claim_id: str
     farmer_name: str
@@ -119,6 +124,7 @@ class ClaimSummary(BaseModel):
     submitted_at: str
     image_count: int
     status: str
+    rejection_details: Optional[List[RejectionDetail]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -278,7 +284,8 @@ def _generate_claim_pdf(claim: dict) -> bytes:
     )
 
     # ── Claim Status Badge ───────────────────────────────────────────────────
-    status_color = colors.HexColor("#f59e0b")
+    status = claim.get("status", "SUBMITTED").upper()
+    status_color = colors.HexColor("#ef4444") if status == "REJECTED" else colors.HexColor("#f59e0b")
     pdf.setFillColor(status_color)
     pdf.roundRect(0.5 * inch, height - 1.9 * inch, 1.4 * inch, 0.32 * inch, 4, fill=1, stroke=0)
     pdf.setFont("Helvetica-Bold", 9)
@@ -286,7 +293,7 @@ def _generate_claim_pdf(claim: dict) -> bytes:
     pdf.drawCentredString(
         0.5 * inch + 0.7 * inch,
         height - 1.77 * inch,
-        claim.get("status", "SUBMITTED").upper(),
+        status,
     )
 
     pdf.setFont("Helvetica", 9)
@@ -367,7 +374,7 @@ def _generate_claim_pdf(claim: dict) -> bytes:
     y -= 0.1 * inch
 
     # ── Recovery Notes ───────────────────────────────────────────────────────
-    if claim.get("treatment_hint"):
+    if claim.get("treatment_hint") and claim.get("status") != "Rejected":
         y = section_header("💡  Recovery Guidance", y)
         pdf.setFont("Helvetica", 9)
         pdf.setFillColor(colors.HexColor("#374151"))
@@ -386,6 +393,20 @@ def _generate_claim_pdf(claim: dict) -> bytes:
             pdf.drawString(0.6 * inch, y, text_line)
             y -= 0.22 * inch
         y -= 0.05 * inch
+
+    # ── Rejection Details ────────────────────────────────────────────────────
+    if claim.get("status") == "Rejected" and claim.get("rejection_details"):
+        y = section_header("❌  Rejection Details", y)
+        for detail in claim.get("rejection_details", []):
+            pdf.setFont("Helvetica-Bold", 10)
+            pdf.setFillColor(colors.HexColor("#ef4444"))
+            pdf.drawString(0.6 * inch, y, f"Reason: {detail.get('reason', '')}")
+            y -= 0.20 * inch
+            pdf.setFont("Helvetica", 9)
+            pdf.setFillColor(colors.HexColor("#16a34a"))
+            pdf.drawString(0.8 * inch, y, f"Recommended Action: {detail.get('recommended_action', '')}")
+            y -= 0.26 * inch
+        y -= 0.1 * inch
 
     # ── Footer ───────────────────────────────────────────────────────────────
     pdf.setStrokeColor(colors.HexColor("#d1d5db"))
@@ -513,6 +534,7 @@ async def submit_insurance_claim(
     farm_area: str = Form(..., max_length=50),
     damage_cause: str = Form(..., max_length=100),
     images: List[UploadFile] = File(...),
+    simulate_rejection: Optional[str] = Form(None),
 ):
     """
     Submit a crop insurance claim with damage photos.
@@ -566,6 +588,8 @@ async def submit_insurance_claim(
     damage = _estimate_damage_from_analysis(best_analysis or {})
 
     claim_id = str(uuid.uuid4())[:8].upper()
+    is_rejected = simulate_rejection == "true"
+    
     claim = {
         "claim_id": claim_id,
         "owner_uid": uid,
@@ -582,7 +606,21 @@ async def submit_insurance_claim(
         "treatment_hint": damage["treatment_hint"],
         "image_count": len(images),
         "submitted_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "status": "Submitted",
+        "status": "Rejected" if is_rejected else "Submitted",
+        "rejection_details": [
+            {
+                "reason": "Missing land ownership proof",
+                "recommended_action": "Upload Khasra document (Land record details)",
+            },
+            {
+                "reason": "Unclear damage photographs",
+                "recommended_action": "Retake and upload high-resolution photos under clear daylight",
+            },
+            {
+                "reason": "Acreage mismatch with registered area",
+                "recommended_action": "Provide correct farm dimensions or update land registration profile",
+            }
+        ] if is_rejected else None,
     }
     _claims[claim_id] = claim
 
@@ -613,6 +651,21 @@ async def get_claim(request: Request, claim_id: str):
         raise HTTPException(status_code=403, detail="You do not have permission to access this claim")
 
     return {"success": True, "claim": claim, "applicable_schemes": _INSURANCE_SCHEMES}
+
+
+@router.get("/insurance/claims")
+async def list_claims(request: Request):
+    """Retrieve all claims submitted by the current user."""
+    if verify_role_fn is None:
+        raise HTTPException(status_code=500, detail="Auth service not initialized")
+
+    token_data = await verify_role_fn(request)
+    uid = token_data.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+
+    user_claims = [c for c in _claims.values() if c.get("owner_uid") == uid]
+    return {"success": True, "claims": user_claims}
 
 
 @router.get("/insurance/claim/{claim_id}/export")

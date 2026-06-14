@@ -2387,3 +2387,11 @@ body {
 .skiptranslate iframe {
   display: none !important;
 }
+
+.backend-banner {
+  background: #ffe5e5;
+  color: #b00020;
+  padding: 10px;
+  text-align: center;
+  font-weight: bold;
+}

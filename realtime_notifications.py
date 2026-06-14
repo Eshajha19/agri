@@ -442,6 +442,10 @@ class NotificationBroadcastHub:
         # via the `not subscription_region` short-circuit in region_matches().
         region_scopes: frozenset[str] = frozenset(r for r in regions if r.strip())
 
+
+ main
+
+ main
         async with self._connections_lock:
             self._connections[websocket] = _ConnectionSubscription(
                 uid=uid,
@@ -518,6 +522,24 @@ class NotificationBroadcastHub:
                 # was never updated, so crop filtering had no effect after
                 # the initial connect.
                 # ----------------------------------------------------------
+
+                # ----------------------------------------------------------
+                # FIX 2: subscribe_crops — validate AND apply to subscription
+                #
+                # Previously the message was validated but the subscription
+                # was never updated, so crop filtering had no effect after
+                # the initial connect.
+                # ----------------------------------------------------------
+
+                # ----------------------------------------------------------
+                # FIX 2: subscribe_crops — validate AND apply to subscription
+                #
+                # Previously the message was validated but the subscription
+                # was never updated, so crop filtering had no effect after
+                # the initial connect.
+                # ----------------------------------------------------------
+ main
+ main
                 elif msg_type == "subscribe_crops":
                     valid, error = self._validate_subscribe_crops(parsed)
                     if not valid:
@@ -589,7 +611,7 @@ class NotificationBroadcastHub:
                             # Import here to avoid circular dependency at
                             # module level; profile lookup is cheap (cached
                             # in main.py's _get_firestore_user_profile).
-                            profile = self._get_profile_for_uid(sub.uid)
+                            profile = self._get_profile_fn(sub.uid) if self._get_profile_fn else {}
                             requested = parsed.get("regions", [])
                             new_regions = frozenset(
                                 resolve_subscription_regions(profile, requested)
@@ -618,8 +640,7 @@ class NotificationBroadcastHub:
                                     "regions": sorted(new_regions),
                                 }
                             )
-        except WebSocketDisconnect:
-            logger.debug("WebSocket client disconnected")
+
         except asyncio.CancelledError:
             pass
         finally:
@@ -633,15 +654,6 @@ class NotificationBroadcastHub:
     def set_profile_lookup(self, fn: callable) -> None:
         """Inject the Firestore profile-lookup function (called by main.py lifespan)."""
         self._get_profile_fn = fn
-
-    def _get_profile_for_uid(self, uid: str) -> dict:
-        """Fetch the Firestore profile for *uid*, returning {} on any failure."""
-        if self._get_profile_fn is None:
-            return {}
-        try:
-            return self._get_profile_fn(uid) or {}
-        except Exception:
-            return {}
 
     @staticmethod
     def _validate_delivery_ack(msg: Dict[str, Any]) -> tuple[bool, str]:
@@ -711,6 +723,21 @@ class NotificationBroadcastHub:
  
         return True, ""
 
+    async def _broadcast(
+        self, payload: Dict[str, Any], clients: list[tuple[WebSocket, _ConnectionSubscription]]
+    ) -> None:
+        if not clients:
+            return
+
+        stale_clients: list[WebSocket] = []
+        async with self._broadcast_lock:
+            for websocket, _subscription in clients:
+                try:
+                    await websocket.send_json(payload)
+                except Exception:
+                    stale_clients.append(websocket)
+
+
     def _is_duplicate_notification_by_content(self, notification: Dict[str, Any]) -> bool:
         """Check if notification content is a recent duplicate based on hash."""
         # Use deterministic hash to detect duplicates
@@ -753,6 +780,17 @@ class NotificationBroadcastHub:
                 except Exception:
                     stale_clients.append(websocket)
 
+
+        stale_clients: list[WebSocket] = []
+        async with self._broadcast_lock:
+            for websocket, _subscription in clients:
+                try:
+                    await websocket.send_json(payload)
+                except Exception:
+                    stale_clients.append(websocket)
+ main
+ main
+
         if stale_clients:
             async with self._connections_lock:
                 for websocket in stale_clients:
@@ -761,6 +799,16 @@ class NotificationBroadcastHub:
     async def _persist_notification(
         self, event: NotificationEvent, uid: str
     ) -> None:
+
+    async def _persist_notification(
+        self, event: NotificationEvent, uid: str
+    ) -> None:
+
+    async def _persist_notification(
+        self, event: NotificationEvent, uid: str
+    ) -> None:
+ main
+ main
         """Track targeted notification delivery with bounded memory usage."""
         if not self._enable_persistence:
             return
@@ -901,3 +949,6 @@ class NotificationBroadcastHub:
 
 
 notification_broker = NotificationBroadcastHub()
+
+main
+ main
