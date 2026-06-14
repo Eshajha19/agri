@@ -275,6 +275,10 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
     _RESET_TIMEOUT = 60.0
     _JITTER_MAX = 30.0
     
+    # State retention cleanup
+    _CLEANUP_INTERVAL = 300.0  # Clean up stale state every 5 minutes
+    _STATE_TTL = 3600.0  # Remove entries not accessed for 1 hour
+    
     def __init__(self, app, scan_request_body: bool = True,
                  confidence_threshold: ConfidenceLevel = ConfidenceLevel.MEDIUM):
         super().__init__(app)
@@ -288,6 +292,61 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
         self._circuit_open_since = {}
         self._failure_timestamps = {}
         self.circuit_breaker = CircuitBreakerAsync()
+        
+        # Track last cleanup time to avoid excessive cleanup iterations
+        self._last_state_cleanup = time.time()
+    
+    def _contains_suspicious_content(self, text: str) -> bool:
+        """Check if text contains suspicious patterns."""
+        for pattern in SQL_PATTERNS + [re.compile(p) for p in SUSPICIOUS_PATTERNS]:
+            if pattern.search(text):
+                return True
+        return False
+    
+    def _cleanup_stale_state(self) -> None:
+        """Remove entries that haven't been accessed within _STATE_TTL.
+        
+        Prevents unbounded growth of error tracking and circuit breaker state
+        dictionaries. Called periodically during request handling.
+        """
+        now = time.time()
+        
+        # Only run cleanup if interval has elapsed
+        if (now - self._last_state_cleanup) < self._CLEANUP_INTERVAL:
+            return
+        
+        cutoff_time = now - self._STATE_TTL
+        
+        # Clean up error_timestamps and error_counts
+        stale_keys = [
+            key for key, timestamp in self.error_timestamps.items()
+            if timestamp < cutoff_time
+        ]
+        for key in stale_keys:
+            self.error_timestamps.pop(key, None)
+            self.error_counts.pop(key, None)
+        
+        # Clean up circuit breaker state for closed endpoints
+        # Preserve state for OPEN/HALF_OPEN circuits; clean only CLOSED
+        stale_circuit_keys = [
+            endpoint for endpoint, state in self._circuit_state.items()
+            if state == self._CLOSED and endpoint in self._failure_timestamps
+            and all(t < cutoff_time for t in self._failure_timestamps.get(endpoint, []))
+        ]
+        for endpoint in stale_circuit_keys:
+            self._circuit_state.pop(endpoint, None)
+            self._failure_timestamps.pop(endpoint, None)
+            self._circuit_open_since.pop(endpoint, None)
+            self._circuit_open_since.pop(f"{endpoint}.__jitter__", None)
+        
+        if stale_keys or stale_circuit_keys:
+            logger.debug(
+                "Cleaned up %d stale error entries and %d stale circuit states",
+                len(stale_keys),
+                len(stale_circuit_keys),
+            )
+        
+        self._last_state_cleanup = now
     
     def _contains_suspicious_content(self, text: str) -> bool:
         """Check if text contains suspicious patterns."""
@@ -312,6 +371,9 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
     
     async def dispatch(self, request: Request, call_next) -> Response:
         """Handle request with error recovery"""
+        
+        # Clean up stale tracking state periodically
+        self._cleanup_stale_state()
 
         request_id = str(uuid.uuid4())
         request.state.request_id = request_id
