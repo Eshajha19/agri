@@ -270,6 +270,28 @@ def test_shadow_evaluator_rejection_triggers_rollback():
     return True
 
 
+def test_celery_worker_model_loaders():
+    """Verify that celery_worker model loading logic is correct under the lock."""
+    print("Testing celery_worker model loaders...")
+    with patch("celery_worker.verify_and_load_joblib") as mock_load:
+        mock_load.return_value = "mocked_lag_model"
+        
+        import celery_worker
+        # Reset cached model state to force loading
+        celery_worker._model_lag = None
+        
+        model = celery_worker._get_lag_model()
+        assert model == "mocked_lag_model"
+        mock_load.assert_called_once_with("sklearn_yield_model.joblib")
+        
+        model2 = celery_worker._get_lag_model()
+        assert model2 == "mocked_lag_model"
+        mock_load.assert_called_once()
+        
+    print("  [OK] celery_worker model loaders work under double-checked lock")
+    return True
+
+
 def main():
     print("=" * 60)
     print("ML Model Security Test Suite (Issue #4)")
@@ -284,6 +306,7 @@ def main():
         test_sign_then_verify_roundtrip,
         test_drift_triggers_model_rollback,
         test_shadow_evaluator_rejection_triggers_rollback,
+        test_celery_worker_model_loaders,
     ]
     passed = failed = 0
     for t in tests:
