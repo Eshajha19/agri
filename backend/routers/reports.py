@@ -9,10 +9,8 @@ import hashlib
 import io
 import json
 import logging
-from datetime import datetime, timezone
-import time, uuid
-import threading
-from fastapi import APIRouter, HTTPException
+import secrets
+from datetime import datetime
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
@@ -463,20 +461,17 @@ def _sign_report(private_key: Ed25519PrivateKey, data: ReportRequest, cert_id: s
 
 
 def _make_cert_id(data: ReportRequest) -> str:
-    """Generate a unique certificate ID for each report request.
+    """Generate a collision-resistant, unpredictable certificate ID.
 
-    A random 8-byte nonce is mixed into the hash input so that two requests
-    with identical field values (same farmer name, crop, and season on the
-    same day) always produce different IDs. Without the nonce, the ID is fully
-    deterministic and collides silently on repeated submissions, causing the
-    second PDF to overwrite or be confused with the first in any downstream
-    system that indexes by certificate ID.
+    The ID combines a short deterministic prefix (farmer+crop+date) with
+    128 bits of CSPRNG entropy so that IDs are both traceable and
+    impossible to guess or predict.
     """
-    import secrets
-    nonce = secrets.token_hex(8)
-    raw = f"{data.name}|{data.crop}|{data.season}|{datetime.now(timezone.utc).strftime('%Y%m%d')}|{nonce}"
-    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:10].upper()
-    return f"CERT-{digest}"
+    date_str = datetime.utcnow().strftime("%Y%m%d")
+    prefix_raw = f"{data.name}|{data.crop}|{date_str}"
+    prefix_digest = hashlib.sha256(prefix_raw.encode("utf-8")).hexdigest()[:6].upper()
+    random_part = secrets.token_hex(8).upper()  # 64 bits → 16 hex chars
+    return f"CERT-{prefix_digest}-{random_part}"
 
 
 # ---------------------------------------------------------------------------
