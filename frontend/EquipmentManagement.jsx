@@ -2,6 +2,24 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { getEquipmentInfo, evaluateEquipmentHealth } from './utils/equipmentDatabase';
 import EquipmentService from './services/equipmentApi';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
+import useInterval from "../hooks/useInterval";
+
+useInterval(() => {
+  if (realTimeMode && selectedIdRef.current) {
+    updateSensorData(selectedIdRef.current);
+  }
+}, 4000);
+
+async function updateSensorData(id, options = {}) {
+  const data = await equipmentService.current.getSensorData(id, options);
+  setSensorData(data);
+  return data; //  return sensor data for reuse
+}
+
+async function updateHealthData(sensorData, options = {}) {
+  const health = await evaluateEquipmentHealth(sensorData);
+  setHealthData(health);
+}
 
 export default function EquipmentManagement({ onClose }) {
   const [equipment, setEquipment] = useState([]);
@@ -49,6 +67,7 @@ async function selectEquipment(eq) {
   selectedIdRef.current = eq.id;
 
   try {
+    const sensorData = await updateSensorData(eq.id, { signal: controller.signal });
     await Promise.all([
       updateSensorData(eq.id, { signal: controller.signal }),
       updateHealthData(eq.id, { signal: controller.signal }),
