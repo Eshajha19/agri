@@ -153,6 +153,17 @@ class SustainabilityAnalytics:
         try:
             with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(history, f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, path)   # FIX: atomically rename tmp → real
+        except OSError as exc:
+            logger.warning("Failed to atomically write sustainability history to '%s': %s.", path, exc)
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
+
         except Exception as exc:
             logger.error("Failed to save sustainability history file: %s", exc)
 
