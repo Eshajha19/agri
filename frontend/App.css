@@ -2409,6 +2409,22 @@ body {
     font-size: 14px;
   }
 }
+
+.chatbot-container {
+  max-width: 600px;
+  margin: auto;
+  padding: 20px;
+}
+.chat-window {
+  background: #f9f9f9;
+  border-radius: 8px;
+  padding: 15px;
+}
+@media (max-width: 768px) {
+  .chat-window {
+    font-size: 14px;
+  }
+}
 .backend-banner {
   background: #ffe5e5;
   color: #b00020;
