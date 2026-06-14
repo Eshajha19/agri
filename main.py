@@ -132,6 +132,14 @@ app.add_middleware(
 csp_policy = "default-src 'self'; connect-src 'self' wss://yourfrontend.com wss://staging.yourfrontend.com"
 app.add_middleware(CSPMiddleware, policy=csp_policy)
 
+csp_policy = (
+    "default-src 'self'; "
+    "script-src 'self' https://translate.googleapis.com https://translate.google.com; "
+    "style-src 'self' 'unsafe-inline' https://translate.googleapis.com; "
+    "frame-src 'self' https://translate.google.com;"
+)
+app.add_middleware(CSPMiddleware, policy=csp_policy)
+
 
 
 class SimulationRequest(BaseModel):

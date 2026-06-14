@@ -466,6 +466,8 @@ function App() {
 
 useEffect(() => {
   let cancelled = false;
+  let retryCount = 0;
+  const MAX_RETRIES = 3;
 
   const synchronizeTranslation = async () => {
     if (!preferredLang || cancelled) return;
@@ -475,55 +477,47 @@ useEffect(() => {
       return;
     }
 
-    // Fast path
-    if (applyGoogleTranslate(preferredLang)) {
-      return;
-    }
-
-    // Robust fallback path
-    await applyGoogleTranslateRobust(
-      preferredLang,
-      {
-        onReady: () => {
-          console.log(
-            "Google Translate synchronized successfully"
-          );
-        },
-
-        onError: () => {
-          console.warn(
-            "Translation fallback active"
-          );
-        },
+    try {
+      // Fast path
+      if (applyGoogleTranslate(preferredLang)) {
+        console.log("Google Translate initialized successfully");
+        return;
       }
-    );
+
+      // Robust fallback path
+      await applyGoogleTranslateRobust(preferredLang, {
+        onReady: () => {
+          console.log("Google Translate synchronized successfully");
+        },
+        onError: () => {
+          console.warn("Translation fallback active");
+          if (retryCount < MAX_RETRIES) {
+            retryCount++;
+            console.info(`Retrying Google Translate init (#${retryCount})`);
+            setTimeout(synchronizeTranslation, 2000 * retryCount); // exponential backoff
+          }
+        },
+      });
+    } catch (error) {
+      console.error("Google Translate init failed:", error);
+      if (retryCount < MAX_RETRIES) {
+        retryCount++;
+        setTimeout(synchronizeTranslation, 2000 * retryCount);
+      }
+    }
   };
 
   void synchronizeTranslation();
 
   const handleWidgetLoad = () => {
-    if (cancelled) return;
-
-    if (!applyGoogleTranslate(preferredLang)) {
-      void applyGoogleTranslateRobust(
-        preferredLang,
-        { retry: false }
-      );
-    }
+    if (!cancelled) void synchronizeTranslation();
   };
 
-  document.addEventListener(
-    "googleTranslateWidgetLoaded",
-    handleWidgetLoad
-  );
+  document.addEventListener("googleTranslateWidgetLoaded", handleWidgetLoad);
 
   return () => {
     cancelled = true;
-
-    document.removeEventListener(
-      "googleTranslateWidgetLoaded",
-      handleWidgetLoad
-    );
+    document.removeEventListener("googleTranslateWidgetLoaded", handleWidgetLoad);
 
     if (googleTranslateObserver) {
       googleTranslateObserver.disconnect();
@@ -531,14 +525,12 @@ useEffect(() => {
     }
 
     if (googleTranslateRetryTimeout) {
-      clearTimeout(
-        googleTranslateRetryTimeout
-      );
-
+      clearTimeout(googleTranslateRetryTimeout);
       googleTranslateRetryTimeout = null;
     }
   };
 }, [preferredLang]);
+
 
   useEffect(() => {
     const hideGoogleTranslateBanner = () => {
