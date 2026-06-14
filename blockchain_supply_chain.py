@@ -46,7 +46,14 @@ class BlockchainRecord:
         result["hash"] = self.hash
         return result
 
+    def _canonical_json(self, payload: Dict) -> str:
+        """Deterministic JSON serialization for hashing."""
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+
     def calculate_hash(self) -> str:
+        """Calculate SHA256 hash of record (excludes hash and previous_hash fields)"""
+        record_string = self._canonical_json(self.to_dict())
+        return hashlib.sha256(record_string.encode("utf-8")).hexdigest()
         """Calculate SHA256 hash of record (excludes previous_hash field)"""
         record_string = json.dumps(self.to_dict(), sort_keys=True)
         return hashlib.sha256(record_string.encode()).hexdigest()
@@ -218,6 +225,16 @@ class SupplyChainBlockchain:
         snap = self._snapshot_state()
         try:
             batch_id = f"BATCH-{uuid.uuid4().hex[:12].upper()}"
+            batch = ProductBatch(...)
+            record = BlockchainRecord(...)
+            record.hash = record.calculate_hash()
+            owner_uid: str = "",
+            harvest_id: str = "",
+    ) -> ProductBatch:
+        """Create new product batch atomically with harvest_id deduplication."""
+        snap = self._snapshot_state()
+        try:
+            batch_id = f"BATCH-{uuid.uuid4().hex[:12].upper()}"
 
             if harvest_id:
                 self._record_harvest_id(harvest_id)
@@ -247,11 +264,13 @@ class SupplyChainBlockchain:
             )
 
             record = self._link_record(BlockchainRecord(
-                timestamp=datetime.now().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 actor=farmer_name,
                 action="created_batch",
                 location=farm_id,
                 data=asdict(batch),
+            )
+            record.hash = record.calculate_hash()
             )
             record.previous_hash = record.calculate_hash()
 
@@ -323,11 +342,13 @@ class SupplyChainBlockchain:
             )
 
             record = self._link_record(BlockchainRecord(
-                timestamp=node.timestamp,
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 actor=actor_name,
                 action=action,
                 location=location,
                 data=asdict(node),
+            )
+            record.hash = record.calculate_hash()
             )
             record.previous_hash = record.calculate_hash()
 
@@ -386,11 +407,13 @@ class SupplyChainBlockchain:
             )
 
             record = self._link_record(BlockchainRecord(
-                timestamp=datetime.now().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 actor=seller,
                 action="contract_created",
                 location="contract",
                 data=asdict(contract),
+            )
+            record.hash = record.calculate_hash()
             )
             record.previous_hash = record.calculate_hash()
 
@@ -455,6 +478,23 @@ class SupplyChainBlockchain:
             )
 
             self._validate_transaction_uniqueness(transaction_id)
+            # Prepare execution record first (may raise)
+            record = self._link_record(BlockchainRecord(
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                actor=contract.buyer,
+                action="contract_executed",
+                location="contract",
+                data={
+                    "contract_id": contract_id,
+                    "batch_id": contract.batch_id,
+                    "amount": contract.price,
+                    "currency": contract.currency,
+                },
+            )
+            record.hash = record.calculate_hash()
+            )
+
+            # Commit state updates atomically
 
             # Build blockchain record before mutating state
             record = self._link_record(
