@@ -1590,13 +1590,20 @@ async def _authenticate_notification_websocket(websocket: WebSocket) -> Optional
     Browsers cannot set Authorization headers on WebSocket handshakes, so clients
     must pass ``?token=<Firebase ID token>``.
     """
-    token = websocket.query_params.get("token")
-    if not token or not token.strip():
+    auth_header = websocket.headers.get("authorization")
+
+    if not auth_header or not auth_header.startswith("Bearer "):
+        await websocket.close(code=1008, reason="Missing authentication token")
+        return None
+
+    token = auth_header[7:].strip()
+
+    if not token:
         await websocket.close(code=1008, reason="Missing authentication token")
         return None
 
     try:
-        decoded = auth.verify_id_token(token.strip())
+        decoded = auth.verify_id_token(token)
     except Exception:
         await websocket.close(code=1008, reason="Invalid authentication token")
         return None
@@ -3379,13 +3386,20 @@ async def _authenticate_notification_websocket(websocket: WebSocket) -> Optional
     Browsers cannot set Authorization headers on WebSocket handshakes, so clients
     must pass ``?token=<Firebase ID token>``.
     """
-    token = websocket.query_params.get("token")
-    if not token or not token.strip():
+    auth_header = websocket.headers.get("authorization")
+
+    if not auth_header or not auth_header.startswith("Bearer "):
+        await websocket.close(code=1008, reason="Missing authentication token")
+        return None
+
+    token = auth_header[7:].strip()
+
+    if not token:
         await websocket.close(code=1008, reason="Missing authentication token")
         return None
 
     try:
-        decoded = auth.verify_id_token(token.strip())
+        decoded = auth.verify_id_token(token)
     except Exception:
         await websocket.close(code=1008, reason="Invalid authentication token")
         return None
