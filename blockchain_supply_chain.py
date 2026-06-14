@@ -22,6 +22,8 @@ import secrets
 
 from blockchain_record import BlockchainRecord
 from product_batch import ProductBatch
+from smart_contract import SmartContract
+
 
 @dataclass
 class SupplyChainNode:
@@ -37,60 +39,6 @@ class SupplyChainNode:
     humidity: Optional[float] = None
     quality_check: Optional[str] = None
     notes: str = ""
-
-
-@dataclass
-class SmartContract:
-    """Smart contract for supply chain"""
-    contract_id: str
-    batch_id: str
-    seller: str
-    buyer: str
-    price: float
-    created_by_uid: str = ""
-    currency: str = "INR"
-    terms: Dict = field(default_factory=dict)
-    status: str = "pending"  # pending, executed, completed, disputed
-    created_at: str = ""
-    executed_at: str = ""
-
-    def __post_init__(self):
-        if not self.created_at:
-            self.created_at = datetime.now(timezone.utc).isoformat()
-
-
-
-class SupplyChainBlockchain:
-    def __init__(...):
-        ...
-        self._verification_tokens: Dict[str, Dict] = {}
-
-    def _create_verification_token(self, batch_id: str, proof: Dict) -> str:
-        token_id = secrets.token_urlsafe(16)
-        self._verification_tokens[token_id] = {
-            "batch_id": batch_id,
-            "proof": proof,
-            "expires_at": time.time() + 300,  # 5 min TTL
-        }
-        return token_id
-
-    def verify_token(self, token_id: str) -> bool:
-        entry = self._verification_tokens.get(token_id)
-        if not entry:
-            return False
-        if time.time() > entry["expires_at"]:
-            del self._verification_tokens[token_id]
-            return False
-        proof = entry["proof"]
-        return self.verify_trace_proof(entry["batch_id"], proof["proof_hash"], proof["signature"])
-
-
-@app.post("/verify/{token_id}")
-async def verify_qr(token_id: str):
-    ok = blockchain.verify_token(token_id)
-    if not ok:
-        raise HTTPException(status_code=400, detail="Invalid or expired token")
-    return {"success": True}
 
 
 class SupplyChainBlockchain:
@@ -249,17 +197,9 @@ class SupplyChainBlockchain:
             self._record_transaction_id(transaction_id)
 
             return batch
-
-record = self._link_record(
-    BlockchainRecord(
-        timestamp=datetime.now().isoformat(),
-        actor=farmer_name,
-        action="created_batch",
-        location=farm_id,
-        data=asdict(batch),
-    )
-)
-record.previous_hash = record.calculate_hash()
+owner_uid: str = "",
+harvest_id: str = "",
+idempotency_key: Optional[str] = None,
 
         except Exception as e:
             import logging
@@ -400,110 +340,15 @@ record.previous_hash = record.calculate_hash()
             self._rollback_to_snapshot(snap)
             raise
 
-
-
-    def execute_smart_contract(
-        self,
-        contract_id: str,
-        harvest_id: str = "",
-    ) -> Dict:
-        """
-        Execute a smart contract atomically.
-
-        Supports:
-        - harvest_id deduplication
-        - transaction deduplication
-        - rollback on failure
-        """
-
-        contract = self.smart_contracts.get(contract_id)
-        if contract is None:
-            raise ValueError(f"Contract {contract_id} not found")
-
-        snapshot = self._snapshot_state()
-
-        try:
-            # ----------------------------
-            # Validation phase
-            # ----------------------------
-            if contract.status != "pending":
-                raise ValueError(
-                    f"Contract {contract_id} cannot be executed "
-                    f"(status: {contract.status})"
-                )
-
-            if harvest_id:
-                self._record_harvest_id(harvest_id)
-
-            now_utc = datetime.now(timezone.utc)
-            timestamp = now_utc.isoformat()
-
-            transaction_payload = {
-                "contract_id": contract_id,
-                "buyer": contract.buyer,
-                "amount": contract.price,
-                "timestamp": timestamp,
-                "harvest_id": harvest_id,
-            }
-
-            transaction_id = self._generate_transaction_id(
-                transaction_payload
-            )
-
-            self._validate_transaction_uniqueness(transaction_id)
-            # Prepare execution record first (may raise)
-            record = self._link_record(BlockchainRecord(
-                timestamp=datetime.now(timezone.utc).isoformat(),
-                actor=contract.buyer,
-                action="contract_executed",
-                location="contract",
-                data={
-                    "contract_id": contract_id,
-                    "batch_id": contract.batch_id,
-                    "amount": contract.price,
-                    "currency": contract.currency,
-                },
-            )
-            record.hash = record.calculate_hash()
-            )
-
-            # Commit state updates atomically
-
-            # Build blockchain record before mutating state
-            record = self._link_record(
-                BlockchainRecord(
-                    timestamp=timestamp,
-                    actor=contract.buyer,
-                    action="contract_executed",
-                    location="contract",
-                    data={
-                        "contract_id": contract_id,
-                        "batch_id": contract.batch_id,
-                        "amount": contract.price,
-                        "currency": contract.currency,
-                        "transaction_id": transaction_id,
-                    },
-                )
-            )
-            record.previous_hash = record.calculate_hash()
-
-            # ----------------------------
-            # Commit phase
-            # ----------------------------
-            contract.status = "executed"
-            contract.executed_at = timestamp
-
-            self._link_and_append(record)
-            self._record_transaction_id(transaction_id)
-
-            return {
-                "success": True,
-                "contract_id": contract_id,
-                "transaction_id": transaction_id,
-                "executed_at": timestamp,
-                "amount": contract.price,
-            }
-
+record = self._link_record(
+    BlockchainRecord(
+        timestamp=datetime.now().isoformat(),
+        actor=farmer_name,
+        action="created_batch",
+        location=farm_id,
+        data=asdict(batch),
+    )
+)
         except Exception:
             self._rollback_to_snapshot(snapshot)
             raise
