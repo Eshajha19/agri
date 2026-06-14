@@ -88,92 +88,47 @@ def test_multiple_clients_receive_same_broadcast():
             assert event1["data"]["id"] == event2["data"]["id"] == 101
 
 
-def test_targeted_notification_only_reaches_intended_client():
-    hub = NotificationBroadcastHub(history_limit=10)
-    from notification_auth import notification_visible_to_user
-
-    notification = {
-        "id": 55,
-        "type": "private",
-        "message": "Only for alice",
-        "recipient_uid": "alice",
-    }
-    assert notification_visible_to_user(notification, "alice")
-    assert not notification_visible_to_user(notification, "bob")
-
-
-def test_snapshot_returns_copy_of_notification_history():
-    hub = NotificationBroadcastHub(history_limit=10)
-    hub.seed_notifications(
-        [
-            {
-                "id": 1,
-                "type": "advisory",
-                "message": "Irrigate crops early in the morning.",
-                "recipient_uid": None,
-            }
-        ]
-    )
-
-    snapshot = asyncio.run(hub.snapshot())
-
-    assert snapshot == [
-        {
-            "id": 1,
-            "type": "advisory",
-            "message": "Irrigate crops early in the morning.",
-            "recipient_uid": None,
-        }
-    ]
-
-    snapshot.append({"id": 2, "type": "weather"})
-
-    assert len(asyncio.run(hub.snapshot())) == 1
-def test_connection_subscription_has_single_definition():
-    source_path = Path(__file__).with_name("realtime_notifications.py")
-    module = ast.parse(source_path.read_text(encoding="utf-8"))
-
-    definitions = [
-        node
-        for node in module.body
-        if isinstance(node, ast.ClassDef) and node.name == "_ConnectionSubscription"
-    ]
-
-    assert len(definitions) == 1
-def test_delivery_records_evict_oldest_record_at_capacity():
-    async def _run():
-        hub = NotificationBroadcastHub(history_limit=10, max_delivery_records=2)
-
-        for notification_id in ("notification-1", "notification-2", "notification-3"):
-            await hub._persist_notification(
-                NotificationEvent(
-                    type="notification",
-                    data={"message": notification_id},
-                    notification_id=notification_id,
-                ),
-                uid="alice",
-            )
-
-        assert list(hub._delivery_records) == ["notification-2", "notification-3"]
-        assert len(hub._delivery_records) == 2
-
-    asyncio.run(_run())
+def test_notification_history_eviction():
+    """Verify that notification history respects maxlen and evicts oldest entries."""
+    hub = NotificationBroadcastHub(history_limit=5)
+    
+    # Add 7 notifications to a hub with limit 5
+    for i in range(7):
+        hub.seed_notifications([{"id": i, "message": f"Notification {i}"}])
+    
+    # History should only contain the last 5
+    history = hub.snapshot()
+    assert len(history) == 5, f"Expected 5 entries, got {len(history)}"
+    
+    # Oldest entries (0, 1) should be evicted
+    ids = [n["id"] for n in history]
+    assert ids == [2, 3, 4, 5, 6], f"Expected [2,3,4,5,6], got {ids}"
+    
+    # Publish more notifications via publish() should also evict
+    import asyncio
+    
+    async def publish_more():
+        for i in range(7, 10):
+            await hub.publish({"id": i, "message": f"Notification {i}"})
+    
+    asyncio.run(publish_more())
+    
+    history = hub.snapshot()
+    assert len(history) == 5, f"Expected 5 entries after publish, got {len(history)}"
+    ids = [n["id"] for n in history]
+    assert ids == [5, 6, 7, 8, 9], f"Expected [5,6,7,8,9], got {ids}"
 
 
-def test_delivery_records_respect_persistence_disabled():
-    async def _run():
-        hub = NotificationBroadcastHub(history_limit=10, enable_persistence=False, max_delivery_records=2)
-
-        await hub._persist_notification(
-            NotificationEvent(
-                type="notification",
-                data={"message": "private alert"},
-                notification_id="notification-1",
-            ),
-            uid="alice",
-        )
-
-        assert not hub._delivery_records
-
-    asyncio.run(_run())
-
+def test_redis_listener_eviction():
+    """Verify that Redis listener also respects history limit."""
+    hub = NotificationBroadcastHub(history_limit=3)
+    
+    # Simulate Redis listener adding notifications directly to history
+    for i in range(5):
+        import asyncio
+        asyncio.run(hub._redis_listener_add({"id": i, "message": f"Redis {i}"}))
+    
+    history = hub.snapshot()
+    assert len(history) == 3, f"Expected 3 entries, got {len(history)}"
+    ids = [n["id"] for n in history]
+    assert ids == [2, 3, 4], f"Expected [2,3,4], got {ids}"

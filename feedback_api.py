@@ -387,26 +387,8 @@ async def get_feedback_stats(
     request: Request,
     admin_user: dict = Depends(verify_admin),
 ):
-    """Get feedback statistics (admin only).
-
-    Authentication and role enforcement are handled entirely by the
-    verify_admin dependency — a single Firebase token verification and a
-    single Firestore role read per request.
-
-    The previous implementation re-verified the token and re-read the
-    Firestore role a second time inside the handler body, which:
-      1. Created a TOCTOU window: the role could change between the two
-         Firestore reads, making the authorization decision non-atomic.
-      2. Doubled Firebase SDK and Firestore round-trips on every request.
-      3. Used a default of 'farmer' for a missing role field on the second
-         read, which could produce inconsistent 403s for legitimate admins
-         whose documents were momentarily unavailable.
-
-    The uid resolved by verify_admin is passed through admin_user so the
-    handler has the caller's identity without any additional I/O.
-    """
-    # Audit trail: record which admin uid triggered the stats fetch.
-    logger.info("Feedback stats accessed by admin uid=%s", admin_user["uid"])
+    """Get feedback statistics (admin only)"""
+    uid = admin_user["uid"]
 
     try:
         feedback_ref = db.collection("feedback")
@@ -522,8 +504,8 @@ async def http_exception_handler(request, exc):
         content={
             "success": False,
             "error": exc.detail,
-            "status_code": exc.status_code
-        }
+            "status_code": exc.status_code,
+        },
     )
 
 
@@ -537,8 +519,8 @@ async def general_exception_handler(request, exc):
         content={
             "success": False,
             "error": "Internal server error",
-            "status_code": 500
-        }
+            "status_code": 500,
+        },
     )
 
 

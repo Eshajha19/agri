@@ -420,6 +420,8 @@ class VoiceSession:
     last_query: Optional[str] = None
     context: Dict[str, Any] = field(default_factory=dict)
     offline_mode: bool = False
+    conversation_history: List[Dict[str, Any]] = field(default_factory=list)
+    last_activity: str = field(default_factory=lambda: datetime.now().isoformat())
 
 
 # ============================================================================
@@ -482,12 +484,14 @@ class OfflineLanguageModel:
 
 class VoiceAssistant:
     """Main voice assistant for farmers"""
-    
+    SESSION_TIMEOUT_MINUTES = 30
+    MAX_HISTORY_SIZE = 20
     def __init__(self, offline_mode: bool = True):
         self.offline_mode = offline_mode
         self.language_model = OfflineLanguageModel()
         self.sessions: Dict[str, VoiceSession] = {}
         self._session_lock = threading.Lock()
+        self.cache_manager = OfflineCacheManager()
         self.offline_cache = self._init_offline_cache()
         logger.info(f"Voice Assistant initialized - Offline mode: {offline_mode}")
     
@@ -532,7 +536,20 @@ class VoiceAssistant:
         )
         with self._session_lock:
             self.sessions[session_id] = session
+        self.cache_manager.save_session(session)
         return session
+    
+    def _validate_session(self, session: VoiceSession) -> bool:
+        return (
+            bool(session.session_id)
+            and bool(session.user_id)
+            and session.language_code in SUPPORTED_LANGUAGES
+        )
+    
+    def _is_session_expired(self, session: VoiceSession) -> bool:
+        last_activity = datetime.fromisoformat(session.last_activity)
+        age = datetime.now() - last_activity
+        return age.total_seconds() > self.SESSION_TIMEOUT_MINUTES * 60
     
     def process_voice_input(
         self,
@@ -552,8 +569,21 @@ class VoiceAssistant:
         """
         with self._session_lock:
             if session_id not in self.sessions:
-                raise ValueError(f"Invalid session: {session_id}")
+                cached_session = self.cache_manager.load_session(session_id)
+
+                if cached_session:
+                    self.sessions[session_id] = VoiceSession(**cached_session)
+                else:
+                    raise ValueError(f"Invalid session: {session_id}")
+
             session = self.sessions[session_id]
+
+            if not self._validate_session(session):
+                raise ValueError("Corrupted session state")
+
+            if self._is_session_expired(session):
+                del self.sessions[session_id]
+                raise ValueError("Session expired")
         
         # Step 1: Transcribe audio (offline fallback)
         if not voice_input.transcript:
@@ -603,8 +633,22 @@ class VoiceAssistant:
         # Update session context
         with self._session_lock:
             session.last_query = validated_transcript
-            session.context = context or {}
-        
+
+            if context:
+                session.context.update(context)
+
+            session.conversation_history.append({
+                "query": validated_transcript,
+                "intent": intent,
+                "timestamp": datetime.now().isoformat()
+            })
+
+            if len(session.conversation_history) > self.MAX_HISTORY_SIZE:
+                session.conversation_history.pop(0)
+
+            session.last_activity = datetime.now().isoformat()
+            self.cache_manager.save_session(session)
+
         return response
     
     def _transcribe_offline(self, voice_input: VoiceInput) -> str:
@@ -706,6 +750,8 @@ class VoiceAssistant:
             "start_time": session.start_time,
             "last_query": session.last_query,
             "offline_mode": session.offline_mode,
+            "last_activity": session.last_activity,
+            "conversation_history": session.conversation_history,
         }
 
 
@@ -804,4 +850,15 @@ class OfflineCacheManager:
         except Exception as e:
             logger.error(f"Cache load error: {e}")
         return {}
+    
+    def save_session(self, session: VoiceSession):
+        self.save_cache(
+            asdict(session),
+            key=f"session_{session.session_id}"
+        )
+
+    def load_session(self, session_id: str):
+        return self.load_cache(
+            key=f"session_{session_id}"
+        )
 # Voice assistant error handling improved

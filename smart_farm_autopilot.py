@@ -430,9 +430,11 @@ class SmartFarmAutopilot:
         return matches
 
     def _fallback_crops(self, season: str) -> List[str]:
-        """Return default crops when no exact match found."""
+        """Return default crops when no exact match found, filtered to only crops present in CROP_DB."""
         defaults = {"Kharif": ["Rice", "Maize"], "Rabi": ["Wheat", "Mustard"], "Zaid": ["Watermelon", "Maize"]}
-        return defaults.get(season, ["Wheat"])
+        candidates = defaults.get(season, ["Wheat"])
+        return [c for c in candidates if c in CROP_DB] or ["Wheat"]
+        
 
     def _build_sowing_schedule(
         self, crop: str, data: Dict, season: str
@@ -440,10 +442,15 @@ class SmartFarmAutopilot:
         today = date.today()
         year = today.year
         sow_month = data["sowing_month"]
-        # Adjust year: if we're more than 2 months past the sowing month,
-        # it has passed for this year — advance to the next calendar year.
+        # Adjust year: if the sowing month has already passed this year,
+        # advance to the next calendar year.
         months_passed = today.month - sow_month
-        sow_year = year if months_passed <= 2 else year + 1
+        if months_passed <= 2:
+            # Sowing month is current, upcoming, or just passed (within 2-month buffer)
+            sow_year = year
+        else:
+            # Sowing month has clearly passed
+            sow_year = year + 1
         sow_start = date(sow_year, sow_month, 1)
         sow_end   = date(sow_year, sow_month, min(20, calendar.monthrange(sow_year, sow_month)[1]))
 

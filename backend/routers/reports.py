@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _PROFIT_MAX_INR = 50_000_000   # ₹5 crore per season
 _AREA_MAX_ACRES = 10_000       # 10,000 acres
-
+MAX_EXPORT_RECORDS = 5000      # Future safeguard for large dataset exports
 # Regex that matches a valid Indian-locale number string produced by the
 # frontend (e.g. "50,000" or "1,00,000") or a plain integer string.
 _NUMERIC_RE = re.compile(r"^[\d,]+(\.\d+)?$")
@@ -265,11 +265,47 @@ async def generate_signed_report(request: Request, data: ReportRequest):
         cert_id = _make_cert_id(data)
         signature_hex = _sign_report(private_key, data, cert_id)
         pdf_bytes = _build_pdf(data, signature_hex, cert_id)
+        MAX_PDF_SIZE_MB = 10
+
+        if len(pdf_bytes) > MAX_PDF_SIZE_MB * 1024 * 1024:
+            logger.error(
+                "Export validation failed: PDF exceeds size limit (%s bytes)",
+                len(pdf_bytes),
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Generated report exceeds supported export size",
+            )
+        
+        if not pdf_bytes.startswith(b"%PDF"):
+            logger.error(
+                "Export validation failed: Invalid PDF structure for certificate %s",
+                cert_id,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Generated report failed integrity validation",
+            )
+        
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"PDF generation error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to generate report")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate report",
+        )
 
     filename = f"FasalSaathi_BankReport_{cert_id}.pdf"
+
+    logger.info(
+        "[EXPORT_AUDIT] cert_id=%s size_bytes=%s farmer=%s crop=%s",
+        cert_id,
+        len(pdf_bytes),
+        data.name,
+        data.crop,
+    )
+    
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",

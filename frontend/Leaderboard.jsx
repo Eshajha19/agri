@@ -28,14 +28,12 @@ export default function Leaderboard() {
     const fetchLeaderboard = async () => {
       try {
         // Determine which points field to sort by based on the active filter.
-        // "all"     → lifetime reputation points (always present)
-        // "monthly" → monthlyReputation (written by the reputation system)
-        // "weekly"  → weeklyReputation  (written by the reputation system)
-        // Fall back to "reputation" if the time-scoped field is absent.
         const sortField =
-          timeFilter === "monthly" ? "monthlyReputation"
-          : timeFilter === "weekly"  ? "weeklyReputation"
-          : "reputation";
+          timeFilter === "monthly"
+            ? "monthlyReputation"
+            : timeFilter === "weekly"
+            ? "weeklyReputation"
+            : "reputation";
 
         const q = query(
           collection(db, "users"),
@@ -44,34 +42,71 @@ export default function Leaderboard() {
         );
 
         const snapshot = await getDocs(q);
+
         if (cancelled) return;
 
-        const results = snapshot.docs.map((docSnap, idx) => {
+        const results = snapshot.docs.map((docSnap) => {
           const data = docSnap.data();
+
           return {
             id: docSnap.id,
-            rank: idx + 1,
             name: data.displayName || "Farmer",
             location: data.address || data.location || "India",
-            points: data[sortField] ?? data.reputation ?? 0,
+            points: Number(data[sortField] ?? data.reputation ?? 0),
             badges: Array.isArray(data.badges) ? data.badges : [],
             avatar: "👨‍🌾",
+            updatedAt:
+              data.updatedAt?.seconds ??
+              data.lastUpdated?.seconds ??
+              0,
           };
         });
 
-        setFarmers(results);
+        /*
+         * Deterministic ranking:
+         * 1. Higher score first
+         * 2. Most recently updated first
+         * 3. Stable id comparison as final tie-breaker
+         */
+        const sortedResults = [...results].sort((a, b) => {
+          if (b.points !== a.points) {
+            return b.points - a.points;
+          }
+
+          if (b.updatedAt !== a.updatedAt) {
+            return b.updatedAt - a.updatedAt;
+          }
+
+          return a.id.localeCompare(b.id);
+        });
+
+        const rankedResults = sortedResults.map((farmer, index) => ({
+          ...farmer,
+          rank: index + 1,
+        }));
+
+        console.info(
+          `[LEADERBOARD] filter=${timeFilter} entries=${rankedResults.length}`
+        );
+
+        setFarmers(rankedResults);
       } catch (err) {
         if (!cancelled) {
           console.error("Leaderboard fetch error:", err);
           setError("Could not load leaderboard. Please try again.");
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     };
 
     fetchLeaderboard();
-    return () => { cancelled = true; };
+
+    return () => {
+      cancelled = true;
+    };
   }, [timeFilter]);
 
   const getRankIcon = (rank) => {
@@ -128,33 +163,49 @@ export default function Leaderboard() {
             </div>
           )}
 
-          {!loading && !error && farmers.map((farmer) => (
-            <div
-              key={farmer.id}
-              className={`leaderboard-card ${farmer.rank <= 3 ? `top-${farmer.rank}` : ""}`}
-            >
-              <div className="card-rank">{getRankIcon(farmer.rank)}</div>
+          {!loading && !error &&
+            farmers.map((farmer) => (
+              <div
+                key={farmer.id}
+                className={`leaderboard-card ${
+                  farmer.rank <= 3 ? `top-${farmer.rank}` : ""
+                }`}
+              >
+                <div className="card-rank">
+                  {getRankIcon(farmer.rank)}
+                </div>
 
-              <div className="card-avatar">{farmer.avatar}</div>
+                <div className="card-avatar">
+                  {farmer.avatar}
+                </div>
 
-              <div className="card-info">
-                <h3 className="farmer-name">{farmer.name}</h3>
-                <p className="farmer-location">📍 {farmer.location}</p>
-                {farmer.badges.length > 0 && (
-                  <div className="farmer-badges">
-                    {farmer.badges.slice(0, 3).map((badge, i) => (
-                      <span key={i} className="badge">{badge}</span>
-                    ))}
-                  </div>
-                )}
+                <div className="card-info">
+                  <h3 className="farmer-name">{farmer.name}</h3>
+                  <p className="farmer-location">
+                    📍 {farmer.location}
+                  </p>
+
+                  {farmer.badges.length > 0 && (
+                    <div className="farmer-badges">
+                      {farmer.badges.slice(0, 3).map((badge, i) => (
+                        <span key={i} className="badge">
+                          {badge}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="card-points">
+                  <span className="points-value">
+                    {farmer.points.toLocaleString()}
+                  </span>
+                  <span className="points-label">
+                    points
+                  </span>
+                </div>
               </div>
-
-              <div className="card-points">
-                <span className="points-value">{farmer.points.toLocaleString()}</span>
-                <span className="points-label">points</span>
-              </div>
-            </div>
-          ))}
+            ))}
         </div>
 
         {/* Stats Section */}
@@ -164,16 +215,19 @@ export default function Leaderboard() {
             <h3>1,250+</h3>
             <p>Active Farmers</p>
           </div>
+
           <div className="stat-card">
             <FaSeedling className="stat-icon" />
             <h3>850+</h3>
             <p>Crops Tracked</p>
           </div>
+
           <div className="stat-card">
             <FaCloudSun className="stat-icon" />
             <h3>500+</h3>
             <p>Weather Alerts</p>
           </div>
+
           <div className="stat-card">
             <FaStar className="stat-icon" />
             <h3>15,000+</h3>
@@ -185,9 +239,12 @@ export default function Leaderboard() {
         <div className="leaderboard-cta">
           <h2>Want to Climb the Leaderboard?</h2>
           <p>
-            Earn points by completing farming tasks, sharing knowledge, and helping the community
+            Earn points by completing farming tasks, sharing knowledge,
+            and helping the community
           </p>
-          <a href="/advisor" className="cta-button">Start Earning Points</a>
+          <a href="/advisor" className="cta-button">
+            Start Earning Points
+          </a>
         </div>
       </div>
     </div>

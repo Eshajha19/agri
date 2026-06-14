@@ -18,7 +18,9 @@ try:
     from firebase_admin import firestore as fs_admin
     _fs_client = fs_admin.client()
     _FIRESTORE_AVAILABLE = True
-except Exception:
+except Exception as e:
+    import logging
+    logging.error(f"Experiment engine error: {e}")
     _fs_client = None
     _FIRESTORE_AVAILABLE = False
 
@@ -33,6 +35,22 @@ _exp_cache_lock = threading.Lock()
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+def _create_assignment_audit(
+    user_id: str,
+    experiment_id: str,
+    variant_id: str,
+    salt: str,
+    reason: str,
+) -> Dict[str, Any]:
+    return {
+        "audit_timestamp": _now_iso(),
+        "user_id": user_id,
+        "experiment_id": experiment_id,
+        "variant": variant_id,
+        "salt": salt,
+        "reason": reason,
+    }
 
 
 def _persist_experiment(exp_id: str) -> None:
@@ -285,13 +303,29 @@ def assign_user(user_id: str, experiment_id: str) -> Dict:
     )
 
     assignment = {
-        "user_id":       user_id,
+        "user_id": user_id,
         "experiment_id": experiment_id,
-        "variant":       variant_id,
-        "assigned_at":   _now_iso(),
-        "salt":          current_salt,
+        "variant": variant_id,
+        "assigned_at": _now_iso(),
+        "salt": current_salt,
+        "assignment_hash": hashlib.sha256(
+            f"{user_id}:{experiment_id}:{variant_id}:{current_salt}".encode()
+        ).hexdigest(),
     }
 
+<<<<<<< HEAD
+=======
+    audit_record = _create_assignment_audit(
+        user_id=user_id,
+        experiment_id=experiment_id,
+        variant_id=variant_id,
+        salt=current_salt,
+        reason="deterministic_assignment",
+    )
+
+    assignment["audit"] = audit_record
+
+>>>>>>> dabb4641336b4577d4dd1ad1529a0249c95ba53c
     if _FIRESTORE_AVAILABLE:
         try:
             doc_id = f"{user_id}_{experiment_id}"
@@ -301,6 +335,14 @@ def assign_user(user_id: str, experiment_id: str) -> Dict:
                 doc_ref.set(assignment)
         except Exception as e:
             logger.warning("Could not persist assignment: %s", e)
+
+    logger.info(
+        "Assignment audit | experiment=%s user=%s variant=%s assignment_hash=%s",
+        experiment_id,
+        user_id,
+        variant_id,
+        assignment["assignment_hash"][:12],
+    )
 
     return assignment
 

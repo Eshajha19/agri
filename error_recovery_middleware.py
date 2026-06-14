@@ -12,8 +12,17 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.exceptions import HTTPException
 import traceback
+import re
 
 logger = logging.getLogger(__name__)
+SUSPICIOUS_PATTERNS = [
+    r"<script.*?>",
+    r"javascript:",
+    r"onerror\s*=",
+    r"onload\s*=",
+    r"union\s+select",
+    r"drop\s+table",
+]
 
 
 class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
@@ -65,6 +74,17 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
     _OPEN = "open"
     _HALF_OPEN = "half_open"
 
+    def _contains_suspicious_content(self, content: str) -> bool:
+        if not content:
+            return False
+
+        content = content.lower()
+
+        return any(
+            re.search(pattern, content)
+            for pattern in SUSPICIOUS_PATTERNS
+        )
+    
     def __init__(self, app):
         super().__init__(app)
         self._failure_timestamps: dict[str, list[float]] = {}
@@ -81,6 +101,32 @@ class ErrorRecoveryMiddleware(BaseHTTPMiddleware):
         # Track timing
         start_time = time.time()
         endpoint = f"{request.method} {request.url.path}"
+
+        if request.method in {"POST", "PUT", "PATCH"}:
+            body = await request.body()
+
+            if body:
+                payload = body.decode("utf-8", errors="ignore")
+
+                if self._contains_suspicious_content(payload):
+                    logger.warning(
+                        "[%s] Suspicious payload detected on %s",
+                        request_id,
+                        endpoint,
+                    )
+
+                    return JSONResponse(
+                        status_code=400,
+                        content={
+                            "success": False,
+                            "request_id": request_id,
+                            "error": {
+                                "message": "Suspicious payload detected",
+                                "status_code": 400,
+                                "category": "validation",
+                            },
+                        },
+                    )
 
         # ---- Pre-request: check if a probe (half-open) should be allowed ----
         state = self._circuit_state.get(endpoint)

@@ -135,25 +135,44 @@ class ABTest:
         if {"mae", "rmse", "latency"}.issubset(metrics):
             arm.record_prediction(metrics["mae"], metrics["rmse"], metrics["latency"])
         self._update_allocation()
+    
+    def _update_allocation(self):
+        """Update traffic allocation based on Thompson sampling.
 
-    def _update_allocation(self) -> None:
+        Averages multiple samples from each arm's Beta distribution to
+        reduce variance and prevent excessive allocation fluctuations.
+        """
         if self.status != TestStatus.RUNNING:
             return
-        control_score = self.control_arm.sample_score()
-        variant_score = self.variant_arm.sample_score()
-        total = control_score + variant_score
-        if total:
-            self.current_allocation[self.control_arm.model_id] = control_score / total
-            self.current_allocation[self.variant_arm.model_id] = variant_score / total
 
+        n_samples = 100
+        control_total = 0.0
+        variant_total = 0.0
+        for _ in range(n_samples):
+            control_total += self.control_arm.sample_from_distribution()
+            variant_total += self.variant_arm.sample_from_distribution()
+
+        control_score = control_total / n_samples
+        variant_score = variant_total / n_samples
+
+        total_score = control_score + variant_score
+        if total_score > 0:
+            self.current_allocation[self.control_arm.model_id] = control_score / total_score
+            self.current_allocation[self.variant_arm.model_id] = variant_score / total_score
+    
     def get_winner(self) -> Optional[Arm]:
         total_trials = self.control_arm.total_trials + self.variant_arm.total_trials
         if total_trials < self.min_samples:
             return None
-        control_rate = self.control_arm.successes / max(self.control_arm.total_trials, 1)
-        variant_rate = self.variant_arm.successes / max(self.variant_arm.total_trials, 1)
-        if abs(control_rate - variant_rate) > (1 - self.confidence_threshold):
-            return self.variant_arm if variant_rate > control_rate else self.control_arm
+        
+        control_mean = self.control_arm.successes / max(self.control_arm.total_trials, 1)
+        variant_mean = self.variant_arm.successes / max(self.variant_arm.total_trials, 1)
+        
+        # Simple confidence check — higher confidence_threshold requires a
+        # larger observed difference before declaring a winner.
+        if abs(control_mean - variant_mean) > self.confidence_threshold:
+            return self.variant_arm if variant_mean > control_mean else self.control_arm
+        
         return None
 
     def end(self) -> None:

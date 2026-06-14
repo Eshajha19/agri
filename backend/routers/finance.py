@@ -1,7 +1,7 @@
 """Finance Router"""
 import logging
 from fastapi import APIRouter, Request, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 from rbac import RBACMatrix, Role
 from rbac_audit import audit_rbac_event
@@ -21,6 +21,19 @@ class FinanceAssessmentRequest(BaseModel):
     credit_score: int = Field(default=650, ge=300, le=900)
     requested_loan_amount: float = Field(default=0, ge=0)
     loan_tenure_months: int = Field(default=36, ge=6, le=120)
+    @field_validator(
+        "acreage",
+        "annual_revenue",
+        "annual_operating_cost",
+        "existing_debt",
+        "emergency_fund",
+        "requested_loan_amount",
+    )
+    @classmethod
+    def validate_financial_values(cls, value):
+        if value > 1_000_000_000:
+            raise ValueError("Value exceeds supported limit")
+        return round(value, 2)
 
 farm_finance_ai = None
 rbac_manager = None
@@ -57,6 +70,19 @@ async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest)
         raise HTTPException(status_code=500, detail="Not initialized")
     try:
         await rbac_manager.raise_if_unauthorized(request, [Permission.FINANCE_CREATE], require_all=False)
+        if body.annual_operating_cost > body.annual_revenue * 100:
+            raise HTTPException(
+                status_code=400,
+                detail="Operating cost appears unrealistic compared to revenue",
+            )
+
+        logger.info(
+            "[FINANCE_ANALYSIS] farmer=%s crop=%s loan=%s",
+            body.farmer_name,
+            body.crop_type,
+            body.requested_loan_amount,
+        )
+
         analysis = farm_finance_ai.analyze_financial_profile(body.model_dump())
         return {"success": True, "data": analysis}
     except HTTPException:
@@ -73,7 +99,24 @@ async def create_finance_application(request: Request, body: FinanceAssessmentRe
     try:
         ctx = await _authorize_with_context(request, [Permission.FINANCE_CREATE], require_all=False)
         owner_uid = ctx.uid
-        application = farm_finance_ai.create_application(body.model_dump(), owner_uid=owner_uid)
+        if body.annual_operating_cost > body.annual_revenue * 100:
+            raise HTTPException(
+                status_code=400,
+                detail="Operating cost appears unrealistic compared to revenue",
+            )
+
+        logger.info(
+            "[FINANCE_APPLICATION] farmer=%s crop=%s loan=%s owner=%s",
+            body.farmer_name,
+            body.crop_type,
+            body.requested_loan_amount,
+            owner_uid,
+        )
+
+        application = farm_finance_ai.create_application(
+            body.model_dump(),
+            owner_uid=owner_uid,
+        )
         return {"success": True, "data": application}
     except HTTPException:
         raise

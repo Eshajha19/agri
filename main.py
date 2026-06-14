@@ -12,7 +12,6 @@ import hashlib
 import collections
 import threading
 import time
-import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
@@ -50,18 +49,14 @@ class RAGQuery(BaseModel):
     top_k: int = Field(default=3, ge=1, le=5)
 
 # Rate Limiting
-from slowapi import Limiter
+from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from rate_limit_config import build_limiter, rate_limit_exceeded_handler
 
 import firebase_admin
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
 from firebase_admin import auth, credentials, firestore, storage
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from backend.routers import (
@@ -112,7 +107,6 @@ from weather_alerts import weather_service
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
@@ -132,12 +126,7 @@ class ContextFilter(logging.Filter):
         self.context = {}
 
     def filter(self, record):
-        # Only add context to the log record if context is not empty.
-        # Prevents cluttering logs with unused context attributes.
-        if self.context:
-            record.context = self.context
-        else:
-            record.context = ""
+        record.context = self.context
         return True
 
 # Configure structured logging with detailed formatting
@@ -156,12 +145,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 logger.addFilter(_context_filter)
-_handler.setLevel(logging.INFO)
-
-logger = logging.getLogger(__name__)
-logger.addFilter(_context_filter)
-logger.addHandler(_handler)
-logger.setLevel(logging.INFO)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -354,6 +337,19 @@ async def lifespan(app: FastAPI):
         logger.info("✅ ML router initialized")
     except Exception as exc:
         logger.error("❌ ML router initialization failed: %s", exc, exc_info=True)
+        raise
+
+    try:
+        logger.info("📈 Starting Celery autoscaler...")
+        from celery_autoscaler import get_autoscaler
+        from celery_worker import celery_app
+        from ml.price_forecaster import get_price_forecaster
+        _autoscaler = get_autoscaler(celery_app, get_price_forecaster())
+        _autoscaler.start()
+        logger.info("✅ Celery autoscaler started")
+    except Exception as exc:
+        logger.error("❌ Celery autoscaler startup failed: %s", exc, exc_info=True)
+        raise
 
     startup_duration = time.time() - startup_time
     logger.info("✅ All services started successfully in %.2fs", startup_duration)
@@ -362,6 +358,14 @@ async def lifespan(app: FastAPI):
 
     # Shutdown phase with logging
     logger.info("🛑 Shutting down services...")
+    try:
+        from celery_autoscaler import get_autoscaler
+        _autoscaler = get_autoscaler()
+        _autoscaler.stop()
+        logger.info("✅ Celery autoscaler stopped")
+    except Exception as exc:
+        logger.error("❌ Error stopping Celery autoscaler: %s", exc, exc_info=True)
+
     try:
         await notification_broker.stop()
         logger.info("✅ Notification broker stopped")
@@ -922,25 +926,42 @@ def _build_gdpr_deletion_targets(uid: str) -> list[DeletionTarget]:
     )
     return targets
 
+
+# ---------------------------------------------------------------------------
+# Async-friendly Celery result poller.
+#
+# Replaces run_in_executor(None, lambda: task.get(timeout=30)) in all three
+# prediction endpoints. Instead of tying up an executor thread for up to 30s
+# per request, this helper yields control back to the event loop between each
+# poll, so the server stays responsive under concurrent load.
+#
+# poll_interval controls how often the task state is checked; 0.5s is a
+# reasonable trade-off between latency and CPU spin. Under a saturated Celery
+# worker the caller will simply wait here without consuming a thread-pool slot.
+# ---------------------------------------------------------------------------
+async def _await_celery_task(task, timeout: float = 30.0, poll_interval: float = 0.5):
+    """
+    Poll a Celery AsyncResult without blocking executor threads.
+
+    Raises asyncio.TimeoutError if the task does not reach a ready state
+    within `timeout` seconds.
+    """
+    elapsed = 0.0
+    while elapsed < timeout:
+        if task.ready():
+            # Result is already in the backend — fetch it non-blocking.
+            return task.get(timeout=0)
+        await asyncio.sleep(poll_interval)
+        elapsed += poll_interval
+    raise asyncio.TimeoutError(
+        f"Celery task {task.id} did not complete within {timeout}s"
+    )
+
+
 @app.get("/")
 @limiter.limit("60/minute")
 def root(request: Request = None):
     return {"message": "Fasal Saathi API", "status": "running"}
-
-
-@app.get("/health/disk")
-@limiter.limit("60/minute")
-def health_disk(request: Request = None):
-    """
-    Price forecaster disk usage and log rotation health.
-    Returns 503 if disk usage >90% or forecasts log is missing.
-    """
-    from ml.price_forecaster import get_price_forecaster
-    forecaster = get_price_forecaster()
-    health = forecaster.disk_health()
-    if health.get("healthy"):
-        return health
-    raise HTTPException(status_code=503, detail=health)
 
 @app.get("/predict")
 @limiter.limit("30/minute")
@@ -968,15 +989,14 @@ async def predict_yield(data: PredictRequest, request: Request):
             "crop": data.Crop,
         }
 
-        # Offload heavy model inference to Celery worker to prevent blocking ASGI event loop
+        # Offload heavy model inference to Celery worker to prevent blocking ASGI event loop.
+        # _await_celery_task polls task.ready() with asyncio.sleep() so no executor
+        # threads are blocked while waiting for the worker result.
         from celery_worker import predict_yield_task
         task = predict_yield_task.delay(input_data, context)
-        loop = asyncio.get_running_loop()
-        # timeout=30 prevents executor threads from blocking indefinitely when
-        # a Celery worker is slow or the broker is unreachable.
         try:
-            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
-        except Exception as celery_exc:
+            result = await _await_celery_task(task, timeout=30.0)
+        except asyncio.TimeoutError as celery_exc:
             raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
 
         if "error" in result:
@@ -1002,13 +1022,14 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
     await verify_role(request)
 
     try:
-        # Offload time-series lag model prediction to Celery worker pool
+        # Offload time-series lag model prediction to Celery worker pool.
+        # _await_celery_task polls task.ready() with asyncio.sleep() so no executor
+        # threads are blocked while waiting for the worker result.
         from celery_worker import predict_yield_lag_task
         task = predict_yield_lag_task.delay(payload.data)
-        loop = asyncio.get_running_loop()
         try:
-            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
-        except Exception as celery_exc:
+            result = await _await_celery_task(task, timeout=30.0)
+        except asyncio.TimeoutError as celery_exc:
             raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
 
         if "error" in result:
@@ -1026,13 +1047,14 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
     await verify_role(request)
 
     try:
-        # Offload heavy iterative trend forecasting to Celery worker pool
+        # Offload heavy iterative trend forecasting to Celery worker pool.
+        # _await_celery_task polls task.ready() with asyncio.sleep() so no executor
+        # threads are blocked while waiting for the worker result.
         from celery_worker import predict_yield_trend_task
         task = predict_yield_trend_task.delay(payload.data)
-        loop = asyncio.get_running_loop()
         try:
-            result = await loop.run_in_executor(None, lambda: task.get(timeout=30))
-        except Exception as celery_exc:
+            result = await _await_celery_task(task, timeout=30.0)
+        except asyncio.TimeoutError as celery_exc:
             raise HTTPException(status_code=504, detail="Prediction timed out or worker unavailable") from celery_exc
 
         if "error" in result:
@@ -1356,7 +1378,7 @@ def get_signing_keys():
         public_file.write(
             private_key.public_key().public_bytes(
                 encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+                format=serialization.PublicVersion.SubjectPublicKeyInfo,
             )
         )
 
@@ -1416,6 +1438,15 @@ try:
         return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 except Exception as exc:
     logger.warning("Prometheus setup skipped: %s", exc)
+
+
+@app.get("/health/autoscale")
+@limiter.limit("60/minute")
+async def health_autoscale(request: Request):
+    """Return current autoscale metrics: workers, queue depth, predicted demand."""
+    from celery_autoscaler import get_autoscaler
+    autoscaler = get_autoscaler()
+    return autoscaler.get_status()
 
 # Middleware and rate-limits — the limiter was already configured above;
 # only the exception handler alias from slowapi's public API is wired here.
