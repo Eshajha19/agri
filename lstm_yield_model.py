@@ -47,6 +47,9 @@ def train_and_save_model():
 
         # Scaling
         scaled_data = scaler.fit_transform(df)
+        import joblib
+        joblib.dump(scaler, "lstm_yield_scaler.joblib")
+        logger.info("✅ Scaler saved successfully.")
 
         def create_sequences(data, seq_length=5):
             X, y = [], []
@@ -76,7 +79,7 @@ def train_and_save_model():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic: Load the model into memory ONCE during application startup
-    global model
+    global model, scaler
     logger.info("Starting up FastAPI application...")
     
     # We delay keras import to avoid slow startup if not needed
@@ -89,6 +92,11 @@ async def lifespan(app: FastAPI):
         logger.info(f"Loading model from {MODEL_PATH}...")
         model = load_model(MODEL_PATH)
         logger.info("✅ Model loaded into memory successfully.")
+        
+        import joblib
+        if os.path.exists("lstm_yield_scaler.joblib"):
+            scaler = joblib.load("lstm_yield_scaler.joblib")
+            logger.info("✅ Scaler loaded into memory successfully.")
     except Exception as e:
         logger.error(f"Failed to load model on startup: {str(e)}")
         # If model is None, endpoints will handle it gracefully.
@@ -134,7 +142,15 @@ async def predict(request: PredictionRequest):
         # Extract the float prediction
         pred_value = float(prediction_scaled[0][0])
         
-        return PredictionResponse(prediction=pred_value)
+        # Perform inverse transformation to restore actual unit scale if fitted
+        if hasattr(scaler, "scale_"):
+            dummy = np.zeros((1, 1))
+            dummy[0, 0] = pred_value
+            pred_actual = float(scaler.inverse_transform(dummy)[0, 0])
+        else:
+            pred_actual = pred_value
+            
+        return PredictionResponse(prediction=pred_actual)
     
     except Exception as e:
         logger.error(f"Error during prediction: {str(e)}")
