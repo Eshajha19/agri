@@ -3,8 +3,7 @@ import logging
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional
-from rbac import RBACMatrix, Role
-from rbac_audit import audit_rbac_event
+from error_utils import safe_detail
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +45,109 @@ def init_finance(ffa, rbac, perm):
     Permission = perm
 
 
+def _validate_financial_analysis_result(result):
+    """Validate generated financial analysis before returning it."""
+
+    validation = {
+        "valid": True,
+        "checks": [],
+        "warnings": [],
+    }
+
+    if not isinstance(result, dict):
+        validation["valid"] = False
+        validation["warnings"].append(
+            "analysis_result_not_dictionary"
+        )
+        return validation
+
+    required_fields = [
+        "financial_health_score",
+        "risk_level",
+        "recommended_loan_amount",
+        "estimated_emi",
+    ]
+
+    missing_fields = [
+        field
+        for field in required_fields
+        if field not in result
+    ]
+
+    if missing_fields:
+        validation["valid"] = False
+        validation["warnings"].append(
+            f"missing_fields:{','.join(missing_fields)}"
+        )
+
+    score = result.get("financial_health_score")
+
+    if score is not None:
+        validation["checks"].append(
+            "financial_health_score_present"
+        )
+
+        if not 0 <= score <= 100:
+            validation["valid"] = False
+            validation["warnings"].append(
+                "financial_health_score_out_of_range"
+            )
+
+    revenue = result.get("annual_revenue")
+    cost = result.get("annual_operating_cost")
+    profit = result.get("annual_profit")
+
+    if (
+        revenue is not None
+        and cost is not None
+        and profit is not None
+    ):
+        validation["checks"].append(
+            "profit_consistency_check"
+        )
+
+        expected_profit = round(
+            revenue - cost,
+            2,
+        )
+
+        if abs(expected_profit - profit) > 0.01:
+            validation["valid"] = False
+            validation["warnings"].append(
+                "annual_profit_mismatch"
+            )
+
+    recommended_amount = result.get(
+        "recommended_loan_amount"
+    )
+
+    estimated_emi = result.get(
+        "estimated_emi"
+    )
+
+    if (
+        recommended_amount is not None
+        and estimated_emi is not None
+    ):
+        validation["checks"].append(
+            "loan_output_consistency_check"
+        )
+
+        if recommended_amount < 0:
+            validation["valid"] = False
+            validation["warnings"].append(
+                "negative_recommended_loan_amount"
+            )
+
+        if estimated_emi < 0:
+            validation["valid"] = False
+            validation["warnings"].append(
+                "negative_estimated_emi"
+            )
+
+    return validation
+
+
 def _context_has_permission(ctx, permission) -> bool:
     return RBACMatrix.has_permission(Role(ctx.role), permission)
 
@@ -83,14 +185,23 @@ async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest)
             body.requested_loan_amount,
         )
 
-        analysis = farm_finance_ai.analyze_financial_profile(body.model_dump())
-        return {"success": True, "data": analysis}
+        analysis = farm_finance_ai.analyze_financial_profile(
+            body.model_dump()
+        )
+
+        validation = _validate_financial_analysis_result(
+            analysis
+        )
+
+        return {
+            "success": True,
+            "data": analysis,
+            "validation": validation,
+        }
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Financial analysis failed: %s", e)
-        raise HTTPException(status_code=500, detail="Financial analysis failed")
-
+        raise HTTPException(status_code=403, detail=safe_detail(e, 403))
 
 @router.post("/applications")
 async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
@@ -117,13 +228,15 @@ async def create_finance_application(request: Request, body: FinanceAssessmentRe
             body.model_dump(),
             owner_uid=owner_uid,
         )
-        return {"success": True, "data": application}
+
+        return {
+            "success": True,
+            "data": application,
+        }
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Application creation failed: %s", e)
-        raise HTTPException(status_code=500, detail="Application creation failed")
-
+        raise HTTPException(status_code=403, detail=safe_detail(e, 403))
 
 @router.get("/applications/{application_id}")
 async def get_finance_application(application_id: str, request: Request, resource_tenant_id: Optional[str] = None):
@@ -196,9 +309,7 @@ async def get_finance_application(application_id: str, request: Request, resourc
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Application retrieval failed: %s", e)
-        raise HTTPException(status_code=500, detail="Application retrieval failed")
-
+        raise HTTPException(status_code=403, detail=safe_detail(e, 403))
 
 @router.get("/products")
 async def get_finance_products():
