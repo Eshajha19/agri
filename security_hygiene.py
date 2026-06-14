@@ -12,6 +12,11 @@ from typing import Any, Tuple, Pattern, List, Dict, Optional
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
+from middleware_utils import (
+    ensure_body_available,
+    get_cached_body,
+    has_cached_body,
+)
 
 # Maximum body size to scan (256 KB)
 MAX_SCAN_BODY_SIZE = 256 * 1024
@@ -172,7 +177,16 @@ class RuntimeProtectionMiddleware(BaseHTTPMiddleware):
 
         if should_scan:
             try:
-                body_bytes = await request.body()
+
+                # Safe request body access.
+                # request.body() is cached by Starlette, allowing middleware
+                # and downstream handlers to access the same payload without
+                # modifying request._receive.
+                
+                if has_cached_body(request):
+                    body_bytes = await get_cached_body(request)
+                else:
+                    body_bytes = await ensure_body_available(request)
                 path = request.url.path
 
                 # --- DoS fix: check cache before running any regex (#2366) ---
@@ -195,10 +209,6 @@ class RuntimeProtectionMiddleware(BaseHTTPMiddleware):
                         content={"error": "Request blocked by secrets hygiene policy"}
                     )
 
-                # Reset body read pointer so downstream handlers can consume it
-                async def receive():
-                    return {"type": "http.request", "body": body_bytes, "more_body": False}
-                request._receive = receive
             except Exception:
                 # Fallback in case of body read failures to avoid crashing the server
                 pass
