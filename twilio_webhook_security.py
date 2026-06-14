@@ -29,6 +29,8 @@ class MessageType(str, Enum):
     DOCUMENT = "document"
     STICKER = "sticker"
     BUTTON = "button"
+from typing import Dict, Any, List
+import logging
 
 logger = logging.getLogger(__name__)
 
@@ -53,24 +55,6 @@ def normalize_whatsapp_payload(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     return messages
 
 
-
-# Supported WhatsApp message types
-SUPPORTED_WHATSAPP_TYPES = {"text", "image", "audio", "video", "document", "sticker"}
-
-# Configurable strict mode (default: warning mode)
-STRICT_MODE = os.getenv("WHATSAPP_STRICT_MODE", "false").lower() == "true"
-
-# Supported WhatsApp message types
-SUPPORTED_WHATSAPP_TYPES = {"text", "image", "audio", "video", "document", "sticker"}
-
-# Configurable strict mode (default: warning mode)
-STRICT_MODE = os.getenv("WHATSAPP_STRICT_MODE", "false").lower() == "true"
-
-# Supported WhatsApp message types
-SUPPORTED_WHATSAPP_TYPES = {"text", "image", "audio", "video", "document", "sticker"}
-
-# Configurable strict mode (default: warning mode)
-STRICT_MODE = os.getenv("WHATSAPP_STRICT_MODE", "false").lower() == "true"
 
 # Supported WhatsApp message types
 SUPPORTED_WHATSAPP_TYPES = {"text", "image", "audio", "video", "document", "sticker"}
