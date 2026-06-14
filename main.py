@@ -732,13 +732,22 @@ class NotificationStore:
         return filter_notifications_for_user(self.get_recent(), uid)
 
     def remove_by_uid(self, uid: str) -> int:
-        """Remove in-memory notifications targeted at a specific UID."""
-        with self._lock:
-            snapshot = list(self._deque)
-            retained = [entry for entry in snapshot if entry.get("recipient_uid") != uid]
-            removed = len(snapshot) - len(retained)
-            self._deque = collections.deque(retained, maxlen=self._deque.maxlen)
-            return removed
+    """Remove in-memory notifications targeted at a specific UID.
+
+    Uses in-place mutation (rotate + popleft) instead of replacing the
+    deque object, keeping self._deque stable so future methods that hold
+    a reference to it cannot observe a torn state.
+    """
+    with self._lock:
+        original_len = len(self._deque)
+        removed = 0
+        for _ in range(original_len):
+            entry = self._deque.popleft()
+            if entry.get("recipient_uid") == uid:
+                removed += 1
+            else:
+                self._deque.append(entry)
+        return removed
 
 
 # Seed the store with the initial weather advisory that was previously
