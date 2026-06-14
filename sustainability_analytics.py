@@ -321,8 +321,10 @@ class SustainabilityAnalytics:
                 entries = [d.to_dict() for d in docs]
                 entries.sort(key=lambda x: x.get("created_at", ""), reverse=True)
                 return entries[:limit]
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.exception("Firestore operation failed: %s", exc)
+                return {}
+
 
         local_hist = self._load_local_history()
         entries = local_hist.get(key, [])

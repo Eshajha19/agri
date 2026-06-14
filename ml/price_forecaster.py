@@ -152,8 +152,10 @@ class _GzRotatingFileHandler(logging.handlers.RotatingFileHandler):
                 if mtime < cutoff:
                     f.unlink()
                     logger.info("Deleted old forecast archive: %s", f.name)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.exception("Firestore operation failed: %s", exc)
+                return {}
+
 
 
 # =============================================================================
@@ -479,7 +481,10 @@ class PriceForecaster:
         """
         try:
             forecasts_mb = round(_FORECASTS_PATH.stat().st_size / (1024 * 1024), 2) if _FORECASTS_PATH.exists() else 0.0
-        except Exception:
+        except Exception as exc:
+            logger.exception("Firestore operation failed: %s", exc)
+            return {}
+
             forecasts_mb = 0.0
 
         # Sum archived .gz files
@@ -489,16 +494,20 @@ class PriceForecaster:
             for f in dir_path.glob("*.jsonl.*.gz"):
                 archive_mb += f.stat().st_size / (1024 * 1024)
             archive_mb = round(archive_mb, 2)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.exception("Firestore operation failed: %s", exc)
+            return {}
+
 
         # Disk usage percent (best effort via shutil)
         disk_percent = None
         try:
             usage = shutil.disk_usage(_FORECASTS_PATH.parent)
             disk_percent = round((usage.used / usage.total) * 100, 1)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.exception("Firestore operation failed: %s", exc)
+            return {}
+
 
         total_forecast_mb = round(forecasts_mb + archive_mb, 2)
 
@@ -629,8 +638,10 @@ class PriceForecaster:
                             for _ws, sub in notification_broker._connections.items():
                                 if sub.uid == uid and event.notification_id in sub.retry_counts:
                                     ws_retry_count = max(ws_retry_count, sub.retry_counts[event.notification_id])
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.exception("Firestore operation failed: %s", exc)
+                            return {}
+
 
                         if not ws_delivered or ws_retry_count >= 3:
                             if phone:
