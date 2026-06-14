@@ -458,6 +458,7 @@ class SmartFarmAutopilot:
         if sow_month > date.today().month + 2:
             sow_year = year
         else:
+            # Sowing month has clearly passed
             sow_year = year + 1
         sow_start = date(sow_year, sow_month, 1)
         sow_end   = date(sow_year, sow_month, min(20, calendar.monthrange(sow_year, sow_month)[1]))
