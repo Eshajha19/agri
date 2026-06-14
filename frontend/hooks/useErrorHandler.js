@@ -2,6 +2,25 @@ import { useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { reportErrorToBackend } from '../utils/errorReporting';
 
+const ERROR_TAXONOMY = {
+  network: {
+    transient: ['NetworkError'],
+    timeout: ['AbortError'],
+  },
+  validation: {
+    input: ['ValidationError'],
+  },
+  runtime: {
+    application: ['TypeError', 'ReferenceError'],
+  },
+};
+
+const ERROR_TRENDS = {
+  total: 0,
+  byCategory: {},
+  byContext: {},
+};
+
 /**
  * Custom hook for centralized error handling
  * Provides methods to handle errors with user-friendly notifications
@@ -16,18 +35,33 @@ export const useErrorHandler = () => {
   const getErrorCategory = (error) => {
     if (!error) return 'unknown';
 
-    switch (error.name) {
-      case 'TypeError':
-        return 'runtime';
-      case 'NetworkError':
-        return 'network';
-      case 'ValidationError':
-        return 'validation';
-      case 'SyntaxError':
-        return 'syntax';
-      default:
-        return 'unknown';
+    for (const [category, groups] of Object.entries(ERROR_TAXONOMY)) {
+      for (const [subtype, errors] of Object.entries(groups)) {
+        if (errors.includes(error.name)) {
+          return `${category}.${subtype}`;
+        }
+      }
     }
+
+    return 'unknown';
+  };
+
+  const buildDiagnosticContext = (error, context) => ({
+    context,
+    errorName: error?.name || 'UnknownError',
+    errorMessage: error?.message || 'No message',
+    timestamp: new Date().toISOString(),
+    userAgent: navigator.userAgent,
+  });
+
+  const trackErrorTrend = (category, context) => {
+    ERROR_TRENDS.total += 1;
+
+    ERROR_TRENDS.byCategory[category] =
+      (ERROR_TRENDS.byCategory[category] || 0) + 1;
+
+    ERROR_TRENDS.byContext[context] =
+      (ERROR_TRENDS.byContext[context] || 0) + 1;
   };
 
   /**
@@ -36,18 +70,20 @@ export const useErrorHandler = () => {
    * @returns {string}
    */
   const getRecoverySuggestion = (category) => {
-    switch (category) {
-      case 'network':
-        return 'Please check your internet connection and try again.';
-      case 'validation':
-        return 'Please review the provided input and try again.';
-      case 'runtime':
-        return 'Refresh the page and retry the action.';
-      case 'syntax':
-        return 'Reload the application and try again.';
-      default:
-        return 'Please try again later or contact support if the issue persists.';
-    }
+    const suggestions = {
+      'network.transient':
+        'Check connectivity and retry the request.',
+      'network.timeout':
+        'Request timed out. Retry after a short delay.',
+      'validation.input':
+        'Review submitted information and try again.',
+      'runtime.application':
+        'Refresh the page and retry the action.',
+      unknown:
+        'Contact support if the issue persists.',
+    };
+
+    return suggestions[category] || suggestions.unknown;
   };
 
   /**
@@ -62,6 +98,13 @@ export const useErrorHandler = () => {
       const category = getErrorCategory(error);
       const recoverySuggestion = getRecoverySuggestion(category);
 
+      trackErrorTrend(category, context);
+
+      const diagnostics = buildDiagnosticContext(
+        error,
+        context
+      );
+
       // Log to backend in production
       if (import.meta.env.MODE === 'production') {
         reportErrorToBackend({
@@ -71,6 +114,8 @@ export const useErrorHandler = () => {
           userAgent: navigator.userAgent,
           category,
           recoverySuggestion,
+          diagnostics,
+          errorTrendSnapshot: ERROR_TRENDS,
         });
       }
 
@@ -85,8 +130,9 @@ export const useErrorHandler = () => {
         console.warn(`[${context}]`, {
           error,
           category,
-          timestamp,
+          diagnostics,
           recoverySuggestion,
+          trendAnalysis: ERROR_TRENDS,
         });
       }
     },
@@ -123,6 +169,13 @@ export const useErrorHandler = () => {
     const category = getErrorCategory(error);
     const recoverySuggestion = getRecoverySuggestion(category);
 
+    trackErrorTrend(category, context);
+
+    const diagnostics = buildDiagnosticContext(
+      error,
+      context
+    );
+
     if (import.meta.env.MODE === 'production') {
       reportErrorToBackend({
         error,
@@ -131,6 +184,8 @@ export const useErrorHandler = () => {
         severity: 'low',
         category,
         recoverySuggestion,
+        diagnostics,
+        errorTrendSnapshot: ERROR_TRENDS,
       });
     }
 
@@ -155,10 +210,16 @@ export const useErrorHandler = () => {
     });
   }, []);
 
+  const getErrorAnalytics = () => ({
+    taxonomy: ERROR_TAXONOMY,
+    trends: ERROR_TRENDS,
+  });
+
   return {
     handleError,
     handleWarning,
     handleSilentError,
     handleSuccess,
+    getErrorAnalytics,
   };
 };
