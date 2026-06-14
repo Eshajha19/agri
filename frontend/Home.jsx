@@ -659,42 +659,54 @@ export default function Home({ user }) {
         </div>
       </section>
 
-      <section className="how-section">
-        <div className="home-section-header">
-          <h2>
-            <span className="notranslate">How It Works</span>
-          </h2>
-          <p>Three simple steps to smarter farming</p>
-        </div>
-        <div className="steps-container">
-          <div className="step-card">
-            <div className="home-step-number">1</div>
-            <h3>Enter Farm Details</h3>
-            <p>Input your crop type, area, and farming conditions</p>
-          </div>
+<section className="how-section">
+  <div className="home-section-header">
+    <h2>How It Works</h2>
+    <p>Follow these simple steps to get personalized AI-powered farming advice.</p>
+  </div>
 
-          <div className="step-card">
-            <div className="home-step-number">2</div>
-            <h3>AI Analysis</h3>
-            <p>Our ML models analyze your data instantly</p>
-          </div>
+  <div className="steps-container">
+    <div className="step-card">
+      <div className="home-step-number">1</div>
+      <div className="step-content">
+        <h3>Enter Farm Details</h3>
+        <p>
+          Provide your crop type, land area, soil information, and location to
+          begin the analysis.
+        </p>
+      </div>
+    </div>
 
-          <div className="step-card">
-            <div className="home-step-number">3</div>
-            <h3>Get Recommendations</h3>
-            <p>Receive personalized farming advice</p>
-          </div>
-        </div>
-        <Link
-          to={user ? "/advisor" : "/login"}
-          className="btn-primary"
-          aria-label={
-            user ? "Try the AI advisor now" : "Log in to try the AI advisor"
-          }
-        >
-          Try It Now
-        </Link>
-      </section>
+    <div className="step-card">
+      <div className="home-step-number">2</div>
+      <div className="step-content">
+        <h3>AI Analysis</h3>
+        <p>
+          Our machine learning models evaluate weather patterns, soil
+          conditions, and historical agricultural data.
+        </p>
+      </div>
+    </div>
+
+    <div className="step-card">
+      <div className="home-step-number">3</div>
+      <div className="step-content">
+        <h3>Get Smart Recommendations</h3>
+        <p>
+          Receive personalized suggestions for irrigation, fertilizer, crop
+          management, and yield optimization.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <Link
+    to={user ? "/advisor" : "/login"}
+    className="btn-primary"
+  >
+    Try It Now
+  </Link>
+</section>
 
       <section className="testimonials-section">
         <div className="section-header">

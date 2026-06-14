@@ -415,3 +415,301 @@
     padding: 40px 20px;
   }
 }
+
+.howitworks {
+  padding: 80px 20px;
+  background: #f8faf8;
+}
+
+.howitworks-header {
+  max-width: 800px;
+  margin: 0 auto 60px;
+  text-align: center;
+}
+
+.section-tag {
+  display: inline-block;
+  padding: 6px 16px;
+  background: #e8f5e9;
+  color: #2e7d32;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.howitworks-header h1 {
+  font-size: clamp(2rem, 5vw, 3rem);
+  color: #1f2937;
+  margin-bottom: 18px;
+  font-weight: 700;
+}
+
+.howitworks-header p {
+  color: #6b7280;
+  font-size: 1.08rem;
+  line-height: 1.8;
+}
+
+/* ===========================
+   STEPS
+=========================== */
+
+.steps-container {
+  max-width: 1200px;
+  margin: auto;
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.step-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  background: #ffffff;
+  border-radius: 20px;
+  padding: 28px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+  transition: all 0.3s ease;
+}
+
+.step-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.12);
+}
+
+.step-left {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 90px;
+}
+
+.step-number {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: #2e7d32;
+  color: #fff;
+  font-weight: 700;
+  font-size: 1rem;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  margin-bottom: 14px;
+}
+
+.step-icon {
+  width: 60px;
+  height: 60px;
+
+  border-radius: 16px;
+
+  background: #eef7ee;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  color: #2e7d32;
+}
+
+.step-content {
+  flex: 1;
+}
+
+.step-content h3 {
+  font-size: 1.35rem;
+  margin-bottom: 12px;
+  color: #111827;
+}
+
+.step-content p {
+  color: #4b5563;
+  line-height: 1.8;
+  margin-bottom: 18px;
+}
+
+/* ===========================
+   BENEFITS
+=========================== */
+
+.benefits-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.benefits-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  background: #f1f8f2;
+
+  color: #2e7d32;
+
+  padding: 8px 14px;
+
+  border-radius: 999px;
+
+  font-size: 0.92rem;
+
+  font-weight: 500;
+}
+
+/* ===========================
+   OUTCOMES
+=========================== */
+
+.outcomes-section {
+  margin-top: 90px;
+  text-align: center;
+}
+
+.outcomes-section h2 {
+  font-size: 2rem;
+  margin-bottom: 40px;
+  color: #1f2937;
+}
+
+.outcomes-grid {
+  display: grid;
+
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+
+  gap: 24px;
+
+  max-width: 1100px;
+
+  margin: auto;
+}
+
+.outcome-card {
+  background: white;
+
+  padding: 30px 20px;
+
+  border-radius: 18px;
+
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+
+  transition: 0.3s;
+}
+
+.outcome-card:hover {
+  transform: translateY(-5px);
+}
+
+.outcome-icon {
+  color: #2e7d32;
+  margin-bottom: 15px;
+}
+
+.outcome-card h3 {
+  font-size: 2rem;
+  color: #111827;
+  margin-bottom: 8px;
+}
+
+.outcome-card p {
+  color: #6b7280;
+}
+
+/* ===========================
+   CTA
+=========================== */
+
+.cta-section {
+  margin-top: 90px;
+
+  background: linear-gradient(135deg, #2e7d32, #4caf50);
+
+  color: white;
+
+  padding: 60px 30px;
+
+  border-radius: 24px;
+
+  text-align: center;
+}
+
+.cta-section h2 {
+  font-size: 2.2rem;
+  margin-bottom: 16px;
+}
+
+.cta-section p {
+  max-width: 650px;
+
+  margin: auto auto 28px;
+
+  line-height: 1.8;
+
+  opacity: 0.95;
+}
+
+.cta-button {
+  background: white;
+
+  color: #2e7d32;
+
+  border: none;
+
+  padding: 14px 32px;
+
+  border-radius: 999px;
+
+  font-size: 1rem;
+
+  font-weight: 700;
+
+  cursor: pointer;
+
+  transition: 0.3s;
+}
+
+.cta-button:hover {
+  transform: translateY(-2px);
+
+  box-shadow: 0 10px 24px rgba(255, 255, 255, 0.3);
+}
+
+/* ===========================
+   RESPONSIVE
+=========================== */
+
+@media (max-width: 768px) {
+  .step-card {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .step-left {
+    flex-direction: row;
+    justify-content: center;
+    gap: 16px;
+    width: 100%;
+  }
+
+  .step-number {
+    margin-bottom: 0;
+  }
+
+  .benefits-list {
+    justify-content: center;
+  }
+
+  .cta-section h2 {
+    font-size: 1.8rem;
+  }
+}
