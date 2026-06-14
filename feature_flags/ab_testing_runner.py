@@ -110,8 +110,7 @@ class ABTestingRunner:
                 "already_promoted",
                 metrics,
             )
-            
-            if experiment.get("status") != "running":
+        if experiment.get("status") != "running":
             return PromotionDecision(
                 self.experiment_id,
                 None,
