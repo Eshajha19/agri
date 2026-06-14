@@ -3,6 +3,9 @@
 Provides:
 - Origin / Referer header validation against a trusted-origin allowlist.
 - Stateless CSRF token generation and validation (HMAC-SHA256, TTL-bound).
+
+NOTE: This is the authoritative CSRF enforcement module. The legacy in-memory
+token store defined in `backend/security/csrf.py` is deprecated.
 """
 
 import hmac
@@ -26,6 +29,8 @@ _TRUSTED_ORIGINS: List[str] = []
 
 def configure(trusted_origins: List[str]) -> None:
     global _TRUSTED_ORIGINS
+    if not trusted_origins:
+        raise RuntimeError("CSRF trusted origins must be configured in production")
     _TRUSTED_ORIGINS = list(trusted_origins)
 
 
@@ -95,23 +100,11 @@ async def verify_csrf_token_dependency(request: Request) -> None:
     reject_cross_origin(request)
 
     from rbac import RBACManager
-    try:
-        ctx = await RBACManager.resolve_auth_context(request, allow_unauthenticated=True)
-    except Exception as e:
-        import logging
-        logging.error(f"CSRF validation error: {e}")
-        ctx = None
+    ctx = await RBACManager.resolve_auth_context(request, allow_unauthenticated=False)
 
-    if ctx is not None:
-        token = request.headers.get("X-CSRF-Token")
-        if not token:
-            raise HTTPException(
-                status_code=403,
-                detail="Missing CSRF token",
-            )
-        if not validate_token(token, ctx.uid):
-            raise HTTPException(
-                status_code=403,
-                detail="Invalid or expired CSRF token",
-            )
+    token = request.headers.get("X-CSRF-Token")
+    if not token:
+        raise HTTPException(status_code=403, detail="Missing CSRF token")
 
+    if not validate_token(token, ctx.uid):
+        raise HTTPException(status_code=403, detail="Invalid or expired CSRF token")

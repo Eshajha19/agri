@@ -1,14 +1,25 @@
-import json
 import logging
 import os
-import logging
+import threading
 import joblib
 import numpy as np
 from celery import Celery
 from ml.security import verify_and_load_joblib
+import prometheus_client
 
 logger = logging.getLogger(__name__)
 
+
+timeout_counter = prometheus_client.Counter("celery_timeouts", "Number of Celery timeouts")
+
+def get_task_result(task, timeout=30):
+    try:
+        return task.get(timeout=timeout)
+    except TimeoutError:
+        timeout_counter.inc()
+        logging.warning("Celery task timeout")
+        raise HTTPException(status_code=504, detail="Prediction timed out")
+    
 # Initialize Celery app — Redis authentication is required.
 # Set REDIS_URL for a full connection string, or REDIS_PASSWORD to use
 # default redis://:{password}@localhost:6379/0.  Set ALLOW_INSECURE_REDIS=1
@@ -39,6 +50,10 @@ if not redis_url:
         )
         raise ValueError("REDIS_URL or REDIS_PASSWORD must be set")
 
+logger = logging.getLogger(__name__)
+
+# Initialize Celery app
+redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 celery_app = Celery(
     "agri_ml_tasks",
     broker=redis_url,
@@ -75,16 +90,8 @@ def _get_lag_model():
         with _model_lock:
             if _model_lag is None:
                 try:
-                    _model_lag = joblib.load("sklearn_yield_model.joblib")
+                    _model_lag = verify_and_load_joblib("sklearn_yield_model.joblib")
                 except Exception as e:
-                    print(f"Failed to load lag model: {e}")
-        try:
-            _model_lag = verify_and_load_joblib("sklearn_yield_model.joblib")
-        except Exception as e:
-            import logging
-            logging.error(f"Celery worker error: {e}")
-            logger.exception("Failed to load lag model")
-            raise
 
     return _model_lag
 
@@ -97,14 +104,9 @@ def _get_trend_model():
             if _model_trend is None:
                 try:
                     if os.path.exists("trend_forecast_model.joblib"):
-                        _model_trend = joblib.load("trend_forecast_model.joblib")
+                        _model_trend = verify_and_load_joblib("trend_forecast_model.joblib")
                 except Exception as e:
-                    print(f"Failed to load trend model: {e}")
-        try:
-            if os.path.exists("trend_forecast_model.joblib"):
-                _model_trend = verify_and_load_joblib("trend_forecast_model.joblib")
-        except Exception as e:
-            print(f"Failed to load trend model: {e}")
+
     return _model_trend
 
 
@@ -131,10 +133,85 @@ def _get_ml_router():
             
             _ml_router = ModelRouter(default_model="xgboost")
         except Exception as e:
-            print(f"Failed to initialize ML router: {e}")
+            logger.error("Failed to initialize ML router: %s", e)
     return _ml_router
 
+@celery_app.task(
+    bind=True,
+    name="predict_yield_batch_task",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 2},
+    soft_time_limit=30,
+    time_limit=45,
+)
+def predict_yield_batch_task(
+    self,
+    inputs: list[dict],
+    context: Optional[dict] = None,
+):
+    """
+    Batch yield prediction using ML router.
+    """
 
+    try:
+        router = _get_ml_router()
+
+        predictions = router.predict_batch(
+            inputs,
+            context,
+        )
+
+        return {
+            "predictions": predictions,
+            "count": len(predictions),
+            "model": router.default_model,
+        }
+
+    except Exception:
+        logger.exception(
+            "Batch yield prediction task failed"
+        )
+        raise
+
+
+@celery_app.task(
+    bind=True,
+    name="predict_ensemble_task",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 2},
+    soft_time_limit=30,
+    time_limit=45,
+)
+def predict_ensemble_task(
+    self,
+    input_data: dict,
+):
+    """
+    Ensemble prediction.
+    """
+
+    try:
+        stacker = _get_ensemble_stacker()
+
+        result = stacker.predict(input_data)
+
+        return result
+
+    except RuntimeError:
+        logger.exception(
+            "Ensemble prediction failed: no models available"
+        )
+        raise
+
+    except Exception:
+        logger.exception(
+            "Ensemble prediction task failed"
+        )
+        raise
 def _get_ensemble_stacker():
     global _ensemble_stacker
 
@@ -331,21 +408,21 @@ def predict_ensemble_task(self, data: list):
     except Exception as e:
         return {"error": str(e), "type": type(e).__name__}
 
-if __name__ == "__main__":
-    celery_app.start()
-
-    except Exception:
-        logger.exception("Trend prediction task failed")
-        raise
-
 
 @celery_app.task(bind=True, name="process_whatsapp_webhook_task")
 def process_whatsapp_webhook_task(self, body: str, sender_number: str):
     """Celery task for processing incoming WhatsApp messages asynchronously."""
+    from webhook_validator import validate_and_parse, WebhookValidationError
     from whatsapp_service import process_webhook_message
-    
-    result = process_webhook_message(body, sender_number)
-    return {"status": "processed", "sender": sender_number, "result": result}
+
+    try:
+        message = validate_and_parse(body, sender_number)
+    except WebhookValidationError as exc:
+        logger.warning("Discarding invalid webhook payload from %r: %s", sender_number, exc)
+        return {"status": "discarded", "reason": str(exc)}
+
+    result = process_webhook_message(message.text or body, message.sender_number)
+    return {"status": "processed", "sender": message.sender_number, "result": result}
 
 if __name__ == "__main__":
     celery_app.start()

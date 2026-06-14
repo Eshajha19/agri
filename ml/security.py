@@ -8,13 +8,25 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+ENV = os.getenv("ENV", "development").lower()
+
 # Allow unsigned models in dev/test environments via env vars.
 # NEVER set ALLOW_UNSIGNED_MODELS=true in production.
 ALLOW_UNSIGNED_MODELS = (
-    os.getenv("ALLOW_UNSIGNED_MODELS", "false").lower() == "true"
-    or os.getenv("LOCAL_TEST_MODE", "false").lower() == "true"
-    or os.getenv("TESTING", "false").lower() == "true"
+    (
+        os.getenv("ALLOW_UNSIGNED_MODELS", "false").lower() == "true"
+        or os.getenv("LOCAL_TEST_MODE", "false").lower() == "true"
+        or os.getenv("TESTING", "false").lower() == "true"
+    )
+    and ENV != "production"
 )
+
+
+
+if ENV == "production" and ALLOW_UNSIGNED_MODELS:
+    raise RuntimeError(
+        "Insecure fallback detected: ALLOW_UNSIGNED_MODELS cannot be enabled in production."
+    )
 
 
 class ModelSignatureError(RuntimeError):
@@ -98,23 +110,18 @@ def verify_and_load_joblib(
 
     key = os.getenv(key_env)
     if not key:
-        logger.warning(
-            "Model signing key '%s' is not configured for '%s'",
-            key_env,
-            model_path,
-        )
+        logger.warning("Model signing key '%s' is not configured for '%s'", key_env, model_path)
+        
         if ALLOW_UNSIGNED_MODELS:
-            logger.warning(
-                "Loading unsigned model '%s' because ALLOW_UNSIGNED_MODELS=true. "
-                "This MUST NOT be used in production.",
-                model_path,
-            )
+         if ENV != "production":
+            logger.warning("Loading unsigned model '%s' in non-production environment", model_path)
             return joblib.load(model_path)
-
+        
         raise RuntimeError(
             f"Model signing key '{key_env}' is not configured for '{model_path}'. "
-            "Set MODEL_SIGNING_KEY or enable ALLOW_UNSIGNED_MODELS for local dev."
+            "Production requires a valid signing key."
         )
+
 
     # Read model bytes once to avoid TOCTOU issues
     try:
@@ -135,10 +142,11 @@ def verify_and_load_joblib(
             model_path,
         )
         if ALLOW_UNSIGNED_MODELS:
-            logger.warning(
-                "Loading unsigned model '%s' because ALLOW_UNSIGNED_MODELS=true. "
-                "This MUST NOT be used in production.",
-                model_path,
+            if ENV != "production":
+                logger.warning(
+                    "Loading unsigned model '%s' because ALLOW_UNSIGNED_MODELS=true. "
+                    "This MUST NOT be used in production.",
+                    model_path,
             )
             return joblib.load(model_path)
 

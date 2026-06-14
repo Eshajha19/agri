@@ -169,17 +169,24 @@ class ImageProcessingQueue:
     # -------------------------
     # Enqueue
     # -------------------------
-    def enqueue(self, task: ImageProcessingTask) -> str:
-        with self._queue_lock:
-            if len(self._task_queue) >= self.max_queue_size:
-                raise RuntimeError(f"Queue is full (max: {self.max_queue_size})")
-            heapq.heappush(self._task_queue, (task.priority.value, self._counter, task))
-            self._counter += 1
-            self._tasks_by_id[task.task_id] = task
-            self._total_enqueued += 1
+    def _enqueue_task(self, task):
+    if task is None or not getattr(task, "task_id", None):
+        raise ValueError("Invalid task")
 
-        return task.task_id
+    heapq.heappush(
+        self._task_queue,
+        (task.priority.value, self._counter, task),
+    )
 
+    self._tasks_by_id[task.task_id] = task
+    self._counter += 1
+
+
+with self._queue_lock:
+    if len(self._task_queue) >= self.max_queue_size:
+        raise RuntimeError("Queue is full")
+
+    self._enqueue_task(task)
     # -------------------------
     # Dequeue
     # -------------------------

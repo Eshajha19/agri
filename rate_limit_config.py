@@ -7,8 +7,7 @@ structured 429 response format.
 
 from __future__ import annotations
 
-import ipaddress
-import os
+import hashlib
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -67,6 +66,20 @@ def _is_trusted_proxy(host: str) -> bool:
     return any(addr in net for net in _TRUSTED_NETWORKS)
 
 
+def _client_fingerprint(request: Request) -> str:
+    """Derive a stable, client-specific fallback key when no IP is
+    available by fingerprinting the request headers that typically
+    vary per client."""
+    raw = "|".join([
+        request.headers.get("user-agent") or "",
+        request.headers.get("accept-language") or "",
+        request.headers.get("accept-encoding") or "",
+        request.headers.get("sec-ch-ua") or "",
+        str(getattr(getattr(request, "state", None), "request_id", "")),
+    ])
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
 def extract_client_ip(request: Request) -> str:
     """Resolve the real client IP, honouring proxy headers only from trusted sources.
 
@@ -100,7 +113,7 @@ def extract_client_ip(request: Request) -> str:
     if peer:
         return peer
 
-    return "unknown"
+    return _client_fingerprint(request)
 
 
 def build_limiter(default_limits: Optional[list[str]] = None) -> Limiter:
