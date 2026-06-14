@@ -9,6 +9,7 @@ import {
   FaEye,
 } from "react-icons/fa";
 import { Info, AlertTriangle, AlertCircle, Siren, MapPin, RefreshCw, ClipboardList, Wheat, Lightbulb, CheckCircle, History } from "lucide-react";
+import apiClient from "./services/api";
 import "./WeatherAlerts.css";
 
 /**
@@ -92,24 +93,16 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
     }
 
     try {
-      const response = await fetch("/api/weather/alerts", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          latitude,
-          longitude,
-          location,
-          crop: crop || null,
-        }),
+      const { data } = await apiClient.post("/api/weather/alerts", {
+        latitude,
+        longitude,
+        location,
+        crop: crop || null,
       });
 
-      if (!response.ok) {
+      if (!data?.success) {
         throw new Error("Failed to fetch weather alerts");
       }
-
-      const data = await response.json();
 
       if (
         !mountedRef.current ||
@@ -119,7 +112,6 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
       }
 
       if (
-        data.success &&
         mountedRef.current &&
         requestId === requestIdRef.current
       ) {
@@ -174,15 +166,7 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
     const requestId = ++historyRequestIdRef.current;
 
     try {
-      const response = await fetch(
-        "/api/weather/alerts/history"
-      );
-
-      if (!response.ok) {
-        return;
-      }
-
-      const data = await response.json();
+      const { data } = await apiClient.get("/api/weather/alerts/history");
 
       if (
         !mountedRef.current ||

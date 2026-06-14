@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import apiClient from "../services/api";
 
 /**
  * useWeatherLocation Hook
@@ -18,29 +19,21 @@ export const useWeatherLocation = () => {
     setError(null);
 
     try {
-      const response = await fetch("/api/weather/geocode", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ location: locationName }),
+      const { data } = await apiClient.post("/api/weather/geocode", {
+        location: locationName,
       });
 
-      if (!response.ok) {
+      if (!data?.success) {
         throw new Error("Location not found");
       }
 
-      const data = await response.json();
-
-      if (data.success) {
-        const newLocation = {
-          name: data.location,
-          latitude: data.latitude,
-          longitude: data.longitude,
-        };
-        setLocation(newLocation);
-        return newLocation;
-      }
+      const newLocation = {
+        name: data.location,
+        latitude: data.latitude,
+        longitude: data.longitude,
+      };
+      setLocation(newLocation);
+      return newLocation;
     } catch (err) {
       const errorMsg = err.message || "Failed to geocode location";
       setError(errorMsg);
