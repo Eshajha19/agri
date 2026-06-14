@@ -1,3 +1,47 @@
+pip
+setuptools
+wheel
+fastapi
+uvicorn
+pandas
+numpy
+scikit-learn
+tensorflow
+matplotlib
+joblib
+pydantic
+python-multipart
+xgboost
+reportlab
+cryptography
+twilio
+google-cloud-secret-manager
+slowapi
+firebase-admin
+google-generativeai
+opencv-python
+pillow
+qrcode
+prometheus-client
+prometheus-fastapi-instrumentator
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-instrumentation-fastapi
+opentelemetry-exporter-otlp
+python-json-logger
+# Voice Assistant - Multilingual support with offline capabilities
+pyttsx3
+SpeechRecognition
+librosa
+soundfile
+vosk
+sounddevice
+scipy
+# Additional audio processing
+python-multipart
+# Optional: For cloud-based speech (Google Cloud)
+google-cloud-speech
+google-cloud-texttospeech
 # Web API runtime
 fastapi==0.111.0
 starlette==0.37.2

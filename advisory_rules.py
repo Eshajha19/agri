@@ -4,16 +4,10 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from backend.core.constants import CROP_THRESHOLDS
+
 LOW_LEVELS = {"verylow", "very low", "low", "deficient"}
 HIGH_LEVELS = {"veryhigh", "very high", "high", "excess"}
-
-CROP_THRESHOLDS = {
-    "rice": {"temp_ideal": (20, 30), "moisture_min": 50, "ph_range": (6.0, 7.5)},
-    "paddy": {"temp_ideal": (20, 30), "moisture_min": 50, "ph_range": (6.0, 7.5)},
-    "wheat": {"temp_ideal": (10, 25), "moisture_min": 30, "ph_range": (6.5, 7.5)},
-    "cotton": {"temp_ideal": (21, 27), "moisture_min": 35, "ph_range": (6.0, 7.5)},
-    "maize": {"temp_ideal": (18, 26), "moisture_min": 40, "ph_range": (6.0, 7.0)},
-}
 
 NUTRIENT_THRESHOLDS = {
     "nitrogen": {"low": 140, "high": 360},

@@ -2,20 +2,8 @@
 import collections
 import io
 import json
-import logging
-import os
-import re
-import threading
-import itertools
-from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
-
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, validator
-
-import joblib
+import collections
+from error_utils import safe_detail
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -154,6 +142,7 @@ from reportlab.lib import colors
 from reportlab.lib.units import inch
 from cryptography.hazmat.primitives.asymmetric import ed25519, padding
 from cryptography.hazmat.primitives import serialization, hashes
+from backend.rate_limit_config import build_limiter, rate_limit_exceeded_handler
 
 # KMS Support
 try:
@@ -223,9 +212,9 @@ def _sanitise_log_field(value: str) -> str:
     return _CONTROL_CHAR_RE.sub("", value)
 
 # Initialize Limiter
-limiter = Limiter(key_func=get_remote_address)
+limiter = build_limiter()
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 # Initialize Firebase Admin
 # Explicitly set to None before the try block so db_firestore is always
@@ -643,7 +632,7 @@ def predict_yield(data: PredictRequest, request: Request):
         )
     except Exception as e:
         logger.error("Prediction Error: %s", e)
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 @app.post("/predict-yield-lag")
 @limiter.limit("5/minute")
@@ -661,7 +650,7 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
             "model": "RandomForest Time Series (Lag Features)"
         }
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
@@ -688,7 +677,7 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
             "model": "RandomForest Trend Forecast (Lag Features)"
         }
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
 
@@ -1091,7 +1080,7 @@ async def generate_signed_report(data: ReportRequest, request: Request):
         )
     except Exception as e:
         logger.error("Error generating report: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 @app.post("/api/log-error")
 @limiter.limit("10/minute")
@@ -1157,7 +1146,7 @@ async def rag_query(request: Request, body: RAGQuery):
         result = rag_generate(body.query, top_k=body.top_k)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 @app.post("/api/simulate-climate")
 @limiter.limit("5/minute")
@@ -1447,7 +1436,7 @@ async def assess_single_crop(request: Request, data: CropQualityGradingRequest):
             "timestamp": datetime.now().isoformat()
         }
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
     except Exception as e:
         logger.error("Quality assessment error: %s", str(e))
         raise HTTPException(status_code=500, detail="Quality assessment failed")
@@ -1497,7 +1486,7 @@ async def assess_batch_crops(request: Request, data: CropQualityBatchRequest):
             "timestamp": datetime.now().isoformat()
         }
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
     except Exception as e:
         logger.error("Batch assessment error: %s", str(e))
         raise HTTPException(status_code=500, detail="Batch assessment failed")
@@ -1580,7 +1569,7 @@ async def calculate_market_price(request: Request, data: CropQualityGradingReque
             "timestamp": datetime.now().isoformat()
         }
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
     except Exception as e:
         logger.error("Market price calculation error: %s", str(e))
         raise HTTPException(status_code=500, detail="Price calculation failed")
@@ -1605,7 +1594,7 @@ async def register_actor(request: Request, data: RegisterActorRequest):
         return {"success": True, "actor": actor_data}
     except Exception as e:
         logger.error("Register actor error: %s", str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 @app.post("/api/blockchain/create-batch")
 @limiter.limit("10/minute")
@@ -1625,7 +1614,7 @@ async def create_batch(request: Request, data: CreateProductBatchRequest):
         return {"success": True, "batch": asdict(batch)}
     except Exception as e:
         logger.error("Create batch error: %s", str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 @app.post("/api/blockchain/add-node")
 @limiter.limit("10/minute")
@@ -1646,10 +1635,10 @@ async def add_node(request: Request, data: AddSupplyChainNodeRequest):
         from dataclasses import asdict
         return {"success": True, "node": asdict(node)}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
     except Exception as e:
         logger.error("Add node error: %s", str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 @app.post("/api/blockchain/create-contract")
 @limiter.limit("10/minute")
@@ -1666,10 +1655,10 @@ async def create_contract(request: Request, data: CreateSmartContractRequest):
         from dataclasses import asdict
         return {"success": True, "contract": asdict(contract)}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
     except Exception as e:
         logger.error("Create contract error: %s", str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 @app.post("/api/blockchain/execute-contract")
 @limiter.limit("10/minute")
@@ -1679,10 +1668,10 @@ async def execute_contract(request: Request, data: ExecuteContractRequest):
         result = _supply_chain_blockchain.execute_smart_contract(data.contract_id)
         return result
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
     except Exception as e:
         logger.error("Execute contract error: %s", str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 @app.get("/api/blockchain/qr-code/{batch_id}")
 @limiter.limit("20/minute")
@@ -1693,10 +1682,10 @@ async def get_qr_code(request: Request, batch_id: str):
         qr_payload = _supply_chain_blockchain.get_traceability_qr_payload(batch_id)
         return {"success": True, "batch_id": batch_id, "qr_code_base64": qr_code, "qr_payload": qr_payload}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
     except Exception as e:
         logger.error("QR code generation error: %s", str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 @app.get("/api/blockchain/verify/{batch_id}")
 @limiter.limit("20/minute")
@@ -1707,7 +1696,7 @@ async def verify_batch(request: Request, batch_id: str):
         return verification
     except Exception as e:
         logger.error("Verification error: %s", str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 @app.get("/api/blockchain/journey/{batch_id}")
 @limiter.limit("20/minute")
@@ -1717,10 +1706,10 @@ async def get_journey(request: Request, batch_id: str):
         journey = _supply_chain_blockchain.get_supply_chain_journey(batch_id)
         return {"success": True, "data": journey}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
     except Exception as e:
         logger.error("Journey retrieval error: %s", str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 @app.get("/api/blockchain/analytics/{batch_id}")
 @limiter.limit("20/minute")
@@ -1730,10 +1719,10 @@ async def get_analytics(request: Request, batch_id: str):
         analytics = _supply_chain_blockchain.get_supply_chain_analytics(batch_id)
         return {"success": True, "data": analytics}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
     except Exception as e:
         logger.error("Analytics error: %s", str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 @app.get("/api/blockchain/marketplace")
 @limiter.limit("20/minute")
@@ -1744,7 +1733,7 @@ async def get_marketplace(request: Request):
         return {"success": True, "products": certified, "count": len(certified)}
     except Exception as e:
         logger.error("Marketplace error: %s", str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 @app.get("/api/blockchain/stats")
 @limiter.limit("20/minute")
@@ -1760,7 +1749,7 @@ async def get_stats(request: Request):
         return {"success": True, "stats": stats}
     except Exception as e:
         logger.error("Stats error: %s", str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 def register_ml_governance_routes() -> None:
@@ -1778,7 +1767,7 @@ def register_ml_governance_routes() -> None:
                 "model_name": model_name,
             }
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail=safe_detail(e, 400))
         except Exception as e:
             logger.error("Drift baseline error: %s", str(e))
             raise HTTPException(status_code=500, detail="Failed to set baseline")
@@ -1894,7 +1883,7 @@ def register_ml_governance_routes() -> None:
                 "production_version": prod_version.to_dict() if prod_version else None,
             }
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail=safe_detail(e, 400))
         except Exception as e:
             logger.error("Promote version error: %s", str(e))
             raise HTTPException(status_code=500, detail="Failed to promote version")
@@ -1913,7 +1902,7 @@ def register_ml_governance_routes() -> None:
                 "production_version": prod_version.to_dict() if prod_version else None,
             }
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail=safe_detail(e, 400))
         except Exception as e:
             logger.error("Rollback version error: %s", str(e))
             raise HTTPException(status_code=500, detail="Failed to rollback")
@@ -1949,7 +1938,7 @@ def register_ml_governance_routes() -> None:
                 raise ValueError(comparison["error"])
             return {"success": True, "comparison": comparison}
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail=safe_detail(e, 400))
         except Exception as e:
             logger.error("Compare versions error: %s", str(e))
             raise HTTPException(status_code=500, detail="Failed to compare versions")
