@@ -190,6 +190,22 @@ VALID_STATUSES = {
 }
 
 
+from typing import Dict
+from copy import deepcopy
+import hashlib
+import re
+import time
+
+VALID_STATUSES = {
+    "draft",
+    "pending",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+}
+
+
 def create_experiment(data: Dict) -> Dict:
     """
     Create a new experiment.
@@ -491,10 +507,5 @@ def update_experiment_status(exp_id: str, status: str) -> Optional[Dict]:
                 status,
             )
         except Exception as e:
-            logger.exception(
-                "Failed to update Firestore status for experiment %s: %s",
-                exp_id,
-                e,
-            )
-
-    return updated_experiment
+            logger.error("Failed to update experiment status: %s", e)
+    return _exp_cache[exp_id]
