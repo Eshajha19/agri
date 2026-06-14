@@ -8,6 +8,8 @@ import {
   FaTint,
   FaEye,
 } from "react-icons/fa";
+import { Info, AlertTriangle, AlertCircle, Siren, MapPin, RefreshCw, ClipboardList, Wheat, Lightbulb, CheckCircle, History } from "lucide-react";
+import { fetchWeatherByLocation, getCropWarnings, fetchWeatherByIP } from "./weatherService";
 import "./WeatherAlerts.css";
 
 /**
@@ -30,6 +32,20 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
   const [showHistory, setShowHistory] = useState(false);
   const [alertHistory, setAlertHistory] = useState([]);
   const [selectedAlert, setSelectedAlert] = useState(null);
+  const mountedRef = React.useRef(true);
+  const requestIdRef = React.useRef(0);
+  const historyRequestIdRef = React.useRef(0);
+  const refreshInProgressRef = React.useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      requestIdRef.current++;
+      historyRequestIdRef.current++;
+    };
+  }, []);
 
   // Color mapping for severity levels
   const severityColors = {
@@ -40,51 +56,85 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
   };
 
   const severityIcons = {
-    low: "ℹ️",
-    medium: "⚠️",
-    high: "🔴",
-    critical: "🚨",
+    low: <Info size={16} aria-hidden="true" />,
+    medium: <AlertTriangle size={16} aria-hidden="true" />,
+    high: <AlertCircle size={16} aria-hidden="true" />,
+    critical: <Siren size={16} aria-hidden="true" />,
   };
 
-  // Fetch weather alerts
+  // Fetch weather alerts directly via public weather APIs (no backend required)
   const fetchWeatherAlerts = useCallback(async () => {
-    if (!latitude || !longitude || !location) {
-      setError("Location information is required");
+    if (refreshInProgressRef.current) {
       return;
     }
 
-    setLoading(true);
-    setError(null);
+    refreshInProgressRef.current = true;
+    const requestId = ++requestIdRef.current;
+
+    if (!latitude || !longitude || !location) {
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        setError("Location information is required");
+        setAlerts([]);
+        setWeather(null);
+      }
+      refreshInProgressRef.current = false;
+      return;
+    }
+
+    if (
+      mountedRef.current &&
+      requestId === requestIdRef.current
+    ) {
+      setLoading(true);
+      setError(null);
+    }
 
     try {
-      const response = await fetch("/api/weather/alerts", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          latitude,
-          longitude,
-          location,
-          crop: crop || null,
-        }),
-      });
+      const locationObj = {
+        latitude,
+        longitude,
+        name: location,
+        source: "manual",
+        city: location,
+        admin1: "",
+        country: "",
+      };
 
-      if (!response.ok) {
-        throw new Error("Failed to fetch weather alerts");
+      const snapshot = await fetchWeatherByLocation(locationObj);
+
+      if (
+        !mountedRef.current ||
+        requestId !== requestIdRef.current
+      ) {
+        return;
       }
 
-      const data = await response.json();
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        setWeather({
+          temperature: snapshot.current?.temperature_2m,
+          humidity: snapshot.current?.relative_humidity_2m,
+          rainfall: snapshot.current?.rain || snapshot.current?.precipitation || 0,
+          wind_speed: snapshot.current?.wind_speed_10m,
+          cloud_cover: 0,
+          apparent_temperature: snapshot.current?.apparent_temperature,
+          weather_code: snapshot.current?.weather_code,
+          is_day: snapshot.current?.is_day,
+        });
+        const derivedAlerts = snapshot.alerts || [];
+        setAlerts(derivedAlerts);
+        setLastUpdated(new Date(snapshot.fetchedAt || Date.now()));
 
-      if (data.success) {
-        setWeather(data.weather);
-        setAlerts(data.alerts.alerts || []);
-        setLastUpdated(new Date());
-
-        // Show critical/high alerts as toasts
-        const criticalAlerts = data.alerts.alerts.filter(
+        const cropWarnings = getCropWarnings(derivedAlerts, crop);
+        const criticalAlerts = [...derivedAlerts, ...cropWarnings].filter(
           (a) => a.severity === "critical" || a.severity === "high"
         );
+
         criticalAlerts.forEach((alert) => {
           toast.warning(alert.title, {
             position: "top-right",
@@ -94,29 +144,57 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
         });
       }
     } catch (err) {
-      const errorMsg = err.message || "Failed to fetch weather data";
-      setError(errorMsg);
-      toast.error(errorMsg, {
-        position: "top-right",
-        autoClose: 4000,
-      });
+      const errorMsg =
+        err.message || "Failed to fetch weather data";
+
+      if (
+        mountedRef.current &&
+        requestId === requestIdRef.current
+      ) {
+        setError(errorMsg);
+
+        toast.error(errorMsg, {
+          position: "top-right",
+          autoClose: 4000,
+        });
+      }
     } finally {
-      setLoading(false);
-    }
+        refreshInProgressRef.current = false;
+
+        if (
+          mountedRef.current &&
+          requestId === requestIdRef.current
+        ) {
+          setLoading(false);
+        }
+      }
   }, [latitude, longitude, location, crop]);
 
-  // Fetch alert history
+  // Fetch alert history from local cache (browser storage)
   const fetchAlertHistory = useCallback(async () => {
+    const requestId = ++historyRequestIdRef.current;
+
     try {
-      const response = await fetch("/api/weather/alerts/history");
-      if (response.ok) {
-        const data = await response.json();
-        setAlertHistory(data.recent_alerts || []);
+      const snapshot = fetchWeatherByLocation({
+        latitude,
+        longitude,
+        name: location,
+        source: "manual",
+        city: location,
+        admin1: "",
+        country: "",
+      });
+    } catch {
+      setAlertHistory([]);
+    } finally {
+      if (
+        mountedRef.current &&
+        requestId === historyRequestIdRef.current
+      ) {
+        setAlertHistory([]);
       }
-    } catch (err) {
-      console.error("Failed to fetch alert history:", err);
     }
-  }, []);
+  }, [latitude, longitude, location]);
 
   // Initial fetch and auto-refresh
   useEffect(() => {
@@ -125,7 +203,11 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
     // Auto-refresh every 30 minutes
     const interval = setInterval(fetchWeatherAlerts, 30 * 60 * 1000);
     
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      requestIdRef.current++;
+      historyRequestIdRef.current++;
+    };
   }, [fetchWeatherAlerts]);
 
   // Weather info card component
@@ -159,10 +241,10 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
         </span>
       </div>
       <p className="alert-message">{alert.message}</p>
-      {alert.crop && <p className="alert-crop">🌾 {alert.crop}</p>}
+      {alert.crop && <p className="alert-crop"><Wheat size={14} aria-hidden="true" /> {alert.crop}</p>}
       {alert.recommended_action && (
         <div className="alert-action">
-          <strong>💡 Action:</strong> {alert.recommended_action}
+          <strong><Lightbulb size={14} aria-hidden="true" /> Action:</strong> {alert.recommended_action}
         </div>
       )}
     </div>
@@ -201,7 +283,7 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
           )}
           {alert.recommended_action && (
             <div className="modal-action">
-              <strong>💡 Recommended Action:</strong>
+              <strong><Lightbulb size={14} aria-hidden="true" /> Recommended Action:</strong>
               <p>{alert.recommended_action}</p>
             </div>
           )}
@@ -214,7 +296,7 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
     return (
       <div className="weather-alerts-container">
         <div className="error-message">
-          📍 Please set your farm location to view weather alerts
+          <MapPin size={16} aria-hidden="true" /> Please set your farm location to view weather alerts
         </div>
       </div>
     );
@@ -223,14 +305,14 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
   return (
     <div className="weather-alerts-container">
       <div className="weather-alerts-header">
-        <h2>🌤️ Real-Time Weather Alerts</h2>
+        <h2><RefreshCw size={20} aria-hidden="true" /> Real-Time Weather Alerts</h2>
         <div className="header-actions">
           <button
             className="refresh-btn"
             onClick={fetchWeatherAlerts}
             disabled={loading}
           >
-            {loading ? "Fetching..." : "🔄 Refresh"}
+            {loading ? "Fetching..." : <><RefreshCw size={14} aria-hidden="true" /> Refresh</>}
           </button>
           <button
             className="history-btn"
@@ -239,21 +321,21 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
               if (!showHistory) fetchAlertHistory();
             }}
           >
-            📋 History
+            <ClipboardList size={14} aria-hidden="true" /> History
           </button>
         </div>
       </div>
 
       {error && (
         <div className="error-message">
-          ⚠️ {error}
+          <AlertTriangle size={16} aria-hidden="true" /> {error}
         </div>
       )}
 
       {weather && (
         <div className="weather-display">
           <div className="location-info">
-            <h3>📍 {location}</h3>
+            <h3><MapPin size={16} aria-hidden="true" /> {location}</h3>
             <p className="last-updated">
               Last updated: {lastUpdated?.toLocaleTimeString()}
             </p>
@@ -302,17 +384,17 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
           {alerts.length > 0 && (
             <div className="alert-summary">
               <span className="critical-count">
-                🚨 Critical: {alerts.filter((a) => a.severity === "critical").length}
+                <Siren size={14} aria-hidden="true" /> Critical: {alerts.filter((a) => a.severity === "critical").length}
               </span>
               <span className="high-count">
-                🔴 High: {alerts.filter((a) => a.severity === "high").length}
+                <AlertCircle size={14} aria-hidden="true" /> High: {alerts.filter((a) => a.severity === "high").length}
               </span>
             </div>
           )}
         </div>
 
         {alerts.length === 0 ? (
-          <div className="no-alerts">✅ No weather alerts at this time</div>
+          <div className="no-alerts"><CheckCircle size={16} aria-hidden="true" /> No weather alerts at this time</div>
         ) : (
           <div className="alerts-list">
             {alerts.map((alert) => (
@@ -324,7 +406,7 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
 
       {showHistory && (
         <div className="history-section">
-          <h3>📋 Alert History</h3>
+          <h3><History size={16} aria-hidden="true" /> Alert History</h3>
           {alertHistory.length === 0 ? (
             <p>No alert history available</p>
           ) : (

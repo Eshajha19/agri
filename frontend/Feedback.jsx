@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { collection, addDoc } from "firebase/firestore";
-import { db, auth, isFirebaseConfigured } from "./lib/firebase";
+import { auth } from "./lib/firebase";
 import {
   Star,
   Send,
@@ -9,7 +8,20 @@ import {
   User,
   MessageSquare,
   CheckCircle2,
+  MessageCircle,
+  Sparkles,
+  Bug,
+  Palette,
+  Target,
+  Pin,
+  Wheat,
+  Rocket,
 } from "lucide-react";
+import {
+  submitFeedback,
+  validateFeedbackData,
+  sanitizeFeedbackData,
+} from "./services/feedbackService";
 import "./Feedback.css";
 
 const CROP_OPTIONS = [
@@ -19,12 +31,12 @@ const CROP_OPTIONS = [
 ];
 
 const CATEGORY_OPTIONS = [
-  { value: "general", label: "💬 General Feedback" },
-  { value: "feature", label: "✨ Feature Request" },
-  { value: "bug", label: "🐛 Report a Bug" },
-  { value: "ui", label: "🎨 UI/UX Improvement" },
-  { value: "accuracy", label: "🎯 AI Accuracy" },
-  { value: "other", label: "📌 Other" },
+  { value: "general", label: "General Feedback", icon: <MessageCircle size={14} /> },
+  { value: "feature", label: "Feature Request", icon: <Sparkles size={14} /> },
+  { value: "bug", label: "Report a Bug", icon: <Bug size={14} /> },
+  { value: "ui", label: "UI/UX Improvement", icon: <Palette size={14} /> },
+  { value: "accuracy", label: "AI Accuracy", icon: <Target size={14} /> },
+  { value: "other", label: "Other", icon: <Pin size={14} /> },
 ];
 
 // ✅ Testimonials Data
@@ -86,13 +98,22 @@ export default function Feedback() {
     e.preventDefault();
     setError("");
 
-    if (!form.message.trim()) {
-      setError("Please enter your feedback message.");
-      return;
-    }
+    const user = auth?.currentUser;
 
-    if (form.rating === 0) {
-      setError("Please select a rating.");
+    const feedbackData = {
+      userId: user?.uid || "anonymous",
+      userEmail: user?.email || "anonymous",
+      name: form.name || (user?.displayName ?? "Anonymous"),
+      cropType: form.cropType,
+      location: form.location,
+      category: form.category,
+      message: form.message,
+      rating: form.rating,
+    };
+
+    const { isValid, errors } = validateFeedbackData(feedbackData);
+    if (!isValid) {
+      setError(Object.values(errors)[0]);
       return;
     }
 
@@ -124,32 +145,32 @@ export default function Feedback() {
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.detail || result.error || "Failed to submit feedback");
+        // Map HTTP status codes to user-facing messages instead of
+        // relying on server-side wording that may change.
+        const statusMessages = {
+          400: "Your feedback contains invalid characters. Please remove any special symbols and try again.",
+          413: "Feedback message is too large. Please shorten your message.",
+          415: "Unsupported content type. Please refresh and try again.",
+          422: "Please enter a valid feedback message and rating (1\u20135 stars).",
+          429: "Too many requests. Please wait a moment before submitting again.",
+        };
+        throw new Error(
+          statusMessages[response.status]
+          || result.detail || result.error
+          || "Failed to submit feedback"
+        );
       }
 
       if (!result.success) {
-        throw new Error(result.message || "Feedback submission failed");
+        throw new Error(result.error);
       }
-
-      console.log("Feedback submitted successfully. ID:", result.feedback_id);
       setSubmitted(true);
     } catch (err) {
       console.error("Feedback submit error:", err);
       
-      // User-friendly error messages
-      let errorMessage = "Failed to submit feedback. Please try again.";
-      
-      if (err.message.includes("Message is required")) {
-        errorMessage = "Please enter a valid feedback message.";
-      } else if (err.message.includes("Invalid data format")) {
-        errorMessage = "Your feedback contains invalid characters. Please remove any special symbols and try again.";
-      } else if (err.message.includes("rating")) {
-        errorMessage = "Please select a valid rating between 1 and 5 stars.";
-      } else {
-        errorMessage = err.message || "Failed to submit feedback. Please try again.";
-      }
-      
-      setError(errorMessage);
+      // User-friendly error messages — err.message is a pre-resolved
+      // user-facing string from the status-code mapping above.
+      setError(err.message || "Failed to submit feedback. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -211,7 +232,7 @@ export default function Feedback() {
 
         {/* Left Panel */}
         <div className="feedback-info-panel">
-          <div className="info-badge">🌾 Farmer Feedback</div>
+          <div className="info-badge"><Wheat size={14} aria-hidden="true" /> Farmer Feedback</div>
 
           <h1>Help Us Grow Better</h1>
 
@@ -227,19 +248,19 @@ export default function Feedback() {
           {/* Farmer Showcase */}
           <div className="farmer-showcase">
             <div className="farmer-images">
-              <img src="/farmer1.png" alt="Farmer 1" className="farmer-img img-1" />
-              <img src="/farmer2.png" alt="Farmer 2" className="farmer-img img-2" />
+              <img src="/farmer1.png" alt="Farmer 1" className="farmer-img img-1" onError={(e) => { e.currentTarget.src = "/crops/default.png"; }} />
+              <img src="/farmer2.png" alt="Farmer 2" className="farmer-img img-2" onError={(e) => { e.currentTarget.src = "/crops/default.png"; }} />
             </div>
           </div>
 
           <div className="info-stats">
             {[
-              { icon: "⭐", label: "Average Rating", value: "4.8/5" },
-              { icon: "💬", label: "Feedbacks Received", value: "2,400+" },
-              { icon: "🚀", label: "Features Added from Feedback", value: "18+" },
+              { icon: <Star size={18} className="text-yellow-400" />, label: "Average Rating", value: "4.8/5" },
+              { icon: <MessageSquare size={18} />, label: "Feedbacks Received", value: "2,400+" },
+              { icon: <Rocket size={18} />, label: "Features Added from Feedback", value: "18+" },
             ].map((stat, i) => (
               <div key={i} className="info-stat-item">
-                <span className="stat-emoji">{stat.icon}</span>
+                <span className="stat-emoji" aria-hidden="true">{stat.icon}</span>
                 <div>
                   <div className="stat-value">{stat.value}</div>
                   <div className="stat-label">{stat.label}</div>
@@ -319,7 +340,10 @@ export default function Feedback() {
                     className={`cat-chip ${form.category === cat.value ? "active" : ""}`}
                     onClick={() => handleChange("category", cat.value)}
                   >
-                    {cat.label}
+                    <>
+                      <span aria-hidden="true">{cat.icon}</span>
+                      {cat.label}
+                    </>
                   </button>
                 ))}
               </div>
