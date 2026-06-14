@@ -188,7 +188,14 @@ class SustainabilityAnalytics:
         irr_eff = IRRIGATION_EFFICIENCY.get(irr_type, 0.7)
         season_days = SEASON_DAYS[season_key]
 
+        rainfall_mm = data.get("rainfall_mm", 0.0)
+        effective_rainfall_mm = data.get("effective_rainfall_mm", rainfall_mm * 0.8)
+        rainfall_m3_per_acre = effective_rainfall_mm * 4046.86 / 1000.0
+        rainfall_m3_total = rainfall_m3_per_acre * acreage
+
         base_water = coeffs["water_m3_per_acre_season"] * acreage
+        net_irrigation_water = max(base_water - rainfall_m3_total, 0.0)
+
         if irr_type == "rainfed":
             green_water = base_water * 0.85
             blue_water = base_water * 0.15
