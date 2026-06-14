@@ -43,8 +43,6 @@ class FeedbackValidator:
     
     # Dangerous patterns to reject (NoSQL injection prevention)
     DANGEROUS_PATTERNS = [
-        r'\$[a-zA-Z_][a-zA-Z0-9_]*\s*:',  # MongoDB operators like $set, $where
-        r'\{.*\}\s*:\s*\{',  # Nested object injection
         r'\.\./',  # Path traversal
         r'<script.*?>.*?</script>',  # Script tags
         r'on\w+\s*=',  # Event handlers
