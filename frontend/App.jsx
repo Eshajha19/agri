@@ -1137,15 +1137,15 @@ useEffect(() => {
         target="_blank"
         rel="noopener noreferrer"
         className="whatsapp-float"
-        title="Chat with WhatsApp Bot"
+        aria-label="Chat with WhatsApp Bot (opens in new tab)"
       >
-        <FaWhatsapp />
-        <span className="tooltip">Chat with Bot</span>
+        <FaWhatsapp aria-hidden="true" />
+        <span className="tooltip" aria-hidden="true">Chat with Bot</span>
       </a>
 
       {showScrollTop && (
         <button className="scroll-to-top" onClick={scrollToTop} aria-label="Scroll to top">
-          <FaChevronUp size={24} />
+          <FaChevronUp size={24} aria-hidden="true" />
         </button>
       )}
 
