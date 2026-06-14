@@ -206,6 +206,22 @@ VALID_STATUSES = {
 }
 
 
+from typing import Dict
+from copy import deepcopy
+import hashlib
+import re
+import time
+
+VALID_STATUSES = {
+    "draft",
+    "pending",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+}
+
+
 def create_experiment(data: Dict) -> Dict:
     """
     Create a new experiment.
