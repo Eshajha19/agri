@@ -174,6 +174,22 @@ VALID_STATUSES = {
 }
 
 
+from typing import Dict
+from copy import deepcopy
+import hashlib
+import re
+import time
+
+VALID_STATUSES = {
+    "draft",
+    "pending",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+}
+
+
 def create_experiment(data: Dict) -> Dict:
     """
     Create a new experiment.
@@ -237,14 +253,6 @@ def create_experiment(data: Dict) -> Dict:
         # Optional rollback to keep cache and storage consistent
         with _exp_cache_lock:
             _exp_cache.pop(exp_id, None)
-
-        logger.exception(
-            "Failed to persist experiment '%s'",
-            exp_id,
-        )
-        raise
-
-    return deepcopy(exp)
 
         logger.exception(
             "Failed to persist experiment '%s'",
