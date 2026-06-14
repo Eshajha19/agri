@@ -25,6 +25,95 @@ def _calculate_observability_mode():
 
     return "degraded"
 
+COMPONENT_WEIGHTS = {
+    "distributed_tracing": 60,
+    "prometheus_metrics": 40,
+}
+
+
+def calculate_health_score():
+    score = 0
+
+    if OBSERVABILITY_STATUS["tracing"]:
+        score += COMPONENT_WEIGHTS["distributed_tracing"]
+
+    if OBSERVABILITY_STATUS["prometheus"]:
+        score += COMPONENT_WEIGHTS["prometheus_metrics"]
+
+    return score
+
+
+def calculate_degradation_severity():
+    score = calculate_health_score()
+
+    if score >= 90:
+        return "minimal"
+
+    if score >= 60:
+        return "moderate"
+
+    if score >= 30:
+        return "high"
+
+    return "critical"
+
+
+def generate_remediation_recommendations():
+    recommendations = []
+
+    if not OBSERVABILITY_STATUS["tracing"]:
+        recommendations.append(
+            "Verify OpenTelemetry exporter configuration and tracing initialization."
+        )
+
+    if not OBSERVABILITY_STATUS["prometheus"]:
+        recommendations.append(
+            "Verify Prometheus instrumentation and metrics endpoint configuration."
+        )
+
+    if OBSERVABILITY_STATUS["fallback_logging"]:
+        recommendations.append(
+            "Investigate degraded observability components and restore telemetry."
+        )
+
+    return recommendations
+
+
+def build_component_diagnostics():
+    diagnostics = []
+
+    diagnostics.append({
+        "component": "distributed_tracing",
+        "status": (
+            "healthy"
+            if OBSERVABILITY_STATUS["tracing"]
+            else "degraded"
+        ),
+        "weight": COMPONENT_WEIGHTS["distributed_tracing"],
+    })
+
+    diagnostics.append({
+        "component": "prometheus_metrics",
+        "status": (
+            "healthy"
+            if OBSERVABILITY_STATUS["prometheus"]
+            else "degraded"
+        ),
+        "weight": COMPONENT_WEIGHTS["prometheus_metrics"],
+    })
+
+    return diagnostics
+
+def build_recovery_progress():
+    return {
+        "healthy_components":
+            len(OBSERVABILITY_STATUS["active_components"]),
+        "degraded_components":
+            len(OBSERVABILITY_STATUS["degraded_components"]),
+        "recovery_percent":
+            calculate_health_score(),
+    }
+
 def setup_observability(app, verify_role, logger):
     try:
         from opentelemetry import trace
@@ -161,6 +250,10 @@ def setup_observability(app, verify_role, logger):
                 required_roles=["admin"]
             )
 
+            health_score = calculate_health_score()
+            severity = calculate_degradation_severity()
+            recommendations = generate_remediation_recommendations()
+
             return {
                 "success": True,
                 "tracing_enabled": OBSERVABILITY_STATUS["tracing"],
@@ -173,6 +266,12 @@ def setup_observability(app, verify_role, logger):
                     )
                 ),
                 "observability_mode": _calculate_observability_mode(),
+
+                "health_score": health_score,
+                "health_score_percent": health_score,
+                "degradation_severity": severity,
+                "remediation_recommendations": recommendations,
+
                 "telemetry_available": (
                     OBSERVABILITY_STATUS["tracing"]
                     or OBSERVABILITY_STATUS["prometheus"]
@@ -214,6 +313,9 @@ def setup_observability(app, verify_role, logger):
                 required_roles=["admin"]
             )
 
+            health_score = calculate_health_score()
+            severity = calculate_degradation_severity()
+
             return {
                 "success": True,
                 "status": OBSERVABILITY_STATUS,
@@ -227,6 +329,15 @@ def setup_observability(app, verify_role, logger):
                     )
                 ),
                 "observability_mode": _calculate_observability_mode(),
+
+                "health_score": health_score,
+                "degradation_severity": severity,
+                "component_diagnostics": build_component_diagnostics(),
+                "remediation_recommendations":
+                    generate_remediation_recommendations(),
+                "recovery_progress":
+                    build_recovery_progress(),
+
                 "component_summary": {
                     "active":
                         OBSERVABILITY_STATUS["active_components"],
