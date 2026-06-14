@@ -5,9 +5,21 @@ import joblib
 import numpy as np
 from celery import Celery
 from ml.security import verify_and_load_joblib
+import prometheus_client
 
 logger = logging.getLogger(__name__)
 
+
+timeout_counter = prometheus_client.Counter("celery_timeouts", "Number of Celery timeouts")
+
+def get_task_result(task, timeout=30):
+    try:
+        return task.get(timeout=timeout)
+    except TimeoutError:
+        timeout_counter.inc()
+        logging.warning("Celery task timeout")
+        raise HTTPException(status_code=504, detail="Prediction timed out")
+    
 # Initialize Celery app — Redis authentication is required.
 # Set REDIS_URL for a full connection string, or REDIS_PASSWORD to use
 # default redis://:{password}@localhost:6379/0.  Set ALLOW_INSECURE_REDIS=1
