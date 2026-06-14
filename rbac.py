@@ -52,6 +52,24 @@ STALE_TOKEN_DETAIL = (
     "Authorization token is stale. Sign out and sign in again to refresh your session."
 )
 
+from fastapi import Depends
+
+def require_tenant_role(required_roles: list[str]):
+    async def wrapper(request: Request, tenant_id: str):
+        ctx = await RBACManager.resolve_auth_context(request)
+        RBACManager.assert_tenant_scope(ctx, tenant_id)
+        if ctx.role not in required_roles:
+            raise HTTPException(status_code=403, detail="Insufficient role for tenant")
+        return ctx
+    return wrapper
+
+@router.get("/tenants/{tenant_id}/reports")
+async def get_reports(
+    tenant_id: str,
+    ctx=Depends(require_tenant_role(["report_viewer"]))
+):
+    return fetch_reports_for_tenant(tenant_id)
+
 
 @dataclass(frozen=True, slots=True)
 class AuthContext:
