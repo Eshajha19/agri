@@ -33,6 +33,39 @@ export default function EquipmentManagement({ onClose }) {
     alerts: 0,
   });
 
+  const abortControllerRef = useRef(null);
+
+async function selectEquipment(eq) {
+  if (!eq) return;
+
+  // cancel any previous requests
+  if (abortControllerRef.current) {
+    abortControllerRef.current.abort();
+  }
+  const controller = new AbortController();
+  abortControllerRef.current = controller;
+
+  setSelectedEquipment(eq);
+  selectedIdRef.current = eq.id;
+
+  try {
+    await Promise.all([
+      updateSensorData(eq.id, { signal: controller.signal }),
+      updateHealthData(eq.id, { signal: controller.signal }),
+      loadMaintenanceHistory(eq.id, { signal: controller.signal }),
+      loadAnalytics(eq.id, { signal: controller.signal }),
+      loadAlerts(eq.id, { signal: controller.signal }),
+    ]);
+  } catch (err) {
+    if (err.name === "AbortError") {
+      console.log("Request cancelled due to equipment switch");
+    } else {
+      console.error("Failed to load equipment data", err);
+    }
+  }
+}
+
+
   // Lifecycle + realtime polling
   useEffect(() => {
     mountedRef.current = true;
@@ -96,20 +129,7 @@ export default function EquipmentManagement({ onClose }) {
     }
   };
 
-  const selectEquipment = async (eq) => {
-    if (!eq) return;
 
-    setSelectedEquipment(eq);
-    selectedIdRef.current = eq.id;
-
-    await Promise.all([
-      updateSensorData(eq.id),
-      updateHealthData(eq),
-      loadMaintenanceHistory(eq.id),
-      loadAnalytics(eq.id, timeRange),
-      loadAlerts(eq.id),
-    ]);
-  };
 
   const updateSensorData = useCallback(
     async (equipmentId) => {
