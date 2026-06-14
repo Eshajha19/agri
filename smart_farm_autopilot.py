@@ -446,6 +446,7 @@ class SmartFarmAutopilot:
         if today.month <= sow_month + 1:
             sow_year = year
         else:
+            # Sowing month has clearly passed
             sow_year = year + 1
         # Edge case: late-year request (Nov/Dec) for early next-season sowing (Jan/Feb)
         if today.month >= 11 and sow_month <= 2:

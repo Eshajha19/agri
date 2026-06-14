@@ -105,6 +105,7 @@
   font-size: 1rem;
   outline: none;
   transition: all 0.2s;
+  color: #111827;
 }
 
 .theme-dark .form-group select {
@@ -130,6 +131,13 @@
   background: white;
   cursor: pointer;
   transition: all 0.2s;
+  color: #111827;
+}
+
+.season-btn:hover {
+  background: #13be85; 
+  border-color: #10b981;
+  color: #ffffff;
 }
 
 .theme-dark .season-btn {
@@ -138,8 +146,14 @@
   color: #9ca3af;
 }
 
+.theme-dark .season-btn:hover {
+  background: #14a877;  
+  border-color: #0b7753; 
+  color: #e5e7eb;
+}
+
 .season-btn.active {
-  background: #10b981;
+  background: #0e996b;
   border-color: #10b981;
   color: white;
 }
