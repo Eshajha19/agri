@@ -1151,7 +1151,17 @@ useEffect(() => {
             />
             <Route path="/crop-comparison" element={<CropComparison />} />
             <Route path="*" element={<NotFound />} />
-            <Route path="/emergency-report" element={<EmergencyReport />} /
+            <Route path="/emergency-report" element={<EmergencyReport />} />
+            <Route
+  path="/claim-timeline"
+  element={
+    <ClaimTimeline
+      stages={["Damage Event", "Claim Filed", "Survey", "Verification", "Approval", "Payout"]}
+      currentStage="Survey"
+    />
+  }
+/>
+
           </Routes>
         </React.Suspense>
       </main>

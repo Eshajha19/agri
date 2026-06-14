@@ -22,6 +22,10 @@ from persistence.repositories import (
 from fastapi import Request
 from starlette.responses import JSONResponse
 
+from routes import claim_timeline
+
+app.include_router(claim_timeline.router)
+
 from routes import emergency_report
 
 app.include_router(emergency_report.router)
