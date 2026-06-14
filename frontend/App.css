@@ -187,8 +187,9 @@ body,
 
 
 .navbar {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: 20px;
   align-items: center;
   padding: 0 24px;
   background: var(--brand-primary, #2e7d32);
@@ -269,6 +270,7 @@ body,
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .nav-left .brand {
@@ -279,6 +281,7 @@ body,
   display: flex;
   align-items: center;
   gap: 12px;
+  white-space: nowrap;
 }
 
 .brand-icon {
@@ -292,11 +295,11 @@ body,
    display: flex;
    gap: 12px;
    align-items: center;
-   position: absolute;
-   left: 50%;
-   transform: translateX(-50%);
+   justify-content: center;
+   min-width: 0;
    flex-wrap: nowrap;
    margin: 0;
+   padding: 0;
  }
 
  .nav-center a {
@@ -378,10 +381,6 @@ body,
    color: white;
  }
 
- .nav-language .language-dropdown-mobile .lang-dropdown-btn:hover {
-   background: rgba(255, 255, 255, 0.2);
- }
-
  /* Mobile styles for language in nav */
  @media (max-width: 768px) {
    .nav-language {
@@ -408,19 +407,17 @@ body,
      justify-content: space-between;
    }
  }
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
-}
 
 .nav-center {
   list-style: none;
   display: flex;
   gap: 12px;
   align-items: center;
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
+  justify-content: center;
+  min-width: 0;
   flex-wrap: nowrap;
   margin: 0;
+  padding: 0;
 }
 
 .nav-center a {
@@ -544,14 +541,17 @@ body,
 .nav-right {
   display: flex;
   align-items: center;
-  gap: 15px;
+  gap: 10px;
   flex: 0 0 auto;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .nav-user {
   display: flex;
   align-items: center;
-  gap: 15px;
+  gap: 10px;
+  min-width: 0;
 }
 
 .user-profile {
@@ -691,6 +691,7 @@ body,
   }
 
   .navbar {
+    display: flex;
     padding: 15px 20px;
     padding-top: calc(15px + constant(safe-area-inset-top));
     padding-top: calc(15px + env(safe-area-inset-top));
@@ -1099,6 +1100,7 @@ html body {
   border: 1px solid #e5e7eb;
   z-index: 1000;
   overflow: hidden;
+  white-space: nowrap;
   animation: slideIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -1225,6 +1227,7 @@ html body {
 
 /* Language Dropdown - Modern UI */
 .lang-dropdown {
+  width: 100%;
   position: relative;
   display: inline-block;
 }
@@ -1260,13 +1263,11 @@ html body {
 .lang-dropdown-panel {
   position: absolute;
   top: calc(100% + 12px);
-  right: 0;
   z-index: 9999;
   background: #ffffff;
   border: 1px solid #e5e7eb;
   border-radius: 16px;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
-  min-width: 280px;
   max-height: 320px;
   overflow: hidden;
   display: flex;
@@ -1792,7 +1793,6 @@ html body {
   font-weight: 600;
   font-size: 0.9rem;
   transition: all 0.2s ease;
-  margin-left: 8px;
 }
 
 .more-menu-toggle:hover {
@@ -2022,19 +2022,71 @@ html body {
 
 @media (max-width: 1100px) {
   .nav-center {
-    gap: 8px;
-    margin: 0 10px;
+    gap: 6px;
+    margin: 0;
   }
 
   .nav-center a {
     padding: 6px 8px;
     font-size: 0.85rem;
   }
+
+  .nav-right {
+    gap: 8px;
+  }
+
+  .more-menu-toggle,
+  .profile-main,
+  .btn-get-started {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
 }
 
 @media (max-width: 900px) {
+  .navbar {
+    display: flex;
+    flex-wrap: wrap;
+    overflow: visible;
+    height: auto;
+    min-height: 70px;
+  }
+
+  .nav-left {
+    flex: 1;
+  }
+
   .nav-center {
     display: none;
+    flex-direction: column;
+    gap: 15px;
+    width: 100%;
+    position: static;
+    left: auto;
+    transform: none;
+    background: var(--brand-primary);
+    padding: 15px 0 5px;
+  }
+
+  .nav-center.active {
+    display: flex;
+    animation: slideDown 0.3s ease-in-out;
+  }
+
+  .nav-right {
+    display: none;
+    flex-direction: column;
+    gap: 15px;
+    width: 100%;
+    text-align: center;
+    background: var(--brand-primary);
+    padding: 15px 0 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    align-items: center;
+  }
+
+  .nav-center.active+.nav-right {
+    display: flex;
   }
 
   .more-menu-toggle {
@@ -2334,4 +2386,12 @@ body {
 
 .skiptranslate iframe {
   display: none !important;
+}
+
+.backend-banner {
+  background: #ffe5e5;
+  color: #b00020;
+  padding: 10px;
+  text-align: center;
+  font-weight: bold;
 }
