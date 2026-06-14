@@ -20,24 +20,33 @@ CROP_QUALITY_PARAMS = {
         "color_ranges": {"red": (120, 180), "green": (40, 80), "blue": (30, 70)},
         "size_range": (40, 150),  # mm
         "shape_uniformity_threshold": 0.75,
+        # Aspect ratio = minor/major axis (0=line, 1=perfect circle).
+        # Tomatoes are near-spherical so the ratio stays close to 1.
+        "aspect_ratio_range": (0.80, 1.00),
         "defect_threshold": 10,  # percentage
     },
     "potato": {
         "color_ranges": {"red": (100, 140), "green": (90, 130), "blue": (70, 110)},
         "size_range": (50, 200),
         "shape_uniformity_threshold": 0.70,
+        # Potatoes are mildly oblong; accept a wider range toward elongation.
+        "aspect_ratio_range": (0.55, 1.00),
         "defect_threshold": 15,
     },
     "grain": {
         "color_ranges": {"red": (150, 200), "green": (130, 180), "blue": (80, 130)},
         "size_range": (5, 15),
         "shape_uniformity_threshold": 0.80,
+        # Grains (rice, wheat) are distinctly elongated kernels.
+        "aspect_ratio_range": (0.25, 0.65),
         "defect_threshold": 8,
     },
     "fruit": {
         "color_ranges": {"red": (140, 220), "green": (50, 150), "blue": (30, 100)},
         "size_range": (50, 200),
         "shape_uniformity_threshold": 0.78,
+        # General fruit (apple, mango) range from round to slightly oblong.
+        "aspect_ratio_range": (0.65, 1.00),
         "defect_threshold": 12,
     },
 }
@@ -296,10 +305,33 @@ class CropQualityGrader:
         return float(min(100.0, np.mean(channel_scores)))
 
     def _assess_shape(self, image: np.ndarray, params: Dict) -> float:
-        """Assess shape uniformity"""
+        """Assess shape quality against the crop-specific expected aspect ratio range.
+
+        Rather than applying a universal circularity metric (which penalises
+        naturally elongated crops such as grains or oblong potatoes), this method
+        measures the minor/major axis ratio of each detected contour via
+        ``cv2.fitEllipse`` and scores how well it falls within the
+        ``aspect_ratio_range`` configured in ``CROP_QUALITY_PARAMS``.
+
+        Ratio convention: ``minor_axis / major_axis`` ∈ (0, 1].
+        A ratio of 1 means a perfect circle; values approaching 0 indicate
+        high elongation.  Each contour whose ratio lies within ``[low, high]``
+        scores 100; contours outside the range are penalised proportionally
+        to their deviation scaled by the range width.  The final score is the
+        mean across all valid contours.
+        """
         if not isinstance(image, np.ndarray):
             return 50.0
-        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+
+        aspect_ratio_range = params.get("aspect_ratio_range")
+        if not aspect_ratio_range:
+            # No range configured — fall back to neutral score
+            return 50.0
+
+        low, high = aspect_ratio_range
+        range_width = max(high - low, 0.01)  # guard against zero-width ranges
+
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         contours, _ = cv2.findContours(
             cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)[1],
             cv2.RETR_EXTERNAL,
@@ -309,23 +341,35 @@ class CropQualityGrader:
         if not contours:
             return 50.0
 
-        # Calculate circularity for each contour
-        circularities = []
+        contour_scores: List[float] = []
         for contour in contours:
-            if len(contour) > 5:
-                area = cv2.contourArea(contour)
-                perimeter = cv2.arcLength(contour, True)
-                if perimeter > 0:
-                    circularity = (4 * np.pi * area) / (perimeter ** 2)
-                    circularities.append(min(1.0, circularity))
+            # fitEllipse requires at least 5 points
+            if len(contour) < 5:
+                continue
+            try:
+                _, (minor_axis, major_axis), _ = cv2.fitEllipse(contour)
+            except cv2.error:
+                continue
+            if major_axis <= 0:
+                continue
 
-        if not circularities:
+            ratio = min(minor_axis, major_axis) / max(minor_axis, major_axis)
+
+            if low <= ratio <= high:
+                score = 100.0
+            elif ratio < low:
+                deviation = low - ratio
+                score = max(0.0, 100.0 - (deviation / range_width) * 100.0)
+            else:  # ratio > high
+                deviation = ratio - high
+                score = max(0.0, 100.0 - (deviation / range_width) * 100.0)
+
+            contour_scores.append(score)
+
+        if not contour_scores:
             return 50.0
 
-        avg_circularity = np.mean(circularities)
-        shape_quality = avg_circularity * 100
-
-        return min(100, shape_quality)
+        return float(min(100.0, np.mean(contour_scores)))
 
     def _detect_defects(self, image: np.ndarray, params: Dict) -> float:
         """Detect defects relative to crop surface area (zoom-invariant)."""
