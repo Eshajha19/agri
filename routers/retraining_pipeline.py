@@ -5,13 +5,13 @@ FastAPI router for triggering, monitoring, and inspecting model retraining runs.
 
 Endpoints
 ---------
-POST /api/retraining/trigger   — queue a retraining Celery task
-GET  /api/retraining/status    — pipeline health + optional task poll
-GET  /api/retraining/history   — last N run records from retraining_history.json
+POST /api/retraining/trigger   — queue a retraining Celery task   [admin only]
+GET  /api/retraining/status    — pipeline health + optional task poll [admin only]
+GET  /api/retraining/history   — last N run records from retraining_history.json [admin only]
 """
 
-from fastapi import APIRouter, HTTPException
-from typing import Optional
+from fastapi import APIRouter, HTTPException, Request
+from typing import Optional, Callable, Coroutine, Any
 import logging
 import os
 import json
@@ -19,13 +19,50 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/retraining", tags=["retraining"])
+# ── Auth injection ────────────────────────────────────────────────────────────
+logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Auth injection — set at startup by main.py via init_auth()
+# Mirrors the pattern in feature_drift.py
+# ---------------------------------------------------------------------------
+_verify_role_fn: Optional[Callable[..., Coroutine[Any, Any, dict]]] = None
+
+
+def init_auth(verify_role_fn: Callable[..., Coroutine[Any, Any, dict]]) -> None:
+    """
+    Inject the application-level verify_role dependency.
+    ...
+    """
+    global _verify_role_fn
+    _verify_role_fn = verify_role_fn
+    logger.info("Retraining pipeline router: auth initialised")
+
+
+async def _require_admin(request: Request) -> dict:
+    """
+    Shared dependency — enforces admin-only access on every route in this router.
+    ...
+    """
+    if _verify_role_fn is None:
+        raise HTTPException(status_code=503, detail="Authorization service not initialised")
+    return await _verify_role_fn(request, required_roles=["admin"])
+
+
+router = APIRouter(prefix="/api/retraining", tags=["retraining"])
+# ---------------------------------------------------------------------------
+# Auth injection — set at startup by main.py via init_auth()
+# Mirrors the pattern in feature_drift.py
+# ---------------------------------------------------------------------------
+_verify_role_fn: Optional[Callable[..., Coroutine[Any, Any, dict]]] = None
+# ---------------------------------------------------------------------------
 # Path constants — relative to process working directory (repo root)
+# ---------------------------------------------------------------------------
 _HISTORY_PATH = Path("retraining_history.json")
 _DRIFT_LOG_PATH = Path("drift_logs/drift.log")
 _BASELINE_PATH = Path("feature_baseline.json")
 _MODEL_PATH = Path("yield_model.joblib")
+_AUDIT_PATH = Path("retraining_audit.json")
 
 # Drift alert count in last 50 predictions that triggers auto-retraining
 _DRIFT_ALERT_TRIGGER_COUNT = 5
@@ -38,6 +75,30 @@ def _read_history() -> dict:
         return json.loads(_HISTORY_PATH.read_text(encoding="utf-8"))
     except Exception:
         return {"runs": []}
+    
+def _append_audit_record(record: dict) -> None:
+    try:
+        if _AUDIT_PATH.exists():
+            data = json.loads(
+                _AUDIT_PATH.read_text(encoding="utf-8")
+            )
+        else:
+            data = {"records": []}
+
+        data["records"].append(record)
+
+        _AUDIT_PATH.write_text(
+            json.dumps(data, indent=2),
+            encoding="utf-8",
+        )
+
+    except Exception as exc:
+        logger.warning(
+            "Failed to write audit record: %s",
+            exc,
+        )
+
+
 
 
 def _drift_threshold_breached() -> tuple:
@@ -76,8 +137,9 @@ async def trigger_retraining(
     csv_path: str = "Train.csv",
     force: bool = False,
 ):
+    await _require_admin(request)
     """
-    Queue a model retraining job via Celery.
+    Queue a model retraining job via Celery.  Admin only.
 
     Parameters
     ----------
@@ -106,6 +168,16 @@ async def trigger_retraining(
                 }
 
         from celery_worker import retrain_yield_model_task
+
+        workflow_id = str(uuid.uuid4())
+
+        _append_audit_record({
+            "workflow_id": workflow_id,
+            "csv_path": csv_path,
+            "triggered_at": datetime.utcnow().isoformat(),
+            "event": "retraining_triggered",
+        })
+
         task = retrain_yield_model_task.delay(
             csv_path=csv_path,
             model_output="yield_model.joblib",
@@ -120,6 +192,7 @@ async def trigger_retraining(
             "success": True,
             "triggered": True,
             "task_id": task.id,
+            "workflow_id": workflow_id,
             "message": "Retraining task queued. Poll GET /api/retraining/status?task_id= for progress.",
         }
 
@@ -131,9 +204,11 @@ async def trigger_retraining(
 
 
 @router.get("/status")
-async def get_retraining_status(task_id: Optional[str] = None):
+async def get_retraining_status(request: Request, task_id: Optional[str] = None):
+    await _require_admin(request)
     """
     Returns pipeline health and optionally the live state of a Celery task.
+    Admin only.
 
     Without task_id: returns overall pipeline health (baseline/model presence,
     drift breach status, last run summary).
@@ -158,6 +233,16 @@ async def get_retraining_status(task_id: Optional[str] = None):
             "last_run": last_run,
         }
 
+        anomalies = []
+
+        if breached:
+            anomalies.append("drift_threshold_breached")
+        if not _MODEL_PATH.exists():
+            anomalies.append("missing_model")
+
+        if not _BASELINE_PATH.exists():
+            anomalies.append("missing_baseline")
+
         if task_id:
             from celery_worker import celery_app
             result = celery_app.AsyncResult(task_id)
@@ -167,17 +252,20 @@ async def get_retraining_status(task_id: Optional[str] = None):
                 result.info if isinstance(result.info, dict) else {}
             )
 
-        return {"success": True, "pipeline": pipeline}
+        return {"success": True, "pipeline": pipeline, "integrity_anomalies": anomalies,}
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Failed to get retraining status: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/history")
-async def get_retraining_history(limit: int = 20):
+async def get_retraining_history(request: Request, limit: int = 20):
+    await _require_admin(request)
     """
-    Return the last N retraining run records, most recent first.
+    Return the last N retraining run records, most recent first.  Admin only.
 
     Each record contains:
       triggered_at, completed_at, rmse, previous_rmse,
@@ -195,9 +283,17 @@ async def get_retraining_history(limit: int = 20):
         rejected = sum(1 for r in runs if r.get("outcome") == "rejected")
         failed   = sum(1 for r in runs if r.get("outcome") == "failed")
 
+        consistency_report = {
+            "workflow_count": len(runs),
+            "promoted": promoted,
+            "rejected": rejected,
+            "failed": failed,
+        }
+
         return {
             "success": True,
             "total": len(runs),
+            "consistency_report": consistency_report,
             "summary": {
                 "promoted": promoted,
                 "rejected": rejected,

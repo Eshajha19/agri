@@ -358,6 +358,19 @@ async def generate_benchmark_report(request: Request, data: ReportRequest):
         with open(pdf_path, "wb") as f:
             f.write(pdf_bytes)
 
+        # Save ownership metadata
+        metadata_path = Path("regional_reports") / f"{report['report_id']}.meta.json"
+
+        with open(metadata_path, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "owner_uid": farmer_uid,
+                    "report_id": report["report_id"],
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                },
+                f,
+            )
+
         return {
             "success": True,
             "report_id": report["report_id"],
@@ -373,11 +386,38 @@ async def generate_benchmark_report(request: Request, data: ReportRequest):
 
 
 @router.get("/report/{report_id}")
-async def download_report(report_id: str):
+async def download_report(request: Request, report_id: str):
     """
     Download previously generated benchmark report.
     """
     try:
+        if not _VERIFY_ROLE_FN:
+            raise HTTPException(
+                status_code=500,
+                detail="Authentication service unavailable"
+            )
+
+        token_data = await _VERIFY_ROLE_FN(request)
+        uid = token_data["uid"]
+
+        metadata_path = Path("regional_reports") / f"{report_id}.meta.json"
+
+        if not metadata_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail="Report metadata not found"
+            )
+
+        with open(metadata_path, "r", encoding="utf-8") as f:
+            metadata = json.load(f)
+
+        owner_uid = metadata.get("owner_uid")
+
+        if owner_uid != uid:
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to access this report"
+            )
         pdf_path = Path("regional_reports") / f"{report_id}.pdf"
         if not pdf_path.exists():
             # Try JSON fallback
