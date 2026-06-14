@@ -3,7 +3,8 @@ Centralized Content Security Policy configuration.
 
 Policies are generated per-environment.  Firebase Authentication and
 Google Sign-In domains are included in both environments so OAuth
-popups, redirects, and API calls are never blocked.
+popups, redirects, and API calls are never blocked.  Google Translate
+script and frame sources are centralized here for the SPA and API.
 """
 
 import os
@@ -25,19 +26,34 @@ FIREBASE_AUTH_CONNECT_DOMAINS = [
     "https://*.googleapis.com",
 ]
 
+# Google Translate widget loads scripts from translate.google.com and
+# translate.googleapis.com (*.google.com does not cover googleapis.com).
+GOOGLE_TRANSLATE_SCRIPT_DOMAINS = [
+    "https://translate.google.com",
+    "https://translate.googleapis.com",
+]
+
+GOOGLE_TRANSLATE_FRAME_DOMAINS = [
+    "https://translate.google.com",
+]
+
 
 def is_production() -> bool:
     return os.getenv("ENV", "").strip().lower() in ("production", "prod")
 
 
 def _directives(env: str) -> dict:
-    frame_src = "'self' " + " ".join(FIREBASE_AUTH_FRAME_DOMAINS)
+    translate_scripts = " ".join(GOOGLE_TRANSLATE_SCRIPT_DOMAINS)
+    frame_src = (
+        "'self' "
+        + " ".join(FIREBASE_AUTH_FRAME_DOMAINS + GOOGLE_TRANSLATE_FRAME_DOMAINS)
+    )
     connect_src = "'self' " + " ".join(FIREBASE_AUTH_CONNECT_DOMAINS)
 
     policies = {
         "production": {
             "default-src": "'self'",
-            "script-src": "'self' https://apis.google.com",
+            "script-src": f"'self' https://apis.google.com {translate_scripts}",
             "style-src": "'self' 'unsafe-inline'",
             "img-src": "'self' data: https:",
             "font-src": "'self' https://fonts.gstatic.com",
@@ -50,7 +66,10 @@ def _directives(env: str) -> dict:
         },
         "development": {
             "default-src": "'self'",
-            "script-src": "'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com",
+            "script-src": (
+                f"'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com "
+                f"{translate_scripts}"
+            ),
             "style-src": "'self' 'unsafe-inline'",
             "img-src": "'self' data: https:",
             "font-src": "'self' https://fonts.gstatic.com",
@@ -69,6 +88,25 @@ def build_csp_policy() -> str:
     env = "production" if is_production() else "development"
     dirs = _directives(env)
     return "; ".join(f"{k} {v}" for k, v in dirs.items())
+
+
+def build_spa_csp_policy() -> str:
+    """CSP for the SPA (frontend index.html meta tag and API middleware)."""
+    translate_scripts = " ".join(GOOGLE_TRANSLATE_SCRIPT_DOMAINS)
+    translate_frames = " ".join(GOOGLE_TRANSLATE_FRAME_DOMAINS)
+    return (
+        "default-src 'self'; "
+        f"script-src 'self' {translate_scripts} https://*.google.com "
+        "'unsafe-inline' 'unsafe-eval'; "
+        "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data: https:; "
+        "connect-src 'self' https://*.firebaseio.com https://*.googleapis.com wss:; "
+        f"frame-src {translate_frames}; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'self';"
+    )
 
 
 REQUIRED_DIRECTIVES = {
