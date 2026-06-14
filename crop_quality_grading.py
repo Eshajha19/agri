@@ -170,25 +170,52 @@ class CropQualityGrader:
         return float(min(100, uniformity))
 
     def _assess_color(self, image: np.ndarray, params: Dict) -> float:
-        """Assess color quality"""
+        """Assess color quality against configured crop color range constraints.
+
+        Computes per-channel (B, G, R) mean values and scores each channel by
+        how well it falls within the configured ``color_ranges``.  Channels
+        within the acceptable range score 100; channels outside are penalized
+        proportionally to their deviation from the nearest range boundary,
+        scaled by the width of the allowed range.  The final score is the mean
+        across all three channels so that crops with any out-of-range channel
+        (e.g. rotten discoloration) receive a meaningfully lower grade.
+        """
         if not isinstance(image, np.ndarray):
             return 50.0
-        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        color_quality_score = 0.0
 
-        # Check dominant color in expected range
-        h, s, v = cv2.split(hsv)
-        avg_h = np.mean(h)
-        avg_s = np.mean(s)
-        avg_v = np.mean(v)
+        color_ranges = params.get("color_ranges", {})
+        if not color_ranges:
+            # Fallback: no ranges configured — use neutral mid-score
+            return 50.0
 
-        # Saturation and value scores
-        saturation_score = min(100, (avg_s / 255) * 120)
-        brightness_score = min(100, (avg_v / 255) * 110)
+        # BGR channel order as returned by OpenCV
+        channel_keys = ["blue", "green", "red"]
+        b, g, r = cv2.split(image)
+        channel_means = {"blue": float(np.mean(b)), "green": float(np.mean(g)), "red": float(np.mean(r))}
 
-        color_quality_score = (saturation_score * 0.6 + brightness_score * 0.4)
+        channel_scores: List[float] = []
+        for key in channel_keys:
+            if key not in color_ranges:
+                continue
+            low, high = color_ranges[key]
+            mean_val = channel_means[key]
+            range_width = max(high - low, 1)  # guard against zero-width ranges
 
-        return float(min(100, color_quality_score))
+            if low <= mean_val <= high:
+                score = 100.0
+            elif mean_val < low:
+                deviation = low - mean_val
+                score = max(0.0, 100.0 - (deviation / range_width) * 100.0)
+            else:  # mean_val > high
+                deviation = mean_val - high
+                score = max(0.0, 100.0 - (deviation / range_width) * 100.0)
+
+            channel_scores.append(score)
+
+        if not channel_scores:
+            return 50.0
+
+        return float(min(100.0, np.mean(channel_scores)))
 
     def _assess_shape(self, image: np.ndarray, params: Dict) -> float:
         """Assess shape uniformity"""
