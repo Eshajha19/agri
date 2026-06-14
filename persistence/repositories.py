@@ -3,19 +3,12 @@ Repository interfaces and implementations for persistent storage.
 Uses Firestore as the backing store for all domain entities.
 """
 
-import os
 import logging
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta, timezone
 from abc import ABC, abstractmethod
 
-try:
-    import firebase_admin
-    from firebase_admin import firestore, credentials
-except ImportError:
-    firebase_admin = None
-    firestore = None
-
+from .connections import get_firestore_client, firestore_manager
 from .models import (
     FinanceApplicationModel,
     NotificationModel,
@@ -31,37 +24,11 @@ class BaseRepository(ABC):
 
     def __init__(self, collection_name: str):
         self.collection_name = collection_name
-        self.db = self._get_firestore_client()
+        self.db = get_firestore_client()
 
-    @staticmethod
-    def _get_firestore_client():
-        """Get Firestore client singleton; initialize if needed."""
-        if firestore is None:
-            logger.warning("Firebase Admin SDK not available; running in mock mode.")
-            return None
-
-        try:
-            if not firebase_admin._apps:
-                if os.path.exists("firebase-credentials.json"):
-                    cred = credentials.Certificate("firebase-credentials.json")
-                    firebase_admin.initialize_app(cred)
-                else:
-                    cred_json = os.getenv("FIREBASE_CREDENTIALS_JSON")
-                    if cred_json:
-                        import json
-
-                        cred_dict = json.loads(cred_json)
-                        cred = credentials.Certificate(cred_dict)
-                        firebase_admin.initialize_app(cred)
-                    else:
-                        logger.warning(
-                            "Firebase credentials not found; Firestore operations will fail."
-                        )
-                        return None
-            return firestore.client()
-        except Exception as exc:
-            logger.error("Failed to initialize Firestore client: %s", exc)
-            return None
+    def refresh_client(self) -> None:
+        """Refresh the Firestore client (useful after re-initialization)."""
+        self.db = get_firestore_client()
 
     @abstractmethod
     def create(self, entity: Any) -> Dict[str, Any]:
@@ -123,7 +90,7 @@ class FinanceApplicationRepository(BaseRepository):
             raise
         except Exception as exc:
             logger.error("Failed to create finance application: %s", exc)
-            return application_data
+            raise
 
     def get(self, application_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve a finance application by ID."""
@@ -341,7 +308,7 @@ class SupplyChainRepository(BaseRepository):
             return record_data
         except Exception as exc:
             logger.error("Failed to create supply chain record: %s", exc)
-            return record_data
+            raise
 
     def get(self, batch_id: str, node_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve a supply chain record by batch and node IDs."""
