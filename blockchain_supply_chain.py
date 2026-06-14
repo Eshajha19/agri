@@ -20,82 +20,8 @@ import base64
 import secrets
 
 
-@dataclass
-class BlockchainRecord:
-    """Record stored in blockchain"""
-    timestamp: str
-    actor: str
-    action: str
-    location: str
-    data: Dict
-    previous_hash: str = ""
-
-    def to_dict(self) -> Dict:
-        """Serialize record to dict (previous_hash excluded — matches calculate_hash input)"""
-        return {
-            "timestamp": self.timestamp,
-            "actor": self.actor,
-            "action": self.action,
-            "location": self.location,
-            "data": self.data,
-            "previous_hash": self.previous_hash,
-        }
-
-    def serialize(self) -> Dict:
-        """Serialize record for persistence (includes hash)"""
-        result = self.to_dict()
-        result["hash"] = self.hash
-        return result
-
-    def _canonical_json(self, payload: Dict) -> str:
-        """Deterministic JSON serialization for hashing."""
-        return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
-
-    def calculate_hash(self) -> str:
-        """Calculate SHA256 hash of record (excludes hash and previous_hash fields)"""
-        record_string = self._canonical_json(self.to_dict())
-        return hashlib.sha256(record_string.encode("utf-8")).hexdigest()
-        """Calculate SHA256 hash of record (excludes previous_hash field)"""
-        record_string = json.dumps(self.to_dict(), sort_keys=True)
-        return hashlib.sha256(record_string.encode()).hexdigest()
-
-    @staticmethod
-    def from_dict(data: Dict) -> 'BlockchainRecord':
-        """Reconstruct record from dict, compute hash, and verify integrity"""
-        record = BlockchainRecord(
-            timestamp=data["timestamp"],
-            actor=data["actor"],
-            action=data["action"],
-            location=data["location"],
-            data=data.get("data", {}),
-            previous_hash=data.get("previous_hash", ""),
-        )
-        if "previous_hash" in data:
-            record.previous_hash = data["previous_hash"]
-        return record
-
-
-@dataclass
-class ProductBatch:
-    """Agricultural product batch"""
-    batch_id: str
-    crop_type: str
-    farm_id: str
-    quantity: float
-    unit: str  # kg, tons, etc
-    planting_date: str
-    harvesting_date: str
-    farmer_name: str
-    owner_uid: str = ""
-    certifications: List[str] = field(default_factory=list)
-    quality_score: float = 0.0
-    created_at: str = ""
-    blockchain_records: List[Dict] = field(default_factory=list)
-
-    def __post_init__(self):
-        if not self.created_at:
-            self.created_at = datetime.now(timezone.utc).isoformat()
-
+from blockchain_record import BlockchainRecord
+from product_batch import ProductBatch
 
 @dataclass
 class SupplyChainNode:
@@ -248,6 +174,8 @@ class SupplyChainBlockchain:
         planting_date: str,
         harvesting_date: str,
         farmer_name: str,
+        owner_uid: str = "",
+        harvest_id: str = "",
         idempotency_key: Optional[str] = None,
         owner_uid: str = "",
         harvest_id: str = "",
@@ -321,7 +249,17 @@ class SupplyChainBlockchain:
             self._record_transaction_id(transaction_id)
 
             return batch
-        
+
+record = self._link_record(
+    BlockchainRecord(
+        timestamp=datetime.now().isoformat(),
+        actor=farmer_name,
+        action="created_batch",
+        location=farm_id,
+        data=asdict(batch),
+    )
+)
+record.previous_hash = record.calculate_hash()
 
         except Exception as e:
             import logging
