@@ -2,21 +2,63 @@
 import os
 import asyncio
 import logging
-import math
-import collections
-import threading
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
-
-from fastapi import FastAPI, HTTPException, Request, Form, Query, WebSocket, WebSocketDisconnect
+import time
+import httpx
+from collections import deque
+from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
 
 from backend.utils.safe_log import sanitize_log_field
+from backend.realtime_notifications import notification_broker
+from ml.registry import ModelRegistry
+from ml.governance import DriftDetector, ModelVersionManager, ShadowEvaluator
+from persistence.repositories import (
+    FinanceApplicationRepository,
+    NotificationRepository,
+    SupplyChainRepository,
+)
 
-# Expose sanitizer globally so routers can use it
+from fastapi import Request
+from starlette.responses import JSONResponse
+
+from routes import emergency_report
+
+app.include_router(emergency_report.router)
+
+@app.middleware("http")
+async def handle_missing_static(request: Request, call_next):
+    response = await call_next(request)
+    if response.status_code == 404 and request.url.path.startswith("/static/"):
+        logger.warning("Missing static asset: %s", request.url.path)
+        return JSONResponse(
+            {"error": "Static asset not found", "path": request.url.path},
+            status_code=404
+        )
+    return response
+
+# Expose sanitizer globally
 sanitise_log_field_fn = sanitize_log_field
+
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get("http://127.0.0.1:8000/health")
+            if resp.status_code == 200:
+                logger.info("✅ Backend health check passed: %s", resp.json())
+            else:
+                logger.error("❌ Backend health check failed: %s", resp.status_code)
+    except Exception as exc:
+        logger.error("❌ Backend unavailable at startup: %s", exc)
+
+    yield
+
+    # Shutdown
+    logger.info("🛑 Shutting down FastAPI app")
 
 class CSPMiddleware:
     """Add Content-Security-Policy header to every response."""
@@ -38,6 +80,70 @@ class CSPMiddleware:
             await send(message)
 
         await self.app(scope, receive, send_with_csp)
+
+
+# Single FastAPI app instance
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Deterministic startup/shutdown with structured logging."""
+    startup_time = time.perf_counter()
+    logging.info("🚀 Starting FastAPI lifespan initialization")
+
+    # Initialize ML pipeline
+    await _run_lifespan_phase("ml_pipeline", "Initialize ML pipeline", init_ml_pipeline)
+
+    # Start notification broker
+    await _run_lifespan_phase("notification_broker", "Start notification broker", notification_broker.start)
+
+    # Domain engines
+    def _init_domain_engines():
+        drift_detector = DriftDetector(window_size=100, prediction_drift_threshold=0.2, input_drift_threshold=0.15)
+        shadow_evaluator = ShadowEvaluator(min_samples=50, error_improvement_threshold=0.05)
+        version_manager = ModelVersionManager(versions_dir="./model_versions")
+        return drift_detector, shadow_evaluator, version_manager
+
+    await _run_lifespan_phase("domain_engines", "Initialize domain engines", _init_domain_engines)
+
+    yield
+
+    logging.info("🛑 Shutting down lifespan")
+    await notification_broker.stop()
+
+
+app = FastAPI(lifespan=lifespan)
+
+# Health endpoint
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
+
+
+# Apply CORS with explicit frontend origins
+origins = [
+    "https://yourfrontend.com",
+    "https://staging.yourfrontend.com",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Apply CSP with explicit connect-src
+csp_policy = "default-src 'self'; connect-src 'self' wss://yourfrontend.com wss://staging.yourfrontend.com"
+app.add_middleware(CSPMiddleware, policy=csp_policy)
+
+csp_policy = (
+    "default-src 'self'; "
+    "script-src 'self' https://translate.googleapis.com https://translate.google.com; "
+    "style-src 'self' 'unsafe-inline' https://translate.googleapis.com; "
+    "frame-src 'self' https://translate.google.com;"
+)
+app.add_middleware(CSPMiddleware, policy=csp_policy)
+
 
 
 class SimulationRequest(BaseModel):
@@ -128,53 +234,37 @@ from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 
-from fastapi import FastAPI
 
-app = FastAPI()
+from contextlib import asynccontextmanager
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
 
-from fastapi import FastAPI
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    init_db()
+    init_ml_models()
+    init_celery()
+    yield
+    # Shutdown
+    close_db()
+    shutdown_celery()
 
-app = FastAPI()
+app = FastAPI(lifespan=lifespan)
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
 
-from fastapi import FastAPI
+def init_db():
+    global db_client
+    db_client = DatabaseClient(os.getenv("DB_URL"))
 
-app = FastAPI()
+def init_ml_models():
+    ModelRegistry.register("crop_quality", load_model("crop_quality.pkl"))
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
 
-from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
-
-from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
-
-from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
+"""
+All side-effectful initialization (DB, ML models, Celery, Firebase) occurs
+inside FastAPI lifespan() to ensure consistent startup across single-worker,
+multi-worker, and reload environments.
+"""
 
 # KMS Support
 try:
@@ -276,12 +366,12 @@ async def lifespan(app: FastAPI):
         "domain_engines", "Initialize domain engines", _init_domain_engines
     )
 
-   async def init_app_context():
+    async def init_app_context():
     # -----------------------
     # Repositories
     # -----------------------
-    def _init_repositories():
-        return AppContext(
+        def _init_repositories():
+            return AppContext(
             finance_repository=FinanceApplicationRepository(),
             notification_repository=NotificationRepository(),
             supply_chain_repository=SupplyChainRepository(),
@@ -294,7 +384,7 @@ async def lifespan(app: FastAPI):
         "repositories",
         "Initialize persistent repositories",
         _init_repositories
-    )
+    
     Multi-worker guarantee
     ----------------------
     When Uvicorn is started with ``--workers N``, each worker forks/spawns
@@ -302,6 +392,7 @@ async def lifespan(app: FastAPI):
     ``lifespan`` hook is invoked by FastAPI in every worker's event loop,
     ensuring ``ModelRegistry`` is populated in every process before the
     first request is served.
+    )
     """
     logger.info("Starting up: initializing services")
     init_ml_pipeline()

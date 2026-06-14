@@ -2335,3 +2335,16 @@ body {
 .skiptranslate iframe {
   display: none !important;
 }
+
+.emergency-report {
+  max-width: 500px;
+  margin: auto;
+  padding: 20px;
+}
+.emergency-report select,
+.emergency-report input,
+.emergency-report button {
+  display: block;
+  margin: 10px 0;
+  width: 100%;
+}
