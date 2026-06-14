@@ -123,6 +123,22 @@ class SupplyChainBlockchain:
         self.verified_actors: Dict[str, Dict] = {}
         self._trace_batches: Dict[str, Dict] = {}
         self._repository = repository
+        # Hydrate in-memory product store from persistent storage on startup
+        # so that batch operations remain available after a server restart.
+        if self._repository is not None:
+            try:
+                persisted = self._repository.load_all_batches()
+                for batch_id, batch_data in (persisted or {}).items():
+                    if isinstance(batch_data, ProductBatch):
+                        self.products[batch_id] = batch_data
+                        self.supply_chain_nodes.setdefault(batch_id, [])
+                    elif isinstance(batch_data, dict):
+                        self.products[batch_id] = ProductBatch(**batch_data)
+                        self.supply_chain_nodes.setdefault(batch_id, [])
+            except Exception:
+                # Repository unavailable at startup — proceed with empty state;
+                # individual operations will fail-fast if persistence is required.
+                pass
 
     # ------------- Utilities for atomicity -------------
     def _snapshot_state(self):
@@ -203,6 +219,10 @@ class SupplyChainBlockchain:
             self.supply_chain_nodes[batch_id] = []
             self.chain.append(record)
             batch.blockchain_records.append(record.to_dict())
+
+            # Persist immediately so the batch survives a server restart.
+            if self._repository is not None:
+                self._repository.save_batch(batch_id, asdict(batch))
 
             return batch
 
