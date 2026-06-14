@@ -19,8 +19,16 @@ from typing import Tuple
 from fastapi import HTTPException, Request
 from rbac_audit import audit_rbac_event
 
-from typing import Dict, Any, List
-import logging
+from enum import Enum
+
+class MessageType(str, Enum):
+    TEXT = "text"
+    IMAGE = "image"
+    AUDIO = "audio"
+    VIDEO = "video"
+    DOCUMENT = "document"
+    STICKER = "sticker"
+    BUTTON = "button"
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +53,12 @@ def normalize_whatsapp_payload(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     return messages
 
 
+
+# Supported WhatsApp message types
+SUPPORTED_WHATSAPP_TYPES = {"text", "image", "audio", "video", "document", "sticker"}
+
+# Configurable strict mode (default: warning mode)
+STRICT_MODE = os.getenv("WHATSAPP_STRICT_MODE", "false").lower() == "true"
 
 # Supported WhatsApp message types
 SUPPORTED_WHATSAPP_TYPES = {"text", "image", "audio", "video", "document", "sticker"}
@@ -181,6 +195,7 @@ async def handle_inbound_whatsapp_webhook(request: Request) -> dict:
             detail="Failed to process webhook",
         ) from None
 
+
 def normalize_whatsapp_payload(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     messages = []
     try:
@@ -189,6 +204,7 @@ def normalize_whatsapp_payload(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
                 value = change.get("value", {})
                 for msg in value.get("messages", []):
                     msg_type = msg.get("type")
+
                     if msg_type not in SUPPORTED_WHATSAPP_TYPES:
                         if STRICT_MODE:
                             raise HTTPException(
@@ -197,20 +213,37 @@ def normalize_whatsapp_payload(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
                             )
                         else:
                             logger.warning("Unknown WhatsApp message type: %s", msg_type)
-                            continue  # skip unknown types
+                            continue
+
+                    if msg_type == MessageType.TEXT.value:
+                        text = msg.get("text", {}).get("body")
+                        media_id = None
+                    elif msg_type in {
+                        MessageType.IMAGE.value,
+                        MessageType.AUDIO.value,
+                        MessageType.VIDEO.value,
+                        MessageType.DOCUMENT.value,
+                        MessageType.STICKER.value,
+                    }:
+                        text = None
+                        media_id = msg.get(msg_type, {}).get("id")
+                    else:
+                        text = None
+                        media_id = None
 
                     normalized = {
                         "from": msg.get("from"),
                         "id": msg.get("id"),
                         "timestamp": msg.get("timestamp"),
-                        "text": msg.get("text", {}).get("body") if msg_type == "text" else None,
-                        "media_id": msg.get(msg_type, {}).get("id") if msg_type in {"image","audio","video","document","sticker"} else None,
+                        "text": text,
+                        "media_id": media_id,
                         "type": msg_type,
                     }
                     messages.append(normalized)
     except Exception as exc:
         logger.exception("Failed to normalize WhatsApp payload: %s", exc)
     return messages
+
 
 
 def enqueue_whatsapp_webhook_processing(message_body: str, sender_number: str) -> None:
