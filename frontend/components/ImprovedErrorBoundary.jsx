@@ -114,6 +114,7 @@ class ImprovedErrorBoundary extends React.Component {
             {process.env.NODE_ENV !== 'production' && (
               <>
                 <button
+                  type="button"
                   className="error-details-toggle"
                   onClick={this.toggleDetails}
                 >
