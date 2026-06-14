@@ -339,19 +339,68 @@ def assign_user(user_id: str, experiment_id: str) -> Dict:
     return assignment
 
 
+from typing import Optional, Dict
+import copy
+
+VALID_STATUSES = {
+    "pending",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+}
+
+
 def update_experiment_status(exp_id: str, status: str) -> Optional[Dict]:
+    """
+    Update experiment status in cache and Firestore.
+
+    Args:
+        exp_id: Experiment identifier.
+        status: New experiment status.
+
+    Returns:
+        Updated experiment dictionary or None if not found.
+    """
+    if status not in VALID_STATUSES:
+        raise ValueError(
+            f"Invalid status '{status}'. "
+            f"Allowed values: {', '.join(sorted(VALID_STATUSES))}"
+        )
+
     _ensure_cache()
+
+    timestamp = _now_iso()
+
     with _exp_cache_lock:
-        if exp_id not in _exp_cache:
+        experiment = _exp_cache.get(exp_id)
+        if experiment is None:
+            logger.warning("Experiment not found: %s", exp_id)
             return None
-        _exp_cache[exp_id]["status"] = status
-        _exp_cache[exp_id]["updated_at"] = _now_iso()
+
+        experiment["status"] = status
+        experiment["updated_at"] = timestamp
+
+        updated_experiment = copy.deepcopy(experiment)
 
     if _FIRESTORE_AVAILABLE:
         try:
             _fs_client.collection(EXP_COLLECTION).document(exp_id).update(
-                {"status": status, "updated_at": _now_iso()}
+                {
+                    "status": status,
+                    "updated_at": timestamp,
+                }
+            )
+            logger.info(
+                "Updated experiment %s status to %s",
+                exp_id,
+                status,
             )
         except Exception as e:
-            logger.error("Failed to update experiment status: %s", e)
-    return _exp_cache[exp_id]
+            logger.exception(
+                "Failed to update Firestore status for experiment %s: %s",
+                exp_id,
+                e,
+            )
+
+    return updated_experiment
