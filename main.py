@@ -22,9 +22,24 @@ from persistence.repositories import (
 from fastapi import Request
 from starlette.responses import JSONResponse
 
+from routes import claim_timeline
+
+app.include_router(claim_timeline.router)
+
 from routes import emergency_report
 
 app.include_router(emergency_report.router)
+
+@app.middleware("http")
+async def handle_missing_static(request: Request, call_next):
+    response = await call_next(request)
+    if response.status_code == 404 and request.url.path.startswith("/static/"):
+        logger.warning("Missing static asset: %s", request.url.path)
+        return JSONResponse(
+            {"error": "Static asset not found", "path": request.url.path},
+            status_code=404
+        )
+    return response
 
 @app.middleware("http")
 async def handle_missing_static(request: Request, call_next):
