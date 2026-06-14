@@ -1141,6 +1141,7 @@ useEffect(() => {
             <Route path="/prediction-explainer" element={<PredictionExplainer />} />
             <Route path="/retraining-monitor" element={<RetrainingPipelineMonitor />} />
             <Route path="/insurance-claim" element={<CropInsuranceClaim />} />
+            <Route path="/claim-chatbot" element={<ClaimChatbot />} />
             <Route
               path="/myth-checker"
               element={
@@ -1164,6 +1165,11 @@ useEffect(() => {
       <Link to="/insurance-comparison" onClick={() => setShowMoreMenu(false)} role="menuitem">
         <FaShieldAlt /> Insurance Comparison
       </Link>
+
+      <Link to="/claim-chatbot" onClick={() => setShowMoreMenu(false)} role="menuitem">
+        <FaComments /> Claim Assistant
+      </Link>
+
 
 
       <a
