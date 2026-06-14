@@ -45,14 +45,25 @@ class VersionVector:
             self.vector[client_id] = max(self.vector.get(client_id, 0), version)
 
     def happened_before(self, other: 'VersionVector') -> bool:
+        """Check if this vector happened before another (strict)"""
+        if self.vector == other.vector:
+            return False
+
+        # An empty vector represents unknown state — treat as concurrent.
+        if not self.vector or not other.vector:
+            return False
+
         at_least_one_less = False
+
         for client_id in set(list(self.vector.keys()) + list(other.vector.keys())):
             self_ver = self.vector.get(client_id, 0)
             other_ver = other.vector.get(client_id, 0)
+
             if self_ver > other_ver:
                 return False
             if self_ver < other_ver:
                 at_least_one_less = True
+
         return at_least_one_less
 
     def concurrent_with(self, other: 'VersionVector') -> bool:
