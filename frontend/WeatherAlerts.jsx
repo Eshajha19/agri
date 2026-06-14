@@ -9,7 +9,7 @@ import {
   FaEye,
 } from "react-icons/fa";
 import { Info, AlertTriangle, AlertCircle, Siren, MapPin, RefreshCw, ClipboardList, Wheat, Lightbulb, CheckCircle, History } from "lucide-react";
-import apiClient from "./services/api";
+import { fetchWeatherByLocation, getCropWarnings, fetchWeatherByIP } from "./weatherService";
 import "./WeatherAlerts.css";
 
 /**
@@ -62,7 +62,7 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
     critical: <Siren size={16} aria-hidden="true" />,
   };
 
-  // Fetch weather alerts
+  // Fetch weather alerts directly via public weather APIs (no backend required)
   const fetchWeatherAlerts = useCallback(async () => {
     if (refreshInProgressRef.current) {
       return;
@@ -93,16 +93,17 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
     }
 
     try {
-      const { data } = await apiClient.post("/api/weather/alerts", {
+      const locationObj = {
         latitude,
         longitude,
-        location,
-        crop: crop || null,
-      });
+        name: location,
+        source: "manual",
+        city: location,
+        admin1: "",
+        country: "",
+      };
 
-      if (!data?.success) {
-        throw new Error("Failed to fetch weather alerts");
-      }
+      const snapshot = await fetchWeatherByLocation(locationObj);
 
       if (
         !mountedRef.current ||
@@ -115,16 +116,24 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
         mountedRef.current &&
         requestId === requestIdRef.current
       ) {
-        setWeather(data.weather);
-        setAlerts(data.alerts.alerts || []);
-        setLastUpdated(new Date());
+        setWeather({
+          temperature: snapshot.current?.temperature_2m,
+          humidity: snapshot.current?.relative_humidity_2m,
+          rainfall: snapshot.current?.rain || snapshot.current?.precipitation || 0,
+          wind_speed: snapshot.current?.wind_speed_10m,
+          cloud_cover: 0,
+          apparent_temperature: snapshot.current?.apparent_temperature,
+          weather_code: snapshot.current?.weather_code,
+          is_day: snapshot.current?.is_day,
+        });
+        const derivedAlerts = snapshot.alerts || [];
+        setAlerts(derivedAlerts);
+        setLastUpdated(new Date(snapshot.fetchedAt || Date.now()));
 
-        const criticalAlerts =
-          data.alerts.alerts.filter(
-            (a) =>
-              a.severity === "critical" ||
-              a.severity === "high"
-          );
+        const cropWarnings = getCropWarnings(derivedAlerts, crop);
+        const criticalAlerts = [...derivedAlerts, ...cropWarnings].filter(
+          (a) => a.severity === "critical" || a.severity === "high"
+        );
 
         criticalAlerts.forEach((alert) => {
           toast.warning(alert.title, {
@@ -161,38 +170,31 @@ const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
       }
   }, [latitude, longitude, location, crop]);
 
-  // Fetch alert history
+  // Fetch alert history from local cache (browser storage)
   const fetchAlertHistory = useCallback(async () => {
     const requestId = ++historyRequestIdRef.current;
 
     try {
-      const { data } = await apiClient.get("/api/weather/alerts/history");
-
-      if (
-        !mountedRef.current ||
-        requestId !== historyRequestIdRef.current
-      ) {
-        return;
-      }
-
-      if (
-        mountedRef.current &&
-        requestId === historyRequestIdRef.current
-      ) {
-        setAlertHistory(data.recent_alerts || []);
-      }
-    } catch (err) {
+      const snapshot = fetchWeatherByLocation({
+        latitude,
+        longitude,
+        name: location,
+        source: "manual",
+        city: location,
+        admin1: "",
+        country: "",
+      });
+    } catch {
+      setAlertHistory([]);
+    } finally {
       if (
         mountedRef.current &&
         requestId === historyRequestIdRef.current
       ) {
-        console.error(
-          "Failed to fetch alert history:",
-          err
-        );
+        setAlertHistory([]);
       }
     }
-  }, []);
+  }, [latitude, longitude, location]);
 
   // Initial fetch and auto-refresh
   useEffect(() => {
