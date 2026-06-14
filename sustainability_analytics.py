@@ -277,7 +277,7 @@ class SustainabilityAnalytics:
         ]
 
         record_id = str(uuid4())
-        created_at = datetime.now(timezone.utc).isoformat() + "Z"
+        created_at = datetime.now(timezone.utc).isoformat()
         user_id = data["user_id"] or "anonymous"
 
         result = {
