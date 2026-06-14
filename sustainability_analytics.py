@@ -2,7 +2,6 @@
 Crop sustainability analytics — LCA-style water footprint & carbon emission estimates.
 """
 from __future__ import annotations
-
 import logging
 import threading
 from dataclasses import dataclass, field
@@ -10,6 +9,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 import os
+
+logger = logging.getLogger(__name__)
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +100,7 @@ class SustainabilityAnalytics:
         self._history_lock = threading.Lock()   # FIX: initialize lock
 
         self._history: Dict[str, List[Dict[str, Any]]] = {}
-        self._local_file_lock = threading.Lock()
+        self._history_lock = threading.Lock()
         import sys
         self.is_testing = "pytest" in sys.modules or "unittest" in sys.modules
 
@@ -136,33 +137,39 @@ class SustainabilityAnalytics:
     def _load_local_history(self) -> Dict[str, List[Dict[str, Any]]]:
         import json
         import os
+        from filelock import FileLock
         path = self._get_local_file_path()
+        lock_path = path + ".lock"
         if os.path.exists(path):
             try:
-                with open(path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception as exc:
-                logger.warning("Failed to load sustainability history file: %s", exc)
+                with FileLock(lock_path, timeout=5):
+                    with open(path, "r", encoding="utf-8") as f:
+                        return json.load(f)
+            except Exception as e:
+                logger.error("Failed to read local history: %s", e)
         return {}
 
     def _save_local_history(self, history: Dict[str, List[Dict[str, Any]]]) -> None:
         import json
         import os
+        from filelock import FileLock
         path = self._get_local_file_path()
         tmp_path = path + ".tmp"
+        lock_path = path + ".lock"
         try:
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(history, f, indent=2, ensure_ascii=False)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_path, path)   # FIX: atomically rename tmp → real
-        except OSError as exc:
-            logger.warning("Failed to atomically write sustainability history to '%s': %s.", path, exc)
-        try:
+            with FileLock(lock_path, timeout=5):
+                with open(tmp_path, "w", encoding="utf-8") as f:
+                    json.dump(history, f, indent=2, ensure_ascii=False)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp_path, path)
+        except Exception as e:
+            logger.error("Failed to save local history atomically: %s", e)
             if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-        except OSError:
-            pass
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
 
         except Exception as exc:
             logger.error("Failed to save sustainability history file: %s", exc)
@@ -344,8 +351,8 @@ class SustainabilityAnalytics:
 
         local_hist = self._load_local_history()
         entries = local_hist.get(key, [])
-        self._touch_user(key)
-        self._history[key] = entries
+        with self._history_lock:
+            self._history[key] = entries
         return list(reversed(entries[-limit:]))
 
     def _append_history(self, user_id: str, result: Dict[str, Any]) -> None:
@@ -370,10 +377,11 @@ class SustainabilityAnalytics:
 
         # Save to memory cache
         with self._history_lock:
-            self._touch_user(user_id)
-            self._history[user_id].append(record)
-            if len(self._history[user_id]) > _MAX_HISTORY_PER_USER:
-                self._history[user_id].pop(0)
+            if key not in self._history:
+                self._history[key] = []
+            self._history[key].append(record)
+            if len(self._history[key]) > 50:
+                self._history[key] = self._history[key][-50:]
 
         # Save to Firestore primarilly
         db = self._get_db()
