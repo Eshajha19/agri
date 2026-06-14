@@ -79,7 +79,10 @@ def test_export_pdf_report(client: TestClient):
     files = [("images", ("test.jpg", io.BytesIO(b"dummy image content"), "image/jpeg"))]
 
     post_resp = client.post("/api/insurance/claim", data=data, files=files)
-    claim_id = post_resp.json()["claim"]["claim_id"]
+    assert post_resp.status_code == 200
+    post_data = post_resp.json()
+    assert post_data["success"] is True
+    claim_id = post_data["claim"]["claim_id"]
 
     # Export PDF
     pdf_resp = client.get(f"/api/insurance/claim/{claim_id}/export")
