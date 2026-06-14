@@ -841,6 +841,7 @@ useEffect(() => {
 
   return (
     <div className={`app ${theme !== "light" ? "theme-dark" : ""} ${theme === "night" ? "theme-night" : ""} ${liteMode ? "lite-mode" : ""}`}>
+      <SkipLink />
       {user?.isAnonymous && <GuestBanner />}
 
       {loading && <Loader fullPage={true} message={<span className="notranslate">Initializing Fasal Saathi...</span>} />}
