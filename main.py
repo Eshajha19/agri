@@ -207,66 +207,6 @@ async def whatsapp_webhook(request: Request):
         handle_inbound_message(msg)
     return {"status": "ok", "processed": len(normalized_messages)}
 
-@app.post("/api/whatsapp/webhook")
-async def whatsapp_webhook(request: Request):
-    payload = await request.json()
-    normalized_messages = normalize_whatsapp_payload(payload)
-
-    for msg in normalized_messages:
-        # process each message individually
-        handle_inbound_message(msg)
-    return {"status": "ok", "processed": len(normalized_messages)}
-
-@app.post("/api/whatsapp/webhook")
-async def whatsapp_webhook(request: Request):
-    payload = await request.json()
-    normalized_messages = normalize_whatsapp_payload(payload)
-
-    for msg in normalized_messages:
-        # process each message individually
-        handle_inbound_message(msg)
-    return {"status": "ok", "processed": len(normalized_messages)}
-
-@app.post("/api/whatsapp/webhook")
-async def whatsapp_webhook(request: Request):
-    payload = await request.json()
-    normalized_messages = normalize_whatsapp_payload(payload)
-
-    for msg in normalized_messages:
-        # process each message individually
-        handle_inbound_message(msg)
-    return {"status": "ok", "processed": len(normalized_messages)}
-
-@app.post("/api/whatsapp/webhook")
-async def whatsapp_webhook(request: Request):
-    payload = await request.json()
-    normalized_messages = normalize_whatsapp_payload(payload)
-
-    for msg in normalized_messages:
-        # process each message individually
-        handle_inbound_message(msg)
-    return {"status": "ok", "processed": len(normalized_messages)}
-
-@app.post("/api/whatsapp/webhook")
-async def whatsapp_webhook(request: Request):
-    payload = await request.json()
-    normalized_messages = normalize_whatsapp_payload(payload)
-
-    for msg in normalized_messages:
-        # process each message individually
-        handle_inbound_message(msg)
-    return {"status": "ok", "processed": len(normalized_messages)}
-
-@app.post("/api/whatsapp/webhook")
-async def whatsapp_webhook(request: Request):
-    payload = await request.json()
-    normalized_messages = normalize_whatsapp_payload(payload)
-
-    for msg in normalized_messages:
-        # process each message individually
-        handle_inbound_message(msg)
-    return {"status": "ok", "processed": len(normalized_messages)}
-
 # KMS Support
 try:
     from google.cloud import secretmanager
