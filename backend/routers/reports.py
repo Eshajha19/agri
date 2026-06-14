@@ -1,7 +1,7 @@
 """Reports & Logging Router"""
 import re
 from fastapi import APIRouter, Request, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, validator
 from typing import Optional
 import base64
@@ -10,16 +10,222 @@ import io
 import json
 import logging
 from datetime import datetime, timezone
+import time, uuid
+import threading
+from fastapi import APIRouter, HTTPException
 
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field, validator
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
 
+from backend.core.logging_config import setup_logging
+
+logger = setup_logging(__name__)
+
 router = APIRouter()
-logger = logging.getLogger(__name__)
+
+# Replay protection state
+used_nonces = {}
+
+SIGNATURE_TTL = 300  # 5 minutes
+MAX_NONCES = 10000
+
+cleanup_thread_started = False
+
+nonce_metrics = {
+    "active": 0,
+    "expired_removed": 0,
+    "evicted": 0,
+}
+
+replay_metrics = {
+    "accepted": 0,
+    "rejected": 0,
+    "duplicates": 0,
+    "expired": 0,
+}
+
+nonce_store_provider = None
+
+def cleanup_expired_nonces():
+    now = time.time()
+
+    expired = []
+
+    for nonce, meta in list(used_nonces.items()):
+        if now - meta["timestamp"] > SIGNATURE_TTL:
+            expired.append(nonce)
+
+    for nonce in expired:
+        del used_nonces[nonce]
+
+    replay_metrics["expired"] += len(expired)
+
+    if expired:
+        logger.info(
+            "reports.router.initialized "
+            "auth_provider=%s "
+            "key_provider=%s "
+            "sanitizer_enabled=%s "
+            "persistent_nonce_provider=%s",
+            getattr(vr_fn, "__name__", type(vr_fn).__name__),
+            getattr(gsk_fn, "__name__", type(gsk_fn).__name__),
+            slf_fn is not None,
+            nonce_provider is not None,
+        )
+
+    return len(expired)
+
+
+@router.post("/submit-report")
+def submit_report(payload: dict):
+
+    cleanup_expired_nonces()
+
+    nonce = payload.get("nonce")
+    timestamp = payload.get("timestamp")
+    signature = payload.get("signature")
+
+    if not nonce:
+
+        replay_metrics["rejected"] += 1
+
+        raise HTTPException(
+            status_code=400,
+            detail="Missing nonce",
+        )
+
+    if nonce in used_nonces:
+
+        replay_metrics["duplicates"] += 1
+        replay_metrics["rejected"] += 1
+
+        logger.warning(
+            "[REPLAY_BLOCKED] nonce=%s first_seen=%s",
+            nonce,
+            used_nonces[nonce]["timestamp"],
+        )
+
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid or replayed nonce",
+        )
+
+    now = int(time.time())
+
+    if not timestamp or abs(now - int(timestamp)) > SIGNATURE_TTL:
+
+        replay_metrics["rejected"] += 1
+
+        raise HTTPException(
+            status_code=400,
+            detail="Signature expired",
+        )
+
+    if not verify_signature(payload, signature):
+
+        replay_metrics["rejected"] += 1
+
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid signature",
+        )
+
+    entry = {
+        "timestamp": time.time(),
+        "request_id": str(uuid.uuid4()),
+        "status": "accepted",
+    }
+
+    used_nonces[nonce] = entry
+
+    if nonce_store_provider:
+        try:
+            nonce_store_provider.store_nonce(
+                nonce,
+                entry,
+            )
+        except Exception:
+            logger.exception(
+                "persistent_nonce_storage_failed"
+            )
+
+    replay_metrics["accepted"] += 1
+
+    logger.info(
+        "[REPLAY_ACCEPTED] nonce=%s request_id=%s",
+        nonce,
+        used_nonces[nonce]["request_id"],
+    )
+
+    return {
+        "status": "accepted"
+    }
+
+def cleanup_expired_nonces():
+    now = time.time()
+
+    with nonce_lock:
+        expired = [
+            nonce
+            for nonce, created_at in used_nonces.items()
+            if now - created_at > SIGNATURE_TTL
+        ]
+
+        for nonce in expired:
+            del used_nonces[nonce]
+
+        nonce_metrics["expired_removed"] += len(expired)
+        nonce_metrics["active"] = len(used_nonces)
+
+        return len(expired)
+
+
+def enforce_nonce_limit():
+    with nonce_lock:
+
+        if len(used_nonces) <= MAX_NONCES:
+            return
+
+        overflow = len(used_nonces) - MAX_NONCES
+
+        oldest = sorted(
+            used_nonces.items(),
+            key=lambda x: x[1]
+        )[:overflow]
+
+        for nonce, _ in oldest:
+            del used_nonces[nonce]
+
+        nonce_metrics["evicted"] += overflow
+        nonce_metrics["active"] = len(used_nonces)
+
+
+
+def nonce_cleanup_worker():
+    while True:
+        try:
+            removed = cleanup_expired_nonces()
+
+            if removed:
+                logger.info(
+                    "nonce_cleanup removed=%s active=%s",
+                    removed,
+                    len(used_nonces),
+                )
+
+        except Exception:
+            logger.exception("nonce cleanup failed")
+
+        time.sleep(60)
+
 
 # ---------------------------------------------------------------------------
 # Validation bounds — intentionally generous to accommodate large commercial
@@ -27,7 +233,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _PROFIT_MAX_INR = 50_000_000   # ₹5 crore per season
 _AREA_MAX_ACRES = 10_000       # 10,000 acres
-
+MAX_EXPORT_RECORDS = 5000      # Future safeguard for large dataset exports
 # Regex that matches a valid Indian-locale number string produced by the
 # frontend (e.g. "50,000" or "1,00,000") or a plain integer string.
 _NUMERIC_RE = re.compile(r"^[\d,]+(\.\d+)?$")
@@ -90,20 +296,149 @@ class ReportRequest(BaseModel):
 verify_role_fn = None
 get_signing_keys_fn = None
 sanitise_log_field_fn = None
-logger_instance = None
 
 
-def init_reports(vr_fn, gsk_fn, slf_fn, log_inst):
-    global verify_role_fn, get_signing_keys_fn, sanitise_log_field_fn, logger_instance
+from typing import Callable, Optional
+
+def init_reports(
+    vr_fn: Callable,
+    gsk_fn: Callable,
+    slf_fn: Optional[Callable] = None,
+    nonce_provider=None,
+) -> None:
+    """
+    Initialize report router dependencies.
+
+    Args:
+        vr_fn: Authentication/authorization verifier.
+        gsk_fn: Signing key provider.
+        slf_fn: Optional log field sanitization function.
+
+    Raises:
+        ValueError: If required dependencies are missing.
+    """
+    global verify_role_fn
+    global get_signing_keys_fn
+    global sanitise_log_field_fn
+    global nonce_store_provider
+
+    if vr_fn is None:
+        raise ValueError("verify_role_fn cannot be None")
+
+    if gsk_fn is None:
+        raise ValueError("get_signing_keys_fn cannot be None")
+
     verify_role_fn = vr_fn
     get_signing_keys_fn = gsk_fn
     sanitise_log_field_fn = slf_fn
-    logger_instance = log_inst
+    nonce_store_provider = nonce_provider
+    
+
+    if not cleanup_thread_started:
+        thread = threading.Thread(
+            target=nonce_cleanup_worker,
+            daemon=True,
+        )
+        thread.start()
+        cleanup_thread_started = True
+
+    logger.info(
+        "reports.router.initialized "
+        "auth_provider=%s "
+        "key_provider=%s "
+        "sanitizer_enabled=%s",
+        getattr(vr_fn, "__name__", type(vr_fn).__name__),
+        getattr(gsk_fn, "__name__", type(gsk_fn).__name__),
+        slf_fn is not None,
+    )
 
 
 # ---------------------------------------------------------------------------
 # PDF generation helpers
 # ---------------------------------------------------------------------------
+
+def _validate_report_integrity(
+    data: ReportRequest,
+    cert_id: str,
+    signature_hex: str,
+    pdf_bytes: bytes,
+):
+    validation = {
+        "valid": True,
+        "checks": [],
+        "warnings": [],
+    }
+
+    required_fields = {
+        "name": data.name,
+        "crop": data.crop,
+        "area": data.area,
+        "profit": data.profit,
+        "season": data.season,
+    }
+
+    missing_fields = [
+        field
+        for field, value in required_fields.items()
+        if not str(value).strip()
+    ]
+
+    if missing_fields:
+        validation["valid"] = False
+        validation["warnings"].append(
+            f"missing_fields:{','.join(missing_fields)}"
+        )
+
+    if not cert_id:
+        validation["valid"] = False
+        validation["warnings"].append(
+            "missing_certificate_id"
+        )
+
+    else:
+        validation["checks"].append(
+            "certificate_id_present"
+        )
+
+    if not signature_hex:
+        validation["valid"] = False
+        validation["warnings"].append(
+            "missing_signature"
+        )
+
+    else:
+        validation["checks"].append(
+            "signature_present"
+        )
+
+    if not pdf_bytes:
+        validation["valid"] = False
+        validation["warnings"].append(
+            "empty_pdf"
+        )
+
+    if pdf_bytes:
+        validation["checks"].append(
+            "pdf_generated"
+        )
+
+        if len(pdf_bytes) < 1000:
+            validation["valid"] = False
+            validation["warnings"].append(
+                "pdf_content_suspiciously_small"
+            )
+
+        if not pdf_bytes.startswith(b"%PDF"):
+            validation["valid"] = False
+            validation["warnings"].append(
+                "invalid_pdf_header"
+            )
+
+    validation["checks"].append(
+        "required_field_validation"
+    )
+
+    return validation
 
 def _build_pdf(data: ReportRequest, signature_hex: str, cert_id: str) -> bytes:
     """Render a bank-ready financial report as a PDF and return the raw bytes."""
@@ -227,6 +562,99 @@ def _make_cert_id(data: ReportRequest) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Verification
+# ---------------------------------------------------------------------------
+
+def verify_signed_report(
+    name: str,
+    crop: str,
+    area: str,
+    profit: str,
+    season: str,
+    cert_id: str,
+    signature_hex: str,
+    public_key_pem: Optional[str] = None,
+) -> dict:
+    canonical = json.dumps(
+        {
+            "cert_id": cert_id,
+            "name": name,
+            "crop": crop,
+            "area": area,
+            "profit": profit,
+            "season": season,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+    try:
+        signature = bytes.fromhex(signature_hex)
+    except ValueError:
+        return {"verified": False, "cert_id": cert_id, "error": "Invalid signature hex encoding"}
+
+    if public_key_pem:
+        try:
+            public_key = serialization.load_pem_public_key(public_key_pem.encode("utf-8"))
+        except Exception:
+            return {"verified": False, "cert_id": cert_id, "error": "Invalid public key PEM"}
+    else:
+        try:
+            from main import PUBLIC_KEY_PATH as _pk_path
+            with open(_pk_path, "rb") as f:
+                public_key = serialization.load_pem_public_key(f.read())
+        except Exception:
+            return {"verified": False, "cert_id": cert_id, "error": "Unable to load public key"}
+
+    if not isinstance(public_key, Ed25519PublicKey):
+        return {"verified": False, "cert_id": cert_id, "error": "Key is not an Ed25519 public key"}
+
+    try:
+        der = public_key.public_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        key_fingerprint = hashlib.sha256(der).hexdigest()[:16]
+    except Exception:
+        key_fingerprint = "unknown"
+
+    try:
+        public_key.verify(signature, canonical)
+        return {"verified": True, "cert_id": cert_id, "key_fingerprint": key_fingerprint}
+    except InvalidSignature:
+        return {"verified": False, "cert_id": cert_id, "key_fingerprint": key_fingerprint, "error": "Signature does not match"}
+    except Exception as e:
+        return {"verified": False, "cert_id": cert_id, "key_fingerprint": key_fingerprint, "error": str(e)}
+
+
+class VerifyReportRequest(BaseModel):
+    name: str = Field(..., max_length=100)
+    crop: str = Field(..., max_length=50)
+    area: str = Field(..., max_length=50)
+    profit: str = Field(..., max_length=50)
+    season: str = Field(..., max_length=50)
+    cert_id: str = Field(..., min_length=1, max_length=100)
+    signature: str = Field(..., min_length=1, max_length=256)
+    public_key_pem: Optional[str] = Field(default=None, max_length=2000)
+
+
+@router.post("/reports/verify")
+async def verify_report_endpoint(body: VerifyReportRequest):
+    result = verify_signed_report(
+        name=body.name,
+        crop=body.crop,
+        area=body.area,
+        profit=body.profit,
+        season=body.season,
+        cert_id=body.cert_id,
+        signature_hex=body.signature,
+        public_key_pem=body.public_key_pem,
+    )
+    status_code = 200 if result["verified"] else 400
+    return JSONResponse(content=result, status_code=status_code)
+
+
+# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
@@ -255,31 +683,124 @@ async def generate_signed_report(request: Request, data: ReportRequest):
 
     try:
         private_key = get_signing_keys_fn()
+
+        try:
+            cert_id = _make_cert_id(data)
+            signature_hex = _sign_report(private_key, data, cert_id)
+            pdf_bytes = _build_pdf(data, signature_hex, cert_id)
+
+            MAX_PDF_SIZE_MB = 10
+
+            if len(pdf_bytes) > MAX_PDF_SIZE_MB * 1024 * 1024:
+                logger.error(
+                    "Export validation failed: PDF exceeds size limit (%s bytes)",
+                    len(pdf_bytes),
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="Generated report exceeds supported export size",
+                )
+
+            if not pdf_bytes.startswith(b"%PDF"):
+                logger.error(
+                    "Export validation failed: Invalid PDF structure for certificate %s",
+                    cert_id,
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="Generated report failed integrity validation",
+                )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"PDF generation error: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to generate report",
+            )
+
+        filename = f"FasalSaathi_BankReport_{cert_id}.pdf"
+
+        logger.info(
+            "[EXPORT_AUDIT] cert_id=%s size_bytes=%s farmer=%s crop=%s",
+            cert_id,
+            len(pdf_bytes),
+            data.name,
+            data.crop,
+        )
+
+        return StreamingResponse(
+            io.BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename=\"{filename}\"',
+                "Content-Length": str(len(pdf_bytes)),
+            },
+        )
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Key retrieval error: {e}")
         raise HTTPException(status_code=500, detail="Failed to load signing key")
 
-    try:
-        cert_id = _make_cert_id(data)
-        signature_hex = _sign_report(private_key, data, cert_id)
-        pdf_bytes = _build_pdf(data, signature_hex, cert_id)
-    except Exception as e:
-        logger.error(f"PDF generation error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to generate report")
+class ClientErrorReport(BaseModel):
+    level: str
+    message: str
+    source: Optional[str] = None
+    stack: Optional[str] = None
 
-    filename = f"FasalSaathi_BankReport_{cert_id}.pdf"
-    return StreamingResponse(
-        io.BytesIO(pdf_bytes),
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "Content-Length": str(len(pdf_bytes)),
-        },
+@router.post("/log-error")
+async def log_error(body: ClientErrorReport):
+    if sanitise_log_field_fn is None:
+        raise HTTPException(status_code=500, detail="Log sanitizer not initialized")
+
+    level = sanitise_log_field_fn(body.level).lower()
+    message = sanitise_log_field_fn(body.message)
+    source = sanitise_log_field_fn(body.source) if body.source else "unknown"
+    stack = sanitise_log_field_fn(body.stack) if body.stack else ""
+
+    log_fn = {
+        "error": logger.error,
+        "warn": logger.warning,
+        "warning": logger.warning,
+        "info": logger.info,
+    }.get(level, logger.error)
+
+    log_fn(
+        "[ClientError] level=%s source=%s message=%s%s",
+        level,
+        source,
+        message,
+        f" stack={stack}" if stack else "",
     )
+    return {"success": True}
 
+@router.post("/log-error")
+async def log_error(body: ClientErrorReport):
+    if sanitise_log_field_fn is None:
+        raise HTTPException(status_code=500, detail="Log sanitizer not initialized")
 
+    level = sanitise_log_field_fn(body.level).lower()
+    message = sanitise_log_field_fn(body.message)
+    source = sanitise_log_field_fn(body.source) if body.source else "unknown"
+    stack = sanitise_log_field_fn(body.stack) if body.stack else ""
+
+    log_fn = {
+        "error": logger.error,
+        "warn": logger.warning,
+        "warning": logger.warning,
+        "info": logger.info,
+    }.get(level, logger.error)
+
+    log_fn(
+        "[ClientError] level=%s source=%s message=%s%s",
+        level,
+        source,
+        message,
+        f" stack={stack}" if stack else "",
+    )
+    return {"success": True}
 
 # Admin: role assignment with custom-claim sync
 # ---------------------------------------------------------------------------
@@ -289,7 +810,7 @@ class AssignRoleRequest(BaseModel):
     role: str = Field(..., pattern=r"^(admin|expert|farmer|vendor|system|guest)$")
 
 
-@router.post("/admin/assign-role")
+@router.post("/assign-role")
 async def assign_role(request: Request, body: AssignRoleRequest):
     """
     Assign a role to a user and sync the Firebase custom claim.
@@ -340,7 +861,7 @@ async def assign_role(request: Request, body: AssignRoleRequest):
     }
 
 
-@router.post("/admin/backfill-role-claims")
+@router.post("/backfill-role-claims")
 async def backfill_role_claims_endpoint(request: Request):
     """
     One-time backfill: set the 'role' custom claim for every user in Firestore.
@@ -369,3 +890,24 @@ async def backfill_role_claims_endpoint(request: Request):
         raise HTTPException(status_code=500, detail="Backfill failed — check server logs")
 
     return {"success": True, **summary}
+
+@router.get("/admin/replay-metrics")
+async def replay_metrics_endpoint(request: Request):
+
+    if verify_role_fn is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Not initialized",
+        )
+
+    await verify_role_fn(
+        request,
+        required_roles=["admin"],
+    )
+
+    return {
+        "success": True,
+        "active_nonces": len(used_nonces),
+        "metrics": replay_metrics,
+    }
+

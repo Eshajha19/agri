@@ -39,7 +39,6 @@ Fix
 import logging
 import os
 import re
-from typing import Dict
 
 from twilio.base.exceptions import TwilioRestException
 from twilio.rest import Client
@@ -128,7 +127,7 @@ def _sanitize_message(message: str) -> str:
 # PUBLIC API
 # =============================================================================
 
-def format_alert_message(alert_type: str, message: str) -> str:
+def format_outbound_alert_message(alert_type: str, message: str) -> str:
     """
     Create formatted WhatsApp alert message.
     """
@@ -159,53 +158,56 @@ def format_alert_message(alert_type: str, message: str) -> str:
     )
 
 
-def send_whatsapp_message(
-    phone_number: str,
-    message: str,
-) -> Dict:
-    """
-    Send WhatsApp message safely using Twilio.
-    """
-
+def send_whatsapp_message(phone_number: str, message: str) -> dict[str, Any]:
     try:
         phone_number = _validate_phone_number(phone_number)
         message = _sanitize_message(message)
 
         if not TWILIO_WHATSAPP_NUMBER:
-            raise RuntimeError(
-                "TWILIO_WHATSAPP_NUMBER missing"
-            )
+            return {
+                "success": False,
+                "status": "not_configured",
+                "sid": None,
+                "error": "TWILIO_WHATSAPP_NUMBER missing",
+            }
 
         client = _get_client()
-
         twilio_message = client.messages.create(
             body=message,
             from_=f"whatsapp:{TWILIO_WHATSAPP_NUMBER}",
             to=f"whatsapp:{phone_number}",
         )
 
-        logger.info(
-            "WhatsApp message sent successfully sid=%s to=%s",
-            twilio_message.sid,
-            phone_number[-4:],
-        )
-
         return {
             "success": True,
             "status": "sent",
             "sid": twilio_message.sid,
+            "error": None,
         }
 
     except TwilioRestException as exc:
-        logger.error(
-            "Twilio API error code=%s message=%s",
-            getattr(exc, "code", "unknown"),
-            str(exc),
-        )
+        code = getattr(exc, "code", 0)
+        if code == 429:
+            status = "rate_limited"
+        elif 400 <= code < 500:
+            status = "client_error"
+        elif 500 <= code < 600:
+            status = "server_error"
+        else:
+            status = "twilio_error"
 
         return {
             "success": False,
-            "status": "twilio_error",
+            "status": status,
+            "sid": None,
+            "error": str(exc),
+        }
+
+    except Exception as exc:
+        return {
+            "success": False,
+            "status": "internal_error",
+            "sid": None,
             "error": str(exc),
         }
 
@@ -221,17 +223,17 @@ def send_whatsapp_message(
         }
 
 
-# =============================================================================
-# INBOUND MESSAGE PROCESSING
-# =============================================================================
+def sanitise_message(text: str) -> str:
+    """Strip ASCII control characters (0x00-0x1F, 0x7F) except \\n, \\r, \\t."""
+    return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
 
-def process_webhook_message(
-    body: str,
-    sender_number: str,
-):
+
+def format_outbound_alert_message(alert_type: str, content: str) -> str:
     """
     Process inbound WhatsApp webhook messages.
     """
+    content = sanitise_message(content)
+    header = "🌾 *Fasal Saathi Alert* 🌾\n\n"
 
     body = _sanitize_message(body)
     sender_number = _validate_phone_number(sender_number)
