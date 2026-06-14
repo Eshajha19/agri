@@ -2,15 +2,18 @@
 Crop sustainability analytics — LCA-style water footprint & carbon emission estimates.
 """
 from __future__ import annotations
-
 import logging
-from collections import OrderedDict
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
+import os
 
 logger = logging.getLogger(__name__)
+
+logger = logging.getLogger(__name__)
+
 
 EMISSION_FACTORS = {
     "nitrogen_kg_co2e_per_kg": 5.2,
@@ -94,6 +97,10 @@ class SustainabilityAnalytics:
     def __init__(self) -> None:
         # OrderedDict with LRU eviction capped at _MAX_HISTORY_USERS keys
         self._history: OrderedDict[str, List[Dict[str, Any]]] = OrderedDict()
+        self._history_lock = threading.Lock()   # FIX: initialize lock
+
+        self._history: Dict[str, List[Dict[str, Any]]] = {}
+        self._history_lock = threading.Lock()
         import sys
         self.is_testing = "pytest" in sys.modules or "unittest" in sys.modules
 
@@ -130,36 +137,42 @@ class SustainabilityAnalytics:
     def _load_local_history(self) -> Dict[str, List[Dict[str, Any]]]:
         import json
         import os
+        from filelock import FileLock
         path = self._get_local_file_path()
-        if not os.path.exists(path):
-            return {}
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except json.JSONDecodeError as exc:
-            logger.warning("Sustainability history file '%s' contains invalid JSON: %s.", path, exc)
-        except OSError as exc:
-            logger.warning("Could not read sustainability history file '%s': %s.", path, exc)
+        lock_path = path + ".lock"
+        if os.path.exists(path):
+            try:
+                with FileLock(lock_path, timeout=5):
+                    with open(path, "r", encoding="utf-8") as f:
+                        return json.load(f)
+            except Exception as e:
+                logger.error("Failed to read local history: %s", e)
         return {}
 
     def _save_local_history(self, history: Dict[str, List[Dict[str, Any]]]) -> None:
         import json
         import os
+        from filelock import FileLock
         path = self._get_local_file_path()
         tmp_path = path + ".tmp"
+        lock_path = path + ".lock"
         try:
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(history, f, indent=2, ensure_ascii=False)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_path, path)
-        except OSError as exc:
-            logger.warning("Failed to atomically write sustainability history to '%s': %s.", path, exc)
-            try:
-                if os.path.exists(tmp_path):
+            with FileLock(lock_path, timeout=5):
+                with open(tmp_path, "w", encoding="utf-8") as f:
+                    json.dump(history, f, indent=2, ensure_ascii=False)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp_path, path)
+        except Exception as e:
+            logger.error("Failed to save local history atomically: %s", e)
+            if os.path.exists(tmp_path):
+                try:
                     os.remove(tmp_path)
-            except OSError:
-                pass
+                except OSError:
+                    pass
+
+        except Exception as exc:
+            logger.error("Failed to save sustainability history file: %s", exc)
 
     def get_formula_config(self) -> Dict[str, Any]:
         return {
@@ -174,12 +187,22 @@ class SustainabilityAnalytics:
         crop_key = _normalize_crop(data["crop_type"])
         season_key = _normalize_season(data["season"])
         coeffs = CROP_COEFFICIENTS.get(crop_key, CROP_COEFFICIENTS["default"])
-        acreage = data["acreage"]
+        MAX_ACREAGE = int(os.getenv("MAX_ACREAGE", "10000"))  # configurable limit
+
+        acreage = float(data.get("acreage", 0.1))
+        acreage = max(min(acreage, MAX_ACREAGE), 0.1)
         irr_type = data["irrigation_type"]
         irr_eff = IRRIGATION_EFFICIENCY.get(irr_type, 0.7)
         season_days = SEASON_DAYS[season_key]
 
+        rainfall_mm = data.get("rainfall_mm", 0.0)
+        effective_rainfall_mm = data.get("effective_rainfall_mm", rainfall_mm * 0.8)
+        rainfall_m3_per_acre = effective_rainfall_mm * 4046.86 / 1000.0
+        rainfall_m3_total = rainfall_m3_per_acre * acreage
+
         base_water = coeffs["water_m3_per_acre_season"] * acreage
+        net_irrigation_water = max(base_water - rainfall_m3_total, 0.0)
+
         if irr_type == "rainfed":
             green_water = base_water * 0.85
             blue_water = base_water * 0.15
@@ -217,10 +240,16 @@ class SustainabilityAnalytics:
         irrigation_energy_co2 = pump_kwh * ef["electricity_kg_co2e_per_kwh"]
 
         organic_reduction = 0.12 if data["organic_practices"] else 0.0
+
+        # Apply reduction ONLY to fertilizer emissions
+        fert_co2 *= (1.0 - organic_reduction)
+
+        # Then sum everything normally
         total_carbon_kg = round(
-            (fert_co2 + machinery_co2 + fuel_co2 + irrigation_energy_co2) * (1.0 - organic_reduction),
+            fert_co2 + machinery_co2 + fuel_co2 + irrigation_energy_co2,
             2,
         )
+
         carbon_per_acre = round(total_carbon_kg / max(acreage, 0.1), 2)
 
         benchmark_water = coeffs["water_m3_per_acre_season"] * acreage
@@ -254,9 +283,9 @@ class SustainabilityAnalytics:
             "carbon": {
                 "total_kg_co2e": total_carbon_kg,
                 "per_acre_kg_co2e": carbon_per_acre,
-                "fertilizer_kg_co2e": round(fert_co2 * (1.0 - organic_reduction), 2),
+                "fertilizer_kg_co2e": round(fert_co2, 2),
                 "machinery_kg_co2e": round(machinery_co2, 2),
-                "fuel_kg_co2e": round(fuel_co2 * (1.0 - organic_reduction), 2),
+                "fuel_kg_co2e": round(fuel_co2, 2),
                 "irrigation_energy_kg_co2e": round(irrigation_energy_co2, 2),
             },
             "inputs": {
@@ -276,7 +305,7 @@ class SustainabilityAnalytics:
         ]
 
         record_id = str(uuid4())
-        created_at = datetime.now(timezone.utc).isoformat() + "Z"
+        created_at = datetime.now(timezone.utc).isoformat()
         user_id = data["user_id"] or "anonymous"
 
         result = {
@@ -315,13 +344,15 @@ class SustainabilityAnalytics:
                 entries = [d.to_dict() for d in docs]
                 entries.sort(key=lambda x: x.get("created_at", ""), reverse=True)
                 return entries[:limit]
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.exception("Firestore operation failed: %s", exc)
+                return {}
+
 
         local_hist = self._load_local_history()
         entries = local_hist.get(key, [])
-        self._touch_user(key)
-        self._history[key] = entries
+        with self._history_lock:
+            self._history[key] = entries
         return list(reversed(entries[-limit:]))
 
     def _append_history(self, user_id: str, result: Dict[str, Any]) -> None:
@@ -357,31 +388,25 @@ class SustainabilityAnalytics:
         if db is not None:
             try:
                 db.collection("sustainability_history").document(record["record_id"]).set(record)
-                firestore_ok = True
             except Exception as exc:
-                logger.warning("Firestore write failed for sustainability record '%s' (user=%s): %s.", record["record_id"], key, exc)
+                logger.warning("Failed to persist sustainability record to Firestore: %s", exc)
 
-        local_ok = False
-        try:
-            local_hist = self._load_local_history()
-            if key not in local_hist:
-                local_hist[key] = []
-            local_hist[key].append(record)
-            if len(local_hist[key]) > _MAX_HISTORY_PER_USER:
-                local_hist[key] = local_hist[key][-_MAX_HISTORY_PER_USER:]
-            self._save_local_history(local_hist)
-            local_ok = True
-        except Exception as exc:
-            logger.warning("Local-file write failed for sustainability record '%s' (user=%s): %s.", record["record_id"], key, exc)
+        # Save to local persistent file as fallback (serialized with lock)
+        with self._local_file_lock:
+            try:
+                local_hist = self._load_local_history()
+                if key not in local_hist:
+                    local_hist[key] = []
+                local_hist[key].append(record)
+                if len(local_hist[key]) > 50:
+                    local_hist[key] = local_hist[key][-50:]
+                self._save_local_history(local_hist)
+            except Exception:
+                logger.exception("Failed to persist sustainability history to local file")
 
-        if not (firestore_ok or local_ok):
-            logger.error("All persistence layers failed for sustainability record '%s' (user=%s).", record["record_id"], key)
-            return
-
-        self._touch_user(key)
-        self._history[key].append(record)
-        if len(self._history[key]) > _MAX_HISTORY_PER_USER:
-            self._history[key] = self._history[key][-_MAX_HISTORY_PER_USER:]
+    def save_history(self) -> None:
+        with self._history_lock:
+            self._save_local_history(self._history)
 
     def _normalize_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return {

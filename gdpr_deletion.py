@@ -295,9 +295,42 @@ class GDPRDeletionManager:
         return asdict(request)
 
     def process_due_requests(
-        self,
-        targets: Iterable[DeletionTarget],
-        *,
-        now: datetime | None = None,
-    ) -> list[dict[str, Any]]:
-        return [self.execute_request(request["request_id"], targets, now=now) for request in self.due_requests(now=now)]
+            self,
+            target_builder: Callable[[str], Iterable[DeletionTarget]],
+            *,
+            now: datetime | None = None,
+        ) -> list[dict[str, Any]]:
+            """
+            Process only approved GDPR deletion requests that are due.
+            target_builder: function that takes a uid and returns deletion targets for that user.
+            """
+            results = []
+            for request in self.due_requests(now=now):
+                uid = request["uid"]
+                request_id = request["request_id"]
+                reason = request["reason"]
+                requested_by = request["requested_by"]
+
+                # Build user-scoped targets instead of system-wide
+                targets = target_builder(uid)
+
+                result = self.execute_request(request_id, targets, now=now)
+
+                # Add audit details for actor + reason
+                self._record_audit(
+                    GDPRAuditEvent(
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        action="gdpr_delete",
+                        uid=uid,
+                        request_id=request_id,
+                        outcome=result["status"],
+                        details={
+                            "requested_by": requested_by,
+                            "reason": reason,
+                            "deleted_entities": result.get("deleted_entities", []),
+                            "retained_entities": result.get("retained_entities", []),
+                        },
+                    )
+                )
+                results.append(result)
+            return results

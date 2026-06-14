@@ -175,7 +175,9 @@ class TestWebSocketAuth:
         client = TestClient(app)
 
         with pytest.raises(WebSocketDisconnect) as exc_info:
-            with client.websocket_connect("/api/notifications/stream?token="):
+            with client.websocket_connect(
+                "/api/notifications/stream"
+            ):
                 pass
         assert exc_info.value.code == 1008
 
@@ -187,7 +189,10 @@ class TestWebSocketAuth:
 
         with pytest.raises(WebSocketDisconnect) as exc_info:
             with client.websocket_connect(
-                "/api/notifications/stream?token=badtoken"
+                client.websocket_connect(
+                    "/api/notifications/stream",
+                    headers={"Authorization": "Bearer badtoken"},
+                )
             ):
                 pass
         assert exc_info.value.code == 1008
@@ -200,7 +205,10 @@ class TestWebSocketAuth:
 
         with pytest.raises(WebSocketDisconnect) as exc_info:
             with client.websocket_connect(
-                "/api/notifications/stream?token=goodtoken"
+                client.websocket_connect(
+                    "/api/notifications/stream",
+                    headers={"Authorization": "Bearer goodtoken"},
+                )
             ):
                 pass
         assert exc_info.value.code == 1008
@@ -213,7 +221,10 @@ class TestWebSocketAuth:
 
         with pytest.raises(WebSocketDisconnect) as exc_info:
             with client.websocket_connect(
-                "/api/notifications/stream?token=goodtoken"
+                client.websocket_connect(
+                    "/api/notifications/stream",
+                    headers={"Authorization": "Bearer goodtoken"},
+                )
             ):
                 pass
         assert exc_info.value.code == 1011
@@ -240,7 +251,10 @@ class TestRegionFiltering:
         client = TestClient(app)
 
         with client.websocket_connect(
-            "/api/notifications/stream?token=goodtoken"
+            client.websocket_connect(
+                "/api/notifications/stream",
+                headers={"Authorization": "Bearer goodtoken"},
+            )
         ) as ws:
             snapshot = ws.receive_json()
             assert len(snapshot["data"]) == 3
@@ -253,7 +267,10 @@ class TestRegionFiltering:
         client = TestClient(app)
 
         with client.websocket_connect(
-            "/api/notifications/stream?token=goodtoken&regions=north"
+            client.websocket_connect(
+                "/api/notifications/stream?regions=north",
+                headers={"Authorization": "Bearer goodtoken"},
+            )
         ) as ws:
             snapshot = ws.receive_json()
             assert len(snapshot["data"]) == 1
@@ -267,7 +284,10 @@ class TestRegionFiltering:
         client = TestClient(app)
 
         with client.websocket_connect(
-            "/api/notifications/stream?token=goodtoken&regions=north,south"
+            client.websocket_connect(
+                "/api/notifications/stream?regions=north,south",
+                headers={"Authorization": "Bearer goodtoken"},
+            )
         ) as ws:
             snapshot = ws.receive_json()
             assert len(snapshot["data"]) == 2
@@ -282,7 +302,10 @@ class TestRegionFiltering:
         client = TestClient(app)
 
         with client.websocket_connect(
-            "/api/notifications/stream?token=goodtoken&regions=NORTH"
+            client.websocket_connect(
+                "/api/notifications/stream?regions=north",
+                headers={"Authorization": "Bearer goodtoken"},
+            )
         ) as ws:
             snapshot = ws.receive_json()
             assert len(snapshot["data"]) == 1

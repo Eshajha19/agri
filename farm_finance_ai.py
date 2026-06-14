@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 import logging
@@ -257,7 +257,7 @@ class FarmFinanceAI:
             recommended_amount=analysis["recommended_loan_amount"],
             selected_lender=selected_product["lender_name"],
             status=status,
-            created_at=datetime.now().isoformat(),
+            created_at=datetime.now(timezone.utc).isoformat(),
             assessment_score=analysis["financial_health_score"],
             risk_level=analysis["risk_level"],
             required_documents=analysis["required_documents"],
