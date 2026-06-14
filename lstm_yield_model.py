@@ -50,8 +50,10 @@ def train_and_save_model():
         logger.info(f"Data after grouping:\n{df.head()}")
 
         # Scaling
-        scaler.fit(df)
-        scaled_data = scaler.transform(df)
+        scaled_data = scaler.fit_transform(df)
+        import joblib
+        joblib.dump(scaler, "lstm_yield_scaler.joblib")
+        logger.info("✅ Scaler saved successfully.")
 
         def create_sequences(data, seq_length=5):
             X, y = [], []
@@ -85,7 +87,7 @@ def train_and_save_model():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic: Load the model into memory ONCE during application startup
-    global model, scaler, _scaler_fitted
+    global model, scaler
     logger.info("Starting up FastAPI application...")
     
     # We delay keras import to avoid slow startup if not needed
@@ -107,11 +109,10 @@ async def lifespan(app: FastAPI):
 
         logger.info("✅ Model loaded into memory successfully.")
         
-        if os.path.exists(SCALER_PATH):
-            scaler = joblib.load(SCALER_PATH)
-            logger.info("✅ Scaler loaded from %s", SCALER_PATH)
-        else:
-            logger.warning("Scaler file %s not found — predictions will NOT be inverse-transformed.", SCALER_PATH)
+        import joblib
+        if os.path.exists("lstm_yield_scaler.joblib"):
+            scaler = joblib.load("lstm_yield_scaler.joblib")
+            logger.info("✅ Scaler loaded into memory successfully.")
     except Exception as e:
         logger.error(f"Failed to load model on startup: {str(e)}")
         # If model is None, endpoints will handle it gracefully.
@@ -168,7 +169,15 @@ async def predict(request: PredictionRequest):
         else:
             pred_value = float(prediction_scaled[0][0])
         
-        return PredictionResponse(prediction=pred_value)
+        # Perform inverse transformation to restore actual unit scale if fitted
+        if hasattr(scaler, "scale_"):
+            dummy = np.zeros((1, 1))
+            dummy[0, 0] = pred_value
+            pred_actual = float(scaler.inverse_transform(dummy)[0, 0])
+        else:
+            pred_actual = pred_value
+            
+        return PredictionResponse(prediction=pred_actual)
     
     except Exception as e:
         logger.error(f"Error during prediction: {str(e)}")

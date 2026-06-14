@@ -460,6 +460,10 @@ class SmartFarmAutopilot:
         else:
             # Sowing month has clearly passed
             sow_year = year + 1
+        # Edge case: late-year request (Nov/Dec) for early next-season sowing (Jan/Feb)
+        if today.month >= 11 and sow_month <= 2:
+            sow_year = year + 1
+            
         sow_start = date(sow_year, sow_month, 1)
         sow_end   = date(sow_year, sow_month, min(20, calendar.monthrange(sow_year, sow_month)[1]))
 
