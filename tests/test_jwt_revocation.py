@@ -147,7 +147,10 @@ def test_websocket_rejects_revoked_token(monkeypatch, mock_db):
 
     from fastapi.websockets import WebSocketDisconnect
     with pytest.raises(WebSocketDisconnect) as exc:
-        with client.websocket_connect("/api/notifications/stream?token=revoked_token"):
+        with client.websocket_connect(
+            "/api/notifications/stream",
+            headers={"Authorization": "Bearer revoked_token"},
+        ):
             pass
     assert exc.value.code == 1008
     assert "revoked" in exc.value.reason.lower()

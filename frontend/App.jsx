@@ -359,7 +359,7 @@ function App() {
 
   useEffect(() => {
     detectAndSetLiteMode();
-  }, [detectAndSetLiteMode]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -415,11 +415,13 @@ function App() {
     void syncQueuedRequests();
 
     const handleOnline = () => {
+      if (cancelled) return;
       setIsOffline(false);
       void syncQueuedRequests();
     };
 
     const handleOffline = () => {
+      if (cancelled) return;
       setIsOffline(true);
     };
 
@@ -472,6 +474,8 @@ function App() {
 
 useEffect(() => {
   let cancelled = false;
+  let retryCount = 0;
+  const MAX_RETRIES = 3;
 
   const synchronizeTranslation = async () => {
     if (!preferredLang || cancelled) return;
@@ -481,55 +485,47 @@ useEffect(() => {
       return;
     }
 
-    // Fast path
-    if (applyGoogleTranslate(preferredLang)) {
-      return;
-    }
-
-    // Robust fallback path
-    await applyGoogleTranslateRobust(
-      preferredLang,
-      {
-        onReady: () => {
-          console.log(
-            "Google Translate synchronized successfully"
-          );
-        },
-
-        onError: () => {
-          console.warn(
-            "Translation fallback active"
-          );
-        },
+    try {
+      // Fast path
+      if (applyGoogleTranslate(preferredLang)) {
+        console.log("Google Translate initialized successfully");
+        return;
       }
-    );
+
+      // Robust fallback path
+      await applyGoogleTranslateRobust(preferredLang, {
+        onReady: () => {
+          console.log("Google Translate synchronized successfully");
+        },
+        onError: () => {
+          console.warn("Translation fallback active");
+          if (retryCount < MAX_RETRIES) {
+            retryCount++;
+            console.info(`Retrying Google Translate init (#${retryCount})`);
+            setTimeout(synchronizeTranslation, 2000 * retryCount); // exponential backoff
+          }
+        },
+      });
+    } catch (error) {
+      console.error("Google Translate init failed:", error);
+      if (retryCount < MAX_RETRIES) {
+        retryCount++;
+        setTimeout(synchronizeTranslation, 2000 * retryCount);
+      }
+    }
   };
 
   void synchronizeTranslation();
 
   const handleWidgetLoad = () => {
-    if (cancelled) return;
-
-    if (!applyGoogleTranslate(preferredLang)) {
-      void applyGoogleTranslateRobust(
-        preferredLang,
-        { retry: false }
-      );
-    }
+    if (!cancelled) void synchronizeTranslation();
   };
 
-  document.addEventListener(
-    "googleTranslateWidgetLoaded",
-    handleWidgetLoad
-  );
+  document.addEventListener("googleTranslateWidgetLoaded", handleWidgetLoad);
 
   return () => {
     cancelled = true;
-
-    document.removeEventListener(
-      "googleTranslateWidgetLoaded",
-      handleWidgetLoad
-    );
+    document.removeEventListener("googleTranslateWidgetLoaded", handleWidgetLoad);
 
     if (googleTranslateObserver) {
       googleTranslateObserver.disconnect();
@@ -537,14 +533,12 @@ useEffect(() => {
     }
 
     if (googleTranslateRetryTimeout) {
-      clearTimeout(
-        googleTranslateRetryTimeout
-      );
-
+      clearTimeout(googleTranslateRetryTimeout);
       googleTranslateRetryTimeout = null;
     }
   };
 }, [preferredLang]);
+
 
   useEffect(() => {
     const hideGoogleTranslateBanner = () => {
@@ -768,61 +762,14 @@ useEffect(() => {
     });
   }, [user?.uid, userData, profileCompleted]);
 
+  // Scroll to Top logic
   useEffect(() => {
     const handleScroll = () => {
-      if (scrollFrameRef.current) return;
-
-      scrollFrameRef.current =
-        requestAnimationFrame(() => {
-          const shouldShowScrollTop =
-            window.scrollY > 300;
-
-          const totalHeight =
-            document.documentElement.scrollHeight -
-            window.innerHeight;
-
-          const progress =
-            totalHeight > 0
-              ? (window.scrollY / totalHeight) * 100
-              : 0;
-
-          if (
-            lastScrollStateRef.current
-              .showScrollTop !==
-            shouldShowScrollTop
-          ) {
-            lastScrollStateRef.current.showScrollTop =
-              shouldShowScrollTop;
-
-            setShowScrollTop(shouldShowScrollTop);
-          }
-
-          if (
-            Math.abs(
-              lastScrollStateRef.current
-                .scrollProgress - progress
-            ) > 1
-          ) {
-            lastScrollStateRef.current.scrollProgress =
-              progress;
-
-            setScrollProgress(progress);
-          }
-
-          scrollFrameRef.current = null;
-        });
-    };
-
-    window.addEventListener("scroll", handleScroll, {
-      passive: true,
-    });
-
-    return () => {
-      window.removeEventListener("scroll", handleScroll);
-
-      if (scrollFrameRef.current) {
-        cancelAnimationFrame(scrollFrameRef.current);
-      }
+      setShowScrollTop(window.scrollY > 300);
+      // Calculate scroll progress
+      const totalHeight = document.documentElement.scrollHeight - window.innerHeight;
+      const progress = totalHeight > 0 ? (window.scrollY / totalHeight) * 100 : 0;
+      setScrollProgress(progress);
     };
   }, []);
 
@@ -876,6 +823,18 @@ useEffect(() => {
     }
   };
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: "smooth" });
+
+  const [backendStatus, setBackendStatus] = useState("checking");
+
+useEffect(() => {
+  fetch(`${import.meta.env.VITE_API_BASE_URL}/health`)
+    .then(res => {
+      if (res.ok) return res.json();
+      throw new Error("Backend not healthy");
+    })
+    .then(() => setBackendStatus("online"))
+    .catch(() => setBackendStatus("offline"));
+}, []);
 
   return (
     <div className={`app ${theme !== "light" ? "theme-dark" : ""} ${theme === "night" ? "theme-night" : ""} ${liteMode ? "lite-mode" : ""}`}>
@@ -1040,7 +999,8 @@ useEffect(() => {
           {isOpen ? <FaTimes /> : <FaBars />}
         </button>
       </nav>
-
+ 
+ 
       {/* VERIFICATION GUARD */}
       {!loading && user && !user.isAnonymous && !user.emailVerified && !showScorecard && location.pathname !== "/login" && (
         <div className="verification-overlay">
@@ -1202,7 +1162,20 @@ useEffect(() => {
       <ToastContainer position="bottom-right" />
       <Footer />
     </div>
+    
   );
+  {isOffline && (
+  <div className="offline-banner" role="alert">
+    You are currently offline. Running in offline mode using local data.
+  </div>
+)}
+
+{backendStatus === "offline" && (
+  <div className="backend-banner" role="alert">
+    🚨 Backend is currently unavailable. Some features may not work.
+  </div>
+)}
+
 }
 
 export default App;
