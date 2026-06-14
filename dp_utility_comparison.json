@@ -1,0 +1,45 @@
+{
+  "timestamp": "2026-05-29T17:15:34.483895+00:00",
+  "python": "3.13.5",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "dataset": "Train.csv",
+  "seed": 42,
+  "epsilon": 3.0,
+  "delta": 1e-05,
+  "results": {
+    "baseline": {
+      "model_name": "yield_model",
+      "version": "1695e018-e9e8-499d-8fa4-bc908959d0a5",
+      "file_name": "C:\\Users\\Deepika\\AppData\\Local\\Temp\\dp-compare-oho0o0mv\\baseline_model.joblib",
+      "sha256": "0e50f4558b574d234286408339a3bd80289b40aea9947b7975c720623d34573b",
+      "created_by": "dp_experiment",
+      "created_at": "2026-05-29T17:15:41.058055Z",
+      "training_mode": "baseline"
+    },
+    "dp_sgd": {
+      "model_name": "yield_model",
+      "version": "e14522a8-1bff-43fa-b834-eb05125562f9",
+      "file_name": "C:\\Users\\Deepika\\AppData\\Local\\Temp\\dp-compare-oho0o0mv\\dp_model.pt",
+      "sha256": "6dcd1930eae48d9128c2cea570c6d5beff0cbe61e99ff113f69b3b020fed6025",
+      "created_by": "dp_experiment",
+      "created_at": "2026-05-29T17:15:59.760193Z",
+      "training_mode": "dp_sgd",
+      "privacy": {
+        "target_epsilon": 3.0,
+        "spent_epsilon": 2.996490042668153,
+        "approx_epsilon": 1.2828307808837678,
+        "delta": 1e-05,
+        "noise_multiplier": 0.71533203125,
+        "sample_rate": 0.009116809116809116,
+        "steps": 440,
+        "batch_size": 64,
+        "epochs": 4,
+        "max_grad_norm": 1.0,
+        "learning_rate": 0.05,
+        "input_dim": 39,
+        "hidden_size": 64
+      }
+    }
+  },
+  "dp_status": "ok"
+}
