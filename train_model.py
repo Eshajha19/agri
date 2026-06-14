@@ -184,13 +184,27 @@ def train_yield_model(
     }
 
 
-# ── Script body (unchanged) ───────────────────────────────────────────────────
-df = pd.read_csv("Train.csv")
-# Convert SDate to datetime
-df['SDate'] = pd.to_datetime(df['SDate'], errors='coerce')
-df = df.dropna(subset=['SDate'])
-df = df.sort_values('SDate')
-print(df[['SDate', 'ExpYield']].head())
+def preview_training_data(csv_path: str = "Train.csv") -> None:
+    """Utility to preview training data for debugging."""
+    try:
+        df = pd.read_csv(csv_path)
+        df['SDate'] = pd.to_datetime(df['SDate'], errors='coerce')
+        df = df.dropna(subset=['SDate'])
+        df = df.sort_values('SDate')
+        print(df[['SDate', 'ExpYield']].head())
+    except FileNotFoundError:
+        print(f"CSV file not found: {csv_path}")
+    except Exception as exc:
+        print(f"Failed to preview training data: {exc}")
+
+if __name__ == "__main__":
+    # Run preview only when script is executed directly
+    preview_training_data()
+
+    # Optionally kick off training here
+    # result = train_yield_model()
+    # print(result)
+
 
 
 def set_seeds(seed: int):
