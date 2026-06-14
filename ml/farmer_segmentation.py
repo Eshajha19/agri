@@ -173,8 +173,10 @@ class FarmerSegmentation:
                     )
                     for hdoc in hist_docs:
                         history.append(hdoc.to_dict() or {})
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.exception("Firestore operation failed: %s", exc)
+                    return {}
+
 
                 mean_y, std_y, trend = _compute_yield_stats(history)
 
@@ -271,8 +273,10 @@ class FarmerSegmentation:
             age = (_dt.utcnow() - last_dt).total_seconds()
             if age > _INCREMENTAL_MAX_AGE_SECONDS:
                 return True
-        except Exception:
-            return True
+        except Exception as exc:
+            logger.exception("Firestore operation failed: %s", exc)
+            return {}
+
 
         # Delta-based: >threshold % new farmers
         prev_count = self._state.n_samples_seen

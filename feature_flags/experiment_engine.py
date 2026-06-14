@@ -254,20 +254,23 @@ def create_experiment(data: Dict) -> Dict:
 
     now = _now_iso()
 
-    exp = {
-        **exp_data,
-        "id": exp_id,
-        "status": status,
-        "created_at": now,
-        "updated_at": now,
-        "salt": exp_data.get(
-            "salt",
-            hashlib.sha256(exp_id.encode("utf-8")).hexdigest()[:12],
-        ),
-    }
-
     with _exp_cache_lock:
         existing = _exp_cache.get(exp_id)
+        if existing is not None and existing.get("status") != "draft":
+            raise ValueError(
+                f"Experiment '{exp_id}' already exists with status "
+                f"'{existing.get('status')}'. Cannot overwrite a live experiment."
+            )
+
+        exp = {**data, "id": exp_id, "created_at": now, "updated_at": now,
+               "status": data.get("status", "draft")}
+        exp.setdefault("salt", hashlib.sha256(exp_id.encode()).hexdigest()[:12])
+
+        _exp_cache[exp_id] = exp
+        _exp_cache_at = time.monotonic()
+
+        _exp_cache[exp_id] = exp
+        _exp_cache_at = time.monotonic()
 
         if existing and existing.get("status") != "draft":
             raise ValueError(
