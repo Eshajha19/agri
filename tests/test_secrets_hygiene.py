@@ -209,3 +209,71 @@ def test_middleware_handles_missing_content_type():
     # No Content-Type header
     response = client.post("/data", content=b"{}", headers={})
     assert response.status_code == 200
+
+
+# --- MAX_SCAN_BODY_SIZE protection ---
+
+from security_hygiene import MAX_SCAN_BODY_SIZE
+
+
+def test_rejects_payload_larger_than_limit():
+    app = FastAPI()
+    app.add_middleware(RuntimeProtectionMiddleware)
+
+    @app.post("/submit")
+    async def submit():
+        return {"ok": True}
+
+    client = TestClient(app)
+
+    response = client.post(
+        "/submit",
+        content=b"x" * (MAX_SCAN_BODY_SIZE + 1),
+        headers={
+            "content-type": "application/json",
+            "content-length": str(MAX_SCAN_BODY_SIZE + 1),
+        },
+    )
+
+    assert response.status_code == 413
+
+
+def test_allows_payload_at_limit():
+    app = FastAPI()
+    app.add_middleware(RuntimeProtectionMiddleware)
+
+    @app.post("/submit")
+    async def submit():
+        return {"ok": True}
+
+    client = TestClient(app)
+
+    response = client.post(
+        "/submit",
+        content=b"x" * MAX_SCAN_BODY_SIZE,
+        headers={
+            "content-type": "application/json",
+            "content-length": str(MAX_SCAN_BODY_SIZE),
+        },
+    )
+
+    assert response.status_code == 200
+
+
+def test_missing_content_length_does_not_fail():
+    app = FastAPI()
+    app.add_middleware(RuntimeProtectionMiddleware)
+
+    @app.post("/submit")
+    async def submit():
+        return {"ok": True}
+
+    client = TestClient(app)
+
+    response = client.post(
+        "/submit",
+        content=b"{}",
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 200

@@ -14,8 +14,6 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 from middleware_utils import (
     ensure_body_available,
-    get_cached_body,
-    has_cached_body,
 )
 
 # Maximum body size to scan (256 KB)
@@ -177,16 +175,33 @@ class RuntimeProtectionMiddleware(BaseHTTPMiddleware):
 
         if should_scan:
             try:
+                # Enforce request size limit before reading body into memory
+                content_length = request.headers.get("content-length")
 
-                # Safe request body access.
-                # request.body() is cached by Starlette, allowing middleware
-                # and downstream handlers to access the same payload without
-                # modifying request._receive.
-                
-                if has_cached_body(request):
-                    body_bytes = await get_cached_body(request)
-                else:
-                    body_bytes = await ensure_body_available(request)
+                if content_length:
+                    try:
+                        if int(content_length) > MAX_SCAN_BODY_SIZE:
+                            return JSONResponse(
+                                status_code=413,
+                                content={
+                                    "error": "Payload too large"
+                                }
+                            )
+                    except ValueError:
+                        pass
+
+                # Safe request body access using shared cache utility
+                body_bytes = await ensure_body_available(request)
+
+                # Secondary protection for clients that omit Content-Length
+                if len(body_bytes) > MAX_SCAN_BODY_SIZE:
+                    return JSONResponse(
+                        status_code=413,
+                        content={
+                            "error": "Payload too large"
+                        }
+                    )
+
                 path = request.url.path
 
                 # --- DoS fix: check cache before running any regex (#2366) ---
@@ -209,9 +224,14 @@ class RuntimeProtectionMiddleware(BaseHTTPMiddleware):
                         content={"error": "Request blocked by secrets hygiene policy"}
                     )
 
+
             except Exception:
-                # Fallback in case of body read failures to avoid crashing the server
-                pass
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "error": "Failed to inspect request"
+                    },
+                )
 
         response = await call_next(request)
         return response
