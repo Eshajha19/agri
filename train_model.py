@@ -32,6 +32,50 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+
+# Default hyperparameters for XGBoost yield model
+DEFAULT_XGB_CONFIG = {
+    "n_estimators": 200,
+    "max_depth": 6,
+    "learning_rate": 0.1,
+    "subsample": 1.0,
+    "colsample_bytree": 1.0,
+    "gamma": 0,
+    "min_child_weight": 1,
+    "seed": 42,
+}
+
+DEFAULT_DP_CONFIG = {
+    "dp_batch_size": 64,
+    "dp_epochs": 8,
+    "dp_max_grad_norm": 1.0,
+    "dp_learning_rate": 0.05,
+    "epsilon": 3.0,
+    "delta": 1e-5,
+    "dp_hidden_size": 64,
+    "seed": 42,
+}
+
+
+def resolve_config(config: dict | None, defaults: dict) -> dict:
+    """Merge user config with defaults so all keys are defined."""
+    config = resolve_config(config, DEFAULT_XGB_CONFIG)
+    return {**defaults, **config}
+
+
+config = resolve_config(config, DEFAULT_XGB_CONFIG)
+
+model = xgb.XGBRegressor(
+    n_estimators=config["n_estimators"],
+    max_depth=config["max_depth"],
+    learning_rate=config["learning_rate"],
+    subsample=config["subsample"],
+    colsample_bytree=config["colsample_bytree"],
+    gamma=config["gamma"],
+    min_child_weight=config["min_child_weight"],
+    random_state=config["seed"],
+)
+
 # ── Retraining pipeline helpers ──────────────────────────────────────────────
 
 _CAT_COLS = ['Crop', 'CNext', 'CLast', 'CTransp', 'IrriType', 'IrriSource', 'Season']
@@ -78,12 +122,16 @@ def train_yield_model(
     csv_path="Train.csv",
     model_output="yield_model.joblib",
     baseline_output="feature_baseline.json",
+    config: dict | None = None,
 ):
     """
     Callable training entry point used by the retraining pipeline Celery task.
     Returns dict: rmse, model_path, baseline_path, trained_at.
     Mirrors the script body exactly — single source of truth.
     """
+    config = resolve_config(config, DEFAULT_XGB_CONFIG)
+ 
+
     df = pd.read_csv(csv_path)
     df['SDate'] = pd.to_datetime(df['SDate'], errors='coerce')
     df = df.dropna(subset=['SDate'])
@@ -136,13 +184,27 @@ def train_yield_model(
     }
 
 
-# ── Script body (unchanged) ───────────────────────────────────────────────────
-df = pd.read_csv("Train.csv")
-# Convert SDate to datetime
-df['SDate'] = pd.to_datetime(df['SDate'], errors='coerce')
-df = df.dropna(subset=['SDate'])
-df = df.sort_values('SDate')
-print(df[['SDate', 'ExpYield']].head())
+def preview_training_data(csv_path: str = "Train.csv") -> None:
+    """Utility to preview training data for debugging."""
+    try:
+        df = pd.read_csv(csv_path)
+        df['SDate'] = pd.to_datetime(df['SDate'], errors='coerce')
+        df = df.dropna(subset=['SDate'])
+        df = df.sort_values('SDate')
+        print(df[['SDate', 'ExpYield']].head())
+    except FileNotFoundError:
+        print(f"CSV file not found: {csv_path}")
+    except Exception as exc:
+        print(f"Failed to preview training data: {exc}")
+
+if __name__ == "__main__":
+    # Run preview only when script is executed directly
+    preview_training_data()
+
+    # Optionally kick off training here
+    # result = train_yield_model()
+    # print(result)
+
 
 
 def set_seeds(seed: int):
@@ -157,6 +219,7 @@ def set_seeds(seed: int):
 
 
 def _train_baseline_xgboost(config: Dict, X_train, y_train, X_test):
+    config = resolve_config(config, DEFAULT_XGB_CONFIG)
     model = xgb.XGBRegressor(
         n_estimators=config.get("n_estimators", 200),
         max_depth=config.get("max_depth", 6),
@@ -174,6 +237,17 @@ def _train_baseline_xgboost(config: Dict, X_train, y_train, X_test):
 
 def _train_dp_sgd_regressor(config: Dict, X_train, y_train, X_test):
     """Train a small DP-SGD regressor using optional torch + opacus."""
+    config = resolve_config(config, DEFAULT_DP_CONFIG)
+
+    seed = int(config["seed"])
+    torch.manual_seed(seed)
+
+    batch_size = int(config["dp_batch_size"])
+    epochs = int(config["dp_epochs"])
+    max_grad_norm = float(config["dp_max_grad_norm"])
+    learning_rate = float(config["dp_learning_rate"])
+    epsilon = float(config["epsilon"])
+    delta = float(config["delta"])
     try:
         import torch
         from torch import nn

@@ -176,34 +176,40 @@ class ABTest:
         return float(np.mean(variant_samples > control_samples))
 
     def get_winner(self) -> Optional[Arm]:
-        """Determine winner via two-proportion z-test."""
-        total_trials = self.control_arm.total_trials + self.variant_arm.total_trials
-        if total_trials < self.min_samples:
+        """Determine winner using a two-sample Z-test for proportions."""
+        n1 = self.control_arm.total_trials
+        n2 = self.variant_arm.total_trials
+
+        if (n1 + n2) < self.min_samples or n1 == 0 or n2 == 0:
             return None
 
-        n_c = self.control_arm.total_trials
-        n_v = self.variant_arm.total_trials
-        s_c = self.control_arm.successes
-        s_v = self.variant_arm.successes
+        p1 = self.control_arm.successes / n1
+        p2 = self.variant_arm.successes / n2
 
-        p_c = s_c / max(n_c, 1)
-        p_v = s_v / max(n_v, 1)
-
-        # Pooled proportion under null hypothesis
-        p_pool = (s_c + s_v) / max(total_trials, 1)
+        # Pooled proportion under the null hypothesis (p1 == p2)
+        p_pooled = (self.control_arm.successes + self.variant_arm.successes) / (n1 + n2)
+        if p_pooled <= 0 or p_pooled >= 1:
+            return None
 
         # Standard error of the difference
-        se = math.sqrt(p_pool * (1 - p_pool) * (1 / max(n_c, 1) + 1 / max(n_v, 1)))
+        se = math.sqrt(p_pooled * (1 - p_pooled) * (1 / n1 + 1 / n2))
         if se == 0:
             return None
 
-        z = (p_c - p_v) / se
-        # Two-tailed p-value via complementary error function
-        p_value = math.erfc(abs(z) / math.sqrt(2))
+        # Z statistic
+        z_stat = (p2 - p1) / se
 
-        alpha = 1.0 - self.confidence_threshold
-        if p_value < alpha:
-            return self.variant_arm if p_v > p_c else self.control_arm
+        # Map confidence threshold to two-tailed critical z-values
+        if self.confidence_threshold >= 0.99:
+            z_crit = 2.576
+        elif self.confidence_threshold >= 0.95:
+            z_crit = 1.960
+        else:
+            z_crit = 1.645  # 90% confidence
+
+        if abs(z_stat) > z_crit:
+            return self.variant_arm if p2 > p1 else self.control_arm
+
         return None
 
     def end(self) -> None:
