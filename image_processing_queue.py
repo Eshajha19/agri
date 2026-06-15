@@ -320,12 +320,22 @@ class ImageProcessingQueue:
 
         return True
 
-    # -------------------------
-    # Stats
-    # -------------------------
-    def get_stats(self) -> Dict:
+    def get_pending_tasks(self, limit: int = 100) -> List[Dict]:
+        """Get pending tasks sorted by priority (highest first)"""
         with self._queue_lock:
-            qsize = len(self._task_queue)
+            entries = sorted(self._task_queue, key=lambda e: e[0])[:limit]
+            tasks = [entry[2] for entry in entries]
+            return [
+                {
+                    "task_id": t.task_id,
+                    "status": t.status.value,
+                    "priority": t.priority.name,
+                    "crop_type": t.crop_type,
+                    "processor_type": t.processor_type,
+                    "created_at": t.created_at,
+                }
+                for t in tasks
+            ]
 
         with self._task_lock:
             active = len(self._tasks_by_id)
