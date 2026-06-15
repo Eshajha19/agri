@@ -1,27 +1,28 @@
 """Alerts & Notifications Router"""
 import asyncio
-import logging
+import base64
+import hashlib
+import hmac
+import os
 import re
+import time
+import urllib.parse
 from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
-from pydantic import BaseModel, Field, validator
-
-router = APIRouter()
-
-from geo_alerts import notification_matches_regions, profile_can_broadcast_region, profile_regions, region_matches, normalize_region_identifier
-from backend.schemas import AlertTriggerRequest
+from pydantic import BaseModel, Field
+from error_utils import safe_detail
 from backend.core.logging_config import setup_logging
 
 router = APIRouter()
 logger = setup_logging(__name__)
 
-    @validator("message")
-    def strip_control_chars(cls, v):
-        from whatsapp_service import sanitise_message
-        return sanitise_message(v)
-
+# Idempotency store for processed webhook SIDs (MessageSid → timestamp).
+# Prevents duplicate processing from Twilio retries or replay attacks.
+# Entries older than WEBHOOK_IDEMPOTENCY_TTL seconds are pruned on access.
+_processed_webhook_sids: dict = {}
+WEBHOOK_IDEMPOTENCY_TTL = 86400  # 24 hours
 
 notification_store = None
 subscriber_store = None
@@ -30,6 +31,7 @@ send_whatsapp_fn = None
 format_alert_fn = None
 verify_role_fn = None
 resolve_user_profile_fn = None
+ALERT_HISTORY = {}
 
 
 def init_alerts(ns, ss, ga_fn, sw_fn, fa_fn, vr_fn, rp_fn=None):
@@ -43,8 +45,39 @@ def init_alerts(ns, ss, ga_fn, sw_fn, fa_fn, vr_fn, rp_fn=None):
     verify_role_fn = vr_fn
     resolve_user_profile_fn = rp_fn
 
+def _calculate_alert_severity(
+    frequency_score: int,
+    failure_score: int,
+    impact_score: int,
+    history_score: int,
+):
+    severity_score = round(
+        (
+            frequency_score * 0.30
+            + failure_score * 0.30
+            + impact_score * 0.25
+            + history_score * 0.15
+        ),
+        2,
+    )
 
-@router.get("/notifications")
+    if severity_score >= 80:
+        severity = "critical"
+    elif severity_score >= 65:
+        severity = "high"
+    elif severity_score >= 45:
+        severity = "medium"
+    else:
+        severity = "low"
+
+    return {
+        "severity": severity,
+        "severity_score": severity_score,
+    }
+
+
+
+@router.get("")
 async def get_notifications(
     request: Request,
     crop: str = Query(None),
@@ -55,7 +88,7 @@ async def get_notifications(
     if notification_store is None or generate_alerts_fn is None or verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     token_data = await verify_role_fn(request)
-    uid = token_data["uid"]
+    uid = token_data.get("sub") or token_data.get("uid")
     user_regions = profile_regions(resolve_user_profile_fn(uid)) if resolve_user_profile_fn is not None else set()
     dynamic_alerts = generate_alerts_fn(
         crop=crop,
@@ -68,7 +101,20 @@ async def get_notifications(
         for notification in notification_store.get_recent_for_user(uid)
         if notification_matches_regions(notification, user_regions)
     ]
-    return {"success": True, "data": stored + dynamic_alerts}
+    
+    # Validate and serialize all alerts through AlertSummary schema
+    all_alerts = stored + dynamic_alerts
+    validated_alerts = []
+    for alert in all_alerts:
+        try:
+            validated = AlertSummary.model_validate(alert)
+            validated_alerts.append(validated.model_dump())
+        except Exception as e:
+            logger.warning(f"Alert validation failed for uid={uid}: {e}")
+            # Skip invalid alerts rather than breaking the entire response
+            continue
+    
+    return {"success": True, "data": validated_alerts}
 
 
 # E.164 phone number: optional leading '+', then 7-15 digits with a
@@ -105,7 +151,7 @@ async def subscribe_whatsapp(
 
     try:
         token_data = await verify_role_fn(request)
-        uid = token_data.get("uid")
+        uid = token_data.get("sub") or token_data.get("uid")
         subscriber = {
             "phone_number": phone_number,
             "name": clean_name,
@@ -113,14 +159,13 @@ async def subscribe_whatsapp(
             "region_id": normalize_region_identifier(region_id) or None,
         }
         subscriber_store.upsert(uid, subscriber)
-        welcome_msg = f"Namaste {clean_name}! \U0001f64f\nWelcome to *Fasal Saathi WhatsApp Alerts*."
+        welcome_msg = f"Namaste {name}! 🙏\nWelcome to *Fasal Saathi WhatsApp Alerts*."
         await asyncio.to_thread(send_whatsapp_fn, phone_number, welcome_msg)
         return {"success": True, "message": "Successfully subscribed"}
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("WhatsApp subscription failed: %s", e)
-        raise HTTPException(status_code=500, detail="WhatsApp subscription failed")
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.post("/whatsapp/trigger-alert")
@@ -129,7 +174,7 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
         raise HTTPException(status_code=500, detail="Not initialized")
     try:
         token_data = await verify_role_fn(request)
-        uid = token_data["uid"]
+        uid = token_data.get("sub") or token_data.get("uid")
         role = str(token_data.get("role", "")).strip().lower()
         region_id = normalize_region_identifier(data.region_id) if data.region_id else ""
 
@@ -143,6 +188,8 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
         subscribers = subscriber_store.get_all()
         results = []
         formatted_msg = format_alert_fn(data.alert_type, data.message)
+        history = ALERT_HISTORY.get(data.alert_type, 0) + 1
+        ALERT_HISTORY[data.alert_type] = history
         if region_id:
             subscribers = {
                 user_id: info
@@ -156,14 +203,72 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
                 "success": res.get("success", False),
                 "status": res.get("status", "error"),
             })
-        notification_store.append(alert_type=data.alert_type, message=data.message, region_id=region_id or None)
-        delivered = sum(1 for r in results if r["success"])
-        return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
+        delivered = sum(
+            1 for r in results
+            if r["success"]
+        )
+
+        failed_deliveries = len(results) - delivered
+
+        frequency_score = min(
+            history * 10,
+            100,
+        )
+
+        failure_score = min(
+            int(
+                (
+                    failed_deliveries
+                    / max(len(results), 1)
+                ) * 100
+            ),
+            100,
+        )
+
+        impact_score = min(
+            delivered * 5,
+            100,
+        )
+
+        history_score = min(
+            history * 8,
+            100,
+        )
+
+        severity_data = _calculate_alert_severity(
+            frequency_score=frequency_score,
+            failure_score=failure_score,
+            impact_score=impact_score,
+            history_score=history_score,
+        )
+
+        notification_store.append(
+            alert_type=data.alert_type,
+            message=data.message,
+            region_id=region_id or None,
+            severity=severity_data["severity"],
+            severity_score=severity_data["severity_score"],
+            occurrence_count=history,
+            delivery_success_count=delivered,
+            delivery_failure_count=failed_deliveries,
+        )
+        return {
+            "success": True,
+            "results": results,
+            "delivered": delivered,
+            "total": len(results),
+            "alert_context": {
+                "severity": severity_data["severity"],
+                "severity_score": severity_data["severity_score"],
+                "occurrence_count": history,
+                "delivery_success_count": delivered,
+                "delivery_failure_count": failed_deliveries,
+            },
+        }
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Alert broadcast failed: %s", e)
-        raise HTTPException(status_code=500, detail="Alert broadcast failed")
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 
@@ -174,12 +279,13 @@ async def whatsapp_webhook(
     request: Request,
     Body: str = Form(...),
     From: str = Form(...),
+    MessageSid: str = Form(...),
 ):
     """Receive inbound WhatsApp messages from Twilio.
 
     Security controls applied:
-    1. Early body-size enforcement — payloads larger than 10 KB are
-       rejected with HTTP 413 before any signature or processing work.
+    1. Idempotency — duplicate MessageSid values are silently acknowledged
+       so Twilio retries and replay attacks cannot trigger repeated effects.
     2. Twilio signature verification — every request is validated with
        HMAC-SHA1 against TWILIO_AUTH_TOKEN before any processing.
        Requests with a missing or invalid X-Twilio-Signature are
@@ -194,8 +300,27 @@ async def whatsapp_webhook(
     if send_whatsapp_fn is None:
         raise HTTPException(status_code=500, detail="Not initialized")
 
+    # Read the raw body for signature verification (body is cached by Starlette
+    # after Form parsing, so this is safe to call after FastAPI parses params).
     raw_body = await request.body()
     _verify_twilio_signature(request, raw_body)
+
+    # Idempotency check: skip already-processed MessageSid.
+    # Runs after signature verification so an attacker cannot probe
+    # which SIDs have been seen without a valid signature.
+    now = time.monotonic()
+    cutoff = now - WEBHOOK_IDEMPOTENCY_TTL
+    already_seen = False
+    stale_keys = []
+    for sid, ts in _processed_webhook_sids.items():
+        if ts < cutoff:
+            stale_keys.append(sid)
+        elif sid == MessageSid:
+            already_seen = True
+    for sid in stale_keys:
+        _processed_webhook_sids.pop(sid, None)
+    if already_seen:
+        return {"status": "duplicate", "message": "Already processed"}
 
     incoming_msg = Body.lower().strip()
     sender_number = _validate_whatsapp_number(From)
@@ -211,4 +336,5 @@ async def whatsapp_webhook(
         "Try 'Weather' or 'Pest' 🌱",
     )
     send_whatsapp_fn(sender_number, response)
+    _processed_webhook_sids[MessageSid] = time.monotonic()
     return {"status": "success"}

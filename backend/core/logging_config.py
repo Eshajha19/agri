@@ -1,5 +1,13 @@
 import logging
 from contextvars import ContextVar
+from pythonjsonlogger import jsonlogger
+from typing import Optional, Dict, Any
+
+try:
+    from opentelemetry import trace
+    HAS_OPENTELEMETRY = True
+except ImportError:
+    HAS_OPENTELEMETRY = False
 
 # Thread-safe / async-safe context storage
 log_context: ContextVar[dict] = ContextVar("log_context", default={})
@@ -11,11 +19,20 @@ class ContextFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         context = log_context.get()
 
-        record.context = (
-            ", ".join(f"{k}={v}" for k, v in context.items())
-            if context
-            else "-"
-        )
+        # Add context fields directly to the record for JSON formatter
+        for k, v in context.items():
+            setattr(record, k, v)
+
+        # Add OpenTelemetry trace ID if available
+        if HAS_OPENTELEMETRY:
+            try:
+                span = trace.get_current_span()
+                if span.is_recording():
+                    trace_id = format(span.get_span_context().trace_id, "016x")
+                    record.trace_id = trace_id
+            except Exception:
+                pass
+
         return True
 
 
@@ -34,6 +51,7 @@ def clear_log_context():
 def setup_logging(
     name: str = __name__,
     level: int = logging.INFO,
+    json_format: bool = True,
 ) -> logging.Logger:
     """Configure and return a logger."""
 
@@ -45,13 +63,20 @@ def setup_logging(
 
     handler = logging.StreamHandler()
 
-    formatter = logging.Formatter(
-        fmt=(
-            "%(asctime)s | %(levelname)-8s | %(name)s | "
-            "%(funcName)s:%(lineno)d | %(context)s | %(message)s"
-        ),
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    if json_format:
+        formatter = jsonlogger.JsonFormatter(
+            "%(asctime)s %(levelname)s %(name)s %(funcName)s %(lineno)d %(message)s",
+            rename_fields={"levelname": "level"},
+            timestamp=True
+        )
+    else:
+        formatter = logging.Formatter(
+            fmt=(
+                "%(asctime)s | %(levelname)-8s | %(name)s | "
+                "%(funcName)s:%(lineno)d | %(message)s"
+            ),
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
 
     handler.setFormatter(formatter)
     handler.addFilter(ContextFilter())

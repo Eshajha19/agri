@@ -19,8 +19,48 @@ from typing import Tuple
 from fastapi import HTTPException, Request
 from rbac_audit import audit_rbac_event
 
+from enum import Enum
+
+class MessageType(str, Enum):
+    TEXT = "text"
+    IMAGE = "image"
+    AUDIO = "audio"
+    VIDEO = "video"
+    DOCUMENT = "document"
+    STICKER = "sticker"
+    BUTTON = "button"
+from typing import Dict, Any, List
+import logging
+
 logger = logging.getLogger(__name__)
 
+def normalize_whatsapp_payload(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Extract and normalize all messages from a WhatsApp webhook payload."""
+    messages = []
+    try:
+        for entry in payload.get("entry", []):
+            for change in entry.get("changes", []):
+                value = change.get("value", {})
+                for msg in value.get("messages", []):
+                    normalized = {
+                        "from": msg.get("from"),
+                        "id": msg.get("id"),
+                        "timestamp": msg.get("timestamp"),
+                        "text": msg.get("text", {}).get("body"),
+                        "type": msg.get("type"),
+                    }
+                    messages.append(normalized)
+    except Exception as exc:
+        logger.exception("Failed to normalize WhatsApp payload: %s", exc)
+    return messages
+
+
+
+# Supported WhatsApp message types
+SUPPORTED_WHATSAPP_TYPES = {"text", "image", "audio", "video", "document", "sticker"}
+
+# Configurable strict mode (default: warning mode)
+STRICT_MODE = os.getenv("WHATSAPP_STRICT_MODE", "false").lower() == "true"
 
 def verify_twilio_signature(request: Request, body: bytes) -> None:
     """Validate the X-Twilio-Signature header using HMAC-SHA1.
@@ -114,8 +154,92 @@ def validate_whatsapp_number(raw: str) -> str:
 
 def parse_whatsapp_form(body: bytes) -> Tuple[str, str]:
     """Extract Body and From fields from a Twilio form-encoded webhook payload."""
-    params = dict(urllib.parse.parse_qsl(body.decode("utf-8"), keep_blank_values=True))
+    try:
+        params = dict(urllib.parse.parse_qsl(body.decode("utf-8"), keep_blank_values=True))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Malformed form payload")
     return params.get("Body", ""), params.get("From", "")
+
+async def handle_inbound_whatsapp_webhook(request: Request) -> dict:
+    try:
+        raw_body = await request.body()
+        verify_twilio_signature(request, raw_body)
+
+        message_body, from_raw = parse_whatsapp_form(raw_body)
+        payload_sender = extract_sender_from_payload(raw_body)
+        sender_number = validate_whatsapp_number(from_raw)
+
+        # ✅ Consistency check
+        if payload_sender and payload_sender != from_raw:
+            logger.warning(
+                "Sender mismatch: payload=%s, parsed=%s", payload_sender, from_raw
+            )
+            raise HTTPException(status_code=400, detail="Sender number mismatch")
+
+        enqueue_whatsapp_webhook_processing(message_body, sender_number)
+        return {"status": "success"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Unexpected error processing inbound WhatsApp webhook: %s",
+            exc,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to process webhook",
+        ) from None
+
+
+def normalize_whatsapp_payload(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    messages = []
+    try:
+        for entry in payload.get("entry", []):
+            for change in entry.get("changes", []):
+                value = change.get("value", {})
+                for msg in value.get("messages", []):
+                    msg_type = msg.get("type")
+
+                    if msg_type not in SUPPORTED_WHATSAPP_TYPES:
+                        if STRICT_MODE:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"Unsupported WhatsApp message type: {msg_type}",
+                            )
+                        else:
+                            logger.warning("Unknown WhatsApp message type: %s", msg_type)
+                            continue
+
+                    if msg_type == MessageType.TEXT.value:
+                        text = msg.get("text", {}).get("body")
+                        media_id = None
+                    elif msg_type in {
+                        MessageType.IMAGE.value,
+                        MessageType.AUDIO.value,
+                        MessageType.VIDEO.value,
+                        MessageType.DOCUMENT.value,
+                        MessageType.STICKER.value,
+                    }:
+                        text = None
+                        media_id = msg.get(msg_type, {}).get("id")
+                    else:
+                        text = None
+                        media_id = None
+
+                    normalized = {
+                        "from": msg.get("from"),
+                        "id": msg.get("id"),
+                        "timestamp": msg.get("timestamp"),
+                        "text": text,
+                        "media_id": media_id,
+                        "type": msg_type,
+                    }
+                    messages.append(normalized)
+    except Exception as exc:
+        logger.exception("Failed to normalize WhatsApp payload: %s", exc)
+    return messages
+
 
 
 def enqueue_whatsapp_webhook_processing(message_body: str, sender_number: str) -> None:
@@ -125,19 +249,22 @@ def enqueue_whatsapp_webhook_processing(message_body: str, sender_number: str) -
     process_whatsapp_webhook_task.delay(message_body, sender_number)
 
 
-async def handle_inbound_whatsapp_webhook(request: Request) -> dict:
-    """
-    Verify Twilio signature, validate sender, and enqueue async processing.
+MAX_BODY_SIZE = 64 * 1024  # 64 KB
 
-    Returns immediately so Twilio does not time out under burst traffic.
-    Any unhandled exception is caught and returned as a clean 500 so
-    Python stack traces never leak to the caller.
-    """
+async def handle_inbound_whatsapp_webhook(request: Request) -> dict:
     try:
         raw_body = await request.body()
+
+        # Step 1: Body length check
+        if len(raw_body) > MAX_BODY_SIZE:
+            raise HTTPException(status_code=413, detail="Webhook body too large")
+
         verify_twilio_signature(request, raw_body)
 
+        #  Step 2: Hardened form parsing
         message_body, from_raw = parse_whatsapp_form(raw_body)
+
+        # Step 3: Validate sender number safely
         sender_number = validate_whatsapp_number(from_raw)
 
         enqueue_whatsapp_webhook_processing(message_body, sender_number)
