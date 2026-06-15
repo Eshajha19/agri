@@ -174,7 +174,7 @@ class FarmFinanceAI:
             score -= 10
 
         if annual_revenue <= 0:
-            score = 0
+            score = max(0, min(100, round(score, 1)))
 
         score = max(0, min(100, round(score, 1)))
         risk_level = self._risk_level(score)
@@ -564,8 +564,15 @@ class FarmFinanceAI:
         tenure_months: int,
     ) -> float:
         candidate = requested_amount or annual_revenue * 0.3
-        affordable_principal = self._principal_from_emi(max_affordable_emi, rate, tenure_months)
-        revenue_cap = annual_revenue * 0.75 if annual_revenue else candidate
+        if annual_revenue <= 0:
+            # New farmer without revenue history — use requested amount as cap
+            # with a minimum floor of ₹25,000 for subsistence
+            candidate = max(requested_amount, 25000.0)
+            affordable_principal = self._principal_from_emi(max_affordable_emi, rate, tenure_months) if max_affordable_emi > 0 else candidate
+            revenue_cap = candidate
+        else:
+            affordable_principal = self._principal_from_emi(max_affordable_emi, rate, tenure_months)
+            revenue_cap = annual_revenue * 0.75
         return max(0.0, round(min(candidate, affordable_principal, revenue_cap), 2))
 
     def _principal_from_emi(self, monthly_emi: float, annual_interest_rate: float, tenure_months: int) -> float:
