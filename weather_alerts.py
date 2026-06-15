@@ -236,7 +236,11 @@ class WeatherAlertsService:
         self._next_alert_id: int = 1
 
     def _evict_expired(self) -> None:
-        """Remove expired entries from the weather cache."""
+        """Remove all expired entries from the weather cache.
+
+        Called unconditionally on every fetch so that stale data is never
+        served to callers even when the cache remains below its size cap.
+        """
         now = datetime.now()
         expired_keys = [
             key for key, (_, ts) in self._weather_cache.items()
@@ -244,6 +248,20 @@ class WeatherAlertsService:
         ]
         for key in expired_keys:
             del self._weather_cache[key]
+        if expired_keys:
+            logger.debug("Weather cache: evicted %d expired entries.", len(expired_keys))
+
+    def purge_expired_cache(self) -> int:
+        """Proactively remove all expired cache entries.
+
+        Returns the number of entries removed.  Can be called from an
+        external scheduler to keep memory usage predictable.
+        """
+        before = len(self._weather_cache)
+        self._evict_expired()
+        removed = before - len(self._weather_cache)
+        logger.info("Weather cache purge: removed %d expired entries (%d remaining).", removed, len(self._weather_cache))
+        return removed
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -300,20 +318,17 @@ class WeatherAlertsService:
         Returns:
             WeatherData object or None if fetch fails
         """
-        cache_key = f"{latitude},{longitude}|{location}"
-        
-        
+        cache_key = f"{latitude},{longitude}"
 
-        # Evict stale entries before every read so expired data does not
-        # accumulate indefinitely when the cache stays below max size.
+        # Always evict all stale entries first so expired data is never
+        # served regardless of whether the cache has reached its size cap.
         self._evict_expired()
 
-        # Check cache
+        # Return a still-valid cached result when one is present.
         if cache_key in self._weather_cache:
-            cached_data, cached_time = self._weather_cache[cache_key]
-            if datetime.now() - cached_time < self.cache_duration:
-                return cached_data
-            del self._weather_cache[cache_key]
+            cached_data, _ = self._weather_cache[cache_key]
+            logger.debug("Weather cache hit for key '%s'.", cache_key)
+            return cached_data
 
         try:
             session = await self._get_session()
@@ -346,11 +361,23 @@ class WeatherAlertsService:
                         location=location,
                     )
                         
-                    # Cache the result
-                    self._weather_cache[cache_key] = (weather, datetime.now())
-                    if len(self._weather_cache) > self._max_cache_size:
-                        self._evict_expired()
-                    return weather
+                        # Cache the fresh result.
+                        # Eviction already ran at the top of this method so
+                        # we only need to enforce the hard size cap here.
+                        self._weather_cache[cache_key] = (weather, datetime.now())
+                        if len(self._weather_cache) > self._max_cache_size:
+                            # Hard cap: remove oldest entries to stay within limit.
+                            oldest_keys = sorted(
+                                self._weather_cache,
+                                key=lambda k: self._weather_cache[k][1]
+                            )[: len(self._weather_cache) - self._max_cache_size]
+                            for k in oldest_keys:
+                                del self._weather_cache[k]
+                            logger.warning(
+                                "Weather cache exceeded max size; evicted %d oldest entries.",
+                                len(oldest_keys),
+                            )
+                        return weather
         except asyncio.TimeoutError:
             logger.warning(f"Weather API timeout for {location}")
         except Exception as e:
@@ -402,7 +429,7 @@ class WeatherAlertsService:
                     expires_at=weather.timestamp + timedelta(hours=6),
                 ))
 
-        if weather.temperature < 0:
+        if weather.temperature <= 0:
             alerts.append(WeatherAlert(
                 id=f"weather_{next(self._alert_id_counter)}",
                 severity=AlertSeverity.CRITICAL,
