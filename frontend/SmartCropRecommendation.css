@@ -11,6 +11,11 @@
   animation: slideUp 0.3s ease-out;
 }
 
+.theme-dark .smart-crop-recommendation {
+  background: linear-gradient(135deg, #0f172a 0%, #111827 100%);
+  color: #e5e7eb;
+}
+
 @keyframes slideUp {
   from {
     opacity: 0;
@@ -103,6 +108,11 @@
   border-left: 4px solid #2ecc71;
 }
 
+.theme-dark .smart-crop-recommendation .input-section {
+  background: #1f2937;
+  border-left-color: #22c55e;
+}
+
 .recommendation-form {
   display: flex;
   flex-direction: column;
@@ -130,11 +140,13 @@
 
 .form-input {
   padding: 12px 16px;
-  border: 2px solid #ecf0f1;
+  border: 2px solid var(--border-color, #ecf0f1);
   border-radius: 8px;
   font-size: 14px;
   transition: all 0.2s;
-  background: #f8f9fa;
+  background: var(--surface-bg, #f8f9fa);
+  color: var(--text-primary, #2c3e50);
+  -webkit-text-fill-color: var(--text-primary, #2c3e50);
 }
 
 .form-input:focus {
@@ -142,6 +154,25 @@
   border-color: #2ecc71;
   background: white;
   box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.1);
+}
+
+.theme-dark .smart-crop-recommendation .form-group label {
+  color: #e5e7eb;
+}
+
+.theme-dark .smart-crop-recommendation .form-input {
+  background: #0f172a;
+  border-color: #475569;
+  color: #f8fafc;
+}
+
+.theme-dark .smart-crop-recommendation .form-input::placeholder {
+  color: #94a3b8;
+}
+
+.theme-dark .smart-crop-recommendation .form-input:focus {
+  background: #111827;
+  border-color: #22c55e;
 }
 
 .input-with-btn {
@@ -182,7 +213,8 @@
   padding: 12px 16px;
   border: 2px solid #ecf0f1;
   border-radius: 8px;
-  background: #f8f9fa;
+  background: var(--surface-bg, #f8f9fa);
+  color: var(--text-primary, #2c3e50);
   cursor: pointer;
   display: flex;
   justify-content: space-between;
@@ -222,11 +254,43 @@
   width: 100%;
   padding: 12px 16px;
   border: none;
-  background: white;
+  background: var(--surface-bg, #ffffff);
+  color: var(--text-primary, #2c3e50);
   cursor: pointer;
   text-align: left;
   transition: all 0.2s;
   font-size: 14px;
+}
+
+.theme-dark .smart-crop-recommendation .dropdown-btn {
+  background: #0f172a;
+  border-color: #475569;
+  color: #f8fafc;
+}
+
+.theme-dark .smart-crop-recommendation .dropdown-btn:hover,
+.theme-dark .smart-crop-recommendation .dropdown-btn:focus {
+  background: #111827;
+  border-color: #22c55e;
+}
+
+.theme-dark .smart-crop-recommendation .dropdown-menu {
+  background: #0f172a;
+  border-color: #22c55e;
+}
+
+.theme-dark .smart-crop-recommendation .dropdown-item {
+  background: #0f172a;
+  color: #e5e7eb;
+}
+
+.theme-dark .smart-crop-recommendation .dropdown-item:hover {
+  background: #1f2937;
+}
+
+.theme-dark .smart-crop-recommendation .dropdown-item.active {
+  background: rgba(34, 197, 94, 0.18);
+  color: #bbf7d0;
 }
 
 .dropdown-item:hover {
@@ -323,6 +387,11 @@
   border-left: 4px solid #9c27b0;
 }
 
+.theme-dark .smart-crop-recommendation .weather-info {
+  background: #1f2937;
+  border-left-color: #a78bfa;
+}
+
 .weather-info h4 {
   margin: 0 0 12px 0;
   color: #2c3e50;
@@ -347,6 +416,11 @@
   border: 1px solid #e0e0e0;
 }
 
+.theme-dark .smart-crop-recommendation .weather-card {
+  background: #0f172a;
+  border-color: #334155;
+}
+
 .weather-card svg {
   color: #2ecc71;
   size: 20px;
@@ -356,6 +430,17 @@
   font-weight: 700;
   color: #2c3e50;
   font-size: 16px;
+}
+
+.theme-dark .smart-crop-recommendation .weather-info h4,
+.theme-dark .smart-crop-recommendation .weather-card span,
+.theme-dark .smart-crop-recommendation .recommendations-section h3,
+.theme-dark .smart-crop-recommendation .crop-info h4,
+.theme-dark .smart-crop-recommendation .crop-season,
+.theme-dark .smart-crop-recommendation .loading-container p,
+.theme-dark .smart-crop-recommendation .initial-state,
+.theme-dark .smart-crop-recommendation .initial-state h3 {
+  color: #e5e7eb;
 }
 
 .weather-card small {
@@ -395,6 +480,11 @@
   gap: 12px;
 }
 
+.theme-dark .smart-crop-recommendation .crop-card {
+  background: #1f2937;
+  border-color: #334155;
+}
+
 .crop-card:hover {
   border-color: #2ecc71;
   box-shadow: 0 4px 12px rgba(46, 204, 113, 0.15);
@@ -405,6 +495,11 @@
   background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
   border-color: #2ecc71;
   box-shadow: 0 6px 16px rgba(46, 204, 113, 0.25);
+}
+
+.theme-dark .smart-crop-recommendation .crop-card.active {
+  background: rgba(34, 197, 94, 0.14);
+  border-color: #22c55e;
 }
 
 .crop-card-header {
@@ -471,6 +566,14 @@
   color: #555;
 }
 
+.theme-dark .smart-crop-recommendation .crop-info p,
+.theme-dark .smart-crop-recommendation .crop-score small,
+.theme-dark .smart-crop-recommendation .reason,
+.theme-dark .smart-crop-recommendation .initial-state > p,
+.theme-dark .smart-crop-recommendation .tips ul {
+  color: #cbd5e1;
+}
+
 .icon-success {
   color: #27ae60;
 }
@@ -485,6 +588,10 @@
   padding: 8px;
   background: #f0f0f0;
   border-radius: 6px;
+}
+
+.theme-dark .smart-crop-recommendation .crop-season {
+  background: #0f172a;
 }
 
 .crop-season strong {
@@ -602,6 +709,11 @@
   text-align: left;
   max-width: 300px;
   border-left: 3px solid #2ecc71;
+}
+
+.theme-dark .smart-crop-recommendation .tips {
+  background: #0f172a;
+  border-left-color: #22c55e;
 }
 
 .tips h4 {

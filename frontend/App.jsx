@@ -526,6 +526,19 @@ useEffect(() => {
   };
 }, [preferredLang]);
 
+const translationService = new TranslationService();
+
+useEffect(() => {
+  const runTranslation = async () => {
+    try {
+      const translated = await translationService.translate("Hello", preferredLang);
+      console.log("Translation result:", translated);
+    } catch (err) {
+      console.error("Translation failed:", err);
+    }
+  };
+  void runTranslation();
+}, [preferredLang]);
 
   useEffect(() => {
     const hideGoogleTranslateBanner = () => {
@@ -828,6 +841,7 @@ useEffect(() => {
 
   return (
     <div className={`app ${theme !== "light" ? "theme-dark" : ""} ${theme === "night" ? "theme-night" : ""} ${liteMode ? "lite-mode" : ""}`}>
+      <SkipLink />
       {user?.isAnonymous && <GuestBanner />}
 
       {loading && <Loader fullPage={true} message={<span className="notranslate">Initializing Fasal Saathi...</span>} />}
@@ -865,13 +879,15 @@ useEffect(() => {
             onClick={(e) => { e.stopPropagation(); setShowMoreMenu(!showMoreMenu); }}
             className={`more-menu-toggle ${showMoreMenu ? 'active' : ''}`}
             aria-label="More Options"
+            aria-expanded={showMoreMenu}
+            aria-haspopup="menu"
           >
             <span className="notranslate">More</span>
             <FaChevronDown className="chevron" />
           </button>
 
           {showMoreMenu && (
-            <div className="more-dropdown" onClick={(e) => e.stopPropagation()} role="menu">
+            <div className="more-dropdown" onClick={(e) => e.stopPropagation()} role="menu" aria-label="More options menu">
               <div className="dropdown-links">
                 <div className="language-selector-section">
                   <label className="language-label">Language:</label>
@@ -948,7 +964,15 @@ useEffect(() => {
 
           <div className="nav-user" ref={scorecardRef}>
             {!loading && user ? (
-              <div className="user-profile-trigger" onClick={() => { setShowScorecard(!showScorecard); setShowMoreMenu(false); }}>
+              <div
+                className="user-profile-trigger"
+                onClick={() => { setShowScorecard(!showScorecard); setShowMoreMenu(false); }}
+                role="button"
+                tabIndex={0}
+                aria-expanded={showScorecard}
+                aria-haspopup="true"
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setShowScorecard(!showScorecard); setShowMoreMenu(false); } }}
+              >
                 <div className="profile-main">
                   <span className="profile-name">👋 {userData?.displayName || user.email?.split('@')[0]}</span>
                   <FaChevronDown className={`chevron ${showScorecard ? 'open' : ''}`} />
@@ -1124,15 +1148,15 @@ useEffect(() => {
         target="_blank"
         rel="noopener noreferrer"
         className="whatsapp-float"
-        title="Chat with WhatsApp Bot"
+        aria-label="Chat with WhatsApp Bot (opens in new tab)"
       >
-        <FaWhatsapp />
-        <span className="tooltip">Chat with Bot</span>
+        <FaWhatsapp aria-hidden="true" />
+        <span className="tooltip" aria-hidden="true">Chat with Bot</span>
       </a>
 
       {showScrollTop && (
         <button className="scroll-to-top" onClick={scrollToTop} aria-label="Scroll to top">
-          <FaChevronUp size={24} />
+          <FaChevronUp size={24} aria-hidden="true" />
         </button>
       )}
 

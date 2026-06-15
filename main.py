@@ -18,7 +18,6 @@ from backend.utils.safe_log import sanitize_log_field
 
 from fastapi import FastAPI
 from backend.middleware.body_size_limit import BodySizeLimitMiddleware
-from .models import model, model_lag 
 
 app = FastAPI()
 
@@ -28,44 +27,6 @@ app.add_middleware(BodySizeLimitMiddleware)
 
 # Expose sanitizer globally so routers can use it
 sanitise_log_field_fn = sanitize_log_field
-
-app = FastAPI()
-
-@app.get("/health")
-def health_check():
-    models_ready = model is not None and model_lag is not None
-    return {
-        "status": "ok",
-        "models_loaded": models_ready
-    }
-
-# Optional: root endpoint for convenience
-@app.get("/")
-def root():
-    models_ready = model is not None and model_lag is not None
-    return {
-        "status": "ok",
-        "models_loaded": models_ready
-    }
-
-@app.post("/predict-yield-lag")
-def predict_yield_lag(input: YieldInput):
-    """
-    Predict yield lag based on agronomic inputs.
-    Validates that inputs are numeric and within realistic ranges.
-    """
-    # your model inference logic here
-    return {"prediction": "lag result"}
-
-@app.post("/predict-yield-trend")
-def predict_yield_trend(input: YieldInput):
-    """
-    Predict yield trend based on agronomic inputs.
-    Validates that inputs are numeric and within realistic ranges.
-    """
-    # your model inference logic here
-    return {"prediction": "trend result"}
-
 
 class CSPMiddleware:
     """Add Content-Security-Policy header to every response."""
@@ -177,7 +138,6 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.units import inch
-from backend.ml.schemas import YieldInput
 
 from fastapi import FastAPI
 
@@ -217,46 +177,6 @@ All side-effectful initialization (DB, ML models, Celery, Firebase) occurs
 inside FastAPI lifespan() to ensure consistent startup across single-worker,
 multi-worker, and reload environments.
 """
-
-@app.post("/api/whatsapp/webhook")
-async def whatsapp_webhook(request: Request):
-    payload = await request.json()
-    normalized_messages = normalize_whatsapp_payload(payload)
-
-    for msg in normalized_messages:
-        # process each message individually
-        handle_inbound_message(msg)
-    return {"status": "ok", "processed": len(normalized_messages)}
-
-@app.post("/api/whatsapp/webhook")
-async def whatsapp_webhook(request: Request):
-    payload = await request.json()
-    normalized_messages = normalize_whatsapp_payload(payload)
-
-    for msg in normalized_messages:
-        # process each message individually
-        handle_inbound_message(msg)
-    return {"status": "ok", "processed": len(normalized_messages)}
-
-@app.post("/api/whatsapp/webhook")
-async def whatsapp_webhook(request: Request):
-    payload = await request.json()
-    normalized_messages = normalize_whatsapp_payload(payload)
-
-    for msg in normalized_messages:
-        # process each message individually
-        handle_inbound_message(msg)
-    return {"status": "ok", "processed": len(normalized_messages)}
-
-@app.post("/api/whatsapp/webhook")
-async def whatsapp_webhook(request: Request):
-    payload = await request.json()
-    normalized_messages = normalize_whatsapp_payload(payload)
-
-    for msg in normalized_messages:
-        # process each message individually
-        handle_inbound_message(msg)
-    return {"status": "ok", "processed": len(normalized_messages)}
 
 # KMS Support
 try:
@@ -2651,7 +2571,7 @@ import hashlib
 import collections
 import threading
 import time
-import asyncio
+import itertools
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
@@ -2937,6 +2857,15 @@ async def lifespan(app: FastAPI):
         logger.warning("RAG init skipped: %s", exc)
 
     knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
+    alerts.init_alerts(
+        [],
+        subscriber_store,
+        lambda **kwargs: [],
+        send_whatsapp_message,
+        format_alert_message,
+        verify_role,
+        lambda uid: _get_firestore_user_profile(uid),
+    )
     init_feature_flags(verify_role)
     platform.init_platform(
         verify_role,
@@ -4097,24 +4026,44 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 #   2. FRONTEND_URL env var — set this to the production deployment URL.
 #   3. ADDITIONAL_ALLOWED_ORIGINS env var — comma-separated list for staging
 #      or preview deployments (e.g. Vercel preview URLs).
+#
+# IMPORTANT: Browser Origin headers never contain a trailing slash
+# (per RFC 6454 §6.1). All origins are normalised with rstrip("/") so
+# that a misconfigured env var or hard-coded string cannot silently break
+# CORS validation for legitimate requests.
 # ---------------------------------------------------------------------------
+
+def _normalise_origin(origin: str) -> str:
+    """Strip trailing slashes from a CORS origin string.
+
+    Browsers send ``Origin: https://example.com`` (no trailing slash).
+    A configured value of ``https://example.com/`` would never match,
+    silently blocking all credentialed requests from that origin.
+    """
+    return origin.rstrip("/")
+
+
 _CORS_ORIGINS: list[str] = [
-    "http://localhost:5173",
-    "http://127.0.0.1:3000",
-    "https://fasal-saathi.vercel.app",
-    "https://fasal-saathi.xyz"
+    _normalise_origin(o) for o in [
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "https://fasal-saathi.vercel.app",
+        "https://fasal-saathi.xyz",   # trailing slash removed
+    ]
 ]
 
-_frontend_url = os.getenv("FRONTEND_URL", "").strip()
+_frontend_url = _normalise_origin(os.getenv("FRONTEND_URL", "").strip())
 if _frontend_url and _frontend_url not in _CORS_ORIGINS:
     _CORS_ORIGINS.append(_frontend_url)
 
 _extra_origins = os.getenv("ADDITIONAL_ALLOWED_ORIGINS", "").strip()
 if _extra_origins:
     for _origin in _extra_origins.split(","):
-        _origin = _origin.strip()
+        _origin = _normalise_origin(_origin.strip())
         if _origin and _origin not in _CORS_ORIGINS:
             _CORS_ORIGINS.append(_origin)
+
+logger.info("CORS allowlist (%d origins): %s", len(_CORS_ORIGINS), _CORS_ORIGINS)
 
 app.add_middleware(
     CORSMiddleware,
@@ -4280,6 +4229,12 @@ app.include_router(community.router, prefix="/api/community", tags=["Community"]
 if voice_assistant_router is not None:
     app.include_router(voice_assistant_router.router, prefix="/api/voice", tags=["Voice Assistant"])
 app.include_router(referrals.router, prefix="/api/referrals", tags=["Referrals"])
+app.include_router(platform.router, prefix="/api", tags=["Platform"])
+app.include_router(advisory.router, prefix="/api", tags=["Advisory"])
+app.include_router(alerts.router, prefix="/api/notifications", tags=["Alerts"])
+app.include_router(flags_router, tags=["Feature Flags"])
+app.include_router(lms.router, prefix="/api", tags=["LMS"])
+app.include_router(insurance.router, prefix="/api", tags=["Insurance"])
 
 
 # --- Smart Farm Autopilot ---

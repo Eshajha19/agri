@@ -8,12 +8,13 @@ import re
 import time
 import urllib.parse
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from error_utils import safe_detail
 from backend.core.logging_config import setup_logging
+from backend.schemas.alerts import AlertTriggerRequest, AlertSummary
 
 router = APIRouter()
 logger = setup_logging(__name__)
@@ -74,6 +75,91 @@ def _calculate_alert_severity(
         "severity": severity,
         "severity_score": severity_score,
     }
+
+
+def profile_regions(profile: Optional[Dict]) -> set:
+    """Extract regions from user profile. Returns empty set if profile is None or missing regions."""
+    if profile is None:
+        return set()
+    regions = profile.get("regions", []) if isinstance(profile, dict) else []
+    return set(regions) if isinstance(regions, (list, set)) else set()
+
+
+def notification_matches_regions(notification: Dict, user_regions: set) -> bool:
+    """Check if notification's region matches user's allowed regions."""
+    if not user_regions:
+        return True
+    notif_region = notification.get("region_id")
+    if not notif_region:
+        return True
+    return notif_region in user_regions
+
+
+def normalize_region_identifier(region_id: Optional[str]) -> Optional[str]:
+    """Normalize region identifier: strip whitespace, lowercase, validate."""
+    if not region_id:
+        return None
+    normalized = region_id.strip().lower()
+    return normalized if normalized else None
+
+
+def profile_can_broadcast_region(profile: Optional[Dict], region_id: str) -> bool:
+    """Check if user profile has permission to broadcast to a specific region."""
+    if profile is None:
+        return False
+    broadcast_regions = profile.get("broadcast_regions", []) if isinstance(profile, dict) else []
+    return region_id in broadcast_regions
+
+
+def region_matches(owned_region: str, target_region: str) -> bool:
+    """Check if owned region matches target region (case-insensitive comparison)."""
+    return owned_region.strip().lower() == target_region.strip().lower()
+
+
+def _verify_twilio_signature(request: Request, raw_body: bytes) -> None:
+    """Verify Twilio request signature using HMAC-SHA1.
+    
+    Raises HTTPException(403) if signature is invalid or missing.
+    """
+    twilio_token = os.environ.get("TWILIO_AUTH_TOKEN", "")
+    if not twilio_token:
+        logger.warning("TWILIO_AUTH_TOKEN not configured")
+        raise HTTPException(status_code=500, detail="Twilio auth not configured")
+    
+    signature = request.headers.get("X-Twilio-Signature", "")
+    if not signature:
+        logger.warning("Missing X-Twilio-Signature header")
+        raise HTTPException(status_code=403, detail="Invalid signature")
+    
+    request_url = str(request.url)
+    expected_hash = base64.b64encode(
+        hmac.new(
+            twilio_token.encode(),
+            (request_url + raw_body.decode()).encode(),
+            hashlib.sha1
+        ).digest()
+    ).decode()
+    
+    if not hmac.compare_digest(signature, expected_hash):
+        logger.warning("Invalid Twilio signature")
+        raise HTTPException(status_code=403, detail="Invalid signature")
+
+
+def _validate_whatsapp_number(whatsapp_number: str) -> str:
+    """Extract and validate WhatsApp phone number from 'whatsapp:+1234567890' format.
+    
+    Returns the E.164 formatted phone number.
+    Raises ValueError if format is invalid.
+    """
+    number = whatsapp_number
+    if number.startswith("whatsapp:"):
+        number = number[9:]
+    
+    if not _PHONE_E164_RE.match(number):
+        raise ValueError(f"Invalid E.164 phone number: {number}")
+    
+    return number
+
 
 
 

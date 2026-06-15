@@ -34,10 +34,12 @@
 }
 
 .reports-grid {
-  display: grid;
-  grid-template-columns: 1.5fr 1fr;
+  display: flex;
+  flex-direction: column; 
   gap: 2rem;
-  align-items: start;
+  width: 100%;
+  max-width: 680px;    
+  margin: 0 auto;        
 }
 
 .report-form-card, .report-history-card {
@@ -77,13 +79,15 @@
   color: #f7fafc;
 }
 
+
+
 .form-group {
   margin-bottom: 1.5rem;
 }
 
 .form-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-direction: column; 
   gap: 1.5rem;
 }
 
@@ -105,14 +109,30 @@
   border-radius: 8px;
   border: 1.5px solid #e2e8f0;
   background: #f8fafc;
+  color: #1f2937;
   font-size: 1rem;
   transition: all 0.2s;
+}
+
+.form-group input::placeholder {
+  color: #64748b;
+  opacity: 1;
 }
 
 .theme-dark .form-group input, .theme-dark .form-group select {
   background: #2d3748;
   border-color: #4a5568;
-  color: white;
+  color: #f8fafc;
+}
+
+.theme-dark .form-group input::placeholder {
+  color: #cbd5e1;
+  opacity: 1;
+}
+
+.theme-dark .form-group select option {
+  background: #1a202c;
+  color: #f8fafc;
 }
 
 .form-group input:focus {
@@ -140,7 +160,7 @@
 }
 
 .generate-btn:hover:not(:disabled) {
-  background: #1b5e20;
+  background: #35dbb2;
   transform: translateY(-2px);
   box-shadow: 0 5px 15px rgba(46, 125, 50, 0.2);
 }
@@ -229,6 +249,19 @@
 .spin {
   animation: spin 1s linear infinite;
 }
+/* Disable the unwanted hover effects on card headers */
+.card-header,
+.theme-dark .card-header {
+  background: transparent !important;
+  background-color: transparent !important;
+  cursor: default !important;
+}
+
+.card-header:hover,
+.theme-dark .card-header:hover {
+  background: transparent !important;
+  background-color: transparent !important;
+}
 
 @keyframes spin {
   from { transform: rotate(0deg); }
@@ -245,3 +278,80 @@
     grid-template-columns: 1fr;
   }
 }
+
+.bank-report-modal .report-preview-box {
+  color: #1e293b;
+}
+
+.theme-dark .bank-report-modal .report-preview-box {
+  background: #233044;
+  border-color: #475569;
+  color: #f8fafc;
+}
+
+.bank-report-modal .preview-header h3 {
+  color: #0c4a6e;
+}
+
+.theme-dark .bank-report-modal .preview-header h3,
+.theme-dark .bank-report-modal .preview-logo {
+  color: #7dd3fc;
+}
+
+.bank-report-modal .preview-row span {
+  color: #475569;
+}
+
+.theme-dark .bank-report-modal .preview-row span {
+  color: #cbd5e1;
+}
+
+.theme-dark .bank-report-modal .preview-row strong {
+  color: #f8fafc;
+}
+
+.bank-report-modal .export-btn {
+  color: #1e293b;
+  background: #ffffff;
+}
+
+.bank-report-modal .export-btn:hover {
+  background: #f8fafc;
+}
+
+.bank-report-modal .export-btn.pdf:hover {
+  background: #fff7f7;
+  border-color: #dc2626;
+}
+
+.bank-report-modal .export-btn.csv:hover {
+  background: #f0f7ff;
+  border-color: #2563eb;
+}
+
+.theme-dark .bank-report-modal .export-btn {
+  background: #233044;
+  border-color: #475569;
+  color: #f8fafc;
+}
+
+.theme-dark .bank-report-modal .export-btn:hover {
+  background: #2d3b52;
+}
+
+.bank-report-modal .btn-text strong {
+  color: #1e293b;
+}
+
+.theme-dark .bank-report-modal .btn-text strong {
+  color: #f8fafc;
+}
+
+.bank-report-modal .btn-text span {
+  color: #475569;
+}
+
+.theme-dark .bank-report-modal .btn-text span {
+  color: #cbd5e1;
+}
+
