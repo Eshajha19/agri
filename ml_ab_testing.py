@@ -72,6 +72,19 @@ class Arm:
         else:
             self.failures += 1
     
+    def record_trial(self, success: bool, mae: float = 0.0, rmse: float = 0.0, latency: float = 0.0):
+        """Record outcome and prediction metrics atomically so counters never drift."""
+        self.total_trials += 1
+        if success:
+            self.successes += 1
+        else:
+            self.failures += 1
+        self.predictions += 1
+        self.mae_sum += mae
+        self.rmse_sum += rmse
+        self.latency_sum += latency
+        self.latency_count += 1
+    
     def sample_from_distribution(self) -> float:
         """Sample success probability from Beta distribution (Thompson sampling)"""
         # Use Beta(alpha, beta) where alpha = successes, beta = failures
@@ -158,9 +171,14 @@ class ABTest:
         """Record outcome for an arm"""
         arm = self.control_arm if arm_id == self.control_arm.model_id else self.variant_arm
         
-        arm.record_outcome(success)
-        if {"mae", "rmse", "latency"}.issubset(metrics):
-            arm.record_prediction(metrics["mae"], metrics["rmse"], metrics["latency"])
+        arm.record_trial(
+            success,
+            mae=metrics.get("mae", 0.0),
+            rmse=metrics.get("rmse", 0.0),
+            latency=metrics.get("latency", 0.0),
+        )
+        
+        # Update allocation based on Thompson sampling
         self._update_allocation()
     
     def _update_allocation(self):
