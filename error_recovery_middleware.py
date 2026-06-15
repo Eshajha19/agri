@@ -10,6 +10,7 @@ import random
 import re
 import time
 import uuid
+import asyncio
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
@@ -106,8 +107,8 @@ class _ScanCache:
 
     def get(self, path: str, body: bytes):
         key = self._key(path, body)
-        with self._lock:
-            entry = self._store.get(key)
+            async with self._lock:
+                entry = self._store.get(key)
             if entry is None:
                 return None
             result, expires_at = entry
@@ -118,7 +119,7 @@ class _ScanCache:
 
     def set(self, path: str, body: bytes, result: bool) -> None:
         key = self._key(path, body)
-        with self._lock:
+        async with self._lock:
             if len(self._store) >= self._maxsize:
                 now = time.monotonic()
                 expired = [k for k, (_, exp) in self._store.items() if exp <= now]
@@ -141,7 +142,7 @@ class _ScanBudget:
 
     def consume(self, path: str) -> bool:
         now = time.monotonic()
-        with self._lock:
+        async with self._lock:
             tokens, last = self._buckets.get(path, (float(self._burst), now))
             tokens = min(float(self._burst), tokens + (now - last) * self._rate)
             if tokens >= 1.0:

@@ -3,6 +3,7 @@ import collections
 import io
 import json
 import collections
+import asyncio
 from error_utils import safe_detail
 
 
@@ -533,7 +534,7 @@ class NotificationStore:
         The ID is assigned from a monotonically increasing counter so
         concurrent calls always produce distinct values.
         """
-        with self._lock:
+        async with self._lock:
             entry = {
                 "id": next(self._counter),
                 "type": alert_type,
@@ -551,7 +552,7 @@ class NotificationStore:
         view even if append() is running concurrently.
         """
         cutoff = datetime.now() - self._ttl
-        with self._lock:
+        async with self._lock:
             snapshot = list(self._deque)
         return [
             e for e in snapshot

@@ -4,7 +4,7 @@ import asyncio
 import logging
 import math
 import collections
-import itertools
+import asyncio
 import threading
 import time
 from datetime import datetime, timedelta
@@ -1441,7 +1441,7 @@ class NotificationStore:
         When ``recipient_uid`` is None the notification is a broadcast visible
         to every authenticated user; otherwise only that UID may receive it.
         """
-        with self._lock:
+        async with self._lock:
             entry = {
                 "id": next(self._counter),
                 "type": alert_type,
@@ -1461,7 +1461,7 @@ class NotificationStore:
         view even if append() is running concurrently.
         """
         cutoff = datetime.now() - self._ttl
-        with self._lock:
+        async with self._lock:
             snapshot = list(self._deque)
         return [
             e for e in snapshot
@@ -1473,8 +1473,9 @@ class NotificationStore:
         return filter_notifications_for_user(self.get_recent(), uid)
 
     def remove_by_uid(self, uid: str) -> int:
-        """Remove in-memory notifications targeted at a specific UID."""
-        with self._lock:
+        """Remove in-memory notifications targeted at a specific UID."
+    
+        async with self._lock:
             snapshot = list(self._deque)
             retained = [entry for entry in snapshot if entry.get("recipient_uid") != uid]
             removed = len(snapshot) - len(retained)
@@ -3210,7 +3211,7 @@ class NotificationStore:
         When ``recipient_uid`` is None the notification is a broadcast visible
         to every authenticated user; otherwise only that UID may receive it.
         """
-        with self._lock:
+        async with self._lock:
             entry = {
                 "id": next(self._counter),
                 "type": alert_type,
@@ -3230,7 +3231,7 @@ class NotificationStore:
         view even if append() is running concurrently.
         """
         cutoff = datetime.now() - self._ttl
-        with self._lock:
+        async with self._lock:
             snapshot = list(self._deque)
         return [
             e for e in snapshot
@@ -3243,7 +3244,7 @@ class NotificationStore:
 
     def remove_by_uid(self, uid: str) -> int:
         """Remove in-memory notifications targeted at a specific UID."""
-        with self._lock:
+        async with self._lock:
             snapshot = list(self._deque)
             retained = [entry for entry in snapshot if entry.get("recipient_uid") != uid]
             removed = len(snapshot) - len(retained)

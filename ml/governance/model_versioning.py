@@ -8,6 +8,7 @@ import os
 import sys
 import time
 import threading
+import asyncio
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, asdict
 from datetime import datetime
@@ -138,7 +139,7 @@ class ModelVersionManager:
         Context manager to acquire in-process and cross-process locks,
         load the latest state from disk, and optionally save it on exit if modified.
         """
-        with self._lock:
+        async with self._lock:
             lock_path = self.versions_dir / "versions.json.lock"
             with CrossPlatformFileLock(str(lock_path)):
                 self._load_versions()
