@@ -402,7 +402,7 @@ class WeatherAlertsService:
                     expires_at=weather.timestamp + timedelta(hours=6),
                 ))
 
-        if weather.temperature < 0:
+        if weather.temperature <= 0:
             alerts.append(WeatherAlert(
                 id=f"weather_{next(self._alert_id_counter)}",
                 severity=AlertSeverity.CRITICAL,
