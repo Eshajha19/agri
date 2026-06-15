@@ -82,6 +82,17 @@ class Arm:
         # Sample from Beta distribution
         return np.random.beta(alpha, beta)
     
+    def confidence_interval(self) -> Tuple[float, float]:
+        """95% Wald confidence interval for success rate"""
+        if self.total_trials == 0:
+            return (0.0, 0.0)
+        p = self.successes / self.total_trials
+        se = math.sqrt(p * (1 - p) / self.total_trials)
+        z = 1.96
+        lower = max(0.0, p - z * se)
+        upper = min(1.0, p + z * se)
+        return (round(lower, 4), round(upper, 4))
+
     def to_dict(self) -> Dict:
         """Convert to dictionary"""
         return {
@@ -95,6 +106,7 @@ class Arm:
             "mae": self.get_mean_metric("mae"),
             "rmse": self.get_mean_metric("rmse"),
             "latency": self.get_mean_metric("latency"),
+            "confidence_interval": self.confidence_interval(),
             "created_at": self.created_at
         }
 
@@ -176,18 +188,19 @@ class ABTest:
             self.current_allocation[self.variant_arm.model_id] = variant_score / total_score
     
     def get_winner(self) -> Optional[Arm]:
-        """Determine winner with confidence threshold"""
+        """Determine winner using non-overlapping confidence intervals"""
         total_trials = self.control_arm.total_trials + self.variant_arm.total_trials
         
         if total_trials < self.min_samples:
             return None
         
-        control_mean = self.control_arm.successes / max(self.control_arm.total_trials, 1)
-        variant_mean = self.variant_arm.successes / max(self.variant_arm.total_trials, 1)
+        c_lo, c_hi = self.control_arm.confidence_interval()
+        v_lo, v_hi = self.variant_arm.confidence_interval()
         
-        # Simple confidence check
-        if abs(control_mean - variant_mean) > (1 - self.confidence_threshold):
-            return self.variant_arm if variant_mean > control_mean else self.control_arm
+        if c_hi < v_lo:
+            return self.variant_arm
+        if v_hi < c_lo:
+            return self.control_arm
         
         return None
     
