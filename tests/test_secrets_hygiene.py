@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 from security_hygiene import (
     RuntimeProtectionMiddleware,
     SecretHygieneProgram,
+    _parse_mime_type,
+    SCANNABLE_TYPES,
     build_secret_fingerprint,
     redact_sensitive_payload,
     scan_text_for_secrets,
@@ -99,3 +101,179 @@ def test_repo_scan_helper_works_on_strings():
 def test_secret_fingerprint_is_stable():
     value = "super-secret-value"
     assert build_secret_fingerprint(value) == build_secret_fingerprint(value)
+
+
+# --- _parse_mime_type ---
+
+def test_parse_mime_type_simple():
+    assert _parse_mime_type("application/json") == "application/json"
+
+
+def test_parse_mime_type_with_charset():
+    assert _parse_mime_type("application/json; charset=utf-8") == "application/json"
+
+
+def test_parse_mime_type_with_multiple_params():
+    assert _parse_mime_type("text/html; charset=utf-8; boundary=abc") == "text/html"
+
+
+def test_parse_mime_type_case_insensitive():
+    assert _parse_mime_type("APPLICATION/JSON") == "application/json"
+
+
+def test_parse_mime_type_handles_whitespace():
+    assert _parse_mime_type("  application/json  ") == "application/json"
+
+
+def test_parse_mime_type_none_returns_none():
+    assert _parse_mime_type(None) is None
+
+
+def test_parse_mime_type_empty_string_returns_none():
+    assert _parse_mime_type("") is None
+
+
+def test_parse_mime_type_whitespace_only_returns_none():
+    assert _parse_mime_type("   ") is None
+
+
+# --- RuntimeProtectionMiddleware content-type guards ---
+
+def test_middleware_skips_multipart():
+    app = FastAPI()
+    app.add_middleware(RuntimeProtectionMiddleware)
+
+    @app.post("/upload")
+    async def upload(payload: dict):
+        return {"ok": True}
+
+    client = TestClient(app)
+    response = client.post(
+        "/upload",
+        files={"file": ("test.txt", b"safe content")},
+    )
+    # multipart is not in SCANNABLE_TYPES, so should pass through
+    assert response.status_code == 200
+
+
+def test_middleware_skips_unsupported_content_type():
+    app = FastAPI()
+    app.add_middleware(RuntimeProtectionMiddleware)
+
+    @app.post("/data")
+    async def data(payload: dict):
+        return {"ok": True}
+
+    client = TestClient(app)
+    response = client.post(
+        "/data",
+        content=b"some binary data",
+        headers={"content-type": "application/octet-stream"},
+    )
+    assert response.status_code == 200
+
+
+def test_middleware_scans_json_content_type():
+    app = FastAPI()
+    program = SecretHygieneProgram()
+    program.SECRET_PATTERNS = (("test_secret", re.compile(r"SENSITIVE")),)
+    app.add_middleware(RuntimeProtectionMiddleware, program=program)
+
+    @app.post("/submit")
+    async def submit(payload: dict):
+        return {"ok": True}
+
+    client = TestClient(app)
+    response = client.post(
+        "/submit",
+        json={"data": "SENSITIVE"},
+    )
+    assert response.status_code == 400
+
+
+def test_scannable_types_include_expected():
+    assert "application/json" in SCANNABLE_TYPES
+    assert "application/x-www-form-urlencoded" in SCANNABLE_TYPES
+    assert "text/plain" in SCANNABLE_TYPES
+
+
+def test_middleware_handles_missing_content_type():
+    app = FastAPI()
+    app.add_middleware(RuntimeProtectionMiddleware)
+
+    @app.post("/data")
+    async def data(payload: dict):
+        return {"ok": True}
+
+    client = TestClient(app)
+    # No Content-Type header
+    response = client.post("/data", content=b"{}", headers={})
+    assert response.status_code == 200
+
+
+# --- MAX_SCAN_BODY_SIZE protection ---
+
+from security_hygiene import MAX_SCAN_BODY_SIZE
+
+
+def test_rejects_payload_larger_than_limit():
+    app = FastAPI()
+    app.add_middleware(RuntimeProtectionMiddleware)
+
+    @app.post("/submit")
+    async def submit():
+        return {"ok": True}
+
+    client = TestClient(app)
+
+    response = client.post(
+        "/submit",
+        content=b"x" * (MAX_SCAN_BODY_SIZE + 1),
+        headers={
+            "content-type": "application/json",
+            "content-length": str(MAX_SCAN_BODY_SIZE + 1),
+        },
+    )
+
+    assert response.status_code == 413
+
+
+def test_allows_payload_at_limit():
+    app = FastAPI()
+    app.add_middleware(RuntimeProtectionMiddleware)
+
+    @app.post("/submit")
+    async def submit():
+        return {"ok": True}
+
+    client = TestClient(app)
+
+    response = client.post(
+        "/submit",
+        content=b"x" * MAX_SCAN_BODY_SIZE,
+        headers={
+            "content-type": "application/json",
+            "content-length": str(MAX_SCAN_BODY_SIZE),
+        },
+    )
+
+    assert response.status_code == 200
+
+
+def test_missing_content_length_does_not_fail():
+    app = FastAPI()
+    app.add_middleware(RuntimeProtectionMiddleware)
+
+    @app.post("/submit")
+    async def submit():
+        return {"ok": True}
+
+    client = TestClient(app)
+
+    response = client.post(
+        "/submit",
+        content=b"{}",
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 200
