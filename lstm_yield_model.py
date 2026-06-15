@@ -1,3 +1,4 @@
+import joblib
 import pandas as pd
 import numpy as np
 import logging
@@ -7,6 +8,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List
 from sklearn.preprocessing import MinMaxScaler
+from error_utils import safe_detail
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -15,8 +17,10 @@ logger = logging.getLogger(__name__)
 # Global variables for model and scaler caching
 model = None
 scaler = MinMaxScaler()
+_scaler_fitted = False
 
 MODEL_PATH = "lstm_yield_model.keras"
+SCALER_PATH = "lstm_scaler.joblib"
 
 class PredictionRequest(BaseModel):
     # Expecting sequential data for LSTM
@@ -47,6 +51,9 @@ def train_and_save_model():
 
         # Scaling
         scaled_data = scaler.fit_transform(df)
+        import joblib
+        joblib.dump(scaler, "lstm_yield_scaler.joblib")
+        logger.info("✅ Scaler saved successfully.")
 
         def create_sequences(data, seq_length=5):
             X, y = [], []
@@ -60,6 +67,9 @@ def train_and_save_model():
         logger.info(f"X shape: {X.shape}")
         logger.info(f"y shape: {y.shape}")
 
+        joblib.dump(scaler, SCALER_PATH)
+        logger.info(f"Scaler saved to {SCALER_PATH}")
+
         model_seq = Sequential([
             LSTM(64, activation='relu', input_shape=(X.shape[1], 1)),
             Dense(1)
@@ -68,6 +78,7 @@ def train_and_save_model():
         model_seq.compile(optimizer='adam', loss='mse')
         model_seq.fit(X, y, epochs=20, batch_size=16)
         model_seq.save(MODEL_PATH)
+        joblib.dump(scaler, SCALER_PATH)
         logger.info("✅ LSTM model trained and saved successfully.")
     except Exception as e:
         logger.error(f"Error during training: {str(e)}")
@@ -76,7 +87,7 @@ def train_and_save_model():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic: Load the model into memory ONCE during application startup
-    global model
+    global model, scaler
     logger.info("Starting up FastAPI application...")
     
     # We delay keras import to avoid slow startup if not needed
@@ -88,7 +99,20 @@ async def lifespan(app: FastAPI):
             
         logger.info(f"Loading model from {MODEL_PATH}...")
         model = load_model(MODEL_PATH)
+
+        if os.path.exists(SCALER_PATH):
+            scaler = joblib.load(SCALER_PATH)
+            _scaler_fitted = True
+            logger.info("✅ Scaler loaded successfully.")
+        else:
+            logger.warning("Scaler file not found — predictions will be raw-scaled.")
+
         logger.info("✅ Model loaded into memory successfully.")
+        
+        import joblib
+        if os.path.exists("lstm_yield_scaler.joblib"):
+            scaler = joblib.load("lstm_yield_scaler.joblib")
+            logger.info("✅ Scaler loaded into memory successfully.")
     except Exception as e:
         logger.error(f"Failed to load model on startup: {str(e)}")
         # If model is None, endpoints will handle it gracefully.
@@ -98,6 +122,7 @@ async def lifespan(app: FastAPI):
     # Shutdown logic
     logger.info("Shutting down FastAPI application... Cleaning up resources.")
     model = None
+    scaler = None
 
 
 # Initialize FastAPI application with lifespan event
@@ -127,18 +152,36 @@ async def predict(request: PredictionRequest):
             input_data = np.expand_dims(input_data, axis=0)
             
         logger.info(f"Received prediction request with input shape: {input_data.shape}")
+
+        # Scale inputs using the fitted scaler
+        orig_shape = input_data.shape
+        flat = input_data.reshape(-1, 1)
+        if _scaler_fitted:
+            flat = scaler.transform(flat)
+        input_scaled = flat.reshape(orig_shape)
         
         # The model is cached in memory, so prediction is fast and doesn't hit disk
-        prediction_scaled = model.predict(input_data)
+        prediction_scaled = model.predict(input_scaled)
         
-        # Extract the float prediction
-        pred_value = float(prediction_scaled[0][0])
+        # Inverse transform back to real yield units
+        if _scaler_fitted:
+            pred_value = float(scaler.inverse_transform(prediction_scaled.reshape(-1, 1))[0][0])
+        else:
+            pred_value = float(prediction_scaled[0][0])
         
-        return PredictionResponse(prediction=pred_value)
+        # Perform inverse transformation to restore actual unit scale if fitted
+        if hasattr(scaler, "scale_"):
+            dummy = np.zeros((1, 1))
+            dummy[0, 0] = pred_value
+            pred_actual = float(scaler.inverse_transform(dummy)[0, 0])
+        else:
+            pred_actual = pred_value
+            
+        return PredictionResponse(prediction=pred_actual)
     
     except Exception as e:
         logger.error(f"Error during prediction: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 @app.get("/health")
 async def health_check():
@@ -150,4 +193,4 @@ if __name__ == "__main__":
     # When run as a script, we start the inference server locally
     import uvicorn
     # Note: Run it on a specific port for the dedicated inference server
-    uvicorn.run("lstm_yield_model:app", host="0.0.0.0", port=8001, reload=False)
+    uvicorn.run("lstm_yield_model:app", host="0.0.0.0", port=8001, reload=False)
