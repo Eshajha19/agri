@@ -111,7 +111,6 @@ class ImageProcessingQueue:
         with self._queue_lock:
             if len(self._task_queue) >= self.max_queue_size:
                 raise RuntimeError(f"Queue is full (max: {self.max_queue_size})")
-            self._task_queue.append(task)
             heapq.heappush(self._task_queue, (task.priority.value, self._counter, task))
             self._counter += 1
             self._tasks_by_id[task.task_id] = task
@@ -227,7 +226,7 @@ class ImageProcessingQueue:
             if task.status in (TaskStatus.QUEUED, TaskStatus.RETRYING):
                 task.status = TaskStatus.CANCELLED
                 self._task_queue = deque(
-                    t for t in self._task_queue if t.task_id != task_id
+                    t for t in self._task_queue if t[2].task_id != task_id
                 )
                 del self._tasks_by_id[task_id]
                 self._completed_tasks[task_id] = task
