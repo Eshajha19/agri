@@ -409,6 +409,12 @@ POST /api/experiments/assign
 }
 ```
 
+### 🔐 Environment Variables
+
+Copy `.env.example` to `.env` and fill in your own values:
+
+```bash
+cp .env.example .env
 
 ### Tradeoffs
 
