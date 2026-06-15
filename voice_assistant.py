@@ -286,32 +286,51 @@ INTENT_PATTERNS = {
         r"(?:fasal|crop|paudha?)\s+(?:peedle|sick|halki|kamzor)",
         r"what.*problem.*my.*crop",
         r"why.*crop.*dying",
+        r"(?:मेरी|मेरे|मेरा|माझी)\s+(?:फसल|पिके?|पौधे?)\s+(?:ko|को|ला\s+)?(?:kya|क्या|कया|काय|समस्या|बीमारी|परेशानी|आजारी)",
+        r"समस्या",
+        r"बीमारी",
     ],
     "weather_alert": [
         r"(?:mausam|weather)\s+(?:kaisa|kya|how)",
         r"(?:baarish|rain|tufaan|storm)\s+(?:aa|aayega|aayega)",
         r"(?:temperature|garmi|garmi)\s+(?:kitni|how much)",
         r"weather.*today|tomorrow|this week",
+        r"मौसम",
+        r"हवामान",
+        r"बारिश",
     ],
     "fertilizer_guide": [
         r"(?:khad|fertilizer|nutrients?)\s+(?:kaunsi|kaun|which)",
         r"(?:fasal|crop)\s+(?:ke|ko)\s+(?:liye|for)\s+(?:khad|fertilizer)",
         r"(?:nutrient|nitrogen|phosphorus|potassium)\s+guidance",
         r"what.*fertilizer.*my.*crop",
+        r"which.*fertilizer",
+        r"fertilizer.*wheat",
+        r"fertilizer",
+        r"खाद",
+        r"खत",
     ],
     "irrigation_advice": [
         r"(?:pani|water)\s+(?:kitna|how much|when)",
         r"(?:sinchai|irrigation)\s+(?:schedule|table)",
         r"(?:how|when)\s+to\s+irrigate",
+        r"सिंचाई",
+        r"पानी",
+        r"पाणी",
     ],
     "yield_prediction": [
         r"(?:paidavaari|yield|production)\s+(?:kitni|how much)",
         r"(?:expected|munday|aashayit)\s+(?:paidavaari|yield)",
         r"(?:crop)\s+(?:utpadan|production)\s+forecast",
+        r"पैदावार",
+        r"उत्पादन",
     ],
     "pest_management": [
         r"(?:keeda|pest|insect|bug)\s+(?:se|from)\s+(?:kaise|how)",
         r"(?:pest|कीड़े)\s+control\s+(?:method|tarika)",
+        r"कीड़ों",
+        r"किडे",
+        r"कीट",
     ],
 }
 
@@ -443,16 +462,41 @@ class OfflineLanguageModel:
             "en": {"vocab_size": 8000, "model_type": "rule_based"},
         }
     
+    def _normalize_text(self, text: str) -> str:
+        """
+        Normalize input text by:
+        1. Converting to lowercase
+        2. Replacing line breaks, tabs, and carriage returns with spaces
+        3. Replacing multiple spaces with a single space
+        4. Removing typical punctuation marks
+        """
+        if not text:
+            return ""
+        
+        # Lowercase
+        normalized = text.lower()
+        
+        # Replace line breaks, tabs, and carriage returns with spaces
+        normalized = re.sub(r'[\r\n\t]+', ' ', normalized)
+        
+        # Replace multiple spaces with a single space
+        normalized = re.sub(r'\s+', ' ', normalized)
+        
+        # Remove typical punctuation marks
+        normalized = re.sub(r'[.,\/#!$%\^&\*;:{}=\-_`~()?\"\'’]', '', normalized)
+        
+        return normalized.strip()
+
     def detect_intent(self, text: str) -> Tuple[str, float]:
         """
         Detect intent from input text using offline patterns
         Returns: (intent, confidence)
         """
-        text_lower = text.lower()
+        normalized_text = self._normalize_text(text)
         
         for intent, patterns in self.intent_patterns.items():
             for pattern in patterns:
-                if re.search(pattern, text_lower):
+                if re.search(pattern, normalized_text):
                     return intent, 0.85  # Offline confidence
         
         return "general_query", 0.5
@@ -460,17 +504,24 @@ class OfflineLanguageModel:
     def extract_entities(self, text: str, intent: str) -> Dict[str, str]:
         """Extract entities from text based on intent"""
         entities = {}
+        normalized_text = self._normalize_text(text)
         
-        # Simple entity extraction
-        crops = ["rice", "wheat", "sugarcane", "cotton", "maize", "chawal", "gehun"]
+        # Simple entity extraction with expanded vocabulary (Devanagari + Latin)
+        crops = [
+            "rice", "wheat", "sugarcane", "cotton", "maize", "chawal", "gehun",
+            "धान", "चावल", "गेहूँ", "गेहूं", "गन्ना", "कपास", "मक्का", "भात", "गहू", "ऊस"
+        ]
         for crop in crops:
-            if crop in text.lower():
+            if crop in normalized_text:
                 entities["crop"] = crop
                 break
         
-        diseases = ["fungal", "bacterial", "viral", "blight", "rust", "leaf spot"]
+        diseases = [
+            "fungal", "bacterial", "viral", "blight", "rust", "leaf spot",
+            "फंगल", "बैक्टीरियल", "वायरस", "ब्लाइट", "रस्ट", "धब्बा", "करपा", "तांबेरा"
+        ]
         for disease in diseases:
-            if disease in text.lower():
+            if disease in normalized_text:
                 entities["disease"] = disease
                 break
         
@@ -901,20 +952,33 @@ class VoiceAssistant:
 
 def detect_language(text: str) -> str:
     """
-    Detect language from text using Unicode ranges
+    Detect language from text using Unicode ranges and lexical heuristics
     Returns language code
     """
+    text_lower = text.lower()
+    
     # Devanagari range (Hindi, Marathi, etc.)
     if any('\u0900' <= char <= '\u097F' for char in text):
-        marathi_words = {"आहे", "नाही", "करा", "साठी", "काय", "आणि", "पाणी", "शेत", "माती", "पीक", "आले", "केले", "द्या"}
-        bhojpuri_words = {"बा", "राउर", "काहें", "इहाँ", "केहू", "का", "हमार", "रउवा", "अउर"}
+        # Lexical heuristics for language detection
+        hindi_keywords = ["है", "हैं", "को", "क्या", "मेरी", "मेरा", "मेरे", "की", "का", "के", "से", "में", "करें", "बीमारी", "फसल"]
+        marathi_keywords = ["आहे", "आहेत", "माझी", "माझा", "माझे", "पिके", "काय", "कधी", "करू", "करून", "रोग", "पीक"]
+        bhojpuri_keywords = ["बा", "बानी", "रउआ", "तोहार", "हमरा", "कथि", "खेती"]
         
-        words = set(text.split())
-        if words.intersection(marathi_words):
+        # Check matching counts
+        hi_score = sum(1 for kw in hindi_keywords if kw in text_lower)
+        mr_score = sum(1 for kw in marathi_keywords if kw in text_lower)
+        bho_score = sum(1 for kw in bhojpuri_keywords if kw in text_lower)
+        
+        # Heuristics based on character/matra occurrence
+        if 'ि' in text or 'ु' in text:  # Hindi-specific marks
+            hi_score += 1
+            
+        if mr_score > hi_score and mr_score > bho_score:
             return "mr"
-        if words.intersection(bhojpuri_words):
+        elif bho_score > hi_score and bho_score > mr_score:
             return "bho"
-        return "hi"
+        else:
+            return "hi"
     
     # Gujarati
     if any('\u0A80' <= char <= '\u0AFF' for char in text):
