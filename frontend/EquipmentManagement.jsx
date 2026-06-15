@@ -16,108 +16,289 @@ export default function EquipmentManagement({ onClose }) {
   const [loading, setLoading] = useState(false);
   const [realTimeMode, setRealTimeMode] = useState(true);
   const [timeRange, setTimeRange] = useState('7d');
-  const equipmentService = useRef(new EquipmentService());
-  const selectedIdRef = useRef(null);
 
-   // Load equipment data – runs once on mount; `loadEquipmentData` and
-   // `updateSensorData` are intentionally excluded from the dep array.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const equipmentService = useRef(new EquipmentService());
+
+  // Synchronization refs
+  const selectedIdRef = useRef(null);
+  const mountedRef = useRef(true);
+
+  // Request tracking to avoid stale updates
+  const requestTrackerRef = useRef({
+    equipment: 0,
+    sensors: 0,
+    health: 0,
+    maintenance: 0,
+    analytics: 0,
+    alerts: 0,
+  });
+
+  const abortControllerRef = useRef(null);
+
+async function selectEquipment(eq) {
+  if (!eq) return;
+
+  // cancel any previous requests
+  if (abortControllerRef.current) {
+    abortControllerRef.current.abort();
+  }
+  const controller = new AbortController();
+  abortControllerRef.current = controller;
+
+  setSelectedEquipment(eq);
+  selectedIdRef.current = eq.id;
+
+  try {
+    await Promise.all([
+      updateSensorData(eq.id, { signal: controller.signal }),
+      updateHealthData(eq.id, { signal: controller.signal }),
+      loadMaintenanceHistory(eq.id, { signal: controller.signal }),
+      loadAnalytics(eq.id, { signal: controller.signal }),
+      loadAlerts(eq.id, { signal: controller.signal }),
+    ]);
+  } catch (err) {
+    if (err.name === "AbortError") {
+      console.log("Request cancelled due to equipment switch");
+    } else {
+      console.error("Failed to load equipment data", err);
+    }
+  }
+}
+
+
+  // Lifecycle + realtime polling
   useEffect(() => {
+    mountedRef.current = true;
+
     loadEquipmentData();
+
     const interval = setInterval(() => {
       if (realTimeMode && selectedIdRef.current) {
         updateSensorData();
       }
-    }, 5000);
+    }, 4000);
 
-    return () => clearInterval(interval);
+    return () => {
+      mountedRef.current = false;
+      clearInterval(interval);
+    };
   }, [realTimeMode]);
 
-
-  const loadEquipmentData = async () => {
-    setLoading(true);
-    try {
-      const equipmentList = await equipmentService.current.getEquipmentList();
-      setEquipment(equipmentList);
-      
-      if (equipmentList.length > 0 && !selectedEquipment) {
-        selectEquipment(equipmentList[0]);
-      }
-    } catch (error) {
-      console.error('Failed to load equipment data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Keep the ref in sync as a derived value
+  // Keep selected equipment ref synchronized
   useEffect(() => {
     selectedIdRef.current = selectedEquipment?.id ?? null;
   }, [selectedEquipment]);
 
-  const selectEquipment = async (eq) => {
-    setSelectedEquipment(eq);
-    selectedIdRef.current = eq?.id ?? null;
-    if (eq) {
-      await updateSensorData();
-      await updateHealthData();
-      await loadMaintenanceHistory(eq.id);
-      await loadAnalytics(eq.id);
-      await loadAlerts(eq.id);
+  const loadEquipmentData = async () => {
+    const requestId = ++requestTrackerRef.current.equipment;
+
+    setLoading(true);
+
+    try {
+      const equipmentList =
+        await equipmentService.current.getEquipmentList();
+
+      // Prevent stale updates
+      if (
+        !mountedRef.current ||
+        requestTrackerRef.current.equipment !== requestId
+      ) {
+        return;
+      }
+
+      setEquipment(equipmentList);
+
+      if (
+        equipmentList.length > 0 &&
+        !selectedIdRef.current
+      ) {
+        await selectEquipment(equipmentList[0]);
+      }
+    } catch (error) {
+      console.error(
+        'Failed to load equipment data:',
+        error
+      );
+    } finally {
+      if (
+        mountedRef.current &&
+        requestTrackerRef.current.equipment === requestId
+      ) {
+        setLoading(false);
+      }
     }
   };
 
-  const updateSensorData = useCallback(async () => {
-    const id = selectedIdRef.current;
-    if (!id) return;
-    
-    try {
-      const data = await equipmentService.current.getSensorData(id);
-      setSensorData(data);
-    } catch (error) {
-      console.error('Failed to update sensor data:', error);
-    }
-  }, []);
 
-  const updateHealthData = useCallback(async () => {
-    const id = selectedIdRef.current;
-    if (!id || !selectedEquipment) return;
-    
-    try {
-      const data = await equipmentService.current.getSensorData(id);
-      const health = evaluateEquipmentHealth(selectedEquipment.type, data);
-      setHealthData(health);
-    } catch (error) {
-      console.error('Failed to update health data:', error);
-    }
-  }, [selectedEquipment]);
 
-  const loadMaintenanceHistory = useCallback(async (equipmentId) => {
-    try {
-      const history = await equipmentService.current.getMaintenanceHistory(equipmentId);
-      setMaintenanceHistory(history);
-    } catch (error) {
-      console.error('Failed to load maintenance history:', error);
-    }
-  }, []);
+  const updateSensorData = useCallback(
+    async (equipmentId) => {
+      const id = equipmentId || selectedIdRef.current;
 
-  const loadAnalytics = useCallback(async (equipmentId, range) => {
-    try {
-      const data = await equipmentService.current.getEquipmentAnalytics(equipmentId, range || timeRange);
-      setAnalytics(data);
-    } catch (error) {
-      console.error('Failed to load analytics:', error);
-    }
-  }, [timeRange]);
+      if (!id) return;
 
-  const loadAlerts = useCallback(async (equipmentId) => {
-    try {
-      const alertData = await equipmentService.current.getPredictiveAlerts(equipmentId);
-      setAlerts(alertData);
-    } catch (error) {
-      console.error('Failed to load alerts:', error);
-    }
-  }, []);
+      const requestId =
+        ++requestTrackerRef.current.sensors;
+
+      try {
+        const data =
+          await equipmentService.current.getSensorData(id);
+
+        if (
+          !mountedRef.current ||
+          requestTrackerRef.current.sensors !== requestId ||
+          selectedIdRef.current !== id
+        ) {
+          return;
+        }
+
+        setSensorData(data);
+      } catch (error) {
+        console.error(
+          'Failed to update sensor data:',
+          error
+        );
+      }
+    },
+    []
+  );
+
+  const updateHealthData = useCallback(
+    async (equipmentOverride) => {
+      const equipmentTarget =
+        equipmentOverride || selectedEquipment;
+
+      const id = equipmentTarget?.id;
+
+      if (!id) return;
+
+      const requestId =
+        ++requestTrackerRef.current.health;
+
+      try {
+        const data =
+          await equipmentService.current.getSensorData(id);
+
+        const health = evaluateEquipmentHealth(
+          equipmentTarget.type,
+          data
+        );
+
+        if (
+          !mountedRef.current ||
+          requestTrackerRef.current.health !== requestId ||
+          selectedIdRef.current !== id
+        ) {
+          return;
+        }
+
+        setHealthData(health);
+      } catch (error) {
+        console.error(
+          'Failed to update health data:',
+          error
+        );
+      }
+    },
+    [selectedEquipment]
+  );
+
+  const loadMaintenanceHistory = useCallback(
+    async (equipmentId) => {
+      if (!equipmentId) return;
+
+      const requestId =
+        ++requestTrackerRef.current.maintenance;
+
+      try {
+        const history =
+          await equipmentService.current.getMaintenanceHistory(
+            equipmentId
+          );
+
+        if (
+          !mountedRef.current ||
+          requestTrackerRef.current.maintenance !== requestId ||
+          selectedIdRef.current !== equipmentId
+        ) {
+          return;
+        }
+
+        setMaintenanceHistory(history);
+      } catch (error) {
+        console.error(
+          'Failed to load maintenance history:',
+          error
+        );
+      }
+    },
+    []
+  );
+
+  const loadAnalytics = useCallback(
+    async (equipmentId, range) => {
+      if (!equipmentId) return;
+
+      const requestId =
+        ++requestTrackerRef.current.analytics;
+
+      try {
+        const data =
+          await equipmentService.current.getEquipmentAnalytics(
+            equipmentId,
+            range || timeRange
+          );
+
+        if (
+          !mountedRef.current ||
+          requestTrackerRef.current.analytics !== requestId ||
+          selectedIdRef.current !== equipmentId
+        ) {
+          return;
+        }
+
+        setAnalytics(data);
+      } catch (error) {
+        console.error(
+          'Failed to load analytics:',
+          error
+        );
+      }
+    },
+    [timeRange]
+  );
+
+  const loadAlerts = useCallback(
+    async (equipmentId) => {
+      if (!equipmentId) return;
+
+      const requestId =
+        ++requestTrackerRef.current.alerts;
+
+      try {
+        const alertData =
+          await equipmentService.current.getPredictiveAlerts(
+            equipmentId
+          );
+
+        if (
+          !mountedRef.current ||
+          requestTrackerRef.current.alerts !== requestId ||
+          selectedIdRef.current !== equipmentId
+        ) {
+          return;
+        }
+
+        setAlerts(alertData);
+      } catch (error) {
+        console.error(
+          'Failed to load alerts:',
+          error
+        );
+      }
+    },
+    []
+  );
 
   const getHealthColor = (score) => {
     if (score >= 90) return '#16a34a';
@@ -129,10 +310,14 @@ export default function EquipmentManagement({ onClose }) {
 
   const getAlertColor = (type) => {
     switch (type) {
-      case 'critical': return '#dc2626';
-      case 'warning': return '#f59e0b';
-      case 'info': return '#3b82f6';
-      default: return '#6b7280';
+      case 'critical':
+        return '#dc2626';
+      case 'warning':
+        return '#f59e0b';
+      case 'info':
+        return '#3b82f6';
+      default:
+        return '#6b7280';
     }
   };
 
@@ -140,7 +325,7 @@ export default function EquipmentManagement({ onClose }) {
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
       currency: 'INR'
-    }).format(amount);
+    }).format(amount || 0);
   };
 
   return (
@@ -518,92 +703,95 @@ export default function EquipmentManagement({ onClose }) {
       )}
 
       {/* Add Equipment Modal */}
-      {showAddEquipment && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 1000
-        }}>
-          <div style={{
-            backgroundColor: 'white',
-            padding: '32px',
-            borderRadius: '16px',
-            maxWidth: '500px',
-            width: '90%'
-          }}>
-            <h3 style={{ marginBottom: '24px', color: '#111' }}>Add New Equipment</h3>
-            <button
-              onClick={() => setShowAddEquipment(false)}
-              style={{
-                position: 'absolute',
-                top: '16px',
-                right: '16px',
-                backgroundColor: '#f3f4f6',
-                border: '1px solid #d1d5db',
-                borderRadius: '8px',
-                fontSize: '16px',
-                cursor: 'pointer'
-              }}
-            >
-              ✕
-            </button>
-            <div style={{ textAlign: 'center', color: '#6b7280' }}>
-              Equipment registration form would go here
-            </div>
-          </div>
-        </div>
-      )}
+{showAddEquipment && (
+  <div style={{
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000
+  }}>
+    <div style={{
+      position: 'relative',   //  added
+      backgroundColor: 'white',
+      padding: '32px',
+      borderRadius: '16px',
+      maxWidth: '500px',
+      width: '90%'
+    }}>
+      <h3 style={{ marginBottom: '24px', color: '#111' }}>Add New Equipment</h3>
+      <button
+        onClick={() => setShowAddEquipment(false)}
+        style={{
+          position: 'absolute',   //  changed from relative
+          top: '16px',
+          right: '16px',
+          backgroundColor: '#f3f4f6',
+          border: '1px solid #d1d5db',
+          borderRadius: '8px',
+          fontSize: '16px',
+          cursor: 'pointer'
+        }}
+      >
+        ✕
+      </button>
+      <div style={{ textAlign: 'center', color: '#6b7280' }}>
+        Equipment registration form would go here
+      </div>
+    </div>
+  </div>
+)}
 
-      {/* Maintenance Modal */}
-      {showMaintenance && selectedEquipment && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 1000
-        }}>
-          <div style={{
-            backgroundColor: 'white',
-            padding: '32px',
-            borderRadius: '16px',
-            maxWidth: '600px',
-            width: '90%'
-          }}>
-            <h3 style={{ marginBottom: '24px', color: '#111' }}>Schedule Maintenance</h3>
-            <button
-              onClick={() => setShowMaintenance(false)}
-              style={{
-                position: 'absolute',
-                top: '16px',
-                right: '16px',
-                backgroundColor: '#f3f4f6',
-                border: '1px solid #d1d5db',
-                borderRadius: '8px',
-                fontSize: '16px',
-                cursor: 'pointer'
-              }}
-            >
-              ✕
-            </button>
-            <div style={{ textAlign: 'center', color: '#6b7280' }}>
-              Maintenance scheduling form would go here
-            </div>
-          </div>
-        </div>
-      )}
+{/* Maintenance Modal */}
+{showMaintenance && selectedEquipment && (
+  <div style={{
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000
+  }}>
+    <div style={{
+      position: 'relative',   //  added
+      backgroundColor: 'white',
+      padding: '32px',
+      borderRadius: '16px',
+      maxWidth: '600px',
+      width: '90%'
+    }}>
+      <h3 style={{ marginBottom: '24px', color: '#111' }}>Schedule Maintenance</h3>
+      <button
+        onClick={() => setShowMaintenance(false)}
+        style={{
+          position: 'absolute',
+          top: '16px',
+          right: '16px',
+          backgroundColor: '#f3f4f6',
+          border: '1px solid #d1d5db',
+          borderRadius: '8px',
+          fontSize: '16px',
+          cursor: 'pointer'
+        }}
+      >
+        ✕
+      </button>
+      <div style={{ textAlign: 'center', color: '#6b7280' }}>
+        Maintenance scheduling form would go here
+      </div>
+    </div>
+  </div>
+)}
+
     </div>
   );
 }

@@ -341,6 +341,27 @@ class TestCircuitBreaker:
         assert status["state"] == "closed"
         assert status["failure_count"] == 0
 
+    def test_record_failure_triggers_open(self):
+        """Test record_failure() opens circuit after threshold"""
+        breaker = CircuitBreakerAsync(failure_threshold=3)
+        for i in range(3):
+            is_open = breaker.record_failure()
+            if i < 2:
+                assert not is_open, f"should not open at {i}"
+                assert breaker.state == "closed"
+            else:
+                assert is_open
+                assert breaker.state == "open"
+        assert breaker.failure_count == 3
+
+    def test_record_success_resets(self):
+        """Test record_success() resets failure count"""
+        breaker = CircuitBreakerAsync(failure_threshold=3)
+        breaker.record_failure()
+        breaker.record_failure()
+        breaker.record_success()
+        assert breaker.failure_count == 0
+        assert breaker.state == "closed"
 
 class TestErrorContext:
     """Test ErrorContext"""
