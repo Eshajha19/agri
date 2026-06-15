@@ -539,12 +539,59 @@ class VoiceAssistant:
                 "wheat": {"frequency": "Every 15-20 days", "amount": "50-60 mm"},
                 "sugarcane": {"frequency": "Every 10-15 days", "amount": "50-75 mm"},
             },
-            "weather_alerts": [
-                "Excessive rainfall expected - prepare for waterlogging",
-                "High temperature - increase irrigation frequency",
-                "Strong winds - secure loose structures",
-                "Frost warning - protect seedlings",
-            ],
+            # Structured weather alerts keyed by (crop, condition) so that
+            # _select_weather_alert() can return a contextually relevant
+            # message instead of always returning the same static string.
+            "weather_alerts": {
+                "default": {
+                    "heat":     "High temperature alert — increase irrigation frequency and provide shade where possible.",
+                    "rain":     "Excessive rainfall expected — prepare drainage channels and watch for waterlogging.",
+                    "wind":     "Strong winds forecast — secure loose farm structures and stake tall crops.",
+                    "frost":    "Frost warning — protect seedlings with covers and avoid night-time irrigation.",
+                    "drought":  "Dry spell ahead — conserve soil moisture and plan supplemental irrigation.",
+                    "general":  "Monitor local weather closely — conditions may change rapidly this season.",
+                },
+                "rice": {
+                    "heat":     "Heat stress risk for rice — maintain standing water in fields to cool roots.",
+                    "rain":     "Heavy rain can cause blast disease in rice — ensure drainage and apply fungicide.",
+                    "wind":     "Strong winds may lodge rice at heading stage — monitor and provide support.",
+                    "frost":    "Rice is frost-sensitive — move nursery trays indoors and delay transplanting.",
+                    "drought":  "Rice needs consistent water — prioritise irrigation at tillering and flowering stages.",
+                    "general":  "Check rice fields daily during active growth — scout for pests after any rainfall.",
+                },
+                "wheat": {
+                    "heat":     "Heat at grain-fill will shrink wheat yield — harvest early if temperatures exceed 35°C.",
+                    "rain":     "Post-anthesis rain raises yellow-rust risk — spray preventive fungicide on wheat.",
+                    "wind":     "Wind may cause lodging in heavy wheat crops — avoid excess nitrogen application.",
+                    "frost":    "Frost at flowering stage damages wheat — apply light irrigation to reduce chill effect.",
+                    "drought":  "Wheat needs water at crown-root, tillering, and grain-fill — irrigate at these stages.",
+                    "general":  "Wheat is in a critical growth phase — watch for aphids and powdery mildew.",
+                },
+                "cotton": {
+                    "heat":     "High heat causes boll shedding in cotton — increase irrigation intervals and mulch rows.",
+                    "rain":     "Heavy rain promotes bollworm and fungal spread in cotton — inspect and spray as needed.",
+                    "wind":     "Winds can spread whitefly and leaf-curl virus — use windbreak barriers if available.",
+                    "frost":    "Cotton is frost-intolerant — trigger early harvest of open bolls before freezing nights.",
+                    "drought":  "Cotton squares drop under water stress — maintain soil moisture at 50–60% field capacity.",
+                    "general":  "Monitor cotton for pink bollworm and sucking pests during humid periods.",
+                },
+                "maize": {
+                    "heat":     "Maize pollen viability drops above 35°C — irrigate during morning and evening.",
+                    "rain":     "Waterlogged maize fields cause root rot — open drainage furrows immediately.",
+                    "wind":     "Wind causes lodging in maize at tasseling — earthen up around stem bases.",
+                    "frost":    "Maize is frost-sensitive at seedling stage — delay sowing if frost risk remains.",
+                    "drought":  "Critical irrigation period for maize is tasseling to silking — do not miss this.",
+                    "general":  "Scout maize for fall armyworm and apply control measures within 3 days of detection.",
+                },
+                "sugarcane": {
+                    "heat":     "High heat increases evapotranspiration in sugarcane — irrigate every 7–10 days.",
+                    "rain":     "Waterlogging stunts sugarcane — open drainage and earthen up around the crop.",
+                    "wind":     "Sugarcane can lodge in strong winds — stake or tie tall stalks in exposed areas.",
+                    "frost":    "Frost kills sugarcane growing points — harvest mature cane before hard frost.",
+                    "drought":  "Drought reduces sugar content — maintain deficit irrigation at grand growth phase.",
+                    "general":  "Monitor sugarcane for internode borer and early shoot borer during monsoon.",
+                },
+            },
         }
     
     def create_session(self, user_id: str, language_code: str = "hi") -> VoiceSession:
@@ -683,8 +730,15 @@ class VoiceAssistant:
             return templates["crop_health"].format(crop=crop, disease=disease, advice=advice)
         
         elif intent == "weather_alert":
-            weather = self.offline_cache["weather_alerts"][0]
-            return templates["weather_alert"].format(condition=weather, warning="सावधान रहें")
+            alert_msg, warning_text = self._select_weather_alert(
+                entities=entities,
+                context=context,
+                language_code=language_code,
+            )
+            return templates["weather_alert"].format(
+                condition=alert_msg,
+                warning=warning_text,
+            )
         
         elif intent == "fertilizer_guide":
             crop = entities.get("crop", "गेहूँ")
@@ -720,6 +774,83 @@ class VoiceAssistant:
         
         return templates.get("greeting", "नमस्ते! मैं आपके लिए यहाँ हूँ।")
     
+    def _select_weather_alert(
+        self,
+        entities: Dict[str, str],
+        context: Dict[str, Any],
+        language_code: str,
+    ) -> Tuple[str, str]:
+        """Return a contextually relevant (condition, warning) pair from the
+        offline weather-alert cache.
+
+        Selection priority:
+        1. Crop-specific entry when a crop entity is present.
+        2. Season-conditioned alert when season is in context.
+        3. Generic alert keyed by detected condition keywords in context.
+        4. Absolute fallback to the 'general' message for the matched crop
+           (or 'default' if no crop was extracted).
+        """
+        alerts = self.offline_cache["weather_alerts"]
+
+        # Determine which crop bucket to use.
+        crop = (entities.get("crop") or context.get("crop") or "").lower()
+        crop_alerts = alerts.get(crop) if crop in alerts else None
+        fallback_alerts = alerts["default"]
+
+        # Map season to a likely weather condition so we can serve a more
+        # relevant alert even when no explicit condition is in context.
+        season = (context.get("season") or "").lower()
+        season_condition_map: Dict[str, str] = {
+            "kharif":  "rain",
+            "rabi":    "frost",
+            "zaid":    "heat",
+            "summer":  "heat",
+            "winter":  "frost",
+            "monsoon": "rain",
+        }
+
+        # Detect an explicit condition from context (e.g. passed by the
+        # router after calling the live weather service).
+        explicit_condition = (context.get("weather_condition") or "").lower()
+
+        # Condition priority: explicit > season-derived > general.
+        condition_keys = [
+            k for k in (explicit_condition, season_condition_map.get(season))
+            if k
+        ]
+
+        # Pick the most specific alert message available.
+        alert_msg: str = ""
+        for cond in condition_keys:
+            if crop_alerts and cond in crop_alerts:
+                alert_msg = crop_alerts[cond]
+                break
+            if cond in fallback_alerts:
+                alert_msg = fallback_alerts[cond]
+                break
+
+        # Absolute fallback.
+        if not alert_msg:
+            if crop_alerts:
+                alert_msg = crop_alerts.get("general", fallback_alerts["general"])
+            else:
+                alert_msg = fallback_alerts["general"]
+
+        # Build a localised warning suffix.
+        warning_map = {
+            "hi": "सावधान रहें और नजदीकी कृषि अधिकारी से सम्पर्क करें।",
+            "bho": "सावधान रहीं और खेत पर नजर राखें।",
+            "mr": "सावध रहा आणि स्थानिक कृषी सल्लागाराशी संपर्क साधा.",
+            "en": "Stay alert and contact your local agricultural office if conditions worsen.",
+        }
+        warning_text = warning_map.get(language_code, warning_map["en"])
+
+        logger.info(
+            "Weather alert selected: crop=%r condition_keys=%r alert=%r",
+            crop or "default", condition_keys, alert_msg[:60],
+        )
+        return alert_msg, warning_text
+
     def _get_disease_advice(self, crop: str, disease: str, language_code: str) -> str:
         """Get disease management advice"""
         advice_map = {
