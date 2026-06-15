@@ -4,6 +4,7 @@ Verifies version tracking, conflict detection, and resolution
 """
 
 import pytest
+import collections
 from sync_conflict_resolver import (
     VersionVector,
     DocumentVersion,
@@ -134,7 +135,28 @@ class TestConflictResolver:
         assert resolved.data["name"] == "John Doe"  # Local change
         assert resolved.data["age"] == 31  # Server change
         assert resolved.data["city"] == "NYC"  # Unchanged
-    
+
+    def test_three_way_merge_handles_deleted_fields(self):
+        """Three-way merge should completely remove deleted fields (set to None or missing)"""
+        resolver = ConflictResolver(ConflictResolutionStrategy.MERGE)
+        
+        # Base version: has name, age, city, and status
+        base = DocumentVersion("doc1", {"name": "John", "age": 30, "city": "NYC", "status": "active"}, "base")
+        
+        # Local: deleted city (missing key) and status (set to None)
+        local = DocumentVersion("doc1", {"name": "John Doe", "age": 30}, "client1")
+        
+        # Server: deleted city (missing key) and status (set to None)
+        server = DocumentVersion("doc1", {"name": "John", "age": 31}, "server")
+        
+        resolved, has_conflict, conflicts = resolver.resolve(local, server, base)
+        
+        # City and Status should be completely deleted, not retained with None/null values
+        assert "city" not in resolved.data
+        assert "status" not in resolved.data
+        assert resolved.data["name"] == "John Doe"
+        assert resolved.data["age"] == 31
+
     def test_server_wins_strategy(self):
         """Server wins strategy"""
         resolver = ConflictResolver(ConflictResolutionStrategy.SERVER_WINS)
@@ -146,6 +168,24 @@ class TestConflictResolver:
         
         assert resolved.data["name"] == "Jane"
         assert resolved.client_id == "server"
+
+    def test_conflict_log_capping(self):
+        """Test that the conflict log has a maximum size cap and does not grow indefinitely"""
+        resolver = ConflictResolver(ConflictResolutionStrategy.SERVER_WINS)
+        resolver._MAX_CONFLICT_LOG_SIZE = 5
+        # Re-initialize the deque with new size limit
+        resolver.conflict_log = collections.deque(maxlen=resolver._MAX_CONFLICT_LOG_SIZE)
+        
+        local = DocumentVersion("doc1", {"name": "John"}, "client1")
+        server = DocumentVersion("doc1", {"name": "Jane"}, "server")
+        
+        # Trigger conflict resolution 10 times
+        for i in range(10):
+            resolver.resolve(local, server)
+            
+        # The log size should be capped at 5
+        log = resolver.get_conflict_log()
+        assert len(log) == 5
 
 
 class TestSyncManager:

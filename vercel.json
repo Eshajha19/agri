@@ -14,7 +14,22 @@
       "NODE_OPTIONS": "--max-old-space-size=4096"
     }
   },
+  "headers": [
+    {
+      "source": "/manifest.webmanifest",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/manifest+json"
+        }
+      ]
+    }
+  ],
   "routes": [
+    {
+      "src": "/auth",
+      "dest": "/index.html"
+    },
     {
       "src": "/(.*)",
       "dest": "/index.html"

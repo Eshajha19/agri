@@ -1,60 +1,89 @@
 """Knowledge Base Router - RAG, Climate Simulation, Seeds"""
-import re
-from typing import Optional
-from fastapi import APIRouter, Request, HTTPException
-from pydantic import BaseModel, Field, validator
+from typing import Any, Callable, Optional
+from fastapi import APIRouter, Depends, Request, HTTPException
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, ValidationError, validator, ConfigDict
 import logging
+from threading import Lock
+from time import time, monotonic
+from error_utils import safe_detail
+from backend.core.logging_config import setup_logging
+from backend.schemas.rag import RAGQuery
+from backend.compute_rate_limit import enforce_compute_rate_limit
+from backend.climate_sim.data import REGIONAL_SEASONAL_BASELINES, CROP_PROFILES, REGION_ALIASES, VALID_SEASONS
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
+logger = setup_logging(__name__)
+
+# ---------------------------------------------------------------------------
+# Cache Management
+# ---------------------------------------------------------------------------
+
+# RAG query cache with TTL (Time To Live)
+_RAG_QUERY_CACHE = {}
+_RAG_QUERY_CACHE_LOCK = Lock()
+_RAG_QUERY_CACHE_TTL_SECONDS = 3600  # 1 hour
+
+class CachedResult:
+    """Wrapper for cached query results with timestamp."""
+    def __init__(self, result: Any):
+        self.result = result
+        self.timestamp = time()
+
+    def is_expired(self, ttl_seconds: int) -> bool:
+        """Check if cache entry has exceeded TTL."""
+        return (time() - self.timestamp) > ttl_seconds
+
+
+def _get_cache_key(query: str, top_k: int) -> str:
+    """Generate cache key from query parameters."""
+    return f"{query}:{top_k}"
+
+
+def _get_cached_result(query: str, top_k: int) -> Optional[Any]:
+    """Retrieve cached result if available and not expired."""
+    cache_key = _get_cache_key(query, top_k)
+    with _RAG_QUERY_CACHE_LOCK:
+        if cache_key not in _RAG_QUERY_CACHE:
+            return None
+        
+        cached = _RAG_QUERY_CACHE[cache_key]
+        if cached.is_expired(_RAG_QUERY_CACHE_TTL_SECONDS):
+            del _RAG_QUERY_CACHE[cache_key]
+            logger.debug("Expired cache entry removed: %s", cache_key)
+            return None
+        
+        logger.debug("Cache hit for query: %s", cache_key)
+        return cached.result
+
+
+def _set_cached_result(query: str, top_k: int, result: Any) -> None:
+    """Store result in cache with timestamp."""
+    cache_key = _get_cache_key(query, top_k)
+    with _RAG_QUERY_CACHE_LOCK:
+        _RAG_QUERY_CACHE[cache_key] = CachedResult(result)
+        logger.debug("Cached result stored: %s", cache_key)
+
+
+def invalidate_rag_cache() -> None:
+    """Invalidate entire RAG query cache (call when knowledge base is updated)."""
+    with _RAG_QUERY_CACHE_LOCK:
+        cache_size = len(_RAG_QUERY_CACHE)
+        _RAG_QUERY_CACHE.clear()
+        logger.info("RAG query cache invalidated. Cleared %d entries.", cache_size)
+
+
+def invalidate_rag_cache_key(query: str, top_k: int) -> None:
+    """Invalidate specific cache entry."""
+    cache_key = _get_cache_key(query, top_k)
+    with _RAG_QUERY_CACHE_LOCK:
+        if cache_key in _RAG_QUERY_CACHE:
+            del _RAG_QUERY_CACHE[cache_key]
+            logger.info("Specific cache entry invalidated: %s", cache_key)
 
 # ---------------------------------------------------------------------------
 # Pydantic models
 # ---------------------------------------------------------------------------
-
-class RAGQuery(BaseModel):
-    query: str = Field(..., min_length=3, max_length=500)
-    top_k: int = Field(default=3, ge=1, le=5)
-
-    @validator("query")
-    def sanitize_and_normalize_query(cls, v):
-        if not v or not isinstance(v, str):
-            raise ValueError("Query must be a non-empty string.")
-
-        v = re.sub(r'<script.*?>.*?</script>', '', v, flags=re.IGNORECASE | re.DOTALL)
-        v = re.sub(r'</?script.*?>', '', v, flags=re.IGNORECASE)
-        v = re.sub(r'on\w+\s*=', '', v, flags=re.IGNORECASE)
-        v = re.sub(r'javascript:', '', v, flags=re.IGNORECASE)
-        v = re.sub(r'data:', '', v, flags=re.IGNORECASE)
-        v = re.sub(r'vbscript:', '', v, flags=re.IGNORECASE)
-        v = re.sub(r'<[^>]*>', '', v)
-        v = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'\1 (\2)', v)
-        v = re.sub(r'[*_~`#]', '', v)
-        v = v.strip()
-        v = re.sub(r'\s+', ' ', v)
-
-        forbidden_patterns = [
-            r"ignore\s+(?:all\s+)?previous\s+instructions",
-            r"ignore\s+(?:the\s+)?system\s+prompt",
-            r"override\s+system\s+constraints",
-            r"developer\s+mode",
-            r"bypass\s+safety\s+filter",
-            r"disregard\s+(?:all\s+)?prior\s+instructions",
-            r"act\s+as\s+(?:a\s+)?(?:different|unrestricted|unfiltered)\s+(?:ai|model|assistant)",
-            r"pretend\s+(?:you\s+are|to\s+be)\s+(?:a\s+)?(?:different|unrestricted)",
-            r"jailbreak",
-            r"prompt\s+injection",
-        ]
-        v_lower = v.lower()
-        for pattern in forbidden_patterns:
-            if re.search(pattern, v_lower):
-                raise ValueError("Query contains disallowed phrases or prompt injection attempts.")
-
-        if len(v) < 3:
-            raise ValueError("Query must be at least 3 characters long after sanitization.")
-
-        return v
-
 
 class SimulationRequest(BaseModel):
     """Climate simulation request.
@@ -95,24 +124,157 @@ class SeedVerifyRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=100)
 
 
-# ---------------------------------------------------------------------------
-# Global state
-# ---------------------------------------------------------------------------
-
-rag_generate_fn = None
-rbac_manager = None
-Permission = None
-seed_registry = None
-verify_role_fn = None
+_RAG_REJECTION_LOG_INTERVAL_SECONDS = 60
 
 
-def init_knowledge(rg_fn, rbac, perm, sr, vr_fn):
-    global rag_generate_fn, rbac_manager, Permission, seed_registry, verify_role_fn
-    rag_generate_fn = rg_fn
-    rbac_manager = rbac
-    Permission = perm
-    seed_registry = sr
-    verify_role_fn = vr_fn
+def get_verify_role_fn(request: Request) -> Callable[..., Any]:
+    verify_fn = getattr(request.app.state, "verify_role_fn", None)
+    if verify_fn is None:
+        raise HTTPException(status_code=500, detail="Not initialized")
+    return verify_fn
+
+
+def get_rag_generate_fn(request: Request) -> Callable[..., Any]:
+    rag_fn = getattr(request.app.state, "rag_generate_fn", None)
+    if rag_fn is None:
+        raise HTTPException(status_code=503, detail="RAG not available")
+    return rag_fn
+
+
+def get_seed_registry(request: Request) -> dict:
+    registry = getattr(request.app.state, "seed_registry", None)
+    if registry is None:
+        raise HTTPException(status_code=503, detail="Seed registry not initialized")
+    return registry
+
+
+def get_rag_runtime(
+    rag_fn: Callable[..., Any] = Depends(get_rag_generate_fn),
+    verify_fn: Callable[..., Any] = Depends(get_verify_role_fn),
+):
+    return rag_fn, verify_fn
+
+
+def get_seed_runtime(
+    verify_fn: Callable[..., Any] = Depends(get_verify_role_fn),
+    registry: dict = Depends(get_seed_registry),
+):
+    return verify_fn, registry
+
+
+def _get_rag_rejection_log_state(request: Request) -> dict:
+    state = getattr(request.app.state, "knowledge_rag_rejection_log_state", None)
+    if state is None:
+        state = {
+            "last_log": 0.0,
+            "lock": Lock(),
+        }
+        request.app.state.knowledge_rag_rejection_log_state = state
+    return state
+
+
+def _log_rag_rejection(request: Request, exc: ValidationError) -> None:
+    log_state = _get_rag_rejection_log_state(request)
+    now = monotonic()
+    with log_state["lock"]:
+        if now - log_state["last_log"] < _RAG_REJECTION_LOG_INTERVAL_SECONDS:
+            return
+        log_state["last_log"] = now
+
+    errors = exc.errors()
+    first_error = errors[0] if errors else {}
+    context = first_error.get("ctx") or {}
+    error_code = context.get("error_code", first_error.get("type", "validation_error"))
+
+    logger.warning(
+        "Rejected RAG query: error_code=%s threat_type=%s threat_match=%s client=%s path=%s",
+        error_code,
+        context.get("threat_type"),
+        context.get("threat_match"),
+        request.client.host if request.client and request.client.host else "unknown",
+        request.url.path,
+    )
+
+
+async def _parse_rag_query(request: Request) -> RAGQuery:
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "invalid_json",
+                "message": "Request body must be valid JSON.",
+            },
+        ) from exc
+
+    try:
+        return RAGQuery.model_validate(payload)
+    except ValidationError as exc:
+        _log_rag_rejection(request, exc)
+        errors = exc.errors()
+        first_error = errors[0] if errors else {}
+        context = first_error.get("ctx") or {}
+        error_code = context.get("error_code", first_error.get("type", "validation_error"))
+
+        detail = {
+            "code": error_code,
+            "message": context.get("error_message", first_error.get("msg", "Invalid RAG query.")),
+            "reason": context.get("reason", "validation_error"),
+            "errors": errors,
+        }
+        if context.get("threat_type"):
+            detail["threat_type"] = context.get("threat_type", "prompt_injection")
+            detail["threat_match"] = context.get("threat_match")
+
+        raise HTTPException(status_code=422, detail=detail) from exc
+
+
+def _enforce_rate_limit(request: Request, scope: str, uid: Optional[str], limit: int, window_seconds: int) -> None:
+    """Enforce compute rate limit, raising HTTPException(429) on exhaustion.
+
+    Replaces the previous return-value contract where callers checked
+    `if rate_limited is not None: return rate_limited`. That pattern had
+    two failure modes:
+      1. An empty dict {} from the limiter would be returned as HTTP 200.
+      2. Any non-None, non-JSONResponse value would be returned verbatim,
+         producing an unstructured response the frontend could not parse.
+
+    Raising HTTPException(429) is consistent with the rest of the codebase
+    and guarantees the error path is always deterministic regardless of what
+    enforce_compute_rate_limit returns.
+    """
+    rate_limited = enforce_compute_rate_limit(
+        request,
+        scope=scope,
+        uid=uid,
+        limit=limit,
+        window_seconds=window_seconds,
+    )
+    if rate_limited is not None:
+        # Extract retry_after from the JSONResponse if available so the
+        # Retry-After header is preserved in the HTTPException detail.
+        retry_after = None
+        if isinstance(rate_limited, JSONResponse):
+            try:
+                import json as _json
+                body = _json.loads(rate_limited.body)
+                retry_after = body.get("error", {}).get("retry_after")
+            except Exception:
+                pass
+        detail = "Rate limit exceeded. Please retry later."
+        if retry_after:
+            detail = f"Rate limit exceeded. Retry after {retry_after} seconds."
+        raise HTTPException(status_code=429, detail=detail)
+
+
+def _handle_router_exception(exc: Exception, log_message: str, detail: str) -> None:
+    """Preserve explicit HTTP errors and normalize unexpected failures."""
+    if isinstance(exc, HTTPException):
+        raise exc
+
+    logger.error("%s: %s", log_message, exc)
+    raise HTTPException(status_code=500, detail=detail) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -144,66 +306,17 @@ def init_knowledge(rg_fn, rbac, perm, sr, vr_fn):
 # Agriculture) crop modelling studies.
 # ---------------------------------------------------------------------------
 
-# (base_temp_C, base_rain_mm_per_month)
-_REGIONAL_SEASONAL_BASELINES = {
-    # region        kharif          rabi           zaid
-    "northwest":  {"kharif": (32, 120), "rabi": (15,  20), "zaid": (38,  15)},
-    "northeast":  {"kharif": (30, 350), "rabi": (18,  40), "zaid": (34,  80)},
-    "central":    {"kharif": (30, 200), "rabi": (20,  25), "zaid": (36,  20)},
-    "west":       {"kharif": (30, 180), "rabi": (22,  10), "zaid": (37,  10)},
-    "south":      {"kharif": (28, 160), "rabi": (24,  60), "zaid": (34,  30)},
-    "southwest":  {"kharif": (27, 600), "rabi": (26, 120), "zaid": (32,  80)},
-    "east":       {"kharif": (30, 280), "rabi": (19,  30), "zaid": (35,  40)},
-}
-
-# Crop-specific sensitivity coefficients
-# temp_coeff  : fractional yield change per +1°C above baseline
-# rain_coeff  : fractional yield change per +10 mm/month above baseline
-# opt_temp    : optimal temperature range (min, max) in °C
-# opt_rain    : optimal monthly rainfall range (min, max) in mm
-_CROP_PROFILES = {
-    "wheat":      {"temp_coeff": -0.06, "rain_coeff":  0.03, "opt_temp": (15, 25), "opt_rain": (40,  80)},
-    "rice":       {"temp_coeff": -0.05, "rain_coeff":  0.02, "opt_temp": (25, 35), "opt_rain": (150, 300)},
-    "maize":      {"temp_coeff": -0.07, "rain_coeff":  0.04, "opt_temp": (20, 30), "opt_rain": (80,  150)},
-    "cotton":     {"temp_coeff": -0.03, "rain_coeff":  0.01, "opt_temp": (25, 35), "opt_rain": (60,  120)},
-    "sugarcane":  {"temp_coeff": -0.02, "rain_coeff":  0.05, "opt_temp": (25, 35), "opt_rain": (150, 250)},
-    "soybean":    {"temp_coeff": -0.04, "rain_coeff":  0.03, "opt_temp": (20, 30), "opt_rain": (80,  150)},
-    "potato":     {"temp_coeff": -0.05, "rain_coeff":  0.04, "opt_temp": (15, 25), "opt_rain": (60,  100)},
-    "groundnut":  {"temp_coeff": -0.04, "rain_coeff":  0.02, "opt_temp": (25, 35), "opt_rain": (60,  120)},
-    "mustard":    {"temp_coeff": -0.05, "rain_coeff":  0.02, "opt_temp": (10, 25), "opt_rain": (30,   60)},
-    "chickpea":   {"temp_coeff": -0.06, "rain_coeff":  0.02, "opt_temp": (15, 25), "opt_rain": (30,   60)},
-    "tomato":     {"temp_coeff": -0.05, "rain_coeff":  0.03, "opt_temp": (20, 30), "opt_rain": (80,  120)},
-    "onion":      {"temp_coeff": -0.04, "rain_coeff":  0.02, "opt_temp": (15, 25), "opt_rain": (50,   80)},
-    "default":    {"temp_coeff": -0.04, "rain_coeff":  0.02, "opt_temp": (20, 30), "opt_rain": (80,  150)},
-}
-
-# Region aliases so common user inputs map to canonical keys
-_REGION_ALIASES = {
-    "punjab": "northwest", "haryana": "northwest", "rajasthan": "northwest",
-    "up": "northeast", "uttar pradesh": "northeast", "bihar": "northeast",
-    "west bengal": "northeast", "assam": "northeast",
-    "mp": "central", "madhya pradesh": "central", "chhattisgarh": "central",
-    "vidarbha": "central", "maharashtra": "central",
-    "gujarat": "west",
-    "karnataka": "south", "andhra pradesh": "south", "telangana": "south",
-    "kerala": "southwest",
-    "odisha": "east", "jharkhand": "east",
-}
-
-_VALID_SEASONS = {"kharif", "rabi", "zaid"}
-
-
 def _resolve_region(region: str) -> str:
     """Map a user-supplied region string to a canonical zone key."""
     key = region.lower().strip()
-    if key in _REGIONAL_SEASONAL_BASELINES:
+    if key in REGIONAL_SEASONAL_BASELINES:
         return key
-    return _REGION_ALIASES.get(key, "central")
+    return REGION_ALIASES.get(key, "central")
 
 
 def _resolve_season(season: str) -> str:
     key = season.lower().strip()
-    if key in _VALID_SEASONS:
+    if key in VALID_SEASONS:
         return key
     # Accept common abbreviations / alternate spellings
     if key in ("monsoon", "kharif", "summer"):
@@ -217,7 +330,7 @@ def _resolve_season(season: str) -> str:
 
 def _get_crop_profile(crop_type: str) -> dict:
     key = crop_type.lower().strip()
-    return _CROP_PROFILES.get(key, _CROP_PROFILES["default"])
+    return CROP_PROFILES.get(key, CROP_PROFILES["default"])
 
 
 def _compute_impact_score(
@@ -329,53 +442,166 @@ def _build_recommendations(
 
     return recs
 
+def _build_scenario_snapshot(
+    crop_type: str,
+    region: str,
+    season: str,
+    temp_delta: float,
+    rain_delta: float,
+) -> dict:
+    """Generate a simulation snapshot for comparison workflows."""
+
+    seasonal_baselines = REGIONAL_SEASONAL_BASELINES.get(
+        region,
+        REGIONAL_SEASONAL_BASELINES["central"],
+    )
+
+    base_temp, base_rain = seasonal_baselines.get(
+        season,
+        seasonal_baselines["kharif"],
+    )
+
+    sim_temp = round(base_temp + temp_delta, 2)
+    sim_rain = round(base_rain + rain_delta, 2)
+
+    profile = _get_crop_profile(crop_type)
+
+    impact_score = _compute_impact_score(
+        sim_temp,
+        sim_rain,
+        profile,
+        base_temp,
+        base_rain,
+    )
+
+    return {
+        "temperature_c": sim_temp,
+        "rainfall_mm_per_month": sim_rain,
+        "impact_score": impact_score,
+    }
+
+
+def _compare_scenarios(baseline: dict, comparison: dict) -> dict:
+    """Generate structured scenario comparison metrics."""
+
+    return {
+        "temperature_difference": round(
+            comparison["temperature_c"] - baseline["temperature_c"],
+            2,
+        ),
+        "rainfall_difference": round(
+            comparison["rainfall_mm_per_month"]
+            - baseline["rainfall_mm_per_month"],
+            2,
+        ),
+        "impact_score_difference": round(
+            comparison["impact_score"] - baseline["impact_score"],
+            2,
+        ),
+        "trend": (
+            "improved"
+            if comparison["impact_score"] > baseline["impact_score"]
+            else "reduced"
+            if comparison["impact_score"] < baseline["impact_score"]
+            else "unchanged"
+        ),
+    }
+
+
+def _build_comparison_summary(
+    crop_type: str,
+    region: str,
+    season: str,
+    simulated: dict,
+) -> dict:
+    """
+    Build side-by-side comparison metadata using
+    baseline and simulated scenario outputs.
+    """
+
+    baseline_scenario = _build_scenario_snapshot(
+        crop_type,
+        region,
+        season,
+        0,
+        0,
+    )
+
+    comparison_scenario = {
+        "temperature_c": simulated["temperature_c"],
+        "rainfall_mm_per_month": simulated["rainfall_mm_per_month"],
+        "impact_score": simulated["impact_score"],
+    }
+
+    return {
+        "baseline_scenario": baseline_scenario,
+        "comparison_scenario": comparison_scenario,
+        "differences": _compare_scenarios(
+            baseline_scenario,
+            comparison_scenario,
+        ),
+    }
+
 
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
 @router.post("/rag/query")
-async def rag_query(request: Request, body: RAGQuery):
+async def rag_query(request: Request, body: RAGQuery = Depends(_parse_rag_query), runtime=Depends(get_rag_runtime)):
     """Query the AI knowledge base (RAG).
 
     Authentication is required to prevent unauthenticated callers from
     consuming Gemini API quota on the project's billing account and to
     enable per-user rate limiting in the future.
+    
+    Results are cached with a 1-hour TTL to reduce redundant API calls
+    for identical queries. Cache is automatically invalidated when entries
+    exceed the TTL or when invalidate_rag_cache() is called.
     """
-    if rag_generate_fn is None:
-        raise HTTPException(status_code=503, detail="RAG not available")
-    if verify_role_fn is None:
-        raise HTTPException(status_code=500, detail="Not initialized")
+    rag_fn, verify_fn = runtime
     # Raises HTTP 401 if the Firebase token is missing or invalid.
-    await verify_role_fn(request)
+    token_data = await verify_fn(request)
+    _enforce_rate_limit(
+        request,
+        scope="knowledge.rag_query",
+        uid=(token_data or {}).get("uid"),
+        limit=12,
+        window_seconds=60,
+    )
     try:
-        result = rag_generate_fn(body.query, body.top_k)
+        result = rag_fn(body.query, body.top_k)
         return {"success": True, "query": body.query, "results": result}
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"RAG error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_detail(e, 500))
 
 
 @router.post("/simulate-climate")
-async def simulate_climate(request: Request, data: SimulationRequest):
+async def simulate_climate(request: Request, data: SimulationRequest, verify_fn=Depends(get_verify_role_fn)):
     """Run a climate impact simulation for a given crop.
 
     Authentication is required so that the endpoint is not freely
     accessible to scrapers and bots under the global rate limit.
     """
-    if verify_role_fn is None:
-        raise HTTPException(status_code=500, detail="Not initialized")
     # Raises HTTP 401 if the Firebase token is missing or invalid.
-    await verify_role_fn(request)
+    token_data = await verify_fn(request)
+    _enforce_rate_limit(
+        request,
+        scope="knowledge.simulate_climate",
+        uid=(token_data or {}).get("uid"),
+        limit=10,
+        window_seconds=60,
+    )
     try:
         canonical_region = _resolve_region(data.region or "central")
         canonical_season = _resolve_season(data.season or "kharif")
 
-        seasonal_baselines = _REGIONAL_SEASONAL_BASELINES.get(
+        seasonal_baselines = REGIONAL_SEASONAL_BASELINES.get(
             canonical_region,
-            _REGIONAL_SEASONAL_BASELINES["central"],
+            REGIONAL_SEASONAL_BASELINES["central"],
         )
         base_temp, base_rain = seasonal_baselines.get(
             canonical_season,
@@ -387,6 +613,16 @@ async def simulate_climate(request: Request, data: SimulationRequest):
 
         profile = _get_crop_profile(data.crop_type)
         impact_score = _compute_impact_score(sim_temp, sim_rain, profile, base_temp, base_rain)
+        comparison_summary = _build_comparison_summary(
+            data.crop_type,
+            canonical_region,
+            canonical_season,
+            {
+                "temperature_c": sim_temp,
+                "rainfall_mm_per_month": sim_rain,
+                "impact_score": impact_score,
+            },
+        )
         recommendations = _build_recommendations(
             sim_temp, sim_rain, profile, impact_score, data.crop_type, canonical_season
         )
@@ -415,6 +651,7 @@ async def simulate_climate(request: Request, data: SimulationRequest):
                 ),
             },
             "recommendations": recommendations,
+            "scenario_comparison": comparison_summary,
             "disclaimer": (
                 "This simulation uses statistical crop-climate models and regional "
                 "climate normals. Results are indicative only and should not replace "
@@ -425,20 +662,19 @@ async def simulate_climate(request: Request, data: SimulationRequest):
         raise
     except Exception as e:
         logger.error(f"Climate simulation error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
 
 
 @router.post("/seeds/verify")
-async def verify_seed(request: Request, data: SeedVerifyRequest):
-    if verify_role_fn is None:
-        raise HTTPException(status_code=500, detail="Not initialized")
+async def verify_seed(request: Request, data: SeedVerifyRequest, runtime=Depends(get_seed_runtime)):
+    verify_fn, registry = runtime
     try:
-        await verify_role_fn(request)
-        is_verified = seed_registry.get(data.code, {}).get("verified", False) if seed_registry else False
-        seed_info = seed_registry.get(data.code, {}) if seed_registry else {}
+        await verify_fn(request)
+        is_verified = registry.get(data.code, {}).get("verified", False)
+        seed_info = registry.get(data.code, {})
         return {"success": True, "code": data.code, "verified": is_verified, "seed_info": seed_info}
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Seed error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
