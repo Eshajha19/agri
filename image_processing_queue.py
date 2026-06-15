@@ -309,8 +309,25 @@ class ImageProcessingQueue:
                 return True
             return False
 
-            del self._tasks_by_id[task_id]
-            self._completed_tasks[task_id] = task
+    def update_worker_stats(self, worker_id: str, processing_time: float, success: bool):
+        """Update worker statistics"""
+        with self._worker_lock:
+            if worker_id not in self._workers:
+                return
+            
+            worker = self._workers[worker_id]
+            if success:
+                worker.tasks_processed += 1
+            else:
+                worker.tasks_failed += 1
+            
+            # Update average processing time (exponential moving average)
+            if worker.avg_processing_time == 0:
+                worker.avg_processing_time = processing_time
+            else:
+                worker.avg_processing_time = (worker.avg_processing_time * 0.7) + (processing_time * 0.3)
+            
+            worker.last_heartbeat = datetime.now().isoformat()
 
         with self._queue_lock:
             self._task_queue = [
@@ -320,12 +337,22 @@ class ImageProcessingQueue:
 
         return True
 
-    # -------------------------
-    # Stats
-    # -------------------------
-    def get_stats(self) -> Dict:
+    def get_pending_tasks(self, limit: int = 100) -> List[Dict]:
+        """Get pending tasks sorted by priority (highest first)"""
         with self._queue_lock:
-            qsize = len(self._task_queue)
+            entries = sorted(self._task_queue, key=lambda e: e[0])[:limit]
+            tasks = [entry[2] for entry in entries]
+            return [
+                {
+                    "task_id": t.task_id,
+                    "status": t.status.value,
+                    "priority": t.priority.name,
+                    "crop_type": t.crop_type,
+                    "processor_type": t.processor_type,
+                    "created_at": t.created_at,
+                }
+                for t in tasks
+            ]
 
         with self._task_lock:
             active = len(self._tasks_by_id)

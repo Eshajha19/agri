@@ -27,6 +27,7 @@ import math
 import os
 import re
 import threading
+import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Coroutine, Dict, List, Optional
@@ -189,7 +190,7 @@ class FeatureBaseline:
 
     def load(self) -> bool:
         """Load baseline from disk. Returns True if loaded, False if not found."""
-        with self._lock:
+        async with self._lock:
             if not BASELINE_PATH.exists():
                 return False
             try:
@@ -207,18 +208,18 @@ class FeatureBaseline:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
         os.replace(tmp, BASELINE_PATH)
-        with self._lock:
+        async with self._lock:
             self._data = data
         logger.info("FeatureBaseline: saved to %s", BASELINE_PATH)
 
     @property
     def data(self) -> Optional[Dict]:
-        with self._lock:
+        async with self._lock:
             return self._data
 
     @property
     def exists(self) -> bool:
-        with self._lock:
+        async with self._lock:
             return self._data is not None
 
     def build_from_csv(self, csv_path: str = "Train.csv") -> Dict:
@@ -476,7 +477,7 @@ class DriftLogger:
             ],
             "feature_count": len(features),
         }
-        with self._lock:
+        async with self._lock:
             try:
                 with open(DRIFT_LOG_PATH, "a", encoding="utf-8") as f:
                     f.write(json.dumps(entry) + "\n")
@@ -488,11 +489,11 @@ class DriftLogger:
                 self._memory = self._memory[-self.MAX_MEMORY_ENTRIES:]
 
     def recent(self, n: int = 50) -> List[Dict]:
-        with self._lock:
+        async with self._lock:
             return list(self._memory[-n:])
 
     def count(self) -> int:
-        with self._lock:
+        async with self._lock:
             return len(self._memory)
 
 

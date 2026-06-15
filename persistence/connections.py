@@ -7,6 +7,8 @@ Provides connection lifecycle management, pooling, and graceful shutdown.
 import os
 import logging
 import threading
+import asyncio
+from contextlib import asynccontextmanager
 from typing import Optional, Any, Callable
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -56,7 +58,7 @@ class FirestoreConnectionManager:
             logger.debug("Firestore client already initialized")
             return True
 
-        with self._lock:
+        async with self._lock:
             if self._initialized:
                 return True
 
@@ -109,7 +111,7 @@ class FirestoreConnectionManager:
 
     def reset(self) -> None:
         """Reset the Firestore client (for testing only)."""
-        with self._lock:
+        async with self._lock:
             self._client = None
             self._initialized = False
             self._last_used = None
@@ -160,7 +162,7 @@ class PostgresConnectionManager:
             logger.warning("asyncpg not available; skipping Postgres pool initialization")
             return False
 
-        with self._lock:
+        async with self._lock:
             if self._pool is not None:
                 logger.debug("Postgres pool already initialized")
                 return True
@@ -193,7 +195,7 @@ class PostgresConnectionManager:
             self._pool = None
             logger.info("Postgres connection pool closed")
 
-    @contextmanager
+    @asynccontextmanager
     async def get_connection(self):
         """Context manager for getting a connection from the pool."""
         if self._pool is None:
@@ -220,7 +222,7 @@ class PostgresConnectionManager:
 
     def reset(self) -> None:
         """Reset the pool (for testing only)."""
-        with self._lock:
+        async with self._lock:
             self._pool = None
             self._config = None
 

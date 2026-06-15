@@ -9,6 +9,14 @@ logger = setup_logging(__name__)
 
 router = APIRouter()
 
+# Tenure bounds are imported from the engine so the Pydantic schema and the
+# business-logic layer always stay in sync from a single source of truth.
+try:
+    from farm_finance_ai import MIN_TENURE_MONTHS, MAX_TENURE_MONTHS
+except ImportError:
+    MIN_TENURE_MONTHS = 6
+    MAX_TENURE_MONTHS = 360
+
 class FinanceAssessmentRequest(BaseModel):
     farmer_name: str = Field(..., min_length=1, max_length=100)
     crop_type: str = Field(..., min_length=1, max_length=50)
@@ -19,20 +27,16 @@ class FinanceAssessmentRequest(BaseModel):
     emergency_fund: float = Field(default=0, ge=0)
     credit_score: int = Field(default=650, ge=300, le=900)
     requested_loan_amount: float = Field(default=0, ge=0)
-    loan_tenure_months: int = Field(default=36, ge=6, le=120)
-    @field_validator(
-        "acreage",
-        "annual_revenue",
-        "annual_operating_cost",
-        "existing_debt",
-        "emergency_fund",
-        "requested_loan_amount",
+    loan_tenure_months: int = Field(
+        default=36,
+        ge=MIN_TENURE_MONTHS,
+        le=MAX_TENURE_MONTHS,
+        description=(
+            f"Repayment tenure in months. "
+            f"Must be between {MIN_TENURE_MONTHS} and {MAX_TENURE_MONTHS} months. "
+            f"Values outside this range will be rejected with HTTP 422."
+        ),
     )
-    @classmethod
-    def validate_financial_values(cls, value):
-        if value > 1_000_000_000:
-            raise ValueError("Value exceeds supported limit")
-        return round(value, 2)
 
 farm_finance_ai = None
 rbac_manager = None
@@ -200,6 +204,12 @@ async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest)
         }
     except HTTPException:
         raise
+    except ValueError as exc:
+        # Explicit validation errors from the engine (e.g. invalid tenure)
+        # are surfaced as 422 Unprocessable Entity so the caller can correct
+        # their input rather than receiving a silent data modification.
+        logger.warning("Finance analyze validation error: %s", exc)
+        raise HTTPException(status_code=422, detail=str(exc))
     except Exception as e:
         raise HTTPException(status_code=403, detail=safe_detail(e, 403))
 
@@ -208,33 +218,23 @@ async def create_finance_application(request: Request, body: FinanceAssessmentRe
     if farm_finance_ai is None or rbac_manager is None:
         raise HTTPException(status_code=500, detail="Not initialized")
     try:
-        ctx = await _authorize_with_context(request, [Permission.FINANCE_CREATE], require_all=False)
-        owner_uid = ctx.uid
-        if body.annual_operating_cost > body.annual_revenue * 100:
-            raise HTTPException(
-                status_code=400,
-                detail="Operating cost appears unrealistic compared to revenue",
-            )
-
-        logger.info(
-            "[FINANCE_APPLICATION] farmer=%s crop=%s loan=%s owner=%s",
-            body.farmer_name,
-            body.crop_type,
-            body.requested_loan_amount,
-            owner_uid,
-        )
-
-        application = farm_finance_ai.create_application(
-            body.model_dump(),
-            owner_uid=owner_uid,
-        )
-
-        return {
-            "success": True,
-            "data": application,
-        }
+        await rbac_manager.raise_if_unauthorized(request, [Permission.FINANCE_CREATE], require_all=False)
+        # Bind the application to the authenticated caller so ownership can be
+        # enforced on subsequent reads.  The token was already verified by
+        # raise_if_unauthorized above; decode the payload without a second
+        # cryptographic verification to avoid duplicate latency.
+        owner_uid = _extract_uid_from_verified_token(request)
+        if owner_uid is None:
+            raise HTTPException(status_code=401, detail="Unable to determine caller identity")
+        application = farm_finance_ai.create_application(body.model_dump(), owner_uid=owner_uid)
+        return {"success": True, "data": application}
     except HTTPException:
         raise
+    except ValueError as exc:
+        # Validation errors (e.g. invalid tenure) → 422 so callers get a
+        # transparent, actionable error instead of a silent data change.
+        logger.warning("Finance application validation error: %s", exc)
+        raise HTTPException(status_code=422, detail=str(exc))
     except Exception as e:
         raise HTTPException(status_code=403, detail=safe_detail(e, 403))
 
