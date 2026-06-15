@@ -98,6 +98,7 @@
 /* Modal Content */
 .modal-content {
   padding: 24px;
+  background:var(--bg-primary)
 }
 
 /* Weather Alert */
@@ -182,6 +183,12 @@
   box-shadow: 0 0 0 3px var(--focus-ring, rgba(22, 163, 74, 0.2));
 }
 
+.sr-input,
+.sr-input:focus,
+.sr-input:not(:placeholder-shown) {
+  color: var(--text-primary);
+}
+
 .sr-select {
   cursor: pointer;
   appearance: none;
@@ -224,13 +231,17 @@
 }
 
 .sr-btn.secondary {
-  background-color: #f3f4f6;
-  color: var(--text-primary, #111);
-  border: 1px solid var(--border-color, #e5e7eb);
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
 }
 
 .sr-btn.secondary:hover:not(:disabled) {
-  background-color: #e5e7eb;
+  background-color: #0f7e46;
+}
+
+.sr-btn.secondary:active:not(:disabled) {
+  background-color: #04552d;
 }
 
 .sr-btn.full-width {
@@ -347,7 +358,7 @@
   gap: 12px;
   margin-bottom: 20px;
   padding: 12px;
-  background: #f9fafb;
+  background: var(--bg-card);
   border-radius: 8px;
   border: 1px solid var(--border-color, #e5e7eb);
 }
@@ -359,7 +370,7 @@
   accent-color: var(--brand-primary, #16a34a);
 }
 
-.notification-group label {
+.notification-group label{
   display: flex;
   align-items: center;
   gap: 6px;
@@ -367,7 +378,7 @@
   font-size: 14px;
   margin: 0;
   flex: 1;
-  color: var(--text-primary, #111);
+  color: var(--text-primary);
   font-weight: 500;
 }
 
