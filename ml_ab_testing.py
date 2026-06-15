@@ -1,69 +1,71 @@
-"""
-A/B Testing Engine with Multi-Armed Bandits
-Implements Thompson sampling for optimal model allocation
-"""
+"""A/B Testing Engine with Multi-Armed Bandits
+Implements Thompson sampling for optimal model allocation."""
 
 import logging
 import random
-import math
-from enum import Enum
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
-import numpy as np
+from enum import Enum
+from typing import Dict, List, Optional, Any
 
 logger = logging.getLogger(__name__)
 
+# Isolated RNG for Thompson sampling — avoids correlated draws
+# from NumPy's global random state under concurrent load.
+_rng = np.random.RandomState(random.getrandbits(128))
+
 
 class TestStatus(Enum):
-    """A/B test status"""
     SETUP = "setup"
     RUNNING = "running"
     COMPLETED = "completed"
     ARCHIVED = "archived"
 
 
+@dataclass
 class Arm:
-    """A/B test arm (model variant)"""
-    
-    def __init__(self, model_id: str, model_version: str, name: str = None):
-        self.model_id = model_id
-        self.model_version = model_version
-        self.name = name or f"{model_version}"
-        
-        # Thompson sampling parameters (Beta distribution)
-        self.successes = 0  # Alpha parameter
-        self.failures = 0   # Beta parameter
-        self.total_trials = 0
-        
-        # Metrics
-        self.predictions = 0
-        self.mae_sum = 0.0
-        self.rmse_sum = 0.0
-        self.latency_sum = 0.0
-        self.latency_count = 0
-        
-        self.created_at = datetime.now().isoformat()
-    
-    def get_mean_metric(self, metric_name: str) -> float:
-        """Get mean value for a metric"""
-        if metric_name == "mae":
-            return self.mae_sum / max(self.predictions, 1)
-        elif metric_name == "rmse":
-            return self.rmse_sum / max(self.predictions, 1)
-        elif metric_name == "latency":
-            return self.latency_sum / max(self.latency_count, 1)
-        return 0.0
-    
-    def record_prediction(self, mae: float, rmse: float, latency: float):
-        """Record prediction metrics"""
+    model_id: str
+    model_version: str
+    name: Optional[str] = None
+    successes: int = 0
+    failures: int = 0
+    total_trials: int = 0
+    predictions: int = 0
+    mae_sum: float = 0.0
+    rmse_sum: float = 0.0
+    latency_sum: float = 0.0
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+
+    def __post_init__(self) -> None:
+        self.name = self.name or self.model_version
+
+    @property
+    def alpha(self) -> int:
+        return self.successes + 1
+
+    @property
+    def beta(self) -> int:
+        return self.failures + 1
+
+    @property
+    def mean_mae(self) -> float:
+        return self.mae_sum / self.predictions if self.predictions else 0.0
+
+    @property
+    def mean_rmse(self) -> float:
+        return self.rmse_sum / self.predictions if self.predictions else 0.0
+
+    @property
+    def mean_latency(self) -> float:
+        return self.latency_sum / self.predictions if self.predictions else 0.0
+
+    def record_prediction(self, mae: float, rmse: float, latency: float) -> None:
         self.predictions += 1
         self.mae_sum += mae
         self.rmse_sum += rmse
         self.latency_sum += latency
-        self.latency_count += 1
-    
-    def record_outcome(self, success: bool):
-        """Record trial outcome"""
+
+    def record_outcome(self, success: bool) -> None:
         self.total_trials += 1
         if success:
             self.successes += 1
@@ -79,8 +81,8 @@ class Arm:
         if alpha <= 0 or beta <= 0:
             return 0.5
         
-        # Sample from Beta distribution
-        return np.random.beta(alpha, beta)
+        # Sample from Beta distribution using isolated RNG
+        return _rng.beta(alpha, beta)
     
     def confidence_interval(self, confidence_level: float = 0.95) -> Tuple[float, float]:
         """Wald confidence interval for the success-rate estimate."""
@@ -103,94 +105,107 @@ class Arm:
             "successes": self.successes,
             "failures": self.failures,
             "total_trials": self.total_trials,
+            "confidence_interval": self.confidence_interval(),
             "predictions": self.predictions,
-            "mae": self.get_mean_metric("mae"),
-            "rmse": self.get_mean_metric("rmse"),
-            "latency": self.get_mean_metric("latency"),
-            "created_at": self.created_at
+            "mae": self.mean_mae,
+            "rmse": self.mean_rmse,
+            "latency": self.mean_latency,
+            "created_at": self.created_at,
         }
 
 
+@dataclass
 class ABTest:
-    """A/B test for comparing model versions"""
-    
-    def __init__(
-        self,
-        test_name: str,
-        model_name: str,
-        control_arm: Arm,
-        variant_arm: Arm,
-        confidence_threshold: float = 0.95,
-        min_samples: int = 1000
-    ):
-        self.test_id = f"{test_name}_{datetime.now().timestamp()}"
-        self.test_name = test_name
-        self.model_name = model_name
-        self.control_arm = control_arm
-        self.variant_arm = variant_arm
-        self.confidence_threshold = confidence_threshold
-        self.min_samples = min_samples
-        
-        self.status = TestStatus.SETUP
-        self.created_at = datetime.now().isoformat()
-        self.started_at = None
-        self.ended_at = None
-        
-        # Traffic allocation
+    test_name: str
+    model_name: str
+    control_arm: Arm
+    variant_arm: Arm
+    confidence_threshold: float = 0.95
+    min_samples: int = 1000
+    test_id: str = field(init=False)
+    status: TestStatus = field(default=TestStatus.SETUP)
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    started_at: Optional[str] = None
+    ended_at: Optional[str] = None
+    current_allocation: Dict[str, float] = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.test_id = f"{self.test_name}_{int(datetime.now().timestamp() * 1000)}"
         self.current_allocation = {
-            control_arm.model_id: 0.5,
-            variant_arm.model_id: 0.5
+            self.control_arm.model_id: 0.5,
+            self.variant_arm.model_id: 0.5,
         }
-    
-    def start(self):
-        """Start the A/B test"""
+
+    def start(self) -> None:
         self.status = TestStatus.RUNNING
         self.started_at = datetime.now().isoformat()
-        logger.info(f"Started A/B test: {self.test_name}")
-    
+        logger.info("Started A/B test: %s", self.test_name)
+
     def select_arm(self) -> Arm:
         """Select arm using Thompson sampling"""
         control_prob = self.control_arm.sample_from_distribution()
         variant_prob = self.variant_arm.sample_from_distribution()
         
-        # Use Thompson sampling to select
+        # Thompson sampling — fair random tie-break when probabilities are equal
         if control_prob > variant_prob:
             return self.control_arm
-        else:
+        elif variant_prob > control_prob:
             return self.variant_arm
+        else:
+            return self.control_arm if random.random() < 0.5 else self.variant_arm
     
     def record_arm_outcome(self, arm_id: str, success: bool, metrics: Dict):
         """Record outcome for an arm"""
         arm = self.control_arm if arm_id == self.control_arm.model_id else self.variant_arm
         
         arm.record_outcome(success)
-        if "mae" in metrics and "rmse" in metrics and "latency" in metrics:
-            arm.record_prediction(
-                metrics["mae"],
-                metrics["rmse"],
-                metrics["latency"]
-            )
-        
-        # Update allocation based on Thompson sampling
+        if {"mae", "rmse", "latency"}.issubset(metrics):
+            arm.record_prediction(metrics["mae"], metrics["rmse"], metrics["latency"])
         self._update_allocation()
     
     def _update_allocation(self):
-        """Update traffic allocation based on Thompson sampling"""
+        """Update traffic allocation based on Thompson sampling.
+
+        Averages multiple samples from each arm's Beta distribution to
+        reduce variance and prevent excessive allocation fluctuations.
+        """
         if self.status != TestStatus.RUNNING:
             return
-        
-        control_score = self.control_arm.sample_from_distribution()
-        variant_score = self.variant_arm.sample_from_distribution()
-        
+
+        n_samples = 100
+        control_total = 0.0
+        variant_total = 0.0
+        for _ in range(n_samples):
+            control_total += self.control_arm.sample_from_distribution()
+            variant_total += self.variant_arm.sample_from_distribution()
+
+        control_score = control_total / n_samples
+        variant_score = variant_total / n_samples
+
         total_score = control_score + variant_score
         if total_score > 0:
             self.current_allocation[self.control_arm.model_id] = control_score / total_score
             self.current_allocation[self.variant_arm.model_id] = variant_score / total_score
     
+    def _probability_variant_better(self) -> float:
+        """Compute P(variant > control) via Monte Carlo from Beta posteriors."""
+        n = 10000
+        control_samples = np.random.beta(
+            self.control_arm.successes + 1,
+            self.control_arm.failures + 1,
+            size=n,
+        )
+        variant_samples = np.random.beta(
+            self.variant_arm.successes + 1,
+            self.variant_arm.failures + 1,
+            size=n,
+        )
+        return float(np.mean(variant_samples > control_samples))
+
     def get_winner(self) -> Optional[Arm]:
-        """Determine winner with confidence threshold"""
+        """Determine winner using the configured confidence threshold."""
         total_trials = self.control_arm.total_trials + self.variant_arm.total_trials
-        
+
         if total_trials < self.min_samples:
             return None
         
@@ -206,15 +221,13 @@ class ABTest:
             return self.control_arm
         
         return None
-    
-    def end(self):
-        """End the A/B test"""
+
+    def end(self) -> None:
         self.status = TestStatus.COMPLETED
         self.ended_at = datetime.now().isoformat()
-        logger.info(f"Ended A/B test: {self.test_name}")
-    
-    def to_dict(self) -> Dict:
-        """Convert to dictionary"""
+        logger.info("Ended A/B test: %s", self.test_name)
+
+    def to_dict(self) -> Dict[str, Any]:
         return {
             "test_id": self.test_id,
             "test_name": self.test_name,
@@ -225,17 +238,15 @@ class ABTest:
             "current_allocation": self.current_allocation,
             "created_at": self.created_at,
             "started_at": self.started_at,
-            "ended_at": self.ended_at
+            "ended_at": self.ended_at,
         }
 
 
 class ABTestManager:
-    """Manages A/B tests for model comparison"""
-    
-    def __init__(self):
+    def __init__(self) -> None:
         self.active_tests: Dict[str, ABTest] = {}
         self.completed_tests: List[ABTest] = []
-    
+
     def create_test(
         self,
         test_name: str,
@@ -243,36 +254,71 @@ class ABTestManager:
         control_arm: Arm,
         variant_arm: Arm,
         confidence_threshold: float = 0.95,
-        min_samples: int = 1000
+        min_samples: int = 1000,
     ) -> ABTest:
-        """Create new A/B test"""
-        
         test = ABTest(
             test_name=test_name,
             model_name=model_name,
             control_arm=control_arm,
             variant_arm=variant_arm,
             confidence_threshold=confidence_threshold,
-            min_samples=min_samples
+            min_samples=min_samples,
         )
-        
         self.active_tests[test.test_id] = test
-        logger.info(f"Created A/B test: {test_name} (ID: {test.test_id})")
-        
+        logger.info("Created A/B test: %s (ID: %s)", test_name, test.test_id)
         return test
-    
+
     def get_test(self, test_id: str) -> Optional[ABTest]:
-        """Get A/B test by ID"""
         return self.active_tests.get(test_id)
-    
+
     def start_test(self, test_id: str) -> bool:
-        """Start an A/B test"""
         test = self.get_test(test_id)
         if not test:
             return False
-        
         test.start()
         return True
+
+    def select_arm(self, test_id: str) -> Optional[Arm]:
+        test = self.get_test(test_id)
+        if not test or test.status != TestStatus.RUNNING:
+            return None
+        return test.select_arm()
+
+    def record_outcome(self, test_id: str, arm_id: str, success: bool, metrics: Dict[str, float]) -> bool:
+        test = self.get_test(test_id)
+        if not test:
+            return False
+        test.record_arm_outcome(arm_id, success, metrics)
+        winner = test.get_winner()
+        if winner:
+            test.end()
+            self.active_tests.pop(test_id, None)
+            self.completed_tests.append(test)
+            logger.info("A/B test %s completed. Winner: %s", test_id, winner.name)
+        return True
+
+    def get_test_results(self, test_id: str) -> Optional[Dict[str, Any]]:
+        test = self.get_test(test_id) or next(
+            (t for t in self.completed_tests if t.test_id == test_id),
+            None,
+        )
+        return test.to_dict() if test else None
+
+    def list_active_tests(self) -> List[Dict[str, Any]]:
+        return [test.to_dict() for test in self.active_tests.values()]
+
+    def list_completed_tests(self) -> List[Dict[str, Any]]:
+        return [test.to_dict() for test in self.completed_tests]
+
+
+_ab_test_manager: Optional[ABTestManager] = None
+
+
+def get_ab_test_manager() -> ABTestManager:
+    global _ab_test_manager
+    if _ab_test_manager is None:
+        _ab_test_manager = ABTestManager()
+    return _ab_test_manager
     
     def select_arm(self, test_id: str) -> Optional[Arm]:
         """Select arm for a request"""
