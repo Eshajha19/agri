@@ -298,9 +298,10 @@ class ImageProcessingQueue:
         }
 
     def get_pending_tasks(self, limit: int = 100) -> List[Dict]:
-        """Get pending tasks"""
+        """Get pending tasks sorted by priority (highest first)"""
         with self._queue_lock:
-            tasks = [entry[2] for entry in self._task_queue[:limit]]
+            entries = sorted(self._task_queue, key=lambda e: e[0])[:limit]
+            tasks = [entry[2] for entry in entries]
             return [
                 {
                     "task_id": t.task_id,
