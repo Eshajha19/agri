@@ -11,6 +11,10 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 import numpy as np
 
+# Isolated RNG for Thompson sampling — avoids correlated samples
+# from NumPy's shared global generator under concurrent access.
+_thompson_rng = np.random.RandomState(random.getrandbits(128))
+
 logger = logging.getLogger(__name__)
 
 
@@ -80,7 +84,7 @@ class Arm:
             return 0.5
         
         # Sample from Beta distribution
-        return np.random.beta(alpha, beta)
+        return _thompson_rng.beta(alpha, beta)
     
     def to_dict(self) -> Dict:
         """Convert to dictionary"""
