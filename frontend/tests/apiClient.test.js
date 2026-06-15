@@ -118,5 +118,15 @@ describe('services/api', () => {
     expect(axiosMocks.create).toHaveBeenCalledWith(expect.objectContaining({
       baseURL: 'https://api.example.com',
     }));
+  
+  it('throws a user-friendly error message when backend fails', async () => {
+  axiosMocks.request.mockRejectedValueOnce(new Error('500 Internal Server Error'));
+
+  const { default: apiClient } = await import('../services/api.js');
+
+  await expect(apiClient.get('/api/failing-endpoint')).rejects.toThrow(
+    'Unable to connect to server. Please try again.'
+  );
+});
   });
 });

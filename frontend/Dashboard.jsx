@@ -39,6 +39,8 @@ import Loader from "./Loader";
 import apiClient from "./lib/apiClient";
 import { getBookmarks } from "./utils/bookmarkStorage";
 import AdvisoryPanel from "./AdvisoryPanel";
+import { fetchData } from "../apiClient";
+import ErrorToast from "./ErrorToast";
 
 // ============================================
 // Performance Utilities
@@ -250,6 +252,15 @@ export default function Dashboard({ userData }) {
   const mountedRef = React.useRef(true);
   const dashboardRequestRef = React.useRef(0);
 
+  const [error, setError] = useState(null);
+  const [data, setData] = useState(null);
+
+  useEffect(() => {
+    fetchData("/api/weather")
+      .then(setData)
+      .catch((err) => setError(err.message));
+  }, []);
+  
   // Memoize callback functions to prevent unnecessary re-renders
   const handlePhoneChange = useCallback((e) => {
     setPhoneNumber(e.target.value);
@@ -981,6 +992,12 @@ export default function Dashboard({ userData }) {
           }
         </div>
       </section>
+
+      <div>
+      <h2>Dashboard</h2>
+      {data && <pre>{JSON.stringify(data, null, 2)}</pre>}
+      <ErrorToast message={error} onClose={() => setError(null)} />
+    </div>
     </div>
   );
 }
