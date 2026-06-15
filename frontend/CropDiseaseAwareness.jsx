@@ -11,6 +11,8 @@ import {
 } from "react-icons/fa";
 import { Wheat, Carrot, Leaf, Banana, Apple, Citrus, Grape, Salad, Bean, Cherry } from "lucide-react";
 import "./CropDiseaseAwareness.css";
+import Recommendations from "./Recommendations";
+
 
 const diseaseData = [
   {
@@ -325,6 +327,10 @@ const CropDiseaseAwareness = () => {
           </div>
         )}
       </div>
+      <div>
+      <h2>Crop Recommendations</h2>
+      <Recommendations results={results} />
+    </div>
     </div>
   );
 };
