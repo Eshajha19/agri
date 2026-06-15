@@ -130,8 +130,10 @@ const Community = () => {
             const userDoc = await getDoc(doc(db, "users", id));
             if (userDoc.exists()) {
               newAuthorsData[id] = userDoc.data();
-              changed = true;
+            } else {
+              newAuthorsData[id] = null;
             }
+            changed = true;
           } catch (err) {
             console.error("Error fetching author data:", err);
           }
