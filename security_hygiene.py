@@ -5,11 +5,16 @@ Protects sensitive data from leakages and enforces rotation and redaction.
 
 import re
 import hashlib
+import threading
+import time
 from datetime import datetime, timezone
-from typing import Any, Tuple, Pattern, List
+from typing import Any, Tuple, Pattern, List, Dict, Optional
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
+from middleware_utils import (
+    ensure_body_available,
+)
 
 # Maximum body size to scan (256 KB)
 MAX_SCAN_BODY_SIZE = 256 * 1024
@@ -22,6 +27,82 @@ SCANNABLE_CONTENT_TYPES = frozenset({
     "application/xml",
     "text/xml",
 })
+
+# ---------------------------------------------------------------------------
+# DoS mitigation: scan-result cache + per-path token-bucket budget (#2366)
+# ---------------------------------------------------------------------------
+_SCAN_CACHE_TTL: float = 5.0    # seconds a cached result stays valid
+_SCAN_RPS_LIMIT: float = 10.0   # max full scans per second per path
+_SCAN_BURST: int = 3            # token-bucket burst allowance per path
+
+
+class _ScanCache:
+    """Thread-safe cache keyed on (path, body_blake2b) with TTL expiry."""
+
+    def __init__(self, ttl: float = _SCAN_CACHE_TTL, maxsize: int = 4096) -> None:
+        self._ttl = ttl
+        self._maxsize = maxsize
+        self._store: Dict[tuple, tuple] = {}   # key -> (result, expires_at)
+        self._lock = threading.Lock()
+
+    def _key(self, path: str, body: bytes) -> tuple:
+        digest = hashlib.blake2b(body, digest_size=16).hexdigest()
+        return (path, digest)
+
+    def get(self, path: str, body: bytes) -> Optional[bool]:
+        key = self._key(path, body)
+        with self._lock:
+            entry = self._store.get(key)
+            if entry is None:
+                return None
+            result, expires_at = entry
+            if time.monotonic() > expires_at:
+                del self._store[key]
+                return None
+            return result
+
+    def set(self, path: str, body: bytes, result: bool) -> None:
+        key = self._key(path, body)
+        with self._lock:
+            if len(self._store) >= self._maxsize:
+                # Evict expired entries first, then oldest quarter
+                now = time.monotonic()
+                expired = [k for k, (_, exp) in self._store.items() if exp <= now]
+                for k in expired:
+                    del self._store[k]
+                if len(self._store) >= self._maxsize:
+                    for k in list(self._store)[:self._maxsize // 4]:
+                        del self._store[k]
+            self._store[key] = (result, time.monotonic() + self._ttl)
+
+
+class _ScanBudget:
+    """Per-path token-bucket: consume() returns True when a scan may proceed."""
+
+    def __init__(self, rate: float = _SCAN_RPS_LIMIT, burst: int = _SCAN_BURST) -> None:
+        self._rate = rate
+        self._burst = burst
+        self._buckets: Dict[str, tuple] = {}   # path -> (tokens, last_refill)
+        self._lock = threading.Lock()
+
+    def consume(self, path: str) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            tokens, last = self._buckets.get(path, (float(self._burst), now))
+            tokens = min(float(self._burst), tokens + (now - last) * self._rate)
+            if tokens >= 1.0:
+                self._buckets[path] = (tokens - 1.0, now)
+                return True
+            self._buckets[path] = (tokens, now)
+            return False
+
+
+# Module-level singletons shared across all middleware instances
+_scan_cache = _ScanCache()
+_scan_budget = _ScanBudget()
+
+# ---------------------------------------------------------------------------
+
 
 class Finding:
     """Represents a sensitive data finding during scanning."""
@@ -68,101 +149,92 @@ class SecretHygieneProgram:
                 findings.append(Finding(category, match.group(0), location))
         return findings
 
-# Content-types eligible for body scanning (MIME type only, no parameters)
-SCANNABLE_TYPES = frozenset({
-    "application/json",
-    "application/x-www-form-urlencoded",
-    "application/xml",
-    "text/plain",
-    "text/html",
-    "text/xml",
-})
-# Maximum body size to scan (256 KB)
-MAX_SCAN_BODY_SIZE = 256 * 1024
-
-
 def _parse_mime_type(content_type: str | None) -> str | None:
-    """Extract the MIME type from a Content-Type header value.
-
-    Handles ``application/json; charset=utf-8`` → ``application/json``,
-    missing or empty header → ``None``, and trailing whitespace.
-    """
-    if not content_type or not content_type.strip():
+    """Extract the MIME type from a Content-Type header value."""
+    if not content_type:
         return None
     return content_type.split(";")[0].strip().lower()
 
 
+# Binary MIME types whose body cannot be meaningfully scanned as text.
+_BINARY_MIME_PREFIXES = ("image/", "audio/", "video/", "application/octet-stream")
+
+
 class RuntimeProtectionMiddleware(BaseHTTPMiddleware):
     """FastAPI Middleware to block requests containing cleartext secrets."""
-    def __init__(self, app, program: SecretHygieneProgram = None):
+
+    def __init__(self, app, program: SecretHygieneProgram = None, exclude_paths=None):
         super().__init__(app)
         self.program = program or SecretHygieneProgram()
-        self.exclude_paths = exclude_paths or []
-
-    async def __call__(self, scope, receive, send):
-        if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-
-        path = scope.get("path", "")
-        if any(path.startswith(prefix) for prefix in self.exclude_paths):
-            await self.app(scope, receive, send)
-            return
-
-        body_bytes = b""
-        more_body = True
-        received_messages = []
+        self.exclude_paths = set(exclude_paths or ["/health", "/docs"])
 
     async def dispatch(self, request: Request, call_next):
-        # Only scan text/json content types with bounded size
-        mime = _parse_mime_type(request.headers.get("content-type"))
-
-        if mime in SCANNABLE_TYPES:
-            try:
-                body_bytes = await request.body()
-                if 0 < len(body_bytes) <= MAX_SCAN_BODY_SIZE:
-        content_type = (request.headers.get("content-type") or "").lower().split(";")[0].strip()
-        content_length_str = request.headers.get("content-length", "0")
-        try:
-            content_length = int(content_length_str)
-        except (ValueError, TypeError):
-            content_length = 0
-
-        should_scan = (
-            content_type in SCANNABLE_CONTENT_TYPES
-            and 0 < content_length <= MAX_SCAN_BODY_SIZE
-        )
+        raw_ct = request.headers.get("content-type")
+        mime = _parse_mime_type(raw_ct)
+        should_scan = mime is None or not mime.startswith(_BINARY_MIME_PREFIXES)
 
         if should_scan:
             try:
-                body_bytes = await request.body()
-                if len(body_bytes) <= MAX_SCAN_BODY_SIZE:
+                # Enforce request size limit before reading body into memory
+                content_length = request.headers.get("content-length")
+
+                if content_length:
+                    try:
+                        if int(content_length) > MAX_SCAN_BODY_SIZE:
+                            return JSONResponse(
+                                status_code=413,
+                                content={
+                                    "error": "Payload too large"
+                                }
+                            )
+                    except ValueError:
+                        pass
+
+                # Safe request body access using shared cache utility
+                body_bytes = await ensure_body_available(request)
+
+                # Secondary protection for clients that omit Content-Length
+                if len(body_bytes) > MAX_SCAN_BODY_SIZE:
+                    return JSONResponse(
+                        status_code=413,
+                        content={
+                            "error": "Payload too large"
+                        }
+                    )
+
+                path = request.url.path
+
+                # --- DoS fix: check cache before running any regex (#2366) ---
+                cached = _scan_cache.get(path, body_bytes)
+                if cached is not None:
+                    has_findings = cached
+                elif _scan_budget.consume(path):
+                    # Budget available — run the full scan
                     body_str = body_bytes.decode("utf-8", errors="ignore")
-                    findings = self.program.scan_text(body_str, location="middleware")
-                    if findings:
-                        return JSONResponse(
-                            status_code=400,
-                            content={"error": "Request blocked by secrets hygiene policy"}
-                        )
+                    has_findings = bool(self.program.scan_text(body_str, location="middleware"))
+                    _scan_cache.set(path, body_bytes, has_findings)
+                else:
+                    # Budget exhausted and no cached result — assume safe to
+                    # avoid blocking legitimate traffic under load
+                    has_findings = False
 
-                    # Reset body read pointer so downstream handlers can consume it
-                    async def receive():
-                        return {"type": "http.request", "body": body_bytes, "more_body": False}
-                    request._receive = receive
+                if has_findings:
+                    return JSONResponse(
+                        status_code=400,
+                        content={"error": "Request blocked by secrets hygiene policy"}
+                    )
+
+
             except Exception:
-                # Fallback in case of body read failures to avoid crashing the server
-                pass
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "error": "Failed to inspect request"
+                    },
+                )
 
-        message_idx = 0
-        async def mock_receive():
-            nonlocal message_idx
-            if message_idx < len(received_messages):
-                msg = received_messages[message_idx]
-                message_idx += 1
-                return msg
-            return await receive()
-
-        await self.app(scope, mock_receive, send)
+        response = await call_next(request)
+        return response
 
 def build_secret_fingerprint(value: str) -> str:
     """Generate a cryptographically stable fingerprint of a secret value."""
