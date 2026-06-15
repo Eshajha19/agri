@@ -62,20 +62,31 @@ def generate_advisories(
     soil = soil or {}
     crop = str(crop_type or "").strip().lower()
 
-    temperature = (
-        _as_number(weather.get("temperature"))
-        or _as_number(weather.get("temperature_c"))
-        or _as_number(weather.get("max_temperature"))
-        or _as_number(weather.get("max_temperature_c"))
-    )
-    rainfall = (
-        _as_number(weather.get("rainfall_next_24h"))
-        or _as_number(weather.get("precipitation_next_24h"))
-        or _as_number(weather.get("rainfall"))
-        or 0
-    )
-    rain_probability = _as_number(weather.get("rain_probability")) or 0
-    humidity = _as_number(weather.get("humidity")) or _as_number(weather.get("relative_humidity"))
+    temperature = None
+    for key in ["temperature", "temperature_c", "max_temperature", "max_temperature_c"]:
+        val = _as_number(weather.get(key))
+        if val is not None:
+            temperature = val
+            break
+
+    rainfall = None
+    for key in ["rainfall_next_24h", "precipitation_next_24h", "rainfall"]:
+        val = _as_number(weather.get(key))
+        if val is not None:
+            rainfall = val
+            break
+    if rainfall is None:
+        rainfall = 0.0
+
+    rain_prob_val = _as_number(weather.get("rain_probability"))
+    rain_probability = rain_prob_val if rain_prob_val is not None else 0.0
+
+    humidity = None
+    for key in ["humidity", "relative_humidity"]:
+        val = _as_number(weather.get(key))
+        if val is not None:
+            humidity = val
+            break
 
     if rainfall >= 5 or rain_probability >= 60:
         _add_alert(
@@ -104,6 +115,15 @@ def generate_advisories(
             "Warm day ahead",
             f"Temperature is around {round(temperature)} C, so soil moisture may fall faster than usual.",
             "Check soil moisture and avoid spraying during peak afternoon heat.",
+        )
+    elif temperature is not None and temperature <= 0:
+        _add_alert(
+            alerts,
+            "critical",
+            "weather",
+            "Frost alert",
+            f"Temperature is around {round(temperature)} C, which can cause severe frost damage to crops.",
+            "Cover tender crops and consider a light protective irrigation before dawn.",
         )
 
     moisture = _as_number(soil.get("moisture") or soil.get("soil_moisture"))

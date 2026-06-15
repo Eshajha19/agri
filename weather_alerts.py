@@ -385,7 +385,7 @@ class WeatherAlertsService:
                 ))
                 alert_id_counter += 1
 
-        if weather.temperature < 0:
+        if weather.temperature <= 0:
             alerts.append(WeatherAlert(
                 id=f"weather_{alert_id_counter}",
                 severity=AlertSeverity.CRITICAL,
