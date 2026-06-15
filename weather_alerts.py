@@ -257,21 +257,21 @@ class WeatherAlertsService:
         try:
             session = await self._get_session()
             params = {
-                "name": location,
-                "count": 1,
-                "language": "en",
-                "format": "json",
-            }
-            async with session.get(
-                f"{self.GEOCODING_URL}/search",
-                params=params,
-                timeout=aiohttp.ClientTimeout(total=10)
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    if data.get("results"):
-                        result = data["results"][0]
-                        return (result["latitude"], result["longitude"], result.get("name", location))
+                    "name": location,
+                    "count": 1,
+                    "language": "en",
+                    "format": "json"
+                }
+                async with session.get(
+                    f"{self.GEOCODING_URL}/search",
+                    params=params,
+                    timeout=aiohttp.ClientTimeout(total=10)
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data.get("results"):
+                            result = data["results"][0]
+                            return (result["latitude"], result["longitude"], result.get("name", location))
         except Exception as e:
             logger.error(f"Geocoding error for '{location}': {e}")
         return (None, None, location)
@@ -313,32 +313,32 @@ class WeatherAlertsService:
             session = await self._get_session()
             params = {
                 "latitude": latitude,
-                "longitude": longitude,
-                "current": "temperature_2m,relative_humidity_2m,rainfall,weather_code,cloud_cover,wind_speed_10m",
-                "timezone": "auto",
-                "forecast_days": 1,
-                "hourly": "rainfall",
-            }
-
-            async with session.get(
-                f"{self.BASE_URL}/forecast",
-                params=params,
-                timeout=aiohttp.ClientTimeout(total=10)
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    current = data.get("current", {})
-
-                    weather = WeatherData(
-                        temperature=current.get("temperature_2m", 0),
-                        humidity=current.get("relative_humidity_2m", 0),
-                        rainfall=current.get("rainfall", 0),
-                        wind_speed=current.get("wind_speed_10m", 0),
-                        cloud_cover=current.get("cloud_cover", 0),
-                        weather_code=current.get("weather_code", 0),
-                        timestamp=datetime.now(),
-                        location=location,
-                    )
+                    "longitude": longitude,
+                    "current": "temperature_2m,relative_humidity_2m,rainfall,weather_code,cloud_cover,wind_speed_10m",
+                    "timezone": "auto",
+                    "forecast_days": 1,
+                    "hourly": "rainfall",
+                }
+                
+                async with session.get(
+                    f"{self.BASE_URL}/forecast",
+                    params=params,
+                    timeout=aiohttp.ClientTimeout(total=10)
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        current = data.get("current", {})
+                        
+                        weather = WeatherData(
+                            temperature=current.get("temperature_2m", 0),
+                            humidity=current.get("relative_humidity_2m", 0),
+                            rainfall=current.get("rainfall", 0),
+                            wind_speed=current.get("wind_speed_10m", 0),
+                            cloud_cover=current.get("cloud_cover", 0),
+                            weather_code=current.get("weather_code", 0),
+                            timestamp=datetime.now(),
+                            location=location,
+                        )
                         
                     # Cache the result
                     self._weather_cache[cache_key] = (weather, datetime.now())
