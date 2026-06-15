@@ -140,14 +140,18 @@ class MetricsCollector:
         baseline = history[0]
         
         # Check MAE degradation
-        if current_metrics["mae"] and baseline["mae"]:
-            mae_increase = ((current_metrics["mae"] - baseline["mae"]) / baseline["mae"]) * 100
+        current_mae = current_metrics.get("mae")
+        baseline_mae = baseline.get("mae")
+        if current_mae is not None and baseline_mae is not None:
+            mae_increase = ((current_mae - baseline_mae) / baseline_mae) * 100
             if mae_increase > 10:  # 10% increase
                 return True, f"MAE increased by {mae_increase:.2f}%"
         
         # Check latency degradation
-        if current_metrics["latency"] and baseline["latency"]:
-            latency_increase = ((current_metrics["latency"] - baseline["latency"]) / baseline["latency"]) * 100
+        current_latency = current_metrics.get("latency")
+        baseline_latency = baseline.get("latency")
+        if current_latency is not None and baseline_latency is not None:
+            latency_increase = ((current_latency - baseline_latency) / baseline_latency) * 100
             if latency_increase > 15:  # 15% increase
                 return True, f"Latency increased by {latency_increase:.2f}%"
         
@@ -162,7 +166,8 @@ class MetricsCollector:
         if len(self.performance_history[model_id]) > 30:
             self.performance_history[model_id] = self.performance_history[model_id][:30]
         
-        mae_str = f"MAE={metrics.get('mae'):.4f}" if metrics.get('mae') else "MAE=N/A"
+        mae = metrics.get("mae")
+        mae_str = f"MAE={mae:.4f}" if mae is not None else "MAE=N/A"
         logger.info(f"Recorded baseline for {model_id}: {mae_str}")
     
     def get_performance_report(self, model_id: str) -> Dict:
@@ -229,9 +234,11 @@ class CanaryMonitor:
         baseline_metrics = self.metrics.get_metrics(canary["baseline_model_id"])
         
         # Compare error rates
-        if current_metrics["mae"] and baseline_metrics["mae"]:
-            mae_increase = current_metrics["mae"] / baseline_metrics["mae"]
-            
+        current_mae = current_metrics.get("mae")
+        baseline_mae = baseline_metrics.get("mae")
+        if current_mae is not None and baseline_mae is not None:
+            mae_increase = current_mae / baseline_mae
+
             if mae_increase > 1.2:  # 20% worse
                 return False, f"MAE 20% worse than baseline (ratio: {mae_increase:.2f})"
         
