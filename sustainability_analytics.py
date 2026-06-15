@@ -158,27 +158,21 @@ class SustainabilityAnalytics:
     def _save_local_history(self, history: Dict[str, List[Dict[str, Any]]]) -> None:
         import json
         import os
-        from filelock import FileLock
+        import tempfile
         path = self._get_local_file_path()
         tmp_path = path + ".tmp"
         lock_path = path + ".lock"
         try:
-            with FileLock(lock_path, timeout=5):
-                with open(tmp_path, "w", encoding="utf-8") as f:
+            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
                     json.dump(history, f, indent=2, ensure_ascii=False)
-                    f.flush()
-                    os.fsync(f.fileno())
-                os.replace(tmp_path, path)
-        except Exception as e:
-            logger.error("Failed to save local history atomically: %s", e)
-            if os.path.exists(tmp_path):
-                try:
-                    os.remove(tmp_path)
-                except OSError:
-                    pass
-
-        except Exception as exc:
-            logger.error("Failed to save sustainability history file: %s", exc)
+            except Exception:
+                os.unlink(tmp)
+                raise
+            os.replace(tmp, path)
+        except Exception:
+            pass
 
     def get_formula_config(self) -> Dict[str, Any]:
         return {
