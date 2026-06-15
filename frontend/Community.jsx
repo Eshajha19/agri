@@ -121,22 +121,23 @@ const Community = () => {
         ...postComments.map(c => c.userId)
       ].filter(Boolean));
 
+      const uncached = [...authorIds].filter((id) => !authorsData[id]);
+
+      const results = await Promise.allSettled(
+        uncached.map((id) => getDoc(doc(db, "users", id)))
+      );
+
       const newAuthorsData = { ...authorsData };
       let changed = false;
 
-      for (const id of authorIds) {
-        if (!newAuthorsData[id]) {
-          try {
-            const userDoc = await getDoc(doc(db, "users", id));
-            if (userDoc.exists()) {
-              newAuthorsData[id] = userDoc.data();
-              changed = true;
-            }
-          } catch (err) {
-            console.error("Error fetching author data:", err);
-          }
+      results.forEach((res, i) => {
+        if (res.status === "fulfilled" && res.value.exists()) {
+          newAuthorsData[uncached[i]] = res.value.data();
+          changed = true;
+        } else if (res.status === "rejected") {
+          console.error("Error fetching author data:", res.reason);
         }
-      }
+      });
 
       if (changed) setAuthorsData(newAuthorsData);
     };
