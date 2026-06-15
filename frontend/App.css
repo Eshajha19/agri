@@ -2408,3 +2408,8 @@ body {
   text-align: center;
   font-weight: bold;
 }
+
+.theme-dark .backend-banner {
+  background: #3b1010;
+  color: #ff6b6b;
+}
