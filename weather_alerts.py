@@ -226,6 +226,12 @@ class WeatherAlertsService:
         self._weather_cache: Dict[str, tuple] = {}  # (data, timestamp)
         self._max_cache_size = 1000
         self.alert_history: List[WeatherAlert] = []
+        self._session: Optional[aiohttp.ClientSession] = None
+
+    def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+        return self._session
 
     def _evict_expired(self) -> None:
         """Remove expired entries from the weather cache."""
@@ -248,18 +254,18 @@ class WeatherAlertsService:
             (latitude, longitude) tuple
         """
         try:
-            async with aiohttp.ClientSession() as session:
-                params = {
-                    "name": location,
-                    "count": 1,
-                    "language": "en",
-                    "format": "json"
-                }
-                async with session.get(
-                    f"{self.GEOCODING_URL}/search",
-                    params=params,
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as resp:
+            session = self._get_session()
+            params = {
+                "name": location,
+                "count": 1,
+                "language": "en",
+                "format": "json"
+            }
+            async with session.get(
+                f"{self.GEOCODING_URL}/search",
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         if data.get("results"):
@@ -297,21 +303,21 @@ class WeatherAlertsService:
             del self._weather_cache[cache_key]
 
         try:
-            async with aiohttp.ClientSession() as session:
-                params = {
-                    "latitude": latitude,
-                    "longitude": longitude,
-                    "current": "temperature_2m,relative_humidity_2m,rainfall,weather_code,cloud_cover,wind_speed_10m",
-                    "timezone": "auto",
-                    "forecast_days": 1,
-                    "hourly": "rainfall",
-                }
-                
-                async with session.get(
-                    f"{self.BASE_URL}/forecast",
-                    params=params,
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as resp:
+            session = self._get_session()
+            params = {
+                "latitude": latitude,
+                "longitude": longitude,
+                "current": "temperature_2m,relative_humidity_2m,rainfall,weather_code,cloud_cover,wind_speed_10m",
+                "timezone": "auto",
+                "forecast_days": 1,
+                "hourly": "rainfall",
+            }
+            
+            async with session.get(
+                f"{self.BASE_URL}/forecast",
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         current = data.get("current", {})
