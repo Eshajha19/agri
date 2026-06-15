@@ -1121,7 +1121,8 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     send_whatsapp_message(data.phone_number, welcome_msg)
     return {"success": True, "message": "Successfully subscribed"}
 
-_broadcast_rate_limit = {}
+_broadcast_rate_limit: Dict[str, float] = {}
+_BROADCAST_RATE_LIMIT_SECONDS = 60
 
 @app.post("/api/whatsapp/trigger-alert")
 @limiter.limit("10/minute")
@@ -1138,7 +1139,16 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     consuming Twilio API credits at the attacker's discretion.
     """
     # RBAC: only admins and experts may broadcast alerts to all farmers.
-    await verify_role(request, required_roles=["admin", "expert"])
+    token_data = await verify_role(request, required_roles=["admin", "expert"])
+    uid = token_data["uid"]
+    now = time.time()
+    last_broadcast = _broadcast_rate_limit.get(uid)
+    if last_broadcast and (now - last_broadcast) < _BROADCAST_RATE_LIMIT_SECONDS:
+        retry_after = int(_BROADCAST_RATE_LIMIT_SECONDS - (now - last_broadcast))
+        raise HTTPException(
+            status_code=429,
+            detail=f"Broadcast rate limit exceeded. Retry after {retry_after} seconds."
+        )
 
     # get_all() acquires the lock and returns a stable snapshot, so this read
     # cannot race with a concurrent subscription write.
@@ -1155,6 +1165,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
         message=data.message,
     )
 
+    _broadcast_rate_limit[uid] = time.time()
     delivered = sum(1 for r in results if r["success"])
     return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
 

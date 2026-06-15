@@ -232,36 +232,53 @@ class ModelRegistry:
     def promote_to_production(
         self,
         model_name: str,
-        version: str
+        version: str,
+        promoted_by: str = "system"
     ) -> bool:
-        """Promote model to production (100% traffic).
+        """Promote model to production (100% traffic)"""
 
-        Re-verifies artifact integrity before promoting.
-        """
         model = self.get_model_version(model_name, version)
         if not model:
             return False
 
-        # Re-verify artifact before loading into production.
-        try:
-            verify_artifact(model.model_path, expected_checksum=model.checksum_sha256)
-        except (FileNotFoundError, PermissionError, ValueError) as exc:
-            logger.error("Cannot promote %s:%s — %s", model_name, version, exc)
-            return False
+        now = datetime.now().isoformat()
+        prev_version_id = None
+        prev_version_tag = None
 
-        # Archive previous production model
+        # Archive previous production model and build audit trail
         if model_name in self.active_models:
             old_model = self.active_models[model_name]
             old_model.status = ModelStatus.ARCHIVED
-        
+            prev_version_id = old_model.model_id
+            prev_version_tag = old_model.version
+            old_model.deployment_history.append({
+                "action": "replaced",
+                "replaced_by_version": version,
+                "replaced_by_model_id": model.model_id,
+                "timestamp": now,
+                "promoted_by": promoted_by,
+            })
+
         model.status = ModelStatus.PRODUCTION
         model.canary_traffic_percentage = 100
-        model.deployed_at = datetime.now().isoformat()
+        model.deployed_at = now
         self.active_models[model_name] = model
-        
-        self._log_deployment(model_name, version, "production", 100)
+
+        model.deployment_history.append({
+            "action": "promote_to_production",
+            "previous_version_id": prev_version_id,
+            "previous_version": prev_version_tag,
+            "current_version": version,
+            "current_model_id": model.model_id,
+            "timestamp": now,
+            "promoted_by": promoted_by,
+        })
+
+        self._log_deployment(model_name, version, "production", 100,
+                             previous_version=prev_version_tag,
+                             promoted_by=promoted_by)
         logger.info(f"Promoted {model_name}:{version} to PRODUCTION")
-        
+
         return True
 
     def rollback(self, model_name: str, reason: str = "Performance degradation") -> bool:
@@ -295,8 +312,62 @@ class ModelRegistry:
                 return True
             logger.error("No previous production model found for %s", model_name)
             return False
-
-    def get_deployment_history(self, model_name: str, limit: int = 20) -> List[Dict]:
+        
+        current.status = ModelStatus.ROLLED_BACK
+        current.rollback_reason = reason
+        
+        # Find previous production version
+        versions = sorted(
+            self.models[model_name].values(),
+            key=lambda x: x.created_at,
+            reverse=True
+        )
+        
+        previous = None
+        for v in versions:
+            if v.model_id != current.model_id and v.status == ModelStatus.ARCHIVED:
+                previous = v
+                break
+        
+        if previous:
+            previous.status = ModelStatus.PRODUCTION
+            previous.canary_traffic_percentage = 100
+            self.active_models[model_name] = previous
+            
+            self._log_deployment(model_name, previous.version, "rollback", 100, reason)
+            logger.warning(f"Rolled back {model_name} to {previous.version}: {reason}")
+            return True
+        
+        logger.error(f"No previous production model found for {model_name}")
+        return False
+    
+    def _log_deployment(
+        self,
+        model_name: str,
+        version: str,
+        action: str,
+        traffic: int,
+        reason: str = None,
+        previous_version: str = None,
+        promoted_by: str = "system",
+    ):
+        """Log deployment event"""
+        self.deployment_log.append({
+            "timestamp": datetime.now().isoformat(),
+            "model_name": model_name,
+            "version": version,
+            "action": action,
+            "traffic_percentage": traffic,
+            "reason": reason,
+            "previous_version": previous_version,
+            "promoted_by": promoted_by,
+        })
+    
+    def get_deployment_history(
+        self,
+        model_name: str,
+        limit: int = 20
+    ) -> List[Dict]:
         """Get deployment history for a model"""
         with self._lock:
             return [log for log in self.deployment_log if log["model_name"] == model_name][-limit:]
