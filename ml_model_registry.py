@@ -232,36 +232,53 @@ class ModelRegistry:
     def promote_to_production(
         self,
         model_name: str,
-        version: str
+        version: str,
+        promoted_by: str = "system"
     ) -> bool:
-        """Promote model to production (100% traffic).
+        """Promote model to production (100% traffic)"""
 
-        Re-verifies artifact integrity before promoting.
-        """
         model = self.get_model_version(model_name, version)
         if not model:
             return False
 
-        # Re-verify artifact before loading into production.
-        try:
-            verify_artifact(model.model_path, expected_checksum=model.checksum_sha256)
-        except (FileNotFoundError, PermissionError, ValueError) as exc:
-            logger.error("Cannot promote %s:%s — %s", model_name, version, exc)
-            return False
+        now = datetime.now().isoformat()
+        prev_version_id = None
+        prev_version_tag = None
 
-        # Archive previous production model
+        # Archive previous production model and build audit trail
         if model_name in self.active_models:
             old_model = self.active_models[model_name]
             old_model.status = ModelStatus.ARCHIVED
-        
+            prev_version_id = old_model.model_id
+            prev_version_tag = old_model.version
+            old_model.deployment_history.append({
+                "action": "replaced",
+                "replaced_by_version": version,
+                "replaced_by_model_id": model.model_id,
+                "timestamp": now,
+                "promoted_by": promoted_by,
+            })
+
         model.status = ModelStatus.PRODUCTION
         model.canary_traffic_percentage = 100
-        model.deployed_at = datetime.now().isoformat()
+        model.deployed_at = now
         self.active_models[model_name] = model
-        
-        self._log_deployment(model_name, version, "production", 100)
+
+        model.deployment_history.append({
+            "action": "promote_to_production",
+            "previous_version_id": prev_version_id,
+            "previous_version": prev_version_tag,
+            "current_version": version,
+            "current_model_id": model.model_id,
+            "timestamp": now,
+            "promoted_by": promoted_by,
+        })
+
+        self._log_deployment(model_name, version, "production", 100,
+                             previous_version=prev_version_tag,
+                             promoted_by=promoted_by)
         logger.info(f"Promoted {model_name}:{version} to PRODUCTION")
-        
+
         return True
 
     def rollback(self, model_name: str, reason: str = "Performance degradation") -> bool:

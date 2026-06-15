@@ -114,10 +114,17 @@ def _refresh_cache_locked() -> None:
     loaded = _load_from_firestore()
     if not loaded:
         loaded = {fid: _enrich(fid, fdata) for fid, fdata in DEFAULT_FLAGS.items()}
-        if _FIRESTORE_AVAILABLE and not _defaults_seeded:
+        if _FIRESTORE_AVAILABLE:
             for fid, fdata in loaded.items():
-                _write_to_firestore(fid, fdata)
-            _defaults_seeded = True
+                 doc_ref = _fs_client.collection(COLLECTION).document(fid)
+                 try:
+                     
+                     doc_ref = _fs_client.collection(COLLECTION).document(fid)
+                     if not doc_ref.get().exists:
+                         doc_ref.set(fdata)
+                 except Exception as e:
+                     logger.error("Seeding failed for flag '%s': %s", fid, e)
+
     _cache = loaded
     _cache_loaded_at = time.monotonic()
 

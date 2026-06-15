@@ -275,9 +275,9 @@ class ImageProcessingQueue:
             task = self._tasks_by_id[task_id]
             if task.status in (TaskStatus.QUEUED, TaskStatus.RETRYING):
                 task.status = TaskStatus.CANCELLED
-                self._task_queue = deque(
-                    t for t in self._task_queue if t[2].task_id != task_id
-                )
+                self._task_queue = [
+                    entry for entry in self._task_queue if entry[2].task_id != task_id
+                ]
                 del self._tasks_by_id[task_id]
                 self._completed_tasks[task_id] = task
                 logger.info(f"Task {task_id} cancelled")

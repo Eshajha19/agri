@@ -446,9 +446,11 @@ class SmartFarmAutopilot:
     ) -> List[SowingSchedule]:
         year = date.today().year
         sow_month = data["sowing_month"]
-        # Adjust year: if the sowing month (plus a 2-month buffer) has already
-        # passed relative to today, advance to the next calendar year.
-        if sow_month + 2 < date.today().month:
+        # Adjust year: if the sowing month has already passed (with a 2-month
+        # buffer), advance to the next calendar year.
+        sow_year = year
+        # If the sowing month finished more than 2 months ago, use next year's cycle.
+        if date.today().month > sow_month + 2:
             sow_year = year + 1
         else:
             sow_year = year
