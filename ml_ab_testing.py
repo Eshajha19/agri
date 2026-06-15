@@ -13,6 +13,10 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# Isolated RNG for Thompson sampling — avoids correlated draws
+# from NumPy's global random state under concurrent load.
+_rng = np.random.RandomState(random.getrandbits(128))
+
 
 class TestStatus(Enum):
     """A/B test status"""
@@ -79,8 +83,8 @@ class Arm:
         if alpha <= 0 or beta <= 0:
             return 0.5
         
-        # Sample from Beta distribution
-        return np.random.beta(alpha, beta)
+        # Sample from Beta distribution using isolated RNG
+        return _rng.beta(alpha, beta)
     
     def to_dict(self) -> Dict:
         """Convert to dictionary"""
