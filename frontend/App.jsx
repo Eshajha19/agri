@@ -1138,9 +1138,10 @@ useEffect(() => {
         target="_blank"
         rel="noopener noreferrer"
         className="whatsapp-float"
+        aria-label="Chat with WhatsApp Bot"
         title="Chat with WhatsApp Bot"
       >
-        <FaWhatsapp />
+        <FaWhatsapp aria-hidden="true" />
         <span className="tooltip">Chat with Bot</span>
       </a>
 
