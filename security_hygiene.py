@@ -7,6 +7,7 @@ import re
 import hashlib
 import threading
 import time
+import asyncio
 from datetime import datetime, timezone
 from typing import Any, Tuple, Pattern, List, Dict, Optional
 from fastapi import Request
@@ -51,7 +52,7 @@ class _ScanCache:
 
     def get(self, path: str, body: bytes) -> Optional[bool]:
         key = self._key(path, body)
-        with self._lock:
+        async with self._lock:
             entry = self._store.get(key)
             if entry is None:
                 return None
@@ -63,7 +64,7 @@ class _ScanCache:
 
     def set(self, path: str, body: bytes, result: bool) -> None:
         key = self._key(path, body)
-        with self._lock:
+        async with self._lock:
             if len(self._store) >= self._maxsize:
                 # Evict expired entries first, then oldest quarter
                 now = time.monotonic()
@@ -87,7 +88,7 @@ class _ScanBudget:
 
     def consume(self, path: str) -> bool:
         now = time.monotonic()
-        with self._lock:
+        async with self._lock:
             tokens, last = self._buckets.get(path, (float(self._burst), now))
             tokens = min(float(self._burst), tokens + (now - last) * self._rate)
             if tokens >= 1.0:

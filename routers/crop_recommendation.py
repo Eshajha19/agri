@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 import hashlib
 import time
+import asyncio
 import threading
 
 logger = logging.getLogger(__name__)
@@ -170,7 +171,7 @@ class RecommendationCache:
             potassium: float, season: str, area_size: Optional[float] = None) -> Optional[Dict]:
         """Get cached recommendation, or None if absent or expired."""
         key = self._generate_key(ph, nitrogen, phosphorus, potassium, season, area_size)
-        with self._lock:
+        async with self._lock:
             entry = self.cache.get(key)
             if entry is None:
                 return None
@@ -184,7 +185,7 @@ class RecommendationCache:
             potassium: float, season: str, area_size: Optional[float], result: Dict):
         """Cache recommendation result with the current timestamp."""
         key = self._generate_key(ph, nitrogen, phosphorus, potassium, season, area_size)
-        with self._lock:
+        async with self._lock:
             if len(self.cache) >= self._MAX_SIZE:
                 # Evict the oldest entry to maintain the size cap
                 oldest_key = min(self.cache, key=lambda k: self.cache[k][1])
