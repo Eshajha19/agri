@@ -127,49 +127,47 @@
 }
 
 /* Dark Mode */
-@media (prefers-color-scheme: dark) {
-  .card {
-    background-color: #2a2a2a;
-    color: #ecf0f1;
-  }
+.theme-dark .card {
+  background-color: #2a2a2a;
+  color: #ecf0f1;
+}
 
-  .card-default {
-    border-color: #444;
-  }
+.theme-dark .card-default {
+  border-color: #444;
+}
 
-  .card-outlined {
-    border-color: #555;
-  }
+.theme-dark .card-outlined {
+  border-color: #555;
+}
 
-  .card-filled {
-    background-color: #1a1a1a;
-  }
+.theme-dark .card-filled {
+  background-color: #1a1a1a;
+}
 
-  .card-header {
-    border-bottom-color: #444;
-    color: #ecf0f1;
-  }
+.theme-dark .card-header {
+  border-bottom-color: #444;
+  color: #ecf0f1;
+}
 
-  .card-footer {
-    border-top-color: #444;
-    background-color: #1f1f1f;
-  }
+.theme-dark .card-footer {
+  border-top-color: #444;
+  background-color: #1f1f1f;
+}
 
-  .card-image {
-    background-color: #333;
-  }
+.theme-dark .card-image {
+  background-color: #333;
+}
 
-  .card-elevation-low {
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-  }
+.theme-dark .card-elevation-low {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
 
-  .card-elevation-medium {
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-  }
+.theme-dark .card-elevation-medium {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
 
-  .card-elevation-high {
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-  }
+.theme-dark .card-elevation-high {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 }
 
 /* Responsive */
@@ -237,4 +235,10 @@
 /* Shadow Effect on Focus */
 .card:focus-within {
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+}
+
+/* Focus-visible outline for keyboard navigation */
+.card:focus-visible {
+  outline: 2px solid #2ecc71;
+  outline-offset: 2px;
 }
