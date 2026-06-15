@@ -52,8 +52,12 @@ def predict_yield(data: PredictRequest, request: Request):
         context = {"location": request.headers.get("X-User-Location", "Unknown"), "crop": data.Crop}
         predicted_yield = model_router.predict(input_data, context)
         return {"predicted_ExpYield": float(predicted_yield)}
+    except ValueError as e:
+        logger.error("Prediction input value error: %s", e, exc_info=True)
+        raise HTTPException(status_code=400, detail="Invalid input values for prediction.")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("Prediction processing error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="An error occurred while processing the prediction request.")
 
 @router.post("/predict-yield-lag")
 async def predict_yield_lag(payload: YieldInput, request: Request):
@@ -66,8 +70,12 @@ async def predict_yield_lag(payload: YieldInput, request: Request):
             raise ValueError("Exactly 5 values required")
         prediction = model_lag.predict(data)
         return {"prediction": round(float(prediction[0]), 2), "model": "RandomForest Time Series"}
+    except ValueError as e:
+        logger.error("Lag prediction input value error: %s", e, exc_info=True)
+        raise HTTPException(status_code=400, detail="Invalid input: Exactly 5 values required.")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("Lag prediction processing error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="An error occurred while processing the lag prediction request.")
 
 @router.post("/predict-yield-trend")
 async def predict_yield_trend(payload: YieldInput, request: Request):
@@ -108,5 +116,9 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
             temp = temp[1:] + [pred_value]
 
         return {"trend": trend, "prediction": trend[-1], "model": "Dedicated Trend Forecast"}
+    except ValueError as e:
+        logger.error("Trend prediction input value error: %s", e, exc_info=True)
+        raise HTTPException(status_code=400, detail="Invalid input: Exactly 5 values required.")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("Trend prediction processing error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="An error occurred while processing the trend prediction request.")
