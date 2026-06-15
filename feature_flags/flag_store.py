@@ -33,7 +33,7 @@ CACHE_TTL_SECONDS = 30
 _cache: Dict[str, Dict] = {}
 _cache_loaded_at: float = 0.0
 _cache_lock = threading.Lock()
-_defaults_seeded: bool = False
+
 
 DEFAULT_FLAGS: Dict[str, Dict] = {
     "rag_advisor_v2": {
@@ -159,10 +159,24 @@ def get_flag(flag_id: str) -> Optional[Dict]:
     _ensure_cache()
     with _cache_lock:
         return _cache.get(flag_id)
+    
+def _validate_flag_data(data: Dict) -> None:
+    if "enabled" in data and not isinstance(data["enabled"], bool):
+        raise ValueError("enabled must be a boolean")
 
+    if "rollout_pct" in data:
+        if not isinstance(data["rollout_pct"], int) or not (0 <= data["rollout_pct"] <= 100):
+            raise ValueError("rollout_pct must be int between 0 and 100")
+
+    if "cohorts" in data and not isinstance(data["cohorts"], list):
+        raise ValueError("cohorts must be a list")
+
+    if "tags" in data and not isinstance(data["tags"], list):
+        raise ValueError("tags must be a list")
 
 def upsert_flag(flag_id: str, data: Dict) -> Dict:
-    _ensure_cache()
+    _ensure_cache() 
+    _validate_flag_data(data)
     with _cache_lock:
         existing = _cache.get(flag_id, {})
         merged = {**existing, **data, "id": flag_id, "updated_at": _now_iso()}
