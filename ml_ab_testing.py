@@ -97,18 +97,17 @@ class Arm:
         # Sample from Beta distribution using isolated RNG
         return _rng.beta(alpha, beta)
     
-    def confidence_interval(self, confidence_level: float = 0.95) -> Tuple[float, float]:
-        """Wald confidence interval for the success-rate estimate."""
-        n = self.total_trials
-        if n == 0:
+    def confidence_interval(self) -> Tuple[float, float]:
+        """95% Wald confidence interval for success rate"""
+        if self.total_trials == 0:
             return (0.0, 0.0)
-        p = self.successes / n
-        z = 1.96  # z-score for 95 % (two-tailed)
-        se = math.sqrt(p * (1.0 - p) / n)
-        lo = max(0.0, p - z * se)
-        hi = min(1.0, p + z * se)
-        return (lo, hi)
-    
+        p = self.successes / self.total_trials
+        se = math.sqrt(p * (1 - p) / self.total_trials)
+        z = 1.96
+        lower = max(0.0, p - z * se)
+        upper = min(1.0, p + z * se)
+        return (round(lower, 4), round(upper, 4))
+
     def to_dict(self) -> Dict:
         """Convert to dictionary"""
         return {
@@ -120,10 +119,11 @@ class Arm:
             "total_trials": self.total_trials,
             "confidence_interval": self.confidence_interval(),
             "predictions": self.predictions,
-            "mae": self.mean_mae,
-            "rmse": self.mean_rmse,
-            "latency": self.mean_latency,
-            "created_at": self.created_at,
+            "mae": self.get_mean_metric("mae"),
+            "rmse": self.get_mean_metric("rmse"),
+            "latency": self.get_mean_metric("latency"),
+            "confidence_interval": self.confidence_interval(),
+            "created_at": self.created_at
         }
 
 
@@ -221,18 +221,15 @@ class ABTest:
         return float(np.mean(variant_samples > control_samples))
 
     def get_winner(self) -> Optional[Arm]:
-        """Determine winner using the configured confidence threshold."""
+        """Determine winner using non-overlapping confidence intervals"""
         total_trials = self.control_arm.total_trials + self.variant_arm.total_trials
 
         if total_trials < self.min_samples:
             return None
         
-        # Use confidence intervals to avoid declaring a winner when the
-        # observed difference could be explained by random variation.
         c_lo, c_hi = self.control_arm.confidence_interval()
         v_lo, v_hi = self.variant_arm.confidence_interval()
         
-        # Non-overlapping credible intervals → statistically significant
         if c_hi < v_lo:
             return self.variant_arm
         if v_hi < c_lo:
