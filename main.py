@@ -4,6 +4,7 @@ import asyncio
 import logging
 import math
 import collections
+import itertools
 import threading
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
