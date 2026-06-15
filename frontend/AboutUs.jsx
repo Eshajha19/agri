@@ -9,6 +9,7 @@ import {
 } from "react-icons/fa";
 import { Wheat, Tractor, Bird, Sprout, UserCheck } from "lucide-react";
 import "./AboutUs.css";
+import ScrollToTop from "./ScrollToTop";
 
 const VALUES = [
   { icon: <FaHeart />, title: <span className="notranslate">Farmer First</span>, desc: "Every feature we build starts with one question: does this make a farmer's life better?", color: "#ef4444" },
@@ -277,6 +278,10 @@ export default function AboutUs() {
            </div>
         </div>
       </section>
+      <div>
+      {/* About content */}
+      <ScrollToTop />
+    </div>
     </div>
   );
 }

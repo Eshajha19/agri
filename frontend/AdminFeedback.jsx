@@ -4,6 +4,7 @@ import { db, auth } from "./lib/firebase";
 import { Star, Trash2, RefreshCw, MessageSquare, TrendingUp, Users, Award, ShieldAlert } from "lucide-react";
 import "./AdminFeedback.css";
 import Loader from "./Loader";
+import ScrollToTop from "./ScrollToTop";
 
 // ── ADMIN ACCESS CONTROL ──────────────────────────────────────────────────────
 // Access is determined by the user's role field in their Firestore document,
@@ -294,6 +295,10 @@ export default function AdminFeedback() {
                   })
                   : "Unknown Date"}
               </div>
+              <div>
+      {/* AdminFeedback content */}
+      <ScrollToTop />
+    </div>
             </div>
           ))}
         </div>
