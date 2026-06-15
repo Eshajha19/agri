@@ -2,27 +2,10 @@
 flag_store.py
 ─────────────
 In-memory + Firestore-backed feature flag storage.
-
-Flags are loaded once at startup (or on first request) from Firestore and
-cached locally with a configurable TTL (default 5 min).  Every write
-immediately updates both the local cache and Firestore so the source of
-truth is always the database.
-
-Flag document shape (Firestore collection: feature_flags):
-{
-  "id":           "rag_advisor_v2",
-  "enabled":      true,
-  "rollout_pct":  25,          // 0-100 — % of users who receive the feature
-  "cohorts":      ["beta"],    // optional whitelist of cohort labels
-  "description":  "RAG advisor second generation model",
-  "owner":        "ml-team",
-  "tags":         ["rag", "ml"],
-  "created_at":   "2026-05-16T00:00:00Z",
-  "updated_at":   "2026-05-16T00:00:00Z",
-}
 """
 
 import logging
+import threading
 import time
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -30,7 +13,6 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# ── Firestore client (optional — graceful fallback when not configured) ───────
 try:
     import firebase_admin
     from firebase_admin import credentials, firestore as fs_admin
@@ -46,13 +28,13 @@ except Exception as _e:
     _FIRESTORE_AVAILABLE = False
 
 COLLECTION = "feature_flags"
-CACHE_TTL_SECONDS = 300  # 5 minutes
+CACHE_TTL_SECONDS = 30
 
-# ── In-memory cache ────────────────────────────────────────────────────────────
 _cache: Dict[str, Dict] = {}
 _cache_loaded_at: float = 0.0
+_cache_lock = threading.Lock()
 
-# ── Default flags (used when Firestore is unavailable) ────────────────────────
+
 DEFAULT_FLAGS: Dict[str, Dict] = {
     "rag_advisor_v2": {
         "enabled": False, "rollout_pct": 0, "cohorts": [],
@@ -102,7 +84,6 @@ def _now_iso() -> str:
 
 
 def _enrich(flag_id: str, data: Dict) -> Dict:
-    """Ensure all required fields are present on a flag dict."""
     enriched = deepcopy(data)
     enriched.setdefault("id", flag_id)
     enriched.setdefault("enabled", False)
@@ -116,10 +97,7 @@ def _enrich(flag_id: str, data: Dict) -> Dict:
     return enriched
 
 
-# ── Public API ─────────────────────────────────────────────────────────────────
-
 def _load_from_firestore() -> Dict[str, Dict]:
-    """Fetch all flags from Firestore. Returns empty dict on failure."""
     if not _FIRESTORE_AVAILABLE:
         return {}
     try:
@@ -130,22 +108,36 @@ def _load_from_firestore() -> Dict[str, Dict]:
         return {}
 
 
-def _refresh_cache():
-    global _cache, _cache_loaded_at
+def _refresh_cache_locked() -> None:
+    """Must be called with _cache_lock already held."""
+    global _cache, _cache_loaded_at, _defaults_seeded
     loaded = _load_from_firestore()
     if not loaded:
-        # Seed Firestore with defaults on first run
-        for fid, fdata in DEFAULT_FLAGS.items():
-            if fid not in loaded:
-                loaded[fid] = _enrich(fid, fdata)
-                _write_to_firestore(fid, loaded[fid])
-    _cache = loaded or {fid: _enrich(fid, fd) for fid, fd in DEFAULT_FLAGS.items()}
+        loaded = {fid: _enrich(fid, fdata) for fid, fdata in DEFAULT_FLAGS.items()}
+        if _FIRESTORE_AVAILABLE:
+            for fid, fdata in loaded.items():
+                 doc_ref = _fs_client.collection(COLLECTION).document(fid)
+                 try:
+                     
+                     doc_ref = _fs_client.collection(COLLECTION).document(fid)
+                     if not doc_ref.get().exists:
+                         doc_ref.set(fdata)
+                 except Exception as e:
+                     logger.error("Seeding failed for flag '%s': %s", fid, e)
+
+    _cache = loaded
     _cache_loaded_at = time.monotonic()
 
 
 def _ensure_cache():
-    if not _cache or (time.monotonic() - _cache_loaded_at) > CACHE_TTL_SECONDS:
-        _refresh_cache()
+    with _cache_lock:
+        if not _cache or (time.monotonic() - _cache_loaded_at) > CACHE_TTL_SECONDS:
+            _refresh_cache_locked()
+
+def force_refresh():
+    """Force refresh cache immediately (bypasses TTL)."""
+    with _cache_lock:
+        _refresh_cache_locked()
 
 
 def _write_to_firestore(flag_id: str, data: Dict):
@@ -159,35 +151,50 @@ def _write_to_firestore(flag_id: str, data: Dict):
 
 def list_flags() -> List[Dict]:
     _ensure_cache()
-    return list(_cache.values())
+    with _cache_lock:
+        return list(_cache.values())
 
 
 def get_flag(flag_id: str) -> Optional[Dict]:
     _ensure_cache()
-    return _cache.get(flag_id)
+    with _cache_lock:
+        return _cache.get(flag_id)
+    
+def _validate_flag_data(data: Dict) -> None:
+    if "enabled" in data and not isinstance(data["enabled"], bool):
+        raise ValueError("enabled must be a boolean")
 
+    if "rollout_pct" in data:
+        if not isinstance(data["rollout_pct"], int) or not (0 <= data["rollout_pct"] <= 100):
+            raise ValueError("rollout_pct must be int between 0 and 100")
+
+    if "cohorts" in data and not isinstance(data["cohorts"], list):
+        raise ValueError("cohorts must be a list")
+
+    if "tags" in data and not isinstance(data["tags"], list):
+        raise ValueError("tags must be a list")
 
 def upsert_flag(flag_id: str, data: Dict) -> Dict:
-    global _cache, _cache_loaded_at
-    _ensure_cache()
-    existing = _cache.get(flag_id, {})
-    merged = {**existing, **data, "id": flag_id, "updated_at": _now_iso()}
-    if "created_at" not in merged:
-        merged["created_at"] = _now_iso()
-    merged = _enrich(flag_id, merged)
-    
-    _cache[flag_id] = merged
-    _cache_loaded_at = time.monotonic()
-    
+    _ensure_cache() 
+    _validate_flag_data(data)
+    with _cache_lock:
+        existing = _cache.get(flag_id, {})
+        merged = {**existing, **data, "id": flag_id, "updated_at": _now_iso()}
+        if "created_at" not in merged:
+            merged["created_at"] = _now_iso()
+        merged = _enrich(flag_id, merged)
+        _cache[flag_id] = merged
     _write_to_firestore(flag_id, merged)
+    force_refresh()
     return merged
 
 
 def delete_flag(flag_id: str) -> bool:
     _ensure_cache()
-    if flag_id not in _cache:
-        return False
-    del _cache[flag_id]
+    with _cache_lock:
+        if flag_id not in _cache:
+            return False
+        del _cache[flag_id]
     if _FIRESTORE_AVAILABLE:
         try:
             _fs_client.collection(COLLECTION).document(flag_id).delete()
@@ -197,9 +204,9 @@ def delete_flag(flag_id: str) -> bool:
 
 
 def rollback_flag(flag_id: str) -> Optional[Dict]:
-    """Disable a flag immediately and reset rollout to 0%."""
     _ensure_cache()
-    if flag_id not in _cache:
-        return None
+    with _cache_lock:
+        if flag_id not in _cache:
+            return None
     return upsert_flag(flag_id, {"enabled": False, "rollout_pct": 0,
                                   "rolled_back_at": _now_iso()})

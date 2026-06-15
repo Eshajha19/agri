@@ -13,7 +13,14 @@ export const pestDatabase = {
       locusts: "Locusts",
       beetles: "Beetles",
       caterpillars: "Caterpillars",
-      healthy: "Healthy"
+      healthy: "Healthy",
+      stem_borers: "Stem Borers",
+      pink_bollworm: "Pink Bollworm",
+      pod_borers: "Pod Borers",
+      shoot_fruit_borer: "Shoot & Fruit Borer",
+      mustard_aphids: "Mustard Aphids",
+      red_hairy_caterpillar: "Red Hairy Caterpillar",
+      diamondback_moth: "Diamondback Moth",
     },
     hi: {
       aphids: "एफिड्स",
@@ -27,7 +34,14 @@ export const pestDatabase = {
       locusts: "टिड्डी",
       beetles: "बीटल्स",
       caterpillars: "कैटरपिलर्स",
-      healthy: "स्वस्थ"
+      healthy: "स्वस्थ",
+      stem_borers: "तना छेदक",
+      pink_bollworm: "गुलाबी बॉलवर्म",
+      pod_borers: "फली छेदक",
+      shoot_fruit_borer: "शूट और फल छेदक",
+      mustard_aphids: "सरसों एफिड्स",
+      red_hairy_caterpillar: "लाल रोएंदार इल्ली",
+      diamondback_moth: "डायमंडबैक मॉथ",
     },
     te: {
       aphids: "ఎఫిడ్స్",
@@ -41,7 +55,14 @@ export const pestDatabase = {
       locusts: "తెల్లపల్లు",
       beetles: "బీటల్స్",
       caterpillars: "కాటర్‌పిల్లర్లు",
-      healthy: "ఆరోగ్యంగా"
+      healthy: "ఆరోగ్యంగా",
+      stem_borers: "కాండం తొలిచే పురుగులు",
+      pink_bollworm: "పింక్ బోల్‌వార్మ్",
+      pod_borers: "పాడ్ బోరర్లు",
+      shoot_fruit_borer: "షూట్ & ఫ్రూట్ బోరర్",
+      mustard_aphids: "ఆవాల ఎఫిడ్స్",
+      red_hairy_caterpillar: "ఎర్ర వెంట్రుకల పురుగు",
+      diamondback_moth: "డైమండ్‌బ్యాక్ మోత్",
     }
   },
 
@@ -149,9 +170,9 @@ export const pestDatabase = {
 };
 
 export const getPestInfo = (pestKey, language = 'en') => {
-  const pestName = pestDatabase.translations[language]?.[pestKey] || 
-                 pestDatabase.translations.en[pestKey] || pestKey;
-  
+  const pestName = pestDatabase.translations[language]?.[pestKey] ||
+    pestDatabase.translations.en[pestKey] || pestKey;
+
   const treatment = pestDatabase.treatments[pestKey] || {
     description: "Pest information not available",
     damage: "Damage patterns not documented",
@@ -177,12 +198,12 @@ export const savePestHistory = (detectionResult) => {
       ...detectionResult
     };
     history.unshift(newEntry);
-    
+
     // Keep only last 50 entries
     if (history.length > 50) {
       history.splice(50);
     }
-    
+
     localStorage.setItem('pestHistory', JSON.stringify(history));
     return newEntry;
   } catch (error) {
