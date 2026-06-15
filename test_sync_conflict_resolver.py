@@ -134,7 +134,28 @@ class TestConflictResolver:
         assert resolved.data["name"] == "John Doe"  # Local change
         assert resolved.data["age"] == 31  # Server change
         assert resolved.data["city"] == "NYC"  # Unchanged
-    
+
+    def test_three_way_merge_handles_deleted_fields(self):
+        """Three-way merge should completely remove deleted fields (set to None or missing)"""
+        resolver = ConflictResolver(ConflictResolutionStrategy.MERGE)
+        
+        # Base version: has name, age, city, and status
+        base = DocumentVersion("doc1", {"name": "John", "age": 30, "city": "NYC", "status": "active"}, "base")
+        
+        # Local: deleted city (missing key) and status (set to None)
+        local = DocumentVersion("doc1", {"name": "John Doe", "age": 30}, "client1")
+        
+        # Server: deleted city (missing key) and status (set to None)
+        server = DocumentVersion("doc1", {"name": "John", "age": 31}, "server")
+        
+        resolved, has_conflict, conflicts = resolver.resolve(local, server, base)
+        
+        # City and Status should be completely deleted, not retained with None/null values
+        assert "city" not in resolved.data
+        assert "status" not in resolved.data
+        assert resolved.data["name"] == "John Doe"
+        assert resolved.data["age"] == 31
+
     def test_server_wins_strategy(self):
         """Server wins strategy"""
         resolver = ConflictResolver(ConflictResolutionStrategy.SERVER_WINS)
