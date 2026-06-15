@@ -4,7 +4,9 @@ import asyncio
 import logging
 import math
 import collections
+import itertools
 import threading
+import time
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
@@ -14,56 +16,10 @@ from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
 
 from backend.utils.safe_log import sanitize_log_field
-
-from fastapi import FastAPI
 from backend.middleware.body_size_limit import BodySizeLimitMiddleware
-from .models import model, model_lag 
-
-app = FastAPI()
-
-# Add middleware before routes
-app.add_middleware(BodySizeLimitMiddleware)
-
 
 # Expose sanitizer globally so routers can use it
 sanitise_log_field_fn = sanitize_log_field
-
-app = FastAPI()
-
-@app.get("/health")
-def health_check():
-    models_ready = model is not None and model_lag is not None
-    return {
-        "status": "ok",
-        "models_loaded": models_ready
-    }
-
-# Optional: root endpoint for convenience
-@app.get("/")
-def root():
-    models_ready = model is not None and model_lag is not None
-    return {
-        "status": "ok",
-        "models_loaded": models_ready
-    }
-
-@app.post("/predict-yield-lag")
-def predict_yield_lag(input: YieldInput):
-    """
-    Predict yield lag based on agronomic inputs.
-    Validates that inputs are numeric and within realistic ranges.
-    """
-    # your model inference logic here
-    return {"prediction": "lag result"}
-
-@app.post("/predict-yield-trend")
-def predict_yield_trend(input: YieldInput):
-    """
-    Predict yield trend based on agronomic inputs.
-    Validates that inputs are numeric and within realistic ranges.
-    """
-    # your model inference logic here
-    return {"prediction": "trend result"}
 
 
 class CSPMiddleware:
@@ -141,6 +97,7 @@ from backend.routers import (
     quality,
     referrals,
     reports,
+    voice_assistant,
 )
 from blockchain_supply_chain import SupplyChainBlockchain
 from crop_quality_grading import CropQualityGrader
@@ -178,15 +135,9 @@ from reportlab.lib import colors
 from reportlab.lib.units import inch
 from backend.ml.schemas import YieldInput
 
-from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
-
-from contextlib import asynccontextmanager
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
 @asynccontextmanager
@@ -199,8 +150,6 @@ async def lifespan(app: FastAPI):
     # Shutdown
     close_db()
     shutdown_celery()
-
-app = FastAPI(lifespan=lifespan)
 
 
 def init_db():
@@ -216,36 +165,6 @@ All side-effectful initialization (DB, ML models, Celery, Firebase) occurs
 inside FastAPI lifespan() to ensure consistent startup across single-worker,
 multi-worker, and reload environments.
 """
-
-@app.post("/api/whatsapp/webhook")
-async def whatsapp_webhook(request: Request):
-    payload = await request.json()
-    normalized_messages = normalize_whatsapp_payload(payload)
-
-    for msg in normalized_messages:
-        # process each message individually
-        handle_inbound_message(msg)
-    return {"status": "ok", "processed": len(normalized_messages)}
-
-@app.post("/api/whatsapp/webhook")
-async def whatsapp_webhook(request: Request):
-    payload = await request.json()
-    normalized_messages = normalize_whatsapp_payload(payload)
-
-    for msg in normalized_messages:
-        # process each message individually
-        handle_inbound_message(msg)
-    return {"status": "ok", "processed": len(normalized_messages)}
-
-@app.post("/api/whatsapp/webhook")
-async def whatsapp_webhook(request: Request):
-    payload = await request.json()
-    normalized_messages = normalize_whatsapp_payload(payload)
-
-    for msg in normalized_messages:
-        # process each message individually
-        handle_inbound_message(msg)
-    return {"status": "ok", "processed": len(normalized_messages)}
 
 @app.post("/api/whatsapp/webhook")
 async def whatsapp_webhook(request: Request):
@@ -375,16 +294,8 @@ async def lifespan(app: FastAPI):
         "repositories",
         "Initialize persistent repositories",
         _init_repositories
-    
-    Multi-worker guarantee
-    ----------------------
-    When Uvicorn is started with ``--workers N``, each worker forks/spawns
-    from the main process and imports ``main.py`` independently.  The
-    ``lifespan`` hook is invoked by FastAPI in every worker's event loop,
-    ensuring ``ModelRegistry`` is populated in every process before the
-    first request is served.
     )
-    """
+
     logger.info("Starting up: initializing services")
     init_ml_pipeline()
 
@@ -404,7 +315,6 @@ async def lifespan(app: FastAPI):
         _init_ai_engines
     )
 
-    return ctx
     # Router init hooks — run after engines are ready.
     governance.init_governance(drift_detector, shadow_evaluator, version_manager, auth_fn=verify_role)
     finance.init_finance(_farm_finance_ai, RBACManager, Permission)
@@ -529,43 +439,9 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down")
 
 
-app = FastAPI(lifespan=lifespan)
-
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
-
-# --- Global Error Handlers ---
-
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.error("Unhandled error: %s", exc, exc_info=True)
-    return JSONResponse(
-        status_code=500,
-        content={
-            "code": "INTERNAL_ERROR",
-            "message": "Something went wrong. Please try again later."
-        },
-    )
-
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    return JSONResponse(
-        status_code=400,
-        content={"code": "VALIDATION_ERROR", "message": "Invalid request payload."},
-    )
-
-@app.exception_handler(StarletteHTTPException)
-async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"code": "HTTP_ERROR", "message": exc.detail},
-    )
-
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
 
 
 # Initialize Limiter
@@ -871,41 +747,25 @@ class NotificationStore:
     ttl_hours : int
         Entries older than this many hours are excluded from get_recent().
     """
-
     def __init__(self, maxlen: int = _MAX_NOTIFICATIONS, ttl_hours: int = _NOTIFICATION_TTL_HOURS):
         self._deque: collections.deque = collections.deque(maxlen=maxlen)
         self._lock = threading.Lock()
         self._counter = itertools.count(start=1)
         self._ttl = timedelta(hours=ttl_hours)
-
-    model_trend = await _run_lifespan_phase("trend_forecast_model", "Load trend forecast model", _load_trend_model, required=False)
-
     def _init_ml_router():
-        ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend, verify_role)
-
-    await _run_lifespan_phase("ml_router", "Initialize ML router", _init_ml_router)
-
-    def _start_celery_autoscaler():
-        from celery_autoscaler import get_autoscaler
         from celery_worker import celery_app
         from ml.price_forecaster import get_price_forecaster
         _autoscaler = get_autoscaler(celery_app, get_price_forecaster())
         _autoscaler.start()
 
-    await _run_lifespan_phase("celery_autoscaler", "Start Celery autoscaler", _start_celery_autoscaler)
-
     def _init_offline_sync():
         from persistence.offline_sync import init_schema
         init_schema()
-
-    await _run_lifespan_phase("offline_sync", "Initialize offline sync layer", _init_offline_sync)
 
     def _start_sync_worker():
         from sync_worker import get_sync_worker
         _sync_worker = get_sync_worker(db_firestore)
         _sync_worker.start()
-
-    await _run_lifespan_phase("sync_worker", "Start sync worker", _start_sync_worker)
 
 def _normalize_dynamic_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Assign non-colliding IDs to request-scoped advisory alerts."""
@@ -1255,37 +1115,6 @@ if os.getenv("GOOGLE_CLOUD_PROJECT") and not HAS_GCP_KMS:
         f"Error: {_kms_init_error}. Set ALLOW_INSECURE_KEY_FALLBACK=true to permit local key fallback (NOT RECOMMENDED)."
     )
 
-    yield
-
-    # Shutdown phase with logging
-    logger.info("🛑 Shutting down services...")
-    try:
-        from sync_worker import get_sync_worker
-        _sync_worker = get_sync_worker()
-        _sync_worker.stop()
-        logger.info("✅ Sync worker stopped")
-    except Exception as exc:
-        logger.error("❌ Error stopping sync worker: %s", exc, exc_info=True)
-
-    try:
-        from celery_autoscaler import get_autoscaler
-        _autoscaler = get_autoscaler()
-        _autoscaler.stop()
-        logger.info("✅ Celery autoscaler stopped")
-    except Exception as exc:
-        logger.error("❌ Error stopping Celery autoscaler: %s", exc, exc_info=True)
-
-    try:
-        await notification_broker.stop()
-        logger.info("✅ Notification broker stopped")
-    except Exception as exc:
-        logger.error("❌ Error stopping notification broker: %s", exc, exc_info=True)
-
-    logger.info("✅ Shutdown complete")
-
-
-app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
-
 
 # Initialize Limiter
 limiter = build_limiter(default_limits=["120/minute"])
@@ -1576,10 +1405,6 @@ _MAX_NOTIFICATIONS = 200
 _NOTIFICATION_TTL_HOURS = 24
 
 
-    @app.get("/user_roles")
-    def get_user_roles(uid: str):
-        user_roles = ["admin", "editor"]  # example
-        return {"uid": uid, "roles": user_roles}
 class NotificationStore:
     """
     Thread-safe, bounded, TTL-aware store for in-process notifications.
