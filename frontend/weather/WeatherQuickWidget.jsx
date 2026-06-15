@@ -15,21 +15,19 @@ import {
 import "./WeatherQuickWidget.css";
 
 const WEATHER_CACHE_KEY = "agri:weatherSnapshot";
-const LEGACY_WIDGET_DISMISS_KEY = "agri:weatherWidgetDismissed";
 const ALERT_BAR_SHOWN_KEY = "agri:alertBarActive";
 
 export default function WeatherQuickWidget() {
-  const [snapshot, setSnapshot] = useState(() => getStoredWeatherSnapshot());
+  const [snapshot, setSnapshot] = useState(null);
   const [dismissed, setDismissed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    // Always show on refresh
     setDismissed(false);
 
     try {
-      localStorage.removeItem(LEGACY_WIDGET_DISMISS_KEY);
+      localStorage.removeItem("agri:weatherWidgetDismissed");
     } catch {
       // ignore
     }
@@ -70,14 +68,13 @@ export default function WeatherQuickWidget() {
     };
   }, []);
 
-  const usePreciseGps = useCallback(async () => {
+  const fetchGpsWeather = useCallback(async () => {
     setLoading(true);
     setError("");
 
     try {
       const preciseLocation = await getCurrentPosition();
       const latestSnapshot = await fetchWeatherByLocation(preciseLocation);
-
       setSnapshot(latestSnapshot);
       notifyWeatherSnapshotUpdated(latestSnapshot);
     } catch (locationError) {
@@ -87,20 +84,24 @@ export default function WeatherQuickWidget() {
 
       setError(
         permissionDenied
-          ? "Location access denied. Please allow location and try again."
-          : locationError.message || "Unable to fetch GPS weather."
+          ? "Location access denied. Please allow GPS to see weather."
+          : locationError.message || "Unable to fetch weather."
       );
     } finally {
       setLoading(false);
     }
   }, []);
 
+  useEffect(() => {
+    if (!snapshot && !loading && !error) {
+      void fetchGpsWeather();
+    }
+  }, [snapshot, loading, error, fetchGpsWeather]);
+
   const dismissWidget = () => {
     setDismissed(true);
   };
 
-  const locationSource = snapshot?.location?.source || "manual";
-  const showUseGps = !snapshot || locationSource !== "gps";
   const roundedTemperature = Math.round(
     snapshot?.current?.temperature_2m || 0
   );
@@ -163,15 +164,15 @@ export default function WeatherQuickWidget() {
       )}
 
       {/* GPS Button */}
-      {showUseGps && (
+      {!snapshot && (
         <button
           className="weather-quick-widget__gps-btn primary"
-          onClick={usePreciseGps}
+          onClick={fetchGpsWeather}
           disabled={loading}
         >
           <FaCrosshairs />
           <span>
-            {loading ? "Fetching weather..." : "Use My Location"}
+            {loading ? "Fetching..." : "Use My Location"}
           </span>
         </button>
       )}
