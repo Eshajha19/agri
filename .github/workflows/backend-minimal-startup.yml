@@ -1,0 +1,51 @@
+name: Backend Minimal Startup (No Optional Deps)
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'main.py'
+      - 'backend/**'
+      - 'requirements.txt'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'main.py'
+      - 'backend/**'
+      - 'requirements.txt'
+
+jobs:
+  test-minimal-startup:
+    name: Test startup without optional dependencies
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Core Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # Uninstall optional packages that should never block startup.
+          pip uninstall -y google-cloud-secret-manager 2>/dev/null || true
+          pip install pytest
+
+      - name: Run Minimal Startup Test
+        run: |
+          python -m pytest tests/test_minimal_startup.py -v
+
+      - name: Generate Summary
+        if: always()
+        run: |
+          echo "### Backend Minimal Startup Test" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ App starts successfully without optional dependencies" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ App failed to start without optional dependencies" >> $GITHUB_STEP_SUMMARY
+          fi
