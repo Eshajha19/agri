@@ -446,10 +446,11 @@ class SmartFarmAutopilot:
         # Adjust year: if the sowing month has already passed (with a 2-month
         # buffer), advance to the next calendar year.
         sow_year = year
-        if sow_month > date.today().month + 2:
-            sow_year = year
-        else:
+        # If the sowing month finished more than 2 months ago, use next year's cycle.
+        if date.today().month > sow_month + 2:
             sow_year = year + 1
+        else:
+            sow_year = year
         sow_start = date(sow_year, sow_month, 1)
         sow_end   = date(sow_year, sow_month, min(20, calendar.monthrange(sow_year, sow_month)[1]))
 
