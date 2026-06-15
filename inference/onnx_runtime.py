@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+np.random.seed(42)
 import os
 from typing import List
 
@@ -55,3 +56,12 @@ class ONNXRuntimeModel:
 
     def providers(self):
         return self.sess.get_providers()
+    
+    def get_active_provider(self) -> str:
+        """
+        Returns the primary execution provider used by ONNX Runtime.
+        """
+        if hasattr(self, "session"):
+            providers = self.session.get_providers()
+            return providers[0] if providers else "Unknown"
+        return "Unknown"

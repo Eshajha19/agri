@@ -303,12 +303,7 @@ const GuestBanner = () => (
 
 function App() {
   const scorecardRef = useRef(null);
-  const scrollFrameRef = useRef(null);
 
-  const lastScrollStateRef = useRef({
-    showScrollTop: false,
-    scrollProgress: 0,
-  });
   const hydrationInProgressRef = useRef(false);
   const offlineSyncInProgressRef = useRef(false);
   const lastPersistedLangRef = useRef(null);
@@ -466,6 +461,8 @@ function App() {
 
 useEffect(() => {
   let cancelled = false;
+  let retryCount = 0;
+  const MAX_RETRIES = 3;
 
   const synchronizeTranslation = async () => {
     if (!preferredLang || cancelled) return;
@@ -475,55 +472,47 @@ useEffect(() => {
       return;
     }
 
-    // Fast path
-    if (applyGoogleTranslate(preferredLang)) {
-      return;
-    }
-
-    // Robust fallback path
-    await applyGoogleTranslateRobust(
-      preferredLang,
-      {
-        onReady: () => {
-          console.log(
-            "Google Translate synchronized successfully"
-          );
-        },
-
-        onError: () => {
-          console.warn(
-            "Translation fallback active"
-          );
-        },
+    try {
+      // Fast path
+      if (applyGoogleTranslate(preferredLang)) {
+        console.log("Google Translate initialized successfully");
+        return;
       }
-    );
+
+      // Robust fallback path
+      await applyGoogleTranslateRobust(preferredLang, {
+        onReady: () => {
+          console.log("Google Translate synchronized successfully");
+        },
+        onError: () => {
+          console.warn("Translation fallback active");
+          if (retryCount < MAX_RETRIES) {
+            retryCount++;
+            console.info(`Retrying Google Translate init (#${retryCount})`);
+            setTimeout(synchronizeTranslation, 2000 * retryCount); // exponential backoff
+          }
+        },
+      });
+    } catch (error) {
+      console.error("Google Translate init failed:", error);
+      if (retryCount < MAX_RETRIES) {
+        retryCount++;
+        setTimeout(synchronizeTranslation, 2000 * retryCount);
+      }
+    }
   };
 
   void synchronizeTranslation();
 
   const handleWidgetLoad = () => {
-    if (cancelled) return;
-
-    if (!applyGoogleTranslate(preferredLang)) {
-      void applyGoogleTranslateRobust(
-        preferredLang,
-        { retry: false }
-      );
-    }
+    if (!cancelled) void synchronizeTranslation();
   };
 
-  document.addEventListener(
-    "googleTranslateWidgetLoaded",
-    handleWidgetLoad
-  );
+  document.addEventListener("googleTranslateWidgetLoaded", handleWidgetLoad);
 
   return () => {
     cancelled = true;
-
-    document.removeEventListener(
-      "googleTranslateWidgetLoaded",
-      handleWidgetLoad
-    );
+    document.removeEventListener("googleTranslateWidgetLoaded", handleWidgetLoad);
 
     if (googleTranslateObserver) {
       googleTranslateObserver.disconnect();
@@ -531,13 +520,24 @@ useEffect(() => {
     }
 
     if (googleTranslateRetryTimeout) {
-      clearTimeout(
-        googleTranslateRetryTimeout
-      );
-
+      clearTimeout(googleTranslateRetryTimeout);
       googleTranslateRetryTimeout = null;
     }
   };
+}, [preferredLang]);
+
+const translationService = new TranslationService();
+
+useEffect(() => {
+  const runTranslation = async () => {
+    try {
+      const translated = await translationService.translate("Hello", preferredLang);
+      console.log("Translation result:", translated);
+    } catch (err) {
+      console.error("Translation failed:", err);
+    }
+  };
+  void runTranslation();
 }, [preferredLang]);
 
   useEffect(() => {
@@ -762,7 +762,7 @@ useEffect(() => {
     });
   }, [user?.uid, userData, profileCompleted]);
 
-  // Scroll to Top logic
+// Scroll to Top logic
   useEffect(() => {
     const handleScroll = () => {
       setShowScrollTop(window.scrollY > 300);
@@ -771,6 +771,9 @@ useEffect(() => {
       const progress = totalHeight > 0 ? (window.scrollY / totalHeight) * 100 : 0;
       setScrollProgress(progress);
     };
+
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
   // Scroll to Top logic - removed duplicate
@@ -824,8 +827,21 @@ useEffect(() => {
   };
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: "smooth" });
 
+  const [backendStatus, setBackendStatus] = useState("checking");
+
+useEffect(() => {
+  fetch(`${import.meta.env.VITE_API_BASE_URL}/health`)
+    .then(res => {
+      if (res.ok) return res.json();
+      throw new Error("Backend not healthy");
+    })
+    .then(() => setBackendStatus("online"))
+    .catch(() => setBackendStatus("offline"));
+}, []);
+
   return (
     <div className={`app ${theme !== "light" ? "theme-dark" : ""} ${theme === "night" ? "theme-night" : ""} ${liteMode ? "lite-mode" : ""}`}>
+      <SkipLink />
       {user?.isAnonymous && <GuestBanner />}
 
       {loading && <Loader fullPage={true} message={<span className="notranslate">Initializing Fasal Saathi...</span>} />}
@@ -863,13 +879,15 @@ useEffect(() => {
             onClick={(e) => { e.stopPropagation(); setShowMoreMenu(!showMoreMenu); }}
             className={`more-menu-toggle ${showMoreMenu ? 'active' : ''}`}
             aria-label="More Options"
+            aria-expanded={showMoreMenu}
+            aria-haspopup="menu"
           >
             <span className="notranslate">More</span>
             <FaChevronDown className="chevron" />
           </button>
 
           {showMoreMenu && (
-            <div className="more-dropdown" onClick={(e) => e.stopPropagation()} role="menu">
+            <div className="more-dropdown" onClick={(e) => e.stopPropagation()} role="menu" aria-label="More options menu">
               <div className="dropdown-links">
                 <div className="language-selector-section">
                   <label className="language-label">Language:</label>
@@ -881,7 +899,7 @@ useEffect(() => {
                       i18n.changeLanguage(lang);
                       try {
                         sessionStorage.setItem("agri:preferredLanguage", lang);
-                      } catch (error) {
+                      } catch {
                         console.warn("Unable to persist language preference");
                       }
                       void persistAppState({ preferredLang: lang });
@@ -946,7 +964,15 @@ useEffect(() => {
 
           <div className="nav-user" ref={scorecardRef}>
             {!loading && user ? (
-              <div className="user-profile-trigger" onClick={() => { setShowScorecard(!showScorecard); setShowMoreMenu(false); }}>
+              <div
+                className="user-profile-trigger"
+                onClick={() => { setShowScorecard(!showScorecard); setShowMoreMenu(false); }}
+                role="button"
+                tabIndex={0}
+                aria-expanded={showScorecard}
+                aria-haspopup="true"
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setShowScorecard(!showScorecard); setShowMoreMenu(false); } }}
+              >
                 <div className="profile-main">
                   <span className="profile-name">👋 {userData?.displayName || user.email?.split('@')[0]}</span>
                   <FaChevronDown className={`chevron ${showScorecard ? 'open' : ''}`} />
@@ -987,7 +1013,8 @@ useEffect(() => {
           {isOpen ? <FaTimes /> : <FaBars />}
         </button>
       </nav>
-
+ 
+ 
       {/* VERIFICATION GUARD */}
       {!loading && user && !user.isAnonymous && !user.emailVerified && !showScorecard && location.pathname !== "/login" && (
         <div className="verification-overlay">
@@ -1036,6 +1063,7 @@ useEffect(() => {
             <Route path="/schemes" element={<Schemes />} />
             <Route path="/resources" element={<Resources />} />
             <Route path="/login" element={<Auth />} />
+            <Route path="/auth" element={<Navigate to="/login" replace />} />
             <Route path="/profile-setup" element={<ProfileSetup user={user} profileCompleted={profileCompleted} />} />
             <Route path="/calendar" element={<Calendar userData={userData} />} />
             <Route path="/share-feedback" element={<Feedback />} />
@@ -1120,22 +1148,30 @@ useEffect(() => {
         target="_blank"
         rel="noopener noreferrer"
         className="whatsapp-float"
-        title="Chat with WhatsApp Bot"
+        aria-label="Chat with WhatsApp Bot (opens in new tab)"
       >
-        <FaWhatsapp />
-        <span className="tooltip">Chat with Bot</span>
+        <FaWhatsapp aria-hidden="true" />
+        <span className="tooltip" aria-hidden="true">Chat with Bot</span>
       </a>
 
       {showScrollTop && (
         <button className="scroll-to-top" onClick={scrollToTop} aria-label="Scroll to top">
-          <FaChevronUp size={24} />
+          <FaChevronUp size={24} aria-hidden="true" />
         </button>
+      )}
+
+      {backendStatus === "offline" && (
+        <div className="backend-banner" role="alert">
+          🚨 Backend is currently unavailable. Some features may not work.
+        </div>
       )}
 
       <ToastContainer position="bottom-right" />
       <Footer />
     </div>
+    
   );
 }
 
 export default App;
+

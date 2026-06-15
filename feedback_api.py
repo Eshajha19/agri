@@ -162,7 +162,12 @@ class FeedbackRequest(BaseModel):
     @validator('cropType')
     def validate_crop_type(cls, v):
         if v is not None:
-            return FeedbackValidator.validate_crop_type(v)
+            result = FeedbackValidator.validate_crop_type(v)
+            if result is None:
+                raise ValueError(
+                    f"Invalid crop type: '{v}'. Allowed: {', '.join(FeedbackValidator.ALLOWED_CROPS)}"
+                )
+            return result
         return v
 
     @validator('category')
@@ -222,13 +227,6 @@ def _feedback_rate_key(request: Request) -> str:
         return token[-32:] if len(token) >= 32 else token
     return extract_client_ip(request)
 
-# The limiter is attached to app.state so the @limiter.limit() decorator
-# can resolve it at request time.
-limiter = build_limiter(default_limits=["120/minute"])
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
-# ─────────────────────────────────────────────────────────────────────────────
-
 from slowapi.util import get_remote_address
 
 def feedback_rate_limit_key(request: Request):
@@ -242,7 +240,12 @@ def feedback_rate_limit_key(request: Request):
     return get_remote_address(request)
 
 # ── Rate limiting ─────────────────────────────────────────────────────────────
-limiter = Limiter(key_func=feedback_rate_limit_key, default_limits=["120/minute"])
+# The limiter is attached to app.state so the @limiter.limit() decorator
+# can resolve it at request time.
+limiter = Limiter(
+    key_func=feedback_rate_limit_key,
+    default_limits=[os.getenv("FEEDBACK_RATE_LIMIT", "120/minute")]
+)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -529,32 +532,6 @@ async def get_feedback_stats(
     admin_user: dict = Depends(verify_admin),
 ):
     """Get feedback statistics (admin only)"""
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing auth token")
-
-    try:
-        id_token = auth_header.split(" ")[1]
-        decoded = firebase_auth.verify_id_token(id_token, check_revoked=True)
-    except firebase_auth.RevokedIdTokenError:
-        raise HTTPException(status_code=401, detail="Session revoked — please log in again")
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-
-    uid = decoded["uid"]
-
-    try:
-        user_doc = db.collection("users").document(uid).get()
-    except Exception:
-        raise HTTPException(status_code=503, detail="Authorization service unavailable")
-
-    if not user_doc.exists:
-        raise HTTPException(status_code=403, detail="User profile not found")
-
-    user_role = user_doc.to_dict().get("role", "farmer")
-    if user_role != "admin":
-        raise HTTPException(status_code=403, detail="Access denied: admin role required")
-
     try:
         feedback_ref = db.collection("feedback")
         docs = feedback_ref.limit(1000).stream()

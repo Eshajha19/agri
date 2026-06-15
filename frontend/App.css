@@ -2391,3 +2391,29 @@ body {
 .skiptranslate iframe {
   display: none !important;
 }
+
+.emergency-report {
+  max-width: 500px;
+  margin: auto;
+  padding: 20px;
+}
+.emergency-report select,
+.emergency-report input,
+.emergency-report button {
+  display: block;
+  margin: 10px 0;
+  width: 100%;
+}
+
+.backend-banner {
+  background: #ffe5e5;
+  color: #b00020;
+  padding: 10px;
+  text-align: center;
+  font-weight: bold;
+}
+
+.theme-dark .backend-banner {
+  background: #3b1010;
+  color: #ff6b6b;
+}

@@ -2,13 +2,13 @@
 import asyncio
 import os
 import time
-import logging
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query
+from backend.core.logging_config import setup_logging
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
+logger = setup_logging(__name__)
 
 GITHUB_OWNER = os.getenv("GITHUB_CONTRIBUTORS_OWNER", "Eshajha19")
 GITHUB_REPO = os.getenv("GITHUB_CONTRIBUTORS_REPO", "agri")
@@ -28,20 +28,28 @@ _contributors_cache = {"expires_at": 0.0, "data": []}
 # asyncio.Lock is the correct primitive here because get_contributors is
 # an async handler running in the event loop — threading.Lock would block
 # the loop, while asyncio.Lock yields control while waiting.
-_cache_lock: asyncio.Lock | None = None
+#
+# The lock is initialized at module load time to ensure all coroutines
+# share a single lock instance, preventing lazy initialization race conditions
+# where multiple coroutines might create separate lock instances.
+_cache_lock: asyncio.Lock = asyncio.Lock()
+
+
+def init_community():
+    """Initialize the community module.
+    
+    This function is now a no-op since the cache lock is initialized at
+    module load time. It is retained for backward compatibility with
+    existing startup procedures in main.py lifespan.
+    """
+    pass
 
 
 def _get_cache_lock() -> asyncio.Lock:
-    """Return the module-level asyncio.Lock, creating it lazily.
-
-    The lock must be created inside a running event loop, so we cannot
-    initialise it at module import time (which may happen before the loop
-    starts).  Lazy initialisation on first use is safe because FastAPI
-    always calls handlers from within the running loop.
+    """Return the module-level asyncio.Lock.
+    
+    The lock is initialized at module load time and is always available.
     """
-    global _cache_lock
-    if _cache_lock is None:
-        _cache_lock = asyncio.Lock()
     return _cache_lock
 
 

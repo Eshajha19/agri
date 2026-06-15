@@ -4,8 +4,7 @@ Handles concurrent updates, version tracking, and conflict resolution
 """
 
 import logging
-import threading
-from collections import deque
+import collections
 from enum import Enum
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
@@ -175,10 +174,15 @@ class ConflictDetector:
 
 
 class ConflictResolver:
+    """
+    Resolves conflicts between concurrent updates
+    """
+    _MAX_CONFLICT_LOG_SIZE = 1000  # Cap log size to prevent memory exhaustion
+    
     def __init__(self, strategy: ConflictResolutionStrategy = ConflictResolutionStrategy.LAST_WRITE_WINS):
         self.strategy = strategy
-        self.conflict_log: deque = deque(maxlen=CONFLICT_LOG_MAX_ENTRIES)
-
+        self.conflict_log = collections.deque(maxlen=self._MAX_CONFLICT_LOG_SIZE)
+    
     def resolve(
         self,
         local_version: DocumentVersion,
@@ -274,6 +278,12 @@ class ConflictResolver:
         server_version: DocumentVersion,
         base_version: DocumentVersion = None
     ) -> Tuple[DocumentVersion, List[str]]:
+        """
+        Three-way merge: combines non-conflicting changes.
+        Uses base version to determine what changed.
+        Ensures deleted fields (set to None or missing) are completely removed
+        from the merged document instead of being retained with a null value.
+        """
         base_data = (base_version or DocumentVersion("", {}, "system")).data
         merged_data = base_data.copy()
         conflicting_fields = []
@@ -286,14 +296,34 @@ class ConflictResolver:
             server_changed = server_val != base_val
             if local_changed and server_changed:
                 if local_val == server_val:
-                    merged_data[key] = local_val
+                    # Same value, use it (could be None/deleted)
+                    if local_val is not None:
+                        merged_data[key] = local_val
+                    elif key in merged_data:
+                        del merged_data[key]
                 else:
-                    merged_data[key] = server_val
+                    # Conflicting change, use server version (could be None/deleted)
+                    if server_val is not None:
+                        merged_data[key] = server_val
+                    elif key in merged_data:
+                        del merged_data[key]
                     conflicting_fields.append(key)
             elif local_changed:
-                merged_data[key] = local_val
+                # Only local changed
+                if local_val is not None:
+                    merged_data[key] = local_val
+                elif key in merged_data:
+                    del merged_data[key]
             elif server_changed:
-                merged_data[key] = server_val
+                # Only server changed
+                if server_val is not None:
+                    merged_data[key] = server_val
+                elif key in merged_data:
+                    del merged_data[key]
+            else:
+                # Neither changed
+                if base_val is None and key in merged_data:
+                    del merged_data[key]
         
         # Create merged version with combined causal history
         merged_vector = VersionVector(local_version.version_vector.vector.copy())
@@ -324,60 +354,8 @@ class ConflictResolver:
         logger.info(f"Conflict resolved: doc={local.doc_id}, strategy={strategy}, winner={resolved.client_id}")
 
     def get_conflict_log(self) -> List[Dict]:
+        """Get conflict resolution log"""
         return list(self.conflict_log)
-
-
-class CRDTResolver:
-    @staticmethod
-    def _wrap_if_needed(data: Dict[str, Any], client_id: str, timestamp: str = None) -> Dict[str, Dict]:
-        ts = timestamp or datetime.now().isoformat()
-        wrapped = {}
-        for k, v in data.items():
-            if isinstance(v, dict) and 'value' in v and 'timestamp' in v and 'client_id' in v:
-                wrapped[k] = v
-            else:
-                wrapped[k] = {'value': v, 'timestamp': ts, 'client_id': client_id}
-        return wrapped
-
-    @staticmethod
-    def _state_map(version: DocumentVersion) -> Dict[str, Dict[str, Any]]:
-        if getattr(version, "crdt_state", None):
-            return {key: dict(value) for key, value in version.crdt_state.items()}
-        return CRDTResolver._wrap_if_needed(version.data, version.client_id, version.timestamp)
-
-    @staticmethod
-    def _state_order_key(state: Dict[str, Any]) -> Tuple[str, str, str]:
-        value_blob = json.dumps(state.get("value"), sort_keys=True, default=str)
-        checksum = hashlib.sha256(value_blob.encode("utf-8")).hexdigest()
-        return (str(state.get("timestamp", "")), str(state.get("client_id", "")), checksum)
-
-    @staticmethod
-    def _choose_state(left: Dict[str, Any], right: Dict[str, Any]) -> Dict[str, Any]:
-        return left if CRDTResolver._state_order_key(left) >= CRDTResolver._state_order_key(right) else right
-
-    @staticmethod
-    def merge(local: DocumentVersion, server: DocumentVersion) -> Tuple[DocumentVersion, List[str]]:
-        local_fields = CRDTResolver._state_map(local)
-        server_fields = CRDTResolver._state_map(server)
-        merged_fields: Dict[str, Any] = {}
-        merged_state: Dict[str, Dict[str, Any]] = {}
-        conflicting: List[str] = []
-        keys = set(list(local_fields.keys()) + list(server_fields.keys()))
-        for k in keys:
-            lf = local_fields.get(k)
-            sf = server_fields.get(k)
-            if lf is None:
-                chosen = sf
-            elif sf is None:
-                chosen = lf
-            else:
-                chosen = CRDTResolver._choose_state(lf, sf)
-                if lf["value"] != sf["value"]:
-                    conflicting.append(k)
-            merged_fields[k] = chosen["value"]
-            merged_state[k] = dict(chosen)
-        merged_version = DocumentVersion(doc_id=server.doc_id, data=merged_fields, client_id="system", timestamp=datetime.now().isoformat(), crdt_state=merged_state)
-        return merged_version, conflicting
 
 
 class SyncManager:
@@ -428,16 +406,18 @@ class SyncManager:
         }
 
 
-# Global sync manager instance
+# Global sync manager instance and lock
 _sync_manager: Optional[SyncManager] = None
 _sync_manager_lock = threading.Lock()
 
 
 def get_sync_manager() -> SyncManager:
-    """Get or create global sync manager — thread-safe singleton."""
+    """Get or create global sync manager (thread-safe)"""
     global _sync_manager
+
     if _sync_manager is None:
         with _sync_manager_lock:
             if _sync_manager is None:
                 _sync_manager = SyncManager()
+    
     return _sync_manager

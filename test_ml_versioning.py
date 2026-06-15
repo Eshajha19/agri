@@ -105,6 +105,70 @@ class TestModelRegistry:
         assert model.status == ModelStatus.PRODUCTION
         assert registry.get_active_model("yield_prediction") == model
     
+    def test_promote_to_production_rollback_tracking(self):
+        """Test that promoting a new version to production records rollback metadata"""
+        registry = ModelRegistry()
+        
+        model_v1 = registry.register_model(
+            model_name="yield_prediction",
+            version="1.0",
+            model_path="/models/yield_v1.0.joblib"
+        )
+        registry.promote_to_production("yield_prediction", "1.0")
+        
+        model_v2 = registry.register_model(
+            model_name="yield_prediction",
+            version="2.0",
+            model_path="/models/yield_v2.0.joblib"
+        )
+        success = registry.promote_to_production("yield_prediction", "2.0")
+        
+        assert success
+        assert model_v2.status == ModelStatus.PRODUCTION
+        assert model_v1.status == ModelStatus.ARCHIVED
+        assert model_v2.replaced_version == "1.0"
+        assert model_v2.rollback_reference == "1.0"
+        
+        # Verify deployment history on the model
+        assert any(
+            h["action"] == "production_promotion" and h["replaced_version"] == "1.0"
+            for h in model_v2.deployment_history
+        )
+        
+        # Verify central deployment log
+        history = registry.get_deployment_history("yield_prediction")
+        production_log = [h for h in history if h["action"] == "production" and h["version"] == "2.0"][0]
+        assert production_log["replaced_version"] == "1.0"
+        assert production_log["rollback_reference"] == "1.0"
+        assert production_log["metadata"]["previous_status"] == "archived"
+
+    def test_rollback_using_metadata(self):
+        """Test that rollback correctly identifies previous version via metadata"""
+        registry = ModelRegistry()
+        
+        model_v1 = registry.register_model(
+            model_name="yield_prediction",
+            version="1.0",
+            model_path="/models/yield_v1.0.joblib"
+        )
+        registry.promote_to_production("yield_prediction", "1.0")
+        
+        model_v2 = registry.register_model(
+            model_name="yield_prediction",
+            version="2.0",
+            model_path="/models/yield_v2.0.joblib"
+        )
+        registry.promote_to_production("yield_prediction", "2.0")
+        
+        # Trigger rollback
+        success = registry.rollback("yield_prediction", reason="high latency")
+        
+        assert success
+        assert registry.get_active_model("yield_prediction") == model_v1
+        assert model_v1.status == ModelStatus.PRODUCTION
+        assert model_v2.status == ModelStatus.ROLLED_BACK
+        assert model_v2.rollback_reason == "high latency"
+
     def test_deployment_history(self):
         """Test tracking deployment history"""
         registry = ModelRegistry()

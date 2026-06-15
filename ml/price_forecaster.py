@@ -8,6 +8,7 @@ No external dependencies beyond pandas, numpy, scikit-learn.
 import gzip
 import json
 import logging
+import asyncio
 import threading
 from collections import OrderedDict
 from datetime import date, timedelta
@@ -152,8 +153,10 @@ class _GzRotatingFileHandler(logging.handlers.RotatingFileHandler):
                 if mtime < cutoff:
                     f.unlink()
                     logger.info("Deleted old forecast archive: %s", f.name)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.exception("Firestore operation failed: %s", exc)
+                return {}
+
 
 
 # =============================================================================
@@ -272,11 +275,18 @@ class PriceForecaster:
         seasonal_map = df.groupby("doy")["detrended"].mean().to_dict()
         df["seasonal"] = df["doy"].map(seasonal_map)
 
-        prices = self._prices
+        # Residual
+        df["residual"] = df["detrended"] - df["seasonal"]
+
+        # --- Fix: define prices & scaling ---
+        prices = df["price"].values.astype(float)
         self._scaler_min = float(prices.min())
         self._scaler_range = float(prices.max() - prices.min()) or 1.0
 
-        scaled = self._scale(prices)
+        def _scale(arr):
+            return (arr - self._scaler_min) / self._scaler_range
+
+        scaled = _scale(prices)
 
         # Build (X, y) sequences
         X, y = [], []
@@ -294,16 +304,9 @@ class PriceForecaster:
         ])
         model.compile(optimizer="adam", loss="mse")
 
-        # Suppress TF progress output
-        model.fit(
-            X, y,
-            epochs=30,
-            batch_size=8,
-            verbose=0,
-            validation_split=0.1,
-        )
+        model.fit(X, y, epochs=30, batch_size=8, verbose=0, validation_split=0.1)
 
-        # Estimate residual std on validation split (last 10%) for confidence intervals
+        # Residual std for confidence intervals
         split = int(len(X) * 0.9)
         if split < len(X):
             val_preds = model.predict(X[split:], verbose=0).flatten()
@@ -315,11 +318,21 @@ class PriceForecaster:
 
         self._model = model
         self._trained = True
+        self.commodity = crop   # Fix: set commodity name
+
         logger.info(
             "PriceForecaster: trained LSTM for '%s' "
             "(residual_std=%.4f, scaler_range=%.0f)",
             self.commodity, self._residual_std, self._scaler_range,
         )
+
+        return {
+            "trend": df["trend"].tolist(),
+            "seasonal": df["seasonal"].tolist(),
+            "residual": df["residual"].tolist(),
+            "trained": self._trained,
+            "residual_std": self._residual_std,
+        }
 
     # ------------------------------------------------------------------
     # Forecasting
@@ -444,7 +457,7 @@ class PriceForecaster:
 
     def _get_or_train(self, commodity: str) -> _CommodityModel:
         """Return a trained model for *commodity*, training it if needed."""
-        with self._lock:
+        async with self._lock:
             if commodity in self._models:
                 self._models.move_to_end(commodity)
                 return self._models[commodity]
@@ -469,7 +482,10 @@ class PriceForecaster:
         """
         try:
             forecasts_mb = round(_FORECASTS_PATH.stat().st_size / (1024 * 1024), 2) if _FORECASTS_PATH.exists() else 0.0
-        except Exception:
+        except Exception as exc:
+            logger.exception("Firestore operation failed: %s", exc)
+            return {}
+
             forecasts_mb = 0.0
 
         # Sum archived .gz files
@@ -479,16 +495,20 @@ class PriceForecaster:
             for f in dir_path.glob("*.jsonl.*.gz"):
                 archive_mb += f.stat().st_size / (1024 * 1024)
             archive_mb = round(archive_mb, 2)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.exception("Firestore operation failed: %s", exc)
+            return {}
+
 
         # Disk usage percent (best effort via shutil)
         disk_percent = None
         try:
             usage = shutil.disk_usage(_FORECASTS_PATH.parent)
             disk_percent = round((usage.used / usage.total) * 100, 1)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.exception("Firestore operation failed: %s", exc)
+            return {}
+
 
         total_forecast_mb = round(forecasts_mb + archive_mb, 2)
 
@@ -619,8 +639,10 @@ class PriceForecaster:
                             for _ws, sub in notification_broker._connections.items():
                                 if sub.uid == uid and event.notification_id in sub.retry_counts:
                                     ws_retry_count = max(ws_retry_count, sub.retry_counts[event.notification_id])
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.exception("Firestore operation failed: %s", exc)
+                            return {}
+
 
                         if not ws_delivered or ws_retry_count >= 3:
                             if phone:

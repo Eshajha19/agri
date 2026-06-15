@@ -2,9 +2,15 @@
 from typing import Any, Callable, Optional
 from fastapi import APIRouter, Depends, Request, HTTPException
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, ValidationError, validator
+from pydantic import BaseModel, Field, ValidationError, validator, ConfigDict
 import logging
+from threading import Lock
+from time import time, monotonic
 from error_utils import safe_detail
+from backend.core.logging_config import setup_logging
+from backend.schemas.rag import RAGQuery
+from backend.compute_rate_limit import enforce_compute_rate_limit
+from backend.climate_sim.data import REGIONAL_SEASONAL_BASELINES, CROP_PROFILES, REGION_ALIASES, VALID_SEASONS
 
 router = APIRouter()
 logger = setup_logging(__name__)
@@ -147,10 +153,6 @@ def get_rag_runtime(
     verify_fn: Callable[..., Any] = Depends(get_verify_role_fn),
 ):
     return rag_fn, verify_fn
-
-
-def get_simulation_runtime(verify_fn: Callable[..., Any] = Depends(get_verify_role_fn)):
-    return verify_fn
 
 
 def get_seed_runtime(
@@ -568,7 +570,7 @@ async def rag_query(request: Request, body: RAGQuery = Depends(_parse_rag_query)
         window_seconds=60,
     )
     try:
-        result = rag_generate_fn(body.query, body.top_k)
+        result = rag_fn(body.query, body.top_k)
         return {"success": True, "query": body.query, "results": result}
     except HTTPException:
         raise
@@ -578,7 +580,7 @@ async def rag_query(request: Request, body: RAGQuery = Depends(_parse_rag_query)
 
 
 @router.post("/simulate-climate")
-async def simulate_climate(request: Request, data: SimulationRequest, verify_fn=Depends(get_simulation_runtime)):
+async def simulate_climate(request: Request, data: SimulationRequest, verify_fn=Depends(get_verify_role_fn)):
     """Run a climate impact simulation for a given crop.
 
     Authentication is required so that the endpoint is not freely

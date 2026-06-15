@@ -9,7 +9,8 @@ from datetime import datetime
 from unittest.mock import Mock, patch, MagicMock
 
 from farm_finance_ai import FarmFinanceAI, FinanceApplication
-from blockchain_supply_chain import SupplyChainBlockchain, ProductBatch
+from blockchain_supply_chain import SupplyChainBlockchain
+from product_batch import ProductBatch
 from persistence.repositories import (
     FinanceApplicationRepository,
     NotificationRepository,

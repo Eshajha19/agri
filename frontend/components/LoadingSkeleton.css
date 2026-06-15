@@ -1,20 +1,4 @@
 /* Skeleton Animation */
-@keyframes skeleton-loading {
-  0% {
-    background-color: hsl(200, 20%, 80%);
-  }
-  100% {
-    background-color: hsl(200, 20%, 95%);
-  }
-}
-
-.skeleton-loader {
-  animation: skeleton-loading 1s linear infinite alternate;
-  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-  background-size: 200% 100%;
-  animation: shimmer 2s infinite;
-}
-
 @keyframes shimmer {
   0% {
     background-position: -1000px 0;
@@ -128,24 +112,22 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-/* Dark Mode Support */
-@media (prefers-color-scheme: dark) {
-  .skeleton-loader {
-    background: linear-gradient(90deg, #2a2a2a 25%, #3a3a3a 50%, #2a2a2a 75%);
-  }
+/* Dark Mode Support — matches the app's .theme-dark class system */
+.theme-dark .skeleton-loader {
+  background: linear-gradient(90deg, #2a2a2a 25%, #3a3a3a 50%, #2a2a2a 75%);
+}
 
-  .skeleton-card,
-  .skeleton-table,
-  .skeleton-dashboard-chart,
-  .skeleton-stat-card {
-    background: #1a1a1a;
-    box-shadow: 0 2px 8px rgba(255, 255, 255, 0.1);
-  }
+.theme-dark .skeleton-card,
+.theme-dark .skeleton-table,
+.theme-dark .skeleton-dashboard-chart,
+.theme-dark .skeleton-stat-card {
+  background: #1a1a1a;
+  box-shadow: 0 2px 8px rgba(255, 255, 255, 0.1);
+}
 
-  .skeleton-table-header,
-  .skeleton-table-row {
-    border-color: #333;
-  }
+.theme-dark .skeleton-table-header,
+.theme-dark .skeleton-table-row {
+  border-color: #333;
 }
 
 /* Mobile Responsive */

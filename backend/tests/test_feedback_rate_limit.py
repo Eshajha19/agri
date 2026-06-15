@@ -1,6 +1,8 @@
 import pytest
 from fastapi.testclient import TestClient
 from backend.main import app
+import os
+import feedback_api
 
 client = TestClient(app)
 
@@ -23,3 +25,10 @@ def test_rate_limit_by_uid(monkeypatch):
         client.post("/submit-feedback", json={"message": "spam"})
     r2 = client.post("/submit-feedback", json={"message": "spam"})
     assert r2.status_code == 429  # Too Many Requests
+
+def test_limiter_env_config(monkeypatch):
+    # Verify that the limiter reads from FEEDBACK_RATE_LIMIT environment variable
+    monkeypatch.setenv("FEEDBACK_RATE_LIMIT", "100/minute")
+    import importlib
+    importlib.reload(feedback_api)
+    assert any("100/minute" in str(limit) for limit in feedback_api.limiter.default_limits)

@@ -121,22 +121,23 @@ const Community = () => {
         ...postComments.map(c => c.userId)
       ].filter(Boolean));
 
+      const uncached = [...authorIds].filter((id) => !authorsData[id]);
+
+      const results = await Promise.allSettled(
+        uncached.map((id) => getDoc(doc(db, "users", id)))
+      );
+
       const newAuthorsData = { ...authorsData };
       let changed = false;
 
-      for (const id of authorIds) {
-        if (!newAuthorsData[id]) {
-          try {
-            const userDoc = await getDocs(query(collection(db, "users"), where("uid", "==", id)));
-            if (!userDoc.empty) {
-              newAuthorsData[id] = userDoc.docs[0].data();
-              changed = true;
-            }
-          } catch (err) {
-            console.error("Error fetching author data:", err);
-          }
+      results.forEach((res, i) => {
+        if (res.status === "fulfilled" && res.value.exists()) {
+          newAuthorsData[uncached[i]] = res.value.data();
+          changed = true;
+        } else if (res.status === "rejected") {
+          console.error("Error fetching author data:", res.reason);
         }
-      }
+      });
 
       if (changed) setAuthorsData(newAuthorsData);
     };
@@ -416,9 +417,34 @@ const Community = () => {
         createdAt: serverTimestamp(),
       });
 
-      // Award +5 reputation for posting a comment
-      const commenterRef = doc(db, "users", currentUser.uid);
-      batch.update(commenterRef, { reputation: increment(5) });
+        // Award +5 reputation only if the daily cap has not been reached.
+        if (earnedRep) {
+          const updateData = {
+            reputation: increment(5),
+            commentReputationDate: today,
+            commentReputationToday: repCountToday + 1,
+          };
+          if (!commenterSnap.exists()) {
+            updateData.uid = currentUser.uid;
+            updateData.displayName = currentUser.displayName || (currentUser.email ? currentUser.email.split('@')[0] : "User");
+            updateData.email = currentUser.email || "";
+            updateData.role = "farmer";
+            updateData.profileCompleted = false;
+            updateData.createdAt = new Date().toISOString();
+          }
+          transaction.set(commenterRef, updateData, { merge: true });
+        } else if (!commenterSnap.exists()) {
+          // If no reputation is earned, but the document doesn't exist, we should still create it.
+          transaction.set(commenterRef, {
+            uid: currentUser.uid,
+            displayName: currentUser.displayName || (currentUser.email ? currentUser.email.split('@')[0] : "User"),
+            email: currentUser.email || "",
+            role: "farmer",
+            reputation: 0,
+            profileCompleted: false,
+            createdAt: new Date().toISOString()
+          }, { merge: true });
+        }
 
       // Keep the post's comment count in sync
       const postRef = doc(db, "posts", postId);

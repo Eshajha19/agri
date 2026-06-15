@@ -2,13 +2,15 @@
 Crop sustainability analytics — LCA-style water footprint & carbon emission estimates.
 """
 from __future__ import annotations
-
 import logging
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
+import os
+
+logger = logging.getLogger(__name__)
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,7 @@ IRRIGATION_EFFICIENCY = {
     "sprinkler": 0.75,
     "flood": 0.45,
 }
+DEFAULT_IRRIGATION_EFFICIENCY = 0.5
 
 SEASON_DAYS = {
     "kharif": 120,
@@ -74,6 +77,11 @@ def _normalize_season(season: str) -> str:
     return "kharif"
 
 
+def _normalize_irrigation_type(irr_type: str) -> str:
+    t = (irr_type or "drip").strip().lower()
+    return t if t in IRRIGATION_EFFICIENCY else "drip"
+
+
 @dataclass
 class SustainabilityRecord:
     record_id: str
@@ -93,8 +101,12 @@ class SustainabilityAnalytics:
     """LCA-style sustainability engine with in-memory history."""
 
     def __init__(self) -> None:
+        # OrderedDict with LRU eviction capped at _MAX_HISTORY_USERS keys
+        self._history: OrderedDict[str, List[Dict[str, Any]]] = OrderedDict()
+        self._history_lock = threading.Lock()   # FIX: initialize lock
+
         self._history: Dict[str, List[Dict[str, Any]]] = {}
-        self._local_file_lock = threading.Lock()
+        self._history_lock = threading.Lock()
         import sys
         self.is_testing = "pytest" in sys.modules or "unittest" in sys.modules
 
@@ -124,37 +136,114 @@ class SustainabilityAnalytics:
         return None
 
     def _get_local_file_path(self) -> str:
+        """Return the path of the append-only JSONL history file.
+
+        Each line in the file is a JSON-encoded sustainability record.
+        The .jsonl extension makes the format explicit and distinguishes
+        the new layout from any legacy .json files.
+        """
         if getattr(self, "is_testing", False):
-            return "sustainability_history_test.json"
-        return "sustainability_history.json"
+            return "sustainability_history_test.jsonl"
+        return "sustainability_history.jsonl"
 
     def _load_local_history(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Read the append-only JSONL file and rebuild the user-keyed dict.
+
+        Each line is one JSON record containing at minimum a ``user_id`` key.
+        Lines that cannot be decoded are skipped with a warning so a single
+        corrupt entry never blocks the entire history from loading.
+        """
         import json
         import os
+
         path = self._get_local_file_path()
-        if os.path.exists(path):
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception as exc:
-                logger.warning("Failed to load sustainability history file: %s", exc)
-        return {}
+        history: Dict[str, List[Dict[str, Any]]] = {}
+        if not os.path.exists(path):
+            return history
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                for lineno, raw in enumerate(fh, start=1):
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+                    try:
+                        record = json.loads(raw)
+                        uid = record.get("user_id", "anonymous")
+                        history.setdefault(uid, []).append(record)
+                    except json.JSONDecodeError:
+                        import logging as _log
+                        _log.getLogger(__name__).warning(
+                            "Skipping malformed JSONL record at line %d in %s", lineno, path
+                        )
+        except Exception:
+            pass
+        return history
+
+    def _append_record_to_file(self, record: Dict[str, Any]) -> None:
+        """Append a single JSON record as one line to the JSONL file.
+
+        Opens the file in append mode (``'a'``), so only the new record is
+        written.  This is O(1) regardless of how large the history file has
+        grown — no read or full-file rewrite is needed.
+        """
+        import json
+        import os
+
+        path = self._get_local_file_path()
+        try:
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(record, ensure_ascii=False))
+                fh.write("\n")
+        except Exception as exc:
+            import logging as _log
+            _log.getLogger(__name__).warning(
+                "Failed to append sustainability record to %s: %s", path, exc
+            )
 
     def _save_local_history(self, history: Dict[str, List[Dict[str, Any]]]) -> None:
+        """Full-rewrite used only for compaction / migration.
+
+        Under normal operation, prefer ``_append_record_to_file`` which is
+        O(1).  This method rewrites the entire JSONL file from the supplied
+        dict and should only be called when explicitly compacting.
+        """
         import json
-        import os
+
         path = self._get_local_file_path()
         tmp_path = path + ".tmp"
+        lock_path = path + ".lock"
         try:
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(history, f, indent=2, ensure_ascii=False)
+            with open(path, "w", encoding="utf-8") as fh:
+                for records in history.values():
+                    for record in records:
+                        fh.write(json.dumps(record, ensure_ascii=False))
+                        fh.write("\n")
         except Exception as exc:
-            logger.error("Failed to save sustainability history file: %s", exc)
+            import logging as _log
+            _log.getLogger(__name__).warning(
+                "Failed to rewrite sustainability history file %s: %s", path, exc
+            )
+
+    def compact_local_history(self, max_records_per_user: int = 50) -> int:
+        """Compact the JSONL file by keeping only the most recent records.
+
+        Reads all lines, trims each user's list to *max_records_per_user*
+        newest entries, and rewrites the file.  Returns the number of records
+        removed.  Suitable for a periodic maintenance job — not called on
+        every request.
+        """
+        history = self._load_local_history()
+        total_before = sum(len(v) for v in history.values())
+        trimmed = {uid: recs[-max_records_per_user:] for uid, recs in history.items()}
+        total_after = sum(len(v) for v in trimmed.values())
+        self._save_local_history(trimmed)
+        return total_before - total_after
 
     def get_formula_config(self) -> Dict[str, Any]:
         return {
             "emission_factors": EMISSION_FACTORS,
             "irrigation_efficiency": IRRIGATION_EFFICIENCY,
+            "default_irrigation_efficiency": DEFAULT_IRRIGATION_EFFICIENCY,
             "season_days": SEASON_DAYS,
             "crop_coefficients": CROP_COEFFICIENTS,
         }
@@ -164,12 +253,22 @@ class SustainabilityAnalytics:
         crop_key = _normalize_crop(data["crop_type"])
         season_key = _normalize_season(data["season"])
         coeffs = CROP_COEFFICIENTS.get(crop_key, CROP_COEFFICIENTS["default"])
-        acreage = data["acreage"]
+        MAX_ACREAGE = int(os.getenv("MAX_ACREAGE", "10000"))  # configurable limit
+
+        acreage = float(data.get("acreage", 0.1))
+        acreage = max(min(acreage, MAX_ACREAGE), 0.1)
         irr_type = data["irrigation_type"]
-        irr_eff = IRRIGATION_EFFICIENCY.get(irr_type, 0.7)
+        irr_eff = IRRIGATION_EFFICIENCY.get(irr_type, DEFAULT_IRRIGATION_EFFICIENCY)
         season_days = SEASON_DAYS[season_key]
 
+        rainfall_mm = data.get("rainfall_mm", 0.0)
+        effective_rainfall_mm = data.get("effective_rainfall_mm", rainfall_mm * 0.8)
+        rainfall_m3_per_acre = effective_rainfall_mm * 4046.86 / 1000.0
+        rainfall_m3_total = rainfall_m3_per_acre * acreage
+
         base_water = coeffs["water_m3_per_acre_season"] * acreage
+        net_irrigation_water = max(base_water - rainfall_m3_total, 0.0)
+
         if irr_type == "rainfed":
             green_water = base_water * 0.85
             blue_water = base_water * 0.15
@@ -207,10 +306,16 @@ class SustainabilityAnalytics:
         irrigation_energy_co2 = pump_kwh * ef["electricity_kg_co2e_per_kwh"]
 
         organic_reduction = 0.12 if data["organic_practices"] else 0.0
+
+        # Apply reduction ONLY to fertilizer emissions
+        fert_co2 *= (1.0 - organic_reduction)
+
+        # Then sum everything normally
         total_carbon_kg = round(
-            (fert_co2 + machinery_co2 + fuel_co2 + irrigation_energy_co2) * (1.0 - organic_reduction),
+            fert_co2 + machinery_co2 + fuel_co2 + irrigation_energy_co2,
             2,
         )
+
         carbon_per_acre = round(total_carbon_kg / max(acreage, 0.1), 2)
 
         benchmark_water = coeffs["water_m3_per_acre_season"] * acreage
@@ -244,9 +349,9 @@ class SustainabilityAnalytics:
             "carbon": {
                 "total_kg_co2e": total_carbon_kg,
                 "per_acre_kg_co2e": carbon_per_acre,
-                "fertilizer_kg_co2e": round(fert_co2 * (1.0 - organic_reduction), 2),
+                "fertilizer_kg_co2e": round(fert_co2, 2),
                 "machinery_kg_co2e": round(machinery_co2, 2),
-                "fuel_kg_co2e": round(fuel_co2 * (1.0 - organic_reduction), 2),
+                "fuel_kg_co2e": round(fuel_co2, 2),
                 "irrigation_energy_kg_co2e": round(irrigation_energy_co2, 2),
             },
             "inputs": {
@@ -266,7 +371,7 @@ class SustainabilityAnalytics:
         ]
 
         record_id = str(uuid4())
-        created_at = datetime.now(timezone.utc).isoformat() + "Z"
+        created_at = datetime.now(timezone.utc).isoformat()
         user_id = data["user_id"] or "anonymous"
 
         result = {
@@ -305,13 +410,15 @@ class SustainabilityAnalytics:
                 entries = [d.to_dict() for d in docs]
                 entries.sort(key=lambda x: x.get("created_at", ""), reverse=True)
                 return entries[:limit]
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.exception("Firestore operation failed: %s", exc)
+                return {}
+
 
         local_hist = self._load_local_history()
         entries = local_hist.get(key, [])
-        self._touch_user(key)
-        self._history[key] = entries
+        with self._history_lock:
+            self._history[key] = entries
         return list(reversed(entries[-limit:]))
 
     def _append_history(self, user_id: str, result: Dict[str, Any]) -> None:
@@ -342,7 +449,7 @@ class SustainabilityAnalytics:
             if len(self._history[key]) > 50:
                 self._history[key] = self._history[key][-50:]
 
-        # Save to Firestore primarilly
+        # Save to Firestore primarily
         db = self._get_db()
         if db is not None:
             try:
@@ -363,12 +470,15 @@ class SustainabilityAnalytics:
             except Exception:
                 logger.exception("Failed to persist sustainability history to local file")
 
+        # O(1) append to the local JSONL file — no full read/rewrite needed.
+        self._append_record_to_file(record)
+
     def _normalize_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "crop_type": str(payload.get("crop_type", "Rice")).strip() or "Rice",
             "season": str(payload.get("season", "Kharif")).strip() or "Kharif",
             "acreage": max(float(payload.get("acreage", 1) or 1), 0.1),
-            "irrigation_type": str(payload.get("irrigation_type", "drip")).lower(),
+            "irrigation_type": _normalize_irrigation_type(payload.get("irrigation_type", "drip")),
             "irrigation_events": max(int(payload.get("irrigation_events", 10) or 0), 0),
             "fertilizer_n_kg": float(payload.get("fertilizer_n_kg")) if payload.get("fertilizer_n_kg") is not None else None,
             "fertilizer_p_kg": float(payload.get("fertilizer_p_kg")) if payload.get("fertilizer_p_kg") is not None else None,

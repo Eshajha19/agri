@@ -40,36 +40,6 @@ class SubscribeCrops(BaseModel):
     class Config:
         extra = "forbid"
 
-ALLOWED_TYPES = {
-    "delivery_ack": DeliveryAck,
-    "subscribe_crops": SubscribeCrops,
-}
-
-def validate_ws_payload(payload: dict):
-    msg_type = payload.get("type")
-    schema = ALLOWED_TYPES.get(msg_type)
-    if not schema:
-        raise ValueError(f"Unknown message type: {msg_type}")
-    return schema(**payload)
-
-async def _handle_inbound(self, ws, payload: dict):
-    try:
-        validated = validate_ws_payload(payload)
-    except ValueError as e:
-        # Reject unknown type with structured error or close
-        await ws.send_json({"error": str(e)})
-        await ws.close(code=1003)  # Unsupported data
-        return
-    except Exception as e:
-        await ws.send_json({"error": "Invalid schema"})
-        return
-
-    # Now handle only validated types
-    if validated.type == "delivery_ack":
-        self._process_delivery_ack(validated)
-    elif validated.type == "subscribe_crops":
-        self._process_subscribe_crops(validated)
-
 
 from notification_auth import filter_notifications_for_user, notification_visible_to_user
 
@@ -243,7 +213,7 @@ class NotificationBroadcastHub:
     def seed_notifications(self, notifications: Iterable[Dict[str, Any]]) -> None:
         """Seed the local history from existing notifications (deduplicated)."""
         for notification in notifications:
-            if not self._is_duplicate(notification):
+            if not self._is_duplicate_notification_by_content(notification):
                 self._history.append(notification)
 
     async def snapshot(self) -> list[Dict[str, Any]]:
@@ -408,7 +378,7 @@ class NotificationBroadcastHub:
         h = self._compute_dedup_hash(payload)
         now = asyncio.get_event_loop().time()
         async with self._history_lock:
-            if not self._is_duplicate(notification):
+            if not self._is_duplicate_notification_by_content(notification):
                 self._history.append(notification)
 
         async with self._connections_lock:
@@ -472,6 +442,10 @@ class NotificationBroadcastHub:
         # via the `not subscription_region` short-circuit in region_matches().
         region_scopes: frozenset[str] = frozenset(r for r in regions if r.strip())
 
+
+ main
+
+ main
         async with self._connections_lock:
             self._connections[websocket] = _ConnectionSubscription(
                 uid=uid,
@@ -492,167 +466,12 @@ class NotificationBroadcastHub:
 
         try:
             while True:
-                try:
-                    msg = await asyncio.wait_for(websocket.receive_text(), timeout=10.0)
-                except asyncio.TimeoutError:
-                    continue
-                except WebSocketDisconnect:
-                    break
-
-                if msg is None:
-                    continue
-
-                frame_size = len(msg.encode("utf-8"))
-                if frame_size > MAX_FRAME_SIZE:
-                    logger.warning(
-                        "Closing WS uid=%s — frame too large: %d bytes (max %d)",
-                        uid, frame_size, MAX_FRAME_SIZE,
-                    )
-                    await websocket.close(code=1009)
-                    break
-
-                now = time.time()
-                rate_timestamps.append(now)
-                cutoff = now - RATE_WINDOW
-                rate_timestamps = [t for t in rate_timestamps if t > cutoff]
-                if len(rate_timestamps) > MAX_MESSAGES_PER_SEC:
-                    logger.warning(
-                        "Closing WS uid=%s — rate limit exceeded: %d msg/s (max %d)",
-                        uid, len(rate_timestamps), MAX_MESSAGES_PER_SEC,
-                    )
-                    await websocket.close(code=1008)
-                    break
-
-                try:
-                    parsed = json.loads(msg)
-                except json.JSONDecodeError:
-                    logger.warning("Invalid JSON from WS uid=%s, ignoring", uid)
-                    continue
-
-                if not isinstance(parsed, dict) or "type" not in parsed:
-                    continue
-
-                msg_type = parsed.get("type")
-
-                if msg_type == "delivery_ack":
-                    valid, error = self._validate_delivery_ack(parsed)
-                    if not valid:
-                        logger.warning(
-                            "Invalid delivery_ack from WS uid=%s: %s", uid, error
-                        )
-
-                # ----------------------------------------------------------
-                # FIX 2: subscribe_crops — validate AND apply to subscription
-                #
-                # Previously the message was validated but the subscription
-                # was never updated, so crop filtering had no effect after
-                # the initial connect.
-                # ----------------------------------------------------------
-                elif msg_type == "subscribe_crops":
-                    valid, error = self._validate_subscribe_crops(parsed)
-                    if not valid:
-                        logger.warning(
-                            "Invalid subscribe_crops from WS %s: %s", websocket, error,
-                        )
-                        continue
-                    new_crops = frozenset(
-                        c.strip().lower()
-                        for c in parsed.get("crops", [])
-                        if isinstance(c, str) and c.strip()
-                    )
-                    async with self._connections_lock:
-                        sub = self._connections.get(websocket)
-                        if sub is not None:
-                            self._connections[websocket] = _ConnectionSubscription(
-                                uid=sub.uid,
-                                regions=sub.regions,
-                                crops=new_crops,
-                                retry_counts=sub.retry_counts,
-                                last_ack_at=sub.last_ack_at,
-                            )
-
-                # ----------------------------------------------------------
-                # FIX 3: subscribe_regions — new handler, mirrors HTTP logic
-                #
-                # The HTTP endpoint uses resolve_subscription_regions() +
-                # profile authority checks.  The WS path previously had no
-                # equivalent, meaning a connected client could never update
-                # its region scope post-connect and the two paths were
-                # inconsistent (issue requirement: they must behave the same).
-                #
-                # Security contract (matches HTTP):
-                #   - Empty / malformed region tokens are rejected.
-                #   - The caller can only subscribe to regions they own or
-                #     that are covered by their profile authority.
-                #   - Admins/experts may request any region.
-                # ----------------------------------------------------------
-                elif msg_type == "subscribe_regions":
-                    valid, error = self._validate_subscribe_regions(parsed)
-                    if not valid:
-                        logger.warning(
-                            "Invalid subscribe_regions from WS %s: %s", websocket, error,
-                        )
-                        continue
-                    raw_regions = parsed.get("regions", [])
-                    profile = self._get_profile_for_uid(uid)
-                    new_scopes = frozenset(
-                        resolve_subscription_regions(profile, raw_regions)
-                    )
-                    async with self._connections_lock:
-                        sub = self._connections.get(websocket)
-                        if sub is not None:
-                            self._connections[websocket] = _ConnectionSubscription(
-                                uid=sub.uid,
-                                regions=new_scopes,
-                                crops=sub.crops,
-                                retry_counts=sub.retry_counts,
-                                last_ack_at=sub.last_ack_at,
-                            )
-                else:
-                        # Re-resolve through the same authority logic used at
-                        # connect time so WS and HTTP are consistent.
-                        from geo_alerts import profile_regions as _profile_regions
-                        async with self._connections_lock:
-                            sub = self._connections.get(websocket)
-
-                        if sub is not None:
-                            # Import here to avoid circular dependency at
-                            # module level; profile lookup is cheap (cached
-                            # in main.py's _get_firestore_user_profile).
-                            profile = self._get_profile_fn(sub.uid) if self._get_profile_fn else {}
-                            requested = parsed.get("regions", [])
-                            new_regions = frozenset(
-                                resolve_subscription_regions(profile, requested)
-                            )
-                            # Strip any empty tokens that normalization may
-                            # have produced.
-                            new_regions = frozenset(r for r in new_regions if r.strip())
-
-                            async with self._connections_lock:
-                                current = self._connections.get(websocket)
-                                if current is not None:
-                                    self._connections[websocket] = _ConnectionSubscription(
-                                        uid=current.uid,
-                                        regions=new_regions,
-                                        crops=current.crops,
-                                        retry_counts=current.retry_counts,
-                                        last_ack_at=current.last_ack_at,
-                                    )
-                            logger.info(
-                                "WS uid=%s updated region subscription: %s",
-                                uid, new_regions,
-                            )
-                            await websocket.send_json(
-                                {
-                                    "type": "subscribed_regions",
-                                    "regions": sorted(new_regions),
-                                }
-                         
-             await websocket.receive_text()
-        except WebSocketDisconnect:
-            logger.debug("WebSocket client disconnected')
-        except asyncio.CancelledError:
+                # Keep reading to detect client-side disconnects
+                _ = await websocket.receive_text()
+        except (WebSocketDisconnect, asyncio.CancelledError):
             pass
+        except Exception as exc:
+            logger.warning("WebSocket read error: %s", exc)
         finally:
             async with self._connections_lock:
                 self._connections.pop(websocket, None)
@@ -747,92 +566,67 @@ class NotificationBroadcastHub:
                 except Exception:
                     stale_clients.append(websocket)
 
-        if stale_clients:
-            async with self._connections_lock:
-                for websocket in stale_clients:
-                    self._connections.pop(websocket, None)
 
-    async def _persist_notification(
-        self, event: NotificationEvent, uid: str
+    def _is_duplicate_notification_by_content(self, notification: Dict[str, Any]) -> bool:
+        """Check if notification content is a recent duplicate based on hash."""
+        # Use deterministic hash to detect duplicates
+        payload = {
+            k: v for k, v in notification.items() 
+            if k in self.DEDUP_FIELDS
+        }
+        h = self._compute_dedup_hash(payload)
+        
+        now = time.time()
+        if h in self._recent_hashes:
+            # Check if within TTL
+            if now - self._recent_hashes[h] < self._dedup_window:
+                return True
+        
+        # Not a duplicate, record it
+        self._recent_hashes[h] = now
+        
+        # Cleanup old entries periodically
+        if len(self._recent_hashes) > 1000:
+            cutoff = now - self._dedup_window
+            self._recent_hashes = {
+                k: v for k, v in self._recent_hashes.items()
+                if v >= cutoff
+            }
+        
+        return False
+
+    async def _broadcast(
+        self, payload: Dict[str, Any], clients: list[tuple[WebSocket, _ConnectionSubscription]]
     ) -> None:
-        """Track targeted notification delivery with bounded memory usage."""
-        if not self._enable_persistence:
+        if not clients:
             return
 
-        record = NotificationDeliveryRecord(
-            notification_id=event.notification_id or f"{event.type}-{int(time.time() * 1000)}",
-            user_id=uid,
-            priority=event.priority,
-            status=DeliveryStatus.PENDING,
-            created_at=event.created_at or datetime.now().isoformat(),
-        )
+        stale_clients: list[WebSocket] = []
+        async with self._broadcast_lock:
+            for websocket, _subscription in clients:
+                try:
+                    await websocket.send_json(payload)
+                except Exception:
+                    stale_clients.append(websocket)
 
-        async with self._persistence_lock:
-            if record.notification_id in self._delivery_records:
-                self._delivery_records.pop(record.notification_id)
-            elif len(self._delivery_records) >= self._max_delivery_records:
-                self._delivery_records.popitem(last=False)
-            self._delivery_records[record.notification_id] = record
 
-    def _is_duplicate_notification(self, event: NotificationEvent) -> bool:
-        """Return whether the same notification content was recently published."""
-        now = time.time()
-        expired_hashes = [
-            h for h, seen_at in self._recent_hashes.items()
-            if now - seen_at > self._dedup_window
-        ]
-        for h in expired_hashes:
-            self._recent_hashes.pop(h, None)
+        stale_clients: list[WebSocket] = []
+        async with self._broadcast_lock:
+            async def send_to_client(ws: WebSocket) -> Optional[WebSocket]:
+                try:
+                    await asyncio.wait_for(ws.send_json(payload), timeout=2.0)
+                    return None
+                except Exception:
+                    return ws
 
-        content_hash = event.get_content_hash()
-        if content_hash in self._recent_hashes:
-            return True
+            results = await asyncio.gather(*(send_to_client(ws) for ws in clients), return_exceptions=True)
+            stale_clients = [res for res in results if isinstance(res, WebSocket)]
 
-        self._recent_hashes[content_hash] = now
-        return False
-    
-#    Add new public method:
-    def set_profile_fetcher(self, func: callable) -> None:
-        """Inject the Firestore profile-lookup callable.
- 
-        Called once during lifespan startup to avoid a circular import between
-        main.py and realtime_notifications.py.  The function signature must be:
-            (uid: str) -> dict
-        """
-        self._get_profile = func
- 
-#    Add private helper method:
-    def _get_profile_for_uid(self, uid: str) -> dict:
-        """Fetch the Firestore profile for *uid*, returning {} on any failure."""
-        if self._get_profile is None:
-            return {}
-        try:
-            return self._get_profile(uid) or {}
-        except Exception:
-            return {}
-
-    async def _route_to_priority_queue(self, event: NotificationEvent) -> None:
-        """Place events into their priority queue for reliability bookkeeping."""
-        if event.priority == NotificationPriority.CRITICAL:
-            self._critical_queue.append(event)
-        elif event.priority == NotificationPriority.WARNING:
-            self._warning_queue.append(event)
-        else:
-            self._info_queue.append(event)
-
-    async def _process_retry_queue(self) -> None:
-        try:
-            while True:
-                await asyncio.sleep(1)
-        except asyncio.CancelledError:
-            raise
-
-    async def _process_priority_queues(self) -> None:
-        try:
-            while True:
-                await asyncio.sleep(1)
-        except asyncio.CancelledError:
-            raise
+            if stale_clients:
+                logger.warning("Removing %d stale/slow WebSocket clients", len(stale_clients))
+                async with self._history_lock:
+                    for ws in stale_clients:
+                        self._connections.discard(ws)
 
     async def _redis_listener(self) -> None:
         try:
@@ -895,3 +689,6 @@ class NotificationBroadcastHub:
 
 
 notification_broker = NotificationBroadcastHub()
+
+main
+ main

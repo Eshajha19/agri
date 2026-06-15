@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import asyncio
 from collections import deque
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -76,7 +77,7 @@ class RBACAuditTrail:
             source_ip=event.source_ip,
         )
 
-        with self._lock:
+        async with self._lock:
             self._events.append(payload)
             try:
                 self.log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -88,12 +89,12 @@ class RBACAuditTrail:
         return payload
 
     def snapshot(self, limit: int = 100) -> list[dict[str, Any]]:
-        with self._lock:
+        async with self._lock:
             events = list(self._events)[-max(1, limit):]
         return [asdict(event) for event in events]
 
     def clear(self) -> None:
-        with self._lock:
+        async with self._lock:
             self._events.clear()
 
 

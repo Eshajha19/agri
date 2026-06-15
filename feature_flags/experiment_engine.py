@@ -27,6 +27,14 @@ EXP_COLLECTION = "experiments"
 ASSIGN_COLLECTION = "experiment_assignments"
 CACHE_TTL_SECONDS = 300
 
+CACHE_VERSION = 1
+
+ASSIGNMENT_AUDIT = {
+    "total_assignments": 0,
+    "cache_version_mismatches": 0,
+    "consistency_failures": 0,
+}
+
 
 _exp_cache: Dict[str, Dict] = {}
 _exp_cache_at: float = 0.0
@@ -67,6 +75,31 @@ def _create_audit(user_id: str, experiment_id: str, variant_id: str, salt: str) 
         "variant": variant_id,
         "salt": salt,
     }
+
+def _verify_assignment_consistency(
+    user_id: str,
+    experiment_id: str,
+    variant_id: str,
+    salt: str,
+) -> bool:
+    expected = _assign_variant(
+        user_id,
+        experiment_id,
+        salt,
+        _exp_cache.get(experiment_id, {}).get("variants", []),
+    )
+
+    return expected == variant_id
+
+
+def _validate_cache_version(
+    experiment: Dict,
+) -> bool:
+    return experiment.get(
+        "cache_version",
+        CACHE_VERSION,
+    ) == CACHE_VERSION
+
 
 
 # -------------------------
@@ -109,11 +142,116 @@ def get_experiment(exp_id: str) -> Optional[Dict]:
     with _exp_cache_lock:
         return _exp_cache.get(exp_id)
 
+from typing import Dict
+from copy import deepcopy
+import hashlib
+import re
+import time
+
+VALID_STATUSES = {
+    "draft",
+    "pending",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+}
+
+
+from typing import Dict
+from copy import deepcopy
+import hashlib
+import re
+import time
+
+VALID_STATUSES = {
+    "draft",
+    "pending",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+}
+
+
+from typing import Dict
+from copy import deepcopy
+import hashlib
+import re
+import time
+
+VALID_STATUSES = {
+    "draft",
+    "pending",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+}
+
+
+from typing import Dict
+from copy import deepcopy
+import hashlib
+import re
+import time
+
+VALID_STATUSES = {
+    "draft",
+    "pending",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+}
+
+
+from typing import Dict
+from copy import deepcopy
+import hashlib
+import re
+import time
+
+VALID_STATUSES = {
+    "draft",
+    "pending",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+}
+
 
 def create_experiment(data: Dict) -> Dict:
-    global _exp_cache, _exp_cache_at
+    """
+    Create a new experiment.
 
-    exp_id = data.get("id") or data.get("name", "").lower().replace(" ", "_")
+    Raises:
+        ValueError: If experiment already exists or input is invalid.
+    """
+    global _exp_cache_at
+
+    if not isinstance(data, dict):
+        raise TypeError("data must be a dictionary")
+
+    exp_data = deepcopy(data)
+
+    exp_id = exp_data.get("id")
+    if not exp_id:
+        name = exp_data.get("name", "").strip()
+        if not name:
+            raise ValueError("Either 'id' or 'name' must be provided")
+
+        exp_id = re.sub(r"[^a-z0-9_]", "_", name.lower())
+        exp_id = re.sub(r"_+", "_", exp_id).strip("_")
+
+    status = exp_data.get("status", "draft")
+    if status not in VALID_STATUSES:
+        raise ValueError(
+            f"Invalid status '{status}'. "
+            f"Allowed values: {sorted(VALID_STATUSES)}"
+        )
+
     now = _now_iso()
 
     with _exp_cache_lock:
@@ -130,25 +268,34 @@ def create_experiment(data: Dict) -> Dict:
 
         _exp_cache[exp_id] = exp
         _exp_cache_at = time.monotonic()
-        exp = {
-            **data,
-            "id": exp_id,
-            "created_at": now,
-            "updated_at": now,
-            "status": data.get("status", "draft"),
-        }
-
-        exp.setdefault(
-            "salt",
-            hashlib.sha256(exp_id.encode()).hexdigest()[:12]
-        )
 
         _exp_cache[exp_id] = exp
         _exp_cache_at = time.monotonic()
 
-    _persist(exp_id)
-    return exp
+        if existing and existing.get("status") != "draft":
+            raise ValueError(
+                f"Experiment '{exp_id}' already exists "
+                f"with status '{existing.get('status')}'"
+            )
 
+        _exp_cache[exp_id] = exp
+        _exp_cache_at = time.monotonic()
+
+    try:
+        _persist_experiment(exp_id)
+        logger.info("Created experiment: %s", exp_id)
+    except Exception:
+        # Optional rollback to keep cache and storage consistent
+        with _exp_cache_lock:
+            _exp_cache.pop(exp_id, None)
+
+        logger.exception(
+            "Failed to persist experiment '%s'",
+            exp_id,
+        )
+        raise
+
+    return deepcopy(exp)
 
 def set_traffic_split(exp_id: str, traffic_split: Dict[str, int]) -> Optional[Dict]:
     _ensure_cache()
@@ -245,6 +392,16 @@ def assign_user(user_id: str, experiment_id: str) -> Dict:
             "variant": "control",
             "reason": "not_running",
         }
+    
+    if not _validate_cache_version(exp):
+        ASSIGNMENT_AUDIT[
+            "cache_version_mismatches"
+        ] += 1
+
+        logger.warning(
+            "Cache version mismatch for experiment %s",
+            experiment_id,
+        )
 
     variant_id = _assign_variant(
         user_id,
@@ -252,6 +409,25 @@ def assign_user(user_id: str, experiment_id: str) -> Dict:
         exp.get("salt", "default"),
         exp.get("variants", []),
     )
+
+    is_consistent = _verify_assignment_consistency(
+        user_id,
+        experiment_id,
+        variant_id,
+        exp.get("salt", "default"),
+    )
+
+    if not is_consistent:
+        ASSIGNMENT_AUDIT[
+            "consistency_failures"
+        ] += 1
+
+        logger.warning(
+            "Assignment consistency verification failed "
+            "for user=%s experiment=%s",
+            user_id,
+            experiment_id,
+        )
 
     assignment = {
         "user_id": user_id,
@@ -265,6 +441,8 @@ def assign_user(user_id: str, experiment_id: str) -> Dict:
         "audit": _create_audit(
             user_id, experiment_id, variant_id, exp.get("salt")
         ),
+        "cache_version": CACHE_VERSION,
+        "consistency_verified": is_consistent,
     }
 
     if _FIRESTORE_AVAILABLE:
@@ -272,6 +450,8 @@ def assign_user(user_id: str, experiment_id: str) -> Dict:
             doc_id = f"{user_id}_{experiment_id}"
             doc_ref = _fs_client.collection(ASSIGN_COLLECTION).document(doc_id)
             existing = doc_ref.get()
+            current_salt = exp.get("salt")
+
             if not existing.exists or existing.to_dict().get("salt") != current_salt:
                 doc_ref.set(assignment)
         except Exception as e:
@@ -288,47 +468,63 @@ def assign_user(user_id: str, experiment_id: str) -> Dict:
     return assignment
 
 
+from typing import Optional, Dict
+import copy
+
+VALID_STATUSES = {
+    "pending",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+}
+
+
 def update_experiment_status(exp_id: str, status: str) -> Optional[Dict]:
-    _ensure_exp_cache()
+    """
+    Update experiment status in cache and Firestore.
+
+    Args:
+        exp_id: Experiment identifier.
+        status: New experiment status.
+
+    Returns:
+        Updated experiment dictionary or None if not found.
+    """
+    if status not in VALID_STATUSES:
+        raise ValueError(
+            f"Invalid status '{status}'. "
+            f"Allowed values: {', '.join(sorted(VALID_STATUSES))}"
+        )
+
+    _ensure_cache()
+
+    timestamp = _now_iso()
+
     with _exp_cache_lock:
-        if exp_id not in _exp_cache:
+        experiment = _exp_cache.get(exp_id)
+        if experiment is None:
+            logger.warning("Experiment not found: %s", exp_id)
             return None
-        _exp_cache[exp_id]["status"] = status
-        _exp_cache[exp_id]["updated_at"] = _now_iso()
+
+        experiment["status"] = status
+        experiment["updated_at"] = timestamp
+
+        updated_experiment = copy.deepcopy(experiment)
 
     if _FIRESTORE_AVAILABLE:
         try:
             _fs_client.collection(EXP_COLLECTION).document(exp_id).update(
-                {"status": status, "updated_at": _now_iso()}
+                {
+                    "status": status,
+                    "updated_at": timestamp,
+                }
+            )
+            logger.info(
+                "Updated experiment %s status to %s",
+                exp_id,
+                status,
             )
         except Exception as e:
             logger.error("Failed to update experiment status: %s", e)
     return _exp_cache[exp_id]
-# -------------------------
-# Persistence
-# -------------------------
-
-def _persist(exp_id: str) -> None:
-    if not _FIRESTORE_AVAILABLE:
-        return
-
-    try:
-        with _exp_cache_lock:
-            exp = _exp_cache.get(exp_id)
-
-        if exp:
-            _fs_client.collection(EXP_COLLECTION).document(exp_id).set(exp)
-
-    except Exception as e:
-        logger.error("Persist experiment failed: %s", e)
-
-
-def _persist_assignment(user_id: str, exp_id: str, data: Dict) -> None:
-    if not _FIRESTORE_AVAILABLE:
-        return
-
-    try:
-        doc_id = f"{user_id}_{exp_id}"
-        _fs_client.collection(ASSIGN_COLLECTION).document(doc_id).set(data)
-    except Exception as e:
-        logger.warning("Persist assignment failed: %s", e)

@@ -3,6 +3,9 @@
 Provides:
 - Origin / Referer header validation against a trusted-origin allowlist.
 - Stateless CSRF token generation and validation (HMAC-SHA256, TTL-bound).
+
+NOTE: This is the authoritative CSRF enforcement module. The legacy in-memory
+token store defined in `backend/security/csrf.py` is deprecated.
 """
 
 import hmac
