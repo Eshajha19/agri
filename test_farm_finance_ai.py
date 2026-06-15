@@ -141,3 +141,29 @@ def test_emi_helpers_handle_overflowing_growth_factor():
 
     assert emi == 250000 * (7.5 / 12 / 100)
     assert principal == 5000 / (7.5 / 12 / 100)
+
+
+def test_application_created_at_is_utc_aware():
+    from datetime import datetime
+    engine = FarmFinanceAI()
+    application = engine.create_application(
+        {
+            "farmer_name": "Meera",
+            "crop_type": "rice",
+            "acreage": 8,
+            "annual_revenue": 1200000,
+            "annual_operating_cost": 700000,
+            "existing_debt": 90000,
+            "emergency_fund": 200000,
+            "credit_score": 770,
+            "requested_loan_amount": 320000,
+            "loan_tenure_months": 36,
+        },
+        owner_uid="test-user",
+    )
+    
+    created_at_str = application["created_at"]
+    assert created_at_str.endswith("+00:00") or created_at_str.endswith("Z")
+    
+    dt = datetime.fromisoformat(created_at_str)
+    assert dt.tzinfo is not None

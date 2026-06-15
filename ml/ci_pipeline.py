@@ -52,3 +52,20 @@ def sign_file_hmac(path: str, key: str) -> str:
 
 def verify_file_hmac(path: str, sig_hex: str, key: str) -> bool:
     return hmac.compare_digest(sign_file_hmac(path, key), sig_hex)
+
+from datetime import datetime
+
+def generate_integrity_checkpoint(path: str, key: str) -> dict:
+    return {
+        "artifact": path,
+        "signature": sign_file_hmac(path, key),
+        "created_at": datetime.utcnow().isoformat(),
+    }
+
+
+def verify_integrity_checkpoint(path: str, checkpoint: dict, key: str) -> bool:
+    return verify_file_hmac(
+        path,
+        checkpoint["signature"],
+        key,
+    )

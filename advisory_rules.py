@@ -1,19 +1,14 @@
-from datetime import datetime, timezone
+import re
+from datetime import datetime
 from typing import Any, Optional
 import logging
 
 logger = logging.getLogger(__name__)
 
+from backend.core.constants import CROP_THRESHOLDS
+
 LOW_LEVELS = {"verylow", "very low", "low", "deficient"}
 HIGH_LEVELS = {"veryhigh", "very high", "high", "excess"}
-
-CROP_THRESHOLDS = {
-    "rice": {"temp_ideal": (20, 30), "moisture_min": 50, "ph_range": (6.0, 7.5)},
-    "paddy": {"temp_ideal": (20, 30), "moisture_min": 50, "ph_range": (6.0, 7.5)},
-    "wheat": {"temp_ideal": (10, 25), "moisture_min": 30, "ph_range": (6.5, 7.5)},
-    "cotton": {"temp_ideal": (21, 27), "moisture_min": 35, "ph_range": (6.0, 7.5)},
-    "maize": {"temp_ideal": (18, 26), "moisture_min": 40, "ph_range": (6.0, 7.0)},
-}
 
 NUTRIENT_THRESHOLDS = {
     "nitrogen": {"low": 140, "high": 360},
@@ -26,11 +21,21 @@ def _as_number(value: Any) -> Optional[float]:
     """Convert value to float, handling None and non-numeric types safely."""
     if isinstance(value, bool) or value is None:
         return None
+    if isinstance(value, str):
+        value = value.strip()
     try:
         number = float(value)
         return number if number == number else None
     except (TypeError, ValueError):
-        return None
+        match = re.match(r"[-+]?\d*\.?\d+", str(value).strip())
+        if match:
+            try:
+                number = float(match.group())
+            except (TypeError, ValueError):
+                return None
+        else:
+            return None
+    return number if number == number else None
 
 
 def _as_level(value: Any, low_below: float, high_above: float) -> str:
