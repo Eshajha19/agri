@@ -1,6 +1,7 @@
 import React, { useState, useRef } from "react";
 import "./CropQualityGrading.css";
 import Loader from "./Loader";
+import { Wheat, Camera, Search, BarChart2, Lightbulb, Image as ImageIcon } from "lucide-react";
 
 const CropQualityGrading = () => {
   const [cropType, setCropType] = useState("tomato");
@@ -184,7 +185,7 @@ const CropQualityGrading = () => {
   return (
     <div className="crop-quality-grading">
       <div className="quality-header">
-        <h1>🌾 Advanced Crop Quality Grading System</h1>
+        <h1><Wheat size={28} aria-hidden="true" /> Advanced Crop Quality Grading System</h1>
         <p>Automatic quality assessment using computer vision and AI</p>
       </div>
 
@@ -239,7 +240,7 @@ const CropQualityGrading = () => {
               className="upload-btn"
               onClick={() => fileInputRef.current.click()}
             >
-              📷 Choose Image{batchMode ? "s" : ""}
+              <Camera size={16} aria-hidden="true" /> Choose Image{batchMode ? "s" : ""}
             </button>
             {images.length > 0 && (
               <p className="selected-files">{images.length} file(s) selected</p>
@@ -249,15 +250,15 @@ const CropQualityGrading = () => {
           <div className="action-buttons">
             {batchMode ? (
               <button className="assess-btn" onClick={assessBatchCrops}>
-                🔍 Assess Batch
+                <Search size={16} aria-hidden="true" /> Assess Batch
               </button>
             ) : (
               <button className="assess-btn" onClick={assessSingleCrop}>
-                🔍 Assess Quality
+                <Search size={16} aria-hidden="true" /> Assess Quality
               </button>
             )}
             <button className="trend-btn" onClick={fetchQualityTrends}>
-              📊 View Trends
+              <BarChart2 size={16} aria-hidden="true" /> View Trends
             </button>
           </div>
         </div>
@@ -372,7 +373,7 @@ const CropQualityGrading = () => {
                         <h3>Quality Improvement Recommendations</h3>
                         <ul>
                           {assessment.recommendations.map((rec, i) => (
-                            <li key={i}>💡 {rec}</li>
+                            <li key={i}><Lightbulb size={14} aria-hidden="true" /> {rec}</li>
                           ))}
                         </ul>
                       </div>
@@ -438,7 +439,8 @@ const CropQualityGrading = () => {
 
           {assessments.length === 0 && !trends && (
             <div className="empty-state">
-              <p>📸 Upload images to start crop quality assessment</p>
+              <p><ImageIcon size={48} aria-hidden="true" /></p>
+              <p>Upload images to start crop quality assessment</p>
               <p className="empty-desc">
                 Get instant grading, market price adjustments, and quality
                 improvement recommendations
