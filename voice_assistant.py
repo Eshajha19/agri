@@ -420,7 +420,7 @@ class VoiceSession:
     last_query: Optional[str] = None
     context: Dict[str, Any] = field(default_factory=dict)
     offline_mode: bool = False
-    last_activity: str = ""
+    lock: threading.Lock = field(default_factory=threading.Lock)
 
 
 # ============================================================================
@@ -649,25 +649,11 @@ class VoiceAssistant:
             },
         )
         
-        # Update session context
-        with self._session_lock:
-            session.last_query = validated_transcript
-
-            if context:
-                session.context.update(context)
-
-            session.conversation_history.append({
-                "query": validated_transcript,
-                "intent": intent,
-                "timestamp": datetime.now().isoformat()
-            })
-
-            if len(session.conversation_history) > self.MAX_HISTORY_SIZE:
-                session.conversation_history.pop(0)
-
-            session.last_activity = datetime.now().isoformat()
-            self.cache_manager.save_session(session)
-
+        # Update session context — per-session lock avoids blocking other sessions
+        with session.lock:
+            session.last_query = voice_input.transcript
+            session.context = context or {}
+        
         return response
     
     def _transcribe_offline(self, voice_input: VoiceInput) -> str:
@@ -765,8 +751,8 @@ class VoiceAssistant:
             if session_id not in self.sessions:
                 raise ValueError(f"Session expired: {session_id}")
             session = self.sessions[session_id]
-            session.last_activity = datetime.now().isoformat()
-        return {
+        with session.lock:
+            return {
             "session_id": session_id,
             "user_id": session.user_id,
             "language": session.language_code,
