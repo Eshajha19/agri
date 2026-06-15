@@ -82,6 +82,18 @@ class Arm:
         # Sample from Beta distribution
         return np.random.beta(alpha, beta)
     
+    def confidence_interval(self, confidence_level: float = 0.95) -> Tuple[float, float]:
+        """Wald confidence interval for the success-rate estimate."""
+        n = self.total_trials
+        if n == 0:
+            return (0.0, 0.0)
+        p = self.successes / n
+        z = 1.96  # z-score for 95 % (two-tailed)
+        se = math.sqrt(p * (1.0 - p) / n)
+        lo = max(0.0, p - z * se)
+        hi = min(1.0, p + z * se)
+        return (lo, hi)
+    
     def to_dict(self) -> Dict:
         """Convert to dictionary"""
         return {
@@ -182,12 +194,16 @@ class ABTest:
         if total_trials < self.min_samples:
             return None
         
-        control_mean = self.control_arm.successes / max(self.control_arm.total_trials, 1)
-        variant_mean = self.variant_arm.successes / max(self.variant_arm.total_trials, 1)
+        # Use confidence intervals to avoid declaring a winner when the
+        # observed difference could be explained by random variation.
+        c_lo, c_hi = self.control_arm.confidence_interval()
+        v_lo, v_hi = self.variant_arm.confidence_interval()
         
-        # Simple confidence check
-        if abs(control_mean - variant_mean) > (1 - self.confidence_threshold):
-            return self.variant_arm if variant_mean > control_mean else self.control_arm
+        # Non-overlapping credible intervals → statistically significant
+        if c_hi < v_lo:
+            return self.variant_arm
+        if v_hi < c_lo:
+            return self.control_arm
         
         return None
     
