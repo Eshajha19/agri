@@ -144,6 +144,7 @@ class VoiceSession:
     last_query: Optional[str] = None
     context: Dict[str, Any] = field(default_factory=dict)
     offline_mode: bool = False
+    lock: threading.Lock = field(default_factory=threading.Lock)
 
 
 # ============================================================================
@@ -311,8 +312,8 @@ class VoiceAssistant:
             },
         )
         
-        # Update session context
-        with self._session_lock:
+        # Update session context — per-session lock avoids blocking other sessions
+        with session.lock:
             session.last_query = voice_input.transcript
             session.context = context or {}
         
@@ -397,7 +398,8 @@ class VoiceAssistant:
             if session_id not in self.sessions:
                 raise ValueError(f"Invalid session: {session_id}")
             session = self.sessions[session_id]
-        return {
+        with session.lock:
+            return {
             "session_id": session_id,
             "user_id": session.user_id,
             "language": session.language_code,
