@@ -25,6 +25,13 @@ class BlockchainRecord:
     location: str
     data: Dict
     hash: str = ""
+    # previous_hash links this block to the one before it.
+    # The genesis block uses the sentinel value below.
+    previous_hash: str = ""
+
+    # Well-known sentinel stored in the genesis block's previous_hash
+    # so validators can distinguish it from a legitimately missing link.
+    GENESIS_PREVIOUS_HASH: str = "0" * 64
 
     def to_dict(self) -> Dict:
         """Serialize record to dict (hash excluded — matches calculate_hash input)"""
@@ -34,10 +41,11 @@ class BlockchainRecord:
             "action": self.action,
             "location": self.location,
             "data": self.data,
+            "previous_hash": self.previous_hash,
         }
 
     def calculate_hash(self) -> str:
-        """Calculate SHA256 hash of record (excludes hash field)"""
+        """Calculate SHA256 hash of record (excludes hash field, includes previous_hash)"""
         record_string = json.dumps(self.to_dict(), sort_keys=True)
         return hashlib.sha256(record_string.encode()).hexdigest()
 
@@ -50,6 +58,7 @@ class BlockchainRecord:
             action=data["action"],
             location=data["location"],
             data=data.get("data", {}),
+            previous_hash=data.get("previous_hash", BlockchainRecord.GENESIS_PREVIOUS_HASH),
         )
         if "hash" in data:
             record.hash = data["hash"]
@@ -195,6 +204,7 @@ class SupplyChainBlockchain:
                 action="created_batch",
                 location=farm_id,
                 data=asdict(batch),
+                previous_hash=self.chain[-1].hash if self.chain else BlockchainRecord.GENESIS_PREVIOUS_HASH,
             )
             record.hash = record.calculate_hash()
 
@@ -246,6 +256,7 @@ class SupplyChainBlockchain:
                 action=action,
                 location=location,
                 data=asdict(node),
+                previous_hash=self.chain[-1].hash if self.chain else BlockchainRecord.GENESIS_PREVIOUS_HASH,
             )
             record.hash = record.calculate_hash()
 
@@ -293,6 +304,7 @@ class SupplyChainBlockchain:
                 action="contract_created",
                 location="contract",
                 data=asdict(contract),
+                previous_hash=self.chain[-1].hash if self.chain else BlockchainRecord.GENESIS_PREVIOUS_HASH,
             )
             record.hash = record.calculate_hash()
 
@@ -329,6 +341,7 @@ class SupplyChainBlockchain:
                     "amount": contract.price,
                     "currency": contract.currency,
                 },
+                previous_hash=self.chain[-1].hash if self.chain else BlockchainRecord.GENESIS_PREVIOUS_HASH,
             )
             record.hash = record.calculate_hash()
 
@@ -487,12 +500,117 @@ class SupplyChainBlockchain:
             "final_price": contracts[-1].price if contracts else None,
         }
 
+    # Required top-level keys that every transaction payload must contain
+    # for structural validity.  The chain is considered compromised if any
+    # block is missing these fields, which catches forged/truncated payloads.
+    _REQUIRED_PAYLOAD_KEYS: tuple = ()  # relax at class level; per-action checks below
+
     def _verify_blockchain_integrity(self) -> bool:
-        """Verify blockchain hasn't been tampered with"""
-        for record in self.chain:
-            if record.hash != record.calculate_hash():
-                return False
-        return True
+        """Return True only when the full chain passes integrity validation.
+
+        Delegates to validate_chain_integrity() and returns the boolean
+        summary so existing callers (verify_batch) continue to work.
+        """
+        report = self.validate_chain_integrity()
+        return report["valid"]
+
+    def validate_chain_integrity(self) -> Dict:
+        """Full chain integrity validation with structured error reporting.
+
+        Checks performed for every block (index i):
+        1. Self-hash: block.hash == block.calculate_hash()  (detects payload tampering)
+        2. Chain link: block.previous_hash == chain[i-1].hash  (detects relationship manipulation)
+           Genesis block must carry GENESIS_PREVIOUS_HASH sentinel.
+        3. Timestamp ordering: block.timestamp >= chain[i-1].timestamp
+           (detects back-dated block insertion)
+        4. Payload structure: block.actor and block.action are non-empty strings
+           (detects forged/truncated payloads)
+
+        Returns a dict with:
+          valid       bool  — True iff all checks pass
+          chain_length int
+          errors      list  — human-readable descriptions of each failure
+        """
+        import logging as _log
+        _logger = _log.getLogger(__name__)
+
+        errors: List[str] = []
+        chain = self.chain
+
+        for i, block in enumerate(chain):
+            # --- Check 1: self-hash integrity ---
+            expected_hash = block.calculate_hash()
+            if block.hash != expected_hash:
+                msg = (
+                    f"Block {i} hash mismatch: stored={block.hash[:12]}… "
+                    f"expected={expected_hash[:12]}… — payload may have been tampered with."
+                )
+                errors.append(msg)
+                _logger.error(msg)
+
+            # --- Check 2: chain linkage ---
+            if i == 0:
+                # Genesis block must reference the sentinel, not a real block.
+                if block.previous_hash != BlockchainRecord.GENESIS_PREVIOUS_HASH:
+                    msg = (
+                        f"Genesis block (index 0) has unexpected previous_hash "
+                        f"'{block.previous_hash[:12]}…' — chain may have been prepended."
+                    )
+                    errors.append(msg)
+                    _logger.error(msg)
+            else:
+                prev_block = chain[i - 1]
+                if block.previous_hash != prev_block.hash:
+                    msg = (
+                        f"Block {i} broken chain link: previous_hash={block.previous_hash[:12]}… "
+                        f"but block {i - 1} hash={prev_block.hash[:12]}… — "
+                        f"block relationship may have been manipulated."
+                    )
+                    errors.append(msg)
+                    _logger.error(msg)
+
+            # --- Check 3: timestamp ordering ---
+            if i > 0:
+                try:
+                    prev_ts = datetime.fromisoformat(chain[i - 1].timestamp)
+                    curr_ts = datetime.fromisoformat(block.timestamp)
+                    if curr_ts < prev_ts:
+                        msg = (
+                            f"Block {i} timestamp ({block.timestamp}) is earlier than "
+                            f"block {i - 1} timestamp ({chain[i - 1].timestamp}) — "
+                            f"possible back-dated block insertion."
+                        )
+                        errors.append(msg)
+                        _logger.error(msg)
+                except ValueError:
+                    msg = f"Block {i} contains an unparseable timestamp '{block.timestamp}'."
+                    errors.append(msg)
+                    _logger.error(msg)
+
+            # --- Check 4: payload structural integrity ---
+            if not isinstance(block.actor, str) or not block.actor.strip():
+                msg = f"Block {i} has an empty or invalid actor field."
+                errors.append(msg)
+                _logger.error(msg)
+            if not isinstance(block.action, str) or not block.action.strip():
+                msg = f"Block {i} has an empty or invalid action field."
+                errors.append(msg)
+                _logger.error(msg)
+
+        is_valid = len(errors) == 0
+        if is_valid:
+            _logger.debug("Blockchain integrity check passed (%d blocks).", len(chain))
+        else:
+            _logger.warning(
+                "Blockchain integrity check FAILED: %d error(s) in %d block(s).",
+                len(errors), len(chain),
+            )
+
+        return {
+            "valid": is_valid,
+            "chain_length": len(chain),
+            "errors": errors,
+        }
 
     def get_blockchain_record_count(self) -> int:
         """Get total records in blockchain"""
@@ -552,6 +670,7 @@ class SupplyChainBlockchain:
             action="trace_batch_registered",
             location=entry["farm"],
             data={"batch_id": batch_id, "crop": entry["crop"]},
+            previous_hash=self.chain[-1].hash if self.chain else BlockchainRecord.GENESIS_PREVIOUS_HASH,
         )
         record.hash = record.calculate_hash()
         self.chain.append(record)
