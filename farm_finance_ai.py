@@ -59,6 +59,13 @@ class FinanceApplication:
             self.owner_uid = None
 
 
+# Loan tenure bounds enforced by the engine (months).
+# These constants are the single source of truth; the Pydantic schema in
+# finance.py uses the same bounds so that both layers stay in sync.
+MIN_TENURE_MONTHS: int = 6
+MAX_TENURE_MONTHS: int = 360  # 30 years
+
+
 class FarmFinanceAI:
     """Deterministic finance-planning engine for farm loan recommendations."""
 
@@ -461,7 +468,9 @@ class FarmFinanceAI:
             "emergency_fund": to_float(payload.get("emergency_fund"), 0.0),
             "credit_score": max(300, min(900, to_int(payload.get("credit_score"), 650))),
             "requested_loan_amount": to_float(payload.get("requested_loan_amount"), 0.0),
-            "loan_tenure_months": min(120, max(6, to_int(payload.get("loan_tenure_months"), 36))),
+            "loan_tenure_months": self._validate_tenure(
+                to_int(payload.get("loan_tenure_months"), 36)
+            ),
         }
 
     def _crop_risk_factor(self, crop_type: str) -> float:
@@ -575,6 +584,35 @@ class FarmFinanceAI:
         revenue_cap = annual_revenue * 0.75 if annual_revenue else candidate
         cap = affordable_principal if affordable_principal > 0 else candidate
         return max(0.0, round(min(candidate, cap, revenue_cap), 2))
+
+    # ------------------------------------------------------------------
+    # Internal validation helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _validate_tenure(tenure_months: int) -> int:
+        """Validate that the requested loan tenure falls within accepted bounds.
+
+        Raises
+        ------
+        ValueError
+            If *tenure_months* is below MIN_TENURE_MONTHS or above
+            MAX_TENURE_MONTHS.  The message is intentionally user-readable so
+            that the router can surface it verbatim as an HTTP 422 detail.
+        """
+        if tenure_months < MIN_TENURE_MONTHS:
+            raise ValueError(
+                f"Loan tenure of {tenure_months} month(s) is below the minimum "
+                f"allowed value of {MIN_TENURE_MONTHS} months. "
+                f"Please request a tenure of at least {MIN_TENURE_MONTHS} months."
+            )
+        if tenure_months > MAX_TENURE_MONTHS:
+            raise ValueError(
+                f"Loan tenure of {tenure_months} months exceeds the maximum "
+                f"allowed value of {MAX_TENURE_MONTHS} months ({MAX_TENURE_MONTHS // 12} years). "
+                f"Please choose a shorter repayment period."
+            )
+        return tenure_months
 
     def _principal_from_emi(self, monthly_emi: float, annual_interest_rate: float, tenure_months: int) -> float:
         monthly_rate = annual_interest_rate / 12 / 100
