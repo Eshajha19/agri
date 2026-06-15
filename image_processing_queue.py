@@ -111,12 +111,13 @@ class ImageProcessingQueue:
         with self._queue_lock:
             if len(self._task_queue) >= self.max_queue_size:
                 raise RuntimeError(f"Queue is full (max: {self.max_queue_size})")
-            self._task_queue.append(task)
             heapq.heappush(self._task_queue, (task.priority.value, self._counter, task))
             self._counter += 1
+
+        with self._task_lock:
             self._tasks_by_id[task.task_id] = task
-            self._total_enqueued += 1
-            
+        self._total_enqueued += 1
+
         logger.info(f"Task {task.task_id} enqueued (priority: {task.priority.name}, queue_size: {len(self._task_queue)})")
         return task.task_id
 
@@ -128,13 +129,13 @@ class ImageProcessingQueue:
 
             _, _, task = heapq.heappop(self._task_queue)
 
-            # Update task status
+        with self._task_lock:
             task.status = TaskStatus.PROCESSING
             task.started_at = datetime.now().isoformat()
             task.worker_id = worker_id
 
-            logger.info(f"Task {task.task_id} assigned to worker {worker_id}")
-            return task
+        logger.info(f"Task {task.task_id} assigned to worker {worker_id}")
+        return task
 
     def complete_task(self, task_id: str, result: Dict) -> bool:
         """Mark task as completed with result"""
@@ -168,12 +169,7 @@ class ImageProcessingQueue:
             
             if retry and task.retry_count < task.max_retries:
                 task.status = TaskStatus.RETRYING
-                # Re-enqueue for retry
-                with self._queue_lock:
-                    heapq.heappush(self._task_queue, (task.priority.value, self._counter, task))
-                    self._counter += 1
-                logger.info(f"Task {task_id} requeued for retry ({task.retry_count}/{task.max_retries})")
-                return True
+                task_to_retry = task
             else:
                 task.status = TaskStatus.FAILED
                 task.error = error
@@ -186,6 +182,14 @@ class ImageProcessingQueue:
                 
                 logger.error(f"Task {task_id} failed after {task.retry_count} retries: {error}")
                 return False
+
+        # Re-enqueue for retry — release _task_lock first to avoid
+        # lock-order inversion with other callers that hold _queue_lock.
+        with self._queue_lock:
+            heapq.heappush(self._task_queue, (task_to_retry.priority.value, self._counter, task_to_retry))
+            self._counter += 1
+        logger.info(f"Task {task_id} requeued for retry ({task.retry_count}/{task.max_retries})")
+        return True
 
     def get_task_status(self, task_id: str) -> Optional[Dict]:
         """Get status of a task"""
@@ -219,22 +223,24 @@ class ImageProcessingQueue:
 
     def cancel_task(self, task_id: str) -> bool:
         """Cancel a queued or processing task"""
-        with self._queue_lock:
+        with self._task_lock:
             if task_id not in self._tasks_by_id:
                 return False
 
             task = self._tasks_by_id[task_id]
-            if task.status in (TaskStatus.QUEUED, TaskStatus.RETRYING):
-                task.status = TaskStatus.CANCELLED
-                self._task_queue = deque(
-                    t for t in self._task_queue if t.task_id != task_id
-                )
-                del self._tasks_by_id[task_id]
-                self._completed_tasks[task_id] = task
-                logger.info(f"Task {task_id} cancelled")
-                return True
+            if task.status not in (TaskStatus.QUEUED, TaskStatus.RETRYING):
+                return False
 
-            return False
+            task.status = TaskStatus.CANCELLED
+            del self._tasks_by_id[task_id]
+            self._completed_tasks[task_id] = task
+
+        with self._queue_lock:
+            self._task_queue = [
+                entry for entry in self._task_queue if entry[2].task_id != task_id
+            ]
+        logger.info(f"Task {task_id} cancelled")
+        return True
 
     def register_worker(self, worker_id: str) -> WorkerStats:
         """Register a worker"""
