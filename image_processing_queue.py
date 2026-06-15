@@ -309,8 +309,25 @@ class ImageProcessingQueue:
                 return True
             return False
 
-            del self._tasks_by_id[task_id]
-            self._completed_tasks[task_id] = task
+    def update_worker_stats(self, worker_id: str, processing_time: float, success: bool):
+        """Update worker statistics"""
+        with self._worker_lock:
+            if worker_id not in self._workers:
+                return
+            
+            worker = self._workers[worker_id]
+            if success:
+                worker.tasks_processed += 1
+            else:
+                worker.tasks_failed += 1
+            
+            # Update average processing time (exponential moving average)
+            if worker.avg_processing_time == 0:
+                worker.avg_processing_time = processing_time
+            else:
+                worker.avg_processing_time = (worker.avg_processing_time * 0.7) + (processing_time * 0.3)
+            
+            worker.last_heartbeat = datetime.now().isoformat()
 
         with self._queue_lock:
             self._task_queue = [
