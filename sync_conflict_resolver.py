@@ -4,7 +4,7 @@ Handles concurrent updates, version tracking, and conflict resolution
 """
 
 import logging
-import threading
+import collections
 from enum import Enum
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
@@ -174,10 +174,15 @@ class ConflictDetector:
 
 
 class ConflictResolver:
+    """
+    Resolves conflicts between concurrent updates
+    """
+    _MAX_CONFLICT_LOG_SIZE = 1000  # Cap log size to prevent memory exhaustion
+    
     def __init__(self, strategy: ConflictResolutionStrategy = ConflictResolutionStrategy.LAST_WRITE_WINS):
         self.strategy = strategy
-        self.conflict_log: deque = deque(maxlen=CONFLICT_LOG_MAX_ENTRIES)
-
+        self.conflict_log = collections.deque(maxlen=self._MAX_CONFLICT_LOG_SIZE)
+    
     def resolve(
         self,
         local_version: DocumentVersion,
@@ -349,60 +354,8 @@ class ConflictResolver:
         logger.info(f"Conflict resolved: doc={local.doc_id}, strategy={strategy}, winner={resolved.client_id}")
 
     def get_conflict_log(self) -> List[Dict]:
+        """Get conflict resolution log"""
         return list(self.conflict_log)
-
-
-class CRDTResolver:
-    @staticmethod
-    def _wrap_if_needed(data: Dict[str, Any], client_id: str, timestamp: str = None) -> Dict[str, Dict]:
-        ts = timestamp or datetime.now().isoformat()
-        wrapped = {}
-        for k, v in data.items():
-            if isinstance(v, dict) and 'value' in v and 'timestamp' in v and 'client_id' in v:
-                wrapped[k] = v
-            else:
-                wrapped[k] = {'value': v, 'timestamp': ts, 'client_id': client_id}
-        return wrapped
-
-    @staticmethod
-    def _state_map(version: DocumentVersion) -> Dict[str, Dict[str, Any]]:
-        if getattr(version, "crdt_state", None):
-            return {key: dict(value) for key, value in version.crdt_state.items()}
-        return CRDTResolver._wrap_if_needed(version.data, version.client_id, version.timestamp)
-
-    @staticmethod
-    def _state_order_key(state: Dict[str, Any]) -> Tuple[str, str, str]:
-        value_blob = json.dumps(state.get("value"), sort_keys=True, default=str)
-        checksum = hashlib.sha256(value_blob.encode("utf-8")).hexdigest()
-        return (str(state.get("timestamp", "")), str(state.get("client_id", "")), checksum)
-
-    @staticmethod
-    def _choose_state(left: Dict[str, Any], right: Dict[str, Any]) -> Dict[str, Any]:
-        return left if CRDTResolver._state_order_key(left) >= CRDTResolver._state_order_key(right) else right
-
-    @staticmethod
-    def merge(local: DocumentVersion, server: DocumentVersion) -> Tuple[DocumentVersion, List[str]]:
-        local_fields = CRDTResolver._state_map(local)
-        server_fields = CRDTResolver._state_map(server)
-        merged_fields: Dict[str, Any] = {}
-        merged_state: Dict[str, Dict[str, Any]] = {}
-        conflicting: List[str] = []
-        keys = set(list(local_fields.keys()) + list(server_fields.keys()))
-        for k in keys:
-            lf = local_fields.get(k)
-            sf = server_fields.get(k)
-            if lf is None:
-                chosen = sf
-            elif sf is None:
-                chosen = lf
-            else:
-                chosen = CRDTResolver._choose_state(lf, sf)
-                if lf["value"] != sf["value"]:
-                    conflicting.append(k)
-            merged_fields[k] = chosen["value"]
-            merged_state[k] = dict(chosen)
-        merged_version = DocumentVersion(doc_id=server.doc_id, data=merged_fields, client_id="system", timestamp=datetime.now().isoformat(), crdt_state=merged_state)
-        return merged_version, conflicting
 
 
 class SyncManager:

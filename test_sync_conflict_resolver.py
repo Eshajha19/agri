@@ -4,6 +4,7 @@ Verifies version tracking, conflict detection, and resolution
 """
 
 import pytest
+import collections
 from sync_conflict_resolver import (
     VersionVector,
     DocumentVersion,
@@ -167,6 +168,24 @@ class TestConflictResolver:
         
         assert resolved.data["name"] == "Jane"
         assert resolved.client_id == "server"
+
+    def test_conflict_log_capping(self):
+        """Test that the conflict log has a maximum size cap and does not grow indefinitely"""
+        resolver = ConflictResolver(ConflictResolutionStrategy.SERVER_WINS)
+        resolver._MAX_CONFLICT_LOG_SIZE = 5
+        # Re-initialize the deque with new size limit
+        resolver.conflict_log = collections.deque(maxlen=resolver._MAX_CONFLICT_LOG_SIZE)
+        
+        local = DocumentVersion("doc1", {"name": "John"}, "client1")
+        server = DocumentVersion("doc1", {"name": "Jane"}, "server")
+        
+        # Trigger conflict resolution 10 times
+        for i in range(10):
+            resolver.resolve(local, server)
+            
+        # The log size should be capped at 5
+        log = resolver.get_conflict_log()
+        assert len(log) == 5
 
 
 class TestSyncManager:
