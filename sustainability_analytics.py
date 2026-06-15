@@ -127,10 +127,18 @@ class SustainabilityAnalytics:
 
     def _save_local_history(self, history: Dict[str, List[Dict[str, Any]]]) -> None:
         import json
+        import os
+        import tempfile
         path = self._get_local_file_path()
         try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(history, f, indent=2, ensure_ascii=False)
+            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(history, f, indent=2, ensure_ascii=False)
+            except Exception:
+                os.unlink(tmp)
+                raise
+            os.replace(tmp, path)
         except Exception:
             pass
 
