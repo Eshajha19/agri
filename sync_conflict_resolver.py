@@ -273,6 +273,12 @@ class ConflictResolver:
         server_version: DocumentVersion,
         base_version: DocumentVersion = None
     ) -> Tuple[DocumentVersion, List[str]]:
+        """
+        Three-way merge: combines non-conflicting changes.
+        Uses base version to determine what changed.
+        Ensures deleted fields (set to None or missing) are completely removed
+        from the merged document instead of being retained with a null value.
+        """
         base_data = (base_version or DocumentVersion("", {}, "system")).data
         merged_data = base_data.copy()
         conflicting_fields = []
@@ -285,14 +291,34 @@ class ConflictResolver:
             server_changed = server_val != base_val
             if local_changed and server_changed:
                 if local_val == server_val:
-                    merged_data[key] = local_val
+                    # Same value, use it (could be None/deleted)
+                    if local_val is not None:
+                        merged_data[key] = local_val
+                    elif key in merged_data:
+                        del merged_data[key]
                 else:
-                    merged_data[key] = server_val
+                    # Conflicting change, use server version (could be None/deleted)
+                    if server_val is not None:
+                        merged_data[key] = server_val
+                    elif key in merged_data:
+                        del merged_data[key]
                     conflicting_fields.append(key)
             elif local_changed:
-                merged_data[key] = local_val
+                # Only local changed
+                if local_val is not None:
+                    merged_data[key] = local_val
+                elif key in merged_data:
+                    del merged_data[key]
             elif server_changed:
-                merged_data[key] = server_val
+                # Only server changed
+                if server_val is not None:
+                    merged_data[key] = server_val
+                elif key in merged_data:
+                    del merged_data[key]
+            else:
+                # Neither changed
+                if base_val is None and key in merged_data:
+                    del merged_data[key]
         
         # Create merged version with combined causal history
         merged_vector = VersionVector(local_version.version_vector.vector.copy())
@@ -427,18 +453,18 @@ class SyncManager:
         }
 
 
-# Global sync manager instance
+# Global sync manager instance and lock
 _sync_manager: Optional[SyncManager] = None
 _sync_manager_lock = threading.Lock()
 
 
 def get_sync_manager() -> SyncManager:
-    """Get or create global sync manager (thread-safe singleton)"""
+    """Get or create global sync manager (thread-safe)"""
     global _sync_manager
 
     if _sync_manager is None:
         with _sync_manager_lock:
             if _sync_manager is None:
                 _sync_manager = SyncManager()
-
+    
     return _sync_manager
