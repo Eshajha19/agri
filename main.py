@@ -3931,24 +3931,44 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 #   2. FRONTEND_URL env var — set this to the production deployment URL.
 #   3. ADDITIONAL_ALLOWED_ORIGINS env var — comma-separated list for staging
 #      or preview deployments (e.g. Vercel preview URLs).
+#
+# IMPORTANT: Browser Origin headers never contain a trailing slash
+# (per RFC 6454 §6.1). All origins are normalised with rstrip("/") so
+# that a misconfigured env var or hard-coded string cannot silently break
+# CORS validation for legitimate requests.
 # ---------------------------------------------------------------------------
+
+def _normalise_origin(origin: str) -> str:
+    """Strip trailing slashes from a CORS origin string.
+
+    Browsers send ``Origin: https://example.com`` (no trailing slash).
+    A configured value of ``https://example.com/`` would never match,
+    silently blocking all credentialed requests from that origin.
+    """
+    return origin.rstrip("/")
+
+
 _CORS_ORIGINS: list[str] = [
-    "http://localhost:5173",
-    "http://127.0.0.1:3000",
-    "https://fasal-saathi.vercel.app",
-    "https://fasal-saathi.xyz"
+    _normalise_origin(o) for o in [
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "https://fasal-saathi.vercel.app",
+        "https://fasal-saathi.xyz",   # trailing slash removed
+    ]
 ]
 
-_frontend_url = os.getenv("FRONTEND_URL", "").strip()
+_frontend_url = _normalise_origin(os.getenv("FRONTEND_URL", "").strip())
 if _frontend_url and _frontend_url not in _CORS_ORIGINS:
     _CORS_ORIGINS.append(_frontend_url)
 
 _extra_origins = os.getenv("ADDITIONAL_ALLOWED_ORIGINS", "").strip()
 if _extra_origins:
     for _origin in _extra_origins.split(","):
-        _origin = _origin.strip()
+        _origin = _normalise_origin(_origin.strip())
         if _origin and _origin not in _CORS_ORIGINS:
             _CORS_ORIGINS.append(_origin)
+
+logger.info("CORS allowlist (%d origins): %s", len(_CORS_ORIGINS), _CORS_ORIGINS)
 
 app.add_middleware(
     CORSMiddleware,
