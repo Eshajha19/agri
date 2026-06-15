@@ -47,6 +47,25 @@ def root():
         "models_loaded": models_ready
     }
 
+@app.post("/predict-yield-lag")
+def predict_yield_lag(input: YieldInput):
+    """
+    Predict yield lag based on agronomic inputs.
+    Validates that inputs are numeric and within realistic ranges.
+    """
+    # your model inference logic here
+    return {"prediction": "lag result"}
+
+@app.post("/predict-yield-trend")
+def predict_yield_trend(input: YieldInput):
+    """
+    Predict yield trend based on agronomic inputs.
+    Validates that inputs are numeric and within realistic ranges.
+    """
+    # your model inference logic here
+    return {"prediction": "trend result"}
+
+
 class CSPMiddleware:
     """Add Content-Security-Policy header to every response."""
 
@@ -156,6 +175,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.units import inch
+from backend.ml.schemas import YieldInput
 
 from fastapi import FastAPI
 
