@@ -233,7 +233,7 @@ class WeatherAlertsService:
         self._weather_cache: Dict[str, tuple] = {}  # (data, timestamp)
         self._max_cache_size = 1000
         self.alert_history: List[WeatherAlert] = []
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._next_alert_id: int = 1
 
     def _evict_expired(self) -> None:
         """Remove expired entries from the weather cache."""
@@ -378,7 +378,7 @@ class WeatherAlertsService:
         # Temperature alerts
         if weather.temperature > 40:
             alerts.append(WeatherAlert(
-                id=f"weather_{next(self._alert_id_counter)}",
+                id=f"weather_{self._next_alert_id}",
                 severity=AlertSeverity.CRITICAL,
                 condition=WeatherCondition.EXTREME_HEAT,
                 title="🔥 Extreme Heat Alert",
@@ -387,11 +387,12 @@ class WeatherAlertsService:
                 timestamp=weather.timestamp,
                 expires_at=weather.timestamp + timedelta(hours=6),
             ))
+            self._next_alert_id += 1
         elif weather.temperature > 35 and crop in CROP_THRESHOLDS:
             thresholds = CROP_THRESHOLDS[crop]
             if weather.temperature > thresholds.get("critical_temp_max", 40):
                 alerts.append(WeatherAlert(
-                    id=f"weather_{next(self._alert_id_counter)}",
+                    id=f"weather_{self._next_alert_id}",
                     severity=AlertSeverity.HIGH,
                     condition=WeatherCondition.EXTREME_HEAT,
                     title="🔥 Extreme Heat Alert",
@@ -412,11 +413,12 @@ class WeatherAlertsService:
                 timestamp=weather.timestamp,
                 expires_at=weather.timestamp + timedelta(hours=6),
             ))
+            self._next_alert_id += 1
         elif weather.temperature < 5 and crop in CROP_THRESHOLDS:
             thresholds = CROP_THRESHOLDS[crop]
             if weather.temperature < thresholds.get("critical_temp_min", 0):
                 alerts.append(WeatherAlert(
-                    id=f"weather_{next(self._alert_id_counter)}",
+                    id=f"weather_{self._next_alert_id}",
                     severity=AlertSeverity.HIGH,
                     condition=WeatherCondition.FROST,
                     title="❄️ Frost Alert",
@@ -425,39 +427,12 @@ class WeatherAlertsService:
                     timestamp=weather.timestamp,
                     expires_at=weather.timestamp + timedelta(hours=6),
                 ))
-                alert_id_counter += 1
-            elif weather.temperature < 5 and crop in CROP_THRESHOLDS:
-                thresholds = CROP_THRESHOLDS[crop]
-                if weather.temperature < thresholds.get("critical_temp_min", 0):
-                    alerts.append(WeatherAlert(
-                        id=f"weather_{alert_id_counter}",
-                        severity=AlertSeverity.HIGH,
-                        condition=WeatherCondition.FROST,
-                        title="❄️ Low Temperature Warning",
-                        message=f"Temperature {weather.temperature}°C may affect {crop}.",
-                        crop=crop,
-                        timestamp=weather.timestamp,
-                        expires_at=weather.timestamp + timedelta(hours=12),
-                    ))
-                    alert_id_counter += 1
-
-            # Rainfall alerts
-            if weather.rainfall > 50:
-                alerts.append(WeatherAlert(
-                    id=f"weather_{alert_id_counter}",
-                    severity=AlertSeverity.HIGH,
-                    condition=WeatherCondition.HEAVY_RAIN,
-                    title="🌧️ Heavy Rain Alert",
-                    message=f"Heavy rainfall ({weather.rainfall}mm) expected. Flood risk possible.",
-                    crop=crop,
-                    timestamp=weather.timestamp,
-                    expires_at=weather.timestamp + timedelta(hours=6),
-                ))
+                self._next_alert_id += 1
 
         # Rainfall alerts
         if weather.rainfall > 50:
             alerts.append(WeatherAlert(
-                id=f"weather_{next(self._alert_id_counter)}",
+                id=f"weather_{self._next_alert_id}",
                 severity=AlertSeverity.HIGH,
                 condition=WeatherCondition.HEAVY_RAIN,
                 title="🌧️ Heavy Rain Alert",
@@ -466,11 +441,12 @@ class WeatherAlertsService:
                 timestamp=weather.timestamp,
                 expires_at=weather.timestamp + timedelta(hours=6),
             ))
+            self._next_alert_id += 1
 
             # Additional alert for flood-sensitive crops
             if crop in CROP_THRESHOLDS and "FLOOD_RISK" in CROP_THRESHOLDS[crop]["sensitive_to"]:
                 alerts.append(WeatherAlert(
-                    id=f"weather_{next(self._alert_id_counter)}",
+                    id=f"weather_{self._next_alert_id}",
                     severity=AlertSeverity.HIGH,
                     condition=WeatherCondition.STRONG_WIND,
                     title="💨 Strong Wind Alert",
@@ -479,11 +455,12 @@ class WeatherAlertsService:
                     timestamp=weather.timestamp,
                     expires_at=weather.timestamp + timedelta(hours=6),
                 ))
+                self._next_alert_id += 1
 
         # Wind alerts
         if weather.wind_speed > 40:
             alerts.append(WeatherAlert(
-                id=f"weather_{next(self._alert_id_counter)}",
+                id=f"weather_{self._next_alert_id}",
                 severity=AlertSeverity.HIGH,
                 condition=WeatherCondition.STRONG_WIND,
                 title="💨 Strong Wind Alert",
@@ -492,36 +469,7 @@ class WeatherAlertsService:
                 timestamp=weather.timestamp,
                 expires_at=weather.timestamp + timedelta(hours=6),
             ))
-
-        # Drought detection — considers soil moisture AND rainfall
-        soil_moisture = weather.soil_moisture
-        if soil_moisture is None or soil_moisture < 0.4:
-            low_rainfall = weather.rainfall < 1.0
-            if low_rainfall:
-                if soil_moisture is not None and soil_moisture >= 0.25:
-                    severity = AlertSeverity.LOW
-                elif soil_moisture is not None and soil_moisture >= 0.15:
-                    severity = AlertSeverity.MEDIUM
-                else:
-                    severity = AlertSeverity.HIGH
-
-                alerts.append(WeatherAlert(
-                    id=f"weather_{alert_id_counter}",
-                    severity=severity,
-                    condition=WeatherCondition.DROUGHT,
-                    title="🌾 Drought Risk Detected",
-                    message=(
-                        f"Low rainfall ({weather.rainfall}mm) and "
-                        + (f"low soil moisture ({soil_moisture:.0%})."
-                           if soil_moisture is not None
-                           else "no soil moisture data available.")
-                        + " Monitor irrigation needs."
-                    ),
-                    crop=crop,
-                    timestamp=weather.timestamp,
-                    expires_at=weather.timestamp + timedelta(days=7),
-                ))
-                alert_id_counter += 1
+            self._next_alert_id += 1
 
         # Crop-specific recommendations
         if crop and crop.lower() in CROP_THRESHOLDS:
