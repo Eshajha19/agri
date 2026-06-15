@@ -12,24 +12,27 @@ const Button = ({
   type = 'button',
   ...props
 }) => {
+  const isDisabled = disabled || loading;
   const buttonClasses = `
     btn
     btn-${variant}
     btn-${size}
     ${loading ? 'btn-loading' : ''}
-    ${disabled ? 'btn-disabled' : ''}
+    ${isDisabled ? 'btn-disabled' : ''}
     ${className}
   `.trim();
 
   return (
     <button
       className={buttonClasses}
-      disabled={disabled || loading}
+      disabled={isDisabled}
+      aria-disabled={isDisabled}
+      aria-busy={loading}
       type={type}
       {...props}
     >
-      {loading && <span className="btn-spinner" />}
-      {Icon && <Icon className="btn-icon" />}
+      {loading && <span className="btn-spinner" aria-hidden="true" />}
+      {Icon && <Icon className="btn-icon" aria-hidden="true" />}
       <span className="btn-text">{children}</span>
     </button>
   );
