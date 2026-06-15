@@ -8,7 +8,6 @@ import asyncio
 import hashlib
 import io
 import json
-import logging
 import os
 import re
 import time
@@ -27,12 +26,14 @@ from reportlab.pdfgen import canvas
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+from backend.core.logging_config import setup_logging
 from backend.compute_rate_limit import enforce_compute_rate_limit
 from backend.schemas import AlertTriggerRequest, RAGQuery
 from backend.utils.numeric_validation import validate_numeric_bounds
 from backend.rate_limit_config import build_limiter, rate_limit_exceeded_handler
 
 router = APIRouter()
+logger = setup_logging(__name__)
 
 # ---------------------------------------------------------------------------
 # Simple per-IP rate limiter for public endpoints (no Redis dependency)
@@ -55,7 +56,11 @@ def _rate_limit_log_error(request: Request, limit: int = 30, window: int = 60) -
     if len(bucket) >= limit:
         raise HTTPException(status_code=429, detail="Too many error log requests. Please retry later.")
     bucket.append(now)
-logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Simple per-IP rate limiter for public endpoints (no Redis dependency)
+# ---------------------------------------------------------------------------
 limiter = build_limiter()
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
