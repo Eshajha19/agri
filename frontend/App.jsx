@@ -526,20 +526,6 @@ useEffect(() => {
   };
 }, [preferredLang]);
 
-const translationService = new TranslationService();
-
-useEffect(() => {
-  const runTranslation = async () => {
-    try {
-      const translated = await translationService.translate("Hello", preferredLang);
-      console.log("Translation result:", translated);
-    } catch (err) {
-      console.error("Translation failed:", err);
-    }
-  };
-  void runTranslation();
-}, [preferredLang]);
-
   useEffect(() => {
     const hideGoogleTranslateBanner = () => {
       const bannerFrame = document.querySelector(
