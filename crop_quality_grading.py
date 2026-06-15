@@ -71,9 +71,10 @@ class QualityAssessment:
 class CropQualityGrader:
     """Main crop quality grading system"""
 
-    def __init__(self):
+    def __init__(self, max_history=1000):
         self.supported_crops = list(CROP_QUALITY_PARAMS.keys())
         self.quality_history = []
+        self.max_history = max_history
 
     def assess_crop_image(
         self, image_data: bytes, crop_type: str
@@ -142,6 +143,8 @@ class CropQualityGrader:
 
         # Store in history
         self.quality_history.append(assessment)
+        if len(self.quality_history) > self.max_history:
+            self.quality_history = self.quality_history[-self.max_history:]
 
         return assessment
 
