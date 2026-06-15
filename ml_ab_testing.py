@@ -97,24 +97,18 @@ class Arm:
         # Sample from Beta distribution using isolated RNG
         return _rng.beta(alpha, beta)
     
-    def confidence_interval(self, alpha: float = 0.05) -> Dict[str, float]:
-        """
-        Compute a Wald confidence (credible) interval for the arm's success
-        probability using the Beta posterior Beta(alpha+1, beta+1). Falls
-        back to a normal approximation for large n.
-        """
-        n = self.successes + self.failures
+    def confidence_interval(self, confidence_level: float = 0.95) -> Tuple[float, float]:
+        """Wald confidence interval for the success-rate estimate."""
+        n = self.total_trials
         if n == 0:
-            return {"lower": 0.0, "upper": 0.0, "mean": 0.0}
+            return (0.0, 0.0)
         p = self.successes / n
-        z = 1.96  # approximates alpha=0.05 two-tailed
-        se = math.sqrt(p * (1 - p) / n) if n > 0 else 0.0
-        return {
-            "lower": max(0.0, p - z * se),
-            "upper": min(1.0, p + z * se),
-            "mean": p,
-        }
-
+        z = 1.96  # z-score for 95 % (two-tailed)
+        se = math.sqrt(p * (1.0 - p) / n)
+        lo = max(0.0, p - z * se)
+        hi = min(1.0, p + z * se)
+        return (lo, hi)
+    
     def to_dict(self) -> Dict:
         """Convert to dictionary"""
         return {
@@ -232,18 +226,18 @@ class ABTest:
 
         if total_trials < self.min_samples:
             return None
-
-        c_ci = self.control_arm.confidence_interval()
-        v_ci = self.variant_arm.confidence_interval()
-
-        # Winner is declared when the lower bound of the superior arm's
-        # credible interval exceeds the upper bound of the other arm,
-        # i.e. the intervals do not overlap at the configured level.
-        if v_ci["lower"] > c_ci["upper"]:
+        
+        # Use confidence intervals to avoid declaring a winner when the
+        # observed difference could be explained by random variation.
+        c_lo, c_hi = self.control_arm.confidence_interval()
+        v_lo, v_hi = self.variant_arm.confidence_interval()
+        
+        # Non-overlapping credible intervals → statistically significant
+        if c_hi < v_lo:
             return self.variant_arm
-        if c_ci["lower"] > v_ci["upper"]:
+        if v_hi < c_lo:
             return self.control_arm
-
+        
         return None
 
     def end(self) -> None:
