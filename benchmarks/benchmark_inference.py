@@ -18,6 +18,7 @@ from inference.onnx_runtime import ONNXRuntimeModel
 
 def run_benchmark(model_path: str, input_shape: tuple, iterations: int = 200, warmup: int = 20):
     m = ONNXRuntimeModel(model_path)
+    providers = m.providers()
     active_provider = getattr(m, "get_active_provider", lambda: "Unknown")()
 
     # Create synthetic input
@@ -30,11 +31,12 @@ def run_benchmark(model_path: str, input_shape: tuple, iterations: int = 200, wa
 
     latencies = []
     for _ in range(iterations):
-    # Ensure GPU sync before timing
+        sample = np.random.rand(*input_shape).astype(np.float32)
+        # Ensure GPU sync before timing
         try:
             import torch
             if torch.cuda.is_available():
-            torch.cuda.synchronize()
+                torch.cuda.synchronize()
         except Exception:
             pass
 
