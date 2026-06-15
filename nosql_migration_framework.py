@@ -171,7 +171,7 @@ class MigrationRunner:
         resume_from = current_phase or "prepare"
 
         try:
-            if resume_from == "prepare":
+            if status not in ("PREPARED", "COMMITTED"):
                 logger.info(f"Phase 1 (PREPARE): {migration.version}")
                 record_ref.set({
                     "version": migration.version,
@@ -180,13 +180,16 @@ class MigrationRunner:
                     "updated_at": firestore.SERVER_TIMESTAMP
                 })
                 migration.prepare(self.db)
+                record_ref.update({"status": "PREPARED", "updated_at": firestore.SERVER_TIMESTAMP})
+                status = "PREPARED"
                 record_ref.update({"status": "PREPARED", "current_phase": "prepared", "updated_at": firestore.SERVER_TIMESTAMP})
 
             if resume_from in ("prepare", "prepared", "committing"):
                 logger.info(f"Phase 2 (COMMIT): {migration.version}")
                 record_ref.update({"status": "COMMITTING", "current_phase": "committing", "updated_at": firestore.SERVER_TIMESTAMP})
                 migration.commit(self.db)
-                record_ref.update({"status": "COMMITTED", "current_phase": "committed", "updated_at": firestore.SERVER_TIMESTAMP})
+                record_ref.update({"status": "COMMITTED", "updated_at": firestore.SERVER_TIMESTAMP})
+                status = "COMMITTED"
 
             logger.info(f"Phase 3 (CLEANUP): {migration.version}")
             record_ref.update({"status": "CLEANING_UP", "current_phase": "cleaning_up", "updated_at": firestore.SERVER_TIMESTAMP})
