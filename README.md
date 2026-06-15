@@ -409,6 +409,19 @@ POST /api/experiments/assign
 }
 ```
 
+---
+
+## 🚀 Next Step
+1. Edit `.gitignore` → add `*.joblib` and `*.pkl`.  
+2. Update `README.md` with instructions to regenerate models.  
+3. Commit and push:
+
+```bash
+git checkout -b chore/gitignore-models-2983
+git add .gitignore README.md
+git commit -m "chore: ignore .joblib and .pkl model files, add README instructions (#2983)"
+git push origin chore/gitignore-models-2983
+
 
 ### Tradeoffs
 

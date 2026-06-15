@@ -43,3 +43,8 @@ whatsapp_subscribers.json
 dev-dist/
 frontend/build/
 frontend/dist/
+
+
+# Ignore ML model binaries
+*.joblib
+*.pkl
