@@ -4,6 +4,196 @@ import { useUiStore } from '../stores/uiStore';
 import { reportErrorToBackend } from '../utils/errorReporting';
 import { auth } from '../lib/firebase';
 
+// ============================================
+// Request & Response Validation
+// ============================================
+
+/**
+ * Schema validator for request payloads
+ */
+class SchemaValidator {
+  constructor() {
+    this.schemas = new Map();
+  }
+
+  registerSchema(endpoint, schema) {
+    this.schemas.set(endpoint, schema);
+  }
+
+  validate(endpoint, data) {
+    const schema = this.schemas.get(endpoint);
+    if (!schema) return { valid: true };
+
+    const errors = [];
+
+    // Validate required fields
+    if (schema.required) {
+      for (const field of schema.required) {
+        if (!(field in data)) {
+          errors.push(`Missing required field: ${field}`);
+        }
+      }
+    }
+
+    // Validate field types
+    if (schema.fields) {
+      for (const [field, fieldSchema] of Object.entries(schema.fields)) {
+        if (field in data) {
+          const value = data[field];
+
+          // Type validation
+          if (fieldSchema.type && typeof value !== fieldSchema.type) {
+            errors.push(`Field ${field} must be ${fieldSchema.type}, got ${typeof value}`);
+          }
+
+          // Range validation
+          if (fieldSchema.min !== undefined && value < fieldSchema.min) {
+            errors.push(`Field ${field} must be >= ${fieldSchema.min}`);
+          }
+          if (fieldSchema.max !== undefined && value > fieldSchema.max) {
+            errors.push(`Field ${field} must be <= ${fieldSchema.max}`);
+          }
+
+          // Pattern validation
+          if (fieldSchema.pattern && !fieldSchema.pattern.test(value)) {
+            errors.push(`Field ${field} invalid format`);
+          }
+
+          // Enum validation
+          if (fieldSchema.enum && !fieldSchema.enum.includes(value)) {
+            errors.push(`Field ${field} must be one of: ${fieldSchema.enum.join(', ')}`);
+          }
+        }
+      }
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  }
+}
+
+/**
+ * Response schema validator
+ */
+class ResponseValidator {
+  constructor() {
+    this.expectedSchemas = new Map();
+  }
+
+  registerExpected(endpoint, schema) {
+    this.expectedSchemas.set(endpoint, schema);
+  }
+
+  validate(endpoint, response) {
+    const schema = this.expectedSchemas.get(endpoint);
+    if (!schema) return { valid: true };
+
+    const errors = [];
+
+    // Check required fields in response
+    if (schema.required) {
+      for (const field of schema.required) {
+        if (!(field in response)) {
+          errors.push(`Missing field in response: ${field}`);
+        }
+      }
+    }
+
+    // Check field types
+    if (schema.fields) {
+      for (const [field, fieldSchema] of Object.entries(schema.fields)) {
+        if (field in response) {
+          const value = response[field];
+          if (fieldSchema.type && typeof value !== fieldSchema.type) {
+            errors.push(`Response field ${field} has wrong type`);
+          }
+        }
+      }
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  }
+}
+
+/**
+ * Retry logic with exponential backoff
+ */
+class RetryStrategy {
+  constructor(maxRetries = 3, baseDelay = 100, maxDelay = 5000) {
+    this.maxRetries = maxRetries;
+    this.baseDelay = baseDelay;
+    this.maxDelay = maxDelay;
+  }
+
+  shouldRetry(error, attempt) {
+    // Don't retry 4xx errors (except 429)
+    if (error.response?.status >= 400 && error.response?.status < 500 && error.response?.status !== 429) {
+      return false;
+    }
+
+    // Retry on 5xx and network errors
+    return attempt < this.maxRetries;
+  }
+
+  getDelay(attempt) {
+    const delay = this.baseDelay * Math.pow(2, attempt);
+    return Math.min(delay, this.maxDelay);
+  }
+}
+
+/**
+ * Rate limit handler
+ */
+class RateLimitHandler {
+  constructor() {
+    this.rateLimits = new Map();
+  }
+
+  handleRateLimit(endpoint, retryAfter) {
+    const delayMs = (retryAfter || 60) * 1000;
+    const resetTime = Date.now() + delayMs;
+
+    this.rateLimits.set(endpoint, {
+      blockedUntil: resetTime,
+      retryAfter: delayMs
+    });
+  }
+
+  isRateLimited(endpoint) {
+    const limit = this.rateLimits.get(endpoint);
+    if (!limit) return false;
+
+    const now = Date.now();
+    if (now >= limit.blockedUntil) {
+      this.rateLimits.delete(endpoint);
+      return false;
+    }
+
+    return true;
+  }
+
+  getRemainingWait(endpoint) {
+    const limit = this.rateLimits.get(endpoint);
+    if (!limit) return 0;
+
+    return Math.max(0, limit.blockedUntil - Date.now());
+  }
+}
+
+const schemaValidator = new SchemaValidator();
+const responseValidator = new ResponseValidator();
+const retryStrategy = new RetryStrategy();
+const rateLimitHandler = new RateLimitHandler();
+
+// ============================================
+// Original API Client Code
+// ============================================
+
 const toNumberOr = (value, fallback) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -12,6 +202,7 @@ const toNumberOr = (value, fallback) => {
 const API_TIMEOUT_MS = toNumberOr(import.meta.env.VITE_API_TIMEOUT_MS, 15000);
 const DEFAULT_RETRIES = toNumberOr(import.meta.env.VITE_API_RETRIES, 2);
 const RETRY_BASE_DELAY_MS = toNumberOr(import.meta.env.VITE_API_RETRY_DELAY_MS, 400);
+const RETRY_BACKOFF_MULTIPLIER = toNumberOr(import.meta.env.VITE_API_RETRY_MULTIPLIER, 2);
 const DEFAULT_CIRCUIT_BREAKER_FAILURES = toNumberOr(import.meta.env.VITE_API_CIRCUIT_BREAKER_FAILURES, 3);
 const DEFAULT_CIRCUIT_BREAKER_RESET_MS = toNumberOr(import.meta.env.VITE_API_CIRCUIT_BREAKER_RESET_MS, 15000);
 
@@ -20,6 +211,13 @@ const inFlightRequests = new Map();
 const circuitBreakers = new Map();
 
 const isIdempotentMethod = (method) => ['get', 'head', 'options', 'put', 'delete'].includes(method);
+
+const createRequestId = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `req-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+};
 
 const sortObjectKeys = (value) => {
   if (Array.isArray(value)) {
@@ -181,13 +379,55 @@ const canRetryRequest = (error, config) => {
   return !status || status === 408 || status === 429 || status >= 500;
 };
 
-const getRetryDelayMs = (retryCount, retryDelayMs) => {
+const getRetryDelayMs = (retryCount, retryDelayMs, retryMultiplier) => {
   const baseDelay =
     typeof retryDelayMs === 'number' ? retryDelayMs : RETRY_BASE_DELAY_MS;
-  return baseDelay * Math.pow(2, retryCount);
+  const multiplier =
+    typeof retryMultiplier === 'number' && retryMultiplier > 0
+      ? retryMultiplier
+      : RETRY_BACKOFF_MULTIPLIER;
+  return baseDelay * Math.pow(multiplier, retryCount);
 };
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const normalizeBaseUrl = (value) => {
+  if (!value) {
+    return '';
+  }
+
+  return String(value).replace(/\/$/, '');
+};
+
+const resolveApiBaseUrl = () => {
+  const configuredBaseUrl = normalizeBaseUrl(
+    import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_BACKEND_URL
+  );
+
+  if (configuredBaseUrl) {
+    return configuredBaseUrl;
+  }
+
+  // Local development relies on the Vite proxy; production deployments need
+  // an explicit backend URL so requests do not stay on the static frontend host.
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    const isLocalhost =
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname.endsWith('.localhost');
+
+    if (!isLocalhost) {
+      console.error(
+        '[api.js] VITE_API_BASE_URL is not configured in production. ' +
+        'API requests will fail. Set VITE_API_BASE_URL to your backend origin.'
+      );
+    }
+    return '';
+  }
+
+  return '';
+};
 
 /**
  * Retrieve the current Firebase ID token for the signed-in user.
@@ -227,7 +467,7 @@ async function getFirebaseIdToken() {
 }
 
 const axiosClient = axios.create({
-  baseURL: '', // Use relative path to leverage Vite proxy
+  baseURL: resolveApiBaseUrl(),
   timeout: API_TIMEOUT_MS,
   headers: {
     'Content-Type': 'application/json',
@@ -240,6 +480,23 @@ axiosClient.interceptors.request.use(
   async (config) => {
     const nextConfig = { ...config };
     const method = (nextConfig.method || 'get').toLowerCase();
+    const requestId = nextConfig.requestId || nextConfig.headers?.['X-Request-ID'] || createRequestId();
+    const currentUserId = auth?.currentUser?.uid || 'anonymous';
+
+    nextConfig.requestId = requestId;
+    nextConfig.userId = nextConfig.userId || currentUserId;
+    nextConfig.errorContext = {
+      ...(typeof nextConfig.errorContext === 'object' ? nextConfig.errorContext : { label: nextConfig.errorContext }),
+      method,
+      url: nextConfig.url,
+      requestId,
+      userId: nextConfig.userId,
+    };
+
+    nextConfig.headers = {
+      ...nextConfig.headers,
+      'X-Request-ID': requestId,
+    };
 
     // Automatically attach idempotency keys to non-idempotent requests (POST)
     // to allow safe retries and prevent duplicate records on the backend.
@@ -300,7 +557,7 @@ axiosClient.interceptors.response.use(
       config.timeout = 10000;
 
       // Calculate the exponential backoff delay based on the retry count
-      const retryDelay = getRetryDelayMs(retryCount, config.retryDelayMs);
+      const retryDelay = getRetryDelayMs(retryCount, config.retryDelayMs, config.retryMultiplier);
 
       // Pause execution for the calculated delay duration
       await wait(retryDelay);
@@ -313,6 +570,8 @@ axiosClient.interceptors.response.use(
       reportErrorToBackend({
         error,
         context: config.errorContext || 'api-client',
+        requestId: config.requestId,
+        userId: config.userId,
         timestamp: new Date().toISOString(),
       });
     }
@@ -386,3 +645,4 @@ const apiClient = {
 };
 
 export default apiClient;
+// Enhanced API validation
