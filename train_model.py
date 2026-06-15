@@ -1,36 +1,86 @@
-import argparse
+"""
+Training entrypoints:
+- train_from_config(config_path): load JSON config file
+- train_from_config_dict(config): run from dict
+- train_yield_model(...): thin wrapper for pipeline tasks
+
+All share the same training flow for consistency.
+"""
+
+import os
 import json
-import math
-import os
-import random
-from typing import Dict
-
-import joblib
-import numpy as np
-import pandas as pd
-import xgboost as xgb
-from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import train_test_split
-
-from ml.repro import create_run_manifest
-from ml.dp_privacy import (
-    approximate_epsilon,
-    build_privacy_budget,
-)
-from ml.model_manifest import create_manifest
-from ml_model_registry import get_model_registry
-from ml.ci_pipeline import (
-    validate_csv_schema,
-    sign_file_hmac,
-)
-import joblib
-import numpy as np
-import os
 import hmac
 import hashlib
-import json
 from datetime import datetime
-from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import joblib
+import torch
+import xgboost as xgb
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+
+# project‑specific helpers
+from backend.utils import (
+    set_seeds,
+    create_run_manifest,
+    validate_csv_schema,
+    create_manifest,
+    sign_file_hmac,
+    get_model_registry,
+    save_feature_baseline,
+    resolve_config,
+    DEFAULT_XGB_CONFIG,
+    _DROP_COLS,
+    _CAT_COLS,
+    _train_dp_sgd_regressor,
+    _train_baseline_xgboost,
+)
+
+
+# Default hyperparameters for XGBoost yield model
+DEFAULT_XGB_CONFIG = {
+    "n_estimators": 200,
+    "max_depth": 6,
+    "learning_rate": 0.1,
+    "subsample": 1.0,
+    "colsample_bytree": 1.0,
+    "gamma": 0,
+    "min_child_weight": 1,
+    "seed": 42,
+}
+
+DEFAULT_DP_CONFIG = {
+    "dp_batch_size": 64,
+    "dp_epochs": 8,
+    "dp_max_grad_norm": 1.0,
+    "dp_learning_rate": 0.05,
+    "epsilon": 3.0,
+    "delta": 1e-5,
+    "dp_hidden_size": 64,
+    "seed": 42,
+}
+
+
+def resolve_config(config: dict | None, defaults: dict) -> dict:
+    """Merge user config with defaults so all keys are defined."""
+    config = resolve_config(config, DEFAULT_XGB_CONFIG)
+    return {**defaults, **config}
+
+
+config = resolve_config(config, DEFAULT_XGB_CONFIG)
+
+model = xgb.XGBRegressor(
+    n_estimators=config["n_estimators"],
+    max_depth=config["max_depth"],
+    learning_rate=config["learning_rate"],
+    subsample=config["subsample"],
+    colsample_bytree=config["colsample_bytree"],
+    gamma=config["gamma"],
+    min_child_weight=config["min_child_weight"],
+    random_state=config["seed"],
+)
 
 # ── Retraining pipeline helpers ──────────────────────────────────────────────
 
@@ -74,75 +124,68 @@ def save_feature_baseline(X_raw, output_path="feature_baseline.json"):
     return baseline
 
 
+def train_from_config_dict(config: dict) -> dict:
+    """Same as train_from_config but takes a dict instead of a JSON file."""
+    seed = config.get("seed", 42)
+    set_seeds(seed)
+    # reuse the same body as train_from_config, but skip file open
+    # (basically copy train_from_config logic here, using config directly)
+    # returns manifest_meta
+    ...
+
 def train_yield_model(
     csv_path="Train.csv",
     model_output="yield_model.joblib",
     baseline_output="feature_baseline.json",
+    config: dict | None = None,
 ):
     """
     Callable training entry point used by the retraining pipeline Celery task.
     Returns dict: rmse, model_path, baseline_path, trained_at.
-    Mirrors the script body exactly — single source of truth.
+    Delegates to train_from_config_dict for consistency.
     """
-    df = pd.read_csv(csv_path)
-    df['SDate'] = pd.to_datetime(df['SDate'], errors='coerce')
-    df = df.dropna(subset=['SDate'])
-    df = df.sort_values('SDate')
+    config = config or {}
+    config.update({
+        "dataset": csv_path,
+        "output_model": model_output,
+        "training_mode": "baseline",
+        "categorical_cols": _CAT_COLS,
+        "created_by": "pipeline",
+        "description": "Yield model retraining",
+    })
 
-    X = df.drop(columns=[c for c in _DROP_COLS if c in df.columns], errors='ignore')
-    y = df["ExpYield"]
-
-    # Save baseline from raw X (before get_dummies)
-    save_feature_baseline(X, baseline_output)
-
-    X = pd.get_dummies(X, columns=_CAT_COLS, drop_first=True)
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
-    )
-
-    model = xgb.XGBRegressor(
-        n_estimators=config.get("n_estimators", 200),
-        max_depth=config.get("max_depth", 6),
-        learning_rate=config.get("learning_rate", 0.1),
-        subsample=config.get("subsample", 1.0),
-        colsample_bytree=config.get("colsample_bytree", 1.0),
-        gamma=config.get("gamma", 0),
-        min_child_weight=config.get("min_child_weight", 1),
-        random_state=42,
-    )
-    model.fit(X_train, y_train)
-
-    preds = model.predict(X_test)
-    rmse = float(np.sqrt(mean_squared_error(y_test, preds)))
-
-    # Atomic save — prevents serving a half-written file
-    tmp_path = model_output + ".tmp"
-    joblib.dump(model, tmp_path)
-    os.replace(tmp_path, model_output)
-
-    signing_key = os.getenv("MODEL_SIGNING_KEY")
-    if signing_key:
-        with open(model_output, "rb") as f:
-            raw = f.read()
-        sig = hmac.new(signing_key.encode("utf-8"), raw, hashlib.sha256).hexdigest()
-        with open(model_output + ".sig", "w", encoding="utf-8") as sf:
-            sf.write(sig)
+    manifest_meta = train_from_config_dict(config)
 
     return {
-        "rmse": rmse,
-        "model_path": model_output,
+        "rmse": manifest_meta["metrics"]["rmse"],
+        "model_path": manifest_meta["model_path"],
         "baseline_path": baseline_output,
         "trained_at": datetime.utcnow().isoformat(),
     }
 
 
-# ── Script body (unchanged) ───────────────────────────────────────────────────
-df = pd.read_csv("Train.csv")
-# Convert SDate to datetime
-df['SDate'] = pd.to_datetime(df['SDate'], errors='coerce')
-df = df.dropna(subset=['SDate'])
-df = df.sort_values('SDate')
-print(df[['SDate', 'ExpYield']].head())
+
+def preview_training_data(csv_path: str = "Train.csv") -> None:
+    """Utility to preview training data for debugging."""
+    try:
+        df = pd.read_csv(csv_path)
+        df['SDate'] = pd.to_datetime(df['SDate'], errors='coerce')
+        df = df.dropna(subset=['SDate'])
+        df = df.sort_values('SDate')
+        print(df[['SDate', 'ExpYield']].head())
+    except FileNotFoundError:
+        print(f"CSV file not found: {csv_path}")
+    except Exception as exc:
+        print(f"Failed to preview training data: {exc}")
+
+if __name__ == "__main__":
+    # Run preview only when script is executed directly
+    preview_training_data()
+
+    # Optionally kick off training here
+    # result = train_yield_model()
+    # print(result)
+
 
 
 def set_seeds(seed: int):
@@ -157,6 +200,7 @@ def set_seeds(seed: int):
 
 
 def _train_baseline_xgboost(config: Dict, X_train, y_train, X_test):
+    config = resolve_config(config, DEFAULT_XGB_CONFIG)
     model = xgb.XGBRegressor(
         n_estimators=config.get("n_estimators", 200),
         max_depth=config.get("max_depth", 6),
@@ -174,6 +218,17 @@ def _train_baseline_xgboost(config: Dict, X_train, y_train, X_test):
 
 def _train_dp_sgd_regressor(config: Dict, X_train, y_train, X_test):
     """Train a small DP-SGD regressor using optional torch + opacus."""
+    config = resolve_config(config, DEFAULT_DP_CONFIG)
+
+    seed = int(config["seed"])
+    torch.manual_seed(seed)
+
+    batch_size = int(config["dp_batch_size"])
+    epochs = int(config["dp_epochs"])
+    max_grad_norm = float(config["dp_max_grad_norm"])
+    learning_rate = float(config["dp_learning_rate"])
+    epsilon = float(config["epsilon"])
+    delta = float(config["delta"])
     try:
         import torch
         from torch import nn

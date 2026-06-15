@@ -10,6 +10,10 @@ from typing import Dict, List, Optional, Any
 
 logger = logging.getLogger(__name__)
 
+# Isolated RNG for Thompson sampling — avoids correlated draws
+# from NumPy's global random state under concurrent load.
+_rng = np.random.RandomState(random.getrandbits(128))
+
 
 class TestStatus(Enum):
     SETUP = "setup"
@@ -67,11 +71,21 @@ class Arm:
             self.successes += 1
         else:
             self.failures += 1
-
-    def sample_score(self) -> float:
-        return random.betavariate(self.alpha, self.beta)
-
-    def to_dict(self) -> Dict[str, Any]:
+    
+    def sample_from_distribution(self) -> float:
+        """Sample success probability from Beta distribution (Thompson sampling)"""
+        # Use Beta(alpha, beta) where alpha = successes, beta = failures
+        alpha = self.successes + 1  # Add pseudocount
+        beta = self.failures + 1
+        
+        if alpha <= 0 or beta <= 0:
+            return 0.5
+        
+        # Sample from Beta distribution using isolated RNG
+        return _rng.beta(alpha, beta)
+    
+    def to_dict(self) -> Dict:
+        """Convert to dictionary"""
         return {
             "model_id": self.model_id,
             "model_version": self.model_version,
@@ -176,18 +190,40 @@ class ABTest:
         return float(np.mean(variant_samples > control_samples))
 
     def get_winner(self) -> Optional[Arm]:
-        """Determine winner using Bayesian probability of being better."""
-        total_trials = self.control_arm.total_trials + self.variant_arm.total_trials
-        if total_trials < self.min_samples:
+        """Determine winner using a two-sample Z-test for proportions."""
+        n1 = self.control_arm.total_trials
+        n2 = self.variant_arm.total_trials
+
+        if (n1 + n2) < self.min_samples or n1 == 0 or n2 == 0:
             return None
-        
-        prob = self._probability_variant_better()
-        
-        if prob >= self.confidence_threshold:
-            return self.variant_arm
-        elif prob <= 1.0 - self.confidence_threshold:
-            return self.control_arm
-        
+
+        p1 = self.control_arm.successes / n1
+        p2 = self.variant_arm.successes / n2
+
+        # Pooled proportion under the null hypothesis (p1 == p2)
+        p_pooled = (self.control_arm.successes + self.variant_arm.successes) / (n1 + n2)
+        if p_pooled <= 0 or p_pooled >= 1:
+            return None
+
+        # Standard error of the difference
+        se = math.sqrt(p_pooled * (1 - p_pooled) * (1 / n1 + 1 / n2))
+        if se == 0:
+            return None
+
+        # Z statistic
+        z_stat = (p2 - p1) / se
+
+        # Map confidence threshold to two-tailed critical z-values
+        if self.confidence_threshold >= 0.99:
+            z_crit = 2.576
+        elif self.confidence_threshold >= 0.95:
+            z_crit = 1.960
+        else:
+            z_crit = 1.645  # 90% confidence
+
+        if abs(z_stat) > z_crit:
+            return self.variant_arm if p2 > p1 else self.control_arm
+
         return None
 
     def end(self) -> None:
