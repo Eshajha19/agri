@@ -4,6 +4,7 @@ Handles concurrent updates, version tracking, and conflict resolution
 """
 
 import logging
+import collections
 from enum import Enum
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
@@ -217,10 +218,11 @@ class ConflictResolver:
     """
     Resolves conflicts between concurrent updates
     """
+    _MAX_CONFLICT_LOG_SIZE = 1000  # Cap log size to prevent memory exhaustion
     
     def __init__(self, strategy: ConflictResolutionStrategy = ConflictResolutionStrategy.LAST_WRITE_WINS):
         self.strategy = strategy
-        self.conflict_log: List[Dict] = []
+        self.conflict_log = collections.deque(maxlen=self._MAX_CONFLICT_LOG_SIZE)
     
     def resolve(
         self,
@@ -415,7 +417,7 @@ class ConflictResolver:
     
     def get_conflict_log(self) -> List[Dict]:
         """Get conflict resolution log"""
-        return self.conflict_log.copy()
+        return list(self.conflict_log)
 
 
 class SyncManager:
