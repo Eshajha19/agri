@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from typing import Any, Optional
 
@@ -9,10 +10,19 @@ HIGH_LEVELS = {"veryhigh", "very high", "high", "excess"}
 def _as_number(value: Any) -> Optional[float]:
     if isinstance(value, bool) or value is None:
         return None
+    if isinstance(value, str):
+        value = value.strip()
     try:
         number = float(value)
     except (TypeError, ValueError):
-        return None
+        match = re.match(r"[-+]?\d*\.?\d+", str(value).strip())
+        if match:
+            try:
+                number = float(match.group())
+            except (TypeError, ValueError):
+                return None
+        else:
+            return None
     return number if number == number else None
 
 
