@@ -4,6 +4,7 @@ Handles concurrent updates, version tracking, and conflict resolution
 """
 
 import logging
+import threading
 from enum import Enum
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
@@ -512,13 +513,16 @@ class SyncManager:
 
 # Global sync manager instance
 _sync_manager: Optional[SyncManager] = None
+_sync_manager_lock = threading.Lock()
 
 
 def get_sync_manager() -> SyncManager:
-    """Get or create global sync manager"""
+    """Get or create global sync manager (thread-safe singleton)"""
     global _sync_manager
-    
+
     if _sync_manager is None:
-        _sync_manager = SyncManager()
-    
+        with _sync_manager_lock:
+            if _sync_manager is None:
+                _sync_manager = SyncManager()
+
     return _sync_manager
