@@ -220,27 +220,30 @@ class ModelRegistry:
         current.status = ModelStatus.ROLLED_BACK
         current.rollback_reason = reason
         
-        # Find previous production version
-        versions = sorted(
-            self.models[model_name].values(),
-            key=lambda x: x.created_at,
-            reverse=True
-        )
+        # Find the version that was most recently promoted to production
+        # before the current model (using the deployment log rather than
+        # picking the most recently archived model, which may have been
+        # a canary or experimental build that never served production).
+        production_logs = [
+            log for log in self.deployment_log
+            if log["model_name"] == model_name
+            and log["version"] != current.version
+            and log["action"] in ("production", "rollback")
+        ]
+        production_logs.sort(key=lambda x: x["timestamp"], reverse=True)
         
         previous = None
-        for v in versions:
-            if v.model_id != current.model_id and v.status == ModelStatus.ARCHIVED:
-                previous = v
-                break
-        
-        if previous:
-            previous.status = ModelStatus.PRODUCTION
-            previous.canary_traffic_percentage = 100
-            self.active_models[model_name] = previous
-            
-            self._log_deployment(model_name, previous.version, "rollback", 100, reason)
-            logger.warning(f"Rolled back {model_name} to {previous.version}: {reason}")
-            return True
+        if production_logs:
+            prev_version = production_logs[0]["version"]
+            previous = self.get_model_version(model_name, prev_version)
+            if previous:
+                previous.status = ModelStatus.PRODUCTION
+                previous.canary_traffic_percentage = 100
+                self.active_models[model_name] = previous
+                
+                self._log_deployment(model_name, previous.version, "rollback", 100, reason)
+                logger.warning(f"Rolled back {model_name} to {previous.version}: {reason}")
+                return True
         
         logger.error(f"No previous production model found for {model_name}")
         return False
