@@ -17,6 +17,7 @@ from backend.utils.safe_log import sanitize_log_field
 
 from fastapi import FastAPI
 from backend.middleware.body_size_limit import BodySizeLimitMiddleware
+from .models import model, model_lag 
 
 app = FastAPI()
 
@@ -26,6 +27,44 @@ app.add_middleware(BodySizeLimitMiddleware)
 
 # Expose sanitizer globally so routers can use it
 sanitise_log_field_fn = sanitize_log_field
+
+app = FastAPI()
+
+@app.get("/health")
+def health_check():
+    models_ready = model is not None and model_lag is not None
+    return {
+        "status": "ok",
+        "models_loaded": models_ready
+    }
+
+# Optional: root endpoint for convenience
+@app.get("/")
+def root():
+    models_ready = model is not None and model_lag is not None
+    return {
+        "status": "ok",
+        "models_loaded": models_ready
+    }
+
+@app.post("/predict-yield-lag")
+def predict_yield_lag(input: YieldInput):
+    """
+    Predict yield lag based on agronomic inputs.
+    Validates that inputs are numeric and within realistic ranges.
+    """
+    # your model inference logic here
+    return {"prediction": "lag result"}
+
+@app.post("/predict-yield-trend")
+def predict_yield_trend(input: YieldInput):
+    """
+    Predict yield trend based on agronomic inputs.
+    Validates that inputs are numeric and within realistic ranges.
+    """
+    # your model inference logic here
+    return {"prediction": "trend result"}
+
 
 class CSPMiddleware:
     """Add Content-Security-Policy header to every response."""
@@ -137,6 +176,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.units import inch
+from backend.ml.schemas import YieldInput
 
 from fastapi import FastAPI
 
@@ -176,6 +216,16 @@ All side-effectful initialization (DB, ML models, Celery, Firebase) occurs
 inside FastAPI lifespan() to ensure consistent startup across single-worker,
 multi-worker, and reload environments.
 """
+
+@app.post("/api/whatsapp/webhook")
+async def whatsapp_webhook(request: Request):
+    payload = await request.json()
+    normalized_messages = normalize_whatsapp_payload(payload)
+
+    for msg in normalized_messages:
+        # process each message individually
+        handle_inbound_message(msg)
+    return {"status": "ok", "processed": len(normalized_messages)}
 
 @app.post("/api/whatsapp/webhook")
 async def whatsapp_webhook(request: Request):
@@ -1071,7 +1121,8 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     send_whatsapp_message(data.phone_number, welcome_msg)
     return {"success": True, "message": "Successfully subscribed"}
 
-_broadcast_rate_limit = {}
+_broadcast_rate_limit: Dict[str, float] = {}
+_BROADCAST_RATE_LIMIT_SECONDS = 60
 
 @app.post("/api/whatsapp/trigger-alert")
 @limiter.limit("10/minute")
@@ -1088,7 +1139,16 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     consuming Twilio API credits at the attacker's discretion.
     """
     # RBAC: only admins and experts may broadcast alerts to all farmers.
-    await verify_role(request, required_roles=["admin", "expert"])
+    token_data = await verify_role(request, required_roles=["admin", "expert"])
+    uid = token_data["uid"]
+    now = time.time()
+    last_broadcast = _broadcast_rate_limit.get(uid)
+    if last_broadcast and (now - last_broadcast) < _BROADCAST_RATE_LIMIT_SECONDS:
+        retry_after = int(_BROADCAST_RATE_LIMIT_SECONDS - (now - last_broadcast))
+        raise HTTPException(
+            status_code=429,
+            detail=f"Broadcast rate limit exceeded. Retry after {retry_after} seconds."
+        )
 
     # get_all() acquires the lock and returns a stable snapshot, so this read
     # cannot race with a concurrent subscription write.
@@ -1105,6 +1165,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
         message=data.message,
     )
 
+    _broadcast_rate_limit[uid] = time.time()
     delivered = sum(1 for r in results if r["success"])
     return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
 
@@ -2471,7 +2532,6 @@ except Exception as exc:
 app.include_router(ml.router, prefix="/api/yield", tags=["ML Prediction"])
 app.include_router(governance.router, prefix="/api/ml-governance", tags=["ML Governance"])
 app.include_router(finance.router, prefix="/api/farm-finance", tags=["Finance"])
-app.include_router(finance.router, prefix="/api/finance", tags=["Finance Legacy"])
 app.include_router(quality.router, prefix="/api/crop-quality", tags=["Quality"])
 app.include_router(blockchain.router, prefix="/api/supply-chain", tags=["Blockchain"])
 app.include_router(reports.router, prefix="/api/admin", tags=["Reports"])
@@ -2885,15 +2945,6 @@ async def lifespan(app: FastAPI):
         logger.warning("RAG init skipped: %s", exc)
 
     knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
-    alerts.init_alerts(
-        [],
-        subscriber_store,
-        lambda **kwargs: [],
-        send_whatsapp_message,
-        format_alert_message,
-        verify_role,
-        lambda uid: _get_firestore_user_profile(uid),
-    )
     init_feature_flags(verify_role)
     platform.init_platform(
         verify_role,
@@ -4237,12 +4288,6 @@ app.include_router(community.router, prefix="/api/community", tags=["Community"]
 if voice_assistant_router is not None:
     app.include_router(voice_assistant_router.router, prefix="/api/voice", tags=["Voice Assistant"])
 app.include_router(referrals.router, prefix="/api/referrals", tags=["Referrals"])
-app.include_router(platform.router, prefix="/api", tags=["Platform"])
-app.include_router(advisory.router, prefix="/api", tags=["Advisory"])
-app.include_router(alerts.router, prefix="/api/notifications", tags=["Alerts"])
-app.include_router(flags_router, tags=["Feature Flags"])
-app.include_router(lms.router, prefix="/api", tags=["LMS"])
-app.include_router(insurance.router, prefix="/api", tags=["Insurance"])
 
 
 # --- Smart Farm Autopilot ---

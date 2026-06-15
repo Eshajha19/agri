@@ -10,6 +10,10 @@ from typing import Dict, List, Optional, Any
 
 logger = logging.getLogger(__name__)
 
+# Isolated RNG for Thompson sampling — avoids correlated draws
+# from NumPy's global random state under concurrent load.
+_rng = np.random.RandomState(random.getrandbits(128))
+
 
 class TestStatus(Enum):
     SETUP = "setup"
@@ -67,11 +71,45 @@ class Arm:
             self.successes += 1
         else:
             self.failures += 1
+    
+    def record_trial(self, success: bool, mae: float = 0.0, rmse: float = 0.0, latency: float = 0.0):
+        """Record outcome and prediction metrics atomically so counters never drift."""
+        self.total_trials += 1
+        if success:
+            self.successes += 1
+        else:
+            self.failures += 1
+        self.predictions += 1
+        self.mae_sum += mae
+        self.rmse_sum += rmse
+        self.latency_sum += latency
+        self.latency_count += 1
+    
+    def sample_from_distribution(self) -> float:
+        """Sample success probability from Beta distribution (Thompson sampling)"""
+        # Use Beta(alpha, beta) where alpha = successes, beta = failures
+        alpha = self.successes + 1  # Add pseudocount
+        beta = self.failures + 1
+        
+        if alpha <= 0 or beta <= 0:
+            return 0.5
+        
+        # Sample from Beta distribution using isolated RNG
+        return _rng.beta(alpha, beta)
+    
+    def confidence_interval(self) -> Tuple[float, float]:
+        """95% Wald confidence interval for success rate"""
+        if self.total_trials == 0:
+            return (0.0, 0.0)
+        p = self.successes / self.total_trials
+        se = math.sqrt(p * (1 - p) / self.total_trials)
+        z = 1.96
+        lower = max(0.0, p - z * se)
+        upper = min(1.0, p + z * se)
+        return (round(lower, 4), round(upper, 4))
 
-    def sample_score(self) -> float:
-        return random.betavariate(self.alpha, self.beta)
-
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> Dict:
+        """Convert to dictionary"""
         return {
             "model_id": self.model_id,
             "model_version": self.model_version,
@@ -79,11 +117,13 @@ class Arm:
             "successes": self.successes,
             "failures": self.failures,
             "total_trials": self.total_trials,
+            "confidence_interval": self.confidence_interval(),
             "predictions": self.predictions,
-            "mae": self.mean_mae,
-            "rmse": self.mean_rmse,
-            "latency": self.mean_latency,
-            "created_at": self.created_at,
+            "mae": self.get_mean_metric("mae"),
+            "rmse": self.get_mean_metric("rmse"),
+            "latency": self.get_mean_metric("latency"),
+            "confidence_interval": self.confidence_interval(),
+            "created_at": self.created_at
         }
 
 
@@ -131,9 +171,14 @@ class ABTest:
         """Record outcome for an arm"""
         arm = self.control_arm if arm_id == self.control_arm.model_id else self.variant_arm
         
-        arm.record_outcome(success)
-        if {"mae", "rmse", "latency"}.issubset(metrics):
-            arm.record_prediction(metrics["mae"], metrics["rmse"], metrics["latency"])
+        arm.record_trial(
+            success,
+            mae=metrics.get("mae", 0.0),
+            rmse=metrics.get("rmse", 0.0),
+            latency=metrics.get("latency", 0.0),
+        )
+        
+        # Update allocation based on Thompson sampling
         self._update_allocation()
     
     def _update_allocation(self):
@@ -176,40 +221,20 @@ class ABTest:
         return float(np.mean(variant_samples > control_samples))
 
     def get_winner(self) -> Optional[Arm]:
-        """Determine winner using a two-sample Z-test for proportions."""
-        n1 = self.control_arm.total_trials
-        n2 = self.variant_arm.total_trials
+        """Determine winner using non-overlapping confidence intervals"""
+        total_trials = self.control_arm.total_trials + self.variant_arm.total_trials
 
-        if (n1 + n2) < self.min_samples or n1 == 0 or n2 == 0:
+        if total_trials < self.min_samples:
             return None
-
-        p1 = self.control_arm.successes / n1
-        p2 = self.variant_arm.successes / n2
-
-        # Pooled proportion under the null hypothesis (p1 == p2)
-        p_pooled = (self.control_arm.successes + self.variant_arm.successes) / (n1 + n2)
-        if p_pooled <= 0 or p_pooled >= 1:
-            return None
-
-        # Standard error of the difference
-        se = math.sqrt(p_pooled * (1 - p_pooled) * (1 / n1 + 1 / n2))
-        if se == 0:
-            return None
-
-        # Z statistic
-        z_stat = (p2 - p1) / se
-
-        # Map confidence threshold to two-tailed critical z-values
-        if self.confidence_threshold >= 0.99:
-            z_crit = 2.576
-        elif self.confidence_threshold >= 0.95:
-            z_crit = 1.960
-        else:
-            z_crit = 1.645  # 90% confidence
-
-        if abs(z_stat) > z_crit:
-            return self.variant_arm if p2 > p1 else self.control_arm
-
+        
+        c_lo, c_hi = self.control_arm.confidence_interval()
+        v_lo, v_hi = self.variant_arm.confidence_interval()
+        
+        if c_hi < v_lo:
+            return self.variant_arm
+        if v_hi < c_lo:
+            return self.control_arm
+        
         return None
 
     def end(self) -> None:

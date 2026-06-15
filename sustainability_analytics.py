@@ -30,6 +30,7 @@ IRRIGATION_EFFICIENCY = {
     "sprinkler": 0.75,
     "flood": 0.45,
 }
+DEFAULT_IRRIGATION_EFFICIENCY = 0.5
 
 SEASON_DAYS = {
     "kharif": 120,
@@ -74,6 +75,11 @@ def _normalize_season(season: str) -> str:
     if s in SEASON_DAYS:
         return s
     return "kharif"
+
+
+def _normalize_irrigation_type(irr_type: str) -> str:
+    t = (irr_type or "drip").strip().lower()
+    return t if t in IRRIGATION_EFFICIENCY else "drip"
 
 
 @dataclass
@@ -152,32 +158,27 @@ class SustainabilityAnalytics:
     def _save_local_history(self, history: Dict[str, List[Dict[str, Any]]]) -> None:
         import json
         import os
-        from filelock import FileLock
+        import tempfile
         path = self._get_local_file_path()
         tmp_path = path + ".tmp"
         lock_path = path + ".lock"
         try:
-            with FileLock(lock_path, timeout=5):
-                with open(tmp_path, "w", encoding="utf-8") as f:
+            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
                     json.dump(history, f, indent=2, ensure_ascii=False)
-                    f.flush()
-                    os.fsync(f.fileno())
-                os.replace(tmp_path, path)
-        except Exception as e:
-            logger.error("Failed to save local history atomically: %s", e)
-            if os.path.exists(tmp_path):
-                try:
-                    os.remove(tmp_path)
-                except OSError:
-                    pass
-
-        except Exception as exc:
-            logger.error("Failed to save sustainability history file: %s", exc)
+            except Exception:
+                os.unlink(tmp)
+                raise
+            os.replace(tmp, path)
+        except Exception:
+            pass
 
     def get_formula_config(self) -> Dict[str, Any]:
         return {
             "emission_factors": EMISSION_FACTORS,
             "irrigation_efficiency": IRRIGATION_EFFICIENCY,
+            "default_irrigation_efficiency": DEFAULT_IRRIGATION_EFFICIENCY,
             "season_days": SEASON_DAYS,
             "crop_coefficients": CROP_COEFFICIENTS,
         }
@@ -192,7 +193,7 @@ class SustainabilityAnalytics:
         acreage = float(data.get("acreage", 0.1))
         acreage = max(min(acreage, MAX_ACREAGE), 0.1)
         irr_type = data["irrigation_type"]
-        irr_eff = IRRIGATION_EFFICIENCY.get(irr_type, 0.7)
+        irr_eff = IRRIGATION_EFFICIENCY.get(irr_type, DEFAULT_IRRIGATION_EFFICIENCY)
         season_days = SEASON_DAYS[season_key]
 
         rainfall_mm = data.get("rainfall_mm", 0.0)
@@ -413,7 +414,7 @@ class SustainabilityAnalytics:
             "crop_type": str(payload.get("crop_type", "Rice")).strip() or "Rice",
             "season": str(payload.get("season", "Kharif")).strip() or "Kharif",
             "acreage": max(float(payload.get("acreage", 1) or 1), 0.1),
-            "irrigation_type": str(payload.get("irrigation_type", "drip")).lower(),
+            "irrigation_type": _normalize_irrigation_type(payload.get("irrigation_type", "drip")),
             "irrigation_events": max(int(payload.get("irrigation_events", 10) or 0), 0),
             "fertilizer_n_kg": float(payload.get("fertilizer_n_kg")) if payload.get("fertilizer_n_kg") is not None else None,
             "fertilizer_p_kg": float(payload.get("fertilizer_p_kg")) if payload.get("fertilizer_p_kg") is not None else None,

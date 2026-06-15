@@ -5,7 +5,6 @@ Handles concurrent updates, version tracking, and conflict resolution
 
 import logging
 import threading
-from collections import deque
 from enum import Enum
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
@@ -434,10 +433,12 @@ _sync_manager_lock = threading.Lock()
 
 
 def get_sync_manager() -> SyncManager:
-    """Get or create global sync manager — thread-safe singleton."""
+    """Get or create global sync manager (thread-safe singleton)"""
     global _sync_manager
+
     if _sync_manager is None:
         with _sync_manager_lock:
             if _sync_manager is None:
                 _sync_manager = SyncManager()
+
     return _sync_manager
