@@ -4,6 +4,7 @@ Manages model versions, deployment history, and metadata
 """
 
 import logging
+import threading
 from enum import Enum
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
@@ -292,15 +293,18 @@ class ModelRegistry:
         }
 
 
-# Global registry instance
+# Global registry instance and lock
 _model_registry: Optional[ModelRegistry] = None
+_registry_lock = threading.Lock()
 
 
 def get_model_registry() -> ModelRegistry:
-    """Get or create global model registry"""
+    """Get or create global model registry (thread-safe)"""
     global _model_registry
     
     if _model_registry is None:
-        _model_registry = ModelRegistry()
+        with _registry_lock:
+            if _model_registry is None:
+                _model_registry = ModelRegistry()
     
     return _model_registry
