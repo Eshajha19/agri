@@ -28,7 +28,7 @@ except Exception as _e:
     _FIRESTORE_AVAILABLE = False
 
 COLLECTION = "feature_flags"
-CACHE_TTL_SECONDS = 300
+CACHE_TTL_SECONDS = 30
 
 _cache: Dict[str, Dict] = {}
 _cache_loaded_at: float = 0.0
@@ -134,6 +134,11 @@ def _ensure_cache():
         if not _cache or (time.monotonic() - _cache_loaded_at) > CACHE_TTL_SECONDS:
             _refresh_cache_locked()
 
+def force_refresh():
+    """Force refresh cache immediately (bypasses TTL)."""
+    with _cache_lock:
+        _refresh_cache_locked()
+
 
 def _write_to_firestore(flag_id: str, data: Dict):
     if not _FIRESTORE_AVAILABLE:
@@ -166,6 +171,7 @@ def upsert_flag(flag_id: str, data: Dict) -> Dict:
         merged = _enrich(flag_id, merged)
         _cache[flag_id] = merged
     _write_to_firestore(flag_id, merged)
+    force_refresh()
     return merged
 
 
