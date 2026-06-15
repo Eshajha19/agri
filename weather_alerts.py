@@ -162,12 +162,18 @@ class WeatherData:
     weather_code: int  # WMO code
     timestamp: datetime
     location: str = "Unknown"
+    soil_moisture: Optional[float] = None  # 0.0–1.0 volumetric water content
 
     def __str__(self):
-        return (
-            f"Temp: {self.temperature}°C, Humidity: {self.humidity}%, "
-            f"Rain: {self.rainfall}mm, Wind: {self.wind_speed} km/h"
-        )
+        parts = [
+            f"Temp: {self.temperature}°C",
+            f"Humidity: {self.humidity}%",
+            f"Rain: {self.rainfall}mm",
+            f"Wind: {self.wind_speed} km/h",
+        ]
+        if self.soil_moisture is not None:
+            parts.append(f"Soil Moisture: {self.soil_moisture:.0%}")
+        return ", ".join(parts)
 
 
 @dataclass
@@ -486,6 +492,36 @@ class WeatherAlertsService:
                 timestamp=weather.timestamp,
                 expires_at=weather.timestamp + timedelta(hours=6),
             ))
+
+        # Drought detection — considers soil moisture AND rainfall
+        soil_moisture = weather.soil_moisture
+        if soil_moisture is None or soil_moisture < 0.4:
+            low_rainfall = weather.rainfall < 1.0
+            if low_rainfall:
+                if soil_moisture is not None and soil_moisture >= 0.25:
+                    severity = AlertSeverity.LOW
+                elif soil_moisture is not None and soil_moisture >= 0.15:
+                    severity = AlertSeverity.MEDIUM
+                else:
+                    severity = AlertSeverity.HIGH
+
+                alerts.append(WeatherAlert(
+                    id=f"weather_{alert_id_counter}",
+                    severity=severity,
+                    condition=WeatherCondition.DROUGHT,
+                    title="🌾 Drought Risk Detected",
+                    message=(
+                        f"Low rainfall ({weather.rainfall}mm) and "
+                        + (f"low soil moisture ({soil_moisture:.0%})."
+                           if soil_moisture is not None
+                           else "no soil moisture data available.")
+                        + " Monitor irrigation needs."
+                    ),
+                    crop=crop,
+                    timestamp=weather.timestamp,
+                    expires_at=weather.timestamp + timedelta(days=7),
+                ))
+                alert_id_counter += 1
 
         # Crop-specific recommendations
         if crop and crop.lower() in CROP_THRESHOLDS:
