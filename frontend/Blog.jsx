@@ -6,6 +6,61 @@ import { getBookmarks, toggleBookmark } from "./utils/bookmarkStorage";
 
 const BLOG_POSTS = [
   {
+    id: 9,
+    title: "AI-Based Crop Disease Detection for Faster Field Decisions",
+    description: "Learn how image-based disease detection helps farmers identify symptoms early, compare confidence scores, and act before losses spread across the field.",
+    category: "Pest Management",
+    author: "Dr. Priya Nair",
+    date: "May 22, 2026",
+    readTime: "7 min read",
+    thumbnail: "https://images.unsplash.com/photo-1518531933037-91b2f5f229cc?w=600&q=80",
+    tags: ["AI", "Disease Detection", "Mobile Farming"],
+  },
+  {
+    id: 10,
+    title: "Leaf Colour and Texture: What Plant Symptoms Reveal",
+    description: "A practical guide to reading leaf colour changes, spotting texture irregularities, and deciding whether a crop needs nutrition support or disease treatment.",
+    category: "Crop Management",
+    author: "Prof. Suresh Patel",
+    date: "May 18, 2026",
+    readTime: "6 min read",
+    thumbnail: "https://images.unsplash.com/photo-1457530378978-8bac673b8062?w=600&q=80",
+    tags: ["Scouting", "Leaf Health", "Diagnostics"],
+  },
+  {
+    id: 11,
+    title: "Heat Stress Management for Vegetables During Peak Summer",
+    description: "Protect sensitive crops from heatwaves with mulching, shade nets, irrigation timing, and crop-specific stress reduction strategies.",
+    category: "Weather",
+    author: "Meena Krishnan",
+    date: "May 12, 2026",
+    readTime: "8 min read",
+    thumbnail: "https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600&q=80",
+    tags: ["Heatwave", "Mulching", "Irrigation Timing"],
+  },
+  {
+    id: 12,
+    title: "Balanced Nutrient Management for Better Yield and Lower Costs",
+    description: "Use soil test results, micronutrient correction, and split fertiliser application to improve output without overspending on inputs.",
+    category: "Crop Management",
+    author: "Dr. Kavita Rao",
+    date: "May 8, 2026",
+    readTime: "7 min read",
+    thumbnail: "https://images.unsplash.com/photo-1500937386664-56d1dfef3854?w=600&q=80",
+    tags: ["NPK", "Micronutrients", "Soil Health"],
+  },
+  {
+    id: 13,
+    title: "Safe Spraying Practices: Timing, Coverage, and Resistance Control",
+    description: "Improve spray efficiency with the right nozzle, weather window, and rotation strategy to reduce waste and slow pest resistance.",
+    category: "Pest Management",
+    author: "Arvind Kulkarni",
+    date: "May 2, 2026",
+    readTime: "9 min read",
+    thumbnail: "https://images.unsplash.com/photo-1598514982901-2f5f4f6d7d13?w=600&q=80",
+    tags: ["Spraying", "Resistance", "Pesticides"],
+  },
+  {
     id: 1,
     title: "Modern Drip Irrigation Techniques for Small Farms",
     description: "Discover how drip irrigation can reduce water consumption by up to 60% while boosting crop yields. Learn the setup process, maintenance tips, and which crops benefit most.",
@@ -190,6 +245,13 @@ export default function Blog() {
               <div className="blog-card-body">
                 <h2 className="blog-card-title">{post.title}</h2>
                 <p className="blog-card-desc">{post.description}</p>
+                {post.tags && post.tags.length > 0 && (
+                  <div className="blog-card-tags" aria-label="Blog post tags">
+                    {post.tags.map((tag) => (
+                      <span key={tag} className="blog-tag">{tag}</span>
+                    ))}
+                  </div>
+                )}
                 <div className="blog-card-meta">
                   <span className="meta-item">
                     <FaUser /> {post.author}
