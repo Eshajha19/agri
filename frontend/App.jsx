@@ -879,13 +879,15 @@ useEffect(() => {
             onClick={(e) => { e.stopPropagation(); setShowMoreMenu(!showMoreMenu); }}
             className={`more-menu-toggle ${showMoreMenu ? 'active' : ''}`}
             aria-label="More Options"
+            aria-expanded={showMoreMenu}
+            aria-haspopup="menu"
           >
             <span className="notranslate">More</span>
             <FaChevronDown className="chevron" />
           </button>
 
           {showMoreMenu && (
-            <div className="more-dropdown" onClick={(e) => e.stopPropagation()} role="menu">
+            <div className="more-dropdown" onClick={(e) => e.stopPropagation()} role="menu" aria-label="More options menu">
               <div className="dropdown-links">
                 <div className="language-selector-section">
                   <label className="language-label">Language:</label>
@@ -962,7 +964,15 @@ useEffect(() => {
 
           <div className="nav-user" ref={scorecardRef}>
             {!loading && user ? (
-              <div className="user-profile-trigger" onClick={() => { setShowScorecard(!showScorecard); setShowMoreMenu(false); }}>
+              <div
+                className="user-profile-trigger"
+                onClick={() => { setShowScorecard(!showScorecard); setShowMoreMenu(false); }}
+                role="button"
+                tabIndex={0}
+                aria-expanded={showScorecard}
+                aria-haspopup="true"
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setShowScorecard(!showScorecard); setShowMoreMenu(false); } }}
+              >
                 <div className="profile-main">
                   <span className="profile-name">👋 {userData?.displayName || user.email?.split('@')[0]}</span>
                   <FaChevronDown className={`chevron ${showScorecard ? 'open' : ''}`} />
