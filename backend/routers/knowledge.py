@@ -149,10 +149,6 @@ def get_rag_runtime(
     return rag_fn, verify_fn
 
 
-def get_simulation_runtime(verify_fn: Callable[..., Any] = Depends(get_verify_role_fn)):
-    return verify_fn
-
-
 def get_seed_runtime(
     verify_fn: Callable[..., Any] = Depends(get_verify_role_fn),
     registry: dict = Depends(get_seed_registry),
@@ -578,7 +574,7 @@ async def rag_query(request: Request, body: RAGQuery = Depends(_parse_rag_query)
 
 
 @router.post("/simulate-climate")
-async def simulate_climate(request: Request, data: SimulationRequest, verify_fn=Depends(get_simulation_runtime)):
+async def simulate_climate(request: Request, data: SimulationRequest, verify_fn=Depends(get_verify_role_fn)):
     """Run a climate impact simulation for a given crop.
 
     Authentication is required so that the endpoint is not freely
