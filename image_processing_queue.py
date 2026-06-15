@@ -158,34 +158,34 @@ class ImageProcessingQueue:
 
     def fail_task(self, task_id: str, error: str, retry: bool = True) -> bool:
         """Mark task as failed with optional retry"""
+        need_requeue = False
         with self._task_lock:
             if task_id not in self._tasks_by_id:
                 logger.warning(f"Task {task_id} not found for failure")
                 return False
-            
+
             task = self._tasks_by_id[task_id]
             task.retry_count += 1
-            
+
             if retry and task.retry_count < task.max_retries:
                 task.status = TaskStatus.RETRYING
-                # Re-enqueue for retry
-                with self._queue_lock:
-                    heapq.heappush(self._task_queue, (task.priority.value, self._counter, task))
-                    self._counter += 1
-                logger.info(f"Task {task_id} requeued for retry ({task.retry_count}/{task.max_retries})")
-                return True
+                need_requeue = True
             else:
                 task.status = TaskStatus.FAILED
                 task.error = error
                 task.completed_at = datetime.now().isoformat()
-                
-                # Move to completed
                 del self._tasks_by_id[task_id]
                 self._completed_tasks[task_id] = task
                 self._total_failed += 1
-                
                 logger.error(f"Task {task_id} failed after {task.retry_count} retries: {error}")
                 return False
+
+        if need_requeue:
+            with self._queue_lock:
+                heapq.heappush(self._task_queue, (task.priority.value, self._counter, task))
+                self._counter += 1
+            logger.info(f"Task {task_id} requeued for retry ({task.retry_count}/{task.max_retries})")
+            return True
 
     def get_task_status(self, task_id: str) -> Optional[Dict]:
         """Get status of a task"""
