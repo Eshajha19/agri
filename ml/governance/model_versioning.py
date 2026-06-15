@@ -255,14 +255,15 @@ class ModelVersionManager:
         
         # Demote current production version
         if self.production_version:
-            old_version = self.versions[self.production_version]
-            old_version.is_production = False
+            old_version = self.versions.get(self.production_version)
+            if old_version is not None:
+                old_version.is_production = False
             
             self.version_history.append({
                 'timestamp': datetime.now().isoformat(),
                 'action': 'demote',
                 'version_id': self.production_version,
-                'details': f"Demoted {self.production_version} (was in production for X days)"
+                'details': f"Demoted {self.production_version}" + (" (was in production for X days)" if old_version else " (version no longer exists)")
             })
         
         # Promote new version

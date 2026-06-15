@@ -2885,15 +2885,6 @@ async def lifespan(app: FastAPI):
         logger.warning("RAG init skipped: %s", exc)
 
     knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
-    alerts.init_alerts(
-        [],
-        subscriber_store,
-        lambda **kwargs: [],
-        send_whatsapp_message,
-        format_alert_message,
-        verify_role,
-        lambda uid: _get_firestore_user_profile(uid),
-    )
     init_feature_flags(verify_role)
     platform.init_platform(
         verify_role,
@@ -4237,12 +4228,6 @@ app.include_router(community.router, prefix="/api/community", tags=["Community"]
 if voice_assistant_router is not None:
     app.include_router(voice_assistant_router.router, prefix="/api/voice", tags=["Voice Assistant"])
 app.include_router(referrals.router, prefix="/api/referrals", tags=["Referrals"])
-app.include_router(platform.router, prefix="/api", tags=["Platform"])
-app.include_router(advisory.router, prefix="/api", tags=["Advisory"])
-app.include_router(alerts.router, prefix="/api/notifications", tags=["Alerts"])
-app.include_router(flags_router, tags=["Feature Flags"])
-app.include_router(lms.router, prefix="/api", tags=["LMS"])
-app.include_router(insurance.router, prefix="/api", tags=["Insurance"])
 
 
 # --- Smart Farm Autopilot ---

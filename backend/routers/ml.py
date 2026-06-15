@@ -1,14 +1,13 @@
 """ML Prediction Router - Yield prediction endpoints"""
 import os
 import threading
-import logging
-import threading
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field
+from backend.core.logging_config import setup_logging
 from error_utils import safe_detail
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
+logger = setup_logging(__name__)
 
 class PredictRequest(BaseModel):
     Crop: str = Field(..., max_length=50)
