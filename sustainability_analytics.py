@@ -109,30 +109,106 @@ class SustainabilityAnalytics:
         return None
 
     def _get_local_file_path(self) -> str:
+        """Return the path of the append-only JSONL history file.
+
+        Each line in the file is a JSON-encoded sustainability record.
+        The .jsonl extension makes the format explicit and distinguishes
+        the new layout from any legacy .json files.
+        """
         if getattr(self, "is_testing", False):
-            return "sustainability_history_test.json"
-        return "sustainability_history.json"
+            return "sustainability_history_test.jsonl"
+        return "sustainability_history.jsonl"
 
     def _load_local_history(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Read the append-only JSONL file and rebuild the user-keyed dict.
+
+        Each line is one JSON record containing at minimum a ``user_id`` key.
+        Lines that cannot be decoded are skipped with a warning so a single
+        corrupt entry never blocks the entire history from loading.
+        """
         import json
         import os
-        path = self._get_local_file_path()
-        if os.path.exists(path):
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                pass
-        return {}
 
-    def _save_local_history(self, history: Dict[str, List[Dict[str, Any]]]) -> None:
-        import json
         path = self._get_local_file_path()
+        history: Dict[str, List[Dict[str, Any]]] = {}
+        if not os.path.exists(path):
+            return history
         try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(history, f, indent=2, ensure_ascii=False)
+            with open(path, "r", encoding="utf-8") as fh:
+                for lineno, raw in enumerate(fh, start=1):
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+                    try:
+                        record = json.loads(raw)
+                        uid = record.get("user_id", "anonymous")
+                        history.setdefault(uid, []).append(record)
+                    except json.JSONDecodeError:
+                        import logging as _log
+                        _log.getLogger(__name__).warning(
+                            "Skipping malformed JSONL record at line %d in %s", lineno, path
+                        )
         except Exception:
             pass
+        return history
+
+    def _append_record_to_file(self, record: Dict[str, Any]) -> None:
+        """Append a single JSON record as one line to the JSONL file.
+
+        Opens the file in append mode (``'a'``), so only the new record is
+        written.  This is O(1) regardless of how large the history file has
+        grown — no read or full-file rewrite is needed.
+        """
+        import json
+        import os
+
+        path = self._get_local_file_path()
+        try:
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(record, ensure_ascii=False))
+                fh.write("\n")
+        except Exception as exc:
+            import logging as _log
+            _log.getLogger(__name__).warning(
+                "Failed to append sustainability record to %s: %s", path, exc
+            )
+
+    def _save_local_history(self, history: Dict[str, List[Dict[str, Any]]]) -> None:
+        """Full-rewrite used only for compaction / migration.
+
+        Under normal operation, prefer ``_append_record_to_file`` which is
+        O(1).  This method rewrites the entire JSONL file from the supplied
+        dict and should only be called when explicitly compacting.
+        """
+        import json
+
+        path = self._get_local_file_path()
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                for records in history.values():
+                    for record in records:
+                        fh.write(json.dumps(record, ensure_ascii=False))
+                        fh.write("\n")
+        except Exception as exc:
+            import logging as _log
+            _log.getLogger(__name__).warning(
+                "Failed to rewrite sustainability history file %s: %s", path, exc
+            )
+
+    def compact_local_history(self, max_records_per_user: int = 50) -> int:
+        """Compact the JSONL file by keeping only the most recent records.
+
+        Reads all lines, trims each user's list to *max_records_per_user*
+        newest entries, and rewrites the file.  Returns the number of records
+        removed.  Suitable for a periodic maintenance job — not called on
+        every request.
+        """
+        history = self._load_local_history()
+        total_before = sum(len(v) for v in history.values())
+        trimmed = {uid: recs[-max_records_per_user:] for uid, recs in history.items()}
+        total_after = sum(len(v) for v in trimmed.values())
+        self._save_local_history(trimmed)
+        return total_before - total_after
 
     def get_formula_config(self) -> Dict[str, Any]:
         return {
@@ -315,7 +391,7 @@ class SustainabilityAnalytics:
         if len(self._history[key]) > 50:
             self._history[key] = self._history[key][-50:]
 
-        # Save to Firestore primarilly
+        # Save to Firestore primarily
         db = self._get_db()
         if db is not None:
             try:
@@ -323,17 +399,8 @@ class SustainabilityAnalytics:
             except Exception:
                 pass
 
-        # Save to local persistent file as fallback
-        try:
-            local_hist = self._load_local_history()
-            if key not in local_hist:
-                local_hist[key] = []
-            local_hist[key].append(record)
-            if len(local_hist[key]) > 50:
-                local_hist[key] = local_hist[key][-50:]
-            self._save_local_history(local_hist)
-        except Exception:
-            pass
+        # O(1) append to the local JSONL file — no full read/rewrite needed.
+        self._append_record_to_file(record)
 
     def _normalize_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return {
