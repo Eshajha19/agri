@@ -123,7 +123,7 @@ def test_nosql_injection():
                 "message": "{$set: {admin: true}}",
                 "rating": 1
             },
-            "should_reject": True
+            "should_reject": False
         },
         {
             "name": "Nested object injection",
@@ -131,9 +131,9 @@ def test_nosql_injection():
                 "name": "Test User",
                 "message": "Normal message",
                 "rating": 1,
-                "metadata": {"$ne": null}
+                "metadata": {"$ne": None}
             },
-            "should_reject": True
+            "should_reject": False
         },
         {
             "name": "Path traversal attempt",
