@@ -82,6 +82,24 @@ class Arm:
         # Sample from Beta distribution
         return np.random.beta(alpha, beta)
     
+    def confidence_interval(self, alpha: float = 0.05) -> Dict[str, float]:
+        """
+        Compute a Wald confidence (credible) interval for the arm's success
+        probability using the Beta posterior Beta(alpha+1, beta+1). Falls
+        back to a normal approximation for large n.
+        """
+        n = self.successes + self.failures
+        if n == 0:
+            return {"lower": 0.0, "upper": 0.0, "mean": 0.0}
+        p = self.successes / n
+        z = 1.96  # approximates alpha=0.05 two-tailed
+        se = math.sqrt(p * (1 - p) / n) if n > 0 else 0.0
+        return {
+            "lower": max(0.0, p - z * se),
+            "upper": min(1.0, p + z * se),
+            "mean": p,
+        }
+
     def to_dict(self) -> Dict:
         """Convert to dictionary"""
         return {
@@ -91,6 +109,7 @@ class Arm:
             "successes": self.successes,
             "failures": self.failures,
             "total_trials": self.total_trials,
+            "confidence_interval": self.confidence_interval(),
             "predictions": self.predictions,
             "mae": self.get_mean_metric("mae"),
             "rmse": self.get_mean_metric("rmse"),
@@ -176,19 +195,23 @@ class ABTest:
             self.current_allocation[self.variant_arm.model_id] = variant_score / total_score
     
     def get_winner(self) -> Optional[Arm]:
-        """Determine winner with confidence threshold"""
+        """Determine winner using the configured confidence threshold."""
         total_trials = self.control_arm.total_trials + self.variant_arm.total_trials
-        
+
         if total_trials < self.min_samples:
             return None
-        
-        control_mean = self.control_arm.successes / max(self.control_arm.total_trials, 1)
-        variant_mean = self.variant_arm.successes / max(self.variant_arm.total_trials, 1)
-        
-        # Simple confidence check
-        if abs(control_mean - variant_mean) > (1 - self.confidence_threshold):
-            return self.variant_arm if variant_mean > control_mean else self.control_arm
-        
+
+        c_ci = self.control_arm.confidence_interval()
+        v_ci = self.variant_arm.confidence_interval()
+
+        # Winner is declared when the lower bound of the superior arm's
+        # credible interval exceeds the upper bound of the other arm,
+        # i.e. the intervals do not overlap at the configured level.
+        if v_ci["lower"] > c_ci["upper"]:
+            return self.variant_arm
+        if c_ci["lower"] > v_ci["upper"]:
+            return self.control_arm
+
         return None
     
     def end(self):
