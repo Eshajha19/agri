@@ -1,21 +1,25 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   FaShieldAlt,
   FaStethoscope,
   FaFlask,
   FaLeaf,
   FaBug,
+  FaSearch,
   FaTint,
   FaSeedling,
 } from "react-icons/fa";
+import { Wheat, Carrot, Leaf, Banana, Apple, Citrus, Grape, Salad, Bean, Cherry } from "lucide-react";
 import "./CropDiseaseAwareness.css";
+import Recommendations from "./Recommendations";
+
 
 const diseaseData = [
   {
-    id: 1,
+    id: "late-blight",
     name: "Late Blight",
     crop: "Potato & Tomato",
-    icon: "🥔",
+    icon: <Carrot size={40} aria-hidden="true" />,
     cause: "Caused by the fungus-like pathogen Phytophthora infestans.",
     symptoms:
       "Water-soaked spots on leaves that turn brown or black. White fungal growth appears under leaves in humid weather. Tubers and fruits develop brown decay.",
@@ -25,10 +29,10 @@ const diseaseData = [
       "Apply copper fungicides and remove infected plants immediately. Use resistant varieties where possible.",
   },
   {
-    id: 2,
+    id: "rice-blast",
     name: "Rice Blast",
     crop: "Rice",
-    icon: "🌾",
+    icon: <Wheat size={40} aria-hidden="true" />,
     cause: "Caused by the fungus Magnaporthe oryzae.",
     symptoms:
       "Diamond-shaped lesions with gray centers on leaves. Neck rot leads to grain failure and weak stems.",
@@ -38,10 +42,10 @@ const diseaseData = [
       "Spray Tricyclazole or Carbendazim. Destroy infected crop residues after harvest.",
   },
   {
-    id: 3,
+    id: "wheat-rust",
     name: "Wheat Rust",
     crop: "Wheat",
-    icon: "🍞",
+    icon: <Wheat size={40} aria-hidden="true" />,
     cause: "Fungal infection spread by airborne spores.",
     symptoms:
       "Orange-red powdery pustules on leaves and stems. Severe infection causes yellowing and shriveled grains.",
@@ -51,10 +55,10 @@ const diseaseData = [
       "Apply systemic fungicides like Propiconazole or Tebuconazole.",
   },
   {
-    id: 4,
+    id: "black-rot",
     name: "Black Rot",
     crop: "Cabbage & Cauliflower",
-    icon: "🥬",
+    icon: <Salad size={40} aria-hidden="true" />,
     cause: "Bacterial disease caused by Xanthomonas campestris.",
     symptoms:
       "Yellow V-shaped lesions on leaves with blackened veins.",
@@ -64,10 +68,10 @@ const diseaseData = [
       "Use copper sprays and remove infected debris from fields.",
   },
   {
-    id: 5,
+    id: "powdery-mildew",
     name: "Powdery Mildew",
     crop: "Peas & Cucurbits",
-    icon: "🎃",
+    icon: <Bean size={40} aria-hidden="true" />,
     cause: "Fungal disease thriving in warm dry climates.",
     symptoms:
       "White powdery growth on leaves and stems. Leaves curl and dry prematurely.",
@@ -77,10 +81,10 @@ const diseaseData = [
       "Apply sulfur fungicides, neem oil, or baking soda spray.",
   },
   {
-    id: 6,
+    id: "citrus-canker",
     name: "Citrus Canker",
     crop: "Citrus Fruits",
-    icon: "🍋",
+    icon: <Citrus size={40} aria-hidden="true" />,
     cause: "Bacterial disease spread by wind and rain.",
     symptoms:
       "Raised corky lesions on fruits, leaves, and branches with yellow halos.",
@@ -89,14 +93,11 @@ const diseaseData = [
     remedies:
       "Apply copper bactericides and prune infected branches.",
   },
-
-  /* NEW DISEASE CARDS */
-
   {
-    id: 7,
+    id: "downy-mildew",
     name: "Downy Mildew",
     crop: "Grapes & Vegetables",
-    icon: "🍇",
+    icon: <Grape size={40} aria-hidden="true" />,
     cause: "Fungal-like pathogen favored by cool, humid conditions.",
     symptoms:
       "Yellow patches on upper leaf surfaces with gray mold underneath.",
@@ -106,10 +107,10 @@ const diseaseData = [
       "Apply Mancozeb or Metalaxyl-based fungicides.",
   },
   {
-    id: 8,
+    id: "bacterial-leaf-blight",
     name: "Bacterial Leaf Blight",
     crop: "Rice",
-    icon: "🌱",
+    icon: <Leaf size={40} aria-hidden="true" />,
     cause: "Bacterial infection caused by Xanthomonas oryzae.",
     symptoms:
       "Leaves turn yellow from tips downward and dry out.",
@@ -119,10 +120,10 @@ const diseaseData = [
       "Apply copper bactericides and avoid excessive nitrogen.",
   },
   {
-    id: 9,
+    id: "anthracnose",
     name: "Anthracnose",
     crop: "Chili & Mango",
-    icon: "🌶️",
+    icon: <Cherry size={40} aria-hidden="true" />,
     cause: "Fungal disease common during rainy weather.",
     symptoms:
       "Dark sunken lesions on fruits, leaves, and stems.",
@@ -132,10 +133,10 @@ const diseaseData = [
       "Use fungicides such as Chlorothalonil or Copper Oxychloride.",
   },
   {
-    id: 10,
+    id: "root-rot",
     name: "Root Rot",
     crop: "Vegetables & Pulses",
-    icon: "🥕",
+    icon: <Carrot size={40} aria-hidden="true" />,
     cause: "Soil-borne fungi thriving in waterlogged soils.",
     symptoms:
       "Roots become brown and mushy. Plants wilt despite watering.",
@@ -145,10 +146,10 @@ const diseaseData = [
       "Treat soil with fungicides and remove infected plants.",
   },
   {
-    id: 11,
+    id: "mosaic-virus",
     name: "Mosaic Virus",
     crop: "Tomato & Tobacco",
-    icon: "🍅",
+    icon: <Apple size={40} aria-hidden="true" />,
     cause: "Virus spread through insects and infected tools.",
     symptoms:
       "Mottled yellow-green leaf patterns with stunted growth.",
@@ -158,10 +159,10 @@ const diseaseData = [
       "Remove infected plants immediately to stop spread.",
   },
   {
-    id: 12,
+    id: "stem-borer",
     name: "Stem Borer",
     crop: "Rice & Maize",
-    icon: "🌽",
+    icon: <Wheat size={40} aria-hidden="true" />,
     cause: "Insect pest larvae boring into stems.",
     symptoms:
       "Dead hearts in young plants and hollow stems.",
@@ -171,10 +172,10 @@ const diseaseData = [
       "Apply suitable insecticides and destroy crop residues.",
   },
   {
-    id: 13,
+    id: "leaf-curl-disease",
     name: "Leaf Curl Disease",
     crop: "Chili & Tomato",
-    icon: "🍃",
+    icon: <Leaf size={40} aria-hidden="true" />,
     cause: "Virus transmitted by whiteflies.",
     symptoms:
       "Leaves curl upward and plants become stunted.",
@@ -184,10 +185,10 @@ const diseaseData = [
       "Spray neem oil and remove infected plants.",
   },
   {
-    id: 14,
+    id: "wilt-disease",
     name: "Wilt Disease",
     crop: "Banana & Tomato",
-    icon: "🍌",
+    icon: <Banana size={40} aria-hidden="true" />,
     cause: "Soil-borne fungal infection blocking water transport.",
     symptoms:
       "Sudden wilting and yellowing despite adequate moisture.",
@@ -197,10 +198,10 @@ const diseaseData = [
       "Apply bio-fungicides and remove infected plants.",
   },
   {
-    id: 15,
+    id: "scab-disease",
     name: "Scab Disease",
     crop: "Apple & Potato",
-    icon: "🍎",
+    icon: <Apple size={40} aria-hidden="true" />,
     cause: "Fungal infection affecting fruits and tubers.",
     symptoms:
       "Rough corky spots appear on fruit or potato skin.",
@@ -210,10 +211,10 @@ const diseaseData = [
       "Apply preventive fungicides during early growth stages.",
   },
   {
-    id: 16,
+    id: "fruit-rot",
     name: "Fruit Rot",
     crop: "Tomato & Papaya",
-    icon: "🍍",
+    icon: <Apple size={40} aria-hidden="true" />,
     cause: "Fungal pathogens attacking ripening fruits.",
     symptoms:
       "Soft watery decay with foul smell on fruits.",
@@ -225,70 +226,113 @@ const diseaseData = [
 ];
 
 const CropDiseaseAwareness = () => {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCrop, setSelectedCrop] = useState("All");
+
+  const crops = ["All", ...new Set(diseaseData.map(d => d.crop))];
+
+  const filteredDiseases = diseaseData.filter(disease => {
+    const matchesSearch = disease.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         disease.crop.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCrop = selectedCrop === "All" || disease.crop === selectedCrop;
+    return matchesSearch && matchesCrop;
+  });
+
   return (
     <div className="disease-awareness-container">
       <header className="disease-header">
         <h1>
-          <FaLeaf /> Crop Disease Awareness
+          <FaLeaf aria-hidden="true" /> Crop Disease Awareness
         </h1>
 
         <p>
           Learn about common crop diseases, their causes, prevention methods,
           and treatments to improve crop health and productivity.
         </p>
+
+        <div className="disease-filters">
+          <div className="search-wrapper">
+            <FaSearch className="search-icon" aria-hidden="true" />
+            <input
+              type="text"
+              placeholder="Search diseases or crops..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="disease-search"
+              aria-label="Search diseases"
+            />
+          </div>
+
+          <select
+            value={selectedCrop}
+            onChange={(e) => setSelectedCrop(e.target.value)}
+            className="crop-filter"
+            aria-label="Filter by crop"
+          >
+            {crops.map(crop => (
+              <option key={crop} value={crop}>{crop}</option>
+            ))}
+          </select>
+        </div>
       </header>
 
       <div className="disease-grid">
-        {diseaseData.map((disease) => (
-          <div key={disease.id} className="disease-card">
-            <div className="disease-image-placeholder">
-              {disease.icon}
-            </div>
-
-            <div className="disease-content">
-              <span className="crop-tag">{disease.crop}</span>
-
-              <h2 className="disease-title">{disease.name}</h2>
-
-              <div className="disease-section">
-                <h4>
-                  <FaBug /> Cause
-                </h4>
-                <p>{disease.cause}</p>
+        {filteredDiseases.length > 0 ? (
+          filteredDiseases.map((disease) => (
+            <article key={disease.id} className="disease-card">
+              <div className="disease-image-placeholder" aria-hidden="true">
+                {disease.icon}
               </div>
 
-              <div className="disease-section">
-                <h4>
-                  <FaStethoscope /> Symptoms
-                </h4>
-                <p>{disease.symptoms}</p>
+              <div className="disease-content">
+                <span className="crop-tag">{disease.crop}</span>
+
+                <h2 className="disease-title">{disease.name}</h2>
+
+                <section className="disease-section" aria-label="Cause">
+                  <h4>
+                    <FaBug aria-hidden="true" /> Cause
+                  </h4>
+                  <p>{disease.cause}</p>
+                </section>
+
+                <section className="disease-section" aria-label="Symptoms">
+                  <h4>
+                    <FaStethoscope aria-hidden="true" /> Symptoms
+                  </h4>
+                  <p>{disease.symptoms}</p>
+                </section>
+
+                <section className="disease-section" aria-label="Prevention">
+                  <h4>
+                    <FaShieldAlt aria-hidden="true" /> Prevention
+                  </h4>
+                  <p>{disease.prevention}</p>
+                </section>
               </div>
 
-              <div className="disease-section">
-                <h4>
-                  <FaShieldAlt /> Prevention
-                </h4>
-                <p>{disease.prevention}</p>
-              </div>
-            </div>
-
-            <div className="disease-footer">
-              <div className="remedy-badge">
-                <FaFlask size={20} style={{ marginTop: "4px" }} />
-
-                <p>
-                  <strong>Recommended Treatment:</strong>{" "}
-                  {disease.remedies}
-                </p>
-              </div>
-            </div>
+              <footer className="disease-footer">
+                <div className="remedy-badge">
+                  <FaFlask size={20} aria-hidden="true" />
+                  <p>
+                    <strong>Recommended Treatment:</strong> {disease.remedies}
+                  </p>
+                </div>
+              </footer>
+            </article>
+          ))
+        ) : (
+          <div className="no-results" role="status">
+            No diseases found matching your criteria.
           </div>
-        ))}
+        )}
       </div>
+      <div>
+      <h2>Crop Recommendations</h2>
+      <Recommendations results={results} />
+    </div>
     </div>
   );
 };
-
-
 
 export default CropDiseaseAwareness;
