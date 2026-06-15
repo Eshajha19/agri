@@ -8,6 +8,7 @@ import cv2
 from PIL import Image
 import io
 import json
+from collections import deque
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 import base64
@@ -19,24 +20,33 @@ CROP_QUALITY_PARAMS = {
         "color_ranges": {"red": (120, 180), "green": (40, 80), "blue": (30, 70)},
         "size_range": (40, 150),  # mm
         "shape_uniformity_threshold": 0.75,
+        # Aspect ratio = minor/major axis (0=line, 1=perfect circle).
+        # Tomatoes are near-spherical so the ratio stays close to 1.
+        "aspect_ratio_range": (0.80, 1.00),
         "defect_threshold": 10,  # percentage
     },
     "potato": {
         "color_ranges": {"red": (100, 140), "green": (90, 130), "blue": (70, 110)},
         "size_range": (50, 200),
         "shape_uniformity_threshold": 0.70,
+        # Potatoes are mildly oblong; accept a wider range toward elongation.
+        "aspect_ratio_range": (0.55, 1.00),
         "defect_threshold": 15,
     },
     "grain": {
         "color_ranges": {"red": (150, 200), "green": (130, 180), "blue": (80, 130)},
         "size_range": (5, 15),
         "shape_uniformity_threshold": 0.80,
+        # Grains (rice, wheat) are distinctly elongated kernels.
+        "aspect_ratio_range": (0.25, 0.65),
         "defect_threshold": 8,
     },
     "fruit": {
         "color_ranges": {"red": (140, 220), "green": (50, 150), "blue": (30, 100)},
         "size_range": (50, 200),
         "shape_uniformity_threshold": 0.78,
+        # General fruit (apple, mango) range from round to slightly oblong.
+        "aspect_ratio_range": (0.65, 1.00),
         "defect_threshold": 12,
     },
 }
@@ -66,6 +76,10 @@ class QualityAssessment:
     recommendations: List[str]
     timestamp: str
     confidence: float
+    audit_metadata: Dict
+    confidence_category: str
+    classification_strength: str
+    confidence_metadata: Dict
 
 
 class CropQualityGrader:
@@ -101,6 +115,11 @@ class CropQualityGrader:
         if image is None:
             raise ValueError("Invalid image data")
 
+        # OpenCV loads as BGR; convert to RGB so that channel access
+        # (image[:,:,0] = R, :,:,1 = G, :,:,2 = B) matches the
+        # crop-quality thresholds defined in RGB order.
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
         # Get crop params
         params = CROP_QUALITY_PARAMS[crop_type.lower()]
 
@@ -121,6 +140,60 @@ class CropQualityGrader:
         # Determine grade
         grade = self._get_grade(overall_score)
         price_adjustment = GRADE_MAPPING[grade]["price_multiplier"]
+        confidence_score = round(
+            min(95, 70 + (overall_score / 100) * 25),
+            2,
+        )
+
+        confidence_metadata = self._build_confidence_metadata(
+            confidence_score,
+            overall_score,
+            grade,
+        )
+
+        audit_metadata = {
+            "assessment_timestamp": datetime.now().isoformat(),
+            "evaluation_stage_summary": [
+                "size_analysis",
+                "color_analysis",
+                "shape_analysis",
+                "defect_detection",
+                "grade_assignment",
+            ],
+            "rule_execution_indicators": {
+                "size_rule": True,
+                "color_rule": True,
+                "shape_rule": True,
+                "defect_rule": True,
+            },
+            "decision_metadata": {
+                "overall_score": round(overall_score, 2),
+                "assigned_grade": grade,
+                "price_multiplier": price_adjustment,
+            },
+        }
+
+        audit_metadata = {
+            "assessment_timestamp": datetime.now().isoformat(),
+            "evaluation_stage_summary": [
+                "size_analysis",
+                "color_analysis",
+                "shape_analysis",
+                "defect_detection",
+                "grade_assignment",
+            ],
+            "rule_execution_indicators": {
+                "size_rule": True,
+                "color_rule": True,
+                "shape_rule": True,
+                "defect_rule": True,
+            },
+            "decision_metadata": {
+                "overall_score": round(overall_score, 2),
+                "assigned_grade": grade,
+                "price_multiplier": price_adjustment,
+            },
+        }
 
         # Generate recommendations
         recommendations = self._generate_recommendations(
@@ -139,6 +212,11 @@ class CropQualityGrader:
             recommendations=recommendations,
             timestamp=datetime.now().isoformat(),
             confidence=round(min(95, 70 + (overall_score / 100) * 25), 2),
+            audit_metadata=audit_metadata,
+            confidence=confidence_score,
+            confidence_category=confidence_metadata["confidence_category"],
+            classification_strength=confidence_metadata["classification_strength"],
+            confidence_metadata=confidence_metadata,
         )
 
         # Store in history
@@ -152,9 +230,9 @@ class CropQualityGrader:
         """Assess size uniformity of crops in image"""
         if not isinstance(image, np.ndarray):
             return 50.0
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         contours, _ = cv2.findContours(
-            cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)[1],
+            binary,
             cv2.RETR_EXTERNAL,
             cv2.CHAIN_APPROX_SIMPLE,
         )
@@ -173,30 +251,80 @@ class CropQualityGrader:
         return float(min(100, uniformity))
 
     def _assess_color(self, image: np.ndarray, params: Dict) -> float:
-        """Assess color quality"""
+        """Assess color quality against configured crop color range constraints.
+
+        Computes per-channel (B, G, R) mean values and scores each channel by
+        how well it falls within the configured ``color_ranges``.  Channels
+        within the acceptable range score 100; channels outside are penalized
+        proportionally to their deviation from the nearest range boundary,
+        scaled by the width of the allowed range.  The final score is the mean
+        across all three channels so that crops with any out-of-range channel
+        (e.g. rotten discoloration) receive a meaningfully lower grade.
+        """
         if not isinstance(image, np.ndarray):
             return 50.0
-        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        color_quality_score = 0.0
 
-        # Check dominant color in expected range
-        h, s, v = cv2.split(hsv)
-        avg_h = np.mean(h)
-        avg_s = np.mean(s)
-        avg_v = np.mean(v)
+        color_ranges = params.get("color_ranges", {})
+        if not color_ranges:
+            # Fallback: no ranges configured — use neutral mid-score
+            return 50.0
 
-        # Saturation and value scores
-        saturation_score = min(100, (avg_s / 255) * 120)
-        brightness_score = min(100, (avg_v / 255) * 110)
+        # BGR channel order as returned by OpenCV
+        channel_keys = ["blue", "green", "red"]
+        b, g, r = cv2.split(image)
+        channel_means = {"blue": float(np.mean(b)), "green": float(np.mean(g)), "red": float(np.mean(r))}
 
-        color_quality_score = (saturation_score * 0.6 + brightness_score * 0.4)
+        channel_scores: List[float] = []
+        for key in channel_keys:
+            if key not in color_ranges:
+                continue
+            low, high = color_ranges[key]
+            mean_val = channel_means[key]
+            range_width = max(high - low, 1)  # guard against zero-width ranges
 
-        return float(min(100, color_quality_score))
+            if low <= mean_val <= high:
+                score = 100.0
+            elif mean_val < low:
+                deviation = low - mean_val
+                score = max(0.0, 100.0 - (deviation / range_width) * 100.0)
+            else:  # mean_val > high
+                deviation = mean_val - high
+                score = max(0.0, 100.0 - (deviation / range_width) * 100.0)
+
+            channel_scores.append(score)
+
+        if not channel_scores:
+            return 50.0
+
+        return float(min(100.0, np.mean(channel_scores)))
 
     def _assess_shape(self, image: np.ndarray, params: Dict) -> float:
-        """Assess shape uniformity"""
+        """Assess shape quality against the crop-specific expected aspect ratio range.
+
+        Rather than applying a universal circularity metric (which penalises
+        naturally elongated crops such as grains or oblong potatoes), this method
+        measures the minor/major axis ratio of each detected contour via
+        ``cv2.fitEllipse`` and scores how well it falls within the
+        ``aspect_ratio_range`` configured in ``CROP_QUALITY_PARAMS``.
+
+        Ratio convention: ``minor_axis / major_axis`` ∈ (0, 1].
+        A ratio of 1 means a perfect circle; values approaching 0 indicate
+        high elongation.  Each contour whose ratio lies within ``[low, high]``
+        scores 100; contours outside the range are penalised proportionally
+        to their deviation scaled by the range width.  The final score is the
+        mean across all valid contours.
+        """
         if not isinstance(image, np.ndarray):
             return 50.0
+
+        aspect_ratio_range = params.get("aspect_ratio_range")
+        if not aspect_ratio_range:
+            # No range configured — fall back to neutral score
+            return 50.0
+
+        low, high = aspect_ratio_range
+        range_width = max(high - low, 0.01)  # guard against zero-width ranges
+
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         contours, _ = cv2.findContours(
             cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)[1],
@@ -207,38 +335,64 @@ class CropQualityGrader:
         if not contours:
             return 50.0
 
-        # Calculate circularity for each contour
-        circularities = []
+        contour_scores: List[float] = []
         for contour in contours:
-            if len(contour) > 5:
-                area = cv2.contourArea(contour)
-                perimeter = cv2.arcLength(contour, True)
-                if perimeter > 0:
-                    circularity = (4 * np.pi * area) / (perimeter ** 2)
-                    circularities.append(min(1.0, circularity))
+            # fitEllipse requires at least 5 points
+            if len(contour) < 5:
+                continue
+            try:
+                _, (minor_axis, major_axis), _ = cv2.fitEllipse(contour)
+            except cv2.error:
+                continue
+            if major_axis <= 0:
+                continue
 
-        if not circularities:
+            ratio = min(minor_axis, major_axis) / max(minor_axis, major_axis)
+
+            if low <= ratio <= high:
+                score = 100.0
+            elif ratio < low:
+                deviation = low - ratio
+                score = max(0.0, 100.0 - (deviation / range_width) * 100.0)
+            else:  # ratio > high
+                deviation = ratio - high
+                score = max(0.0, 100.0 - (deviation / range_width) * 100.0)
+
+            contour_scores.append(score)
+
+        if not contour_scores:
             return 50.0
 
-        avg_circularity = np.mean(circularities)
-        shape_quality = avg_circularity * 100
-
-        return min(100, shape_quality)
+        return float(min(100.0, np.mean(contour_scores)))
 
     def _detect_defects(self, image: np.ndarray, params: Dict) -> float:
-        """Detect defects in crops"""
+        """Detect defects relative to crop surface area (zoom-invariant)."""
         if not isinstance(image, np.ndarray):
             return 10.0
+
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-        # Use edge detection to find defects
+        # Segment crop from background to get actual crop surface area
+        _, thresh = cv2.threshold(gray, 50, 255, cv2.THRESH_BINARY)
+        crop_pixels = int(np.count_nonzero(thresh))
+        if crop_pixels == 0:
+            return 0.0
+
+        # Detect edges inside the image using Canny
         edges = cv2.Canny(gray, 50, 150)
-        total_pixels = edges.shape[0] * edges.shape[1]
-        defect_pixels = np.count_nonzero(edges)
 
-        defect_percentage = (defect_pixels / total_pixels) * 100
+        # Erode the crop mask to exclude outer boundary edges (background artefacts)
+        kernel = np.ones((5, 5), np.uint8)
+        eroded_mask = cv2.erode(thresh, kernel, iterations=1)
 
-        return min(100, defect_percentage * 2)  # Scale defects
+        # Restrict edges to interior of crop only
+        internal_edges = cv2.bitwise_and(edges, eroded_mask)
+        defect_pixels = int(np.count_nonzero(internal_edges))
+
+        # Defect percentage relative to crop area — invariant to zoom/framing
+        defect_percentage = (defect_pixels / crop_pixels) * 100
+
+        return min(100.0, float(defect_percentage * 10))
 
     def _get_grade(self, score: float) -> str:
         """Determine grade based on score"""
@@ -247,6 +401,64 @@ class CropQualityGrader:
             if score >= GRADE_MAPPING[grade_key]["min_score"]:
                 return grade_key
         return "F"
+    
+    def _get_confidence_category(self, confidence: float) -> str:
+        """
+        Convert numeric confidence into a user-friendly category.
+        """
+        if confidence >= 90:
+            return "Very High"
+        if confidence >= 80:
+            return "High"
+        if confidence >= 70:
+            return "Moderate"
+        return "Low"
+
+
+    def _get_classification_strength(
+        self,
+        score: float,
+        grade: str,
+    ) -> str:
+        """
+        Determine classification strength based on
+        score stability within the assigned grade.
+        """
+        grade_min = GRADE_MAPPING[grade]["min_score"]
+
+        margin = score - grade_min
+
+        if margin >= 15:
+            return "Strong Match"
+
+        if margin >= 5:
+            return "Moderate Match"
+
+        return "Borderline Match"
+
+
+    def _build_confidence_metadata(
+        self,
+        confidence: float,
+        score: float,
+        grade: str,
+    ) -> Dict:
+        """
+        Build lightweight metadata explaining
+        grading confidence.
+        """
+        return {
+            "confidence_category": self._get_confidence_category(confidence),
+            "classification_strength": self._get_classification_strength(
+                score,
+                grade,
+            ),
+            "score_margin": round(
+                score - GRADE_MAPPING[grade]["min_score"],
+                2,
+            ),
+            "grade_threshold": GRADE_MAPPING[grade]["min_score"],
+        }
 
     def _generate_recommendations(
         self,
@@ -348,20 +560,54 @@ class CropQualityGrader:
                 "average_price_adjustment": 0,
             }
 
+        audit_summary = {
+            "generated_at": datetime.now().isoformat(),
+            "assessment_count": len(valid_assessments),
+            "failed_assessments": failed_count,
+        }
+
         return {
             "assessments": assessments,
             "batch_statistics": batch_stats,
+            "audit_summary": audit_summary,
             "crop_type": crop_type,
             "timestamp": datetime.now().isoformat(),
+            
         }
 
     def get_quality_trends(self, crop_type: str, days: int = 7) -> Dict:
-        """Get quality trends over time"""
-        recent_assessments = [
-            a
-            for a in self.quality_history
-            if a.crop_type == crop_type.lower()
-        ]
+        """Get quality trends over the specified number of days.
+
+        The ``days`` parameter was previously accepted and validated at the
+        API layer (ge=1, le=30) but was never used inside this method — the
+        filter ``[a for a in self.quality_history if a.crop_type == ...]``
+        returned all history for the crop type regardless of age.  A caller
+        requesting ``days=1`` received the same result as ``days=30``, and
+        the response included ``"days": data.days`` from the router,
+        implying the window was respected when it was not.
+
+        Fix: parse each assessment's ``timestamp`` field and exclude entries
+        older than ``days`` calendar days from the current UTC time.
+        """
+        from datetime import timezone, timedelta
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+        recent_assessments = []
+        for a in self.quality_history:
+            if a.crop_type != crop_type.lower():
+                continue
+            try:
+                # timestamp is stored as datetime.now().isoformat() — naive
+                # local time.  Parse it and treat as UTC for comparison.
+                ts = datetime.fromisoformat(a.timestamp)
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                if ts >= cutoff:
+                    recent_assessments.append(a)
+            except (ValueError, TypeError):
+                # Malformed timestamp — include the assessment rather than
+                # silently dropping it.
+                recent_assessments.append(a)
 
         if not recent_assessments:
             return {"error": "No assessment history"}
@@ -371,9 +617,10 @@ class CropQualityGrader:
 
         return {
             "crop_type": crop_type.lower(),
+            "days": days,
             "assessments_count": len(recent_assessments),
             "average_score": round(np.mean(scores), 2),
-            "score_trend": scores[-5:],  # Last 5 scores
+            "score_trend": scores[-5:],  # Last 5 scores within the window
             "grade_distribution": {g: grades.count(g) for g in set(grades)},
             "latest_assessment": asdict(recent_assessments[-1]),
         }
