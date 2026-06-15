@@ -8,6 +8,7 @@ No external dependencies beyond pandas, numpy, scikit-learn.
 import gzip
 import json
 import logging
+import asyncio
 import threading
 from collections import OrderedDict
 from datetime import date, timedelta
@@ -456,7 +457,7 @@ class PriceForecaster:
 
     def _get_or_train(self, commodity: str) -> _CommodityModel:
         """Return a trained model for *commodity*, training it if needed."""
-        with self._lock:
+        async with self._lock:
             if commodity in self._models:
                 self._models.move_to_end(commodity)
                 return self._models[commodity]

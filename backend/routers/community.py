@@ -2,13 +2,13 @@
 import asyncio
 import os
 import time
-import logging
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query
+from backend.core.logging_config import setup_logging
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
+logger = setup_logging(__name__)
 
 GITHUB_OWNER = os.getenv("GITHUB_CONTRIBUTORS_OWNER", "Eshajha19")
 GITHUB_REPO = os.getenv("GITHUB_CONTRIBUTORS_REPO", "agri")
@@ -29,37 +29,27 @@ _contributors_cache = {"expires_at": 0.0, "data": []}
 # an async handler running in the event loop — threading.Lock would block
 # the loop, while asyncio.Lock yields control while waiting.
 #
-# The lock is initialized at module load time by init_community(), which
-# must be called during the application's lifespan setup before any async
-# handlers execute. This ensures all coroutines share a single lock instance,
-# preventing lazy initialization race conditions where multiple coroutines
-# might create separate lock instances.
-_cache_lock: asyncio.Lock | None = None
+# The lock is initialized at module load time to ensure all coroutines
+# share a single lock instance, preventing lazy initialization race conditions
+# where multiple coroutines might create separate lock instances.
+_cache_lock: asyncio.Lock = asyncio.Lock()
 
 
 def init_community():
-    """Initialize the community module with proper asyncio context.
+    """Initialize the community module.
     
-    Must be called during application startup (in lifespan context) to ensure
-    the cache lock is created inside a running event loop. This is called from
-    main.py lifespan.
+    This function is now a no-op since the cache lock is initialized at
+    module load time. It is retained for backward compatibility with
+    existing startup procedures in main.py lifespan.
     """
-    global _cache_lock
-    if _cache_lock is None:
-        _cache_lock = asyncio.Lock()
+    pass
 
 
 def _get_cache_lock() -> asyncio.Lock:
     """Return the module-level asyncio.Lock.
     
-    The lock must have been initialized by init_community() during startup.
-    Raises RuntimeError if init_community() was not called.
+    The lock is initialized at module load time and is always available.
     """
-    if _cache_lock is None:
-        raise RuntimeError(
-            "Community module not initialized. init_community() must be "
-            "called during application startup."
-        )
     return _cache_lock
 
 

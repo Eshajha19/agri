@@ -1,17 +1,18 @@
 ---
-name: 🐞 Bug Report
+name: Bug Report
 about: Report a bug or issue in Fasal Saathi
 title: "[Bug]: "
 labels: bug
 assignees: ""
+
 ---
 
-## 📌 Description
+## Description
 Describe the bug clearly and concisely.
 
 ---
 
-## 🔁 Steps to Reproduce
+## Steps to Reproduce
 1. Go to '...'
 2. Click on '...'
 3. Scroll down to '...'
@@ -19,28 +20,31 @@ Describe the bug clearly and concisely.
 
 ---
 
-## ❗ Expected Behavior
+## Expected Behavior
 What should have happened?
 
 ---
 
-## ⚠️ Actual Behavior
+## Actual Behavior
 What actually happened?
 
 ---
 
-## 📷 Screenshots / Logs
+## Screenshots / Logs
 Add screenshots or error logs if available.
 
 ---
 
-## 💻 Environment
+## Environment
 - Device: (Desktop/Mobile)
 - Browser: (Chrome/Firefox/etc.)
 - OS: (Windows/Linux/Mac)
+- Node version: (if frontend issue)
+- Python version: (if backend issue)
 
 ---
 
-## 📢 Contribution Guidelines
-- Comment **"assign me"** to work on this issue  
-- Provide proper fix with explanation  
+## Contribution Guidelines
+- Comment **"assign me"** to work on this issue
+- Provide proper fix with explanation
+- Wait for assignment before starting

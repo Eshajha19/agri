@@ -3,8 +3,7 @@ import collections
 import io
 import json
 import collections
-from error_utils import safe_detail
-
+import base64
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
@@ -533,7 +532,7 @@ class NotificationStore:
         The ID is assigned from a monotonically increasing counter so
         concurrent calls always produce distinct values.
         """
-        with self._lock:
+        async with self._lock:
             entry = {
                 "id": next(self._counter),
                 "type": alert_type,
@@ -551,7 +550,7 @@ class NotificationStore:
         view even if append() is running concurrently.
         """
         cutoff = datetime.now() - self._ttl
-        with self._lock:
+        async with self._lock:
             snapshot = list(self._deque)
         return [
             e for e in snapshot
@@ -721,6 +720,31 @@ async def analyze_farm_finance(request: Request, body: FinanceAssessmentRequest)
     return {"success": True, "data": analysis}
 
 
+def _extract_uid_from_verified_token(request: Request) -> Optional[str]:
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return None
+    token = auth_header.split(" ", 1)[1]
+    try:
+        parts = token.split(".")
+        if len(parts) != 3:
+            return None
+        payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+        return payload.get("uid") or payload.get("sub")
+    except Exception as exc:
+        logger.error("Failed to decode already-verified JWT payload: %s", exc)
+        return None
+
+
+async def _has_permission(request: Request, permission) -> bool:
+    try:
+        await RBACManager.raise_if_unauthorized(request, [permission], require_all=False)
+        return True
+    except Exception:
+        return False
+
+
 @app.post("/api/finance/applications")
 @limiter.limit("5/minute")
 async def create_finance_application(request: Request, body: FinanceAssessmentRequest):
@@ -729,7 +753,10 @@ async def create_finance_application(request: Request, body: FinanceAssessmentRe
     await RBACManager.raise_if_unauthorized(
         request, [Permission.FINANCE_CREATE], require_all=False
     )
-    application = _farm_finance_ai.create_application(body.model_dump())
+    owner_uid = _extract_uid_from_verified_token(request)
+    if owner_uid is None:
+        raise HTTPException(status_code=401, detail="Unable to determine caller identity")
+    application = _farm_finance_ai.create_application(body.model_dump(), owner_uid=owner_uid)
     return {"success": True, "data": application}
 
 
@@ -739,7 +766,10 @@ async def get_finance_application(application_id: str, request: Request):
     await RBACManager.raise_if_unauthorized(
         request, [Permission.FINANCE_READ_OWN, Permission.FINANCE_READ_ALL], require_all=False
     )
-    application = _farm_finance_ai.get_application(application_id)
+    caller_uid = _extract_uid_from_verified_token(request)
+    has_read_all = await _has_permission(request, Permission.FINANCE_READ_ALL)
+    owner_uid_filter = None if has_read_all else caller_uid
+    application = _farm_finance_ai.get_application(application_id, owner_uid=owner_uid_filter)
     if not application:
         raise HTTPException(status_code=404, detail="Application not found")
     return {"success": True, "data": application}

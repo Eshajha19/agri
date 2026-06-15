@@ -5,6 +5,7 @@ Runs new models alongside production models to evaluate performance before promo
 import logging
 from collections import deque
 import threading
+import asyncio
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, asdict
 from datetime import datetime
@@ -103,7 +104,7 @@ class ShadowEvaluator:
         if eval_id is None:
             eval_id = f"eval_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
-        with self._lock:
+        async with self._lock:
             self.active_evaluations[eval_id] = {
                 'production_model': production_model_name,
                 'candidate_model': candidate_model_name,
@@ -234,7 +235,7 @@ class ShadowEvaluator:
     
     def get_evaluation_status(self, eval_id: str) -> Dict[str, Any]:
         """Get current status of an evaluation"""
-        with self._lock:
+        async with self._lock:
             if eval_id not in self.active_evaluations:
                 return {'status': 'not_found'}
         
@@ -257,7 +258,7 @@ class ShadowEvaluator:
         limit: int = 10,
     ) -> List[Dict[str, Any]]:
         """Get past evaluations"""
-        with self._lock:
+        async with self._lock:
             evals = self.evaluations if candidate_model is None else [
                 e for e in self.evaluations if e.candidate_model == candidate_model
             ]
@@ -265,7 +266,7 @@ class ShadowEvaluator:
     
     def cleanup_evaluation(self, eval_id: str) -> None:
         """Clean up completed evaluation from memory"""
-        with self._lock:
+        async with self._lock:
             if eval_id in self.active_evaluations:
                 del self.active_evaluations[eval_id]
                 logger.info(f"Cleaned up evaluation: {eval_id}")

@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+import re
+from datetime import datetime
 from typing import Any, Optional
 import logging
 
@@ -20,11 +21,21 @@ def _as_number(value: Any) -> Optional[float]:
     """Convert value to float, handling None and non-numeric types safely."""
     if isinstance(value, bool) or value is None:
         return None
+    if isinstance(value, str):
+        value = value.strip()
     try:
         number = float(value)
         return number if number == number else None
     except (TypeError, ValueError):
-        return None
+        match = re.match(r"[-+]?\d*\.?\d+", str(value).strip())
+        if match:
+            try:
+                number = float(match.group())
+            except (TypeError, ValueError):
+                return None
+        else:
+            return None
+    return number if number == number else None
 
 
 def _as_level(value: Any, low_below: float, high_above: float) -> str:
@@ -94,22 +105,42 @@ def _add_alert(
     logger.debug("Added advisory: %s (severity: %s)", title, severity)
 
 
-def _generate_weather_advisories(alerts: list[dict[str, Any]], weather: dict) -> None:
-    """Generate weather-related advisories."""
-    temperature = (
-        _as_number(weather.get("temperature"))
-        or _as_number(weather.get("temperature_c"))
-        or _as_number(weather.get("max_temperature"))
-        or _as_number(weather.get("max_temperature_c"))
-    )
-    rainfall = (
-        _as_number(weather.get("rainfall_next_24h"))
-        or _as_number(weather.get("precipitation_next_24h"))
-        or _as_number(weather.get("rainfall"))
-        or 0
-    )
-    rain_probability = _as_number(weather.get("rain_probability")) or 0
-    humidity = _as_number(weather.get("humidity")) or _as_number(weather.get("relative_humidity"))
+def generate_advisories(
+    weather: Optional[dict[str, Any]] = None,
+    soil: Optional[dict[str, Any]] = None,
+    crop_type: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    """Generate simple, actionable farmer advisories from farm conditions."""
+    alerts: list[dict[str, Any]] = []
+    weather = weather or {}
+    soil = soil or {}
+    crop = str(crop_type or "").strip().lower()
+
+    temperature = None
+    for key in ["temperature", "temperature_c", "max_temperature", "max_temperature_c"]:
+        val = _as_number(weather.get(key))
+        if val is not None:
+            temperature = val
+            break
+
+    rainfall = None
+    for key in ["rainfall_next_24h", "precipitation_next_24h", "rainfall"]:
+        val = _as_number(weather.get(key))
+        if val is not None:
+            rainfall = val
+            break
+    if rainfall is None:
+        rainfall = 0.0
+
+    rain_prob_val = _as_number(weather.get("rain_probability"))
+    rain_probability = rain_prob_val if rain_prob_val is not None else 0.0
+
+    humidity = None
+    for key in ["humidity", "relative_humidity"]:
+        val = _as_number(weather.get(key))
+        if val is not None:
+            humidity = val
+            break
 
     if rainfall >= 10 or rain_probability >= 70:
         _add_alert(
@@ -128,6 +159,15 @@ def _generate_weather_advisories(alerts: list[dict[str, Any]], weather: dict) ->
             "Rain expected in next 24 hours",
             "Rain is likely soon, so extra irrigation can waste water and increase waterlogging risk.",
             "Avoid irrigation today and keep drainage channels clear.",
+        )
+    elif temperature is not None and temperature <= 0:
+        _add_alert(
+            alerts,
+            "critical",
+            "weather",
+            "Frost alert",
+            f"Temperature is around {round(temperature)} C, which can cause severe frost damage to crops.",
+            "Cover tender crops and consider a light protective irrigation before dawn.",
         )
 
     if temperature is not None:

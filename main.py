@@ -177,36 +177,6 @@ inside FastAPI lifespan() to ensure consistent startup across single-worker,
 multi-worker, and reload environments.
 """
 
-@app.post("/api/whatsapp/webhook")
-async def whatsapp_webhook(request: Request):
-    payload = await request.json()
-    normalized_messages = normalize_whatsapp_payload(payload)
-
-    for msg in normalized_messages:
-        # process each message individually
-        handle_inbound_message(msg)
-    return {"status": "ok", "processed": len(normalized_messages)}
-
-@app.post("/api/whatsapp/webhook")
-async def whatsapp_webhook(request: Request):
-    payload = await request.json()
-    normalized_messages = normalize_whatsapp_payload(payload)
-
-    for msg in normalized_messages:
-        # process each message individually
-        handle_inbound_message(msg)
-    return {"status": "ok", "processed": len(normalized_messages)}
-
-@app.post("/api/whatsapp/webhook")
-async def whatsapp_webhook(request: Request):
-    payload = await request.json()
-    normalized_messages = normalize_whatsapp_payload(payload)
-
-    for msg in normalized_messages:
-        # process each message individually
-        handle_inbound_message(msg)
-    return {"status": "ok", "processed": len(normalized_messages)}
-
 # KMS Support
 try:
     from google.cloud import secretmanager
@@ -1555,7 +1525,7 @@ class NotificationStore:
         When ``recipient_uid`` is None the notification is a broadcast visible
         to every authenticated user; otherwise only that UID may receive it.
         """
-        with self._lock:
+        async with self._lock:
             entry = {
                 "id": next(self._counter),
                 "type": alert_type,
@@ -1575,7 +1545,7 @@ class NotificationStore:
         view even if append() is running concurrently.
         """
         cutoff = datetime.now() - self._ttl
-        with self._lock:
+        async with self._lock:
             snapshot = list(self._deque)
         return [
             e for e in snapshot
@@ -1587,8 +1557,9 @@ class NotificationStore:
         return filter_notifications_for_user(self.get_recent(), uid)
 
     def remove_by_uid(self, uid: str) -> int:
-        """Remove in-memory notifications targeted at a specific UID."""
-        with self._lock:
+        """Remove in-memory notifications targeted at a specific UID."
+    
+        async with self._lock:
             snapshot = list(self._deque)
             retained = [entry for entry in snapshot if entry.get("recipient_uid") != uid]
             removed = len(snapshot) - len(retained)
@@ -2599,7 +2570,7 @@ import hashlib
 import collections
 import threading
 import time
-import asyncio
+import itertools
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
@@ -3334,7 +3305,7 @@ class NotificationStore:
         When ``recipient_uid`` is None the notification is a broadcast visible
         to every authenticated user; otherwise only that UID may receive it.
         """
-        with self._lock:
+        async with self._lock:
             entry = {
                 "id": next(self._counter),
                 "type": alert_type,
@@ -3354,7 +3325,7 @@ class NotificationStore:
         view even if append() is running concurrently.
         """
         cutoff = datetime.now() - self._ttl
-        with self._lock:
+        async with self._lock:
             snapshot = list(self._deque)
         return [
             e for e in snapshot
@@ -3367,7 +3338,7 @@ class NotificationStore:
 
     def remove_by_uid(self, uid: str) -> int:
         """Remove in-memory notifications targeted at a specific UID."""
-        with self._lock:
+        async with self._lock:
             snapshot = list(self._deque)
             retained = [entry for entry in snapshot if entry.get("recipient_uid") != uid]
             removed = len(snapshot) - len(retained)
@@ -4054,24 +4025,44 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 #   2. FRONTEND_URL env var — set this to the production deployment URL.
 #   3. ADDITIONAL_ALLOWED_ORIGINS env var — comma-separated list for staging
 #      or preview deployments (e.g. Vercel preview URLs).
+#
+# IMPORTANT: Browser Origin headers never contain a trailing slash
+# (per RFC 6454 §6.1). All origins are normalised with rstrip("/") so
+# that a misconfigured env var or hard-coded string cannot silently break
+# CORS validation for legitimate requests.
 # ---------------------------------------------------------------------------
+
+def _normalise_origin(origin: str) -> str:
+    """Strip trailing slashes from a CORS origin string.
+
+    Browsers send ``Origin: https://example.com`` (no trailing slash).
+    A configured value of ``https://example.com/`` would never match,
+    silently blocking all credentialed requests from that origin.
+    """
+    return origin.rstrip("/")
+
+
 _CORS_ORIGINS: list[str] = [
-    "http://localhost:5173",
-    "http://127.0.0.1:3000",
-    "https://fasal-saathi.vercel.app",
-    "https://fasal-saathi.xyz"
+    _normalise_origin(o) for o in [
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "https://fasal-saathi.vercel.app",
+        "https://fasal-saathi.xyz",   # trailing slash removed
+    ]
 ]
 
-_frontend_url = os.getenv("FRONTEND_URL", "").strip()
+_frontend_url = _normalise_origin(os.getenv("FRONTEND_URL", "").strip())
 if _frontend_url and _frontend_url not in _CORS_ORIGINS:
     _CORS_ORIGINS.append(_frontend_url)
 
 _extra_origins = os.getenv("ADDITIONAL_ALLOWED_ORIGINS", "").strip()
 if _extra_origins:
     for _origin in _extra_origins.split(","):
-        _origin = _origin.strip()
+        _origin = _normalise_origin(_origin.strip())
         if _origin and _origin not in _CORS_ORIGINS:
             _CORS_ORIGINS.append(_origin)
+
+logger.info("CORS allowlist (%d origins): %s", len(_CORS_ORIGINS), _CORS_ORIGINS)
 
 app.add_middleware(
     CORSMiddleware,

@@ -28,12 +28,12 @@ except Exception as _e:
     _FIRESTORE_AVAILABLE = False
 
 COLLECTION = "feature_flags"
-CACHE_TTL_SECONDS = 300
+CACHE_TTL_SECONDS = 30
 
 _cache: Dict[str, Dict] = {}
 _cache_loaded_at: float = 0.0
 _cache_lock = threading.Lock()
-_defaults_seeded: bool = False
+
 
 DEFAULT_FLAGS: Dict[str, Dict] = {
     "rag_advisor_v2": {
@@ -114,10 +114,17 @@ def _refresh_cache_locked() -> None:
     loaded = _load_from_firestore()
     if not loaded:
         loaded = {fid: _enrich(fid, fdata) for fid, fdata in DEFAULT_FLAGS.items()}
-        if _FIRESTORE_AVAILABLE and not _defaults_seeded:
+        if _FIRESTORE_AVAILABLE:
             for fid, fdata in loaded.items():
-                _write_to_firestore(fid, fdata)
-            _defaults_seeded = True
+                 doc_ref = _fs_client.collection(COLLECTION).document(fid)
+                 try:
+                     
+                     doc_ref = _fs_client.collection(COLLECTION).document(fid)
+                     if not doc_ref.get().exists:
+                         doc_ref.set(fdata)
+                 except Exception as e:
+                     logger.error("Seeding failed for flag '%s': %s", fid, e)
+
     _cache = loaded
     _cache_loaded_at = time.monotonic()
 
@@ -126,6 +133,11 @@ def _ensure_cache():
     with _cache_lock:
         if not _cache or (time.monotonic() - _cache_loaded_at) > CACHE_TTL_SECONDS:
             _refresh_cache_locked()
+
+def force_refresh():
+    """Force refresh cache immediately (bypasses TTL)."""
+    with _cache_lock:
+        _refresh_cache_locked()
 
 
 def _write_to_firestore(flag_id: str, data: Dict):
@@ -147,10 +159,24 @@ def get_flag(flag_id: str) -> Optional[Dict]:
     _ensure_cache()
     with _cache_lock:
         return _cache.get(flag_id)
+    
+def _validate_flag_data(data: Dict) -> None:
+    if "enabled" in data and not isinstance(data["enabled"], bool):
+        raise ValueError("enabled must be a boolean")
 
+    if "rollout_pct" in data:
+        if not isinstance(data["rollout_pct"], int) or not (0 <= data["rollout_pct"] <= 100):
+            raise ValueError("rollout_pct must be int between 0 and 100")
+
+    if "cohorts" in data and not isinstance(data["cohorts"], list):
+        raise ValueError("cohorts must be a list")
+
+    if "tags" in data and not isinstance(data["tags"], list):
+        raise ValueError("tags must be a list")
 
 def upsert_flag(flag_id: str, data: Dict) -> Dict:
-    _ensure_cache()
+    _ensure_cache() 
+    _validate_flag_data(data)
     with _cache_lock:
         existing = _cache.get(flag_id, {})
         merged = {**existing, **data, "id": flag_id, "updated_at": _now_iso()}
@@ -159,6 +185,7 @@ def upsert_flag(flag_id: str, data: Dict) -> Dict:
         merged = _enrich(flag_id, merged)
         _cache[flag_id] = merged
     _write_to_firestore(flag_id, merged)
+    force_refresh()
     return merged
 
 

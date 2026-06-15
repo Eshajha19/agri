@@ -18,7 +18,7 @@ from inference.onnx_runtime import ONNXRuntimeModel
 
 def run_benchmark(model_path: str, input_shape: tuple, iterations: int = 200, warmup: int = 20):
     m = ONNXRuntimeModel(model_path)
-    providers = m.providers()
+    active_provider = getattr(m, "get_active_provider", lambda: "Unknown")()
 
     # Create synthetic input
     batch = max(1, input_shape[0])
@@ -30,15 +30,34 @@ def run_benchmark(model_path: str, input_shape: tuple, iterations: int = 200, wa
 
     latencies = []
     for _ in range(iterations):
+    # Ensure GPU sync before timing
+        try:
+            import torch
+            if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        except Exception:
+            pass
+
         t0 = time.perf_counter()
         _ = m.predict(sample)
+
+    # Ensure GPU sync after inference
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+        except Exception:
+            pass
+
         t1 = time.perf_counter()
         latencies.append((t1 - t0) * 1000.0)
+
 
     arr = np.array(latencies)
     result = {
         "model_path": str(model_path),
         "providers": providers,
+        "active_provider": active_provider,
         "iterations": int(iterations),
         "warmup": int(warmup),
         "mean_ms": float(arr.mean()),
@@ -47,10 +66,10 @@ def run_benchmark(model_path: str, input_shape: tuple, iterations: int = 200, wa
         "std_ms": float(arr.std()),
         "min_ms": float(arr.min()),
         "max_ms": float(arr.max()),
+        "throughput_fps": float(1000.0 / arr.mean()),
         "env": {
             "python": platform.python_version(),
             "platform": platform.platform(),
-            "onnxruntime_providers": providers,
         },
     }
 
