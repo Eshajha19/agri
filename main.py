@@ -4,7 +4,9 @@ import asyncio
 import logging
 import math
 import collections
+import itertools
 import threading
+import time
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
@@ -14,18 +16,11 @@ from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
 
 from backend.utils.safe_log import sanitize_log_field
-
-from fastapi import FastAPI
 from backend.middleware.body_size_limit import BodySizeLimitMiddleware
-
-app = FastAPI()
-
-# Add middleware before routes
-app.add_middleware(BodySizeLimitMiddleware)
-
 
 # Expose sanitizer globally so routers can use it
 sanitise_log_field_fn = sanitize_log_field
+
 
 class CSPMiddleware:
     """Add Content-Security-Policy header to every response."""
@@ -102,6 +97,7 @@ from backend.routers import (
     quality,
     referrals,
     reports,
+    voice_assistant,
 )
 from blockchain_supply_chain import SupplyChainBlockchain
 from crop_quality_grading import CropQualityGrader
@@ -137,16 +133,11 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.units import inch
+from backend.ml.schemas import YieldInput
 
-from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
-
-from contextlib import asynccontextmanager
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
 @asynccontextmanager
@@ -159,8 +150,6 @@ async def lifespan(app: FastAPI):
     # Shutdown
     close_db()
     shutdown_celery()
-
-app = FastAPI(lifespan=lifespan)
 
 
 def init_db():
@@ -176,26 +165,6 @@ All side-effectful initialization (DB, ML models, Celery, Firebase) occurs
 inside FastAPI lifespan() to ensure consistent startup across single-worker,
 multi-worker, and reload environments.
 """
-
-@app.post("/api/whatsapp/webhook")
-async def whatsapp_webhook(request: Request):
-    payload = await request.json()
-    normalized_messages = normalize_whatsapp_payload(payload)
-
-    for msg in normalized_messages:
-        # process each message individually
-        handle_inbound_message(msg)
-    return {"status": "ok", "processed": len(normalized_messages)}
-
-@app.post("/api/whatsapp/webhook")
-async def whatsapp_webhook(request: Request):
-    payload = await request.json()
-    normalized_messages = normalize_whatsapp_payload(payload)
-
-    for msg in normalized_messages:
-        # process each message individually
-        handle_inbound_message(msg)
-    return {"status": "ok", "processed": len(normalized_messages)}
 
 @app.post("/api/whatsapp/webhook")
 async def whatsapp_webhook(request: Request):
@@ -325,16 +294,8 @@ async def lifespan(app: FastAPI):
         "repositories",
         "Initialize persistent repositories",
         _init_repositories
-    
-    Multi-worker guarantee
-    ----------------------
-    When Uvicorn is started with ``--workers N``, each worker forks/spawns
-    from the main process and imports ``main.py`` independently.  The
-    ``lifespan`` hook is invoked by FastAPI in every worker's event loop,
-    ensuring ``ModelRegistry`` is populated in every process before the
-    first request is served.
     )
-    """
+
     logger.info("Starting up: initializing services")
     init_ml_pipeline()
 
@@ -354,7 +315,6 @@ async def lifespan(app: FastAPI):
         _init_ai_engines
     )
 
-    return ctx
     # Router init hooks — run after engines are ready.
     governance.init_governance(drift_detector, shadow_evaluator, version_manager, auth_fn=verify_role)
     finance.init_finance(_farm_finance_ai, RBACManager, Permission)
@@ -479,43 +439,9 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down")
 
 
-app = FastAPI(lifespan=lifespan)
-
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
-
-# --- Global Error Handlers ---
-
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.error("Unhandled error: %s", exc, exc_info=True)
-    return JSONResponse(
-        status_code=500,
-        content={
-            "code": "INTERNAL_ERROR",
-            "message": "Something went wrong. Please try again later."
-        },
-    )
-
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    return JSONResponse(
-        status_code=400,
-        content={"code": "VALIDATION_ERROR", "message": "Invalid request payload."},
-    )
-
-@app.exception_handler(StarletteHTTPException)
-async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"code": "HTTP_ERROR", "message": exc.detail},
-    )
-
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
 
 
 # Initialize Limiter
@@ -821,41 +747,25 @@ class NotificationStore:
     ttl_hours : int
         Entries older than this many hours are excluded from get_recent().
     """
-
     def __init__(self, maxlen: int = _MAX_NOTIFICATIONS, ttl_hours: int = _NOTIFICATION_TTL_HOURS):
         self._deque: collections.deque = collections.deque(maxlen=maxlen)
         self._lock = threading.Lock()
         self._counter = itertools.count(start=1)
         self._ttl = timedelta(hours=ttl_hours)
-
-    model_trend = await _run_lifespan_phase("trend_forecast_model", "Load trend forecast model", _load_trend_model, required=False)
-
     def _init_ml_router():
-        ml.init_router(ModelRouter(default_model="xgboost"), model_lag, model_trend, verify_role)
-
-    await _run_lifespan_phase("ml_router", "Initialize ML router", _init_ml_router)
-
-    def _start_celery_autoscaler():
-        from celery_autoscaler import get_autoscaler
         from celery_worker import celery_app
         from ml.price_forecaster import get_price_forecaster
         _autoscaler = get_autoscaler(celery_app, get_price_forecaster())
         _autoscaler.start()
 
-    await _run_lifespan_phase("celery_autoscaler", "Start Celery autoscaler", _start_celery_autoscaler)
-
     def _init_offline_sync():
         from persistence.offline_sync import init_schema
         init_schema()
-
-    await _run_lifespan_phase("offline_sync", "Initialize offline sync layer", _init_offline_sync)
 
     def _start_sync_worker():
         from sync_worker import get_sync_worker
         _sync_worker = get_sync_worker(db_firestore)
         _sync_worker.start()
-
-    await _run_lifespan_phase("sync_worker", "Start sync worker", _start_sync_worker)
 
 def _normalize_dynamic_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Assign non-colliding IDs to request-scoped advisory alerts."""
@@ -1071,7 +981,8 @@ async def subscribe_whatsapp(data: WhatsAppSubscribeRequest, request: Request):
     send_whatsapp_message(data.phone_number, welcome_msg)
     return {"success": True, "message": "Successfully subscribed"}
 
-_broadcast_rate_limit = {}
+_broadcast_rate_limit: Dict[str, float] = {}
+_BROADCAST_RATE_LIMIT_SECONDS = 60
 
 @app.post("/api/whatsapp/trigger-alert")
 @limiter.limit("10/minute")
@@ -1088,7 +999,16 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     consuming Twilio API credits at the attacker's discretion.
     """
     # RBAC: only admins and experts may broadcast alerts to all farmers.
-    await verify_role(request, required_roles=["admin", "expert"])
+    token_data = await verify_role(request, required_roles=["admin", "expert"])
+    uid = token_data["uid"]
+    now = time.time()
+    last_broadcast = _broadcast_rate_limit.get(uid)
+    if last_broadcast and (now - last_broadcast) < _BROADCAST_RATE_LIMIT_SECONDS:
+        retry_after = int(_BROADCAST_RATE_LIMIT_SECONDS - (now - last_broadcast))
+        raise HTTPException(
+            status_code=429,
+            detail=f"Broadcast rate limit exceeded. Retry after {retry_after} seconds."
+        )
 
     # get_all() acquires the lock and returns a stable snapshot, so this read
     # cannot race with a concurrent subscription write.
@@ -1105,6 +1025,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
         message=data.message,
     )
 
+    _broadcast_rate_limit[uid] = time.time()
     delivered = sum(1 for r in results if r["success"])
     return {"success": True, "results": results, "delivered": delivered, "total": len(results)}
 
@@ -1193,37 +1114,6 @@ if os.getenv("GOOGLE_CLOUD_PROJECT") and not HAS_GCP_KMS:
         f"KMS initialization failed: GOOGLE_CLOUD_PROJECT is set but GCP Secret Manager is unavailable. "
         f"Error: {_kms_init_error}. Set ALLOW_INSECURE_KEY_FALLBACK=true to permit local key fallback (NOT RECOMMENDED)."
     )
-
-    yield
-
-    # Shutdown phase with logging
-    logger.info("🛑 Shutting down services...")
-    try:
-        from sync_worker import get_sync_worker
-        _sync_worker = get_sync_worker()
-        _sync_worker.stop()
-        logger.info("✅ Sync worker stopped")
-    except Exception as exc:
-        logger.error("❌ Error stopping sync worker: %s", exc, exc_info=True)
-
-    try:
-        from celery_autoscaler import get_autoscaler
-        _autoscaler = get_autoscaler()
-        _autoscaler.stop()
-        logger.info("✅ Celery autoscaler stopped")
-    except Exception as exc:
-        logger.error("❌ Error stopping Celery autoscaler: %s", exc, exc_info=True)
-
-    try:
-        await notification_broker.stop()
-        logger.info("✅ Notification broker stopped")
-    except Exception as exc:
-        logger.error("❌ Error stopping notification broker: %s", exc, exc_info=True)
-
-    logger.info("✅ Shutdown complete")
-
-
-app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
 
 
 # Initialize Limiter
@@ -1515,10 +1405,6 @@ _MAX_NOTIFICATIONS = 200
 _NOTIFICATION_TTL_HOURS = 24
 
 
-    @app.get("/user_roles")
-    def get_user_roles(uid: str):
-        user_roles = ["admin", "editor"]  # example
-        return {"uid": uid, "roles": user_roles}
 class NotificationStore:
     """
     Thread-safe, bounded, TTL-aware store for in-process notifications.
@@ -2471,7 +2357,6 @@ except Exception as exc:
 app.include_router(ml.router, prefix="/api/yield", tags=["ML Prediction"])
 app.include_router(governance.router, prefix="/api/ml-governance", tags=["ML Governance"])
 app.include_router(finance.router, prefix="/api/farm-finance", tags=["Finance"])
-app.include_router(finance.router, prefix="/api/finance", tags=["Finance Legacy"])
 app.include_router(quality.router, prefix="/api/crop-quality", tags=["Quality"])
 app.include_router(blockchain.router, prefix="/api/supply-chain", tags=["Blockchain"])
 app.include_router(reports.router, prefix="/api/admin", tags=["Reports"])
@@ -2885,15 +2770,6 @@ async def lifespan(app: FastAPI):
         logger.warning("RAG init skipped: %s", exc)
 
     knowledge.init_knowledge(rag_generate_fn, RBACManager, Permission, {"TEST001": {"verified": True}}, verify_role)
-    alerts.init_alerts(
-        [],
-        subscriber_store,
-        lambda **kwargs: [],
-        send_whatsapp_message,
-        format_alert_message,
-        verify_role,
-        lambda uid: _get_firestore_user_profile(uid),
-    )
     init_feature_flags(verify_role)
     platform.init_platform(
         verify_role,
@@ -4237,12 +4113,6 @@ app.include_router(community.router, prefix="/api/community", tags=["Community"]
 if voice_assistant_router is not None:
     app.include_router(voice_assistant_router.router, prefix="/api/voice", tags=["Voice Assistant"])
 app.include_router(referrals.router, prefix="/api/referrals", tags=["Referrals"])
-app.include_router(platform.router, prefix="/api", tags=["Platform"])
-app.include_router(advisory.router, prefix="/api", tags=["Advisory"])
-app.include_router(alerts.router, prefix="/api/notifications", tags=["Alerts"])
-app.include_router(flags_router, tags=["Feature Flags"])
-app.include_router(lms.router, prefix="/api", tags=["LMS"])
-app.include_router(insurance.router, prefix="/api", tags=["Insurance"])
 
 
 # --- Smart Farm Autopilot ---

@@ -1,4 +1,5 @@
 """Crop Quality Grading Router"""
+import asyncio
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field, validator
 import logging
@@ -68,7 +69,8 @@ async def assess_single_crop(request: Request, data: CropQualityGradingRequest):
     try:
         import base64
         image_bytes = base64.b64decode(data.image_base64)
-        result = crop_quality_grader.assess_crop_image(image_bytes, data.crop_type)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, crop_quality_grader.assess_crop_image, image_bytes, data.crop_type)
         return {"success": True, "crop_type": data.crop_type, "assessment": result}
     except Exception as e:
         logger.error(f"Assessment error: {e}")
@@ -111,22 +113,9 @@ async def assess_batch_crops(request: Request, data: CropQualityBatchRequest):
                     status_code=400,
                     detail=f"Invalid base64 encoding at image index {idx}",
                 )
-            try:
-                assessment = crop_quality_grader.assess_crop_image(image_bytes, data.crop_type)
-                from dataclasses import asdict
-                assessments.append(asdict(assessment) if hasattr(assessment, '__dataclass_fields__') else assessment)
-            except Exception as assess_err:
-                assessments.append({
-                    "error": str(assess_err),
-                    "index": idx,
-                    "timestamp": datetime.now().isoformat(),
-                })
-            finally:
-                # Explicitly release the decoded bytes for this image before
-                # moving to the next one.
-                del image_bytes
-
-        return {"success": True, "crop_type": data.crop_type, "batch_results": assessments}
+        loop = asyncio.get_running_loop()
+        results = await loop.run_in_executor(None, crop_quality_grader.batch_grade_crops, image_bytes_list, data.crop_type)
+        return {"success": True, "crop_type": data.crop_type, "batch_results": results}
     except HTTPException:
         raise
     except Exception as e:
@@ -179,7 +168,8 @@ async def calculate_market_price(request: Request, data: CropQualityGradingReque
     try:
         import base64
         image_bytes = base64.b64decode(data.image_base64)
-        assessment = crop_quality_grader.assess_crop_image(image_bytes, data.crop_type)
+        loop = asyncio.get_running_loop()
+        assessment = await loop.run_in_executor(None, crop_quality_grader.assess_crop_image, image_bytes, data.crop_type)
         return {"success": True, "crop_type": data.crop_type, "grade": getattr(assessment, 'grade', 'A'), "assessment": assessment}
     except Exception as e:
         logger.error(f"Price error: {e}")

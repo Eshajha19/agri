@@ -162,7 +162,12 @@ class FeedbackRequest(BaseModel):
     @validator('cropType')
     def validate_crop_type(cls, v):
         if v is not None:
-            return FeedbackValidator.validate_crop_type(v)
+            result = FeedbackValidator.validate_crop_type(v)
+            if result is None:
+                raise ValueError(
+                    f"Invalid crop type: '{v}'. Allowed: {', '.join(FeedbackValidator.ALLOWED_CROPS)}"
+                )
+            return result
         return v
 
     @validator('category')

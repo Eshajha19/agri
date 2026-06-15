@@ -1,11 +1,11 @@
 """Finance Router"""
-import logging
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 from error_utils import safe_detail
+from backend.core.logging_config import setup_logging
 
-logger = logging.getLogger(__name__)
+logger = setup_logging(__name__)
 
 router = APIRouter()
 
