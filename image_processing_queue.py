@@ -140,51 +140,18 @@ class ImageProcessingQueue:
         self._total_processed = 0
         self._total_failed = 0
 
-    # -------------------------
-    # Helpers
-    # -------------------------
-    def _set_status(self, task: ImageProcessingTask, status: TaskStatus):
-        task.status = status
-        now = datetime.now().isoformat()
-
-        if status == TaskStatus.PROCESSING:
-            task.started_at = now
-        elif status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED):
-            task.completed_at = now
-
-    def _persist_ack(self):
-        try:
-            with open("queue_acks.json", "w") as f:
-                json.dump(self._ack_store, f)
-        except Exception:
-            pass
-
-    def _skip_task(self, task: ImageProcessingTask) -> bool:
-        if task.task_id in self._ack_store:
-            return True
-        if task.status == TaskStatus.CANCELLED:
-            return True
-        return False
-
-    # -------------------------
-    # Enqueue
-    # -------------------------
-    def _enqueue_task(self, task):
-    if task is None or not getattr(task, "task_id", None):
-        raise ValueError("Invalid task")
-
-    heapq.heappush(
-        self._task_queue,
-        (task.priority.value, self._counter, task),
-    )
-
-    self._tasks_by_id[task.task_id] = task
-    self._counter += 1
-
-
-with self._queue_lock:
-    if len(self._task_queue) >= self.max_queue_size:
-        raise RuntimeError("Queue is full")
+    def enqueue(self, task: ImageProcessingTask) -> str:
+        """Enqueue a task for processing"""
+        with self._queue_lock:
+            if len(self._task_queue) >= self.max_queue_size:
+                raise RuntimeError(f"Queue is full (max: {self.max_queue_size})")
+            heapq.heappush(self._task_queue, (task.priority.value, self._counter, task))
+            self._counter += 1
+            self._tasks_by_id[task.task_id] = task
+            self._total_enqueued += 1
+            
+        logger.info(f"Task {task.task_id} enqueued (priority: {task.priority.name}, queue_size: {len(self._task_queue)})")
+        return task.task_id
 
     self._enqueue_task(task)
     # -------------------------
@@ -276,10 +243,9 @@ with self._queue_lock:
             task = self._tasks_by_id[task_id]
             if task.status in (TaskStatus.QUEUED, TaskStatus.RETRYING):
                 task.status = TaskStatus.CANCELLED
-                self._task_queue = [
-                    entry for entry in self._task_queue if entry[2].task_id != task_id
-                ]
-                heapq.heapify(self._task_queue)
+                self._task_queue = deque(
+                    t for t in self._task_queue if t[2].task_id != task_id
+                )
                 del self._tasks_by_id[task_id]
                 self._completed_tasks[task_id] = task
                 logger.info(f"Task {task_id} cancelled")
