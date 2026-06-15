@@ -445,25 +445,13 @@ class SmartFarmAutopilot:
         self, crop: str, data: Dict, season: str
     ) -> List[SowingSchedule]:
         year = date.today().year
-        # Prefer the per-season sowing month when the crop is cultivated in
-        # multiple seasons (e.g. Maize in both Kharif and Zaid).  Fall back
-        # to the scalar sowing_month for single-season crops.
-        sow_month = (
-            data["sowing_month_by_season"].get(season, data["sowing_month"])
-            if "sowing_month_by_season" in data
-            else data["sowing_month"]
-        )
-        # Adjust year: if the sowing month has already passed (with a 2-month
-        # buffer), advance to the next calendar year.
-        if sow_month > date.today().month + 2:
-            sow_year = year
+        sow_month = data["sowing_month"]
+        # Adjust year: if the sowing month (plus a 2-month buffer) has already
+        # passed relative to today, advance to the next calendar year.
+        if sow_month + 2 < date.today().month:
+            sow_year = year + 1
         else:
-            # Sowing month has clearly passed
-            sow_year = year + 1
-        # Edge case: late-year request (Nov/Dec) for early next-season sowing (Jan/Feb)
-        if today.month >= 11 and sow_month <= 2:
-            sow_year = year + 1
-            
+            sow_year = year
         sow_start = date(sow_year, sow_month, 1)
         sow_end   = date(sow_year, sow_month, min(20, calendar.monthrange(sow_year, sow_month)[1]))
 

@@ -150,7 +150,7 @@ class FeedbackValidator:
             Validated crop type or None if not provided
             
         Raises:
-            ValueError: If crop_type is provided but not in the allowed list
+            ValueError: If crop type is provided but not in the allowed whitelist
         """
         if not crop_type:
             return None
@@ -159,7 +159,10 @@ class FeedbackValidator:
         if crop_type in cls.ALLOWED_CROPS:
             return crop_type
             
-        raise ValueError(f"Invalid crop type '{crop_type}'. Allowed: {', '.join(cls.ALLOWED_CROPS)}")
+        raise ValueError(
+            f"Invalid crop type: '{crop_type}'. "
+            f"Allowed types: {', '.join(cls.ALLOWED_CROPS)}"
+        )
     
     @classmethod
     def validate_category(cls, category: str) -> str:

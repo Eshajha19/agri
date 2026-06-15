@@ -13,18 +13,16 @@ from typing import Optional
 from fastapi import APIRouter, Form, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from error_utils import safe_detail
+from backend.core.logging_config import setup_logging
 
 router = APIRouter()
+logger = setup_logging(__name__)
 
 # Idempotency store for processed webhook SIDs (MessageSid → timestamp).
 # Prevents duplicate processing from Twilio retries or replay attacks.
 # Entries older than WEBHOOK_IDEMPOTENCY_TTL seconds are pruned on access.
 _processed_webhook_sids: dict = {}
 WEBHOOK_IDEMPOTENCY_TTL = 86400  # 24 hours
-
-
-router = APIRouter()
-logger = setup_logging(__name__)
 
 notification_store = None
 subscriber_store = None
@@ -248,21 +246,12 @@ async def trigger_whatsapp_alert(request: Request, data: AlertTriggerRequest):
             alert_type=data.alert_type,
             message=data.message,
             region_id=region_id or None,
-        )
-
-        delivered = sum(1 for r in results if r["success"])
-
-        notification_store.append(
-            alert_type=data.alert_type,
-            message=data.message,
-            region_id=region_id or None,
             severity=severity_data["severity"],
             severity_score=severity_data["severity_score"],
             occurrence_count=history,
             delivery_success_count=delivered,
             delivery_failure_count=failed_deliveries,
         )
-        delivered = sum(1 for r in results if r["success"])
         return {
             "success": True,
             "results": results,
