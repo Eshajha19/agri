@@ -5,6 +5,7 @@ Provides secure server-side API for feedback submission with validation.
 
 import asyncio
 from fastapi import FastAPI, HTTPException, Depends, Request
+from error_utils import safe_detail
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, validator
@@ -19,7 +20,7 @@ import logging
 # consistent per-IP throttles via the same slowapi library.
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
-from rate_limit_config import build_limiter, rate_limit_exceeded_handler
+from rate_limit_config import build_limiter, rate_limit_exceeded_handler, extract_client_ip
 
 # Import our validator
 from feedback_validation import FeedbackValidator
@@ -32,31 +33,61 @@ logger = logging.getLogger(__name__)
 # Initialize Firebase Admin SDK
 try:
     # Check for Firebase credentials
-    if os.path.exists("firebase-credentials.json"):
-        cred = credentials.Certificate("firebase-credentials.json")
-        firebase_admin.initialize_app(cred)
-        logger.info("Firebase Admin SDK initialized with service account")
-    else:
-        # Try environment variable
-        cred_json = os.getenv("FIREBASE_CREDENTIALS_JSON")
-        if cred_json:
-            import json
-            cred_dict = json.loads(cred_json)
-            cred = credentials.Certificate(cred_dict)
+    if not firebase_admin._apps:
+        if os.path.exists("firebase-credentials.json"):
+            cred = credentials.Certificate("firebase-credentials.json")
             firebase_admin.initialize_app(cred)
-            logger.info("Firebase Admin SDK initialized from environment variable")
+            logger.info("Firebase Admin SDK initialized with service account")
         else:
-            logger.warning("Firebase credentials not found. Running in validation-only mode.")
-            firebase_admin.initialize_app()  # Default app for emulator
+            # Try environment variable
+            cred_json = os.getenv("FIREBASE_CREDENTIALS_JSON")
+            if cred_json:
+                import json
+                cred_dict = json.loads(cred_json)
+                cred = credentials.Certificate(cred_dict)
+                firebase_admin.initialize_app(cred)
+                logger.info("Firebase Admin SDK initialized from environment variable")
+            else:
+                logger.warning("Firebase credentials not found. Running in validation-only mode.")
+                firebase_admin.initialize_app()  # Default app for emulator
 except Exception as e:
     logger.error(f"Failed to initialize Firebase: {e}")
-    firebase_admin.initialize_app()  # Default app for emulator
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app()  # Default app for emulator
 
 # Initialize Firestore
 db = firestore.client()
 
 # PII fields that must never appear in HTTP response bodies.
 _PII_FIELDS = {"ipAddress", "userAgent", "userEmail"}
+
+# Submission consistency helpers
+DUPLICATE_WINDOW_SECONDS = 60
+
+
+def generate_submission_fingerprint(data: dict) -> str:
+    """
+    Generate a lightweight fingerprint used to identify
+    duplicate feedback submissions from the same user.
+    """
+    user_id = data.get("userId", "")
+    category = data.get("category", "")
+    message = data.get("message", "")
+
+    return f"{user_id}:{category}:{message.strip().lower()}"
+
+
+def build_processing_metadata() -> dict:
+    """
+    Build submission metadata for consistency tracking.
+    """
+    now = datetime.now(timezone.utc)
+
+    return {
+        "processingStatus": "received",
+        "requestReceivedAt": now.isoformat(),
+        "submissionTimestamp": now,
+    }
 
 
 async def verify_firebase_token(request: Request) -> dict:
@@ -94,7 +125,7 @@ async def verify_firebase_token(request: Request) -> dict:
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired authentication token")
 
-    uid = decoded.get("uid")
+    uid = decoded.get("sub") or decoded.get("uid")
     if not uid:
         raise HTTPException(status_code=401, detail="Invalid authentication token")
 
@@ -131,7 +162,12 @@ class FeedbackRequest(BaseModel):
     @validator('cropType')
     def validate_crop_type(cls, v):
         if v is not None:
-            return FeedbackValidator.validate_crop_type(v)
+            result = FeedbackValidator.validate_crop_type(v)
+            if result is None:
+                raise ValueError(
+                    f"Invalid crop type: '{v}'. Allowed: {', '.join(FeedbackValidator.ALLOWED_CROPS)}"
+                )
+            return result
         return v
 
     @validator('category')
@@ -180,13 +216,16 @@ app = FastAPI(
 )
 
 # ── Rate limiting ─────────────────────────────────────────────────────────────
-# slowapi uses the same key_func pattern as main.py (remote IP address).
-# The limiter is attached to app.state so the @limiter.limit() decorator
-# can resolve it at request time.
-limiter = build_limiter(default_limits=["120/minute"])
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
-# ─────────────────────────────────────────────────────────────────────────────
+# Authenticated endpoints use the Firebase token tail as the rate-limit key so
+# that users behind a shared NAT each have their own quota.
+def _feedback_rate_key(request: Request) -> str:
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[7:]
+        # Use the last 32 chars of the token — unique per user, avoids
+        # rate-limit collisions under CGNAT / corporate NAT.
+        return token[-32:] if len(token) >= 32 else token
+    return extract_client_ip(request)
 
 from slowapi.util import get_remote_address
 
@@ -201,7 +240,12 @@ def feedback_rate_limit_key(request: Request):
     return get_remote_address(request)
 
 # ── Rate limiting ─────────────────────────────────────────────────────────────
-limiter = Limiter(key_func=feedback_rate_limit_key, default_limits=["120/minute"])
+# The limiter is attached to app.state so the @limiter.limit() decorator
+# can resolve it at request time.
+limiter = Limiter(
+    key_func=feedback_rate_limit_key,
+    default_limits=[os.getenv("FEEDBACK_RATE_LIMIT", "120/minute")]
+)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -212,9 +256,54 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://localhost:3000", "https://fasal-saathi.vercel.app"],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
 )
+
+# ASGI middleware that enforces a 10 KB limit on the request body
+# regardless of transfer encoding (covers both Content-Length and
+# Transfer-Encoding: chunked).
+class _OversizedBody(Exception):
+    """Raised within sized_receive to abort processing when the body exceeds the limit."""
+
+
+class _RequestBodySizeMiddleware:
+    def __init__(self, app, max_bytes: int = 10240):
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        received = 0
+
+        async def sized_receive():
+            nonlocal received
+            msg = await receive()
+            if msg["type"] == "http.request":
+                body = msg.get("body", b"")
+                received += len(body)
+                if received > self.max_bytes:
+                    raise _OversizedBody
+            return msg
+
+        try:
+            await self.app(scope, sized_receive, send)
+        except _OversizedBody:
+            await send({
+                "type": "http.response.start",
+                "status": 413,
+                "headers": [(b"content-type", b"text/plain")],
+            })
+            await send({
+                "type": "http.response.body",
+                "body": b"Request too large",
+            })
+
+
+app.add_middleware(_RequestBodySizeMiddleware)
 
 
 # Dependency for request validation
@@ -224,17 +313,6 @@ async def validate_request(request: Request) -> dict:
     content_type = request.headers.get("content-type", "")
     if "application/json" not in content_type:
         raise HTTPException(status_code=415, detail="Unsupported media type")
-    
-    # Check request size
-    content_length = request.headers.get("content-length")
-    if content_length is not None:
-        try:
-            length_int = int(content_length)
-        except (ValueError, TypeError):
-            raise HTTPException(status_code=400, detail="Invalid Content-Length header")
-        if length_int > 10240:  # 10KB max
-            raise HTTPException(status_code=413, detail="Request too large")
-    
     return {}
 
 
@@ -277,10 +355,12 @@ async def verify_admin(request: Request) -> dict:
     # Offload blocking Firebase SDK call to thread pool.
     try:
         decoded = firebase_auth.verify_id_token(id_token, check_revoked=True)
+    except firebase_auth.RevokedIdTokenError:
+        raise HTTPException(status_code=401, detail="Session revoked — please log in again")
     except Exception:
         raise HTTPException(status_code=401, detail="Authentication failed")
 
-    uid = decoded["uid"]
+    uid = decoded.get("sub") or decoded.get("uid")
 
     # Offload blocking Firestore network call to thread pool.
     try:
@@ -313,8 +393,8 @@ async def root(request: Request):
     }
 
 
-@app.post("/api/feedback", response_model=FeedbackResponse, dependencies=[Depends(verify_csrf_token_dependency)])
-@limiter.limit("5/minute")
+@app.post("/api/feedback", response_model=FeedbackResponse)
+@limiter.limit("5/minute", key_func=_feedback_rate_key)
 async def submit_feedback(
     feedback: FeedbackRequest,
     request: Request,
@@ -349,6 +429,42 @@ async def submit_feedback(
         # Additional validation using our validator
         validated_data = FeedbackValidator.validate_feedback_data(feedback_dict)
 
+        # Duplicate submission detection
+        validated_data["submissionFingerprint"] = generate_submission_fingerprint(
+            {
+                **validated_data,
+                "userId": uid,
+            }
+        )
+
+        logger.info(
+            "Checking for duplicate submissions within %s seconds for uid=%s",
+            DUPLICATE_WINDOW_SECONDS,
+            uid,
+        )
+
+        recent_duplicates = (
+            db.collection("feedback")
+            .where(
+                "submissionFingerprint",
+                "==",
+                validated_data["submissionFingerprint"],
+            )
+            .limit(1)
+            .stream()
+        )
+
+        if any(recent_duplicates):
+            logger.warning(
+                "Duplicate feedback submission detected for uid=%s",
+                uid,
+            )
+
+            raise HTTPException(
+                status_code=409,
+                detail="Duplicate feedback submission detected.",
+            )
+
         # Check if data is safe for Firestore
         if not FeedbackValidator.is_safe_for_firestore(validated_data):
             logger.warning("Unsafe data detected from uid: %s", uid)
@@ -356,6 +472,8 @@ async def submit_feedback(
 
         # Add server-side metadata — stored for audit/abuse investigation
         # but intentionally excluded from the response body.
+        validated_data.update(build_processing_metadata())
+
         validated_data['createdAt'] = datetime.now(timezone.utc)
         validated_data['ipAddress'] = request.client.host if request.client else None
         validated_data['userAgent'] = request.headers.get("user-agent", "")
@@ -364,6 +482,11 @@ async def submit_feedback(
         try:
             doc_ref = db.collection("feedback").add(validated_data)
             feedback_id = doc_ref[1].id
+            logger.info(
+                "Feedback processing completed successfully. ID=%s UID=%s",
+                feedback_id,
+                uid,
+            )
 
             logger.info("Feedback stored successfully. ID: %s", feedback_id)
 
@@ -377,16 +500,20 @@ async def submit_feedback(
             )
 
         except Exception as firestore_error:
-            logger.error("Firestore error: %s", firestore_error)
+            logger.error(
+                "Firestore error during feedback submission for uid=%s: %s",
+                uid,
+                firestore_error,
+            )
             raise HTTPException(
                 status_code=500,
                 detail="Failed to store feedback. Please try again later.",
             )
 
     except ValueError as ve:
-        logger.warning("Validation error: %s", ve)
-        raise HTTPException(status_code=400, detail=str(ve))
-
+        logger.warning(f"Validation error: {ve}")
+        raise HTTPException(status_code=400, detail=safe_detail(ve, 400))
+        
     except HTTPException:
         raise
 
@@ -405,30 +532,6 @@ async def get_feedback_stats(
     admin_user: dict = Depends(verify_admin),
 ):
     """Get feedback statistics (admin only)"""
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing auth token")
-
-    try:
-        id_token = auth_header.split(" ")[1]
-        decoded = firebase_auth.verify_id_token(id_token, check_revoked=True)
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-
-    uid = decoded["uid"]
-
-    try:
-        user_doc = db.collection("users").document(uid).get()
-    except Exception:
-        raise HTTPException(status_code=503, detail="Authorization service unavailable")
-
-    if not user_doc.exists:
-        raise HTTPException(status_code=403, detail="User profile not found")
-
-    user_role = user_doc.to_dict().get("role", "farmer")
-    if user_role != "admin":
-        raise HTTPException(status_code=403, detail="Access denied: admin role required")
-
     try:
         feedback_ref = db.collection("feedback")
         docs = feedback_ref.limit(1000).stream()

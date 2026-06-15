@@ -2,13 +2,13 @@
 import asyncio
 import os
 import time
-import logging
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query
+from backend.core.logging_config import setup_logging
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
+logger = setup_logging(__name__)
 
 GITHUB_OWNER = os.getenv("GITHUB_CONTRIBUTORS_OWNER", "Eshajha19")
 GITHUB_REPO = os.getenv("GITHUB_CONTRIBUTORS_REPO", "agri")
@@ -28,20 +28,38 @@ _contributors_cache = {"expires_at": 0.0, "data": []}
 # asyncio.Lock is the correct primitive here because get_contributors is
 # an async handler running in the event loop — threading.Lock would block
 # the loop, while asyncio.Lock yields control while waiting.
+#
+# The lock is initialized at module load time by init_community(), which
+# must be called during the application's lifespan setup before any async
+# handlers execute. This ensures all coroutines share a single lock instance,
+# preventing lazy initialization race conditions where multiple coroutines
+# might create separate lock instances.
 _cache_lock: asyncio.Lock | None = None
 
 
-def _get_cache_lock() -> asyncio.Lock:
-    """Return the module-level asyncio.Lock, creating it lazily.
-
-    The lock must be created inside a running event loop, so we cannot
-    initialise it at module import time (which may happen before the loop
-    starts).  Lazy initialisation on first use is safe because FastAPI
-    always calls handlers from within the running loop.
+def init_community():
+    """Initialize the community module with proper asyncio context.
+    
+    Must be called during application startup (in lifespan context) to ensure
+    the cache lock is created inside a running event loop. This is called from
+    main.py lifespan.
     """
     global _cache_lock
     if _cache_lock is None:
         _cache_lock = asyncio.Lock()
+
+
+def _get_cache_lock() -> asyncio.Lock:
+    """Return the module-level asyncio.Lock.
+    
+    The lock must have been initialized by init_community() during startup.
+    Raises RuntimeError if init_community() was not called.
+    """
+    if _cache_lock is None:
+        raise RuntimeError(
+            "Community module not initialized. init_community() must be "
+            "called during application startup."
+        )
     return _cache_lock
 
 
@@ -61,6 +79,39 @@ def _set_cached_contributors(data):
     _contributors_cache["expires_at"] = time.time() + CACHE_TTL_SECONDS
 
 
+def _calculate_feed_ranking_score(contributor):
+    """Calculate a lightweight ranking score for community feed ordering."""
+    contributions = contributor.get("contributions", 0)
+
+    return max(contributions, 0) * 5
+
+
+def _rank_contributors(contributors):
+    """Apply deterministic feed ranking while preserving existing behavior."""
+    ranked = list(contributors)
+
+    for contributor in ranked:
+        contributor["ranking_score"] = _calculate_feed_ranking_score(
+            contributor
+        )
+
+    ranked.sort(
+        key=lambda contributor: (
+            contributor.get("ranking_score", 0),
+            contributor.get("contributions", 0),
+        ),
+        reverse=True,
+    )
+
+    for rank, contributor in enumerate(
+        ranked,
+        start=1,
+    ):
+        contributor["feed_rank"] = rank
+
+    return ranked
+
+
 @router.get("/contributors")
 async def get_contributors(
     per_page: int = Query(default=100, ge=1, le=100),
@@ -72,7 +123,16 @@ async def get_contributors(
     # cache hit is always acceptable.
     cached = _get_cached_contributors()
     if cached is not None:
-        return {"success": True, "source": "cache", "contributors": cached[:limit], "total": len(cached)}
+        return {
+            "success": True,
+            "source": "cache",
+            "contributors": cached[:limit],
+            "total": len(cached),
+            "ranking": {
+                "enabled": True,
+                "strategy": "contribution_based_feed_ranking",
+            },
+        }
 
     # Slow path: cache is expired.  Acquire the lock so only one coroutine
     # fetches from GitHub while others wait.  After the lock is released the
@@ -82,7 +142,16 @@ async def get_contributors(
         # populated the cache while we were waiting to acquire it.
         cached = _get_cached_contributors()
         if cached is not None:
-            return {"success": True, "source": "cache", "contributors": cached[:limit], "total": len(cached)}
+            return {
+                "success": True,
+                "source": "cache",
+                "contributors": cached[:limit],
+                "total": len(cached),
+                "ranking": {
+                    "enabled": True,
+                    "strategy": "contribution_based_feed_ranking",
+                },
+            }
 
         headers = {
             "Accept": "application/vnd.github+json",
@@ -117,6 +186,10 @@ async def get_contributors(
                 if isinstance(item, dict) and item.get("login")
             ]
 
+            contributors = _rank_contributors(
+                contributors
+            )
+
             contributors = contributors[:MAX_VISIBLE_CONTRIBUTORS]
 
             logger.info(
@@ -130,6 +203,14 @@ async def get_contributors(
                 "source": "github",
                 "contributors": contributors[:limit],
                 "total": len(contributors),
+                "ranking": {
+                    "enabled": True,
+                    "strategy": "contribution_based_feed_ranking",
+                    "signals": [
+                        "contributions",
+                        "ranking_score",
+                    ],
+                },
             }
         except httpx.TimeoutException as exc:
             logger.warning("Contributor fetch timed out: %s", exc)

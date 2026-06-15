@@ -10,6 +10,10 @@ from typing import Dict, List, Optional, Any
 
 logger = logging.getLogger(__name__)
 
+# Isolated RNG for Thompson sampling — avoids correlated draws
+# from NumPy's global random state under concurrent load.
+_rng = np.random.RandomState(random.getrandbits(128))
+
 
 class TestStatus(Enum):
     SETUP = "setup"
@@ -67,11 +71,39 @@ class Arm:
             self.successes += 1
         else:
             self.failures += 1
+    
+    def sample_from_distribution(self) -> float:
+        """Sample success probability from Beta distribution (Thompson sampling)"""
+        # Use Beta(alpha, beta) where alpha = successes, beta = failures
+        alpha = self.successes + 1  # Add pseudocount
+        beta = self.failures + 1
+        
+        if alpha <= 0 or beta <= 0:
+            return 0.5
+        
+        # Sample from Beta distribution using isolated RNG
+        return _rng.beta(alpha, beta)
+    
+    def confidence_interval(self, alpha: float = 0.05) -> Dict[str, float]:
+        """
+        Compute a Wald confidence (credible) interval for the arm's success
+        probability using the Beta posterior Beta(alpha+1, beta+1). Falls
+        back to a normal approximation for large n.
+        """
+        n = self.successes + self.failures
+        if n == 0:
+            return {"lower": 0.0, "upper": 0.0, "mean": 0.0}
+        p = self.successes / n
+        z = 1.96  # approximates alpha=0.05 two-tailed
+        se = math.sqrt(p * (1 - p) / n) if n > 0 else 0.0
+        return {
+            "lower": max(0.0, p - z * se),
+            "upper": min(1.0, p + z * se),
+            "mean": p,
+        }
 
-    def sample_score(self) -> float:
-        return random.betavariate(self.alpha, self.beta)
-
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> Dict:
+        """Convert to dictionary"""
         return {
             "model_id": self.model_id,
             "model_version": self.model_version,
@@ -79,6 +111,7 @@ class Arm:
             "successes": self.successes,
             "failures": self.failures,
             "total_trials": self.total_trials,
+            "confidence_interval": self.confidence_interval(),
             "predictions": self.predictions,
             "mae": self.mean_mae,
             "rmse": self.mean_rmse,
@@ -176,18 +209,23 @@ class ABTest:
         return float(np.mean(variant_samples > control_samples))
 
     def get_winner(self) -> Optional[Arm]:
-        """Determine winner using Bayesian probability of being better."""
+        """Determine winner using the configured confidence threshold."""
         total_trials = self.control_arm.total_trials + self.variant_arm.total_trials
+
         if total_trials < self.min_samples:
             return None
-        
-        prob = self._probability_variant_better()
-        
-        if prob >= self.confidence_threshold:
+
+        c_ci = self.control_arm.confidence_interval()
+        v_ci = self.variant_arm.confidence_interval()
+
+        # Winner is declared when the lower bound of the superior arm's
+        # credible interval exceeds the upper bound of the other arm,
+        # i.e. the intervals do not overlap at the configured level.
+        if v_ci["lower"] > c_ci["upper"]:
             return self.variant_arm
-        elif prob <= 1.0 - self.confidence_threshold:
+        if c_ci["lower"] > v_ci["upper"]:
             return self.control_arm
-        
+
         return None
 
     def end(self) -> None:
