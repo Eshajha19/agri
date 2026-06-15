@@ -6,6 +6,7 @@ Uses Open-Meteo API (free, no API key required) for weather data.
 import os
 import logging
 import asyncio
+import itertools
 import aiohttp
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
@@ -161,12 +162,18 @@ class WeatherData:
     weather_code: int  # WMO code
     timestamp: datetime
     location: str = "Unknown"
+    soil_moisture: Optional[float] = None  # 0.0–1.0 volumetric water content
 
     def __str__(self):
-        return (
-            f"Temp: {self.temperature}°C, Humidity: {self.humidity}%, "
-            f"Rain: {self.rainfall}mm, Wind: {self.wind_speed} km/h"
-        )
+        parts = [
+            f"Temp: {self.temperature}°C",
+            f"Humidity: {self.humidity}%",
+            f"Rain: {self.rainfall}mm",
+            f"Wind: {self.wind_speed} km/h",
+        ]
+        if self.soil_moisture is not None:
+            parts.append(f"Soil Moisture: {self.soil_moisture:.0%}")
+        return ", ".join(parts)
 
 
 @dataclass
@@ -238,6 +245,11 @@ class WeatherAlertsService:
         for key in expired_keys:
             del self._weather_cache[key]
 
+    async def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+        return self._session
+
     async def get_coordinates(self, location: str) -> tuple:
         """
         Get latitude and longitude for a location.
@@ -246,29 +258,29 @@ class WeatherAlertsService:
             location: City name or region name
             
         Returns:
-            (latitude, longitude) tuple
+            (latitude, longitude, location_name) tuple, or (None, None, location) on failure
         """
         try:
-            async with aiohttp.ClientSession() as session:
-                params = {
-                    "name": location,
-                    "count": 1,
-                    "language": "en",
-                    "format": "json"
-                }
-                async with session.get(
-                    f"{self.GEOCODING_URL}/search",
-                    params=params,
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        if data.get("results"):
-                            result = data["results"][0]
-                            return (result["latitude"], result["longitude"], result.get("name", location))
+            session = await self._get_session()
+            params = {
+                "name": location,
+                "count": 1,
+                "language": "en",
+                "format": "json",
+            }
+            async with session.get(
+                f"{self.GEOCODING_URL}/search",
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if data.get("results"):
+                        result = data["results"][0]
+                        return (result["latitude"], result["longitude"], result.get("name", location))
         except Exception as e:
             logger.error(f"Geocoding error for '{location}': {e}")
-        return None
+        return (None, None, location)
 
     async def fetch_weather(
         self,
@@ -288,8 +300,14 @@ class WeatherAlertsService:
         Returns:
             WeatherData object or None if fetch fails
         """
-        cache_key = f"{latitude},{longitude}"
+        cache_key = f"{latitude},{longitude}|{location}"
         
+        
+
+        # Evict stale entries before every read so expired data does not
+        # accumulate indefinitely when the cache stays below max size.
+        self._evict_expired()
+
         # Check cache
         if cache_key in self._weather_cache:
             cached_data, cached_time = self._weather_cache[cache_key]
@@ -298,41 +316,41 @@ class WeatherAlertsService:
             del self._weather_cache[cache_key]
 
         try:
-            async with aiohttp.ClientSession() as session:
-                params = {
-                    "latitude": latitude,
-                    "longitude": longitude,
-                    "current": "temperature_2m,relative_humidity_2m,rainfall,weather_code,cloud_cover,wind_speed_10m",
-                    "timezone": "auto",
-                    "forecast_days": 1,
-                    "hourly": "rainfall",
-                }
-                
-                async with session.get(
-                    f"{self.BASE_URL}/forecast",
-                    params=params,
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        current = data.get("current", {})
+            session = await self._get_session()
+            params = {
+                "latitude": latitude,
+                "longitude": longitude,
+                "current": "temperature_2m,relative_humidity_2m,rainfall,weather_code,cloud_cover,wind_speed_10m",
+                "timezone": "auto",
+                "forecast_days": 1,
+                "hourly": "rainfall",
+            }
+
+            async with session.get(
+                f"{self.BASE_URL}/forecast",
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    current = data.get("current", {})
+
+                    weather = WeatherData(
+                        temperature=current.get("temperature_2m", 0),
+                        humidity=current.get("relative_humidity_2m", 0),
+                        rainfall=current.get("rainfall", 0),
+                        wind_speed=current.get("wind_speed_10m", 0),
+                        cloud_cover=current.get("cloud_cover", 0),
+                        weather_code=current.get("weather_code", 0),
+                        timestamp=datetime.now(),
+                        location=location,
+                    )
                         
-                        weather = WeatherData(
-                            temperature=current.get("temperature_2m", 0),
-                            humidity=current.get("relative_humidity_2m", 0),
-                            rainfall=current.get("rainfall", 0),
-                            wind_speed=current.get("wind_speed_10m", 0),
-                            cloud_cover=current.get("cloud_cover", 0),
-                            weather_code=current.get("weather_code", 0),
-                            timestamp=datetime.now(),
-                            location=location,
-                        )
-                        
-                        # Cache the result
-                        self._weather_cache[cache_key] = (weather, datetime.now())
-                        if len(self._weather_cache) > self._max_cache_size:
-                            self._evict_expired()
-                        return weather
+                    # Cache the result
+                    self._weather_cache[cache_key] = (weather, datetime.now())
+                    if len(self._weather_cache) > self._max_cache_size:
+                        self._evict_expired()
+                    return weather
         except asyncio.TimeoutError:
             logger.warning(f"Weather API timeout for {location}")
         except Exception as e:
@@ -377,17 +395,16 @@ class WeatherAlertsService:
                     id=f"weather_{self._next_alert_id}",
                     severity=AlertSeverity.HIGH,
                     condition=WeatherCondition.EXTREME_HEAT,
-                    title="⚠️ High Temperature Warning",
-                    message=f"Temperature {weather.temperature}°C is above optimal range for {crop}.",
+                    title="🔥 Extreme Heat Alert",
+                    message=f"Temperature reached {weather.temperature}°C. High risk of crop stress.",
                     crop=crop,
                     timestamp=weather.timestamp,
                     expires_at=weather.timestamp + timedelta(hours=6),
                 ))
-                self._next_alert_id += 1
 
         if weather.temperature < 0:
             alerts.append(WeatherAlert(
-                id=f"weather_{self._next_alert_id}",
+                id=f"weather_{next(self._alert_id_counter)}",
                 severity=AlertSeverity.CRITICAL,
                 condition=WeatherCondition.FROST,
                 title="❄️ Frost Alert",
@@ -404,11 +421,11 @@ class WeatherAlertsService:
                     id=f"weather_{self._next_alert_id}",
                     severity=AlertSeverity.HIGH,
                     condition=WeatherCondition.FROST,
-                    title="❄️ Low Temperature Warning",
-                    message=f"Temperature {weather.temperature}°C may affect {crop}.",
+                    title="❄️ Frost Alert",
+                    message=f"Temperature dropped to {weather.temperature}°C. Frost risk detected.",
                     crop=crop,
                     timestamp=weather.timestamp,
-                    expires_at=weather.timestamp + timedelta(hours=12),
+                    expires_at=weather.timestamp + timedelta(hours=6),
                 ))
                 self._next_alert_id += 1
 
@@ -431,13 +448,12 @@ class WeatherAlertsService:
                 alerts.append(WeatherAlert(
                     id=f"weather_{self._next_alert_id}",
                     severity=AlertSeverity.HIGH,
-                    condition=WeatherCondition.FLOOD_RISK,
-                    title=f"🌊 Flood Risk for {crop.title()}",
-                    message=f"Heavy rain may cause waterlogging. Ensure drainage for {crop}.",
+                    condition=WeatherCondition.STRONG_WIND,
+                    title="💨 Strong Wind Alert",
+                    message=f"Wind speed {weather.wind_speed} km/h. Risk of crop damage.",
                     crop=crop,
-                    recommended_action=CROP_SPECIFIC_ACTIONS.get(crop, {}).get("FLOOD_RISK"),
                     timestamp=weather.timestamp,
-                    expires_at=weather.timestamp + timedelta(hours=24),
+                    expires_at=weather.timestamp + timedelta(hours=6),
                 ))
                 self._next_alert_id += 1
 
@@ -464,13 +480,6 @@ class WeatherAlertsService:
                     if action:
                         alert.recommended_action = action
 
-        # Store alerts in history
-        self.alert_history.extend(alerts)
-        
-        # Keep history size manageable
-        if len(self.alert_history) > 1000:
-            self.alert_history = self.alert_history[-1000:]
-
         return alerts
 
     def get_alerts_summary(self, alerts: List[WeatherAlert]) -> Dict[str, Any]:
@@ -491,3 +500,9 @@ class WeatherAlertsService:
 # ============================================================================
 
 weather_service = WeatherAlertsService()
+
+
+async def close_weather_service():
+    """Close the shared aiohttp session on shutdown."""
+    if weather_service._session and not weather_service._session.closed:
+        await weather_service._session.close()
