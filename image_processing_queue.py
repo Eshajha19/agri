@@ -260,8 +260,9 @@ class ImageProcessingQueue:
                 return
             
             worker = self._workers[worker_id]
-            worker.tasks_processed += 1
-            if not success:
+            if success:
+                worker.tasks_processed += 1
+            else:
                 worker.tasks_failed += 1
             
             # Update average processing time (exponential moving average)
