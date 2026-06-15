@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+import re
+from datetime import datetime
 from typing import Any, Optional
 import logging
 
@@ -20,11 +21,21 @@ def _as_number(value: Any) -> Optional[float]:
     """Convert value to float, handling None and non-numeric types safely."""
     if isinstance(value, bool) or value is None:
         return None
+    if isinstance(value, str):
+        value = value.strip()
     try:
         number = float(value)
         return number if number == number else None
     except (TypeError, ValueError):
-        return None
+        match = re.match(r"[-+]?\d*\.?\d+", str(value).strip())
+        if match:
+            try:
+                number = float(match.group())
+            except (TypeError, ValueError):
+                return None
+        else:
+            return None
+    return number if number == number else None
 
 
 def _as_level(value: Any, low_below: float, high_above: float) -> str:
