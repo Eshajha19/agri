@@ -5,11 +5,105 @@ Protects sensitive data from leakages and enforces rotation and redaction.
 
 import re
 import hashlib
+import threading
+import time
+import asyncio
 from datetime import datetime, timezone
-from typing import Any, Tuple, Pattern, List
+from typing import Any, Tuple, Pattern, List, Dict, Optional
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
+from middleware_utils import (
+    ensure_body_available,
+)
+
+# Maximum body size to scan (256 KB)
+MAX_SCAN_BODY_SIZE = 256 * 1024
+# Content-Types that are eligible for body scanning
+SCANNABLE_CONTENT_TYPES = frozenset({
+    "application/json",
+    "text/plain",
+    "text/html",
+    "application/x-www-form-urlencoded",
+    "application/xml",
+    "text/xml",
+})
+
+# ---------------------------------------------------------------------------
+# DoS mitigation: scan-result cache + per-path token-bucket budget (#2366)
+# ---------------------------------------------------------------------------
+_SCAN_CACHE_TTL: float = 5.0    # seconds a cached result stays valid
+_SCAN_RPS_LIMIT: float = 10.0   # max full scans per second per path
+_SCAN_BURST: int = 3            # token-bucket burst allowance per path
+
+
+class _ScanCache:
+    """Thread-safe cache keyed on (path, body_blake2b) with TTL expiry."""
+
+    def __init__(self, ttl: float = _SCAN_CACHE_TTL, maxsize: int = 4096) -> None:
+        self._ttl = ttl
+        self._maxsize = maxsize
+        self._store: Dict[tuple, tuple] = {}   # key -> (result, expires_at)
+        self._lock = threading.Lock()
+
+    def _key(self, path: str, body: bytes) -> tuple:
+        digest = hashlib.blake2b(body, digest_size=16).hexdigest()
+        return (path, digest)
+
+    def get(self, path: str, body: bytes) -> Optional[bool]:
+        key = self._key(path, body)
+        async with self._lock:
+            entry = self._store.get(key)
+            if entry is None:
+                return None
+            result, expires_at = entry
+            if time.monotonic() > expires_at:
+                del self._store[key]
+                return None
+            return result
+
+    def set(self, path: str, body: bytes, result: bool) -> None:
+        key = self._key(path, body)
+        async with self._lock:
+            if len(self._store) >= self._maxsize:
+                # Evict expired entries first, then oldest quarter
+                now = time.monotonic()
+                expired = [k for k, (_, exp) in self._store.items() if exp <= now]
+                for k in expired:
+                    del self._store[k]
+                if len(self._store) >= self._maxsize:
+                    for k in list(self._store)[:self._maxsize // 4]:
+                        del self._store[k]
+            self._store[key] = (result, time.monotonic() + self._ttl)
+
+
+class _ScanBudget:
+    """Per-path token-bucket: consume() returns True when a scan may proceed."""
+
+    def __init__(self, rate: float = _SCAN_RPS_LIMIT, burst: int = _SCAN_BURST) -> None:
+        self._rate = rate
+        self._burst = burst
+        self._buckets: Dict[str, tuple] = {}   # path -> (tokens, last_refill)
+        self._lock = threading.Lock()
+
+    def consume(self, path: str) -> bool:
+        now = time.monotonic()
+        async with self._lock:
+            tokens, last = self._buckets.get(path, (float(self._burst), now))
+            tokens = min(float(self._burst), tokens + (now - last) * self._rate)
+            if tokens >= 1.0:
+                self._buckets[path] = (tokens - 1.0, now)
+                return True
+            self._buckets[path] = (tokens, now)
+            return False
+
+
+# Module-level singletons shared across all middleware instances
+_scan_cache = _ScanCache()
+_scan_budget = _ScanBudget()
+
+# ---------------------------------------------------------------------------
+
 
 class Finding:
     """Represents a sensitive data finding during scanning."""
@@ -56,31 +150,89 @@ class SecretHygieneProgram:
                 findings.append(Finding(category, match.group(0), location))
         return findings
 
+def _parse_mime_type(content_type: str | None) -> str | None:
+    """Extract the MIME type from a Content-Type header value."""
+    if not content_type:
+        return None
+    return content_type.split(";")[0].strip().lower()
+
+
+# Binary MIME types whose body cannot be meaningfully scanned as text.
+_BINARY_MIME_PREFIXES = ("image/", "audio/", "video/", "application/octet-stream")
+
+
 class RuntimeProtectionMiddleware(BaseHTTPMiddleware):
     """FastAPI Middleware to block requests containing cleartext secrets."""
-    def __init__(self, app, program: SecretHygieneProgram = None):
+
+    def __init__(self, app, program: SecretHygieneProgram = None, exclude_paths=None):
         super().__init__(app)
         self.program = program or SecretHygieneProgram()
+        self.exclude_paths = set(exclude_paths or ["/health", "/docs"])
 
     async def dispatch(self, request: Request, call_next):
-        # Scan request body for secret leakages before passing to route handlers
-        try:
-            body_bytes = await request.body()
-            body_str = body_bytes.decode("utf-8", errors="ignore")
-            findings = self.program.scan_text(body_str, location="middleware")
-            if findings:
+        raw_ct = request.headers.get("content-type")
+        mime = _parse_mime_type(raw_ct)
+        should_scan = mime is None or not mime.startswith(_BINARY_MIME_PREFIXES)
+
+        if should_scan:
+            try:
+                # Enforce request size limit before reading body into memory
+                content_length = request.headers.get("content-length")
+
+                if content_length:
+                    try:
+                        if int(content_length) > MAX_SCAN_BODY_SIZE:
+                            return JSONResponse(
+                                status_code=413,
+                                content={
+                                    "error": "Payload too large"
+                                }
+                            )
+                    except ValueError:
+                        pass
+
+                # Safe request body access using shared cache utility
+                body_bytes = await ensure_body_available(request)
+
+                # Secondary protection for clients that omit Content-Length
+                if len(body_bytes) > MAX_SCAN_BODY_SIZE:
+                    return JSONResponse(
+                        status_code=413,
+                        content={
+                            "error": "Payload too large"
+                        }
+                    )
+
+                path = request.url.path
+
+                # --- DoS fix: check cache before running any regex (#2366) ---
+                cached = _scan_cache.get(path, body_bytes)
+                if cached is not None:
+                    has_findings = cached
+                elif _scan_budget.consume(path):
+                    # Budget available — run the full scan
+                    body_str = body_bytes.decode("utf-8", errors="ignore")
+                    has_findings = bool(self.program.scan_text(body_str, location="middleware"))
+                    _scan_cache.set(path, body_bytes, has_findings)
+                else:
+                    # Budget exhausted and no cached result — assume safe to
+                    # avoid blocking legitimate traffic under load
+                    has_findings = False
+
+                if has_findings:
+                    return JSONResponse(
+                        status_code=400,
+                        content={"error": "Request blocked by secrets hygiene policy"}
+                    )
+
+
+            except Exception:
                 return JSONResponse(
-                    status_code=400,
-                    content={"error": "Request blocked by secrets hygiene policy"}
+                    status_code=500,
+                    content={
+                        "error": "Failed to inspect request"
+                    },
                 )
-            
-            # Reset body read pointer so downstream handlers can consume it
-            async def receive():
-                return {"type": "http.request", "body": body_bytes, "more_body": False}
-            request._receive = receive
-        except Exception:
-            # Fallback in case of body read failures to avoid crashing the server
-            pass
 
         response = await call_next(request)
         return response
@@ -91,8 +243,18 @@ def build_secret_fingerprint(value: str) -> str:
         value = str(value)
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
-def redact_sensitive_payload(payload: Any) -> Any:
-    """Recursively traverses and masks PII / Secrets in request/response payloads."""
+_MAX_REDACT_DEPTH = 20
+
+
+def redact_sensitive_payload(payload: Any, _depth: int = 0) -> Any:
+    """Recursively traverses and masks PII / Secrets in request/response payloads.
+
+    Stops recursion at _MAX_REDACT_DEPTH (20) to prevent stack exhaustion
+    from deeply nested attacker-controlled payloads.
+    """
+    if _depth >= _MAX_REDACT_DEPTH:
+        return "[MAX_DEPTH]"
+
     if isinstance(payload, dict):
         new_payload = {}
         for k, v in payload.items():
@@ -102,14 +264,14 @@ def redact_sensitive_payload(payload: Any) -> Any:
             elif any(s in k_lower for s in ["key", "secret", "token", "password", "auth"]):
                 new_payload[k] = "[REDACTED_SECRET]"
             else:
-                new_payload[k] = redact_sensitive_payload(v)
+                new_payload[k] = redact_sensitive_payload(v, _depth + 1)
         return new_payload
     elif isinstance(payload, list):
-        return [redact_sensitive_payload(item) for item in payload]
+        return [redact_sensitive_payload(item, _depth + 1) for item in payload]
     elif isinstance(payload, str):
         email_pattern = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
         phone_pattern = re.compile(r"\+?[0-9]{1,4}[-.\s]?[0-9]{3,5}[-.\s]?[0-9]{4,5}")
-        
+
         redacted = payload
         redacted = email_pattern.sub("[REDACTED_EMAIL]", redacted)
         redacted = phone_pattern.sub("[REDACTED_PHONE]", redacted)

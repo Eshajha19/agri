@@ -49,6 +49,7 @@ def test_high_debt_profile_is_flagged_as_risky():
 
 def test_create_application_persists_and_returns_status():
     engine = FarmFinanceAI()
+    owner_uid = "test-uid-123"
     application = engine.create_application(
         {
             "farmer_name": "Meera",
@@ -61,15 +62,45 @@ def test_create_application_persists_and_returns_status():
             "credit_score": 770,
             "requested_loan_amount": 320000,
             "loan_tenure_months": 36,
-        }
+        },
+        owner_uid="test-user",
     )
 
-    stored = engine.get_application(application["application_id"])
+    stored = engine.get_application(application["application_id"], owner_uid=None)
 
     assert application["status"] in {"pre_approved", "under_review", "needs_documents"}
     assert stored is not None
     assert stored["application_id"] == application["application_id"]
     assert stored["selected_lender"]
+
+
+def test_applications_cache_evicts_oldest_entry(monkeypatch):
+    import farm_finance_ai
+
+    monkeypatch.setattr(farm_finance_ai, "MAX_IN_MEMORY_APPLICATIONS", 2)
+
+    engine = FarmFinanceAI()
+    payload = {
+        "farmer_name": "Meera",
+        "crop_type": "rice",
+        "acreage": 8,
+        "annual_revenue": 1200000,
+        "annual_operating_cost": 700000,
+        "existing_debt": 90000,
+        "emergency_fund": 200000,
+        "credit_score": 770,
+        "requested_loan_amount": 320000,
+        "loan_tenure_months": 36,
+    }
+
+    first = engine.create_application(payload, owner_uid="farmer-1")
+    second = engine.create_application(payload, owner_uid="farmer-1")
+    third = engine.create_application(payload, owner_uid="farmer-1")
+
+    assert len(engine.applications) == 2
+    assert first["application_id"] not in engine.applications
+    assert second["application_id"] in engine.applications
+    assert third["application_id"] in engine.applications
 
 
 def test_marketplace_lists_multiple_products():
@@ -78,3 +109,23 @@ def test_marketplace_lists_multiple_products():
 
     assert len(marketplace) >= 3
     assert {item["lender_name"] for item in marketplace}
+
+
+def test_zero_revenue_does_not_crash():
+    engine = FarmFinanceAI()
+    result = engine.analyze_financial_profile(
+        {
+            "farmer_name": "Zero",
+            "crop_type": "wheat",
+            "acreage": 10,
+            "annual_revenue": 0,
+            "annual_operating_cost": 50000,
+            "existing_debt": 20000,
+            "emergency_fund": 10000,
+            "credit_score": 650,
+            "requested_loan_amount": 100000,
+            "loan_tenure_months": 36,
+        }
+    )
+    assert result["financial_health_score"] == 0
+    assert result["risk_level"] == "Critical"
