@@ -2,9 +2,18 @@
   max-width: 1200px;
   margin: 0 auto;
   padding: 40px 20px;
-  color: var(--text-color);
-  max-height: 90vh;
+  color: var(--text-primary, #111111);
+  overflow: visible;
+  word-break: normal;
+  overflow-wrap: normal;
+  hyphens: none;
+}
+
+.agri-modal-wrapper .crop-rotation-engine {
+  max-height: 85vh;
   overflow-y: auto;
+  padding-left: 24px;
+  padding-right: 24px;
 }
 
 .engine-header {
@@ -20,7 +29,7 @@
 
 .engine-header p {
   font-size: 1.1rem;
-  opacity: 0.8;
+  color: var(--text-secondary, #4b5563);
 }
 
 .ai-badge {
@@ -46,22 +55,49 @@
 
 .engine-grid {
   display: grid;
-  grid-template-columns: 1fr 1.2fr;
+  grid-template-columns: 1fr 1fr;
   gap: 30px;
   margin-bottom: 40px;
+  align-items: stretch;
 }
 
-.card {
-  background: white;
+.crop-rotation-engine .card {
+  background: var(--surface-bg, #ffffff);
+  border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 20px;
-  padding: 30px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
-  border: 1px solid rgba(0, 0, 0, 0.05);
+  padding: 32px;
+  box-sizing: border-box;
+  box-shadow: none; 
+  display: flex;
+  flex-direction: column;
+  gap: 20px; 
 }
 
-.theme-dark .card {
-  background: #1e1e1e;
-  border-color: #333;
+.crop-rotation-engine .input-section {
+  min-width: 0;
+}
+
+.crop-rotation-engine .output-section {
+  min-height: auto;
+  min-width: 0;
+}
+
+.theme-dark .crop-rotation-engine .card {
+  background: var(--card-bg, #111827);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.2)) !important;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.35);
+}
+
+.crop-rotation-engine .card {
+  background: var(--surface-bg, #ffffff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+}
+
+.theme-dark .crop-rotation-engine .card {
+  background: var(--card-bg, #111827);
+  border-color: var(--border-color, rgba(255, 255, 255, 0.12));
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.35);
 }
 
 .card-title {
@@ -70,24 +106,46 @@
   gap: 12px;
   margin-bottom: 25px;
   color: #2e7d32;
+  min-width: 0;
+   white-space: normal;
+     width: 100%;
+  position: relative;
+  float: none;
+  clear: both;
 }
 
 .card-title h3 {
   margin: 0;
   font-size: 1.3rem;
+  line-height: 1.25;
+  white-space: normal;
+  word-break: keep-all;
+  overflow-wrap: normal;
+  hyphens: none;
 }
 
-.input-group {
+.card-title svg {
+  flex: 0 0 auto;
+}
+
+.crop-rotation-engine .input-group,
+.crop-rotation-engine .empty-state {
+  clear: both;
+  margin-top: 15px; 
+}
+
+.crop-rotation-engine .input-group {
   margin-bottom: 20px;
 }
 
-.input-group label {
+.crop-rotation-engine .input-group label {
   display: block;
   margin-bottom: 10px;
   font-weight: 600;
   display: flex;
   align-items: center;
   gap: 8px;
+  color: var(--text-primary, #111111);
 }
 
 .add-crop-wrap {
@@ -95,24 +153,34 @@
   gap: 10px;
 }
 
-.add-crop-wrap select, 
-.input-group select {
+.crop-rotation-engine .add-crop-wrap select, 
+.crop-rotation-engine .input-group select {
   flex: 1;
+  min-width: 0;
   padding: 12px;
   border-radius: 10px;
-  border: 2px solid #e0e0e0;
-  background: white;
+  border: 2px solid var(--border-color, #d1d5db);
+  background: var(--surface-bg, #ffffff);
+  color: var(--text-primary, #111111);
   font-size: 1rem;
 }
 
-.theme-dark .add-crop-wrap select,
-.theme-dark .input-group select {
-  background: #2d2d2d;
-  border-color: #444;
-  color: white;
+.theme-dark .crop-rotation-engine .add-crop-wrap select,
+.theme-dark .crop-rotation-engine .input-group select {
+  background: #0f172a;
+  border-color: var(--border-color, rgba(255, 255, 255, 0.12));
+  color: var(--text-primary, #e5e7eb);
+}
+
+.crop-rotation-engine .add-crop-wrap select:focus,
+.crop-rotation-engine .input-group select:focus {
+  outline: none;
+  border-color: #2e7d32;
+  box-shadow: 0 0 0 3px rgba(46, 125, 50, 0.16);
 }
 
 .btn-add {
+  flex-shrink: 0;
   padding: 0 20px;
   background: #2e7d32;
   color: white;
@@ -132,14 +200,18 @@
   flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 25px;
-  min-height: 80px;
-  padding: 15px;
-  background: #f5f7f2;
+  min-height: 0;
+  padding: 0;
+  background: var(--bg-secondary, #f8fafc);
   border-radius: 12px;
+  border: 0;
+  align-items: center;
+  justify-content: flex-start;
+  text-align: left;
 }
 
 .theme-dark .history-tags {
-  background: #2d2d2d;
+  background: transparent;
 }
 
 .history-tag {
@@ -158,14 +230,36 @@
   border-color: #2e7d32;
 }
 
+.placeholder-text {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  color: var(--text-secondary, #4b5563);
+  font-size: 0.95rem;
+  line-height: 1.45;
+  text-align: left;
+  background: var(--bg-secondary, #f8fafc);
+  border: 1px dashed var(--border-color, #d1d5db);
+  border-radius: 10px;
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: none;
+}
+
+.theme-dark .placeholder-text {
+  color: var(--text-secondary, #a1a1aa);
+  background: #0f172a;
+  border-color: var(--border-color, rgba(255, 255, 255, 0.12));
+}
+
 .action-buttons {
   display: flex;
   gap: 15px;
   margin-top: 30px;
+  flex-wrap: wrap;
 }
 
 .btn-analyze {
-  flex: 2;
+  flex: 2 1 240px;
   padding: 15px;
   background: #2e7d32;
   color: white;
@@ -189,11 +283,11 @@
 }
 
 .btn-reset {
-  flex: 1;
+  flex: 1 1 160px;
   padding: 15px;
-  background: #f5f5f5;
-  color: #666;
-  border: 1px solid #ddd;
+  background: var(--surface-bg, #ffffff);
+  color: var(--text-primary, #111111);
+  border: 1px solid var(--border-color, #d1d5db);
   border-radius: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -269,8 +363,17 @@
 .detail-label {
   font-size: 0.8rem;
   text-transform: uppercase;
-  color: #888;
+  color: var(--text-secondary, #4b5563);
   font-weight: 700;
+}
+
+.detail-item p {
+  color: var(--text-primary, #111111);
+  line-height: 1.55;
+}
+
+.theme-dark .detail-item p {
+  color: var(--text-primary, #e5e7eb);
 }
 
 .detail-row {
@@ -299,24 +402,35 @@
   align-items: center;
   gap: 12px;
   font-size: 0.95rem;
+  color: #14532d;
 }
 
 .theme-dark .rec-alert {
   background: #1b5e2022;
+  color: var(--text-primary, #e5e7eb);
 }
 
-.empty-state {
-  height: 100%;
+.crop-rotation-engine .empty-state {
+  min-height: 320px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   text-align: center;
   padding: 60px 20px;
-  color: #bbb;
+  color: var(--text-secondary, #4b5563);
+  background: var(--bg-secondary, #f8fafc);
+  border: 1px dashed var(--border-color, #d1d5db);
+  border-radius: 14px;
 }
 
-.empty-state svg {
+.theme-dark .crop-rotation-engine .empty-state {
+  color: var(--text-secondary, #a1a1aa);
+  background: #0f172a;
+  border-color: var(--border-color, rgba(255, 255, 255, 0.12));
+}
+
+.crop-rotation-engine .empty-state svg {
   font-size: 4rem;
   margin-bottom: 20px;
   opacity: 0.5;
@@ -338,6 +452,63 @@
   animation: scan 1.5s ease-in-out infinite;
 }
 
+/* ==========================================================================
+   1. Master Card Container (Fixes the "hanging/floating" layout)
+   ========================================================================== */
+.engine-master-card {
+  background: #ffffff;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 24px;
+  padding: 40px;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.06);
+  margin-bottom: 20px;
+}
+
+/* Dark Theme Master Card */
+.theme-dark .engine-master-card {
+  background: #151b26; /* Deep dark grey/blue matching your dashboard */
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+}
+
+/* ==========================================================================
+   2. Header Alignment Fix (Stops elements from creeping upward)
+   ========================================================================== */
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 25px;
+  color: #2e7d32;
+  width: 100%;
+  
+  /* Forces the header to act as a solid structural block */
+  display: block !important; 
+}
+
+.card-title svg {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 12px;
+}
+
+.card-title h3 {
+  display: inline-block;
+  vertical-align: middle;
+  margin: 0;
+  font-size: 1.3rem;
+  line-height: 1.25;
+  white-space: normal;
+}
+
+/* Isolate the internal card elements so they register the title's height */
+.crop-rotation-engine .input-group,
+.crop-rotation-engine .empty-state,
+.crop-rotation-engine .recommendation-content {
+  margin-top: 20px !important;
+  display: block;
+}
+
 @keyframes scan {
   0% { top: 0; }
   50% { top: 100%; }
@@ -347,6 +518,11 @@
 .status-text {
   font-weight: 600;
   min-height: 1.5em;
+  max-width: 100%;
+  line-height: 1.5;
+  word-break: normal;
+  overflow-wrap: normal;
+  hyphens: none;
 }
 
 .spin {
@@ -359,22 +535,23 @@
 }
 
 .rotation-info-section {
-  margin-top: 60px;
+  margin-top: 24px;
   padding: 40px;
-  background: #fff;
+  background: var(--surface-bg, #ffffff);
   border-radius: 20px;
-  border: 1px solid #eee;
+  border: 1px solid var(--border-color, #e5e7eb);
 }
 
 .theme-dark .rotation-info-section {
-  background: #1e1e1e;
-  border-color: #333;
+  background: var(--card-bg, #111827);
+  border-color: var(--border-color, rgba(255, 255, 255, 0.12));
 }
 
 .rotation-info-section h3 {
   margin-bottom: 25px;
   text-align: center;
   font-size: 1.8rem;
+  color: var(--text-primary, #111111);
 }
 
 .info-grid {
@@ -392,20 +569,50 @@
 .info-item p {
   font-size: 0.95rem;
   line-height: 1.6;
-  color: #555;
+  color: var(--text-secondary, #4b5563);
 }
 
 .theme-dark .info-item p {
   color: #ccc;
 }
 
-@media (max-width: 968px) {
+@media (max-width: 1080px) {
   .engine-grid {
     grid-template-columns: 1fr;
   }
   
   .info-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1180px) {
+  .agri-modal-wrapper .crop-rotation-engine .engine-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .crop-rotation-engine {
+    padding: 28px 14px;
+  }
+
+  .crop-rotation-engine .card,
+  .rotation-info-section {
+    padding: 22px;
+  }
+
+  .add-crop-wrap,
+  .action-buttons,
+  .detail-row {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+
+  .btn-add,
+  .btn-analyze,
+  .btn-reset {
+    width: 100%;
   }
 }
 

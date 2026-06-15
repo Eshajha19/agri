@@ -1432,3 +1432,117 @@
 .mv-section-transparent > * {
   background: transparent !important;
 }
+
+/* Keep About page dark mode aligned with the shared theme tokens. */
+.theme-dark .about-page,
+[data-theme="dark"] .about-page {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.theme-dark .about-mv-card,
+.theme-dark .about-value-card,
+.theme-dark .about-feature-card,
+.theme-dark .timeline-card,
+.theme-dark .about-team-card,
+.theme-dark .about-visual-card,
+.theme-dark .farm-stat-card,
+.theme-dark .team-showcase,
+.theme-dark .team-showcase-card,
+[data-theme="dark"] .about-mv-card,
+[data-theme="dark"] .about-value-card,
+[data-theme="dark"] .about-feature-card,
+[data-theme="dark"] .timeline-card,
+[data-theme="dark"] .about-team-card,
+[data-theme="dark"] .about-visual-card,
+[data-theme="dark"] .farm-stat-card,
+[data-theme="dark"] .team-showcase,
+[data-theme="dark"] .team-showcase-card {
+  background: var(--bg-card) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary);
+}
+
+.theme-dark .about-features-section,
+.theme-dark .about-farm-strip,
+[data-theme="dark"] .about-features-section,
+[data-theme="dark"] .about-farm-strip {
+  background: var(--bg-secondary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-dark .mv-mission,
+[data-theme="dark"] .mv-mission {
+  background: linear-gradient(145deg, var(--bg-card), rgba(245, 158, 11, 0.14)) !important;
+  border-color: rgba(245, 158, 11, 0.35) !important;
+}
+
+.theme-dark .mv-vision,
+[data-theme="dark"] .mv-vision {
+  background: linear-gradient(145deg, var(--bg-card), rgba(59, 130, 246, 0.14)) !important;
+  border-color: rgba(59, 130, 246, 0.35) !important;
+}
+
+.theme-dark .team-showcase-card-top::after,
+[data-theme="dark"] .team-showcase-card-top::after {
+  background: var(--bg-card) !important;
+}
+
+.theme-dark .about-hero-title,
+.theme-dark .about-section-header h2,
+.theme-dark .about-intro-text h2,
+.theme-dark .about-mv-card h2,
+.theme-dark .about-value-card h3,
+.theme-dark .about-feature-card h3,
+.theme-dark .timeline-card h3,
+.theme-dark .about-team-card h3,
+.theme-dark .visual-card-header,
+.theme-dark .farm-stat-val,
+.theme-dark .team-showcase-card-body h3,
+[data-theme="dark"] .about-hero-title,
+[data-theme="dark"] .about-section-header h2,
+[data-theme="dark"] .about-intro-text h2,
+[data-theme="dark"] .about-mv-card h2,
+[data-theme="dark"] .about-value-card h3,
+[data-theme="dark"] .about-feature-card h3,
+[data-theme="dark"] .timeline-card h3,
+[data-theme="dark"] .about-team-card h3,
+[data-theme="dark"] .visual-card-header,
+[data-theme="dark"] .farm-stat-val,
+[data-theme="dark"] .team-showcase-card-body h3 {
+  color: var(--text-primary) !important;
+}
+
+.theme-dark .about-hero-body,
+.theme-dark .about-section-header p,
+.theme-dark .about-intro-text p,
+.theme-dark .about-mv-card p,
+.theme-dark .about-value-card p,
+.theme-dark .about-feature-card p,
+.theme-dark .timeline-card p,
+.theme-dark .about-team-card p,
+.theme-dark .team-group-heading p,
+.theme-dark .team-showcase-card-body p,
+.theme-dark .farm-stat-lbl,
+.theme-dark .farm-strip-item span:last-child,
+.theme-dark .visual-bar-label,
+[data-theme="dark"] .about-hero-body,
+[data-theme="dark"] .about-section-header p,
+[data-theme="dark"] .about-intro-text p,
+[data-theme="dark"] .about-mv-card p,
+[data-theme="dark"] .about-value-card p,
+[data-theme="dark"] .about-feature-card p,
+[data-theme="dark"] .timeline-card p,
+[data-theme="dark"] .about-team-card p,
+[data-theme="dark"] .team-group-heading p,
+[data-theme="dark"] .team-showcase-card-body p,
+[data-theme="dark"] .farm-stat-lbl,
+[data-theme="dark"] .farm-strip-item span:last-child,
+[data-theme="dark"] .visual-bar-label {
+  color: var(--text-secondary) !important;
+}
+
+.theme-dark .visual-bar-row,
+[data-theme="dark"] .visual-bar-row {
+  background: var(--bg-secondary) !important;
+}
