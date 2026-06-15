@@ -5,7 +5,9 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 from datetime import datetime, timezone
 import logging
+import time
 from error_utils import safe_detail
+from backend.core.logging_config import setup_logging
 
 router = APIRouter()
 logger = setup_logging(__name__)
@@ -137,7 +139,8 @@ async def register_actor(request: Request, data: RegisterActorRequest):
         raise HTTPException(status_code=500, detail="Not initialized")
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth service not initialized")
-    await verify_role_fn(request)
+    token_data = await verify_role_fn(request)
+    uid = _verify_write_operation_auth(token_data)
     try:
         actor = supply_chain_blockchain.register_actor(
             data.actor_id, data.name, data.actor_type, data.location
@@ -243,7 +246,8 @@ async def create_batch(request: Request, data: CreateProductBatchRequest):
         raise HTTPException(status_code=500, detail="Not initialized")
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth service not initialized")
-    await verify_role_fn(request)
+    token_data = await verify_role_fn(request)
+    uid = _verify_write_operation_auth(token_data)
     try:
         batch = supply_chain_blockchain.create_product_batch(
             data.crop_type, data.farm_id, data.quantity, data.unit,
@@ -268,7 +272,8 @@ async def add_node(request: Request, data: AddSupplyChainNodeRequest):
         raise HTTPException(status_code=500, detail="Not initialized")
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth service not initialized")
-    await verify_role_fn(request)
+    token_data = await verify_role_fn(request)
+    uid = _verify_write_operation_auth(token_data)
     try:
         node = supply_chain_blockchain.add_supply_chain_node(
             data.batch_id, data.node_type, data.actor_name, data.location, data.action,
@@ -292,7 +297,8 @@ async def create_contract(request: Request, data: CreateSmartContractRequest):
         raise HTTPException(status_code=500, detail="Not initialized")
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth service not initialized")
-    await verify_role_fn(request)
+    token_data = await verify_role_fn(request)
+    uid = _verify_write_operation_auth(token_data)
     try:
         contract = supply_chain_blockchain.create_smart_contract(
             data.batch_id, data.seller, data.buyer, data.price, data.terms,
@@ -316,7 +322,8 @@ async def execute_contract(request: Request, contract_id: str):
         raise HTTPException(status_code=500, detail="Not initialized")
     if verify_role_fn is None:
         raise HTTPException(status_code=500, detail="Auth service not initialized")
-    await verify_role_fn(request)
+    token_data = await verify_role_fn(request)
+    uid = _verify_write_operation_auth(token_data)
     try:
         result = supply_chain_blockchain.execute_smart_contract(contract_id)
         logger.info("Smart contract executed: contract_id=%s by uid=%s", contract_id, uid)
