@@ -33,6 +33,7 @@ To allow the bot to respond to user messages (e.g., "Hi", "Weather"):
 3.  **Trigger Alert**: Use the Pest Management tool. If a severe pest is detected, click "Send Alert to WhatsApp".
 4.  **Chat with Bot**: Send "Hi" or "Weather" to the bot on WhatsApp!
 
+
 ## 📂 New/Modified Files
 - `main.py`: Added WhatsApp alert and webhook endpoints.
 - `whatsapp_service.py`: core logic for Twilio integration.
