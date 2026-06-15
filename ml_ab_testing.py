@@ -10,6 +10,10 @@ from typing import Dict, List, Optional, Any
 
 logger = logging.getLogger(__name__)
 
+# Isolated RNG for Thompson sampling — avoids correlated draws
+# from NumPy's global random state under concurrent load.
+_rng = np.random.RandomState(random.getrandbits(128))
+
 
 class TestStatus(Enum):
     SETUP = "setup"
@@ -67,11 +71,21 @@ class Arm:
             self.successes += 1
         else:
             self.failures += 1
-
-    def sample_score(self) -> float:
-        return random.betavariate(self.alpha, self.beta)
-
-    def to_dict(self) -> Dict[str, Any]:
+    
+    def sample_from_distribution(self) -> float:
+        """Sample success probability from Beta distribution (Thompson sampling)"""
+        # Use Beta(alpha, beta) where alpha = successes, beta = failures
+        alpha = self.successes + 1  # Add pseudocount
+        beta = self.failures + 1
+        
+        if alpha <= 0 or beta <= 0:
+            return 0.5
+        
+        # Sample from Beta distribution using isolated RNG
+        return _rng.beta(alpha, beta)
+    
+    def to_dict(self) -> Dict:
+        """Convert to dictionary"""
         return {
             "model_id": self.model_id,
             "model_version": self.model_version,
