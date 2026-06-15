@@ -108,26 +108,29 @@ class CropQualityGrader:
                 f"Unsupported crop type: {crop_type}. Supported: {self.supported_crops}"
             )
 
-        # Load image
+        # Load image — cv2.imdecode produces BGR channel ordering.
+        # Convert to RGB immediately so that all downstream methods and
+        # the CROP_QUALITY_PARAMS color_ranges (defined in R/G/B order)
+        # operate on consistent channel ordering.
         image_array = np.frombuffer(image_data, np.uint8)
-        image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+        image_bgr = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
 
-        if image is None:
+        if image_bgr is None:
             raise ValueError("Invalid image data")
 
-        # OpenCV loads as BGR; convert to RGB so that channel access
-        # (image[:,:,0] = R, :,:,1 = G, :,:,2 = B) matches the
-        # crop-quality thresholds defined in RGB order.
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        # RGB image used for colour analysis against threshold tables.
+        image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        # Greyscale image shared by size/shape/defect methods.
+        image_gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
 
         # Get crop params
         params = CROP_QUALITY_PARAMS[crop_type.lower()]
 
-        # Analyze image
-        size_quality = self._assess_size(image, params)
-        color_quality = self._assess_color(image, params)
-        shape_quality = self._assess_shape(image, params)
-        defect_percentage = self._detect_defects(image, params)
+        # Analyze image — pass rgb/gray as appropriate to each method.
+        size_quality = self._assess_size(image_gray, params)
+        color_quality = self._assess_color(image_rgb, image_bgr, params)
+        shape_quality = self._assess_shape(image_gray, params)
+        defect_percentage = self._detect_defects(image_gray, params)
 
         # Calculate overall score (0-100)
         overall_score = (
@@ -226,13 +229,16 @@ class CropQualityGrader:
 
         return assessment
 
-    def _assess_size(self, image: np.ndarray, params: Dict) -> float:
-        """Assess size uniformity of crops in image"""
-        if not isinstance(image, np.ndarray):
+    def _assess_size(self, image_gray: np.ndarray, params: Dict) -> float:
+        """Assess size uniformity of crops in image.
+
+        Accepts a pre-converted greyscale image so no channel conversion
+        is performed here, avoiding any BGR/RGB ambiguity.
+        """
+        if not isinstance(image_gray, np.ndarray):
             return 50.0
-        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         contours, _ = cv2.findContours(
-            binary,
+            cv2.threshold(image_gray, 127, 255, cv2.THRESH_BINARY)[1],
             cv2.RETR_EXTERNAL,
             cv2.CHAIN_APPROX_SIMPLE,
         )
@@ -250,84 +256,78 @@ class CropQualityGrader:
         uniformity = max(0.0, 100 - (std_size / mean_size * 100)) if mean_size > 0 else 50.0
         return float(min(100, uniformity))
 
-    def _assess_color(self, image: np.ndarray, params: Dict) -> float:
-        """Assess color quality against configured crop color range constraints.
+    def _assess_color(self, image_rgb: np.ndarray, image_bgr: np.ndarray, params: Dict) -> float:
+        """Assess colour quality against the crop-specific RGB threshold table.
 
-        Computes per-channel (B, G, R) mean values and scores each channel by
-        how well it falls within the configured ``color_ranges``.  Channels
-        within the acceptable range score 100; channels outside are penalized
-        proportionally to their deviation from the nearest range boundary,
-        scaled by the width of the allowed range.  The final score is the mean
-        across all three channels so that crops with any out-of-range channel
-        (e.g. rotten discoloration) receive a meaningfully lower grade.
+        Parameters
+        ----------
+        image_rgb : np.ndarray
+            Image in RGB channel order (converted from BGR immediately after
+            decode in assess_crop_image).  Used to compare against the
+            ``color_ranges`` dict which is defined in R/G/B order.
+        image_bgr : np.ndarray
+            Original BGR image, used only for the HSV saturation/brightness
+            secondary score (cv2.COLOR_BGR2HSV requires BGR input).
+        params : Dict
+            Crop quality parameters including ``color_ranges``.
         """
-        if not isinstance(image, np.ndarray):
+        if not isinstance(image_rgb, np.ndarray):
             return 50.0
 
         color_ranges = params.get("color_ranges", {})
-        if not color_ranges:
-            # Fallback: no ranges configured — use neutral mid-score
-            return 50.0
 
-        # BGR channel order as returned by OpenCV
-        channel_keys = ["blue", "green", "red"]
-        b, g, r = cv2.split(image)
-        channel_means = {"blue": float(np.mean(b)), "green": float(np.mean(g)), "red": float(np.mean(r))}
-
+        # --- Primary score: per-channel deviation from crop thresholds ---
+        # image_rgb channels: 0=R, 1=G, 2=B — matching the color_ranges keys.
+        channel_map = [
+            ("red",   image_rgb[:, :, 0]),
+            ("green", image_rgb[:, :, 1]),
+            ("blue",  image_rgb[:, :, 2]),
+        ]
         channel_scores: List[float] = []
-        for key in channel_keys:
-            if key not in color_ranges:
+        for ch_name, ch_data in channel_map:
+            if ch_name not in color_ranges:
                 continue
-            low, high = color_ranges[key]
-            mean_val = channel_means[key]
-            range_width = max(high - low, 1)  # guard against zero-width ranges
+            ch_min, ch_max = color_ranges[ch_name]
+            ch_mean = float(np.mean(ch_data))
+            if ch_min <= ch_mean <= ch_max:
+                # Perfect centre of range scores 100; edges score 0.
+                centre = (ch_min + ch_max) / 2.0
+                half_width = max((ch_max - ch_min) / 2.0, 1.0)
+                ch_score = max(0.0, 100.0 - abs(ch_mean - centre) / half_width * 100.0)
+            elif ch_mean < ch_min:
+                # Below range — penalise proportionally to deviation.
+                deviation = (ch_min - ch_mean) / max(ch_min, 1.0)
+                ch_score = max(0.0, 100.0 - deviation * 100.0)
+            else:
+                # Above range.
+                deviation = (ch_mean - ch_max) / max(255.0 - ch_max, 1.0)
+                ch_score = max(0.0, 100.0 - deviation * 100.0)
+            channel_scores.append(ch_score)
 
-            if low <= mean_val <= high:
-                score = 100.0
-            elif mean_val < low:
-                deviation = low - mean_val
-                score = max(0.0, 100.0 - (deviation / range_width) * 100.0)
-            else:  # mean_val > high
-                deviation = mean_val - high
-                score = max(0.0, 100.0 - (deviation / range_width) * 100.0)
+        primary_score = float(np.mean(channel_scores)) if channel_scores else 50.0
 
-            channel_scores.append(score)
+        # --- Secondary score: saturation & brightness via HSV ---
+        # cv2.COLOR_BGR2HSV requires a BGR image; use image_bgr here.
+        hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
+        _, s, v = cv2.split(hsv)
+        saturation_score = min(100.0, float(np.mean(s)) / 255.0 * 120.0)
+        brightness_score  = min(100.0, float(np.mean(v)) / 255.0 * 110.0)
+        secondary_score   = saturation_score * 0.6 + brightness_score * 0.4
 
-        if not channel_scores:
-            return 50.0
+        # Blend: crop-specific threshold match (70%) + HSV quality (30%).
+        blended = primary_score * 0.70 + secondary_score * 0.30
+        return float(min(100.0, blended))
 
-        return float(min(100.0, np.mean(channel_scores)))
+    def _assess_shape(self, image_gray: np.ndarray, params: Dict) -> float:
+        """Assess shape uniformity.
 
-    def _assess_shape(self, image: np.ndarray, params: Dict) -> float:
-        """Assess shape quality against the crop-specific expected aspect ratio range.
-
-        Rather than applying a universal circularity metric (which penalises
-        naturally elongated crops such as grains or oblong potatoes), this method
-        measures the minor/major axis ratio of each detected contour via
-        ``cv2.fitEllipse`` and scores how well it falls within the
-        ``aspect_ratio_range`` configured in ``CROP_QUALITY_PARAMS``.
-
-        Ratio convention: ``minor_axis / major_axis`` ∈ (0, 1].
-        A ratio of 1 means a perfect circle; values approaching 0 indicate
-        high elongation.  Each contour whose ratio lies within ``[low, high]``
-        scores 100; contours outside the range are penalised proportionally
-        to their deviation scaled by the range width.  The final score is the
-        mean across all valid contours.
+        Accepts a pre-converted greyscale image so no channel conversion
+        is performed here, avoiding any BGR/RGB ambiguity.
         """
-        if not isinstance(image, np.ndarray):
+        if not isinstance(image_gray, np.ndarray):
             return 50.0
-
-        aspect_ratio_range = params.get("aspect_ratio_range")
-        if not aspect_ratio_range:
-            # No range configured — fall back to neutral score
-            return 50.0
-
-        low, high = aspect_ratio_range
-        range_width = max(high - low, 0.01)  # guard against zero-width ranges
-
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         contours, _ = cv2.findContours(
-            cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)[1],
+            cv2.threshold(image_gray, 127, 255, cv2.THRESH_BINARY)[1],
             cv2.RETR_EXTERNAL,
             cv2.CHAIN_APPROX_SIMPLE,
         )
@@ -365,21 +365,19 @@ class CropQualityGrader:
 
         return float(min(100.0, np.mean(contour_scores)))
 
-    def _detect_defects(self, image: np.ndarray, params: Dict) -> float:
-        """Detect defects relative to crop surface area (zoom-invariant)."""
-        if not isinstance(image, np.ndarray):
+    def _detect_defects(self, image_gray: np.ndarray, params: Dict) -> float:
+        """Detect defects in crops.
+
+        Accepts a pre-converted greyscale image so no channel conversion
+        is performed here, avoiding any BGR/RGB ambiguity.
+        """
+        if not isinstance(image_gray, np.ndarray):
             return 10.0
 
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-        # Segment crop from background to get actual crop surface area
-        _, thresh = cv2.threshold(gray, 50, 255, cv2.THRESH_BINARY)
-        crop_pixels = int(np.count_nonzero(thresh))
-        if crop_pixels == 0:
-            return 0.0
-
-        # Detect edges inside the image using Canny
-        edges = cv2.Canny(gray, 50, 150)
+        # Use edge detection to find defects
+        edges = cv2.Canny(image_gray, 50, 150)
+        total_pixels = edges.shape[0] * edges.shape[1]
+        defect_pixels = np.count_nonzero(edges)
 
         # Erode the crop mask to exclude outer boundary edges (background artefacts)
         kernel = np.ones((5, 5), np.uint8)

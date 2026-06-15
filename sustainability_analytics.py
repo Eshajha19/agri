@@ -30,6 +30,7 @@ IRRIGATION_EFFICIENCY = {
     "sprinkler": 0.75,
     "flood": 0.45,
 }
+DEFAULT_IRRIGATION_EFFICIENCY = 0.5
 
 SEASON_DAYS = {
     "kharif": 120,
@@ -74,6 +75,11 @@ def _normalize_season(season: str) -> str:
     if s in SEASON_DAYS:
         return s
     return "kharif"
+
+
+def _normalize_irrigation_type(irr_type: str) -> str:
+    t = (irr_type or "drip").strip().lower()
+    return t if t in IRRIGATION_EFFICIENCY else "drip"
 
 
 @dataclass
@@ -130,54 +136,114 @@ class SustainabilityAnalytics:
         return None
 
     def _get_local_file_path(self) -> str:
+        """Return the path of the append-only JSONL history file.
+
+        Each line in the file is a JSON-encoded sustainability record.
+        The .jsonl extension makes the format explicit and distinguishes
+        the new layout from any legacy .json files.
+        """
         if getattr(self, "is_testing", False):
-            return "sustainability_history_test.json"
-        return "sustainability_history.json"
+            return "sustainability_history_test.jsonl"
+        return "sustainability_history.jsonl"
 
     def _load_local_history(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Read the append-only JSONL file and rebuild the user-keyed dict.
+
+        Each line is one JSON record containing at minimum a ``user_id`` key.
+        Lines that cannot be decoded are skipped with a warning so a single
+        corrupt entry never blocks the entire history from loading.
+        """
         import json
         import os
-        from filelock import FileLock
+
         path = self._get_local_file_path()
-        lock_path = path + ".lock"
-        if os.path.exists(path):
-            try:
-                with FileLock(lock_path, timeout=5):
-                    with open(path, "r", encoding="utf-8") as f:
-                        return json.load(f)
-            except Exception as e:
-                logger.error("Failed to read local history: %s", e)
-        return {}
+        history: Dict[str, List[Dict[str, Any]]] = {}
+        if not os.path.exists(path):
+            return history
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                for lineno, raw in enumerate(fh, start=1):
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+                    try:
+                        record = json.loads(raw)
+                        uid = record.get("user_id", "anonymous")
+                        history.setdefault(uid, []).append(record)
+                    except json.JSONDecodeError:
+                        import logging as _log
+                        _log.getLogger(__name__).warning(
+                            "Skipping malformed JSONL record at line %d in %s", lineno, path
+                        )
+        except Exception:
+            pass
+        return history
+
+    def _append_record_to_file(self, record: Dict[str, Any]) -> None:
+        """Append a single JSON record as one line to the JSONL file.
+
+        Opens the file in append mode (``'a'``), so only the new record is
+        written.  This is O(1) regardless of how large the history file has
+        grown — no read or full-file rewrite is needed.
+        """
+        import json
+        import os
+
+        path = self._get_local_file_path()
+        try:
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(record, ensure_ascii=False))
+                fh.write("\n")
+        except Exception as exc:
+            import logging as _log
+            _log.getLogger(__name__).warning(
+                "Failed to append sustainability record to %s: %s", path, exc
+            )
 
     def _save_local_history(self, history: Dict[str, List[Dict[str, Any]]]) -> None:
+        """Full-rewrite used only for compaction / migration.
+
+        Under normal operation, prefer ``_append_record_to_file`` which is
+        O(1).  This method rewrites the entire JSONL file from the supplied
+        dict and should only be called when explicitly compacting.
+        """
         import json
-        import os
-        from filelock import FileLock
+
         path = self._get_local_file_path()
         tmp_path = path + ".tmp"
         lock_path = path + ".lock"
         try:
-            with FileLock(lock_path, timeout=5):
-                with open(tmp_path, "w", encoding="utf-8") as f:
-                    json.dump(history, f, indent=2, ensure_ascii=False)
-                    f.flush()
-                    os.fsync(f.fileno())
-                os.replace(tmp_path, path)
-        except Exception as e:
-            logger.error("Failed to save local history atomically: %s", e)
-            if os.path.exists(tmp_path):
-                try:
-                    os.remove(tmp_path)
-                except OSError:
-                    pass
-
+            with open(path, "w", encoding="utf-8") as fh:
+                for records in history.values():
+                    for record in records:
+                        fh.write(json.dumps(record, ensure_ascii=False))
+                        fh.write("\n")
         except Exception as exc:
-            logger.error("Failed to save sustainability history file: %s", exc)
+            import logging as _log
+            _log.getLogger(__name__).warning(
+                "Failed to rewrite sustainability history file %s: %s", path, exc
+            )
+
+    def compact_local_history(self, max_records_per_user: int = 50) -> int:
+        """Compact the JSONL file by keeping only the most recent records.
+
+        Reads all lines, trims each user's list to *max_records_per_user*
+        newest entries, and rewrites the file.  Returns the number of records
+        removed.  Suitable for a periodic maintenance job — not called on
+        every request.
+        """
+        history = self._load_local_history()
+        total_before = sum(len(v) for v in history.values())
+        trimmed = {uid: recs[-max_records_per_user:] for uid, recs in history.items()}
+        total_after = sum(len(v) for v in trimmed.values())
+        self._save_local_history(trimmed)
+        return total_before - total_after
 
     def get_formula_config(self) -> Dict[str, Any]:
         return {
             "emission_factors": EMISSION_FACTORS,
             "irrigation_efficiency": IRRIGATION_EFFICIENCY,
+            "default_irrigation_efficiency": DEFAULT_IRRIGATION_EFFICIENCY,
             "season_days": SEASON_DAYS,
             "crop_coefficients": CROP_COEFFICIENTS,
         }
@@ -192,7 +258,7 @@ class SustainabilityAnalytics:
         acreage = float(data.get("acreage", 0.1))
         acreage = max(min(acreage, MAX_ACREAGE), 0.1)
         irr_type = data["irrigation_type"]
-        irr_eff = IRRIGATION_EFFICIENCY.get(irr_type, 0.7)
+        irr_eff = IRRIGATION_EFFICIENCY.get(irr_type, DEFAULT_IRRIGATION_EFFICIENCY)
         season_days = SEASON_DAYS[season_key]
 
         rainfall_mm = data.get("rainfall_mm", 0.0)
@@ -383,7 +449,7 @@ class SustainabilityAnalytics:
             if len(self._history[key]) > 50:
                 self._history[key] = self._history[key][-50:]
 
-        # Save to Firestore primarilly
+        # Save to Firestore primarily
         db = self._get_db()
         if db is not None:
             try:
@@ -404,16 +470,15 @@ class SustainabilityAnalytics:
             except Exception:
                 logger.exception("Failed to persist sustainability history to local file")
 
-    def save_history(self) -> None:
-        with self._history_lock:
-            self._save_local_history(self._history)
+        # O(1) append to the local JSONL file — no full read/rewrite needed.
+        self._append_record_to_file(record)
 
     def _normalize_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "crop_type": str(payload.get("crop_type", "Rice")).strip() or "Rice",
             "season": str(payload.get("season", "Kharif")).strip() or "Kharif",
             "acreage": max(float(payload.get("acreage", 1) or 1), 0.1),
-            "irrigation_type": str(payload.get("irrigation_type", "drip")).lower(),
+            "irrigation_type": _normalize_irrigation_type(payload.get("irrigation_type", "drip")),
             "irrigation_events": max(int(payload.get("irrigation_events", 10) or 0), 0),
             "fertilizer_n_kg": float(payload.get("fertilizer_n_kg")) if payload.get("fertilizer_n_kg") is not None else None,
             "fertilizer_p_kg": float(payload.get("fertilizer_p_kg")) if payload.get("fertilizer_p_kg") is not None else None,

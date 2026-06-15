@@ -13,6 +13,7 @@ import React from "react";
 import { BarChart3, X } from "lucide-react";
 import LastUpdated from "./LastUpdated";
 import { useYieldPrediction } from "./hooks/useYieldPrediction";
+import "./YieldPredictor.css";
 
 export default function YieldPredictorForm({ onClose }) {
   const {

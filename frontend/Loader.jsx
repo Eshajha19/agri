@@ -3,7 +3,12 @@ import './Loader.css';
 
 const Loader = ({ fullPage = false, message = "Loading..." }) => {
   return (
-    <div className={`loader-container ${fullPage ? 'full-page' : ''}`} role="status" aria-live="polite" aria-busy="true">
+    <div
+      className={`loader-container ${fullPage ? 'full-page' : ''}`}
+      role="progressbar"
+      aria-valuetext={message}
+      aria-busy="true"
+    >
       <div className="loader-content">
         <div className="spinner" aria-hidden="true">
           <div className="inner-circle"></div>
