@@ -2532,7 +2532,6 @@ except Exception as exc:
 app.include_router(ml.router, prefix="/api/yield", tags=["ML Prediction"])
 app.include_router(governance.router, prefix="/api/ml-governance", tags=["ML Governance"])
 app.include_router(finance.router, prefix="/api/farm-finance", tags=["Finance"])
-app.include_router(finance.router, prefix="/api/finance", tags=["Finance Legacy"])
 app.include_router(quality.router, prefix="/api/crop-quality", tags=["Quality"])
 app.include_router(blockchain.router, prefix="/api/supply-chain", tags=["Blockchain"])
 app.include_router(reports.router, prefix="/api/admin", tags=["Reports"])
