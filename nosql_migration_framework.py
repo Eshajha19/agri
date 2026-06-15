@@ -164,27 +164,37 @@ class MigrationRunner:
         if status == "COMPLETED":
             return None
 
-        try:
-            # Phase 1: Prepare — skip only if already completed successfully
-            if status not in ("PREPARED", "COMMITTED", "COMPLETED"):
-                logger.info(f"Phase 1 (PREPARE): {migration.version}")
-                record_ref.set({"version": migration.version, "status": "PREPARING", "updated_at": firestore.SERVER_TIMESTAMP})
-                migration.prepare(self.db)
-                record_ref.update({"status": "PREPARED", "updated_at": firestore.SERVER_TIMESTAMP})
+        # Determine which phase to resume from based on the last attempted phase.
+        #   None / "preparing" / "prepare"  → run prepare
+        #   "prepared" / "committing"       → skip prepare, run commit
+        #   "committed" / "cleaning_up"     → skip prepare & commit, run cleanup
+        resume_from = current_phase or "prepare"
 
-            # Phase 2: Commit — skip only if already completed successfully
-            if status not in ("COMMITTED", "COMPLETED"):
+        try:
+            if resume_from == "prepare":
+                logger.info(f"Phase 1 (PREPARE): {migration.version}")
+                record_ref.set({
+                    "version": migration.version,
+                    "status": "PREPARING",
+                    "current_phase": "prepare",
+                    "updated_at": firestore.SERVER_TIMESTAMP
+                })
+                migration.prepare(self.db)
+                record_ref.update({"status": "PREPARED", "current_phase": "prepared", "updated_at": firestore.SERVER_TIMESTAMP})
+
+            if resume_from in ("prepare", "prepared", "committing"):
                 logger.info(f"Phase 2 (COMMIT): {migration.version}")
-                record_ref.update({"status": "COMMITTING", "updated_at": firestore.SERVER_TIMESTAMP})
+                record_ref.update({"status": "COMMITTING", "current_phase": "committing", "updated_at": firestore.SERVER_TIMESTAMP})
                 migration.commit(self.db)
-                record_ref.update({"status": "COMMITTED", "updated_at": firestore.SERVER_TIMESTAMP})
+                record_ref.update({"status": "COMMITTED", "current_phase": "committed", "updated_at": firestore.SERVER_TIMESTAMP})
 
             logger.info(f"Phase 3 (CLEANUP): {migration.version}")
-            record_ref.update({"status": "CLEANING_UP", "updated_at": firestore.SERVER_TIMESTAMP})
+            record_ref.update({"status": "CLEANING_UP", "current_phase": "cleaning_up", "updated_at": firestore.SERVER_TIMESTAMP})
             migration.cleanup(self.db)
-            
+
             record_ref.update({
                 "status": "COMPLETED",
+                "current_phase": None,
                 "applied_at": firestore.SERVER_TIMESTAMP,
                 "updated_at": firestore.SERVER_TIMESTAMP,
             },
@@ -234,22 +244,15 @@ class MigrationRunner:
             )
             try:
                 migration.rollback(self.db)
-                record_ref.update(
-                    {
-                        "status": "FAILED",
-                        "error": str(e),
-                        "updated_at": firestore.SERVER_TIMESTAMP,
-                    }
-                )
+                record_ref.update({"status": "FAILED", "current_phase": current_phase or "prepare", "error": str(e), "updated_at": firestore.SERVER_TIMESTAMP})
             except Exception as rollback_err:
                 logger.error(f"Rollback failed for {migration.version}: {rollback_err}")
-                record_ref.update(
-                    {
-                        "status": "ROLLBACK_FAILED",
-                        "error": str(e),
-                        "rollback_error": str(rollback_err),
-                    }
-                )
+                record_ref.update({
+                    "status": "ROLLBACK_FAILED",
+                    "current_phase": current_phase or "prepare",
+                    "error": str(e),
+                    "rollback_error": str(rollback_err)
+                })
             raise
 
     def run_migration(self, migration: Any):
