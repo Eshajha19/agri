@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { 
   MessageSquare, 
   ThumbsUp, 
@@ -68,9 +68,6 @@ const COMMENT_COOLDOWN_MS = 30_000;
 /** Milliseconds between reputation gains from posting (5 min). */
 const REPUTATION_COOLDOWN_MS = 300_000;
 
-/** Maximum number of comments that earn reputation per calendar day. */
-const COMMENT_REP_DAILY_CAP = 3;
-
 /**
  * Repeated-word spam detector.
  * Returns true when any single word makes up more than 40 % of the total
@@ -99,6 +96,9 @@ const Community = () => {
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [showP2PChat, setShowP2PChat] = useState(null); // stores the recipient object
   const [authorsData, setAuthorsData] = useState({});
+  const processedPostIdsRef = useRef(new Set());
+  const feedVersionRef = useRef(0);
+  const latestSnapshotRef = useRef(0);
 
   // ── Rate-limit / spam state ──────────────────────────────────────────────
   /** Timestamp (ms) of the user's last successful post. null = never posted. */
@@ -181,11 +181,44 @@ const Community = () => {
     }
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const docs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setPosts(docs);
+      const snapshotVersion = ++latestSnapshotRef.current;
+
+      processedPostIdsRef.current.clear();
+
+      const docs = snapshot.docs
+        .map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }))
+        .filter(post => {
+          if (processedPostIdsRef.current.has(post.id)) {
+            return false;
+          }
+
+          processedPostIdsRef.current.add(post.id);
+          return true;
+        })
+        .sort((a, b) => {
+          const aTime = a.createdAt?.seconds || 0;
+          const bTime = b.createdAt?.seconds || 0;
+
+          if (bTime !== aTime) {
+            return bTime - aTime;
+          }
+
+          return a.id.localeCompare(b.id);
+        });
+
+      feedVersionRef.current += 1;
+
+      console.info(
+        `[COMMUNITY_FEED] version=${feedVersionRef.current} posts=${docs.length}`
+      );
+
+      if (snapshotVersion === latestSnapshotRef.current) {
+        setPosts(docs);
+      }
+
       setLoading(false);
     }, (error) => {
       console.error("Error fetching posts:", error);
@@ -368,50 +401,56 @@ const Community = () => {
 
     const postId = showCommentsModal.id;
     try {
-      // Use a transaction so the duplicate/cap check and all writes are atomic.
-      // A plain writeBatch cannot read documents, so we use runTransaction here.
-      await runTransaction(db, async (transaction) => {
-        const commenterRef = doc(db, "users", currentUser.uid);
-        const commenterSnap = await transaction.get(commenterRef);
-        const commenterData = commenterSnap.exists() ? commenterSnap.data() : {};
+      // Use a write batch so the comment document, the commenter's reputation
+      // increment, and the post's commentsCount increment are all committed
+      // atomically.
+      const batch = writeBatch(db);
 
-        // Determine whether the user is still within their daily reputation cap
-        // for comments.  We track two fields on the user document:
-        //   commentReputationDate  – ISO date string (YYYY-MM-DD) of the last
-        //                            day reputation was awarded for a comment.
-        //   commentReputationToday – count of reputation-earning comments on
-        //                            that day (resets when the date changes).
-        const today = new Date().toISOString().slice(0, 10);
-        const lastRepDate = commenterData.commentReputationDate || "";
-        const repCountToday =
-          lastRepDate === today ? (commenterData.commentReputationToday || 0) : 0;
-
-        const earnedRep = repCountToday < COMMENT_REP_DAILY_CAP;
-
-        const commentRef = doc(collection(db, "comments"));
-        transaction.set(commentRef, {
-          postId,
-          userId: currentUser.uid,
-          userName: currentUser.displayName || currentUser.email.split('@')[0],
-          text,
-          upvotes: [],
-          downvotes: [],
-          createdAt: serverTimestamp(),
-        });
+      const commentRef = doc(collection(db, "comments"));
+      batch.set(commentRef, {
+        postId,
+        userId: currentUser.uid,
+        userName: currentUser.displayName || currentUser.email.split('@')[0],
+        text,
+        upvotes: [],
+        downvotes: [],
+        createdAt: serverTimestamp(),
+      });
 
         // Award +5 reputation only if the daily cap has not been reached.
         if (earnedRep) {
-          transaction.update(commenterRef, {
+          const updateData = {
             reputation: increment(5),
             commentReputationDate: today,
             commentReputationToday: repCountToday + 1,
-          });
+          };
+          if (!commenterSnap.exists()) {
+            updateData.uid = currentUser.uid;
+            updateData.displayName = currentUser.displayName || (currentUser.email ? currentUser.email.split('@')[0] : "User");
+            updateData.email = currentUser.email || "";
+            updateData.role = "farmer";
+            updateData.profileCompleted = false;
+            updateData.createdAt = new Date().toISOString();
+          }
+          transaction.set(commenterRef, updateData, { merge: true });
+        } else if (!commenterSnap.exists()) {
+          // If no reputation is earned, but the document doesn't exist, we should still create it.
+          transaction.set(commenterRef, {
+            uid: currentUser.uid,
+            displayName: currentUser.displayName || (currentUser.email ? currentUser.email.split('@')[0] : "User"),
+            email: currentUser.email || "",
+            role: "farmer",
+            reputation: 0,
+            profileCompleted: false,
+            createdAt: new Date().toISOString()
+          }, { merge: true });
         }
 
-        // Keep the post's comment count in sync.
-        const postRef = doc(db, "posts", postId);
-        transaction.update(postRef, { commentsCount: increment(1) });
-      });
+      // Keep the post's comment count in sync
+      const postRef = doc(db, "posts", postId);
+      batch.update(postRef, { commentsCount: increment(1) });
+
+      await batch.commit();
 
       // Record the comment time for the local cooldown check.
       setLastCommentTime(Date.now());
@@ -517,10 +556,14 @@ const Community = () => {
     return "";
   };
 
-  const filteredPosts = posts.filter(post => 
-    post.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    post.userName.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredPosts = useMemo(() => {
+    const query = searchQuery.toLowerCase();
+
+    return posts.filter(post =>
+      post.content.toLowerCase().includes(query) ||
+      post.userName.toLowerCase().includes(query)
+    );
+  }, [posts, searchQuery]);
 
   return (
     <div className="community-container">
@@ -803,4 +846,3 @@ const Community = () => {
   );
 };
 export default Community;
-
