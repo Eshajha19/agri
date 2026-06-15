@@ -349,24 +349,31 @@ const Community = () => {
   };
 
   const openComments = async (post) => {
-    setShowCommentsModal(post);
-    setCommentsLoading(true);
-    try {
-      const q = query(
-        collection(db, "comments"), 
-        where("postId", "==", post.id), 
-        orderBy("createdAt", "asc")
-      );
-      const snapshot = await getDocs(q);
-      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setPostComments(docs);
-    } catch (err) {
-      console.error("Error fetching comments:", err);
-    } finally {
-      setCommentsLoading(false);
-    }
-  };
+  setShowCommentsModal(post);
+  setPostComments([]);
+  setCommentsLoading(true);
 
+  try {
+    const q = query(
+      collection(db, "comments"),
+      where("postId", "==", post.id),
+      orderBy("createdAt", "asc")
+    );
+
+    const snapshot = await getDocs(q);
+
+    setPostComments(
+      snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+      }))
+    );
+  } catch (err) {
+    console.error("Error fetching comments:", err);
+  } finally {
+    setCommentsLoading(false);
+  }
+};
   const handleAddComment = async (e) => {
     e.preventDefault();
     if (!isFirebaseConfigured() || !currentUser || !showCommentsModal) return;
