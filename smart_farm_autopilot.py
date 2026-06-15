@@ -283,7 +283,14 @@ CROP_DB: Dict[str, Dict] = {
         "soil_types": ["Alluvial", "Loamy", "Sandy", "Red"],
         "states": ["Karnataka", "Andhra Pradesh", "Telangana", "Maharashtra",
                    "Bihar", "Uttar Pradesh", "Rajasthan"],
-        "sowing_month": 6, "harvest_month": 9, "duration_days": 90,
+        # Maize is cultivated in two seasons with different sowing windows.
+        # Kharif (monsoon): June sowing, harvest September.
+        # Zaid (summer):    March sowing, harvest June.
+        # sowing_month_by_season is the authoritative per-season value;
+        # sowing_month is kept as a fallback for single-season code paths.
+        "sowing_month": 6,
+        "sowing_month_by_season": {"Kharif": 6, "Zaid": 3},
+        "harvest_month": 9, "duration_days": 90,
         "water_need": "medium", "germination_days": 5, "transplant_days": None,
         "yield_kg_per_acre": 1500, "price_per_kg": 20,
         "input_cost_per_acre": 14000,
@@ -439,13 +446,12 @@ class SmartFarmAutopilot:
     ) -> List[SowingSchedule]:
         year = date.today().year
         sow_month = data["sowing_month"]
-        # Adjust year: if the sowing month has already passed (with a 2-month
-        # buffer), advance to the next calendar year.
-        sow_year = year
-        if sow_month > date.today().month + 2:
-            sow_year = year
-        else:
+        # Adjust year: if the sowing month (plus a 2-month buffer) has already
+        # passed relative to today, advance to the next calendar year.
+        if sow_month + 2 < date.today().month:
             sow_year = year + 1
+        else:
+            sow_year = year
         sow_start = date(sow_year, sow_month, 1)
         sow_end   = date(sow_year, sow_month, min(20, calendar.monthrange(sow_year, sow_month)[1]))
 
