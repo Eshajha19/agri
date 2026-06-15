@@ -226,6 +226,7 @@ class WeatherAlertsService:
         self._weather_cache: Dict[str, tuple] = {}  # (data, timestamp)
         self._max_cache_size = 1000
         self.alert_history: List[WeatherAlert] = []
+        self._session: Optional[aiohttp.ClientSession] = None
 
     def _evict_expired(self) -> None:
         """Remove expired entries from the weather cache."""
@@ -236,6 +237,11 @@ class WeatherAlertsService:
         ]
         for key in expired_keys:
             del self._weather_cache[key]
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+        return self._session
 
     async def get_coordinates(self, location: str) -> tuple:
         """
@@ -248,8 +254,8 @@ class WeatherAlertsService:
             (latitude, longitude) tuple
         """
         try:
-            async with aiohttp.ClientSession() as session:
-                params = {
+            session = await self._get_session()
+            params = {
                     "name": location,
                     "count": 1,
                     "language": "en",
@@ -297,9 +303,9 @@ class WeatherAlertsService:
             del self._weather_cache[cache_key]
 
         try:
-            async with aiohttp.ClientSession() as session:
-                params = {
-                    "latitude": latitude,
+            session = await self._get_session()
+            params = {
+                "latitude": latitude,
                     "longitude": longitude,
                     "current": "temperature_2m,relative_humidity_2m,rainfall,weather_code,cloud_cover,wind_speed_10m",
                     "timezone": "auto",
