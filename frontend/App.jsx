@@ -39,6 +39,7 @@ import { useTheme } from "./ThemeContext";
 import { SyncBadge } from "./src/components/SyncBadge";
 import FarmingMythChecker from "./components/FarmingMythChecker";
 import CropComparison from "./components/CropComparison";
+import NotFound from "./pages/NotFound";
 
 // Route-level code splitting
 import {

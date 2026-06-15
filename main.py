@@ -15,8 +15,56 @@ from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
 
 from backend.utils.safe_log import sanitize_log_field
 
+from fastapi import FastAPI
+from backend.middleware.body_size_limit import BodySizeLimitMiddleware
+from .models import model, model_lag 
+
+app = FastAPI()
+
+# Add middleware before routes
+app.add_middleware(BodySizeLimitMiddleware)
+
+
 # Expose sanitizer globally so routers can use it
 sanitise_log_field_fn = sanitize_log_field
+
+app = FastAPI()
+
+@app.get("/health")
+def health_check():
+    models_ready = model is not None and model_lag is not None
+    return {
+        "status": "ok",
+        "models_loaded": models_ready
+    }
+
+# Optional: root endpoint for convenience
+@app.get("/")
+def root():
+    models_ready = model is not None and model_lag is not None
+    return {
+        "status": "ok",
+        "models_loaded": models_ready
+    }
+
+@app.post("/predict-yield-lag")
+def predict_yield_lag(input: YieldInput):
+    """
+    Predict yield lag based on agronomic inputs.
+    Validates that inputs are numeric and within realistic ranges.
+    """
+    # your model inference logic here
+    return {"prediction": "lag result"}
+
+@app.post("/predict-yield-trend")
+def predict_yield_trend(input: YieldInput):
+    """
+    Predict yield trend based on agronomic inputs.
+    Validates that inputs are numeric and within realistic ranges.
+    """
+    # your model inference logic here
+    return {"prediction": "trend result"}
+
 
 class CSPMiddleware:
     """Add Content-Security-Policy header to every response."""
@@ -127,6 +175,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.units import inch
+from backend.ml.schemas import YieldInput
 
 from fastapi import FastAPI
 
@@ -175,6 +224,16 @@ app = FastAPI()
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+@app.post("/api/whatsapp/webhook")
+async def whatsapp_webhook(request: Request):
+    payload = await request.json()
+    normalized_messages = normalize_whatsapp_payload(payload)
+
+    for msg in normalized_messages:
+        # process each message individually
+        handle_inbound_message(msg)
+    return {"status": "ok", "processed": len(normalized_messages)}
 
 # KMS Support
 try:
