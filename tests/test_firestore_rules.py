@@ -26,15 +26,25 @@ import firebase_admin
 from firebase_admin import credentials, firestore, auth
 
 # Initialize Firebase with emulator
-if not firebase_admin.get_app(name="test-app", error_on_duplicate=False):
+try:
+    app = firebase_admin.get_app(name="test-app")
+except ValueError:
     try:
-        cred = credentials.Certificate('firebase_credentials.json')
-        app = firebase_admin.initialize_app(cred, name="test-app")
-    except Exception as e:
-        logger.warning(f"Could not load credentials: {e}, using emulator only")
-        app = firebase_admin.initialize_app(options={'projectId': 'test-project'}, name="test-app")
-
-db = firestore.client(app=app)
+        app = firebase_admin.get_app(name="test-app")
+    except ValueError:
+        # App not yet initialized – create it now
+        try:
+            cred = credentials.Certificate('firebase_credentials.json')
+            app = firebase_admin.initialize_app(cred, name="test-app")
+        except Exception as e:
+            logger.warning(f"Could not load credentials: {e}, using emulator only")
+            app = firebase_admin.initialize_app(options={'projectId': 'test-project'}, name="test-app")
+    db = firestore.client(app=app)
+except Exception as _firebase_init_error:
+    pytest.skip(
+        f"Firebase credentials / emulator not available: {_firebase_init_error}",
+        allow_module_level=True,
+    )
 
 
 class TestUser:
@@ -559,46 +569,94 @@ class TestFinanceApplicationRules:
 # TEST SUITE: NOTIFICATIONS RULES
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# TEST SUITE: NOTIFICATIONS RULES
+# ═══════════════════════════════════════════════════════════════════════════════
+
 class TestNotificationRules:
     """Test /notifications/{notificationId} collection rules"""
-    
-    def test_authenticated_user_can_read_notifications(self, farmer_user):
-        """Authenticated user can read notifications"""
+
+    def test_owner_can_read_own_notification(self, farmer_user):
+        """A user can read a notification addressed to them (userId == caller uid)."""
         notif_data = {
             "userId": farmer_user.uid,
             "message": "Your loan was approved",
-            "createdAt": firestore.SERVER_TIMESTAMP
+            "createdAt": firestore.SERVER_TIMESTAMP,
         }
-        db.collection("notifications").document("notif-1").set(notif_data)
-        
-        result = FirestoreRulesTester.read_document("notifications", "notif-1")
-        assert result, "Authenticated user should be able to read notifications"
-    
+        db.collection("notifications").document("notif-owner").set(notif_data)
+
+        result = FirestoreRulesTester.read_document(
+            "notifications", "notif-owner", farmer_user.uid
+        )
+        assert result, "Owner should be able to read their own notification"
+
+    def test_other_user_cannot_read_foreign_notification(self, farmer_user, expert_user):
+        """An authenticated user must NOT be able to read another user's notification."""
+        notif_data = {
+            "userId": farmer_user.uid,
+            "message": "Private notification for farmer",
+            "createdAt": firestore.SERVER_TIMESTAMP,
+        }
+        db.collection("notifications").document("notif-private").set(notif_data)
+
+        # expert_user is authenticated but is not the notification owner
+        result = FirestoreRulesTester.read_document(
+            "notifications", "notif-private", expert_user.uid
+        )
+        assert not result, "Non-owner should NOT be able to read another user's notification"
+
+    def test_admin_can_read_any_notification(self, admin_user, farmer_user):
+        """Admin can read notifications belonging to any user."""
+        notif_data = {
+            "userId": farmer_user.uid,
+            "message": "Farmer notification",
+            "createdAt": firestore.SERVER_TIMESTAMP,
+        }
+        db.collection("notifications").document("notif-admin-read").set(notif_data)
+
+        result = FirestoreRulesTester.read_document(
+            "notifications", "notif-admin-read", admin_user.uid
+        )
+        assert result, "Admin should be able to read any notification"
+
     def test_system_can_create_notification(self, system_user):
-        """System role can create notifications"""
+        """System role can create notifications."""
         notif_data = {
             "userId": "any-user",
             "message": "System notification",
-            "createdAt": firestore.SERVER_TIMESTAMP
+            "createdAt": firestore.SERVER_TIMESTAMP,
         }
         result = FirestoreRulesTester.create_document(
-            "notifications", "notif-1", notif_data, system_user.uid
+            "notifications", "notif-system", notif_data, system_user.uid
         )
         assert result, "System should be able to create notification"
-    
+
     def test_admin_can_manage_notifications(self, admin_user):
-        """Admin can create and delete notifications"""
+        """Admin can create and delete notifications."""
         notif_data = {
             "userId": "any-user",
             "message": "Admin notification",
-            "createdAt": firestore.SERVER_TIMESTAMP
+            "createdAt": firestore.SERVER_TIMESTAMP,
         }
-        
+
         # Create
         result = FirestoreRulesTester.create_document(
-            "notifications", "notif-1", notif_data, admin_user.uid
+            "notifications", "notif-admin", notif_data, admin_user.uid
         )
         assert result, "Admin should be able to create notification"
+
+    def test_farmer_cannot_create_notification(self, farmer_user):
+        """Regular farmers must NOT be able to write notifications directly."""
+        notif_data = {
+            "userId": farmer_user.uid,
+            "message": "Self-written notification",
+            "createdAt": firestore.SERVER_TIMESTAMP,
+        }
+        result = FirestoreRulesTester.create_document(
+            "notifications", "notif-farmer-write", notif_data, farmer_user.uid
+        )
+        assert not result, "Farmer should NOT be able to create notifications"
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
