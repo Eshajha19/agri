@@ -13,8 +13,6 @@ from __future__ import annotations
 import base64
 import io
 import json
-import logging
-import math
 import os
 import uuid
 from datetime import datetime
@@ -29,9 +27,10 @@ from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
 
 from image_quality_checker import analyze_image_quality
+from backend.core.logging_config import setup_logging, set_log_context
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
+logger = setup_logging(__name__)
 
 # ---------------------------------------------------------------------------
 # Injected dependencies (set via init_insurance)
@@ -193,6 +192,7 @@ def _analyse_image_locally(image_bytes: bytes) -> dict:
             "treatment": "Consult local agricultural office for detailed assessment.",
         }
     except Exception as exc:
+        set_log_context(error_type="local_image_analysis", exception=str(exc))
         logger.warning("Local image analysis failed: %s", exc)
         return {
             "severity": "Medium",
@@ -254,6 +254,7 @@ async def _analyse_damage_image(image_bytes: bytes, crop_type: str) -> dict:
                     if match:
                         return json.loads(match.group(0))
         except Exception as exc:
+            set_log_context(error_type="gemini_damage_analysis", exception=str(exc))
             logger.warning("Gemini damage analysis failed, using local fallback: %s", exc)
 
     return _analyse_image_locally(image_bytes)
@@ -495,6 +496,7 @@ async def check_evidence_quality(
                 overall_status = "Fair"
         
         except Exception as exc:
+            set_log_context(error_type="image_quality_analysis", filename=img_file.filename, exception=str(exc))
             logger.error("Quality analysis failed for image %s: %s", img_file.filename, exc)
             raise HTTPException(
                 status_code=422,
@@ -576,6 +578,7 @@ async def submit_insurance_claim(
         try:
             analysis = await _analyse_damage_image(raw, crop_type)
         except Exception as exc:
+            set_log_context(error_type="damage_image_analysis", filename=img_file.filename, exception=str(exc))
             logger.warning("Image analysis failed for %s: %s", img_file.filename, exc)
             analysis = {"severity": "Medium", "confidenceScore": 50.0, "disease": "Analysis failed"}
 
@@ -690,6 +693,7 @@ async def export_claim_pdf(request: Request, claim_id: str):
     try:
         pdf_bytes = _generate_claim_pdf(claim)
     except Exception as exc:
+        set_log_context(error_type="pdf_generation", claim_id=claim_id, exception=str(exc))
         logger.error("PDF generation failed for claim %s: %s", claim_id, exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to generate claim report")
 
