@@ -64,7 +64,7 @@ def test_create_application_persists_and_returns_status():
         }
     )
 
-    stored = engine.get_application(application["application_id"])
+    stored = engine.get_application(application["application_id"], owner_uid=None)
 
     assert application["status"] in {"pre_approved", "under_review", "needs_documents"}
     assert stored is not None
@@ -78,3 +78,23 @@ def test_marketplace_lists_multiple_products():
 
     assert len(marketplace) >= 3
     assert {item["lender_name"] for item in marketplace}
+
+
+def test_zero_revenue_does_not_crash():
+    engine = FarmFinanceAI()
+    result = engine.analyze_financial_profile(
+        {
+            "farmer_name": "Zero",
+            "crop_type": "wheat",
+            "acreage": 10,
+            "annual_revenue": 0,
+            "annual_operating_cost": 50000,
+            "existing_debt": 20000,
+            "emergency_fund": 10000,
+            "credit_score": 650,
+            "requested_loan_amount": 100000,
+            "loan_tenure_months": 36,
+        }
+    )
+    assert result["financial_health_score"] == 0
+    assert result["risk_level"] == "Critical"
