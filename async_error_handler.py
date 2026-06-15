@@ -5,6 +5,7 @@ Handles errors in async operations with recovery strategies and monitoring
 
 import logging
 import asyncio
+import random
 from enum import Enum
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Callable, Any, TypeVar, Coroutine, Awaitable, Union
@@ -87,6 +88,7 @@ class AsyncErrorHandler:
         self.max_error_history = max_error_history
         self.active_recoveries: Dict[str, RecoveryStrategy] = {}
         self.error_callbacks: List[Callable[[ErrorContext], None]] = []
+        self.recovery_callbacks: List[Callable[[str, str], None]] = []
     
     def classify_error(self, error: Exception) -> tuple[ErrorCategory, ErrorSeverity]:
         """Classify error type and severity"""
@@ -159,11 +161,9 @@ class AsyncErrorHandler:
             request_id=request_id
         )
         
-        self.error_history.append(error_context)
-        
-        # Keep history size manageable
-        if len(self.error_history) > self.max_error_history:
-            self.error_history = self.error_history[-self.max_error_history:]
+        # Keep history strictly bounded — trim before append so the list
+        # never temporarily exceeds max_error_history during bursts.
+        self.error_history = (self.error_history + [error_context])[-self.max_error_history:]
         
         # Call error callbacks
         for callback in self.error_callbacks:
@@ -193,7 +193,8 @@ class AsyncErrorHandler:
         source: str,
         strategy: RecoveryStrategy = None,
         context_data: Dict = None,
-        user_id: str = None
+        user_id: str = None,
+        request_id: str = None
     ) -> tuple[Optional[T], Optional[ErrorContext]]:
         """
         Execute coroutine with error recovery
@@ -226,13 +227,19 @@ class AsyncErrorHandler:
                 # Success
                 if attempt > 0:
                     logger.info(f"{source} succeeded on retry {attempt}")
+
+                    for callback in self.recovery_callbacks:
+                        try:
+                            callback(source, "recovered")
+                        except Exception:
+                            pass
                 
                 return result, None
                 
             except asyncio.TimeoutError as e:
                 last_error = e
                 if attempt < strategy.max_retries:
-                    wait_time = 2 ** attempt * strategy.backoff_multiplier
+                    wait_time = (2 ** attempt * strategy.backoff_multiplier) + random.uniform(0, 1)
                     logger.warning(
                         f"{source} timed out, retrying in {wait_time}s "
                         f"(attempt {attempt + 1}/{strategy.max_retries + 1})"
@@ -243,10 +250,14 @@ class AsyncErrorHandler:
             
             except Exception as e:
                 last_error = e
+                category, _ = self.classify_error(e)
+                if category in (ErrorCategory.VALIDATION, ErrorCategory.AUTHENTICATION, ErrorCategory.AUTHORIZATION):
+                    logger.warning(f"{source} failed with non-retryable error: {e}")
+                    break
                 
                 # Check if retryable
                 if attempt < strategy.max_retries:
-                    wait_time = 2 ** attempt * strategy.backoff_multiplier
+                    wait_time = (2 ** attempt * strategy.backoff_multiplier) + random.uniform(0, 1)
                     logger.warning(
                         f"{source} failed: {e}, retrying in {wait_time}s "
                         f"(attempt {attempt + 1}/{strategy.max_retries + 1})"
@@ -261,8 +272,14 @@ class AsyncErrorHandler:
             last_error or Exception("Unknown error"),
             source,
             context_data,
-            user_id
+            user_id,
+            request_id
         )
+        for callback in self.recovery_callbacks:
+            try:
+                callback(source, "failed")
+            except Exception:
+                pass
         
         return strategy.fallback_value, error_context
     
@@ -274,6 +291,21 @@ class AsyncErrorHandler:
         """Remove error callback"""
         if callback in self.error_callbacks:
             self.error_callbacks.remove(callback)
+    
+    def add_recovery_callback(
+        self,
+        callback: Callable[[str, str], None]
+    ):
+        """Register recovery monitoring callback"""
+        self.recovery_callbacks.append(callback)
+
+    def remove_recovery_callback(
+        self,
+        callback: Callable[[str, str], None]
+    ):
+        """Remove recovery monitoring callback"""
+        if callback in self.recovery_callbacks:
+            self.recovery_callbacks.remove(callback)
     
     def get_error_history(
         self,
@@ -331,8 +363,27 @@ class AsyncErrorHandler:
 
 
 class CircuitBreakerAsync:
-    """Circuit breaker for async operations"""
-    
+    """Circuit breaker for async operations.
+
+    Callers MUST pass a coroutine factory (a zero-argument callable that
+    returns a fresh coroutine each time it is called) rather than a bare
+    coroutine object.  This is required because:
+
+    1. A coroutine object can only be awaited once.  If the circuit is open
+       and the coroutine is rejected without being awaited, the object must
+       be explicitly closed to release its frame resources and suppress the
+       ``RuntimeWarning: coroutine '...' was never awaited`` warning.
+       Passing a factory means the circuit breaker never even creates the
+       coroutine when the circuit is open, so there is nothing to leak.
+
+    2. The previous API accepted a raw ``Coroutine`` object.  When the
+       circuit was open it called ``coro.close()`` to suppress the warning,
+       but ``close()`` sends a ``GeneratorExit`` into the coroutine frame
+       which can raise ``RuntimeError`` if the coroutine has already started
+       executing (e.g. in a half-open retry scenario).  Using a factory
+       avoids this entirely.
+    """
+
     def __init__(
         self,
         failure_threshold: int = 5,
@@ -342,38 +393,61 @@ class CircuitBreakerAsync:
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
         self.name = name
-        
+
         self.failure_count = 0
         self.last_failure_time = None
         self.state = "closed"  # closed, open, half_open
-    
+
     async def execute(
         self,
-        coro: Coroutine[Any, Any, T]
+        coro_factory: Callable[[], Coroutine[Any, Any, T]],
     ) -> tuple[Optional[T], bool]:
         """
-        Execute coroutine with circuit breaker
-        
-        Returns:
-            (result, is_healthy)
+        Execute a coroutine produced by *coro_factory* with circuit-breaker
+        protection.
+
+        Parameters
+        ----------
+        coro_factory:
+            A zero-argument callable that returns a **fresh** coroutine each
+            time it is called.  Example::
+
+                await cb.execute(lambda: my_async_fn(arg1, arg2))
+
+        Returns
+        -------
+        (result, is_healthy)
+            *result* is ``None`` and *is_healthy* is ``False`` when the
+            circuit is open or the execution raised an exception.
         """
-        
-        # Check if circuit should be opened
+        # When the circuit is open, reject immediately without creating a
+        # coroutine at all — nothing to close, nothing to leak.
         if self.state == "open":
             if self._should_attempt_recovery():
                 self.state = "half_open"
             else:
-                coro.close()
+                logger.debug(
+                    "Circuit breaker %s is open — request rejected", self.name
+                )
                 return None, False
-        
-        # Execute
+
+        # Create a fresh coroutine from the factory for this attempt.
+        coro = coro_factory()
         try:
             result = await coro
             self._on_success()
             return result, True
         except Exception as e:
             self._on_failure()
-            logger.warning(f"Circuit breaker {self.name}: {e}")
+            logger.warning("Circuit breaker %s caught exception: %s", self.name, e)
+            # Explicitly close the coroutine in case it was only partially
+            # driven before the exception propagated, ensuring frame cleanup.
+            try:
+                coro.close()
+            except Exception as e:
+            import logging
+            logging.error(f"Async error: {e}")
+                pass
             return None, False
     
     def _on_success(self):
@@ -385,9 +459,15 @@ class CircuitBreakerAsync:
         """Handle failed execution"""
         self.failure_count += 1
         self.last_failure_time = datetime.now()
-        
-        if self.failure_count >= self.failure_threshold:
+
+        if self.state == "half_open":
+            # Standard circuit breaker: a single half-open probe failure
+            # immediately reopens the circuit to protect the backend.
             self.state = "open"
+        elif self.failure_count >= self.failure_threshold:
+            self.state = "open"
+
+        if self.state == "open":
             logger.warning(
                 f"Circuit breaker {self.name} opened after "
                 f"{self.failure_count} failures"
@@ -401,6 +481,18 @@ class CircuitBreakerAsync:
         time_since_failure = (datetime.now() - self.last_failure_time).total_seconds()
         return time_since_failure >= self.recovery_timeout
     
+    def record_failure(self) -> bool:
+        """Record a failure and return True if circuit is now open"""
+        # Transition open→half_open if recovery timeout elapsed
+        if self.state == "open" and self._should_attempt_recovery():
+            self.state = "half_open"
+        self._on_failure()
+        return self.state == "open"
+
+    def record_success(self) -> None:
+        """Record a success and reset circuit to closed"""
+        self._on_success()
+
     def get_status(self) -> Dict:
         """Get circuit breaker status"""
         return {
