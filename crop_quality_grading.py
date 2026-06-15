@@ -8,6 +8,7 @@ import cv2
 from PIL import Image
 import io
 import json
+from collections import deque
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 import base64
@@ -19,24 +20,33 @@ CROP_QUALITY_PARAMS = {
         "color_ranges": {"red": (120, 180), "green": (40, 80), "blue": (30, 70)},
         "size_range": (40, 150),  # mm
         "shape_uniformity_threshold": 0.75,
+        # Aspect ratio = minor/major axis (0=line, 1=perfect circle).
+        # Tomatoes are near-spherical so the ratio stays close to 1.
+        "aspect_ratio_range": (0.80, 1.00),
         "defect_threshold": 10,  # percentage
     },
     "potato": {
         "color_ranges": {"red": (100, 140), "green": (90, 130), "blue": (70, 110)},
         "size_range": (50, 200),
         "shape_uniformity_threshold": 0.70,
+        # Potatoes are mildly oblong; accept a wider range toward elongation.
+        "aspect_ratio_range": (0.55, 1.00),
         "defect_threshold": 15,
     },
     "grain": {
         "color_ranges": {"red": (150, 200), "green": (130, 180), "blue": (80, 130)},
         "size_range": (5, 15),
         "shape_uniformity_threshold": 0.80,
+        # Grains (rice, wheat) are distinctly elongated kernels.
+        "aspect_ratio_range": (0.25, 0.65),
         "defect_threshold": 8,
     },
     "fruit": {
         "color_ranges": {"red": (140, 220), "green": (50, 150), "blue": (30, 100)},
         "size_range": (50, 200),
         "shape_uniformity_threshold": 0.78,
+        # General fruit (apple, mango) range from round to slightly oblong.
+        "aspect_ratio_range": (0.65, 1.00),
         "defect_threshold": 12,
     },
 }
@@ -66,14 +76,19 @@ class QualityAssessment:
     recommendations: List[str]
     timestamp: str
     confidence: float
+    audit_metadata: Dict
+    confidence_category: str
+    classification_strength: str
+    confidence_metadata: Dict
 
 
 class CropQualityGrader:
     """Main crop quality grading system"""
 
-    def __init__(self):
+    def __init__(self, max_history=1000):
         self.supported_crops = list(CROP_QUALITY_PARAMS.keys())
         self.quality_history = []
+        self.max_history = max_history
 
     def assess_crop_image(
         self, image_data: bytes, crop_type: str
@@ -128,6 +143,60 @@ class CropQualityGrader:
         # Determine grade
         grade = self._get_grade(overall_score)
         price_adjustment = GRADE_MAPPING[grade]["price_multiplier"]
+        confidence_score = round(
+            min(95, 70 + (overall_score / 100) * 25),
+            2,
+        )
+
+        confidence_metadata = self._build_confidence_metadata(
+            confidence_score,
+            overall_score,
+            grade,
+        )
+
+        audit_metadata = {
+            "assessment_timestamp": datetime.now().isoformat(),
+            "evaluation_stage_summary": [
+                "size_analysis",
+                "color_analysis",
+                "shape_analysis",
+                "defect_detection",
+                "grade_assignment",
+            ],
+            "rule_execution_indicators": {
+                "size_rule": True,
+                "color_rule": True,
+                "shape_rule": True,
+                "defect_rule": True,
+            },
+            "decision_metadata": {
+                "overall_score": round(overall_score, 2),
+                "assigned_grade": grade,
+                "price_multiplier": price_adjustment,
+            },
+        }
+
+        audit_metadata = {
+            "assessment_timestamp": datetime.now().isoformat(),
+            "evaluation_stage_summary": [
+                "size_analysis",
+                "color_analysis",
+                "shape_analysis",
+                "defect_detection",
+                "grade_assignment",
+            ],
+            "rule_execution_indicators": {
+                "size_rule": True,
+                "color_rule": True,
+                "shape_rule": True,
+                "defect_rule": True,
+            },
+            "decision_metadata": {
+                "overall_score": round(overall_score, 2),
+                "assigned_grade": grade,
+                "price_multiplier": price_adjustment,
+            },
+        }
 
         # Generate recommendations
         recommendations = self._generate_recommendations(
@@ -146,10 +215,17 @@ class CropQualityGrader:
             recommendations=recommendations,
             timestamp=datetime.now().isoformat(),
             confidence=round(min(95, 70 + (overall_score / 100) * 25), 2),
+            audit_metadata=audit_metadata,
+            confidence=confidence_score,
+            confidence_category=confidence_metadata["confidence_category"],
+            classification_strength=confidence_metadata["classification_strength"],
+            confidence_metadata=confidence_metadata,
         )
 
         # Store in history
         self.quality_history.append(assessment)
+        if len(self.quality_history) > self.max_history:
+            self.quality_history = self.quality_history[-self.max_history:]
 
         return assessment
 
@@ -259,23 +335,35 @@ class CropQualityGrader:
         if not contours:
             return 50.0
 
-        # Calculate circularity for each contour
-        circularities = []
+        contour_scores: List[float] = []
         for contour in contours:
-            if len(contour) > 5:
-                area = cv2.contourArea(contour)
-                perimeter = cv2.arcLength(contour, True)
-                if perimeter > 0:
-                    circularity = (4 * np.pi * area) / (perimeter ** 2)
-                    circularities.append(min(1.0, circularity))
+            # fitEllipse requires at least 5 points
+            if len(contour) < 5:
+                continue
+            try:
+                _, (minor_axis, major_axis), _ = cv2.fitEllipse(contour)
+            except cv2.error:
+                continue
+            if major_axis <= 0:
+                continue
 
-        if not circularities:
+            ratio = min(minor_axis, major_axis) / max(minor_axis, major_axis)
+
+            if low <= ratio <= high:
+                score = 100.0
+            elif ratio < low:
+                deviation = low - ratio
+                score = max(0.0, 100.0 - (deviation / range_width) * 100.0)
+            else:  # ratio > high
+                deviation = ratio - high
+                score = max(0.0, 100.0 - (deviation / range_width) * 100.0)
+
+            contour_scores.append(score)
+
+        if not contour_scores:
             return 50.0
 
-        avg_circularity = np.mean(circularities)
-        shape_quality = avg_circularity * 100
-
-        return min(100, shape_quality)
+        return float(min(100.0, np.mean(contour_scores)))
 
     def _detect_defects(self, image_gray: np.ndarray, params: Dict) -> float:
         """Detect defects in crops.
@@ -291,9 +379,18 @@ class CropQualityGrader:
         total_pixels = edges.shape[0] * edges.shape[1]
         defect_pixels = np.count_nonzero(edges)
 
-        defect_percentage = (defect_pixels / total_pixels) * 100
+        # Erode the crop mask to exclude outer boundary edges (background artefacts)
+        kernel = np.ones((5, 5), np.uint8)
+        eroded_mask = cv2.erode(thresh, kernel, iterations=1)
 
-        return min(100, defect_percentage * 2)  # Scale defects
+        # Restrict edges to interior of crop only
+        internal_edges = cv2.bitwise_and(edges, eroded_mask)
+        defect_pixels = int(np.count_nonzero(internal_edges))
+
+        # Defect percentage relative to crop area — invariant to zoom/framing
+        defect_percentage = (defect_pixels / crop_pixels) * 100
+
+        return min(100.0, float(defect_percentage * 10))
 
     def _get_grade(self, score: float) -> str:
         """Determine grade based on score"""
@@ -302,6 +399,64 @@ class CropQualityGrader:
             if score >= GRADE_MAPPING[grade_key]["min_score"]:
                 return grade_key
         return "F"
+    
+    def _get_confidence_category(self, confidence: float) -> str:
+        """
+        Convert numeric confidence into a user-friendly category.
+        """
+        if confidence >= 90:
+            return "Very High"
+        if confidence >= 80:
+            return "High"
+        if confidence >= 70:
+            return "Moderate"
+        return "Low"
+
+
+    def _get_classification_strength(
+        self,
+        score: float,
+        grade: str,
+    ) -> str:
+        """
+        Determine classification strength based on
+        score stability within the assigned grade.
+        """
+        grade_min = GRADE_MAPPING[grade]["min_score"]
+
+        margin = score - grade_min
+
+        if margin >= 15:
+            return "Strong Match"
+
+        if margin >= 5:
+            return "Moderate Match"
+
+        return "Borderline Match"
+
+
+    def _build_confidence_metadata(
+        self,
+        confidence: float,
+        score: float,
+        grade: str,
+    ) -> Dict:
+        """
+        Build lightweight metadata explaining
+        grading confidence.
+        """
+        return {
+            "confidence_category": self._get_confidence_category(confidence),
+            "classification_strength": self._get_classification_strength(
+                score,
+                grade,
+            ),
+            "score_margin": round(
+                score - GRADE_MAPPING[grade]["min_score"],
+                2,
+            ),
+            "grade_threshold": GRADE_MAPPING[grade]["min_score"],
+        }
 
     def _generate_recommendations(
         self,
@@ -403,20 +558,54 @@ class CropQualityGrader:
                 "average_price_adjustment": 0,
             }
 
+        audit_summary = {
+            "generated_at": datetime.now().isoformat(),
+            "assessment_count": len(valid_assessments),
+            "failed_assessments": failed_count,
+        }
+
         return {
             "assessments": assessments,
             "batch_statistics": batch_stats,
+            "audit_summary": audit_summary,
             "crop_type": crop_type,
             "timestamp": datetime.now().isoformat(),
+            
         }
 
     def get_quality_trends(self, crop_type: str, days: int = 7) -> Dict:
-        """Get quality trends over time"""
-        recent_assessments = [
-            a
-            for a in self.quality_history
-            if a.crop_type == crop_type.lower()
-        ]
+        """Get quality trends over the specified number of days.
+
+        The ``days`` parameter was previously accepted and validated at the
+        API layer (ge=1, le=30) but was never used inside this method — the
+        filter ``[a for a in self.quality_history if a.crop_type == ...]``
+        returned all history for the crop type regardless of age.  A caller
+        requesting ``days=1`` received the same result as ``days=30``, and
+        the response included ``"days": data.days`` from the router,
+        implying the window was respected when it was not.
+
+        Fix: parse each assessment's ``timestamp`` field and exclude entries
+        older than ``days`` calendar days from the current UTC time.
+        """
+        from datetime import timezone, timedelta
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+        recent_assessments = []
+        for a in self.quality_history:
+            if a.crop_type != crop_type.lower():
+                continue
+            try:
+                # timestamp is stored as datetime.now().isoformat() — naive
+                # local time.  Parse it and treat as UTC for comparison.
+                ts = datetime.fromisoformat(a.timestamp)
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                if ts >= cutoff:
+                    recent_assessments.append(a)
+            except (ValueError, TypeError):
+                # Malformed timestamp — include the assessment rather than
+                # silently dropping it.
+                recent_assessments.append(a)
 
         if not recent_assessments:
             return {"error": "No assessment history"}
@@ -426,9 +615,10 @@ class CropQualityGrader:
 
         return {
             "crop_type": crop_type.lower(),
+            "days": days,
             "assessments_count": len(recent_assessments),
             "average_score": round(np.mean(scores), 2),
-            "score_trend": scores[-5:],  # Last 5 scores
+            "score_trend": scores[-5:],  # Last 5 scores within the window
             "grade_distribution": {g: grades.count(g) for g in set(grades)},
             "latest_assessment": asdict(recent_assessments[-1]),
         }

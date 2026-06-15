@@ -1,4 +1,4 @@
-import { useCallback, useRef, useEffect } from 'react';
+import { useCallback, useRef, useEffect, useState } from 'react';
 import { useVoiceStore } from '../stores/voiceStore';
 import { useErrorHandler } from './useErrorHandler';
 import apiClient from '../services/api';
@@ -24,6 +24,61 @@ export const useVoiceAssistant = () => {
 
   const recognitionRef = useRef(null);
 
+  const recoveryRef = useRef({
+    recognitionFailures: 0,
+    responseFailures: 0,
+    interruptions: 0,
+  });
+
+  const [voiceDiagnostics, setVoiceDiagnostics] = useState({
+    lastError: null,
+    recoveryState: 'healthy',
+  });
+
+  const reconcileVoiceState = useCallback(() => {
+    if (isListening && isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+    }
+
+    return {
+      listening: isListening,
+      speaking: isSpeaking,
+      loading: isLoading,
+    };
+  }, [
+    isListening,
+    isSpeaking,
+    isLoading,
+    setIsSpeaking,
+  ]);
+
+  const triggerRecovery = useCallback(
+    (failureType, errorMessage) => {
+      recoveryRef.current[failureType] =
+        (recoveryRef.current[failureType] || 0) + 1;
+
+      setIsListening(false);
+      setIsSpeaking(false);
+      setIsLoading(false);
+
+      window.speechSynthesis.cancel();
+
+      setVoiceDiagnostics({
+        lastError: errorMessage,
+        recoveryState: 'recovered',
+      });
+
+      reconcileVoiceState();
+    },
+    [
+      reconcileVoiceState,
+      setIsListening,
+      setIsSpeaking,
+      setIsLoading,
+    ]
+  );
+
   // Initialize Speech Recognition
   useEffect(() => {
     const SpeechRecognition =
@@ -42,15 +97,31 @@ export const useVoiceAssistant = () => {
       };
 
       recognitionRef.current.onerror = (event) => {
-        handleWarning(`Voice recognition error: ${event.error}`, 'voice-assistant');
-        setIsListening(false);
+        handleWarning(
+          `Voice recognition error: ${event.error}`,
+          'voice-assistant'
+        );
+
+        triggerRecovery(
+          'recognitionFailures',
+          event.error
+        );
       };
 
       recognitionRef.current.onend = () => {
         setIsListening(false);
+        reconcileVoiceState();
       };
     }
-  }, [language]);
+  }, [
+    language,
+    triggerRecovery,
+    reconcileVoiceState,
+    handleWarning,
+    handleVoiceQuery,
+    setTranscript,
+    setIsListening,
+  ]);
 
   const startListening = useCallback(() => {
     if (recognitionRef.current && !isListening) {
@@ -62,6 +133,7 @@ export const useVoiceAssistant = () => {
 
   const stopListening = useCallback(() => {
     if (recognitionRef.current) {
+      recoveryRef.current.interruptions += 1;
       recognitionRef.current.stop();
       setIsListening(false);
     }
@@ -111,7 +183,17 @@ export const useVoiceAssistant = () => {
             language === 'hi-IN'
               ? '⚠️ API Key nahi mili. Kripya Gemini API key add karein.'
               : '⚠️ API Key is missing. Please add your Gemini API key.';
-          addMessage({ text: errMsg, from: 'bot' });
+          recoveryRef.current.responseFailures += 1;
+
+          triggerRecovery(
+            'responseFailures',
+            errMsg
+          );
+
+          addMessage({
+            text: errMsg,
+            from: 'bot',
+          });
           speak(errMsg);
           return;
         }
@@ -156,7 +238,17 @@ export const useVoiceAssistant = () => {
           language === 'hi-IN'
             ? 'Kuch galat ho gaya. Baad mein try karein.'
             : 'An error occurred. Please try again later.';
-        addMessage({ text: errMsg, from: 'bot' });
+        recoveryRef.current.responseFailures += 1;
+
+        triggerRecovery(
+          'responseFailures',
+          errMsg
+        );
+
+        addMessage({
+          text: errMsg,
+          from: 'bot',
+        });
       } finally {
         setIsLoading(false);
       }
@@ -180,5 +272,9 @@ export const useVoiceAssistant = () => {
     handleVoiceQuery,
     clearMessages,
     resetVoiceStore,
+
+    voiceDiagnostics,
+    recoveryMetrics: recoveryRef.current,
+    reconcileVoiceState,
   };
 };

@@ -7,11 +7,11 @@ import pytest
 from datetime import datetime
 from blockchain_supply_chain import (
     SupplyChainBlockchain,
-    BlockchainRecord,
-    ProductBatch,
     SupplyChainNode,
     SmartContract,
 )
+from blockchain_record import BlockchainRecord
+from product_batch import ProductBatch
 
 
 class TestBlockchainAtomicity:
