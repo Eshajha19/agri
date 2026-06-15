@@ -283,7 +283,7 @@ CROP_DB: Dict[str, Dict] = {
         "soil_types": ["Alluvial", "Loamy", "Sandy", "Red"],
         "states": ["Karnataka", "Andhra Pradesh", "Telangana", "Maharashtra",
                    "Bihar", "Uttar Pradesh", "Rajasthan"],
-        "sowing_month": 6, "harvest_month": 9, "duration_days": 90,
+        "sowing_month": {"Kharif": 6, "Zaid": 2}, "harvest_month": 9, "duration_days": 90,
         "water_need": "medium", "germination_days": 5, "transplant_days": None,
         "yield_kg_per_acre": 1500, "price_per_kg": 20,
         "input_cost_per_acre": 14000,
@@ -438,7 +438,11 @@ class SmartFarmAutopilot:
         self, crop: str, data: Dict, season: str
     ) -> List[SowingSchedule]:
         year = date.today().year
-        sow_month = data["sowing_month"]
+        sow_month_data = data["sowing_month"]
+        if isinstance(sow_month_data, dict):
+            sow_month = sow_month_data[season]
+        else:
+            sow_month = sow_month_data
         # Adjust year: if the sowing month has already passed (with a 2-month
         # buffer), advance to the next calendar year.
         sow_year = year
