@@ -4,6 +4,7 @@ Manages model versions, deployment history, and metadata
 """
 
 import logging
+import threading
 from enum import Enum
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
@@ -49,6 +50,8 @@ class ModelVersion:
         self.rollback_reason = None
         self.canary_traffic_percentage = 0
         self.deployment_history: List[Dict] = []
+        self.replaced_version: Optional[str] = None
+        self.rollback_reference: Optional[str] = None
     
     def to_dict(self) -> Dict:
         """Convert to dictionary"""
@@ -65,7 +68,9 @@ class ModelVersion:
             "deployed_at": self.deployed_at,
             "canary_traffic_percentage": self.canary_traffic_percentage,
             "rollback_reason": self.rollback_reason,
-            "deployment_history": self.deployment_history
+            "deployment_history": self.deployment_history,
+            "replaced_version": self.replaced_version,
+            "rollback_reference": self.rollback_reference
         }
     
     @staticmethod
@@ -86,6 +91,8 @@ class ModelVersion:
         version.canary_traffic_percentage = data.get("canary_traffic_percentage", 0)
         version.rollback_reason = data.get("rollback_reason")
         version.deployment_history = data.get("deployment_history", [])
+        version.replaced_version = data.get("replaced_version")
+        version.rollback_reference = data.get("rollback_reference")
         return version
 
 
@@ -184,24 +191,55 @@ class ModelRegistry:
         model_name: str,
         version: str
     ) -> bool:
-        """Promote model to production (100% traffic)"""
+        """Promote model to production (100% traffic) and track rollback metadata"""
         
         model = self.get_model_version(model_name, version)
         if not model:
             return False
         
         # Archive previous production model
+        replaced_version = None
         if model_name in self.active_models:
             old_model = self.active_models[model_name]
             old_model.status = ModelStatus.ARCHIVED
+            replaced_version = old_model.version
+            
+            old_model.deployment_history.append({
+                "timestamp": datetime.now().isoformat(),
+                "action": "archived",
+                "reason": f"Replaced by version {version}"
+            })
         
         model.status = ModelStatus.PRODUCTION
         model.canary_traffic_percentage = 100
         model.deployed_at = datetime.now().isoformat()
+        
+        # Track rollback reference
+        model.replaced_version = replaced_version
+        model.rollback_reference = replaced_version
+        
+        model.deployment_history.append({
+            "timestamp": datetime.now().isoformat(),
+            "action": "production_promotion",
+            "replaced_version": replaced_version,
+            "rollback_reference": replaced_version
+        })
+        
         self.active_models[model_name] = model
         
-        self._log_deployment(model_name, version, "production", 100)
-        logger.info(f"Promoted {model_name}:{version} to PRODUCTION")
+        self._log_deployment(
+            model_name=model_name,
+            version=version,
+            action="production",
+            traffic=100,
+            replaced_version=replaced_version,
+            rollback_reference=replaced_version,
+            metadata={
+                "promoted_at": datetime.now().isoformat(),
+                "previous_status": "archived" if replaced_version else None
+            }
+        )
+        logger.info(f"Promoted {model_name}:{version} to PRODUCTION (replaced: {replaced_version})")
         
         return True
     
@@ -210,7 +248,7 @@ class ModelRegistry:
         model_name: str,
         reason: str = "Performance degradation"
     ) -> bool:
-        """Rollback to previous production model"""
+        """Rollback to previous production model using rollback tracking metadata"""
         
         current = self.active_models.get(model_name)
         if not current:
@@ -220,26 +258,71 @@ class ModelRegistry:
         current.status = ModelStatus.ROLLED_BACK
         current.rollback_reason = reason
         
-        # Find previous production version
-        versions = sorted(
-            self.models[model_name].values(),
-            key=lambda x: x.created_at,
-            reverse=True
-        )
-        
         previous = None
-        for v in versions:
-            if v.model_id != current.model_id and v.status == ModelStatus.ARCHIVED:
-                previous = v
-                break
+        
+        # 1. Try direct rollback reference
+        previous_version = getattr(current, "rollback_reference", None)
+        if previous_version:
+            previous = self.get_model_version(model_name, previous_version)
+            if previous:
+                logger.info(f"Rollback target {previous_version} found via direct rollback_reference.")
+        
+        # 2. Fallback: scan deployment log in reverse for the last production/rollback model
+        if not previous:
+            logger.info("Scanning deployment log to identify the previous production version...")
+            seen_current = False
+            for entry in reversed(self.deployment_log):
+                if entry["model_name"] != model_name:
+                    continue
+                if entry["action"] == "production" and entry.get("version") == current.version:
+                    seen_current = True
+                    continue
+                if seen_current and entry["action"] in ("production", "rollback"):
+                    prev_ver = entry.get("version")
+                    previous = self.get_model_version(model_name, prev_ver)
+                    if previous:
+                        logger.info(f"Rollback target {prev_ver} found via deployment log scan.")
+                        break
+        
+        # 3. Last fallback: scan all versions sorted by creation time
+        if not previous:
+            logger.info("Scanning all versions by creation date as a final rollback fallback...")
+            versions = sorted(
+                self.models.get(model_name, {}).values(),
+                key=lambda x: x.created_at,
+                reverse=True
+            )
+            for v in versions:
+                if v.model_id != current.model_id and v.status == ModelStatus.ARCHIVED:
+                    previous = v
+                    break
         
         if previous:
             previous.status = ModelStatus.PRODUCTION
             previous.canary_traffic_percentage = 100
+            previous.deployed_at = datetime.now().isoformat()
+            
+            previous.deployment_history.append({
+                "timestamp": datetime.now().isoformat(),
+                "action": "restored_via_rollback",
+                "from_version": current.version,
+                "reason": reason
+            })
+            
             self.active_models[model_name] = previous
             
-            self._log_deployment(model_name, previous.version, "rollback", 100, reason)
-            logger.warning(f"Rolled back {model_name} to {previous.version}: {reason}")
+            self._log_deployment(
+                model_name=model_name,
+                version=previous.version,
+                action="rollback",
+                traffic=100,
+                reason=reason,
+                metadata={
+                    "rolled_back_from": current.version,
+                    "rollback_reason": reason
+                }
+            )
+            logger.warning(f"Rolled back {model_name} from {current.version} to {previous.version}: {reason}")
             return True
         
         logger.error(f"No previous production model found for {model_name}")
@@ -251,16 +334,22 @@ class ModelRegistry:
         version: str,
         action: str,
         traffic: int,
-        reason: str = None
+        reason: str = None,
+        replaced_version: str = None,
+        rollback_reference: str = None,
+        metadata: Dict = None
     ):
-        """Log deployment event"""
+        """Log deployment event with transition metadata"""
         self.deployment_log.append({
             "timestamp": datetime.now().isoformat(),
             "model_name": model_name,
             "version": version,
             "action": action,
             "traffic_percentage": traffic,
-            "reason": reason
+            "reason": reason,
+            "replaced_version": replaced_version,
+            "rollback_reference": rollback_reference,
+            "metadata": metadata or {}
         })
     
     def get_deployment_history(
@@ -292,15 +381,18 @@ class ModelRegistry:
         }
 
 
-# Global registry instance
+# Global registry instance and lock
 _model_registry: Optional[ModelRegistry] = None
+_registry_lock = threading.Lock()
 
 
 def get_model_registry() -> ModelRegistry:
-    """Get or create global model registry"""
+    """Get or create global model registry (thread-safe)"""
     global _model_registry
     
     if _model_registry is None:
-        _model_registry = ModelRegistry()
+        with _registry_lock:
+            if _model_registry is None:
+                _model_registry = ModelRegistry()
     
     return _model_registry
