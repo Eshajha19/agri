@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -10,10 +10,9 @@ import {
   linkWithCredential,
   EmailAuthProvider
 } from "firebase/auth";
-import { doc, setDoc, getDoc } from "firebase/firestore";
 import { useNavigate, useLocation } from "react-router-dom";
 import { FaGoogle, FaEnvelope, FaLock, FaUser, FaArrowRight, FaLeaf, FaUserSecret } from "react-icons/fa";
-import { auth, db, isFirebaseConfigured } from "./lib/firebase";
+import { auth, db, isFirebaseConfigured, doc, setDoc, getDoc } from "./lib/firebase";
 import { migrateUserData } from "./lib/migration";
 import "./Auth.css";
 
@@ -26,14 +25,30 @@ const Auth = () => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const authTimeoutRef = useRef(null);
+  const authInProgressRef = useRef(false);
   const navigate = useNavigate();
   const location = useLocation();
 
-  const from = location.state?.from?.pathname || "/";
+  const from =
+    typeof location.state?.from?.pathname === "string"
+      ? location.state.from.pathname
+      : "/";
   const referralCode = new URLSearchParams(location.search).get("ref") || "";
   const redirectAfterAuth = referralCode
     ? `/referrals?ref=${encodeURIComponent(referralCode)}`
     : from;
+
+    useEffect(() => {
+      return () => {
+        if (authTimeoutRef.current) {
+          clearTimeout(authTimeoutRef.current);
+          authTimeoutRef.current = null;
+        }
+
+        authInProgressRef.current = false;
+      };
+    }, []);
 
   if (!isFirebaseConfigured()) {
     return (
@@ -53,6 +68,9 @@ const Auth = () => {
   }
 
   const handleGuestLogin = async () => {
+    if (authInProgressRef.current) return;
+
+    authInProgressRef.current = true;
     setLoading(true);
     setError("");
     try {
@@ -62,6 +80,7 @@ const Auth = () => {
       console.error("Guest login error:", err);
       setError("Failed to start guest session.");
     } finally {
+      authInProgressRef.current = false;
       setLoading(false);
     }
   };
@@ -70,6 +89,9 @@ const Auth = () => {
     e.preventDefault();
     setError("");
     setMessage("");
+    if (authInProgressRef.current) return;
+
+    authInProgressRef.current = true;
     setLoading(true);
 
     try {
@@ -83,6 +105,8 @@ const Auth = () => {
 
         if (!user.emailVerified) {
           setError("Please verify your email before logging in. Check your inbox.");
+          sessionStorage.clear();
+          localStorage.removeItem("firebase:authUser");
           await signOut(auth);
           setLoading(false);
           return;
@@ -158,6 +182,7 @@ const Auth = () => {
         setError(err.message);
       }
     } finally {
+      authInProgressRef.current = false;
       setLoading(false);
     }
   };
@@ -167,6 +192,9 @@ const Auth = () => {
     // Add custom parameters if needed
     provider.setCustomParameters({ prompt: 'select_account' });
     
+    if (authInProgressRef.current) return;
+
+    authInProgressRef.current = true;
     setLoading(true);
     setError("");
     try {
@@ -220,6 +248,7 @@ const Auth = () => {
         setError(err.message || "Failed to sign in with Google.");
       }
     } finally {
+      authInProgressRef.current = false;
       setLoading(false);
     }
   };

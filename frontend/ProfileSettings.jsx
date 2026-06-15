@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { auth, db, isFirebaseConfigured } from "./lib/firebase";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
+import { LANGUAGE_OPTIONS } from "./lib/languageOptions";
 import {
   FaArrowRight,
   FaExclamationTriangle,
@@ -35,21 +36,6 @@ const ACCOUNT_STORAGE_PREFIXES = [
   "agri:sustainabilityHistory:",
   "p2p_chat_",
   "remote_ecdh_public_",
-];
-
-const LANGUAGE_OPTIONS = [
-  { value: "en", label: "🌍 English" },
-  { value: "hi", label: "🇮🇳 हिंदी" },
-  { value: "mr", label: "🇮🇳 मराठी" },
-  { value: "bn", label: "🇮🇳 বাংলা" },
-  { value: "ta", label: "🇮🇳 தமிழ்" },
-  { value: "te", label: "🇮🇳 తెలుగు" },
-  { value: "gu", label: "🇮🇳 ગુજરાતી" },
-  { value: "pa", label: "🇮🇳 ਪੰਜਾਬੀ" },
-  { value: "kn", label: "🇮🇳 ಕನ್ನಡ" },
-  { value: "ml", label: "🇮🇳 മലയാളം" },
-  { value: "or", label: "🇮🇳 ଓଡ଼ିଆ" },
-  { value: "as", label: "🇮🇳 অসমীয়া" },
 ];
 
 const CROP_OPTIONS = [
