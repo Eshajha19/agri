@@ -1,0 +1,257 @@
+/* ============================================================
+   ClaimRejectionDetails.css — Rejection Module Styles
+   ============================================================ */
+
+.rejection-detail-card {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 1.25rem;
+  padding: 2rem;
+  backdrop-filter: blur(12px);
+  margin-bottom: 1.5rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.rejection-detail-card:hover {
+  border-color: rgba(239, 68, 68, 0.45);
+  box-shadow: 0 12px 35px rgba(239, 68, 68, 0.1);
+}
+
+/* Header Section */
+.rejection-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.rejection-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 2rem;
+  padding: 0.35rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.rejection-badge .badge-icon {
+  font-size: 0.9rem;
+}
+
+.rejection-badge .badge-text {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #fca5a5;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.rejection-title {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #f8fafc;
+  margin: 0 0 0.5rem;
+  line-height: 1.2;
+}
+
+.rejection-subtitle {
+  font-size: 0.92rem;
+  color: #94a3b8;
+  max-width: 600px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+.claim-id-text {
+  color: #fca5a5;
+  font-weight: 700;
+  background: rgba(239, 68, 68, 0.08);
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.3rem;
+  font-family: monospace;
+}
+
+/* Rejection List Items */
+.rejection-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  margin-bottom: 2rem;
+}
+
+.rejection-item {
+  display: flex;
+  gap: 1rem;
+  padding: 1.25rem;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+  border-radius: 0.85rem;
+  transition: transform 0.25s, border-color 0.25s;
+}
+
+.rejection-item:hover {
+  transform: translateX(4px);
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.03);
+}
+
+.rejection-item-icon {
+  font-size: 1.25rem;
+  color: #ef4444;
+  margin-top: 0.1rem;
+  flex-shrink: 0;
+}
+
+.rejection-item-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  flex: 1;
+}
+
+.rejection-reason-block,
+.rejection-action-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.rejection-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+}
+
+.rejection-text {
+  font-size: 0.95rem;
+  color: #f1f5f9;
+  font-weight: 600;
+  margin: 0;
+}
+
+.action-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #34d399;
+}
+
+.action-text {
+  font-size: 0.95rem;
+  color: #a7f3d0;
+  font-weight: 500;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.action-arrow {
+  font-size: 0.8rem;
+  color: #34d399;
+}
+
+/* Help Alert Box */
+.rejection-help-alert {
+  padding: 1rem 1.25rem;
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: 0.75rem;
+  margin-bottom: 2rem;
+  color: #bfdbfe;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.rejection-help-alert strong {
+  color: #60a5fa;
+}
+
+/* Actions Section */
+.rejection-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.btn-rejection {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.75rem;
+  padding: 0.75rem 1.75rem;
+  font-size: 0.92rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  font-family: inherit;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+}
+
+.btn-rejection-primary {
+  background: linear-gradient(135deg, #dc2626, #ef4444);
+  color: white;
+  border: none;
+}
+
+.btn-rejection-primary:hover {
+  background: linear-gradient(135deg, #b91c1c, #dc2626);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.35);
+}
+
+.btn-rejection-secondary {
+  background: transparent;
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.btn-rejection-secondary:hover {
+  background: rgba(148, 163, 184, 0.08);
+  border-color: #94a3b8;
+  color: #f1f5f9;
+}
+
+.btn-icon {
+  font-size: 0.85rem;
+}
+
+/* Animations */
+.animate-fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Responsive Styles */
+@media (max-width: 640px) {
+  .rejection-detail-card {
+    padding: 1.25rem;
+  }
+  .rejection-title {
+    font-size: 1.35rem;
+  }
+  .rejection-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+  .btn-rejection {
+    width: 100%;
+  }
+}
