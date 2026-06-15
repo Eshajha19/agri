@@ -1,63 +1,257 @@
 import logging
-import threading
-from typing import Dict, Optional
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from threading import RLock
+from typing import Any, Dict, Generic, List, Optional, TypeVar
 
-from ml.base import YieldModel
 
 logger = logging.getLogger(__name__)
 
+T = TypeVar("T")
 
-class ModelRegistry:
+
+@dataclass(frozen=True)
+class ModelEntry(Generic[T]):
     """
-    Per-process registry that maps model names to loaded model instances.
-
-    Multi-worker safety
-    -------------------
-    In a multi-worker Uvicorn/Gunicorn deployment each worker is a separate
-    OS process with its own memory space.  Class-level state is NOT shared
-    across processes — every worker must initialise its own registry.
-
-    The registry is designed to be initialised inside a FastAPI ``lifespan``
-    context manager (or an ``@app.on_event("startup")`` handler) so that
-    initialisation runs in **every** worker process, not just the main one.
-
-    Thread safety
-    -------------
-    ``_lock`` serialises ``register`` calls so that concurrent startup
-    coroutines (if any) cannot corrupt ``_models``.  ``get_model`` and
-    ``list_models`` are read-only and safe without locking because CPython's
-    GIL makes dict reads atomic for simple key lookups.
+    Registry record.
     """
 
-    _models: Dict[str, YieldModel] = {}
-    _lock: threading.Lock = threading.Lock()
+    name: str
+    model: T
+    registered_at: datetime
+
+
+class ModelRegistry(Generic[T]):
+    """
+    Thread-safe in-memory model registry.
+
+    Example:
+        ModelRegistry.register("bert", model)
+        model = ModelRegistry.get("bert")
+    """
+
+    _models: Dict[str, ModelEntry[Any]] = {}
+    _lock = RLock()
+
+    # =========================================================================
+    # INTERNALS
+    # =========================================================================
 
     @classmethod
-    def register(cls, model_name: str, model_instance: YieldModel) -> None:
-        """Register a model instance under *model_name*.
-
-        Thread-safe: acquires ``_lock`` before mutating ``_models``.
+    def _normalize_name(cls, model_name: str) -> str:
         """
+        Validate and normalize model name.
+        """
+
+        if not isinstance(model_name, str):
+            raise TypeError("model_name must be a string")
+
+        model_name = model_name.strip()
+
+        if not model_name:
+            raise ValueError("model_name cannot be empty")
+
+        return model_name
+
+    # =========================================================================
+    # REGISTRATION
+    # =========================================================================
+
+    @classmethod
+    def register(
+        cls,
+        model_name: str,
+        model: T,
+        *,
+        overwrite: bool = False,
+    ) -> None:
+        """
+        Register a model.
+
+        Args:
+            model_name: Unique model name.
+            model: Model instance.
+            overwrite: Allow replacing existing model.
+        """
+
+        model_name = cls._normalize_name(model_name)
+
+        if model is None:
+            raise ValueError("model cannot be None")
+
         with cls._lock:
-            cls._models[model_name] = model_instance
+            exists = model_name in cls._models
+
+            if exists and not overwrite:
+                raise ValueError(
+                    f"Model '{model_name}' is already registered"
+                )
+
+            cls._models[model_name] = ModelEntry(
+                name=model_name,
+                model=model,
+                registered_at=datetime.now(timezone.utc),
+            )
+
         logger.info(
-            "ModelRegistry: registered '%s' (%s) in worker pid=%d",
+            "Registered model '%s'%s",
             model_name,
-            model_instance.model_type,
-            __import__("os").getpid(),
+            " (overwritten)" if exists else "",
         )
 
-    @classmethod
-    def get_model(cls, model_name: str) -> Optional[YieldModel]:
-        """Return the model registered under *model_name*, or ``None``."""
-        return cls._models.get(model_name)
+    # =========================================================================
+    # LOOKUP
+    # =========================================================================
 
     @classmethod
-    def list_models(cls) -> Dict[str, str]:
-        """Return a ``{name: model_type}`` snapshot of all registered models."""
-        return {name: model.model_type for name, model in cls._models.items()}
+    def get(cls, model_name: str) -> T:
+        """
+        Retrieve model instance.
+        """
+
+        model_name = cls._normalize_name(model_name)
+
+        with cls._lock:
+            entry = cls._models.get(model_name)
+
+        if entry is None:
+            raise KeyError(
+                f"Model '{model_name}' is not registered"
+            )
+
+        return entry.model
 
     @classmethod
-    def is_empty(cls) -> bool:
-        """Return ``True`` when no models have been registered yet."""
-        return len(cls._models) == 0
+    def get_entry(
+        cls,
+        model_name: str,
+    ) -> ModelEntry[T]:
+        """
+        Retrieve full registry entry.
+        """
+
+        model_name = cls._normalize_name(model_name)
+
+        with cls._lock:
+            entry = cls._models.get(model_name)
+
+        if entry is None:
+            raise KeyError(
+                f"Model '{model_name}' is not registered"
+            )
+
+        return entry
+
+    @classmethod
+    def exists(cls, model_name: str) -> bool:
+        """
+        Check whether a model exists.
+        """
+
+        model_name = cls._normalize_name(model_name)
+
+        with cls._lock:
+            return model_name in cls._models
+
+    # =========================================================================
+    # REMOVAL
+    # =========================================================================
+
+    @classmethod
+    def unregister(cls, model_name: str) -> bool:
+        """
+        Remove a model from the registry.
+
+        Returns:
+            True if removed.
+            False if model was not present.
+        """
+
+        model_name = cls._normalize_name(model_name)
+
+        with cls._lock:
+            removed = cls._models.pop(model_name, None)
+
+        if removed is not None:
+            logger.info(
+                "Unregistered model '%s'",
+                model_name,
+            )
+
+        return removed is not None
+
+    @classmethod
+    def clear(cls) -> None:
+        """
+        Remove all models.
+        """
+
+        with cls._lock:
+            removed_count = len(cls._models)
+            cls._models.clear()
+
+        logger.warning(
+            "Cleared model registry (%d models removed)",
+            removed_count,
+        )
+
+    # =========================================================================
+    # LISTING
+    # =========================================================================
+
+    @classmethod
+    def list_models(cls) -> List[str]:
+        """
+        Return sorted model names.
+        """
+
+        with cls._lock:
+            return sorted(cls._models.keys())
+
+    @classmethod
+    def count(cls) -> int:
+        """
+        Return total number of registered models.
+        """
+
+        with cls._lock:
+            return len(cls._models)
+
+    @classmethod
+    def snapshot(cls) -> Dict[str, ModelEntry[Any]]:
+        """
+        Return shallow copy of registry.
+        """
+
+        with cls._lock:
+            return dict(cls._models)
+
+    # =========================================================================
+    # STATS / HEALTH
+    # =========================================================================
+
+    @classmethod
+    def stats(cls) -> Dict[str, Any]:
+        """
+        Registry health snapshot.
+        """
+
+        with cls._lock:
+            names = sorted(cls._models.keys())
+
+        return {
+            "total_models": len(names),
+            "registered_models": names,
+        }
+
+    # =========================================================================
+    # MAGIC METHODS
+    # =========================================================================
+
+    @classmethod
+    def contains(cls, model_name: str) -> bool:
+        """
+        Alias for exists().
+        """
+
+        return cls.exists(model_name)
