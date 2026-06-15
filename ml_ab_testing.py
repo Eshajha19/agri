@@ -84,6 +84,24 @@ class Arm:
         # Sample from Beta distribution using isolated RNG
         return _rng.beta(alpha, beta)
     
+    def confidence_interval(self, alpha: float = 0.05) -> Dict[str, float]:
+        """
+        Compute a Wald confidence (credible) interval for the arm's success
+        probability using the Beta posterior Beta(alpha+1, beta+1). Falls
+        back to a normal approximation for large n.
+        """
+        n = self.successes + self.failures
+        if n == 0:
+            return {"lower": 0.0, "upper": 0.0, "mean": 0.0}
+        p = self.successes / n
+        z = 1.96  # approximates alpha=0.05 two-tailed
+        se = math.sqrt(p * (1 - p) / n) if n > 0 else 0.0
+        return {
+            "lower": max(0.0, p - z * se),
+            "upper": min(1.0, p + z * se),
+            "mean": p,
+        }
+
     def to_dict(self) -> Dict:
         """Convert to dictionary"""
         return {
@@ -93,6 +111,7 @@ class Arm:
             "successes": self.successes,
             "failures": self.failures,
             "total_trials": self.total_trials,
+            "confidence_interval": self.confidence_interval(),
             "predictions": self.predictions,
             "mae": self.mean_mae,
             "rmse": self.mean_rmse,
@@ -190,39 +209,22 @@ class ABTest:
         return float(np.mean(variant_samples > control_samples))
 
     def get_winner(self) -> Optional[Arm]:
-        """Determine winner using a two-sample Z-test for proportions."""
-        n1 = self.control_arm.total_trials
-        n2 = self.variant_arm.total_trials
+        """Determine winner using the configured confidence threshold."""
+        total_trials = self.control_arm.total_trials + self.variant_arm.total_trials
 
-        if (n1 + n2) < self.min_samples or n1 == 0 or n2 == 0:
+        if total_trials < self.min_samples:
             return None
 
-        p1 = self.control_arm.successes / n1
-        p2 = self.variant_arm.successes / n2
+        c_ci = self.control_arm.confidence_interval()
+        v_ci = self.variant_arm.confidence_interval()
 
-        # Pooled proportion under the null hypothesis (p1 == p2)
-        p_pooled = (self.control_arm.successes + self.variant_arm.successes) / (n1 + n2)
-        if p_pooled <= 0 or p_pooled >= 1:
-            return None
-
-        # Standard error of the difference
-        se = math.sqrt(p_pooled * (1 - p_pooled) * (1 / n1 + 1 / n2))
-        if se == 0:
-            return None
-
-        # Z statistic
-        z_stat = (p2 - p1) / se
-
-        # Map confidence threshold to two-tailed critical z-values
-        if self.confidence_threshold >= 0.99:
-            z_crit = 2.576
-        elif self.confidence_threshold >= 0.95:
-            z_crit = 1.960
-        else:
-            z_crit = 1.645  # 90% confidence
-
-        if abs(z_stat) > z_crit:
-            return self.variant_arm if p2 > p1 else self.control_arm
+        # Winner is declared when the lower bound of the superior arm's
+        # credible interval exceeds the upper bound of the other arm,
+        # i.e. the intervals do not overlap at the configured level.
+        if v_ci["lower"] > c_ci["upper"]:
+            return self.variant_arm
+        if c_ci["lower"] > v_ci["upper"]:
+            return self.control_arm
 
         return None
 
