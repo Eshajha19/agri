@@ -153,7 +153,10 @@ class FarmFinanceAI:
             score -= 10
 
         if annual_revenue <= 0:
-            score = 0
+            score -= 10
+            _no_revenue = True
+        else:
+            _no_revenue = False
 
         score = max(0, min(100, round(score, 1)))
         risk_level = self._risk_level(score)
@@ -167,6 +170,7 @@ class FarmFinanceAI:
             max_affordable_emi=max_affordable_emi,
             rate=best_product.annual_interest_rate,
             tenure_months=tenure_months or best_product.tenure_months,
+            no_revenue=_no_revenue,
         )
 
         estimated_emi = round(
@@ -483,11 +487,15 @@ class FarmFinanceAI:
         max_affordable_emi: float,
         rate: float,
         tenure_months: int,
+        no_revenue: bool = False,
     ) -> float:
         candidate = requested_amount or annual_revenue * 0.3
+        if no_revenue:
+            candidate = max(candidate, 25000.0)
         affordable_principal = self._principal_from_emi(max_affordable_emi, rate, tenure_months)
         revenue_cap = annual_revenue * 0.75 if annual_revenue else candidate
-        return max(0.0, round(min(candidate, affordable_principal, revenue_cap), 2))
+        cap = affordable_principal if affordable_principal > 0 else candidate
+        return max(0.0, round(min(candidate, cap, revenue_cap), 2))
 
     def _principal_from_emi(self, monthly_emi: float, annual_interest_rate: float, tenure_months: int) -> float:
         monthly_rate = annual_interest_rate / 12 / 100
