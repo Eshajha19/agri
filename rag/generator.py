@@ -15,6 +15,20 @@ import re
 from .retriever import get_retriever
 from .safety import RAGSafetyValidator
 
+_safety = RAGSafetyValidator()
+
+
+def _safe_sanitize(query: str) -> str:
+    """Sanitise query before it reaches retriever or prompt builder."""
+    return _safety.sanitize_query(query)
+
+
+def _safe_guard(query: str) -> None:
+    """Raise ValueError if query fails domain-scope check."""
+    is_scoped, reason = _safety.is_rag_scoped(query)
+    if not is_scoped:
+        raise ValueError(reason)
+
 logger = logging.getLogger(__name__)
 
 _safety = RAGSafetyValidator()
@@ -160,8 +174,18 @@ def generate_response(query: str, top_k: int = 3) -> dict:
       - sources_used  : int  — number of documents used
       - llm_used      : bool — True if Gemini synthesis was used
     """
+    query = _safe_sanitize(query)
+    _safe_guard(query)
+
     retriever = get_retriever()
-    docs = retriever.retrieve(query, top_k=top_k)
+
+    retrieval_result = retriever.retrieve(
+        query,
+        top_k=top_k,
+    )
+
+    docs = retrieval_result["results"]
+    retrieval_metadata = retrieval_result["retrieval_metadata"]
 
     if not docs:
         return {
@@ -173,6 +197,7 @@ def generate_response(query: str, top_k: int = 3) -> dict:
             "citations": [],
             "sources_used": 0,
             "llm_used": False,
+            "retrieval_metadata": retrieval_metadata,
         }
 
     # Attempt Gemini synthesis; fall back to concatenation on failure / missing key
@@ -199,6 +224,7 @@ def generate_response(query: str, top_k: int = 3) -> dict:
 
     citations = [
         {
+            "rank": i,
             "index": i,
             "title": doc["title"],
             "citation": doc["citation"],
@@ -206,6 +232,8 @@ def generate_response(query: str, top_k: int = 3) -> dict:
             "year": doc["year"],
             "topic": doc["topic"],
             "relevance": doc["relevance_score"],
+            "confidence_level": doc["confidence_level"],
+            "confidence_explanation": doc["confidence_explanation"],
         }
         for i, doc in enumerate(docs, 1)
     ]
@@ -215,4 +243,5 @@ def generate_response(query: str, top_k: int = 3) -> dict:
         "citations": citations,
         "sources_used": len(docs),
         "llm_used": llm_used,
+        "retrieval_metadata": retrieval_metadata,
     }
