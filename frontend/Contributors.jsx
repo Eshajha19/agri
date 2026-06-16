@@ -1,59 +1,79 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { FaGithub, FaLinkedin, FaTwitter, FaCrown, FaCode, FaStar, FaSearch, FaSort } from "react-icons/fa";
+import { FaGithub, FaLinkedin, FaTwitter, FaCrown, FaCode, FaSearch } from "react-icons/fa";
 import "./Contributors.css";
-import heroIllustration from "./hero-illustration.png";
+
+const fallbackContributors = [
+  {
+    id: 1,
+    name: "eshajha19",
+    role: "Owner & Founder",
+    image: "https://avatars.githubusercontent.com/u/1?v=4",
+    github: "https://github.com/eshajha19",
+    contributions: 999,
+    isOwner: true,
+  },
+];
 
 export default function Contributors() {
   const [contributors, setContributors] = useState([]);
   const [filter, setFilter] = useState("All");
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState("contributions");
   const [loading, setLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState("");
 
-  // Fetch contributors from GitHub API
   useEffect(() => {
-    const fallbackContributors = [
-      {
-        id: 1,
-        name: "eshajha19",
-        role: "Owner & Founder",
-        image: "https://avatars.githubusercontent.com/u/1?v=4",
-        github: "https://github.com/eshajha19",
-        contributions: 999,
-        isOwner: true,
-      },
-    ];
-
     const fetchContributors = async () => {
       setLoading(true);
+
+      // Prefer a static local JSON first so the page works even when GitHub rate limits
+      // or when external network calls are blocked.
+      // This file is generated/maintained in the repo (see: frontend/contributors.static.json)
       try {
-         const response = await fetch(
-           "https://api.github.com/repos/Eshajha19/agri/contributors?per_page=100"
-         );
-         if (response.ok) {
-           const data = await response.json();
-           const mappedContributors = data.map((contributor) => ({
-             id: contributor.id,
-             name: contributor.login,
-             role: contributor.login.toLowerCase() === 'eshajha19' ? 'Owner & Founder' : 'Contributor',
-             image: contributor.avatar_url,
-             github: contributor.html_url,
-             contributions: contributor.contributions,
-             isOwner: contributor.login.toLowerCase() === 'eshajha19',
-           }));
-           setContributors(mappedContributors);
-         } else if (response.status === 403) {
-           // Likely rate-limited; show friendly message and fallback
-           setErrorMessage("GitHub API rate limit reached. Showing fallback contributors.");
-           setContributors(fallbackContributors);
-         } else {
-           setErrorMessage("Unable to fetch contributors. Showing fallback data.");
-           setContributors(fallbackContributors);
-         }
+        const staticRes = await fetch("/contributors.static.json", {
+          headers: { "Accept": "application/json" },
+          cache: "no-store",
+        });
+
+        if (staticRes.ok) {
+          const staticData = await staticRes.json();
+          if (Array.isArray(staticData) && staticData.length > 0) {
+            setContributors(staticData);
+            return;
+          }
+        }
+      } catch {
+        // ignore and fall back to GitHub API
+      }
+
+      try {
+        const response = await fetch(
+          "https://api.github.com/repos/Eshajha19/agri/contributors?per_page=100",
+          {
+            headers: {
+              "Accept": "application/vnd.github.v3+json",
+            },
+          }
+        );
+
+        if (!response.ok) {
+          setContributors(fallbackContributors);
+          return;
+        }
+
+        const data = await response.json();
+        const mappedContributors = (Array.isArray(data) ? data : []).map((contributor) => ({
+          id: contributor.id,
+          name: contributor.login,
+          role: contributor.login?.toLowerCase() === "eshajha19" ? "Owner & Founder" : "Contributor",
+          image: contributor.avatar_url,
+          github: contributor.html_url,
+          contributions: contributor.contributions,
+          isOwner: contributor.login?.toLowerCase() === "eshajha19",
+        }));
+
+        setContributors(mappedContributors.length > 0 ? mappedContributors : fallbackContributors);
       } catch (error) {
+        // eslint-disable-next-line no-console
         console.error("Error fetching GitHub contributors:", error);
-        setErrorMessage("Error fetching contributors. Showing fallback data.");
         setContributors(fallbackContributors);
       } finally {
         setLoading(false);
@@ -63,35 +83,30 @@ export default function Contributors() {
     fetchContributors();
   }, []);
 
+
   const roles = ["All", ...new Set(contributors.map((c) => c.role))];
 
   const filteredContributors = useMemo(() => {
     let list = contributors.slice();
 
-    // role filter
     if (filter !== "All") {
       list = list.filter((c) => c.role === filter);
     }
 
-    // search filter
     if (search && search.trim().length > 0) {
       const q = search.toLowerCase();
       list = list.filter((c) => c.name.toLowerCase().includes(q));
     }
 
-    // sort
-    if (sortBy === "contributions") {
+    if (!search || search.trim().length === 0) {
       list.sort((a, b) => (b.contributions || 0) - (a.contributions || 0));
-    } else if (sortBy === "name") {
-      list.sort((a, b) => a.name.localeCompare(b.name));
     }
 
     return list;
-  }, [contributors, filter, search, sortBy]);
+  }, [contributors, filter, search]);
 
   return (
     <div className="contributors-page">
-      {/* HERO + CTA SECTION (enhanced for new contributors) */}
       <div className="contributors-hero enhanced-hero">
         <div className="hero-inner">
           <div className="hero-left">
@@ -125,48 +140,23 @@ export default function Contributors() {
           </div>
 
           <div className="hero-right">
-            {(() => {
-              const imgSrc = heroIllustration;
-              // log computed src for debugging in DevTools
-              // eslint-disable-next-line no-console
-              console.log('Contributors hero image src:', imgSrc);
-              return (
-                <div className="illustration-frame" data-img-src={imgSrc}>
-                  <img
-                    src={imgSrc}
-                    alt="Fasal Saathi illustration"
-                    className="hero-illustration"
-                    loading="lazy"
-                    onError={(e) => {
-                      // hide broken image and mark frame so CSS can show fallback
-                      e.currentTarget.style.display = 'none';
-                      e.currentTarget.parentNode?.classList?.add('illustration-missing');
-                      // eslint-disable-next-line no-console
-                      console.warn('Hero illustration failed to load:', e.currentTarget.src);
-                    }}
-                    onLoad={(e) => {
-                      const img = e.currentTarget;
-                      img.parentNode?.classList?.add('illustration-loaded');
-                      // eslint-disable-next-line no-console
-                      console.log('Hero illustration loaded —', img.naturalWidth, 'x', img.naturalHeight, img.src);
-                    }}
-                  />
-                </div>
-              );
-            })()}
+            <div className="illustration-frame">
+              <img
+                src="/hero-illustration.png"
+                alt="Fasal Saathi illustration"
+                className="hero-illustration"
+                loading="lazy"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                  e.currentTarget.parentNode?.classList?.add('illustration-missing');
+                }}
+              />
+            </div>
           </div>
         </div>
       </div>
 
-      {/* FILTER BUTTONS */}
-      {/* TOOLBAR: search + sort + role filter */}
       <div className="contributors-toolbar">
-        {errorMessage && (
-          <div className="error-banner" role="alert" aria-live="polite">
-            {errorMessage}
-          </div>
-        )}
-
         <div className="toolbar-row">
           <div className="search-box">
             <label htmlFor="contributor-search" className="visually-hidden">Search contributors</label>
@@ -180,8 +170,6 @@ export default function Contributors() {
               aria-label="Search contributors by username"
             />
           </div>
-
-          {/* sort toggle removed per design */}
         </div>
 
         <div className="contributors-filter">
@@ -202,7 +190,6 @@ export default function Contributors() {
         </div>
       </div>
 
-      {/* CONTRIBUTORS GRID */}
       <div className="contributors-grid">
         {loading ? (
           Array.from({ length: 6 }).map((_, i) => (
@@ -228,7 +215,7 @@ export default function Contributors() {
               </div>
 
               <div className="card-content">
-                 <h3><span className="notranslate">{contributor.name}</span></h3>
+                <h3><span className="notranslate">{contributor.name}</span></h3>
                 <p className="role">{contributor.role}</p>
 
                 {contributor.contributions && (
@@ -282,7 +269,6 @@ export default function Contributors() {
         )}
       </div>
 
-      {/* FOOTER CTA */}
       <div className="contributors-footer">
         <h2>Made with 💚 by farmers and developers</h2>
         <p>
