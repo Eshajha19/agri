@@ -1,13 +1,11 @@
 import os
 import logging
-import time
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
-from fastapi import FastAPI, HTTPException, Request, Form, Query, Response, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, HTTPException, Request, Response
 from contextlib import asynccontextmanager
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field
 
 import firebase_admin
 from firebase_admin import auth as firebase_auth, firestore

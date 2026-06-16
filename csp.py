@@ -31,6 +31,9 @@ FIREBASE_AUTH_CONNECT_DOMAINS = [
 GOOGLE_TRANSLATE_SCRIPT_DOMAINS = [
     "https://translate.google.com",
     "https://translate.googleapis.com",
+    "https://translate-pa.googleapis.com",
+    "https://*.googleapis.com",
+    "https://*.google.com",
 ]
 
 GOOGLE_TRANSLATE_FRAME_DOMAINS = [
