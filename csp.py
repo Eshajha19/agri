@@ -92,21 +92,9 @@ def build_csp_policy() -> str:
 
 def build_spa_csp_policy() -> str:
     """CSP for the SPA (frontend index.html meta tag and API middleware)."""
-    translate_scripts = " ".join(GOOGLE_TRANSLATE_SCRIPT_DOMAINS)
-    translate_frames = " ".join(GOOGLE_TRANSLATE_FRAME_DOMAINS)
-    return (
-        "default-src 'self'; "
-        f"script-src 'self' {translate_scripts} https://*.google.com "
-        "'unsafe-inline' 'unsafe-eval'; "
-        "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; "
-        "font-src 'self' https://fonts.gstatic.com; "
-        "img-src 'self' data: https:; "
-        "connect-src 'self' https://*.firebaseio.com https://*.googleapis.com wss:; "
-        f"frame-src {translate_frames}; "
-        "object-src 'none'; "
-        "base-uri 'self'; "
-        "frame-ancestors 'self';"
-    )
+    env = "production" if is_production() else "development"
+    dirs = _directives(env)
+    return "; ".join(f"{k} {v}" for k, v in dirs.items())
 
 
 REQUIRED_DIRECTIVES = {

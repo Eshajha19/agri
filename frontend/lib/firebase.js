@@ -18,15 +18,15 @@ const isConfigured = !!(
   firebaseConfig.authDomain
 );
 
-let app  = null;
+let firebaseApp = null;
 let auth = null;
-let db   = null;
+let db = null;
 
 if (isConfigured) {
   try {
-    app  = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-    auth = getAuth(app);
-    db   = getFirestore(app);
+    firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+    auth = getAuth(firebaseApp);
+    db = getFirestore(firebaseApp);
 
     console.log("Firebase initialised", {
       projectId: firebaseConfig.projectId,
@@ -34,12 +34,11 @@ if (isConfigured) {
     });
   } catch (err) {
     console.error("Firebase initialisation failed:", err);
-    // Leave auth/db as null so the rest of the app falls back gracefully
-    app = auth = db = null;
+    firebaseApp = auth = db = null;
   }
 } else {
-  console.warn("Firebase not configured — missing API key or projectId");
+  console.warn("Firebase not configured — missing API key or projectId. Authentication will not work.");
 }
 
-export { app, auth, db, doc, onSnapshot, getDoc, setDoc, updateDoc };
+export { firebaseApp, auth, db, doc, onSnapshot, getDoc, setDoc, updateDoc };
 export const isFirebaseConfigured = () => isConfigured && auth !== null;
