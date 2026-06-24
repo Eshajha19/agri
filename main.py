@@ -74,17 +74,40 @@ class VercelCORSMiddleware(BaseHTTPMiddleware):
 
 
 # -----------------------
-# Firebase Initialization
+# Firebase Initialization (lazy)
 # -----------------------
-db_firestore: Optional[firestore.Client] = None
+# Render deployments may not have Firebase credentials at import time.
+# We initialize Firebase inside FastAPI lifespan so the process can start
+# reliably; auth endpoints will return 503 until Firebase is ready.
 
-if not firebase_admin._apps:
+db_firestore: Optional[firestore.Client] = None
+firebase_ready: bool = False
+
+
+def _init_firebase() -> None:
+    global db_firestore, firebase_ready
+    if firebase_ready and db_firestore is not None:
+        return
+
+    if firebase_admin._apps:
+        # App already initialized elsewhere in the process.
+        try:
+            db_firestore = firestore.client()
+            firebase_ready = True
+            return
+        except Exception:
+            firebase_ready = False
+
     try:
         firebase_admin.initialize_app()
         db_firestore = firestore.client()
+        firebase_ready = True
         logger.info("Firebase Admin: successfully initialized")
     except Exception as e:
+        firebase_ready = False
         logger.warning("Firebase Admin: could not initialize: %s", e)
+
+
 
 
 # -----------------------
@@ -178,8 +201,40 @@ def _add_notification(alert_type: str, message: str) -> dict:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting up")
+
+    # Firebase init during startup (not during import)
+    _init_firebase()
+
+    # Best-effort ML warmup so models are functional immediately after deploy.
+    # This avoids production issues where the working directory differs.
+    global ml_ready
+    ml_ready = False
+    try:
+        from ml.registry import ModelRegistry  # type: ignore
+        from ml.adapters.xgboost_adapter import XGBoostAdapter  # type: ignore
+        from ml.router import ModelRouter  # type: ignore
+
+        # Resolve model path relative to this file (repo root)
+        model_path = os.path.join(os.path.dirname(__file__), "yield_model.joblib")
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"ML model not found at {model_path}")
+
+        adapter = XGBoostAdapter()
+        adapter.load(model_path)
+        ModelRegistry.register("xgboost", adapter)
+
+        # Touch router to ensure predict pipeline can be constructed
+        _ = ModelRouter(default_model="xgboost")
+        ml_ready = True
+        logger.info("ML warmup completed (xgboost)")
+    except Exception:
+        # Keep service up, but mark as not ready.
+        logger.exception("ML warmup failed")
+
     yield
     logger.info("Shutting down")
+
+
 
 
 # -----------------------
@@ -256,7 +311,16 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "message": "Backend is running"}
+    # ml_ready is set by lifespan warmup (best-effort)
+    ml_status = globals().get("ml_ready", False)
+    return {
+        "status": "ok",
+        "message": "Backend is running",
+        "firebase_ready": firebase_ready,
+        "ml_ready": bool(ml_status),
+    }
+
+
 
 
 @app.get("/predict")
@@ -266,24 +330,51 @@ async def predict_get():
 
 @app.post("/predict", response_model=PredictResponse)
 async def predict_yield(data: PredictRequest, request: Request):
+    # Role-gated; if Firebase/Firestore isn’t ready, fail clearly.
     await verify_role(request)
-    
+
     try:
         input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
         input_data = _coerce_prediction_inputs(input_data)
-        
-        # Import ML router here to avoid startup issues
-        from ml.router import ModelRouter
-        from ml.registry import ModelRegistry
-        
+
+        # Import ML router lazily. If ML is missing/unloadable, return 503.
+        try:
+            from ml.router import ModelRouter  # type: ignore
+        except Exception as e:
+            logger.exception("ML router import failed")
+            raise HTTPException(status_code=503, detail=f"ML pipeline unavailable: {e}")
+
+        # Best-effort model registration.
+        # The ML registry must contain at least the default model before
+        # ModelRouter.predict() is called.
+        try:
+            from ml.registry import ModelRegistry  # type: ignore
+            if not getattr(ModelRegistry, "_models", None):
+                from ml.adapters.xgboost_adapter import XGBoostAdapter  # type: ignore
+
+                model_path = "yield_model.joblib"
+                if os.path.exists(model_path):
+                    adapter = XGBoostAdapter()
+                    adapter.load(model_path)
+                    ModelRegistry.register("xgboost", adapter)
+        except Exception:
+            logger.exception("ML model registration best-effort failed")
+
         ml_router = ModelRouter(default_model="xgboost")
-        result = ml_router.predict(input_data)
+        try:
+            result = ml_router.predict(input_data)
+        except Exception as e:
+            logger.exception("ML prediction failed")
+            raise HTTPException(status_code=503, detail=f"ML prediction unavailable: {e}")
+
         return result
-        
+
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
 
 
 @app.post("/api/whatsapp/subscribe")
