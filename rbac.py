@@ -682,7 +682,7 @@ class RBACMiddleware(BaseHTTPMiddleware):
     def __init__(self, app):
         super().__init__(app)
 
-    async def __call__(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next):
         """Log all API requests."""
         path = request.url.path
         response = await call_next(request)
