@@ -139,7 +139,7 @@ class ModelVersionManager:
         Context manager to acquire in-process and cross-process locks,
         load the latest state from disk, and optionally save it on exit if modified.
         """
-        async with self._lock:
+        with self._lock:
             lock_path = self.versions_dir / "versions.json.lock"
             with CrossPlatformFileLock(str(lock_path)):
                 self._load_versions()

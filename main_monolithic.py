@@ -1,9 +1,20 @@
 # main.py
+import logging
 import collections
 import io
 import json
-import collections
 import asyncio
+import itertools
+import threading
+import re
+import os
+import joblib
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
+from typing import Optional, Dict, Any, List
+from fastapi import FastAPI, HTTPException, Request, Response, Query, Body, Header, Cookie, Form, File, UploadFile, Depends
+from starlette.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field, validator
 from error_utils import safe_detail
 
 
@@ -131,7 +142,7 @@ from ml.governance import (
 
 # Other internal modules
 from alert_rules import generate_alerts
-from whatsapp_service import send_whatsapp_message, format_alert_message
+from whatsapp_service import send_whatsapp_message, format_outbound_alert_message
 from whatsapp_store import subscriber_store
 from crop_quality_grading import CropQualityGrader
 from blockchain_supply_chain import SupplyChainBlockchain
@@ -143,7 +154,6 @@ from reportlab.lib import colors
 from reportlab.lib.units import inch
 from cryptography.hazmat.primitives.asymmetric import ed25519, padding
 from cryptography.hazmat.primitives import serialization, hashes
-from backend.rate_limit_config import build_limiter, rate_limit_exceeded_handler
 
 # KMS Support
 try:
@@ -194,6 +204,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Fasal Saathi Backend", version="2.0", lifespan=lifespan)
 
+# Initialize Limiter
+limiter = Limiter(key_func=get_remote_address)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 logger = logging.getLogger(__name__)
 
 # Regex that matches ANSI escape sequences (e.g. \x1b[31m) and all other
@@ -211,11 +225,6 @@ def _sanitise_log_field(value: str) -> str:
     if not isinstance(value, str):
         return ""
     return _CONTROL_CHAR_RE.sub("", value)
-
-# Initialize Limiter
-limiter = build_limiter()
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 # Initialize Firebase Admin
 # Explicitly set to None before the try block so db_firestore is always
@@ -817,7 +826,7 @@ async def trigger_whatsapp_alert(data: AlertTriggerRequest, request: Request):
     # cannot race with a concurrent subscription write.
     subscribers = subscriber_store.get_all()
     results = []
-    formatted_msg = format_alert_message(data.alert_type, data.message)
+    formatted_msg = format_outbound_alert_message(data.alert_type, data.message)
 
     for user_id, info in subscribers.items():
         res = send_whatsapp_message(info["phone_number"], formatted_msg)

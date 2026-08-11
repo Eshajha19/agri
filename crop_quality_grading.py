@@ -214,7 +214,6 @@ class CropQualityGrader:
             market_price_adjustment=price_adjustment,
             recommendations=recommendations,
             timestamp=datetime.now().isoformat(),
-            confidence=round(min(95, 70 + (overall_score / 100) * 25), 2),
             audit_metadata=audit_metadata,
             confidence=confidence_score,
             confidence_category=confidence_metadata["confidence_category"],

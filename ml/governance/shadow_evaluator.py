@@ -104,7 +104,7 @@ class ShadowEvaluator:
         if eval_id is None:
             eval_id = f"eval_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
-        async with self._lock:
+        with self._lock:
             self.active_evaluations[eval_id] = {
                 'production_model': production_model_name,
                 'candidate_model': candidate_model_name,
@@ -211,18 +211,18 @@ class ShadowEvaluator:
             min_sample_requirement_met=n_samples >= self.min_samples,
         )
         
-            self.evaluations.append(result)
-            if recommendation == 'reject':
-                alert = {
-                    "timestamp": result.timestamp,
-                    "model_name": result.candidate_model,
-                    "drift_type": "shadow_performance_degradation",
-                    "severity": "high",
-                    "metric_value": result.candidate_mean_error,
-                    "threshold": result.production_mean_error,
-                    "details": f"Candidate error {result.candidate_mean_error:.4f} is worse than production error {result.production_mean_error:.4f}"
-                }
-                self._fire_drift_callbacks(alert)
+        self.evaluations.append(result)
+        if recommendation == 'reject':
+            alert = {
+                "timestamp": result.timestamp,
+                "model_name": result.candidate_model,
+                "drift_type": "shadow_performance_degradation",
+                "severity": "high",
+                "metric_value": result.candidate_mean_error,
+                "threshold": result.production_mean_error,
+                "details": f"Candidate error {result.candidate_mean_error:.4f} is worse than production error {result.production_mean_error:.4f}"
+            }
+            self._fire_drift_callbacks(alert)
         # cleanup_evaluation acquires self._lock itself; call it outside the
         # with block to avoid deadlock with a non-reentrant threading.Lock.
         self.cleanup_evaluation(eval_id)
@@ -235,7 +235,7 @@ class ShadowEvaluator:
     
     def get_evaluation_status(self, eval_id: str) -> Dict[str, Any]:
         """Get current status of an evaluation"""
-        async with self._lock:
+        with self._lock:
             if eval_id not in self.active_evaluations:
                 return {'status': 'not_found'}
         
@@ -258,7 +258,7 @@ class ShadowEvaluator:
         limit: int = 10,
     ) -> List[Dict[str, Any]]:
         """Get past evaluations"""
-        async with self._lock:
+        with self._lock:
             evals = self.evaluations if candidate_model is None else [
                 e for e in self.evaluations if e.candidate_model == candidate_model
             ]
@@ -266,7 +266,7 @@ class ShadowEvaluator:
     
     def cleanup_evaluation(self, eval_id: str) -> None:
         """Clean up completed evaluation from memory"""
-        async with self._lock:
+        with self._lock:
             if eval_id in self.active_evaluations:
                 del self.active_evaluations[eval_id]
                 logger.info(f"Cleaned up evaluation: {eval_id}")

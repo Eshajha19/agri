@@ -23,7 +23,9 @@ from functools import wraps
 from typing import Callable, Dict, List, Optional
 
 import firebase_admin
-from fastapi import HTTPException, Request, status
+from fastapi import HTTPException, Request, status, APIRouter
+
+router = APIRouter()
 from starlette.middleware.base import BaseHTTPMiddleware
 
 __all__ = [

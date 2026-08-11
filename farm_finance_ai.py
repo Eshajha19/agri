@@ -9,6 +9,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+_OWNER_UID_NOT_PROVIDED = object()
+
 # Maximum number of loan applications to keep in memory
 # Prevents unbounded memory growth when using in-memory storage
 MAX_IN_MEMORY_APPLICATIONS = 10000

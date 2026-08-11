@@ -106,6 +106,24 @@ class SupplyChainNode:
     notes: str = ""
 
 
+@dataclass
+class SmartContract:
+    """Simple smart contract for supply chain transactions"""
+    contract_id: str
+    batch_id: str
+    seller: str
+    buyer: str
+    price: float
+    created_by_uid: str = ""
+    terms: Dict = field(default_factory=dict)
+    status: str = "pending"
+    created_at: str = ""
+
+    def __post_init__(self):
+        if not self.created_at:
+            self.created_at = datetime.now().isoformat()
+
+
 class SupplyChainBlockchain:
     """Blockchain for agricultural supply chain with basic atomicity"""
 
@@ -193,24 +211,12 @@ class SupplyChainBlockchain:
         owner_uid: str = "",
         harvest_id: str = "",
         idempotency_key: Optional[str] = None,
-        owner_uid: str = "",
-        harvest_id: str = "",
     ) -> ProductBatch:
         """Create product batch atomically with harvest_id dedup."""
         # Check cache
         if idempotency_key and idempotency_key in self.idempotency_cache:
             return self.idempotency_cache[idempotency_key]
 
-        snap = self._snapshot_state()
-        try:
-            batch_id = f"BATCH-{uuid.uuid4().hex[:12].upper()}"
-            batch = ProductBatch(...)
-            record = BlockchainRecord(...)
-            record.hash = record.calculate_hash()
-            owner_uid: str = "",
-            harvest_id: str = "",
-    ) -> ProductBatch:
-        """Create new product batch atomically with harvest_id deduplication."""
         snap = self._snapshot_state()
         try:
             batch_id = f"BATCH-{uuid.uuid4().hex[:12].upper()}"
@@ -242,7 +248,7 @@ class SupplyChainBlockchain:
                 owner_uid=owner_uid,
             )
 
-            record = self._link_record(BlockchainRecord(
+            record = BlockchainRecord(
                 timestamp=datetime.now(timezone.utc).isoformat(),
                 actor=farmer_name,
                 action="created_batch",
@@ -251,8 +257,6 @@ class SupplyChainBlockchain:
                 previous_hash=self.chain[-1].hash if self.chain else BlockchainRecord.GENESIS_PREVIOUS_HASH,
             )
             record.hash = record.calculate_hash()
-            )
-            record.previous_hash = record.calculate_hash()
 
             # Commit
             self.products[batch_id] = batch
@@ -270,9 +274,6 @@ class SupplyChainBlockchain:
                 self._repository.save_batch(batch_id, asdict(batch))
 
             return batch
-owner_uid: str = "",
-harvest_id: str = "",
-idempotency_key: Optional[str] = None,
 
         except Exception as e:
             import logging
@@ -327,7 +328,7 @@ idempotency_key: Optional[str] = None,
                 notes=kwargs.get("notes", ""),
             )
 
-            record = self._link_record(BlockchainRecord(
+            record = BlockchainRecord(
                 timestamp=datetime.now(timezone.utc).isoformat(),
                 actor=actor_name,
                 action=action,
@@ -336,8 +337,6 @@ idempotency_key: Optional[str] = None,
                 previous_hash=self.chain[-1].hash if self.chain else BlockchainRecord.GENESIS_PREVIOUS_HASH,
             )
             record.hash = record.calculate_hash()
-            )
-            record.previous_hash = record.calculate_hash()
 
             # Commit
             self.supply_chain_nodes.setdefault(batch_id, []).append(node)
@@ -393,7 +392,7 @@ idempotency_key: Optional[str] = None,
                 terms=terms or {},
             )
 
-            record = self._link_record(BlockchainRecord(
+            record = BlockchainRecord(
                 timestamp=datetime.now(timezone.utc).isoformat(),
                 actor=seller,
                 action="contract_created",
@@ -402,8 +401,6 @@ idempotency_key: Optional[str] = None,
                 previous_hash=self.chain[-1].hash if self.chain else BlockchainRecord.GENESIS_PREVIOUS_HASH,
             )
             record.hash = record.calculate_hash()
-            )
-            record.previous_hash = record.calculate_hash()
 
             # Commit
             self.smart_contracts[contract_id] = contract
@@ -525,7 +522,6 @@ idempotency_key: Optional[str] = None,
             payload["verification_url_with_proof"] = payload["verification_url"] + f"?proof={proof['proof_hash']}"
         return payload
 
-    def verify_batch(self, batch_id: str) -> Dict:
     def verify_batch(self, batch_id: str, proof: Optional[str] = None) -> Dict:
         """Verify product batch authenticity"""
         if batch_id not in self.products:
@@ -841,21 +837,18 @@ idempotency_key: Optional[str] = None,
         record.hash = record.calculate_hash()
         self.chain.append(record)
 
-            # Also record the registration on the blockchain for auditability.
-            record = BlockchainRecord(
-                timestamp=entry["registeredAt"],
-                actor=entry["registeredByUid"] or "unknown",
-                action="trace_batch_registered",
-                location=entry["farm"],
-                data={"batch_id": batch_id, "crop": entry["crop"]},
-            )
-            record.hash = record.calculate_hash()
-            self.chain.append(record)
+        # Also record the registration on the blockchain for auditability.
+        record = BlockchainRecord(
+            timestamp=entry["registeredAt"],
+            actor=entry["registeredByUid"] or "unknown",
+            action="trace_batch_registered",
+            location=entry["farm"],
+            data={"batch_id": batch_id, "crop": entry["crop"]},
+        )
+        record.hash = record.calculate_hash()
+        self.chain.append(record)
 
-            return entry
-        except Exception:
-            self._rollback_to_snapshot(snap)
-            raise
+        return entry
 
     def get_trace_batch(self, batch_id: str) -> Optional[Dict]:
         """Fetch a QR-traceability batch by ID.  Returns None if not found."""

@@ -58,7 +58,7 @@ class FirestoreConnectionManager:
             logger.debug("Firestore client already initialized")
             return True
 
-        async with self._lock:
+        with self._lock:
             if self._initialized:
                 return True
 
@@ -111,7 +111,7 @@ class FirestoreConnectionManager:
 
     def reset(self) -> None:
         """Reset the Firestore client (for testing only)."""
-        async with self._lock:
+        with self._lock:
             self._client = None
             self._initialized = False
             self._last_used = None
@@ -162,7 +162,7 @@ class PostgresConnectionManager:
             logger.warning("asyncpg not available; skipping Postgres pool initialization")
             return False
 
-        async with self._lock:
+        with self._lock:
             if self._pool is not None:
                 logger.debug("Postgres pool already initialized")
                 return True
@@ -222,7 +222,7 @@ class PostgresConnectionManager:
 
     def reset(self) -> None:
         """Reset the pool (for testing only)."""
-        async with self._lock:
+        with self._lock:
             self._pool = None
             self._config = None
 

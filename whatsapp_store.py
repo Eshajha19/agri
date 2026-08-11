@@ -63,7 +63,7 @@ class SubscriberStore:
     # Private helpers (must be called with locks already held)
     # ------------------------------------------------------------------
 
-    def _read_locked(self) -> Dict[str, Subscriber]:
+    def _read_locked(self) -> Dict[str, Dict]:
         """Read and parse the subscribers file.  Raises on corruption."""
         if not os.path.exists(self._filepath):
             return {}

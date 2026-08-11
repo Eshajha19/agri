@@ -190,7 +190,7 @@ class FeatureBaseline:
 
     def load(self) -> bool:
         """Load baseline from disk. Returns True if loaded, False if not found."""
-        async with self._lock:
+        with self._lock:
             if not BASELINE_PATH.exists():
                 return False
             try:
@@ -208,18 +208,18 @@ class FeatureBaseline:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
         os.replace(tmp, BASELINE_PATH)
-        async with self._lock:
+        with self._lock:
             self._data = data
         logger.info("FeatureBaseline: saved to %s", BASELINE_PATH)
 
     @property
     def data(self) -> Optional[Dict]:
-        async with self._lock:
+        with self._lock:
             return self._data
 
     @property
     def exists(self) -> bool:
-        async with self._lock:
+        with self._lock:
             return self._data is not None
 
     def build_from_csv(self, csv_path: str = "Train.csv") -> Dict:
@@ -477,7 +477,7 @@ class DriftLogger:
             ],
             "feature_count": len(features),
         }
-        async with self._lock:
+        with self._lock:
             try:
                 with open(DRIFT_LOG_PATH, "a", encoding="utf-8") as f:
                     f.write(json.dumps(entry) + "\n")
@@ -489,11 +489,11 @@ class DriftLogger:
                 self._memory = self._memory[-self.MAX_MEMORY_ENTRIES:]
 
     def recent(self, n: int = 50) -> List[Dict]:
-        async with self._lock:
+        with self._lock:
             return list(self._memory[-n:])
 
     def count(self) -> int:
-        async with self._lock:
+        with self._lock:
             return len(self._memory)
 
 

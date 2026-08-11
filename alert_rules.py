@@ -182,11 +182,6 @@ def generate_soil_advisories(
     return alerts
 
 
-    Returns:
-        List of unique, non-duplicate alerts with time and type.
-    """
-    alerts: list[dict] = []
-    now = datetime.now()
 def generate_crop_advisories(
     crop: Optional[str] = None,
     temperature: Optional[float] = None,

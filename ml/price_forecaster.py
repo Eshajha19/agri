@@ -457,7 +457,7 @@ class PriceForecaster:
 
     def _get_or_train(self, commodity: str) -> _CommodityModel:
         """Return a trained model for *commodity*, training it if needed."""
-        async with self._lock:
+        with self._lock:
             if commodity in self._models:
                 self._models.move_to_end(commodity)
                 return self._models[commodity]
