@@ -23,13 +23,3 @@ Train.csv
 runs
 runs_test
 test_versions
-benchmarks
-configs
-scripts
-docs
-rag
-persistence
-feature_flags
-routers
-backend
-tests
