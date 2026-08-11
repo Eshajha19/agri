@@ -52,6 +52,9 @@ def _directives(env: str) -> dict:
         + " ".join(FIREBASE_AUTH_FRAME_DOMAINS + GOOGLE_TRANSLATE_FRAME_DOMAINS)
     )
     connect_src = "'self' " + " ".join(FIREBASE_AUTH_CONNECT_DOMAINS)
+    backend_url = os.getenv("BACKEND_URL", "").strip()
+    if backend_url:
+        connect_src += f" {backend_url}"
 
     policies = {
         "production": {
