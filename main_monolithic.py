@@ -534,7 +534,7 @@ class NotificationStore:
         The ID is assigned from a monotonically increasing counter so
         concurrent calls always produce distinct values.
         """
-        async with self._lock:
+        with self._lock:
             entry = {
                 "id": next(self._counter),
                 "type": alert_type,
@@ -552,7 +552,7 @@ class NotificationStore:
         view even if append() is running concurrently.
         """
         cutoff = datetime.now() - self._ttl
-        async with self._lock:
+        with self._lock:
             snapshot = list(self._deque)
         return [
             e for e in snapshot
