@@ -44,5 +44,5 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "20"
-      - key: VITE_API_BASE
-        value: "https://fasal-sathi-api.onrender.com"
+      - key: VITE_API_BASE_URL
+        value: "https://agri-5ydw.onrender.com"
