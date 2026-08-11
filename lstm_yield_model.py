@@ -4,6 +4,7 @@ import numpy as np
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List
@@ -19,8 +20,71 @@ model = None
 scaler = MinMaxScaler()
 _scaler_fitted = False
 
-MODEL_PATH = "lstm_yield_model.keras"
-SCALER_PATH = "lstm_scaler.joblib"
+# ─────────────────────────────────────────────────────────────────────────────
+# Model Path Resolution for Production Deployment
+# ─────────────────────────────────────────────────────────────────────────────
+def _resolve_model_path() -> str:
+    """Resolve LSTM model path with fallbacks for production deployment.
+    
+    Priority order:
+    1. ML_MODEL_PATH environment variable
+    2. Absolute path: /app/models/lstm_yield_model.keras (Render/production)
+    3. Repo root: <repo_root>/lstm_yield_model.keras (dev)
+    4. Current directory: ./lstm_yield_model.keras (fallback)
+    """
+    # Environment override
+    if env_path := os.getenv("ML_MODEL_PATH"):
+        if os.path.exists(env_path):
+            logger.info(f"Using ML model from ML_MODEL_PATH: {env_path}")
+            return env_path
+        logger.warning(f"ML_MODEL_PATH set but file not found: {env_path}")
+    
+    # Production deployment location
+    prod_path = "/app/models/lstm_yield_model.keras"
+    if os.path.exists(prod_path):
+        logger.info(f"Using ML model from production location: {prod_path}")
+        return prod_path
+    
+    # Repository root (relative to this file)
+    repo_root = os.path.dirname(os.path.abspath(__file__))
+    repo_path = os.path.join(repo_root, "lstm_yield_model.keras")
+    if os.path.exists(repo_path):
+        logger.info(f"Using ML model from repo root: {repo_path}")
+        return repo_path
+    
+    # Fallback to current directory
+    cwd_path = os.path.abspath("lstm_yield_model.keras")
+    logger.warning(f"Falling back to current directory model: {cwd_path}")
+    return cwd_path
+
+def _resolve_scaler_path() -> str:
+    """Resolve scaler path with fallbacks for production deployment."""
+    # Environment override
+    if env_path := os.getenv("ML_SCALER_PATH"):
+        if os.path.exists(env_path):
+            logger.info(f"Using scaler from ML_SCALER_PATH: {env_path}")
+            return env_path
+    
+    # Production location
+    prod_path = "/app/models/lstm_scaler.joblib"
+    if os.path.exists(prod_path):
+        logger.info(f"Using scaler from production location: {prod_path}")
+        return prod_path
+    
+    # Repository root
+    repo_root = os.path.dirname(os.path.abspath(__file__))
+    repo_path = os.path.join(repo_root, "lstm_scaler.joblib")
+    if os.path.exists(repo_path):
+        logger.info(f"Using scaler from repo root: {repo_path}")
+        return repo_path
+    
+    # Fallback
+    cwd_path = os.path.abspath("lstm_scaler.joblib")
+    logger.warning(f"Falling back to current directory scaler: {cwd_path}")
+    return cwd_path
+
+MODEL_PATH = _resolve_model_path()
+SCALER_PATH = _resolve_scaler_path()
 
 class PredictionRequest(BaseModel):
     # Expecting sequential data for LSTM
@@ -87,34 +151,42 @@ def train_and_save_model():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic: Load the model into memory ONCE during application startup
-    global model, scaler
+    global model, scaler, _scaler_fitted
     logger.info("Starting up FastAPI application...")
     
     # We delay keras import to avoid slow startup if not needed
     try:
         from tensorflow.keras.models import load_model
+        
+        # Use pre-resolved paths (set at module level)
         if not os.path.exists(MODEL_PATH):
-            logger.warning(f"Model file {MODEL_PATH} not found. Attempting to train...")
-            train_and_save_model()
+            logger.error(f"Model file not found at {MODEL_PATH}. Attempted locations:")
+            logger.error(f"  - Environment ML_MODEL_PATH: {os.getenv('ML_MODEL_PATH', 'not set')}")
+            logger.error(f"  - Production: /app/models/lstm_yield_model.keras")
+            logger.error(f"  - Repo root: {os.path.join(os.path.dirname(__file__), 'lstm_yield_model.keras')}")
+            raise FileNotFoundError(f"LSTM model not found at {MODEL_PATH}")
             
         logger.info(f"Loading model from {MODEL_PATH}...")
         model = load_model(MODEL_PATH)
-
-        if os.path.exists(SCALER_PATH):
-            scaler = joblib.load(SCALER_PATH)
-            _scaler_fitted = True
-            logger.info("✅ Scaler loaded successfully.")
-        else:
-            logger.warning("Scaler file not found — predictions will be raw-scaled.")
-
         logger.info("✅ Model loaded into memory successfully.")
-        
-        import joblib
-        if os.path.exists("lstm_yield_scaler.joblib"):
-            scaler = joblib.load("lstm_yield_scaler.joblib")
-            logger.info("✅ Scaler loaded into memory successfully.")
+
+        # Load scaler with proper error handling
+        if os.path.exists(SCALER_PATH):
+            try:
+                scaler = joblib.load(SCALER_PATH)
+                _scaler_fitted = True
+                logger.info(f"✅ Scaler loaded from {SCALER_PATH}")
+            except Exception as scaler_err:
+                logger.warning(f"Failed to load scaler from {SCALER_PATH}: {scaler_err}")
+                logger.warning("Predictions will use default MinMaxScaler scaling.")
+        else:
+            logger.warning(f"Scaler not found at {SCALER_PATH}. Using default scaler.")
+            
+    except FileNotFoundError as e:
+        logger.error(f"Critical: {e}")
+        model = None
     except Exception as e:
-        logger.error(f"Failed to load model on startup: {str(e)}")
+        logger.error(f"Failed to load model on startup: {str(e)}", exc_info=True)
         # If model is None, endpoints will handle it gracefully.
         
     yield
@@ -122,7 +194,8 @@ async def lifespan(app: FastAPI):
     # Shutdown logic
     logger.info("Shutting down FastAPI application... Cleaning up resources.")
     model = None
-    scaler = None
+    scaler = MinMaxScaler()
+    _scaler_fitted = False
 
 
 # Initialize FastAPI application with lifespan event

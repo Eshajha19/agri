@@ -66,9 +66,65 @@ def sanitize_numeric_columns(
     numeric_columns: List[str],
 ):
     """
-    Safely convert numeric columns.
+    Safely convert numeric columns to float.
     """
+    for col in numeric_columns:
+        if col in dataframe.columns:
+            try:
+                dataframe[col] = pd.to_numeric(dataframe[col], errors="coerce")
+            except Exception as e:
+                logger.warning(f"Could not convert {col} to numeric: {e}")
+    return dataframe
 
+
+def preprocess_prediction_input(
+    input_data: Dict,
+    required_columns: List[str],
+    numeric_columns: List[str],
+    categorical_vocab: Dict[str, List] = None,
+) -> pd.DataFrame:
+    """
+    Preprocess and validate prediction input.
+    
+    Parameters
+    ----------
+    input_data : dict
+        Raw input features from API request
+    required_columns : list
+        Required column names
+    numeric_columns : list
+        Columns that should be numeric
+    categorical_vocab : dict, optional
+        Vocabulary for categorical features
+    
+    Returns
+    -------
+    pd.DataFrame
+        Validated and prepared dataframe
+        
+    Raises
+    ------
+    MissingFeatureError
+        If required columns are missing
+    """
+    # Convert dict to DataFrame
+    dataframe = pd.DataFrame([input_data])
+    
+    # Ensure required columns exist
+    ensure_required_features(dataframe, required_columns)
+    
+    # Sanitize numeric columns
+    dataframe = sanitize_numeric_columns(dataframe, numeric_columns)
+    
+    # Select only required columns
+    dataframe = dataframe[required_columns]
+    
+    return dataframe
+
+
+class FeaturePreprocessor:
+    """Feature preprocessing for ML models."""
+    
     def __init__(self, feature_cols: List[str] = None, category_vocab: dict = None):
         self.feature_cols = feature_cols
         self.category_vocab = category_vocab or {}

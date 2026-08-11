@@ -118,11 +118,36 @@ def check_twilio() -> CheckResult:
 
 
 def check_ml_models() -> CheckResult:
-    """Verify at least one ML model file exists."""
-    model_files = ["yield_model.joblib", "sklearn_yield_model.joblib", "trend_forecast_model.joblib"]
-    found = [f for f in model_files if os.path.exists(f)]
+    """Verify at least one ML model file exists at expected locations."""
+    model_names = ["yield_model.joblib", "sklearn_yield_model.joblib", "trend_forecast_model.joblib"]
+    locations = [
+        ".",  # Current directory
+        os.path.dirname(os.path.abspath(__file__)),  # Repo root
+        "/app/models",  # Production location
+    ]
+    
+    # Add environment-specified locations
+    if ml_models_dir := os.getenv("ML_MODELS_DIR"):
+        locations.append(ml_models_dir)
+    if ml_model_path := os.getenv("ML_MODEL_PATH"):
+        locations.append(os.path.dirname(ml_model_path))
+    
+    found = []
+    for location in locations:
+        if not os.path.exists(location):
+            continue
+        for model_name in model_names:
+            model_path = os.path.join(location, model_name)
+            if os.path.exists(model_path):
+                found.append(f"{model_name} ({location})")
+    
     if not found:
-        return CheckResult("ml_models", False, "skipped — no model files found (ML prediction disabled)")
+        msg = (
+            f"No ML models found. Searched locations: {', '.join(locations)}. "
+            "Set ML_MODEL_PATH or ML_MODELS_DIR to override."
+        )
+        return CheckResult("ml_models", False, msg)
+    
     return CheckResult("ml_models", True, f"found: {', '.join(found)}")
 
 

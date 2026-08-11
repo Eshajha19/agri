@@ -195,9 +195,47 @@ def _add_notification(alert_type: str, message: str) -> dict:
     return entry
 
 
-# -----------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# ML Model Path Resolution for Production Deployment
+# ─────────────────────────────────────────────────────────────────────────────
+def _resolve_yield_model_path() -> str:
+    """Resolve yield model path with fallbacks for production deployment.
+    
+    Priority order:
+    1. ML_MODEL_PATH environment variable
+    2. Production location: /app/models/yield_model.joblib
+    3. Repo root: <repo_root>/yield_model.joblib
+    4. Fallback: current directory
+    """
+    # Environment override
+    if env_path := os.getenv("ML_MODEL_PATH"):
+        if os.path.exists(env_path):
+            logger.info(f"Using yield model from ML_MODEL_PATH: {env_path}")
+            return env_path
+        logger.warning(f"ML_MODEL_PATH set but file not found: {env_path}")
+    
+    # Production deployment location
+    prod_path = "/app/models/yield_model.joblib"
+    if os.path.exists(prod_path):
+        logger.info(f"Using yield model from production location: {prod_path}")
+        return prod_path
+    
+    # Repository root (relative to this file)
+    repo_root = os.path.dirname(os.path.abspath(__file__))
+    repo_path = os.path.join(repo_root, "yield_model.joblib")
+    if os.path.exists(repo_path):
+        logger.info(f"Using yield model from repo root: {repo_path}")
+        return repo_path
+    
+    # Fallback to current directory
+    cwd_path = os.path.abspath("yield_model.joblib")
+    logger.warning(f"Falling back to current directory model: {cwd_path}")
+    return cwd_path
+
+
+# ---------
 # Lifespan
-# -----------------------
+# ---------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting up")
@@ -214,10 +252,14 @@ async def lifespan(app: FastAPI):
         from ml.adapters.xgboost_adapter import XGBoostAdapter  # type: ignore
         from ml.router import ModelRouter  # type: ignore
 
-        # Resolve model path relative to this file (repo root)
-        model_path = os.path.join(os.path.dirname(__file__), "yield_model.joblib")
+        # Resolve model path with production support
+        model_path = _resolve_yield_model_path()
         if not os.path.exists(model_path):
-            raise FileNotFoundError(f"ML model not found at {model_path}")
+            logger.error(f"Yield model not found at {model_path}. Attempted locations:")
+            logger.error(f"  - Environment ML_MODEL_PATH: {os.getenv('ML_MODEL_PATH', 'not set')}")
+            logger.error(f"  - Production: /app/models/yield_model.joblib")
+            logger.error(f"  - Repo root: {os.path.join(os.path.dirname(__file__), 'yield_model.joblib')}")
+            raise FileNotFoundError(f"Yield model not found at {model_path}")
 
         adapter = XGBoostAdapter()
         adapter.load(model_path)
@@ -226,10 +268,14 @@ async def lifespan(app: FastAPI):
         # Touch router to ensure predict pipeline can be constructed
         _ = ModelRouter(default_model="xgboost")
         ml_ready = True
-        logger.info("ML warmup completed (xgboost)")
+        logger.info("ML warmup completed (xgboost) from %s", model_path)
+    except FileNotFoundError as e:
+        logger.error(f"Critical ML initialization failed: {e}")
+        ml_ready = False
     except Exception:
         # Keep service up, but mark as not ready.
         logger.exception("ML warmup failed")
+        ml_ready = False
 
     yield
     logger.info("Shutting down")
