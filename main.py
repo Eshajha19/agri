@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 import firebase_admin
 from firebase_admin import auth as firebase_auth, firestore
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.cors import CORSMiddleware
 
 # Configure logging
 logging.basicConfig(
@@ -50,27 +50,8 @@ if _extra_origins:
         if origin and origin not in STATIC_ORIGINS:
             STATIC_ORIGINS.append(origin)
 
-
-class VercelCORSMiddleware(BaseHTTPMiddleware):
-    """CORS middleware supporting dynamic Vercel preview URLs."""
-    
-    async def dispatch(self, request, call_next):
-        origin = request.headers.get("origin")
-        response = await call_next(request)
-        
-        if origin:
-            # Allow static origins or Vercel preview URLs
-            if origin in STATIC_ORIGINS or _is_vercel_origin(origin):
-                response.headers["Access-Control-Allow-Origin"] = origin
-                response.headers["Access-Control-Allow-Credentials"] = "true"
-                
-                if request.method == "OPTIONS":
-                    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-                    response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, X-Requested-With"
-                    response.headers["Access-Control-Max-Age"] = "3600"
-                    return Response(status_code=204)
-        
-        return response
+# Build combined origin regex for Vercel preview URLs
+_vercel_pattern = r"^https://[a-z0-9-]+\.vercel\.app$"
 
 
 # -----------------------
@@ -289,7 +270,15 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Fasal Saathi Backend", version="1.0", lifespan=lifespan)
 
 # Add CORS middleware
-app.add_middleware(VercelCORSMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=STATIC_ORIGINS,
+    allow_origin_regex=_vercel_pattern,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+    max_age=3600,
+)
 
 # Add CSP middleware
 try:
